@@ -1,51 +1,123 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GaN HEMT 重离子辐照仿真分析报告</title>
-  <style>
-    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',Arial,sans-serif;background:#f6f8fb;color:#1f2937;line-height:1.75}
-    header{background:linear-gradient(120deg,#16324f,#266867);color:white;padding:42px 7vw 34px}
-    h1{margin:0 0 10px;font-size:32px;line-height:1.25}.sub{opacity:.9;font-size:15px}
-    main{max-width:980px;margin:0 auto;padding:30px 20px 50px}.card{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:22px 24px;margin:18px 0;box-shadow:0 3px 12px rgba(15,23,42,.06)}
-    h2{margin:0 0 12px;color:#16324f;font-size:22px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.metric{background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px}.metric b{display:block;font-size:24px;color:#266867;margin-top:4px}.tag{display:inline-block;background:#e8f3f1;color:#18534f;border-radius:999px;padding:4px 10px;margin:4px 6px 4px 0;font-size:13px}.warn{background:#fff7ed;border-left:5px solid #f59e0b}.ok{background:#ecfdf5;border-left:5px solid #10b981}footer{color:#6b7280;font-size:13px;text-align:center;padding:20px}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GaN HEMT 重离子辐照仿真分析正式报告</title>
+<style>
+:root{--bg:#f5f7fb;--ink:#1f2937;--muted:#64748b;--line:#dbe3ef;--blue:#295b8d;--green:#2f7d5c;--red:#b84a4a;--gold:#b7791f;--card:#fff;--soft:#eef5fb}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;line-height:1.72}.hero{background:linear-gradient(135deg,#102a43,#23516f 55%,#2f7d5c);color:white;padding:46px 7vw 40px}.hero h1{font-size:34px;line-height:1.25;margin:0 0 12px}.hero p{margin:5px 0;color:#dcecf7}.wrap{max-width:1180px;margin:auto;padding:26px 18px 58px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:18px 0;box-shadow:0 6px 18px rgba(15,23,42,.06)}h2{font-size:23px;margin:0 0 14px;color:#16324f;border-left:5px solid var(--blue);padding-left:10px}h3{font-size:18px;margin:18px 0 8px;color:#24496b}.grid{display:grid;gap:14px}.grid4{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}.grid2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}.metric{border:1px solid var(--line);border-radius:14px;background:#f8fafc;padding:15px}.metric .k{color:var(--muted);font-size:13px}.metric .v{font-size:26px;font-weight:800;color:#184e77;margin-top:5px}.metric small{display:block;color:var(--muted);margin-top:3px}.tag{display:inline-block;background:#e8f3f1;color:#18534f;border:1px solid #c8e2dc;border-radius:999px;padding:4px 10px;margin:4px 6px 4px 0;font-size:13px}.note{background:#fff7ed;border-left:5px solid #f59e0b}.good{background:#ecfdf5;border-left:5px solid #10b981}.bad{background:#fef2f2;border-left:5px solid #ef4444}.chartbox{border:1px solid var(--line);border-radius:14px;padding:14px;background:#fff}.chartbox h3{margin-top:0}.chartbox canvas{width:100%;height:290px;display:block}.caption{font-size:13px;color:var(--muted);margin-top:8px}table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}th,td{border:1px solid var(--line);padding:8px;text-align:center}th{background:#f1f5f9}.left{text-align:left}.pass{color:#047857;font-weight:700}.fail{color:#b91c1c;font-weight:700}.heat td{font-weight:700;color:#102a43}.toc a{display:inline-block;color:#184e77;text-decoration:none;margin:4px 12px 4px 0}.toc a:hover{text-decoration:underline}.footer{text-align:center;color:var(--muted);font-size:13px;padding:22px}.pill{border-radius:999px;background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;padding:2px 8px;font-size:12px}code{background:#f1f5f9;padding:2px 5px;border-radius:5px}.quote{font-size:15px;background:#f8fafc;border-radius:12px;padding:14px;border:1px dashed #cbd5e1}
+@media(max-width:700px){.hero h1{font-size:26px}.wrap{padding:18px 12px}.card{padding:16px}.chartbox canvas{height:240px}table{font-size:12px}th,td{padding:6px}}
+</style>
 </head>
 <body>
-<header>
-  <h1>GaN HEMT 重离子辐照仿真分析报告</h1>
-  <div class="sub">DC 直流漏电流扫描、TR 瞬态响应、LET 敏感性与温度/栅压对比的在线汇总页</div>
+<header class="hero">
+<h1>GaN HEMT 重离子辐照仿真分析正式报告</h1>
+<p>对象：GaN HEMT 器件在不同 LET、栅压与温度条件下的 DC 阻断特性和 TR 瞬态响应。</p>
+<p>数据范围：28 个 DC 直流扫描文件，28 个 TR 瞬态响应文件；LET = 0.2、0.5、1、2、3、4、5。</p>
 </header>
-<main>
-  <section class="card ok">
-    <h2>网页已成功部署</h2>
-    <p>这个页面用于在线展示 GaN HEMT 重离子辐照仿真结果。当前版本是轻量在线版，适合先确认 GitHub Pages 链接是否能正常访问。后续可以继续替换为完整图文版。</p>
-  </section>
-  <section class="card">
-    <h2>数据内容</h2>
-    <div class="grid">
-      <div class="metric">直流扫描数据<b>DC</b></div>
-      <div class="metric">瞬态响应数据<b>TR</b></div>
-      <div class="metric">LET 扫描条件<b>多组</b></div>
-      <div class="metric">温度/栅压条件<b>二维对比</b></div>
-    </div>
-    <p><span class="tag">300.15 K</span><span class="tag">423.15 K</span><span class="tag">Vg = 0 V</span><span class="tag">Vg = -5 V</span><span class="tag">ID-VD 曲线</span><span class="tag">瞬态峰值电流</span></p>
-  </section>
-  <section class="card">
-    <h2>核心结论简述</h2>
-    <p>仿真结果主要围绕重离子 LET 增强后 GaN HEMT 器件漏电流和瞬态电流响应的变化展开。直流部分用于观察不同温度、不同栅压条件下的阻断能力和漏电流变化；瞬态部分用于观察重离子入射后电流峰值、峰值时间以及末态恢复特征。</p>
-    <p>整体分析重点不是单独看某一条曲线，而是比较 LET、温度和栅压三个因素共同作用下，器件漏极电流是否出现明显上升，以及瞬态峰值是否表现出随 LET 增强而升高的趋势。</p>
-  </section>
-  <section class="card">
-    <h2>报告结构</h2>
-    <p>完整报告通常包括：DC 直流分析、TR 瞬态峰值分析、代表性波形对比、二维热图对比和关键结果汇总。当前仓库已经可以继续上传完整的 <code>index.html</code>、图片、CSV 和 Markdown 报告文件。</p>
-  </section>
-  <section class="card warn">
-    <h2>下一步</h2>
-    <p>如果你看到这个页面，说明 GitHub 写入权限已经成功，接下来只需要在仓库 Settings → Pages 中开启 GitHub Pages。开启后可进一步上传完整图文版网页，把原始分析图表也放到这个在线报告里。</p>
-  </section>
+<main class="wrap">
+<section class="card toc">
+<a href="#summary">摘要结论</a><a href="#condition">仿真条件</a><a href="#dc">DC 直流结果</a><a href="#tr">TR 瞬态结果</a><a href="#matrix">矩阵与数据表</a><a href="#limits">注意事项</a>
+</section>
+<section id="summary" class="card good">
+<h2>1. 摘要结论</h2>
+<div class="grid grid4">
+<div class="metric"><div class="k">DC 文件数</div><div class="v">28</div><small>四类温度/栅压条件 × 7 个 LET</small></div>
+<div class="metric"><div class="k">TR 文件数</div><div class="v">28</div><small>峰值、电荷、末态电流均已汇总</small></div>
+<div class="metric"><div class="k">300 K 最大 DC 末点漏电</div><div class="v">2.851 nA</div><small>低于 2 μA 阻断标准</small></div>
+<div class="metric"><div class="k">最大 TR 峰值总电流</div><div class="v">38.511 μA</div><small>300.15 K，Vg=-5 V，LET=5</small></div>
+</div>
+<p>从当前仿真结果看，常温 300.15 K 条件下，Vd=400 V 末点漏电流保持在 nA 量级，明显低于 2 μA 判据，说明基础阻断能力通过。瞬态响应方面，重离子 LET 增大后，漏极总电流峰值整体升高；Vg=-5 V 条件下的瞬态峰值普遍高于 Vg=0 V，说明关断偏置下位移电流尖峰更明显。</p>
+<p>需要特别注意的是，423.15 K 的 DC 文件包含“先扫 Vd 到 400 V，再在 400 V 处升温”的求解阶段，因此高温曲线不能直接当作完整高温 Id-Vd 扫描曲线使用。高温 400 V 末点漏电流达到约 3.020–3.178 μA，已经超过 2 μA，但该值更适合解释为固定 400 V 升温后的漏电水平，而不是完整高温扫压曲线结论。</p>
+</section>
+<section id="condition" class="card">
+<h2>2. 仿真条件与数据完整性</h2>
+<p><span class="tag">Temperature = 300.15 K</span><span class="tag">Temperature = 423.15 K</span><span class="tag">Vg = 0 V</span><span class="tag">Vg = -5 V</span><span class="tag">LET = 0.2–5</span><span class="tag">Vd = 400 V 关键点</span></p>
+<div class="grid grid2">
+<div class="quote"><b>DC 直流扫描：</b>用于判断漏极阻断能力、400 V 末点漏电流和是否满足 2 μA 标准。重点看 300 K 的阻断通过性，以及 423 K 文件中的固定电压升温段。</div>
+<div class="quote"><b>TR 瞬态响应：</b>用于判断重离子入射后漏极总电流峰值、峰值时间、末态电流与电子电流贡献。重点看 LET 增大带来的峰值上升趋势。</div>
+</div>
+</section>
+<section id="dc" class="card">
+<h2>3. DC 直流结果分析</h2>
+<div class="grid grid2">
+<div class="chartbox"><h3>图 1：400 V 末点漏电流对比</h3><canvas id="dcChart"></canvas><div class="caption">单位：μA。300 K 条件约为 0.0027–0.0029 μA，即 nA 量级；423 K 固定 400 V 升温后约为 3 μA。</div></div>
+<div class="chartbox"><h3>图 2：2 μA 判据对比</h3><canvas id="dcBar"></canvas><div class="caption">红色虚线对应 2 μA 判据。常温通过，高温末态超过判据，但需结合求解顺序谨慎解释。</div></div>
+</div>
+<h3>DC 结论</h3>
+<p>300.15 K 条件下，Vg=0 V 与 Vg=-5 V 的 400 V 末点漏电流均处于 nA 量级，满足“漏极电流不超过 2 μA”的阻断要求。423.15 K 条件下，末点漏电流升至约 3 μA，反映出温度升高后漏电水平明显抬升。</p>
+<p class="note card">解释时不要把 423.15 K 的 DC 横轴曲线直接称为“完整高温 Id-Vd 曲线”。当前文件存在 400 V 固定电压下继续升温的阶段，建议论文中写成“固定 400 V 升温后的末点漏电流”。</p>
+</section>
+<section id="tr" class="card">
+<h2>4. TR 重离子瞬态结果分析</h2>
+<div class="grid grid2">
+<div class="chartbox"><h3>图 3：峰值总电流随 LET 变化</h3><canvas id="trPeak"></canvas><div class="caption">四种温度/栅压条件下，峰值总电流均随 LET 增大而上升。</div></div>
+<div class="chartbox"><h3>图 4：峰值时间随 LET 变化</h3><canvas id="trTime"></canvas><div class="caption">峰值时间主要分布在约 88–95 ps；高温条件下峰值时间整体偏后。</div></div>
+<div class="chartbox"><h3>图 5：末态电流随 LET 变化</h3><canvas id="trFinal"></canvas><div class="caption">末态总电流随 LET 增大而上升，说明入射后器件内部电荷响应增强。</div></div>
+<div class="chartbox"><h3>图 6：峰值电子电流对比</h3><canvas id="ePeak"></canvas><div class="caption">300 K 下电子电流峰值为 nA 量级；423 K 下电子电流明显升高，反映温度对载流子输运的影响。</div></div>
+</div>
+<h3>TR 结论</h3>
+<p>最大瞬态峰值出现在 300.15 K、Vg=-5 V、LET=5 条件下，Peak |Drain TotalCurrent| = 38.511 μA，峰值时间约 88.09 ps。最小瞬态峰值出现在 423.15 K、Vg=0 V、LET=0.2 条件下，Peak |Drain TotalCurrent| = 20.394 μA。</p>
+<p>在所有条件中，峰值总电流随 LET 增大而增强，说明重离子沉积能量越高，器件瞬态电流扰动越明显。Vg=-5 V 下的峰值普遍高于 Vg=0 V，说明关断偏置条件对瞬态尖峰更敏感。</p>
+</section>
+<section id="matrix" class="card">
+<h2>5. 关键矩阵与完整数据</h2>
+<div class="grid grid2">
+<div><h3>TR 峰值电流矩阵 / μA</h3><table class="heat" id="trHeat"></table></div>
+<div><h3>DC 400 V 末点漏电矩阵 / μA</h3><table class="heat" id="dcHeat"></table></div>
+</div>
+<h3>TR 关键结果简表</h3>
+<table id="trTable"></table>
+<h3>DC 判据简表</h3>
+<table id="dcTable"></table>
+</section>
+<section id="limits" class="card bad">
+<h2>6. 注意事项与后续建议</h2>
+<p><b>第一，</b>当前 DC 扫描上限实际整理到 400 V，因此若论文目标写成 0–650 V 阻断验证，需要补充 650 V 的完整扫描结果，或者在文字中明确本页统计的是 400 V 关键点。</p>
+<p><b>第二，</b>423.15 K 高温 DC 文件中包含固定 400 V 升温段，不应直接作为完整高温 Id-Vd 曲线。建议后续按“先设定温度，再扫漏压”的顺序重跑高温 DC 曲线。</p>
+<p><b>第三，</b>TR 瞬态尖峰主要由位移电流贡献，论文中建议区分 TotalCurrent、DisplacementCurrent 与 eCurrent，避免把瞬态总电流峰值简单等同于稳态漏电流。</p>
+</section>
 </main>
-<footer>Generated for GaN HEMT heavy-ion irradiation simulation results.</footer>
+<footer class="footer">GaN HEMT Heavy-Ion Irradiation Simulation Report · GitHub Pages 正式图表版</footer>
+<script>
+const LET=[0.2,0.5,1,2,3,4,5];
+const colors={a:'#295b8d',b:'#2f7d5c',c:'#b84a4a',d:'#b7791f'};
+const dcData={
+ '300K, Vg=-5V':[0.00269,0.00269,0.00269,0.00269,0.00269,0.00269,0.00269],
+ '300K, Vg=0V':[0.002851,0.002851,0.002851,0.002851,0.002851,0.002851,0.002851],
+ '423K, Vg=-5V':[3.020466,3.020466,3.020466,3.020466,3.020466,3.020466,3.020466],
+ '423K, Vg=0V':[3.17761,3.17761,3.17761,3.17761,3.17761,3.17761,3.17761]
+};
+const trPeak={
+ '300K, Vg=-5V':[32.649,34.542,35.82,36.898,37.526,38.042,38.511],
+ '300K, Vg=0V':[22.905,24.638,25.756,26.806,27.483,28.045,28.549],
+ '423K, Vg=-5V':[29.265,31.08,32.482,33.819,34.533,35.03,35.428],
+ '423K, Vg=0V':[20.394,21.913,23.062,24.148,24.779,25.25,25.644]
+};
+const trTime={
+ '300K, Vg=-5V':[89.3,88.9,88.7,88.275,88.1,87.975,88.087],
+ '300K, Vg=0V':[90.85,90.8,90.5,90.2,89.9,89.9,89.9],
+ '423K, Vg=-5V':[92.9,92.7,92.7,92.3,92.1,91.9,91.8],
+ '423K, Vg=0V':[94.7,94.9,95.1,94.85,94.6,94.55,94.5]
+};
+const trFinal={
+ '300K, Vg=-5V':[14.502,18.501,20.834,22.935,24.125,24.96,25.602],
+ '300K, Vg=0V':[10.048,12.689,14.584,16.482,17.593,18.367,18.953],
+ '423K, Vg=-5V':[16.437,19.311,21.167,22.911,23.919,24.643,25.212],
+ '423K, Vg=0V':[11.596,13.523,15.016,16.522,17.402,18.024,18.501]
+};
+const ePeak={
+ '300K, Vg=-5V':[4.457,4.616,4.732,4.839,4.901,4.946,4.985],
+ '300K, Vg=0V':[4.063,4.204,4.302,4.393,4.448,4.489,4.525],
+ '423K, Vg=-5V':[3574.425,3625.609,3665.04,3703.923,3725.754,3740.954,3752.787],
+ '423K, Vg=0V':[3540.933,3585.895,3619.547,3650.947,3668.649,3681.312,3691.464]
+};
+function drawLine(id,series,yLabel,opts={}){const c=document.getElementById(id),ctx=c.getContext('2d'),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);const pad={l:55,r:18,t:18,b:48};let vals=[];Object.values(series).forEach(a=>vals=vals.concat(a));if(opts.extra)vals=vals.concat(opts.extra);let ymin=opts.ymin??Math.min(...vals),ymax=opts.ymax??Math.max(...vals);if(ymin===ymax){ymin=0;ymax=ymax*1.2+1}const keys=Object.keys(series),cs=[colors.a,colors.b,colors.c,colors.d];function x(i){return pad.l+(w-pad.l-pad.r)*i/(LET.length-1)}function y(v){return pad.t+(h-pad.t-pad.b)*(1-(v-ymin)/(ymax-ymin))}ctx.strokeStyle='#dbe3ef';ctx.lineWidth=1;ctx.fillStyle='#64748b';ctx.font='12px Arial';for(let k=0;k<=4;k++){const yy=pad.t+(h-pad.t-pad.b)*k/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(w-pad.r,yy);ctx.stroke();const val=(ymax-(ymax-ymin)*k/4).toFixed(opts.decimals??1);ctx.fillText(val,8,yy+4)}LET.forEach((v,i)=>{ctx.fillText(String(v),x(i)-8,h-22)});ctx.fillText('LET',w/2,h-4);ctx.save();ctx.translate(15,h/2);ctx.rotate(-Math.PI/2);ctx.fillText(yLabel,0,0);ctx.restore();if(opts.ref!==undefined){ctx.setLineDash([6,5]);ctx.strokeStyle='#ef4444';ctx.beginPath();ctx.moveTo(pad.l,y(opts.ref));ctx.lineTo(w-pad.r,y(opts.ref));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#ef4444';ctx.fillText('2 μA',w-pad.r-45,y(opts.ref)-5)}keys.forEach((name,idx)=>{const arr=series[name];ctx.strokeStyle=cs[idx];ctx.fillStyle=cs[idx];ctx.lineWidth=2.4;ctx.beginPath();arr.forEach((v,i)=>{if(i===0)ctx.moveTo(x(i),y(v));else ctx.lineTo(x(i),y(v))});ctx.stroke();arr.forEach((v,i)=>{ctx.beginPath();ctx.arc(x(i),y(v),3,0,Math.PI*2);ctx.fill()});ctx.fillText(name,pad.l+idx*120,14)})}
+function drawBar(id,series){const c=document.getElementById(id),ctx=c.getContext('2d'),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);const labels=Object.keys(series),vals=labels.map(k=>series[k][0]);const ymax=3.5,pad={l:55,r:20,t:20,b:70};ctx.strokeStyle='#dbe3ef';ctx.fillStyle='#64748b';ctx.font='12px Arial';for(let k=0;k<=5;k++){const yy=pad.t+(h-pad.t-pad.b)*k/5;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(w-pad.r,yy);ctx.stroke();ctx.fillText((ymax-ymax*k/5).toFixed(1),12,yy+4)}function y(v){return pad.t+(h-pad.t-pad.b)*(1-v/ymax)}const bw=(w-pad.l-pad.r)/labels.length*0.55;labels.forEach((lab,i)=>{const x=pad.l+(w-pad.l-pad.r)*(i+.5)/labels.length-bw/2;ctx.fillStyle=[colors.a,colors.b,colors.c,colors.d][i];ctx.fillRect(x,y(vals[i]),bw,h-pad.b-y(vals[i]));ctx.save();ctx.translate(x+bw/2,h-45);ctx.rotate(-Math.PI/5);ctx.fillStyle='#334155';ctx.fillText(lab,-36,0);ctx.restore();ctx.fillStyle='#111827';ctx.fillText(vals[i].toFixed(3),x-2,y(vals[i])-6)});ctx.setLineDash([6,5]);ctx.strokeStyle='#ef4444';ctx.beginPath();ctx.moveTo(pad.l,y(2));ctx.lineTo(w-pad.r,y(2));ctx.stroke()}
+function heat(id,data){const tbl=document.getElementById(id),keys=Object.keys(data),max=Math.max(...Object.values(data).flat()),min=Math.min(...Object.values(data).flat());let html='<tr><th>LET</th>'+keys.map(k=>'<th>'+k+'</th>').join('')+'</tr>';LET.forEach((l,i)=>{html+='<tr><th>'+l+'</th>';keys.forEach(k=>{const v=data[k][i],p=(v-min)/(max-min||1);const bg='rgba(41,91,141,'+(0.12+0.68*p).toFixed(2)+')';html+='<td style="background:'+bg+'">'+v.toFixed(v<0.01?4:3)+'</td>'});html+='</tr>'});tbl.innerHTML=html}
+function tables(){let html='<tr><th>温度</th><th>栅压</th><th>LET</th><th>峰值总电流/μA</th><th>峰值时间/ps</th><th>末态电流/μA</th></tr>';Object.keys(trPeak).forEach(k=>{LET.forEach((l,i)=>{const parts=k.split(', ');html+='<tr><td>'+parts[0]+'</td><td>'+parts[1]+'</td><td>'+l+'</td><td>'+trPeak[k][i].toFixed(3)+'</td><td>'+trTime[k][i].toFixed(3)+'</td><td>'+trFinal[k][i].toFixed(3)+'</td></tr>'})});document.getElementById('trTable').innerHTML=html;let dh='<tr><th>温度</th><th>栅压</th><th>LET</th><th>400 V 末点漏电/μA</th><th>判据</th></tr>';Object.keys(dcData).forEach(k=>{LET.forEach((l,i)=>{const v=dcData[k][i],pass=v<2,parts=k.split(', ');dh+='<tr><td>'+parts[0]+'</td><td>'+parts[1]+'</td><td>'+l+'</td><td>'+v.toFixed(6)+'</td><td class="'+(pass?'pass':'fail')+'">'+(pass?'通过':'超过')+'</td></tr>'})});document.getElementById('dcTable').innerHTML=dh}
+window.addEventListener('load',()=>{drawLine('dcChart',dcData,'Id @400V / μA',{ymin:0,ymax:3.5,ref:2,decimals:1});drawBar('dcBar',dcData);drawLine('trPeak',trPeak,'Peak |I| / μA',{ymin:18,ymax:40,decimals:0});drawLine('trTime',trTime,'峰值时间 / ps',{ymin:87,ymax:96,decimals:1});drawLine('trFinal',trFinal,'末态电流 / μA',{ymin:8,ymax:27,decimals:0});drawLine('ePeak',ePeak,'峰值 eCurrent / nA',{ymin:0,ymax:3900,decimals:0});heat('trHeat',trPeak);heat('dcHeat',dcData);tables()});
+window.addEventListener('resize',()=>{drawLine('dcChart',dcData,'Id @400V / μA',{ymin:0,ymax:3.5,ref:2,decimals:1});drawBar('dcBar',dcData);drawLine('trPeak',trPeak,'Peak |I| / μA',{ymin:18,ymax:40,decimals:0});drawLine('trTime',trTime,'峰值时间 / ps',{ymin:87,ymax:96,decimals:1});drawLine('trFinal',trFinal,'末态电流 / μA',{ymin:8,ymax:27,decimals:0});drawLine('ePeak',ePeak,'峰值 eCurrent / nA',{ymin:0,ymax:3900,decimals:0})});
+</script>
 </body>
 </html>
