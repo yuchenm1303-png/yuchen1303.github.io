@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GaN HEMT 重离子辐照仿真分析报告</title>
+  <style>
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',Arial,sans-serif;background:#f6f8fb;color:#1f2937;line-height:1.75}
+    header{background:linear-gradient(120deg,#16324f,#266867);color:white;padding:42px 7vw 34px}
+    h1{margin:0 0 10px;font-size:32px;line-height:1.25}.sub{opacity:.9;font-size:15px}
+    main{max-width:980px;margin:0 auto;padding:30px 20px 50px}.card{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:22px 24px;margin:18px 0;box-shadow:0 3px 12px rgba(15,23,42,.06)}
+    h2{margin:0 0 12px;color:#16324f;font-size:22px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.metric{background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:16px}.metric b{display:block;font-size:24px;color:#266867;margin-top:4px}.tag{display:inline-block;background:#e8f3f1;color:#18534f;border-radius:999px;padding:4px 10px;margin:4px 6px 4px 0;font-size:13px}.warn{background:#fff7ed;border-left:5px solid #f59e0b}.ok{background:#ecfdf5;border-left:5px solid #10b981}footer{color:#6b7280;font-size:13px;text-align:center;padding:20px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>GaN HEMT 重离子辐照仿真分析报告</h1>
+  <div class="sub">DC 直流漏电流扫描、TR 瞬态响应、LET 敏感性与温度/栅压对比的在线汇总页</div>
+</header>
+<main>
+  <section class="card ok">
+    <h2>网页已成功部署</h2>
+    <p>这个页面用于在线展示 GaN HEMT 重离子辐照仿真结果。当前版本是轻量在线版，适合先确认 GitHub Pages 链接是否能正常访问。后续可以继续替换为完整图文版。</p>
+  </section>
+  <section class="card">
+    <h2>数据内容</h2>
+    <div class="grid">
+      <div class="metric">直流扫描数据<b>DC</b></div>
+      <div class="metric">瞬态响应数据<b>TR</b></div>
+      <div class="metric">LET 扫描条件<b>多组</b></div>
+      <div class="metric">温度/栅压条件<b>二维对比</b></div>
+    </div>
+    <p><span class="tag">300.15 K</span><span class="tag">423.15 K</span><span class="tag">Vg = 0 V</span><span class="tag">Vg = -5 V</span><span class="tag">ID-VD 曲线</span><span class="tag">瞬态峰值电流</span></p>
+  </section>
+  <section class="card">
+    <h2>核心结论简述</h2>
+    <p>仿真结果主要围绕重离子 LET 增强后 GaN HEMT 器件漏电流和瞬态电流响应的变化展开。直流部分用于观察不同温度、不同栅压条件下的阻断能力和漏电流变化；瞬态部分用于观察重离子入射后电流峰值、峰值时间以及末态恢复特征。</p>
+    <p>整体分析重点不是单独看某一条曲线，而是比较 LET、温度和栅压三个因素共同作用下，器件漏极电流是否出现明显上升，以及瞬态峰值是否表现出随 LET 增强而升高的趋势。</p>
+  </section>
+  <section class="card">
+    <h2>报告结构</h2>
+    <p>完整报告通常包括：DC 直流分析、TR 瞬态峰值分析、代表性波形对比、二维热图对比和关键结果汇总。当前仓库已经可以继续上传完整的 <code>index.html</code>、图片、CSV 和 Markdown 报告文件。</p>
+  </section>
+  <section class="card warn">
+    <h2>下一步</h2>
+    <p>如果你看到这个页面，说明 GitHub 写入权限已经成功，接下来只需要在仓库 Settings → Pages 中开启 GitHub Pages。开启后可进一步上传完整图文版网页，把原始分析图表也放到这个在线报告里。</p>
+  </section>
+</main>
+<footer>Generated for GaN HEMT heavy-ion irradiation simulation results.</footer>
+</body>
+</html>
