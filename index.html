@@ -24,11 +24,13 @@ const NOTES={
 const CONCLUSION='<div class="analysis-box"><b>综合判断：</b>当前结果可以支撑“常温 DC 阻断能力较好，重离子 LET 增强会提高瞬态电流峰值，高温会显著抬升漏电水平”的基本结论。写论文时建议把 DC 结果和 TR 结果分开表述：DC 侧重稳态漏电与阻断判据，TR 侧重瞬态峰值、峰值时间和波形恢复过程。</div>';
 function improve(html){
   html=html.replace('</style>',EXTRA_CSS+'</style>');
+  html=html.replace(/<p>本页已补齐原始压缩包 HTML 中的全部 16 张结果图，并支持点击展开放大。<\/p>/g,'');
+  html=html.replace(/本页已补齐原始压缩包 HTML 中的全部 16 张结果图，并支持点击展开放大。/g,'');
   for(const [k,v] of Object.entries(NOTES)){html=html.replace(k,v)}
   html=html.replace('<h2 id="trpeak"',CONCLUSION+'<h2 id="trpeak"');
   return html;
 }
-fetch(FULL_REPORT_URL,{cache:'force-cache'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(html=>{document.open();document.write(improve(html));document.close()}).catch(err=>{document.body.innerHTML='<div class="loading"><div class="panel"><h1 class="err">完整报告加载失败</h1><p class="muted">请刷新页面重试，或检查网络是否能访问 GitHub Raw 资源。</p><p class="muted">错误信息：'+String(err).replace(/[<>]/g,'')+'</p></div></div>'});
+fetch(FULL_REPORT_URL,{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(html=>{document.open();document.write(improve(html));document.close()}).catch(err=>{document.body.innerHTML='<div class="loading"><div class="panel"><h1 class="err">完整报告加载失败</h1><p class="muted">请刷新页面重试，或检查网络是否能访问 GitHub Raw 资源。</p><p class="muted">错误信息：'+String(err).replace(/[<>]/g,'')+'</p></div></div>'});
 </script>
 </body>
 </html>
