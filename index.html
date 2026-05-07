@@ -8,7 +8,7 @@
 html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI","Microsoft YaHei",Arial,sans-serif;background:#eef7ff;color:#123}.loading{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;background:radial-gradient(circle at 18% 12%,#dff4ff 0,#eff8ff 30%,transparent 48%),radial-gradient(circle at 86% 22%,#eadfff 0,#f9ecff 26%,transparent 45%),linear-gradient(135deg,#f7fbff,#eef6fa 46%,#fbfdff)}.panel{width:min(560px,88vw);padding:30px 24px;border-radius:28px;background:rgba(255,255,255,.58);border:1px solid rgba(255,255,255,.72);box-shadow:0 24px 80px rgba(23,49,84,.18);backdrop-filter:blur(28px) saturate(180%)}.spinner{width:34px;height:34px;margin:0 auto 16px;border-radius:50%;border:3px solid rgba(30,96,145,.18);border-top-color:#1e6091;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}h1{font-size:24px;margin:0 0 8px}.muted{color:#64748b;font-size:14px}.err{color:#b91c1c}</style>
 </head>
 <body>
-<div class="loading"><div class="panel"><div class="spinner"></div><h1>正在加载</h1><div class="muted">正在载入原始 16 张结果图，应用优化...</div></div></div>
+<div class="loading"><div class="panel"><div class="spinner"></div><h1>正在加载</h1><div class="muted">正在载入结果图，应用优化...</div></div></div>
 <script>
 const FULL_REPORT_URL='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/25b3070a0411c4903ec95c7bfcd8707fa27776b3/index.html';
 const EXTRA_CSS=`
@@ -22,10 +22,17 @@ const NOTES={
   '<h2 id="heat"><span>4</span>二维热图</h2>':'<h2 id="heat"><span>4</span>二维热图</h2><div class="section-note"><b>热图用于快速比较多变量条件下的敏感区域。</b>横向看 LET，纵向看温度和栅压，可以更直观看出哪些组合条件下峰值电流、末态电流或漏电流更突出。颜色越深，一般代表对应指标越高。</div>'
 };
 const CONCLUSION='<div class="analysis-box"><b>综合判断：</b>当前结果可以支撑“常温 DC 阻断能力较好，重离子 LET 增强会提高瞬态电流峰值，高温会显著抬升漏电水平”的基本结论。写论文时建议把 DC 结果和 TR 结果分开表述：DC 侧重稳态漏电与阻断判据，TR 侧重瞬态峰值、峰值时间和波形恢复过程。</div>';
+function cleanTitleText(s){return s.replace(/_/g,' ')}
 function improve(html){
   html=html.replace('</style>',EXTRA_CSS+'</style>');
+  html=html.replace(/<div class="hero-chip">[\s\S]*?<\/div>/g,'');
+  html=html.replace(/<p>\s*自动提取\s*28\s*个\s*DC\s*文件与\s*28\s*个\s*TR\s*文件，\s*生成汇总表、\s*峰值分析、\s*波形对比与热图。\s*<\/p>/g,'');
   html=html.replace(/<p>本页已补齐原始压缩包 HTML 中的全部 16 张结果图，并支持点击展开放大。<\/p>/g,'');
   html=html.replace(/本页已补齐原始压缩包 HTML 中的全部 16 张结果图，并支持点击展开放大。/g,'');
+  html=html.replace(/(<h3[^>]*>)([\s\S]*?)(<\/h3>)/g,(m,a,b,c)=>a+cleanTitleText(b)+c);
+  html=html.replace(/data-title="([^"]*)"/g,(m,t)=>'data-title="'+cleanTitleText(t)+'"');
+  html=html.replace(/alt="([^"]*)"/g,(m,t)=>'alt="'+cleanTitleText(t)+'"');
+  html=html.replace(/title="([^"]*)"/g,(m,t)=>'title="'+cleanTitleText(t)+'"');
   for(const [k,v] of Object.entries(NOTES)){html=html.replace(k,v)}
   html=html.replace('<h2 id="trpeak"',CONCLUSION+'<h2 id="trpeak"');
   return html;
