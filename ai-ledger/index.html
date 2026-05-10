@@ -7,10 +7,10 @@
   <title>AI 记账</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=20260510-8" />
-  <link rel="stylesheet" href="./liquid.css?v=20260510-8" />
-  <link rel="stylesheet" href="./chat-v2.css?v=20260510-8" />
-  <link rel="stylesheet" href="./auth.css?v=20260510-8" />
+  <link rel="stylesheet" href="./styles.css?v=20260510-9" />
+  <link rel="stylesheet" href="./liquid.css?v=20260510-9" />
+  <link rel="stylesheet" href="./chat-v2.css?v=20260510-9" />
+  <link rel="stylesheet" href="./auth.css?v=20260510-9" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -164,10 +164,12 @@
             <span id="authStatusPill" class="account-pill">本地模式</span>
           </div>
           <p id="authHint" class="helper-text">未登录时仍可继续本地使用；登录后下一步可以开启云同步。</p>
+          <p id="syncStatusText" class="helper-text">登录后自动开启云同步。</p>
           <div class="settings-actions inline-actions">
             <button id="openAuthBtn" class="ghost-btn" type="button">登录 / 注册</button>
             <button id="logoutBtn" class="ghost-btn" type="button" hidden>退出登录</button>
           </div>
+          <button id="syncNowBtn" class="ghost-btn" type="button">立即同步</button>
         </div>
       </section>
 
@@ -201,8 +203,8 @@
         <div class="section-head"><h2>开发路线</h2></div>
         <div class="roadmap">
           <span>已完成：本地记账</span>
-          <span>当前：登录与账号</span>
-          <span>后续：云同步</span>
+          <span>当前：登录与同步</span>
+          <span>后续：大陆手机号</span>
         </div>
       </section>
     </section>
@@ -281,9 +283,10 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-8"></script>
-  <script src="./app-v3.js?v=20260510-8"></script>
-  <script src="./chat-actions.js?v=20260510-8"></script>
-  <script type="module" src="./auth.js?v=20260510-8"></script>
+  <script src="./config.js?v=20260510-9"></script>
+  <script src="./app-v3.js?v=20260510-9"></script>
+  <script src="./chat-actions.js?v=20260510-9"></script>
+  <script type="module" src="./auth.js?v=20260510-9"></script>
+  <script type="module" src="./sync.js?v=20260510-9"></script>
 </body>
 </html>
