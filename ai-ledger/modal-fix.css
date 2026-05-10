@@ -1,0 +1,30 @@
+body.detail-open {
+  overflow: hidden;
+}
+
+body.detail-open .app-shell,
+body.detail-open .bottom-nav,
+body.detail-open .fab {
+  filter: blur(10px) saturate(.82);
+  opacity: .44;
+  transform: scale(.988);
+  transition:
+    filter .28s ease,
+    opacity .28s ease,
+    transform .36s cubic-bezier(.18, 1.28, .28, 1);
+}
+
+body.detail-open .bottom-nav,
+body.detail-open .fab {
+  pointer-events: none;
+}
+
+.detail-overlay {
+  background: rgba(10, 20, 36, .24);
+  backdrop-filter: blur(24px) saturate(108%);
+  -webkit-backdrop-filter: blur(24px) saturate(108%);
+}
+
+.detail-panel {
+  isolation: isolate;
+}
