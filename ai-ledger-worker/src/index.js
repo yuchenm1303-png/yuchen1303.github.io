@@ -1,6 +1,6 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending"];
-const WORKER_VERSION = "2026-05-10-hybrid-ai-1";
+const WORKER_VERSION = "2026-05-10-hybrid-ai-2";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -225,6 +225,10 @@ function tryDeterministicReply({ lastUserText, messages, pendingDraft, ledgerCon
     return { reply: "你好呀。想记一笔，还是查一下最近的账？", action: "chat", records: [] };
   }
 
+  if (/^(想记点账|想记账|我要记账|我想记账|记点账|记账)$/u.test(text)) {
+    return { reply: "好呀，想记什么？", action: "chat", records: [] };
+  }
+
   if (/(你有|你会|有哪些).*(功能|能做什么)/u.test(text)) {
     return {
       reply: "我可以帮你记账、补问金额、确认或取消账单，也能查本月收支和分类花费。",
@@ -284,7 +288,9 @@ function extractIncompleteItem(text) {
   if (/\d/u.test(text)) return null;
   const match = text.match(/(?:帮我)?(?:记|记一笔|记个)(?:一下)?\s*([\u4e00-\u9fa5A-Za-z]+)$/u);
   if (!match) return null;
-  return normalizeItem(match[1]);
+  const item = normalizeItem(match[1]);
+  if (!item || /^(点账|账)$/u.test(item)) return null;
+  return item;
 }
 
 function extractStandaloneItem(text) {
