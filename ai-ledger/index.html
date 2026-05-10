@@ -26,8 +26,8 @@
       <header class="page-header chat-header reveal">
         <div>
           <p class="eyebrow">AI 记账助手</p>
-          <h1>像聊天一样记账</h1>
-          <p class="subtext">你可以记账、追问、改账，也可以直接问我这个月花了多少。</p>
+          <h1>聊天控制台</h1>
+          <p class="subtext">控制设备</p>
         </div>
         <div class="chat-header-actions">
           <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
@@ -50,9 +50,9 @@
         <div id="chatMessages" class="chat-messages"></div>
 
         <div class="quick-tags chat-tags">
-          <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">一句话记多笔</button>
-          <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">复杂分摊</button>
-          <button class="tag-btn sample-btn" data-sample="我这个月餐饮花了多少">问我账本</button>
+          <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">记账</button>
+          <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">今天天气如何</button>
+          <button class="tag-btn sample-btn" data-sample="我这个月餐饮花了多少">本月开支</button>
         </div>
 
         <form id="chatForm" class="chat-composer">
@@ -66,7 +66,7 @@
     <section id="view-stats" class="view active">
       <header class="page-header reveal">
         <p class="eyebrow">统计分析</p>
-        <h1>本月收支看板</h1>
+        <h1>本月收支</h1>
         <p id="rangeText" class="subtext">—</p>
       </header>
 
@@ -152,7 +152,7 @@
       <header class="page-header reveal">
         <p class="eyebrow">设置中心</p>
         <h1>应用设置</h1>
-        <p class="subtext">把本地体验先打磨好，后面再接入登录和云端同步。</p>
+        <p class="subtext">接入登录和云端同步</p>
       </header>
 
       <section class="glass-card reveal delay-1">
@@ -183,11 +183,11 @@
 
       <section class="glass-card reveal delay-3">
         <div class="section-head"><h2>AI 设置</h2></div>
-        <label class="field-label" for="aiEndpointInput">云端 AI 接口地址</label>
+        <label class="field-label" for="aiEndpointInput">接口</label>
         <input id="aiEndpointInput" placeholder="https://你的-worker.workers.dev" />
-        <p id="aiEndpointStatus" class="helper-text">未配置时，App 会自动使用本地规则识别。</p>
+        <p id="aiEndpointStatus" class="helper-text">未配置</p>
         <div class="settings-actions inline-actions">
-          <button id="saveAiEndpointBtn" class="ghost-btn">保存 AI 接口</button>
+          <button id="saveAiEndpointBtn" class="ghost-btn">保存接口</button>
           <button id="testAiEndpointBtn" class="ghost-btn">测试连接</button>
         </div>
       </section>
@@ -256,7 +256,7 @@
       <div class="auth-head">
         <div>
           <h2 id="authTitle">账号登录</h2>
-          <p>先用邮箱登录，后面就能把账单同步到云端。</p>
+          <p>同步到云端。</p>
         </div>
         <button id="closeAuthBtn" class="icon-btn" type="button" aria-label="关闭">×</button>
       </div>
@@ -275,7 +275,7 @@
           密码
           <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" minlength="6" required />
         </label>
-        <p id="authMessage" class="auth-message">用邮箱和密码登录。</p>
+        <p id="authMessage" class="auth-message">邮箱和密码登录。</p>
         <div class="auth-foot">
           <button id="authSubmitBtn" class="primary-btn" type="submit">登录</button>
           <button class="text-btn" type="button" onclick="document.querySelector('#authOverlay')?.classList.remove('open')">先继续本地使用</button>
