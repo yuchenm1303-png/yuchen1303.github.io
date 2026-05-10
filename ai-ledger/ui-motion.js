@@ -20,9 +20,19 @@
     return `¥${Number(value || 0).toFixed(2)}`;
   }
 
-  function clearPressState(el) {
+  function beginPress(el) {
+    if (!el) return;
+    el.classList.remove('is-releasing');
+    el.classList.add('is-pressed');
+  }
+
+  function endPress(el) {
     if (!el) return;
     el.classList.remove('is-pressed');
+    el.classList.remove('is-releasing');
+    void el.offsetWidth;
+    el.classList.add('is-releasing');
+    window.setTimeout(() => el.classList.remove('is-releasing'), 760);
   }
 
   function ensureDetailOverlay() {
@@ -77,6 +87,7 @@
     overlay.querySelector('#detailSubtitle').textContent = subtitle;
     overlay.querySelector('#detailBody').innerHTML = bodyHtml;
     overlay.querySelector('#detailSummary').innerHTML = summaryHtml;
+    document.body.classList.add('detail-open');
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
 
@@ -86,7 +97,7 @@
           renderChart();
           detailChartTimer = null;
         });
-      }, 180);
+      }, 220);
     }
   }
 
@@ -94,6 +105,7 @@
     const overlay = ensureDetailOverlay();
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('detail-open');
     clearDetailChart();
   }
 
@@ -145,7 +157,7 @@
             })),
           },
           options: {
-            animation: { duration: 220 },
+            animation: { duration: 260 },
             responsive: true,
             maintainAspectRatio: false,
             interaction: { intersect: false, mode: 'index' },
@@ -195,7 +207,7 @@
             }],
           },
           options: {
-            animation: { duration: 220 },
+            animation: { duration: 260 },
             responsive: true,
             maintainAspectRatio: false,
             cutout: '60%',
@@ -300,18 +312,17 @@
   function bindPressFeedback() {
     document.addEventListener('pointerdown', (event) => {
       const el = event.target.closest(pressableSelector);
-      if (!el) return;
-      el.classList.add('is-pressed');
+      beginPress(el);
     });
 
     ['pointerup', 'pointercancel'].forEach((type) => {
       document.addEventListener(type, (event) => {
-        clearPressState(event.target.closest?.(pressableSelector));
+        endPress(event.target.closest?.(pressableSelector));
       });
     });
 
     document.addEventListener('pointerleave', (event) => {
-      clearPressState(event.target.closest?.(pressableSelector));
+      endPress(event.target.closest?.(pressableSelector));
     }, true);
   }
 
