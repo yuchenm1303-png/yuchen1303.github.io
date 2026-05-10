@@ -1,17 +1,20 @@
 (() => {
-  const pressableSelector = [
-    'button',
-    '.record-item',
-    '.summary-chip',
-    '.summary-box',
-    '.metric-card',
-    '.chart-card',
-    '.summary-card',
-    '.account-row',
-    '.draft-card',
-    '.draft-item',
-    '.auth-tab'
-  ].join(', ');
+  const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const pressableSelector = isCoarsePointer
+    ? ['button', '.record-item', '.draft-item', '.auth-tab'].join(', ')
+    : [
+        'button',
+        '.record-item',
+        '.summary-chip',
+        '.summary-box',
+        '.metric-card',
+        '.chart-card',
+        '.summary-card',
+        '.account-row',
+        '.draft-card',
+        '.draft-item',
+        '.auth-tab'
+      ].join(', ');
 
   let detailChart = null;
   let detailChartTimer = null;
@@ -29,6 +32,7 @@
   function endPress(el) {
     if (!el) return;
     el.classList.remove('is-pressed');
+    if (isCoarsePointer) return;
     el.classList.remove('is-releasing');
     void el.offsetWidth;
     el.classList.add('is-releasing');
@@ -313,12 +317,12 @@
     document.addEventListener('pointerdown', (event) => {
       const el = event.target.closest(pressableSelector);
       beginPress(el);
-    });
+    }, { passive: true });
 
     ['pointerup', 'pointercancel'].forEach((type) => {
       document.addEventListener(type, (event) => {
         endPress(event.target.closest?.(pressableSelector));
-      });
+      }, { passive: true });
     });
 
     document.addEventListener('pointerleave', (event) => {
