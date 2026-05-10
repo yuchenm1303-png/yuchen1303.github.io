@@ -1,5 +1,6 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending"];
+const WORKER_VERSION = "2026-05-10-diagnostics-1";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -8,24 +9,39 @@ const jsonHeaders = {
 export default {
   async fetch(request, env) {
     const corsHeaders = getCorsHeaders(request, env);
+    const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
+    if (request.method === "GET" && url.pathname === "/health") {
+      return json({
+        ok: true,
+        worker: "ai-ledger-parser",
+        version: WORKER_VERSION,
+        model: env.OPENAI_MODEL || "gpt-4.1-mini",
+        hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
+      }, 200, corsHeaders);
+    }
+
     if (request.method !== "POST") {
-      return json({ error: "Method not allowed" }, 405, corsHeaders);
+      return json({ error: "Method not allowed", code: "method_not_allowed", version: WORKER_VERSION }, 405, corsHeaders);
     }
 
     if (!env.OPENAI_API_KEY) {
-      return json({ error: "Server is missing OPENAI_API_KEY" }, 500, corsHeaders);
+      return json({
+        error: "Server is missing OPENAI_API_KEY",
+        code: "missing_openai_api_key",
+        version: WORKER_VERSION,
+      }, 500, corsHeaders);
     }
 
     let body;
     try {
       body = await request.json();
     } catch {
-      return json({ error: "Invalid JSON body" }, 400, corsHeaders);
+      return json({ error: "Invalid JSON body", code: "invalid_json_body", version: WORKER_VERSION }, 400, corsHeaders);
     }
 
     const now = normalizeIsoDate(body?.now) || new Date().toISOString().slice(0, 10);
@@ -36,11 +52,11 @@ export default {
     const ledgerContext = sanitizeLedgerContext(body?.ledgerContext, now);
 
     if (!conversation) {
-      return json({ error: "messages or text is required" }, 400, corsHeaders);
+      return json({ error: "messages or text is required", code: "missing_conversation", version: WORKER_VERSION }, 400, corsHeaders);
     }
 
     if (conversation.length > 5000) {
-      return json({ error: "conversation is too long" }, 400, corsHeaders);
+      return json({ error: "conversation is too long", code: "conversation_too_long", version: WORKER_VERSION }, 400, corsHeaders);
     }
 
     const schema = {
@@ -61,7 +77,7 @@ export default {
               amount: { type: "number" },
               type: { type: "string", enum: ["expense", "income"] },
               category: { type: "string", enum: ALLOWED_CATEGORIES },
-              date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }
+              date: { type: "string" }
             },
             required: ["title", "amount", "type", "category", "date"]
           }
@@ -90,10 +106,11 @@ export default {
       "type 只能是 expense 或 income。",
       `category 只能从 ${ALLOWED_CATEGORIES.join("、")} 中选择。`,
       `今天日期是 ${now}。请正确解析今天、昨天、前天等相对日期。`,
+      "date 必须返回 YYYY-MM-DD 格式。",
       "title 保持简短，优先使用事项本身，如‘火锅’‘地铁’‘兼职’；不要把整句话当标题。",
       "不要虚构金额，不要补充用户未表达的账单。",
       "示例1：用户：你好。输出 action=chat，reply 可以是自然问候，records=[]。",
-      "示例2：用户：帮我记一笔午饭。因为缺少金额，输出 action=chat，reply 追问金额，records=[]。",
+      "示例2：用户：帮我记一笔午饭。因为缺少金额，输出 action=chat，reply 追问‘午饭花了多少钱？’，records=[]。",
       "示例3：用户：昨天和室友吃火锅我付了126，我自己花63。输出 action=draft，records 只包含火锅63元。",
       "示例4：已有 pendingDraft 后，用户：好。输出 action=confirm_pending。",
       "示例5：已有 pendingDraft 后，用户：把这笔改成交通。输出 action=draft，records 返回修改后的完整草稿。"
@@ -132,12 +149,24 @@ export default {
         }),
       });
     } catch (error) {
-      return json({ error: "Failed to reach AI provider", detail: String(error) }, 502, corsHeaders);
+      return json({
+        error: "Failed to reach AI provider",
+        code: "provider_unreachable",
+        detail: String(error),
+        version: WORKER_VERSION,
+      }, 502, corsHeaders);
     }
 
     if (!upstream.ok) {
-      const detail = await upstream.text();
-      return json({ error: "AI provider error", detail }, 502, corsHeaders);
+      const provider = await readProviderError(upstream);
+      return json({
+        error: "AI provider error",
+        code: "provider_error",
+        providerStatus: upstream.status,
+        providerCode: provider.code,
+        providerMessage: provider.message,
+        version: WORKER_VERSION,
+      }, 502, corsHeaders);
     }
 
     const data = await upstream.json();
@@ -147,13 +176,18 @@ export default {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return json({ error: "AI returned invalid JSON", raw }, 502, corsHeaders);
+      return json({
+        error: "AI returned invalid JSON",
+        code: "invalid_ai_json",
+        raw: String(raw || "").slice(0, 500),
+        version: WORKER_VERSION,
+      }, 502, corsHeaders);
     }
 
     const records = sanitizeRecords(parsed.records, now);
     const action = sanitizeAction(parsed.action, records, pendingDraft);
     const reply = sanitizeReply(parsed.reply, action, records);
-    return json({ reply, action, records, source: "cloud_ai" }, 200, corsHeaders);
+    return json({ reply, action, records, source: "cloud_ai", version: WORKER_VERSION }, 200, corsHeaders);
   },
 };
 
@@ -171,7 +205,7 @@ function getCorsHeaders(request, env) {
   return {
     ...jsonHeaders,
     "access-control-allow-origin": allowOrigin,
-    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type",
     "vary": "Origin",
   };
@@ -182,6 +216,22 @@ function json(payload, status = 200, corsHeaders = {}) {
     status,
     headers: { ...jsonHeaders, ...corsHeaders },
   });
+}
+
+async function readProviderError(response) {
+  try {
+    const payload = await response.json();
+    const err = payload?.error || {};
+    return {
+      code: err.code || err.type || "unknown_provider_error",
+      message: err.message || `Provider returned HTTP ${response.status}`,
+    };
+  } catch {
+    return {
+      code: "unknown_provider_error",
+      message: `Provider returned HTTP ${response.status}`,
+    };
+  }
 }
 
 function extractOutputText(data) {
