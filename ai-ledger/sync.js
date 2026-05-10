@@ -145,6 +145,14 @@ async function upsertBudget(value) {
   if (error) throw error;
 }
 
+function maybeReloadOnceAfterFirstHydration(userId, changed) {
+  if (!changed) return;
+  const key = `ai-ledger-hydrated-once-${userId}`;
+  if (sessionStorage.getItem(key)) return;
+  sessionStorage.setItem(key, "1");
+  window.setTimeout(() => window.location.reload(), 180);
+}
+
 async function hydrateFromCloud() {
   if (!syncUser || hydratedUserId === syncUser.id) return;
   syncing = true;
@@ -161,6 +169,9 @@ async function hydrateFromCloud() {
       if (localOnly.length) await upsertRecords(localOnly);
     }
 
+    const beforeRecords = localStorage.getItem(RECORDS_KEY) || "[]";
+    const beforeBudget = localStorage.getItem(BUDGET_KEY) || "3000";
+
     writeLocalRecords(merged);
 
     const remoteBudget = await fetchRemoteBudget();
@@ -170,9 +181,12 @@ async function hydrateFromCloud() {
       writeLocalBudget(remoteBudget);
     }
 
+    const changed = beforeRecords !== (localStorage.getItem(RECORDS_KEY) || "[]")
+      || beforeBudget !== (localStorage.getItem(BUDGET_KEY) || "3000");
+
     hydratedUserId = syncUser.id;
     setSyncStatus("云端同步已开启", "success");
-    window.location.reload();
+    maybeReloadOnceAfterFirstHydration(syncUser.id, changed);
   } catch (error) {
     console.error("Hydrate cloud sync failed:", error);
     setSyncStatus(`同步失败：${error.message || "请稍后重试"}`, "error");
@@ -217,7 +231,15 @@ async function syncNow() {
     setSyncStatus("先登录，才能开启云同步。", "normal");
     return;
   }
-  await syncLocalChanges();
+
+  const remoteRecords = await fetchRemoteRecords();
+  const localRecords = readLocalRecords();
+  const merged = mergeById(localRecords, remoteRecords);
+  writeLocalRecords(merged);
+  await upsertRecords(merged);
+  await upsertBudget(readLocalBudget());
+  lastRecordSnapshot = localStorage.getItem(RECORDS_KEY) || "[]";
+  lastBudgetSnapshot = localStorage.getItem(BUDGET_KEY) || "3000";
   setSyncStatus("已同步到云端", "success");
 }
 
