@@ -1,0 +1,9 @@
+{
+  "appId": "com.yuchen.ailedger",
+  "appName": "AI记账",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
