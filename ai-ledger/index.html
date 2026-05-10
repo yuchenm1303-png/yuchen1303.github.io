@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111827" />
+  <title>AI 智能记账</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero card dark-card">
+      <div>
+        <p class="eyebrow">AI 智能记账</p>
+        <h1>把“记账”变成一句话的事</h1>
+        <p class="hero-copy">输入“今天午饭28，奶茶16，兼职收入180”，系统会自动拆分金额、判断收支并分类。</p>
+      </div>
+      <div class="balance-box">
+        <span>本月结余</span>
+        <strong id="monthBalance">¥0.00</strong>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="card stat-card">
+        <span>今日支出</span>
+        <strong id="todayExpense">¥0.00</strong>
+      </article>
+      <article class="card stat-card">
+        <span>本月支出</span>
+        <strong id="monthExpense">¥0.00</strong>
+      </article>
+      <article class="card stat-card">
+        <span>本月收入</span>
+        <strong id="monthIncome">¥0.00</strong>
+      </article>
+      <article class="card stat-card">
+        <span>本月预算</span>
+        <strong id="budgetValue">¥0.00</strong>
+      </article>
+    </section>
+
+    <section class="two-col top-row">
+      <article class="card">
+        <div class="section-title">
+          <h2>一句话记账</h2>
+        </div>
+        <div class="ai-input-row">
+          <input id="aiInput" placeholder="例如：今天午饭28，奶茶16，昨天打车22，兼职收入180" />
+          <button id="aiAddBtn">智能识别</button>
+        </div>
+        <p class="hint">当前版本使用本地智能规则识别，适合直接部署到 GitHub Pages。后续可继续接入真正的大模型接口。</p>
+      </article>
+
+      <article class="card">
+        <div class="section-title budget-title-row">
+          <h2>预算进度</h2>
+          <input id="budgetInput" type="number" min="0" />
+        </div>
+        <div class="progress-track"><div id="budgetProgress" class="progress-fill"></div></div>
+        <p class="muted" id="budgetText">已使用 0%</p>
+      </article>
+    </section>
+
+    <section class="two-col chart-row">
+      <article class="card chart-card">
+        <div class="section-title"><h2>近 7 天趋势</h2></div>
+        <canvas id="trendChart"></canvas>
+      </article>
+      <article class="card chart-card">
+        <div class="section-title"><h2>本月支出分类</h2></div>
+        <canvas id="categoryChart"></canvas>
+      </article>
+    </section>
+
+    <section class="two-col bottom-row">
+      <article class="card">
+        <div class="section-title"><h2>手动补录</h2></div>
+        <div class="manual-form">
+          <input id="manualTitle" placeholder="账单名称" />
+          <input id="manualAmount" type="number" placeholder="金额" />
+          <div class="form-grid">
+            <select id="manualType">
+              <option value="expense">支出</option>
+              <option value="income">收入</option>
+            </select>
+            <select id="manualCategory">
+              <option>餐饮</option>
+              <option>交通</option>
+              <option>购物</option>
+              <option>居住</option>
+              <option>饮品</option>
+              <option>工资</option>
+              <option>礼物</option>
+              <option>其他</option>
+            </select>
+          </div>
+          <button id="manualAddBtn">添加账单</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-title"><h2>最近账单</h2></div>
+        <div id="recordList" class="record-list"></div>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>
