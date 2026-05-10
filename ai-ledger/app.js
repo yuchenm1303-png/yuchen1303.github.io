@@ -1,5 +1,7 @@
 const STORAGE_KEY = "ai-ledger-records-v1";
 const BUDGET_KEY = "ai-ledger-budget-v1";
+const AI_ENDPOINT_KEY = "ai-ledger-ai-endpoint-v1";
+const DEFAULT_AI_CONFIG = window.AI_LEDGER_CONFIG || {};
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -26,6 +28,10 @@ function formatDate(date) {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}.${m}.${d}`;
+}
+
+function createId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 }
 
 const seedRecords = [
@@ -72,7 +78,7 @@ function parseNaturalLanguage(input) {
       const amount = Number(amountMatch[1]);
       if (!Number.isFinite(amount) || amount <= 0) return null;
       return {
-        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        id: createId(),
         title: cleanTitle(part),
         amount,
         type: inferType(part),
@@ -101,10 +107,49 @@ function saveBudget(value) {
   localStorage.setItem(BUDGET_KEY, String(value));
 }
 
+function normalizeEndpoint(value) {
+  return String(value || "").trim().replace(/\/$/, "");
+}
+
+function getAiEndpoint() {
+  const saved = normalizeEndpoint(localStorage.getItem(AI_ENDPOINT_KEY));
+  return saved || normalizeEndpoint(DEFAULT_AI_CONFIG.aiEndpoint);
+}
+
+function saveAiEndpoint(value) {
+  const endpoint = normalizeEndpoint(value);
+  if (endpoint) {
+    localStorage.setItem(AI_ENDPOINT_KEY, endpoint);
+  } else {
+    localStorage.removeItem(AI_ENDPOINT_KEY);
+  }
+  return endpoint;
+}
+
+function normalizeCloudRecord(record) {
+  const amount = Number(record?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return {
+    id: createId(),
+    title: String(record?.title || "未命名账单").trim().slice(0, 30) || "未命名账单",
+    amount,
+    type: record?.type === "income" ? "income" : "expense",
+    category: ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"].includes(record?.category)
+      ? record.category
+      : "其他",
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(record?.date || "")) ? record.date : todayISO(),
+  };
+}
+
+function addRecordIds(list) {
+  return list.map(normalizeCloudRecord).filter(Boolean);
+}
+
 let records = getRecords();
 let budget = getBudget();
 let currentView = "stats";
 let currentRange = "month";
+let aiEndpoint = getAiEndpoint();
 let trendChart;
 let categoryChart;
 
@@ -120,6 +165,8 @@ const els = {
   rangeText: document.querySelector("#rangeText"),
   aiInput: document.querySelector("#aiInput"),
   aiAddBtn: document.querySelector("#aiAddBtn"),
+  aiModeBadge: document.querySelector("#aiModeBadge"),
+  aiModeHint: document.querySelector("#aiModeHint"),
   sampleBtns: document.querySelectorAll(".sample-btn"),
   aiTodayExpense: document.querySelector("#aiTodayExpense"),
   aiMonthBalance: document.querySelector("#aiMonthBalance"),
@@ -135,6 +182,10 @@ const els = {
   recordCount: document.querySelector("#recordCount"),
   recordList: document.querySelector("#recordList"),
   budgetInput: document.querySelector("#budgetInput"),
+  aiEndpointInput: document.querySelector("#aiEndpointInput"),
+  aiEndpointStatus: document.querySelector("#aiEndpointStatus"),
+  saveAiEndpointBtn: document.querySelector("#saveAiEndpointBtn"),
+  testAiEndpointBtn: document.querySelector("#testAiEndpointBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   resetBtn: document.querySelector("#resetBtn"),
   fabAdd: document.querySelector("#fabAdd"),
@@ -154,6 +205,25 @@ function showToast(message) {
   els.toast.classList.add("show");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => els.toast.classList.remove("show"), 2200);
+}
+
+function setAiButtonLoading(isLoading) {
+  els.aiAddBtn.disabled = isLoading;
+  els.aiAddBtn.classList.toggle("loading", isLoading);
+  els.aiAddBtn.textContent = isLoading ? "AI 识别中..." : "智能识别并添加";
+}
+
+function updateAiModeUI() {
+  aiEndpoint = getAiEndpoint();
+  els.aiEndpointInput.value = aiEndpoint;
+  const cloudEnabled = Boolean(aiEndpoint);
+  els.aiModeBadge.textContent = cloudEnabled ? "☁️ 云端 AI 识别" : "✨ 本地智能识别";
+  els.aiModeHint.textContent = cloudEnabled
+    ? "复杂语句将优先交给云端 AI 解析；连接失败时自动回退到本地识别。"
+    : "未配置云端 AI 时，会自动使用本地规则识别。";
+  els.aiEndpointStatus.textContent = cloudEnabled
+    ? `当前接口：${aiEndpoint}`
+    : "未配置时，App 会自动使用本地规则识别。";
 }
 
 function getMonthlyStats() {
@@ -347,6 +417,7 @@ function renderAll() {
   renderAI();
   renderStats();
   renderList();
+  updateAiModeUI();
   if (currentView === "stats") renderCharts();
 }
 
@@ -360,6 +431,7 @@ function switchView(name) {
   }
   if (name === "ai") renderAI();
   if (name === "list") renderList();
+  if (name === "settings") updateAiModeUI();
 }
 
 function openSheet() {
@@ -380,7 +452,7 @@ function addManualRecord() {
     return;
   }
   records = [{
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    id: createId(),
     title,
     amount,
     type: els.manualType.value,
@@ -412,6 +484,76 @@ function exportRecords() {
   URL.revokeObjectURL(url);
 }
 
+async function parseWithCloudAI(text) {
+  if (!aiEndpoint) return null;
+
+  const controller = new AbortController();
+  const timeoutMs = Number(DEFAULT_AI_CONFIG.aiTimeoutMs) || 12000;
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(aiEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, now: todayISO() }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return addRecordIds(Array.isArray(data.records) ? data.records : []);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function parseSmartRecords(text) {
+  if (aiEndpoint) {
+    try {
+      const cloudRecords = await parseWithCloudAI(text);
+      if (cloudRecords?.length) {
+        return { records: cloudRecords, source: "cloud_ai" };
+      }
+    } catch (error) {
+      console.warn("Cloud AI failed, falling back to local parser:", error);
+      showToast("云端 AI 暂时不可用，已自动改用本地识别");
+    }
+  }
+
+  return { records: parseNaturalLanguage(text), source: "local" };
+}
+
+async function testAiEndpoint() {
+  const endpoint = normalizeEndpoint(els.aiEndpointInput.value);
+  if (!endpoint) {
+    showToast("请先填写 AI 接口地址");
+    return;
+  }
+
+  const previousEndpoint = aiEndpoint;
+  aiEndpoint = endpoint;
+  els.testAiEndpointBtn.disabled = true;
+  els.testAiEndpointBtn.textContent = "测试中...";
+
+  try {
+    const result = await parseWithCloudAI("今天测试消费1元");
+    if (result && result.length) {
+      showToast("AI 接口连接成功");
+    } else {
+      showToast("接口可达，但没有返回账单");
+    }
+  } catch (error) {
+    showToast("AI 接口连接失败");
+  } finally {
+    aiEndpoint = previousEndpoint;
+    els.testAiEndpointBtn.disabled = false;
+    els.testAiEndpointBtn.textContent = "测试连接";
+  }
+}
+
 els.navBtns.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
 
 els.rangeChips.forEach((button) => button.addEventListener("click", () => {
@@ -426,17 +568,29 @@ els.sampleBtns.forEach((button) => button.addEventListener("click", () => {
   els.aiInput.focus();
 }));
 
-els.aiAddBtn.addEventListener("click", () => {
-  const parsed = parseNaturalLanguage(els.aiInput.value);
-  if (!parsed.length) {
+els.aiAddBtn.addEventListener("click", async () => {
+  const text = els.aiInput.value.trim();
+  if (!text) {
+    showToast("先输入一条账单内容吧");
+    return;
+  }
+
+  setAiButtonLoading(true);
+  const result = await parseSmartRecords(text);
+  setAiButtonLoading(false);
+
+  if (!result.records.length) {
     showToast("我没识别到账单金额，试试：今天午饭28，打车12");
     return;
   }
-  records = [...parsed, ...records];
+
+  records = [...result.records, ...records];
   saveRecords(records);
   els.aiInput.value = "";
   renderAll();
-  showToast(`已识别并添加 ${parsed.length} 条账单`);
+  showToast(result.source === "cloud_ai"
+    ? `AI 已识别并添加 ${result.records.length} 条账单`
+    : `已本地识别并添加 ${result.records.length} 条账单`);
 });
 
 els.fabAdd.addEventListener("click", openSheet);
@@ -456,6 +610,13 @@ els.budgetInput.addEventListener("input", () => {
   renderStats();
 });
 
+els.saveAiEndpointBtn.addEventListener("click", () => {
+  aiEndpoint = saveAiEndpoint(els.aiEndpointInput.value);
+  updateAiModeUI();
+  showToast(aiEndpoint ? "已保存 AI 接口" : "已关闭云端 AI");
+});
+
+els.testAiEndpointBtn.addEventListener("click", testAiEndpoint);
 els.exportBtn.addEventListener("click", exportRecords);
 els.resetBtn.addEventListener("click", () => {
   if (!window.confirm("确定要清空全部账单吗？")) return;
