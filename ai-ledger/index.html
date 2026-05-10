@@ -7,9 +7,9 @@
   <title>AI 记账</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=20260510-5" />
-  <link rel="stylesheet" href="./liquid.css?v=20260510-5" />
-  <link rel="stylesheet" href="./chat-v2.css?v=20260510-5" />
+  <link rel="stylesheet" href="./styles.css?v=20260510-6" />
+  <link rel="stylesheet" href="./liquid.css?v=20260510-6" />
+  <link rel="stylesheet" href="./chat-v2.css?v=20260510-6" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -26,7 +26,10 @@
           <h1>像聊天一样记账</h1>
           <p class="subtext">你可以记账、追问、改账，也可以直接问我这个月花了多少。</p>
         </div>
-        <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
+        <div class="chat-header-actions">
+          <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
+          <button id="clearChatInlineBtn" class="mini-ghost-btn" type="button">清空对话</button>
+        </div>
       </header>
 
       <section class="glass-card chat-shell reveal delay-1">
@@ -226,7 +229,7 @@
   </section>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-5"></script>
-  <script src="./app-v3.js?v=20260510-5"></script>
+  <script src="./config.js?v=20260510-6"></script>
+  <script src="./app-v3.js?v=20260510-6"></script>
 </body>
 </html>
