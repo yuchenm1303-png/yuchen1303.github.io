@@ -1,5 +1,5 @@
 (() => {
-  const interactiveSelector = [
+  const pressableSelector = [
     'button',
     '.record-item',
     '.summary-chip',
@@ -19,12 +19,9 @@
     return `¥${Number(value || 0).toFixed(2)}`;
   }
 
-  function pulse(target) {
-    const el = target?.closest?.(interactiveSelector);
+  function clearPressState(el) {
     if (!el) return;
-    el.classList.remove('spring-press');
-    void el.offsetWidth;
-    el.classList.add('spring-press');
+    el.classList.remove('is-pressed');
   }
 
   function ensureDetailOverlay() {
@@ -270,14 +267,31 @@
     }
   }
 
+  function bindPressFeedback() {
+    document.addEventListener('pointerdown', (event) => {
+      const el = event.target.closest(pressableSelector);
+      if (!el) return;
+      el.classList.add('is-pressed');
+    });
+
+    ['pointerup', 'pointercancel'].forEach((type) => {
+      document.addEventListener(type, (event) => {
+        clearPressState(event.target.closest?.(pressableSelector));
+      });
+    });
+
+    document.addEventListener('pointerleave', (event) => {
+      clearPressState(event.target.closest?.(pressableSelector));
+    }, true);
+  }
+
   function init() {
     markExpandableCards();
     decorateRecordItems();
     bindExpandableCards();
     bindRecordExpansion();
+    bindPressFeedback();
     ensureDetailOverlay();
-
-    document.addEventListener('pointerdown', (event) => pulse(event.target));
   }
 
   if (document.readyState === 'loading') {
