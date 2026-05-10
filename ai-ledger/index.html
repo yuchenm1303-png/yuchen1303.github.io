@@ -24,12 +24,13 @@
       </header>
 
       <section class="glass-card ai-card reveal delay-1">
-        <div class="ai-badge">✨ 本地智能识别</div>
-        <textarea id="aiInput" placeholder="例如：今天午饭28，奶茶16，昨天打车22，兼职收入180"></textarea>
+        <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
+        <textarea id="aiInput" placeholder="例如：昨天和室友吃火锅我付了126，我自己花63；今天兼职收入180"></textarea>
         <button id="aiAddBtn" class="primary-btn">智能识别并添加</button>
+        <p id="aiModeHint" class="helper-text">未配置云端 AI 时，会自动使用本地规则识别。</p>
         <div class="quick-tags">
           <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">餐饮示例</button>
-          <button class="tag-btn sample-btn" data-sample="昨天打车22，买衣服199">购物示例</button>
+          <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">复杂示例</button>
           <button class="tag-btn sample-btn" data-sample="兼职收入300，报销80">收入示例</button>
         </div>
       </section>
@@ -143,7 +144,7 @@
       <header class="page-header reveal">
         <p class="eyebrow">设置中心</p>
         <h1>应用设置</h1>
-        <p class="subtext">先把本地体验打磨好，后面再接入登录和云端 AI。</p>
+        <p class="subtext">先把本地体验打磨好，后面再接入登录和云端同步。</p>
       </header>
 
       <section class="glass-card reveal delay-1">
@@ -153,6 +154,17 @@
       </section>
 
       <section class="glass-card reveal delay-2">
+        <div class="section-head"><h2>AI 设置</h2></div>
+        <label class="field-label" for="aiEndpointInput">云端 AI 接口地址</label>
+        <input id="aiEndpointInput" placeholder="https://你的-worker.workers.dev" />
+        <p id="aiEndpointStatus" class="helper-text">未配置时，App 会自动使用本地规则识别。</p>
+        <div class="settings-actions inline-actions">
+          <button id="saveAiEndpointBtn" class="ghost-btn">保存 AI 接口</button>
+          <button id="testAiEndpointBtn" class="ghost-btn">测试连接</button>
+        </div>
+      </section>
+
+      <section class="glass-card reveal delay-3">
         <div class="section-head"><h2>数据工具</h2></div>
         <div class="settings-actions">
           <button id="exportBtn" class="ghost-btn">导出账单 JSON</button>
@@ -160,11 +172,11 @@
         </div>
       </section>
 
-      <section class="glass-card reveal delay-3">
+      <section class="glass-card reveal delay-4">
         <div class="section-head"><h2>开发路线</h2></div>
         <div class="roadmap">
           <span>已完成：本地记账</span>
-          <span>下一步：云端 AI</span>
+          <span>当前：云端 AI</span>
           <span>后续：登录与云同步</span>
         </div>
       </section>
@@ -211,6 +223,7 @@
   </section>
 
   <div id="toast" class="toast"></div>
+  <script src="./config.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
