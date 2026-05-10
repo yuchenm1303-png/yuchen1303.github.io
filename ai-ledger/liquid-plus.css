@@ -1,12 +1,24 @@
 :root {
-  --liquid-fill: rgba(255, 255, 255, .15);
-  --liquid-fill-strong: rgba(255, 255, 255, .22);
-  --liquid-line: rgba(255, 255, 255, .52);
+  --liquid-fill: rgba(255, 255, 255, .075);
+  --liquid-fill-strong: rgba(255, 255, 255, .11);
+  --liquid-line: rgba(255, 255, 255, .34);
+  --liquid-rim: rgba(255, 255, 255, .48);
   --liquid-shadow:
-    0 22px 52px rgba(8, 61, 78, .16),
-    0 1px 0 rgba(255,255,255,.46) inset,
-    0 -1px 0 rgba(255,255,255,.16) inset;
-  --spring: cubic-bezier(.2, 1.35, .35, 1);
+    0 18px 42px rgba(8, 54, 72, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    inset 0 -1px 0 rgba(255, 255, 255, .10),
+    inset 1px 0 0 rgba(186, 243, 255, .10),
+    inset -1px 0 0 rgba(188, 255, 239, .10);
+  --spring: cubic-bezier(.2, 1.15, .36, 1);
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 10%, rgba(115, 217, 255, .30), transparent 26%),
+    radial-gradient(circle at 88% 12%, rgba(126, 255, 229, .28), transparent 24%),
+    radial-gradient(circle at 17% 84%, rgba(168, 201, 255, .24), transparent 30%),
+    radial-gradient(circle at 84% 82%, rgba(190, 255, 239, .22), transparent 26%),
+    linear-gradient(145deg, #dcefff 0%, #e2fbf7 48%, #eef7ff 100%);
 }
 
 body::before {
@@ -16,17 +28,17 @@ body::before {
   pointer-events: none;
   z-index: 0;
   background:
-    radial-gradient(circle at 12% 20%, rgba(255,255,255,.60), transparent 16%),
-    radial-gradient(circle at 84% 12%, rgba(122,241,255,.42), transparent 18%),
-    radial-gradient(circle at 73% 76%, rgba(124,255,222,.34), transparent 18%),
-    radial-gradient(circle at 24% 84%, rgba(166,202,255,.34), transparent 22%);
-  filter: blur(24px);
-  animation: glassBackdrop 18s ease-in-out infinite alternate;
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, .32), transparent 16%),
+    radial-gradient(circle at 82% 16%, rgba(124, 240, 255, .16), transparent 18%),
+    radial-gradient(circle at 72% 76%, rgba(140, 255, 224, .14), transparent 20%),
+    radial-gradient(circle at 22% 82%, rgba(170, 205, 255, .12), transparent 22%);
+  filter: blur(34px);
+  animation: glassBackdrop 20s ease-in-out infinite alternate;
 }
 
 @keyframes glassBackdrop {
   from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(3%, -2%, 0) scale(1.08); }
+  to { transform: translate3d(2.4%, -1.8%, 0) scale(1.06); }
 }
 
 .glass-card,
@@ -58,8 +70,8 @@ select,
   background: var(--liquid-fill);
   border-color: var(--liquid-line);
   box-shadow: var(--liquid-shadow);
-  backdrop-filter: blur(28px) saturate(190%) contrast(1.05);
-  -webkit-backdrop-filter: blur(28px) saturate(190%) contrast(1.05);
+  backdrop-filter: blur(22px) saturate(150%) contrast(1.02);
+  -webkit-backdrop-filter: blur(22px) saturate(150%) contrast(1.02);
 }
 
 .glass-card::before,
@@ -89,10 +101,9 @@ select,
   pointer-events: none;
   border-radius: inherit;
   background:
-    linear-gradient(135deg, rgba(255,255,255,.58), rgba(255,255,255,.10) 34%, rgba(255,255,255,.04) 68%, rgba(255,255,255,.24)),
-    radial-gradient(circle at 18% 10%, rgba(255,255,255,.50), transparent 28%),
-    radial-gradient(circle at 84% 96%, rgba(255,255,255,.18), transparent 24%);
-  mix-blend-mode: screen;
+    radial-gradient(circle at 16% 0%, rgba(255, 255, 255, .22), transparent 30%),
+    linear-gradient(135deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 70%, rgba(255, 255, 255, .08));
+  opacity: .62;
 }
 
 .glass-card::after,
@@ -107,21 +118,40 @@ select,
   inset: 1px;
   pointer-events: none;
   border-radius: inherit;
-  background: linear-gradient(125deg, rgba(255,255,255,.28), transparent 34%, transparent 66%, rgba(255,255,255,.16));
-  opacity: .8;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: none;
 }
 
 .summary-card {
+  color: var(--ink);
   background:
-    linear-gradient(145deg, rgba(8,106,115,.55), rgba(7,80,95,.38)),
-    var(--liquid-fill-strong);
+    linear-gradient(145deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .05)),
+    rgba(8, 106, 115, .08);
+}
+
+.summary-card .subtext.light,
+.summary-card .progress-text,
+.summary-card .summary-box span {
+  color: rgba(16, 32, 50, .58);
+}
+
+.summary-card .budget-pill {
+  color: var(--ink);
+}
+
+.summary-card .progress-track {
+  background: rgba(255, 255, 255, .20);
+}
+
+.summary-card .progress-fill {
+  background: linear-gradient(90deg, rgba(11, 143, 139, .58), rgba(134, 236, 226, .78));
 }
 
 textarea,
 input,
 select,
 .chat-composer textarea {
-  background: rgba(255,255,255,.14);
+  background: rgba(255, 255, 255, .08);
 }
 
 .primary-btn,
@@ -134,9 +164,9 @@ select,
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 16px 28px rgba(8,106,115,.22),
-    inset 0 1px 0 rgba(255,255,255,.42),
-    inset 0 -1px 0 rgba(0,0,0,.08);
+    0 14px 24px rgba(8, 106, 115, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .32),
+    inset 0 -1px 0 rgba(0, 0, 0, .06);
 }
 
 .primary-btn::before,
@@ -150,7 +180,7 @@ select,
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255,255,255,.34), transparent 38%, transparent 68%, rgba(255,255,255,.20));
+  background: linear-gradient(135deg, rgba(255, 255, 255, .18), transparent 38%, transparent 72%, rgba(255, 255, 255, .10));
   pointer-events: none;
 }
 
@@ -161,16 +191,17 @@ button,
 .summary-box,
 .metric-card,
 .chart-card,
+.summary-card,
 .account-row,
 .draft-card,
 .draft-item,
 .auth-tab {
   transform-origin: center;
   transition:
-    transform .32s var(--spring),
-    box-shadow .32s ease,
-    filter .24s ease,
-    background .24s ease;
+    transform .28s var(--spring),
+    box-shadow .28s ease,
+    filter .22s ease,
+    background .22s ease;
 }
 
 button:active,
@@ -180,23 +211,13 @@ button:active,
 .summary-box:active,
 .metric-card:active,
 .chart-card:active,
+.summary-card:active,
 .account-row:active,
 .draft-card:active,
 .draft-item:active,
 .auth-tab:active {
-  transform: scale(.965);
-  filter: saturate(1.12);
-}
-
-.spring-press {
-  animation: springPress .48s var(--spring);
-}
-
-@keyframes springPress {
-  0% { transform: scale(1); }
-  28% { transform: scale(.94, .98); }
-  64% { transform: scale(1.035, 1.01); }
-  100% { transform: scale(1); }
+  transform: scale(.975);
+  filter: saturate(1.04);
 }
 
 .expandable-card {
@@ -210,9 +231,9 @@ button:active,
   font-size: 12px;
   font-weight: 800;
   color: var(--teal-deep);
-  background: rgba(255,255,255,.20);
-  border: 1px solid rgba(255,255,255,.42);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.56);
+  background: rgba(255, 255, 255, .10);
+  border: 1px solid rgba(255, 255, 255, .26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .20);
 }
 
 .detail-overlay {
@@ -222,7 +243,7 @@ button:active,
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(4, 18, 24, .24);
+  background: rgba(4, 18, 24, .18);
   opacity: 0;
   visibility: hidden;
   transition: opacity .24s ease, visibility .24s ease;
@@ -241,15 +262,17 @@ button:active,
   gap: 14px;
   padding: 18px;
   border-radius: 32px;
-  border: 1px solid rgba(255,255,255,.58);
-  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255, 255, 255, .34);
+  background: rgba(255, 255, 255, .09);
   box-shadow:
-    0 28px 72px rgba(4,18,24,.24),
-    inset 0 1px 0 rgba(255,255,255,.66);
-  backdrop-filter: blur(34px) saturate(195%);
-  -webkit-backdrop-filter: blur(34px) saturate(195%);
-  transform: translateY(18px) scale(.88);
-  transition: transform .42s var(--spring);
+    0 26px 64px rgba(4, 18, 24, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .36),
+    inset 1px 0 0 rgba(186, 243, 255, .10),
+    inset -1px 0 0 rgba(188, 255, 239, .10);
+  backdrop-filter: blur(28px) saturate(155%);
+  -webkit-backdrop-filter: blur(28px) saturate(155%);
+  transform: translateY(18px) scale(.90);
+  transition: transform .38s var(--spring);
 }
 
 .detail-overlay.open .detail-panel {
@@ -280,8 +303,8 @@ button:active,
   border: none;
   border-radius: 14px;
   color: var(--ink);
-  background: rgba(255,255,255,.18);
-  border: 1px solid rgba(255,255,255,.46);
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .24);
 }
 
 .detail-chart-wrap {
@@ -298,9 +321,9 @@ button:active,
 .detail-chip {
   padding: 12px 14px;
   border-radius: 20px;
-  border: 1px solid rgba(255,255,255,.46);
-  background: rgba(255,255,255,.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.56);
+  border: 1px solid rgba(255, 255, 255, .24);
+  background: rgba(255, 255, 255, .08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .20);
 }
 
 .detail-chip span {
@@ -328,14 +351,14 @@ button:active,
   width: 100%;
   margin-top: 4px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255,255,255,.34);
+  border-top: 1px solid rgba(255, 255, 255, .22);
   color: var(--muted);
   font-size: 13px;
 }
 
 .record-item.expanded .record-extra {
   display: block;
-  animation: detailGrow .42s var(--spring);
+  animation: detailGrow .38s var(--spring);
 }
 
 @keyframes detailGrow {
@@ -351,11 +374,12 @@ button:active,
   .summary-box:hover,
   .metric-card:hover,
   .chart-card:hover,
+  .summary-card:hover,
   .account-row:hover,
   .draft-card:hover,
   .draft-item:hover,
   .auth-tab:hover {
-    transform: translateY(-2px) scale(1.01);
+    transform: translateY(-2px) scale(1.006);
   }
 }
 
