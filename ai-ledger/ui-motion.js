@@ -14,6 +14,7 @@
   ].join(', ');
 
   let detailChart = null;
+  let detailChartTimer = null;
 
   function money(value) {
     return `¥${Number(value || 0).toFixed(2)}`;
@@ -58,7 +59,19 @@
     return overlay;
   }
 
-  function openDetailOverlay({ title, subtitle, bodyHtml, summaryHtml }) {
+  function clearDetailChart() {
+    if (detailChartTimer) {
+      window.clearTimeout(detailChartTimer);
+      detailChartTimer = null;
+    }
+    if (detailChart) {
+      detailChart.destroy();
+      detailChart = null;
+    }
+  }
+
+  function openDetailOverlay({ title, subtitle, bodyHtml, summaryHtml, renderChart }) {
+    clearDetailChart();
     const overlay = ensureDetailOverlay();
     overlay.querySelector('#detailTitle').textContent = title;
     overlay.querySelector('#detailSubtitle').textContent = subtitle;
@@ -66,16 +79,22 @@
     overlay.querySelector('#detailSummary').innerHTML = summaryHtml;
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
+
+    if (typeof renderChart === 'function') {
+      detailChartTimer = window.setTimeout(() => {
+        requestAnimationFrame(() => {
+          renderChart();
+          detailChartTimer = null;
+        });
+      }, 180);
+    }
   }
 
   function closeDetailOverlay() {
     const overlay = ensureDetailOverlay();
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (detailChart) {
-      detailChart.destroy();
-      detailChart = null;
-    }
+    clearDetailChart();
   }
 
   function getChartByCanvasId(id) {
@@ -92,6 +111,15 @@
     const totalIncome = income.reduce((sum, value) => sum + Number(value || 0), 0);
     const maxExpense = Math.max(0, ...expense.map((value) => Number(value || 0)));
     const maxIncome = Math.max(0, ...income.map((value) => Number(value || 0)));
+    const labels = [...chart.data.labels];
+    const datasets = chart.data.datasets.map((dataset) => ({
+      label: dataset.label,
+      data: [...dataset.data],
+      borderColor: dataset.borderColor,
+      backgroundColor: dataset.backgroundColor,
+      tension: dataset.tension,
+      fill: dataset.fill,
+    }));
 
     openDetailOverlay({
       title: '近 7 天趋势',
@@ -103,33 +131,31 @@
         <article class="detail-chip"><span>单日最高支出</span><strong>${money(maxExpense)}</strong></article>
         <article class="detail-chip"><span>单日最高收入</span><strong>${money(maxIncome)}</strong></article>
       `,
-    });
-
-    const ctx = document.querySelector('#detailChartCanvas');
-    detailChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [...chart.data.labels],
-        datasets: chart.data.datasets.map((dataset) => ({
-          label: dataset.label,
-          data: [...dataset.data],
-          borderColor: dataset.borderColor,
-          backgroundColor: dataset.backgroundColor,
-          tension: dataset.tension,
-          fill: dataset.fill,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { intersect: false, mode: 'index' },
-        plugins: { legend: { labels: { color: '#607083' } } },
-        scales: {
-          y: { beginAtZero: true, ticks: { color: '#607083' }, grid: { color: 'rgba(16,32,50,.08)' } },
-          x: { ticks: { color: '#607083' }, grid: { display: false } },
-        },
+      renderChart: () => {
+        const ctx = document.querySelector('#detailChartCanvas');
+        if (!ctx) return;
+        detailChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: datasets.map((dataset) => ({
+              ...dataset,
+              pointRadius: 4,
+              pointHoverRadius: 6,
+            })),
+          },
+          options: {
+            animation: { duration: 220 },
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: { legend: { labels: { color: '#607083' } } },
+            scales: {
+              y: { beginAtZero: true, ticks: { color: '#607083' }, grid: { color: 'rgba(16,32,50,.08)' } },
+              x: { ticks: { color: '#607083' }, grid: { display: false } },
+            },
+          },
+        });
       },
     });
   }
@@ -138,7 +164,8 @@
     const chart = getChartByCanvasId('categoryChart');
     if (!chart) return;
     const data = chart.data.datasets[0]?.data || [];
-    const labels = chart.data.labels || [];
+    const labels = [...(chart.data.labels || [])];
+    const colors = [...(chart.data.datasets[0]?.backgroundColor || [])];
     const total = data.reduce((sum, value) => sum + Number(value || 0), 0);
     const maxValue = Math.max(0, ...data.map((value) => Number(value || 0)));
     const maxIndex = data.findIndex((value) => Number(value || 0) === maxValue);
@@ -154,24 +181,27 @@
         <article class="detail-chip"><span>最大分类金额</span><strong>${money(maxValue)}</strong></article>
         <article class="detail-chip"><span>分类数量</span><strong>${labels.length} 类</strong></article>
       `,
-    });
-
-    const ctx = document.querySelector('#detailChartCanvas');
-    detailChart = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: [...labels],
-        datasets: [{
-          data: [...data],
-          backgroundColor: [...chart.data.datasets[0].backgroundColor],
-          borderWidth: 0,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '60%',
-        plugins: { legend: { position: 'bottom', labels: { color: '#607083', boxWidth: 12, padding: 16 } } },
+      renderChart: () => {
+        const ctx = document.querySelector('#detailChartCanvas');
+        if (!ctx) return;
+        detailChart = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{
+              data: [...data],
+              backgroundColor: colors,
+              borderWidth: 0,
+            }],
+          },
+          options: {
+            animation: { duration: 220 },
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '60%',
+            plugins: { legend: { position: 'bottom', labels: { color: '#607083', boxWidth: 12, padding: 16 } } },
+          },
+        });
       },
     });
   }
