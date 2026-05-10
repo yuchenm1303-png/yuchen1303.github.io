@@ -4,7 +4,6 @@
   const body = document.body;
   const picker = document.querySelector("#backgroundPicker");
   const options = [...document.querySelectorAll(".bg-option")];
-  const scrollRoot = document.querySelector(".app-shell");
 
   function applyBackground(name) {
     const next = backgrounds.has(name) ? name : "aurora";
@@ -14,9 +13,9 @@
   }
 
   function updateShine() {
-    if (!scrollRoot) return;
-    const max = Math.max(scrollRoot.scrollHeight - scrollRoot.clientHeight, 1);
-    const progress = Math.min(Math.max(scrollRoot.scrollTop / max, 0), 1);
+    const root = document.scrollingElement || document.documentElement;
+    const max = Math.max(root.scrollHeight - window.innerHeight, 1);
+    const progress = Math.min(Math.max(window.scrollY / max, 0), 1);
     const x = `${18 + progress * 64}%`;
     const y = `${2 + progress * 14}%`;
     body.style.setProperty("--shine-x", x);
@@ -30,7 +29,7 @@
     option.addEventListener("click", () => applyBackground(option.dataset.bg));
   });
 
-  scrollRoot?.addEventListener("scroll", updateShine, { passive: true });
+  window.addEventListener("scroll", updateShine, { passive: true });
   window.addEventListener("resize", updateShine);
 
   if (!picker) return;
