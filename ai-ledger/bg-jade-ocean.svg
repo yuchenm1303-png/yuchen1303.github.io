@@ -1,0 +1,56 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="94" y1="36" x2="982" y2="1872" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#04141A"/>
+      <stop offset="0.46" stop-color="#062D36"/>
+      <stop offset="0.78" stop-color="#063C43"/>
+      <stop offset="1" stop-color="#04151C"/>
+    </linearGradient>
+    <radialGradient id="jadeA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(222 318) rotate(26) scale(500 430)">
+      <stop stop-color="#2EF2D0" stop-opacity="0.54"/>
+      <stop offset="1" stop-color="#2EF2D0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="jadeB" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(882 620) rotate(124) scale(560 520)">
+      <stop stop-color="#70F6FF" stop-opacity="0.40"/>
+      <stop offset="1" stop-color="#70F6FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="jadeC" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(688 1460) rotate(132) scale(620 580)">
+      <stop stop-color="#22D8B8" stop-opacity="0.46"/>
+      <stop offset="1" stop-color="#22D8B8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="waveA" x1="-110" y1="484" x2="1180" y2="1138" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9FFF8" stop-opacity="0"/>
+      <stop offset="0.34" stop-color="#A8FFF0" stop-opacity="0.24"/>
+      <stop offset="0.67" stop-color="#6CF6FF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#D9FFF8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="waveB" x1="1190" y1="354" x2="-150" y2="1616" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9FFF8" stop-opacity="0"/>
+      <stop offset="0.30" stop-color="#77F8E2" stop-opacity="0.18"/>
+      <stop offset="0.72" stop-color="#B1FCFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#D9FFF8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur128" x="-280" y="-280" width="1640" height="2480" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="128"/></filter>
+    <filter id="blur78" x="-180" y="-180" width="1440" height="2280" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="78"/></filter>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#base)"/>
+  <g filter="url(#blur128)">
+    <ellipse cx="222" cy="318" rx="430" ry="380" fill="url(#jadeA)"/>
+    <ellipse cx="882" cy="620" rx="470" ry="430" fill="url(#jadeB)"/>
+    <ellipse cx="688" cy="1460" rx="520" ry="490" fill="url(#jadeC)"/>
+  </g>
+  <g filter="url(#blur78)">
+    <path d="M-170 540C148 314 310 420 476 746C642 1072 840 1120 1240 778" stroke="url(#waveA)" stroke-width="170" stroke-linecap="round"/>
+    <path d="M1220 418C944 540 864 760 688 1018C512 1276 334 1390 -150 1248" stroke="url(#waveB)" stroke-width="152" stroke-linecap="round"/>
+    <path d="M-170 1510C148 1328 344 1406 540 1612C736 1818 928 1822 1238 1658" stroke="url(#waveA)" stroke-width="138" stroke-linecap="round"/>
+  </g>
+  <g fill="white" fill-opacity="0.56">
+    <circle cx="124" cy="210" r="2"/><circle cx="246" cy="146" r="1.6"/><circle cx="418" cy="288" r="2.2"/>
+    <circle cx="724" cy="174" r="1.8"/><circle cx="914" cy="286" r="2.4"/><circle cx="1002" cy="462" r="1.7"/>
+    <circle cx="184" cy="708" r="1.8"/><circle cx="354" cy="604" r="2.2"/><circle cx="564" cy="768" r="1.6"/>
+    <circle cx="822" cy="694" r="2.4"/><circle cx="964" cy="896" r="1.8"/><circle cx="136" cy="1104" r="2.1"/>
+    <circle cx="328" cy="1218" r="1.7"/><circle cx="574" cy="1106" r="2.4"/><circle cx="788" cy="1260" r="1.8"/>
+    <circle cx="962" cy="1410" r="2.2"/><circle cx="190" cy="1634" r="1.8"/><circle cx="410" cy="1760" r="2.4"/>
+    <circle cx="700" cy="1662" r="1.7"/><circle cx="930" cy="1784" r="2.2"/>
+  </g>
+</svg>
