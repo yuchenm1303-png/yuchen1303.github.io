@@ -1,5 +1,5 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
-const ALLOWED_STATUS = ["draft", "clarify", "none"];
+const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending"];
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -32,12 +32,14 @@ export default {
     const messages = normalizeMessages(body?.messages);
     const text = String(body?.text || "").trim();
     const conversation = messages.length ? buildConversation(messages) : text;
+    const pendingDraft = sanitizeRecords(body?.pendingDraft, now);
+    const ledgerContext = sanitizeLedgerContext(body?.ledgerContext, now);
 
     if (!conversation) {
       return json({ error: "messages or text is required" }, 400, corsHeaders);
     }
 
-    if (conversation.length > 4000) {
+    if (conversation.length > 5000) {
       return json({ error: "conversation is too long" }, 400, corsHeaders);
     }
 
@@ -46,7 +48,7 @@ export default {
       additionalProperties: false,
       properties: {
         reply: { type: "string" },
-        status: { type: "string", enum: ALLOWED_STATUS },
+        action: { type: "string", enum: ALLOWED_ACTIONS },
         records: {
           type: "array",
           minItems: 0,
@@ -65,18 +67,24 @@ export default {
           }
         }
       },
-      required: ["reply", "status", "records"]
+      required: ["reply", "action", "records"]
     };
 
     const instructions = [
-      "你是一个中文 AI 记账助手，负责与用户对话并整理待确认账单。",
-      "目标：先理解，再给出自然、简短的中文回复；不要直接假装已经保存，除非前端明确告诉你已经保存。",
-      "当用户提供的信息足够形成一笔或多笔账单时，status 必须为 draft，records 返回待确认账单，reply 要用一句话概括并询问是否保存。",
-      "当关键信息缺失（例如没有金额、没有说明收入还是支出）时，status 必须为 clarify，records 返回空数组，reply 只追问最关键的一项。",
-      "当用户并未提供可记账内容时，status 为 none，records 返回空数组，reply 正常回应即可。",
+      "你是一个中文 AI 记账助手，不是单纯的字段解析器。你要像真实聊天一样自然回复用户，同时在需要时协助记账。",
+      "你可以做三类事：1. 正常聊天；2. 根据账本上下文回答收支问题；3. 整理待确认账单。",
+      "回复要自然、简短、像人在聊天，不要每次都机械地重复固定模板。",
+      "action 说明：chat=普通回复或继续追问；draft=产生或更新待确认账单；confirm_pending=用户明确同意保存当前待确认账单；cancel_pending=用户明确表示不要保存当前待确认账单。",
+      "如果用户只是打招呼、闲聊、提问、或信息还不完整，action 必须为 chat，records 必须为空数组。",
+      "如果用户提供的信息足够形成一笔或多笔账单，action 必须为 draft，records 返回待确认账单，reply 要自然地说明你理解到了什么，并提示用户可以回复‘好’或点确认保存。",
+      "如果用户对已有待确认账单说‘好’‘对’‘确认’‘记上’‘保存’‘就这样’等同意语，且存在 pendingDraft，action 必须为 confirm_pending，records 为空数组。",
+      "如果用户对已有待确认账单说‘算了’‘不用了’‘先别记’‘取消’等拒绝语，且存在 pendingDraft，action 必须为 cancel_pending，records 为空数组。",
+      "如果存在 pendingDraft，用户说‘改成58’‘分类改成交通’‘日期改成昨天’等，action 必须为 draft，并返回更新后的完整待确认账单，不要只返回被修改的一部分。",
+      "如果缺少关键信息，例如没有金额，先自然追问最关键的一项，不要猜测，不要创建账单。",
+      "账本问答只能依据 ledgerContext 中提供的数据回答；如果上下文不足，要坦率说明。",
       "只记录用户本人真实承担或真实收到的金额，不要把同一件事中的多个金额拆成重复账单。",
-      "如果用户同时说了总额和自己的份额，例如‘昨天和室友吃火锅我付了126，我自己花63’，只记录一笔‘火锅’支出 63，不得再额外记录 126。",
-      "如果用户说‘我先垫付126，最后自己承担63’，同样只记录 63；除非用户明确要求记录代付或应收款，否则不要记录垫付总额。",
+      "如果用户同时说了总额和自己的份额，例如‘昨天和室友吃火锅我付了126，我自己花63’，只记录一笔‘火锅’支出63，不得再额外记录126。",
+      "如果用户说‘我先垫付126，最后自己承担63’，同样只记录63；除非用户明确要求记录代付或应收款，否则不要记录垫付总额。",
       "如果一句话里有多个互相独立的事件，例如‘午饭28，奶茶16，兼职收入180’，可以返回多条账单。",
       "若同一事件中出现多个金额且无法确定哪个才是用户实际承担金额，优先追问，不要猜测。",
       "type 只能是 expense 或 income。",
@@ -84,9 +92,20 @@ export default {
       `今天日期是 ${now}。请正确解析今天、昨天、前天等相对日期。`,
       "title 保持简短，优先使用事项本身，如‘火锅’‘地铁’‘兼职’；不要把整句话当标题。",
       "不要虚构金额，不要补充用户未表达的账单。",
-      "示例：用户：昨天和室友吃火锅我付了126，我自己花63。输出应只包含一条：火锅，63，expense，餐饮，昨天日期。",
-      "示例：用户：帮我记一笔午饭。由于缺少金额，应追问金额，records 为空。"
+      "示例1：用户：你好。输出 action=chat，reply 可以是自然问候，records=[]。",
+      "示例2：用户：帮我记一笔午饭。因为缺少金额，输出 action=chat，reply 追问金额，records=[]。",
+      "示例3：用户：昨天和室友吃火锅我付了126，我自己花63。输出 action=draft，records 只包含火锅63元。",
+      "示例4：已有 pendingDraft 后，用户：好。输出 action=confirm_pending。",
+      "示例5：已有 pendingDraft 后，用户：把这笔改成交通。输出 action=draft，records 返回修改后的完整草稿。"
     ].join("\n");
+
+    const context = [
+      `今天日期：${now}`,
+      `待确认账单：${pendingDraft.length ? JSON.stringify(pendingDraft) : "无"}`,
+      `账本上下文：${JSON.stringify(ledgerContext)}`,
+      `对话历史：\n${conversation}`,
+      "请根据最后一条用户消息作答。"
+    ].join("\n\n");
 
     let upstream;
     try {
@@ -99,13 +118,13 @@ export default {
         body: JSON.stringify({
           model: env.OPENAI_MODEL || "gpt-4.1-mini",
           instructions,
-          input: `以下是对话历史，请根据最后一条用户消息给出回复和待确认账单：\n\n${conversation}`,
-          temperature: 0,
-          max_output_tokens: 700,
+          input: context,
+          temperature: 0.2,
+          max_output_tokens: 800,
           text: {
             format: {
               type: "json_schema",
-              name: "ledger_chat_reply",
+              name: "ledger_conversation_reply",
               strict: true,
               schema,
             },
@@ -132,9 +151,9 @@ export default {
     }
 
     const records = sanitizeRecords(parsed.records, now);
-    const status = sanitizeStatus(parsed.status, records);
-    const reply = sanitizeReply(parsed.reply, status, records);
-    return json({ reply, status, records, source: "cloud_ai" }, 200, corsHeaders);
+    const action = sanitizeAction(parsed.action, records, pendingDraft);
+    const reply = sanitizeReply(parsed.reply, action, records);
+    return json({ reply, action, records, source: "cloud_ai" }, 200, corsHeaders);
   },
 };
 
@@ -187,10 +206,10 @@ function normalizeIsoDate(value) {
 function normalizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
-    .slice(-12)
+    .slice(-16)
     .map((message) => ({
       role: message?.role === "assistant" ? "assistant" : "user",
-      content: String(message?.content || "").trim().slice(0, 500),
+      content: String(message?.content || "").trim().slice(0, 600),
     }))
     .filter((message) => message.content);
 }
@@ -216,21 +235,45 @@ function sanitizeRecords(records, fallbackDate) {
     .filter((record) => Number.isFinite(record.amount) && record.amount > 0);
 }
 
-function sanitizeStatus(status, records) {
-  if (ALLOWED_STATUS.includes(status)) {
-    return records.length ? "draft" : status;
-  }
-  return records.length ? "draft" : "clarify";
+function sanitizeLedgerContext(context, fallbackDate) {
+  const safe = context && typeof context === "object" ? context : {};
+  const summary = safe.summary && typeof safe.summary === "object" ? safe.summary : {};
+  return {
+    today: fallbackDate,
+    summary: {
+      todayExpense: Number(summary.todayExpense) || 0,
+      monthIncome: Number(summary.monthIncome) || 0,
+      monthExpense: Number(summary.monthExpense) || 0,
+      monthBalance: Number(summary.monthBalance) || 0,
+    },
+    recentRecords: sanitizeRecords(safe.recentRecords, fallbackDate).slice(0, 60),
+  };
 }
 
-function sanitizeReply(reply, status, records) {
+function sanitizeAction(action, records, pendingDraft) {
+  if (!ALLOWED_ACTIONS.includes(action)) {
+    return records.length ? "draft" : "chat";
+  }
+  if (action === "draft") {
+    return records.length ? "draft" : "chat";
+  }
+  if ((action === "confirm_pending" || action === "cancel_pending") && !pendingDraft.length) {
+    return "chat";
+  }
+  return action;
+}
+
+function sanitizeReply(reply, action, records) {
   const text = String(reply || "").trim();
-  if (text) return text.slice(0, 240);
-  if (status === "draft" && records.length) {
-    return `我整理出 ${records.length} 笔待确认账单，确认后再帮你保存。`;
+  if (text) return text.slice(0, 320);
+  if (action === "draft" && records.length) {
+    return `我整理出 ${records.length} 笔待确认账单，你回复“好”我就帮你保存。`;
   }
-  if (status === "clarify") {
-    return "我还差一点信息才能记账，你可以再补充一下金额或用途。";
+  if (action === "confirm_pending") {
+    return "好的，已帮你记上。";
   }
-  return "我在，直接告诉我一笔消费或收入就行。";
+  if (action === "cancel_pending") {
+    return "好的，这次先不保存。";
+  }
+  return "我在，直接和我说就行。";
 }
