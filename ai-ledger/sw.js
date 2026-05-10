@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-ledger-v9';
+const CACHE_NAME = 'ai-ledger-v15';
 const ASSETS = [
   './',
   './index.html',
@@ -6,13 +6,22 @@ const ASSETS = [
   './liquid.css',
   './chat-v2.css',
   './auth.css',
+  './liquid-plus.css',
+  './modal-fix.css',
+  './backgrounds.css',
   './config.js',
   './app-v3.js',
   './chat-actions.js',
+  './ui-motion.js',
+  './background-picker.js',
   './auth.js',
   './sync.js',
   './manifest.webmanifest',
-  './icon.svg'
+  './icon.svg',
+  './liquid-bg.svg',
+  './bg-jade-ocean.svg',
+  './bg-sunset-glow.svg',
+  './bg-dawn-pearl.svg'
 ];
 
 self.addEventListener('install', (event) => {
