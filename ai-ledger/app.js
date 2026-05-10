@@ -1,7 +1,9 @@
 const STORAGE_KEY = "ai-ledger-records-v1";
 const BUDGET_KEY = "ai-ledger-budget-v1";
 const AI_ENDPOINT_KEY = "ai-ledger-ai-endpoint-v1";
+const CHAT_KEY = "ai-ledger-chat-v1";
 const DEFAULT_AI_CONFIG = window.AI_LEDGER_CONFIG || {};
+const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -41,6 +43,17 @@ const seedRecords = [
   { id: "4", title: "兼职", amount: 180, type: "income", category: "工资", date: daysAgoISO(1) },
   { id: "5", title: "超市", amount: 46.5, type: "expense", category: "购物", date: daysAgoISO(2) },
   { id: "6", title: "晚饭", amount: 34, type: "expense", category: "餐饮", date: daysAgoISO(3) },
+];
+
+const initialChat = [
+  {
+    id: "welcome",
+    role: "assistant",
+    content: "你好，我是你的 AI 记账助手。你可以直接说：今天午饭28，或者和我多聊两句，我会先整理成待确认账单再保存。",
+    status: "none",
+    records: [],
+    draftState: "none",
+  },
 ];
 
 function inferCategory(text) {
@@ -126,27 +139,41 @@ function saveAiEndpoint(value) {
   return endpoint;
 }
 
-function normalizeCloudRecord(record) {
+function normalizeRecord(record) {
   const amount = Number(record?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return null;
   return {
-    id: createId(),
+    id: record?.id || createId(),
     title: String(record?.title || "未命名账单").trim().slice(0, 30) || "未命名账单",
     amount,
     type: record?.type === "income" ? "income" : "expense",
-    category: ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"].includes(record?.category)
-      ? record.category
-      : "其他",
+    category: ALLOWED_CATEGORIES.includes(record?.category) ? record.category : "其他",
     date: /^\d{4}-\d{2}-\d{2}$/.test(String(record?.date || "")) ? record.date : todayISO(),
   };
 }
 
 function addRecordIds(list) {
-  return list.map(normalizeCloudRecord).filter(Boolean);
+  return (Array.isArray(list) ? list : []).map(normalizeRecord).filter(Boolean);
+}
+
+function getChatMessages() {
+  const raw = localStorage.getItem(CHAT_KEY);
+  if (!raw) return initialChat;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : initialChat;
+  } catch {
+    return initialChat;
+  }
+}
+
+function saveChatMessages() {
+  localStorage.setItem(CHAT_KEY, JSON.stringify(chatMessages.slice(-40)));
 }
 
 let records = getRecords();
 let budget = getBudget();
+let chatMessages = getChatMessages();
 let currentView = "stats";
 let currentRange = "month";
 let aiEndpoint = getAiEndpoint();
@@ -163,6 +190,8 @@ const els = {
   navBtns: document.querySelectorAll(".nav-btn"),
   rangeChips: document.querySelectorAll(".range-chip"),
   rangeText: document.querySelector("#rangeText"),
+  chatMessages: document.querySelector("#chatMessages"),
+  chatForm: document.querySelector("#chatForm"),
   aiInput: document.querySelector("#aiInput"),
   aiAddBtn: document.querySelector("#aiAddBtn"),
   aiModeBadge: document.querySelector("#aiModeBadge"),
@@ -186,6 +215,7 @@ const els = {
   aiEndpointStatus: document.querySelector("#aiEndpointStatus"),
   saveAiEndpointBtn: document.querySelector("#saveAiEndpointBtn"),
   testAiEndpointBtn: document.querySelector("#testAiEndpointBtn"),
+  clearChatBtn: document.querySelector("#clearChatBtn"),
   exportBtn: document.querySelector("#exportBtn"),
   resetBtn: document.querySelector("#resetBtn"),
   fabAdd: document.querySelector("#fabAdd"),
@@ -210,7 +240,7 @@ function showToast(message) {
 function setAiButtonLoading(isLoading) {
   els.aiAddBtn.disabled = isLoading;
   els.aiAddBtn.classList.toggle("loading", isLoading);
-  els.aiAddBtn.textContent = isLoading ? "AI 识别中..." : "智能识别并添加";
+  els.aiAddBtn.textContent = isLoading ? "…" : "➤";
 }
 
 function updateAiModeUI() {
@@ -219,7 +249,7 @@ function updateAiModeUI() {
   const cloudEnabled = Boolean(aiEndpoint);
   els.aiModeBadge.textContent = cloudEnabled ? "☁️ 云端 AI 识别" : "✨ 本地智能识别";
   els.aiModeHint.textContent = cloudEnabled
-    ? "复杂语句将优先交给云端 AI 解析；连接失败时自动回退到本地识别。"
+    ? "支持多轮对话；云端连接失败时，会自动退回本地识别。"
     : "未配置云端 AI 时，会自动使用本地规则识别。";
   els.aiEndpointStatus.textContent = cloudEnabled
     ? `当前接口：${aiEndpoint}`
@@ -305,12 +335,83 @@ function recordMarkup(record) {
   `;
 }
 
+function draftMarkup(message) {
+  if (!message.records?.length) return "";
+  const title = message.draftState === "confirmed"
+    ? "已保存账单"
+    : message.draftState === "cancelled"
+      ? "已取消"
+      : "待确认账单";
+  const items = message.records.map((record) => `
+    <div class="draft-item">
+      <div class="draft-item-main">
+        <div class="draft-item-title">${record.title}</div>
+        <div class="draft-item-meta">${record.date} · ${record.category}</div>
+      </div>
+      <div class="draft-item-amount ${record.type}">${record.type === "income" ? "+" : "-"}${money(record.amount)}</div>
+    </div>
+  `).join("");
+  const actions = message.draftState === "pending"
+    ? `
+      <div class="draft-actions">
+        <button class="confirm-btn" data-chat-action="confirm" data-message-id="${message.id}">确认记账</button>
+        <button class="cancel-btn" data-chat-action="cancel" data-message-id="${message.id}">先不保存</button>
+      </div>
+    `
+    : "";
+  return `
+    <div class="draft-card ${message.draftState === "confirmed" ? "confirmed" : ""} ${message.draftState === "cancelled" ? "cancelled" : ""}">
+      <div class="draft-head">
+        <span class="draft-title">${title}</span>
+        <span class="draft-state">${message.records.length} 笔</span>
+      </div>
+      <div class="draft-list">${items}</div>
+      ${actions}
+    </div>
+  `;
+}
+
+function renderChat() {
+  els.chatMessages.innerHTML = chatMessages.map((message) => {
+    if (message.role === "user") {
+      return `
+        <div class="chat-row user">
+          <div class="chat-bubble">${escapeHtml(message.content)}</div>
+        </div>
+      `;
+    }
+    return `
+      <div class="chat-row assistant">
+        <div class="chat-response">
+          <div class="chat-bubble">${escapeHtml(message.content)}</div>
+          ${draftMarkup(message)}
+        </div>
+      </div>
+    `;
+  }).join("");
+  els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+}
+
+function renderTyping() {
+  els.chatMessages.insertAdjacentHTML("beforeend", `
+    <div id="typingRow" class="chat-row assistant">
+      <div class="chat-bubble typing"><span></span><span></span><span></span></div>
+    </div>
+  `);
+  els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+}
+
+function removeTyping() {
+  document.querySelector("#typingRow")?.remove();
+}
+
 function renderAI() {
   const stats = getMonthlyStats();
   els.aiTodayExpense.textContent = money(stats.todayExpense);
   els.aiMonthBalance.textContent = money(stats.monthBalance);
   const recent = [...records].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
   els.aiRecentList.innerHTML = recent.map(recordMarkup).join("") || `<p class="subtext">还没有账单，先记一笔吧。</p>`;
+  renderChat();
 }
 
 function renderStats() {
@@ -371,9 +472,7 @@ function renderCharts() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          labels: { color: "#607083" },
-        },
+        legend: { labels: { color: "#607083" } },
       },
       scales: {
         y: {
@@ -484,7 +583,14 @@ function exportRecords() {
   URL.revokeObjectURL(url);
 }
 
-async function parseWithCloudAI(text) {
+function getConversationPayload() {
+  return chatMessages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .slice(-12)
+    .map((message) => ({ role: message.role, content: message.content }));
+}
+
+async function chatWithCloudAI() {
   if (!aiEndpoint) return null;
 
   const controller = new AbortController();
@@ -495,7 +601,7 @@ async function parseWithCloudAI(text) {
     const response = await fetch(aiEndpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, now: todayISO() }),
+      body: JSON.stringify({ messages: getConversationPayload(), now: todayISO() }),
       signal: controller.signal,
     });
 
@@ -504,26 +610,96 @@ async function parseWithCloudAI(text) {
     }
 
     const data = await response.json();
-    return addRecordIds(Array.isArray(data.records) ? data.records : []);
+    return {
+      reply: String(data.reply || "").trim(),
+      status: data.status || "none",
+      records: addRecordIds(data.records),
+      source: "cloud_ai",
+    };
   } finally {
     window.clearTimeout(timer);
   }
 }
 
-async function parseSmartRecords(text) {
+function localChatFallback(text) {
+  const parsed = parseNaturalLanguage(text);
+  if (parsed.length) {
+    return {
+      reply: `我先按本地规则整理出 ${parsed.length} 笔待确认账单，确认后再保存。`,
+      status: "draft",
+      records: parsed,
+      source: "local",
+    };
+  }
+  return {
+    reply: "我还没听到完整的金额。你可以这样说：今天午饭28。",
+    status: "clarify",
+    records: [],
+    source: "local",
+  };
+}
+
+async function askAssistant(text) {
+  chatMessages.push({ id: createId(), role: "user", content: text });
+  saveChatMessages();
+  renderChat();
+  renderTyping();
+  setAiButtonLoading(true);
+
+  let result;
   if (aiEndpoint) {
     try {
-      const cloudRecords = await parseWithCloudAI(text);
-      if (cloudRecords?.length) {
-        return { records: cloudRecords, source: "cloud_ai" };
-      }
+      result = await chatWithCloudAI();
     } catch (error) {
       console.warn("Cloud AI failed, falling back to local parser:", error);
       showToast("云端 AI 暂时不可用，已自动改用本地识别");
     }
   }
 
-  return { records: parseNaturalLanguage(text), source: "local" };
+  if (!result) {
+    result = localChatFallback(text);
+  }
+
+  removeTyping();
+  setAiButtonLoading(false);
+  chatMessages.push({
+    id: createId(),
+    role: "assistant",
+    content: result.reply || "我在。",
+    status: result.status,
+    records: result.records,
+    draftState: result.records.length ? "pending" : "none",
+    source: result.source,
+  });
+  saveChatMessages();
+  renderAI();
+}
+
+function confirmDraft(messageId) {
+  const message = chatMessages.find((item) => item.id === messageId);
+  if (!message || message.draftState !== "pending" || !message.records?.length) return;
+  records = [...message.records.map((record) => ({ ...record, id: createId() })), ...records];
+  message.draftState = "confirmed";
+  saveRecords(records);
+  saveChatMessages();
+  renderAll();
+  showToast(`已保存 ${message.records.length} 条账单`);
+}
+
+function cancelDraft(messageId) {
+  const message = chatMessages.find((item) => item.id === messageId);
+  if (!message || message.draftState !== "pending") return;
+  message.draftState = "cancelled";
+  saveChatMessages();
+  renderChat();
+  showToast("已取消这次记账");
+}
+
+function clearChat() {
+  chatMessages = [...initialChat];
+  saveChatMessages();
+  renderChat();
+  showToast("已清空聊天记录");
 }
 
 async function testAiEndpoint() {
@@ -539,12 +715,17 @@ async function testAiEndpoint() {
   els.testAiEndpointBtn.textContent = "测试中...";
 
   try {
-    const result = await parseWithCloudAI("今天测试消费1元");
-    if (result && result.length) {
-      showToast("AI 接口连接成功");
-    } else {
-      showToast("接口可达，但没有返回账单");
-    }
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "今天测试消费1元" }],
+        now: todayISO(),
+      }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    showToast(data?.records?.length ? "AI 接口连接成功" : "接口可达，但未返回账单");
   } catch (error) {
     showToast("AI 接口连接失败");
   } finally {
@@ -552,6 +733,15 @@ async function testAiEndpoint() {
     els.testAiEndpointBtn.disabled = false;
     els.testAiEndpointBtn.textContent = "测试连接";
   }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 els.navBtns.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
@@ -568,29 +758,31 @@ els.sampleBtns.forEach((button) => button.addEventListener("click", () => {
   els.aiInput.focus();
 }));
 
-els.aiAddBtn.addEventListener("click", async () => {
+els.chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
   const text = els.aiInput.value.trim();
   if (!text) {
-    showToast("先输入一条账单内容吧");
+    showToast("先输入一句话吧");
     return;
   }
-
-  setAiButtonLoading(true);
-  const result = await parseSmartRecords(text);
-  setAiButtonLoading(false);
-
-  if (!result.records.length) {
-    showToast("我没识别到账单金额，试试：今天午饭28，打车12");
-    return;
-  }
-
-  records = [...result.records, ...records];
-  saveRecords(records);
   els.aiInput.value = "";
-  renderAll();
-  showToast(result.source === "cloud_ai"
-    ? `AI 已识别并添加 ${result.records.length} 条账单`
-    : `已本地识别并添加 ${result.records.length} 条账单`);
+  await askAssistant(text);
+});
+
+els.aiInput.addEventListener("input", () => {
+  els.aiInput.style.height = "auto";
+  els.aiInput.style.height = `${Math.min(els.aiInput.scrollHeight, 120)}px`;
+});
+
+els.chatMessages.addEventListener("click", (event) => {
+  const actionButton = event.target.closest("[data-chat-action]");
+  if (!actionButton) return;
+  if (actionButton.dataset.chatAction === "confirm") {
+    confirmDraft(actionButton.dataset.messageId);
+  }
+  if (actionButton.dataset.chatAction === "cancel") {
+    cancelDraft(actionButton.dataset.messageId);
+  }
 });
 
 els.fabAdd.addEventListener("click", openSheet);
@@ -617,6 +809,7 @@ els.saveAiEndpointBtn.addEventListener("click", () => {
 });
 
 els.testAiEndpointBtn.addEventListener("click", testAiEndpoint);
+els.clearChatBtn.addEventListener("click", clearChat);
 els.exportBtn.addEventListener("click", exportRecords);
 els.resetBtn.addEventListener("click", () => {
   if (!window.confirm("确定要清空全部账单吗？")) return;
