@@ -7,57 +7,52 @@
   <title>AI 记账</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css" />
-  <link rel="stylesheet" href="./chat.css" />
+  <link rel="stylesheet" href="./styles.css?v=20260510-3" />
+  <link rel="stylesheet" href="./chat.css?v=20260510-3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="ambient ambient-1"></div>
   <div class="ambient ambient-2"></div>
   <div class="ambient ambient-3"></div>
+  <div class="ambient ambient-4"></div>
 
   <main class="app-shell">
     <section id="view-ai" class="view">
-      <header class="page-header reveal chat-header">
+      <header class="page-header chat-header reveal">
         <div>
           <p class="eyebrow">AI 记账助手</p>
           <h1>像聊天一样记账</h1>
-          <p class="subtext">随口说一句，我会先整理成待确认账单，再由你决定是否保存。</p>
+          <p class="subtext">你可以记账、追问、改账，也可以直接问我这个月花了多少。</p>
         </div>
         <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
       </header>
 
       <section class="glass-card chat-shell reveal delay-1">
+        <div class="chat-summary-strip">
+          <article class="summary-chip">
+            <span>今日支出</span>
+            <strong id="aiTodayExpense">¥0.00</strong>
+          </article>
+          <article class="summary-chip">
+            <span>本月结余</span>
+            <strong id="aiMonthBalance">¥0.00</strong>
+          </article>
+        </div>
+
         <div id="chatMessages" class="chat-messages"></div>
+
         <div class="quick-tags chat-tags">
           <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">一句话记多笔</button>
           <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">复杂分摊</button>
-          <button class="tag-btn sample-btn" data-sample="帮我记一笔午饭">让 AI 追问</button>
+          <button class="tag-btn sample-btn" data-sample="我这个月餐饮花了多少">问我账本</button>
         </div>
+
         <form id="chatForm" class="chat-composer">
-          <textarea id="aiInput" rows="1" placeholder="说点什么，例如：今天午饭28"></textarea>
+          <textarea id="aiInput" rows="1" placeholder="和我说点什么，例如：今天午饭28"></textarea>
           <button id="aiAddBtn" class="send-btn" type="submit" aria-label="发送">➤</button>
         </form>
         <p id="aiModeHint" class="helper-text chat-hint">未配置云端 AI 时，会自动使用本地规则识别。</p>
-      </section>
-
-      <section class="mini-grid reveal delay-2">
-        <article class="glass-card mini-stat">
-          <span>今日支出</span>
-          <strong id="aiTodayExpense">¥0.00</strong>
-        </article>
-        <article class="glass-card mini-stat">
-          <span>本月结余</span>
-          <strong id="aiMonthBalance">¥0.00</strong>
-        </article>
-      </section>
-
-      <section class="glass-card reveal delay-3">
-        <div class="section-head">
-          <h2>最近账单</h2>
-          <span class="soft-label">刚刚更新</span>
-        </div>
-        <div id="aiRecentList" class="record-list compact"></div>
       </section>
     </section>
 
@@ -150,7 +145,7 @@
       <header class="page-header reveal">
         <p class="eyebrow">设置中心</p>
         <h1>应用设置</h1>
-        <p class="subtext">先把本地体验打磨好，后面再接入登录和云端同步。</p>
+        <p class="subtext">把本地体验先打磨好，后面再接入登录和云端同步。</p>
       </header>
 
       <section class="glass-card reveal delay-1">
@@ -230,7 +225,7 @@
   </section>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js"></script>
-  <script src="./app.js"></script>
+  <script src="./config.js?v=20260510-3"></script>
+  <script src="./app.js?v=20260510-3"></script>
 </body>
 </html>
