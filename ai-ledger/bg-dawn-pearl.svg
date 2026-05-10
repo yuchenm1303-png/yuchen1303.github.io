@@ -1,0 +1,47 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="88" y1="42" x2="990" y2="1872" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7EAF7"/>
+      <stop offset="0.42" stop-color="#E9F7FF"/>
+      <stop offset="0.72" stop-color="#D8F5F1"/>
+      <stop offset="1" stop-color="#F8F1FF"/>
+    </linearGradient>
+    <radialGradient id="pink" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(234 330) rotate(28) scale(560 460)">
+      <stop stop-color="#FFB7D7" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#FFB7D7" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(856 544) rotate(132) scale(560 500)">
+      <stop stop-color="#A7D8FF" stop-opacity="0.76"/>
+      <stop offset="1" stop-color="#A7D8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mint" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(734 1430) rotate(144) scale(600 560)">
+      <stop stop-color="#A7F7E6" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#A7F7E6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ribbonA" x1="-144" y1="476" x2="1218" y2="1126" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.34" stop-color="#FFFFFF" stop-opacity="0.56"/>
+      <stop offset="0.68" stop-color="#CFF4FF" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonB" x1="1206" y1="348" x2="-120" y2="1640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.30" stop-color="#FFD8EC" stop-opacity="0.34"/>
+      <stop offset="0.70" stop-color="#D7FFF5" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur130" x="-280" y="-280" width="1640" height="2480" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="130"/></filter>
+    <filter id="blur76" x="-180" y="-180" width="1440" height="2280" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="76"/></filter>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#base)"/>
+  <g filter="url(#blur130)">
+    <ellipse cx="234" cy="330" rx="470" ry="410" fill="url(#pink)"/>
+    <ellipse cx="856" cy="544" rx="470" ry="430" fill="url(#blue)"/>
+    <ellipse cx="734" cy="1430" rx="520" ry="490" fill="url(#mint)"/>
+  </g>
+  <g filter="url(#blur76)">
+    <path d="M-170 534C142 316 314 408 488 734C662 1060 848 1120 1240 778" stroke="url(#ribbonA)" stroke-width="176" stroke-linecap="round"/>
+    <path d="M1218 396C938 524 848 740 678 1006C508 1272 334 1398 -148 1262" stroke="url(#ribbonB)" stroke-width="154" stroke-linecap="round"/>
+    <path d="M-172 1510C146 1320 350 1408 544 1604C738 1800 934 1828 1238 1642" stroke="url(#ribbonA)" stroke-width="138" stroke-linecap="round"/>
+  </g>
+</svg>
