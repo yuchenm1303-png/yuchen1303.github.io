@@ -1,0 +1,53 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="82" y1="54" x2="992" y2="1860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#170A18"/>
+      <stop offset="0.38" stop-color="#341127"/>
+      <stop offset="0.72" stop-color="#351827"/>
+      <stop offset="1" stop-color="#120A16"/>
+    </linearGradient>
+    <radialGradient id="coral" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(236 334) rotate(28) scale(548 460)">
+      <stop stop-color="#FF8C6B" stop-opacity="0.64"/>
+      <stop offset="1" stop-color="#FF8C6B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="rose" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(860 548) rotate(130) scale(570 520)">
+      <stop stop-color="#FF5E9E" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF5E9E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gold" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(712 1440) rotate(140) scale(610 570)">
+      <stop stop-color="#FFC56A" stop-opacity="0.44"/>
+      <stop offset="1" stop-color="#FFC56A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ribbonA" x1="-140" y1="492" x2="1218" y2="1128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE2D5" stop-opacity="0"/>
+      <stop offset="0.33" stop-color="#FFD6CB" stop-opacity="0.24"/>
+      <stop offset="0.68" stop-color="#FF9BBE" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFE2D5" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonB" x1="1210" y1="372" x2="-126" y2="1632" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE5D8" stop-opacity="0"/>
+      <stop offset="0.30" stop-color="#FFB39F" stop-opacity="0.18"/>
+      <stop offset="0.70" stop-color="#FFD58A" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFE5D8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur130" x="-280" y="-280" width="1640" height="2480" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="130"/></filter>
+    <filter id="blur76" x="-180" y="-180" width="1440" height="2280" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="76"/></filter>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#base)"/>
+  <g filter="url(#blur130)">
+    <ellipse cx="236" cy="334" rx="462" ry="402" fill="url(#coral)"/>
+    <ellipse cx="860" cy="548" rx="476" ry="434" fill="url(#rose)"/>
+    <ellipse cx="712" cy="1440" rx="520" ry="488" fill="url(#gold)"/>
+  </g>
+  <g filter="url(#blur76)">
+    <path d="M-170 546C144 318 314 418 488 742C662 1066 850 1118 1238 786" stroke="url(#ribbonA)" stroke-width="174" stroke-linecap="round"/>
+    <path d="M1218 402C944 528 852 742 682 1004C512 1266 332 1398 -148 1262" stroke="url(#ribbonB)" stroke-width="154" stroke-linecap="round"/>
+    <path d="M-168 1514C150 1328 350 1412 544 1608C738 1804 934 1830 1238 1648" stroke="url(#ribbonA)" stroke-width="138" stroke-linecap="round"/>
+  </g>
+  <g fill="white" fill-opacity="0.46">
+    <circle cx="142" cy="214" r="1.8"/><circle cx="336" cy="292" r="2.2"/><circle cx="612" cy="184" r="1.6"/>
+    <circle cx="918" cy="268" r="2.3"/><circle cx="212" cy="744" r="1.8"/><circle cx="552" cy="806" r="1.7"/>
+    <circle cx="856" cy="716" r="2.4"/><circle cx="124" cy="1108" r="2.1"/><circle cx="438" cy="1170" r="1.8"/>
+    <circle cx="772" cy="1264" r="2.2"/><circle cx="962" cy="1442" r="1.7"/><circle cx="224" cy="1716" r="2.2"/>
+  </g>
+</svg>
