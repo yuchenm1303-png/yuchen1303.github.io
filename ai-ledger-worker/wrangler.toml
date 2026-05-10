@@ -2,6 +2,9 @@ name = "ai-ledger-parser"
 main = "src/index.js"
 compatibility_date = "2026-05-10"
 
+[ai]
+binding = "AI"
+
 [vars]
-OPENAI_MODEL = "gpt-4.1-mini"
+AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 ALLOWED_ORIGINS = "https://yuchenm1303-png.github.io,https://localhost"
