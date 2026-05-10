@@ -6,13 +6,15 @@
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
   min-height: 100dvh;
   background: #070a18;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
 
 .scene-backdrop {
@@ -59,16 +61,10 @@ body::after {
 }
 
 .app-shell {
-  height: 100dvh;
   min-height: 100dvh;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.app-shell::-webkit-scrollbar {
-  display: none;
+  height: auto;
+  overflow: visible;
+  touch-action: pan-y;
 }
 
 .glass-card,
@@ -95,8 +91,8 @@ select,
 .delete-btn,
 .ai-badge,
 .chat-row.assistant .chat-bubble {
-  backdrop-filter: blur(28px) saturate(180%) contrast(1.08);
-  -webkit-backdrop-filter: blur(28px) saturate(180%) contrast(1.08);
+  backdrop-filter: blur(22px) saturate(170%) contrast(1.06);
+  -webkit-backdrop-filter: blur(22px) saturate(170%) contrast(1.06);
 }
 
 .glass-card::before,
@@ -121,8 +117,8 @@ select,
 .ai-badge::before,
 .chat-row.assistant .chat-bubble::before {
   background:
-    radial-gradient(circle at var(--shine-x, 18%) var(--shine-y, 0%), rgba(255,255,255,.28), transparent 28%),
-    linear-gradient(135deg, rgba(255,255,255,.20), rgba(255,255,255,0) 28%, rgba(255,255,255,0) 72%, rgba(190,214,255,.12));
+    radial-gradient(circle at var(--shine-x, 18%) var(--shine-y, 0%), rgba(255,255,255,.24), transparent 28%),
+    linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,0) 28%, rgba(255,255,255,0) 72%, rgba(190,214,255,.10));
 }
 
 body[data-bg="aurora"] {
@@ -272,6 +268,76 @@ body[data-bg="dawn"] .range-chip.active {
 
 .bg-option.active span:last-child {
   color: var(--ink);
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .scene-backdrop {
+    transform: none;
+  }
+
+  .scene-backdrop::before {
+    filter: blur(22px);
+  }
+
+  .ambient {
+    display: none;
+  }
+
+  .glass-card,
+  .bottom-nav,
+  .add-sheet,
+  .auth-sheet {
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+  }
+
+  .account-row,
+  .summary-chip,
+  .record-item,
+  .draft-card,
+  .draft-item,
+  textarea,
+  input,
+  select,
+  .tag-btn,
+  .range-chip,
+  .ghost-btn,
+  .mini-ghost-btn,
+  .summary-box,
+  .budget-pill,
+  .roadmap span,
+  .auth-tab,
+  .icon-btn,
+  .delete-btn,
+  .ai-badge,
+  .chat-row.assistant .chat-bubble {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .glass-card::before,
+  .bottom-nav::before,
+  .add-sheet::before,
+  .auth-sheet::before,
+  .account-row::before,
+  .summary-chip::before,
+  .record-item::before,
+  .draft-card::before,
+  .draft-item::before,
+  .tag-btn::before,
+  .range-chip::before,
+  .ghost-btn::before,
+  .mini-ghost-btn::before,
+  .summary-box::before,
+  .budget-pill::before,
+  .roadmap span::before,
+  .auth-tab::before,
+  .icon-btn::before,
+  .delete-btn::before,
+  .ai-badge::before,
+  .chat-row.assistant .chat-bubble::before {
+    opacity: .45;
+  }
 }
 
 @media (max-width: 390px) {
