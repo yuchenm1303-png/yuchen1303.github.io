@@ -21,6 +21,13 @@ function sameMonth(dateStr) {
   return now.getFullYear() === d.getFullYear() && now.getMonth() === d.getMonth();
 }
 
+function formatDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}.${m}.${d}`;
+}
+
 const seedRecords = [
   { id: "1", title: "午饭", amount: 28, type: "expense", category: "餐饮", date: todayISO() },
   { id: "2", title: "奶茶", amount: 16, type: "expense", category: "饮品", date: todayISO() },
@@ -81,48 +88,72 @@ function getRecords() {
   return raw ? JSON.parse(raw) : seedRecords;
 }
 
-function saveRecords(records) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+function saveRecords(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 }
 
 function getBudget() {
   const raw = localStorage.getItem(BUDGET_KEY);
-  return raw ? Number(raw) : 1200;
+  return raw ? Number(raw) : 3000;
 }
 
-function saveBudget(budget) {
-  localStorage.setItem(BUDGET_KEY, String(budget));
+function saveBudget(value) {
+  localStorage.setItem(BUDGET_KEY, String(value));
 }
 
 let records = getRecords();
 let budget = getBudget();
+let currentView = "stats";
+let currentRange = "month";
 let trendChart;
 let categoryChart;
 
 const els = {
-  monthBalance: document.querySelector("#monthBalance"),
-  todayExpense: document.querySelector("#todayExpense"),
-  monthExpense: document.querySelector("#monthExpense"),
-  monthIncome: document.querySelector("#monthIncome"),
-  budgetValue: document.querySelector("#budgetValue"),
+  views: {
+    ai: document.querySelector("#view-ai"),
+    stats: document.querySelector("#view-stats"),
+    list: document.querySelector("#view-list"),
+    settings: document.querySelector("#view-settings"),
+  },
+  navBtns: document.querySelectorAll(".nav-btn"),
+  rangeChips: document.querySelectorAll(".range-chip"),
+  rangeText: document.querySelector("#rangeText"),
   aiInput: document.querySelector("#aiInput"),
   aiAddBtn: document.querySelector("#aiAddBtn"),
-  budgetInput: document.querySelector("#budgetInput"),
+  sampleBtns: document.querySelectorAll(".sample-btn"),
+  aiTodayExpense: document.querySelector("#aiTodayExpense"),
+  aiMonthBalance: document.querySelector("#aiMonthBalance"),
+  aiRecentList: document.querySelector("#aiRecentList"),
+  summaryBalance: document.querySelector("#summaryBalance"),
+  summaryIncome: document.querySelector("#summaryIncome"),
+  summaryExpense: document.querySelector("#summaryExpense"),
+  metricIncome: document.querySelector("#metricIncome"),
+  metricExpense: document.querySelector("#metricExpense"),
+  budgetBadge: document.querySelector("#budgetBadge"),
   budgetProgress: document.querySelector("#budgetProgress"),
   budgetText: document.querySelector("#budgetText"),
+  recordCount: document.querySelector("#recordCount"),
+  recordList: document.querySelector("#recordList"),
+  budgetInput: document.querySelector("#budgetInput"),
+  exportBtn: document.querySelector("#exportBtn"),
+  resetBtn: document.querySelector("#resetBtn"),
+  fabAdd: document.querySelector("#fabAdd"),
+  sheetMask: document.querySelector("#sheetMask"),
+  addSheet: document.querySelector("#addSheet"),
+  closeSheetBtn: document.querySelector("#closeSheetBtn"),
   manualTitle: document.querySelector("#manualTitle"),
   manualAmount: document.querySelector("#manualAmount"),
   manualType: document.querySelector("#manualType"),
   manualCategory: document.querySelector("#manualCategory"),
   manualAddBtn: document.querySelector("#manualAddBtn"),
-  recordList: document.querySelector("#recordList"),
   toast: document.querySelector("#toast"),
 };
 
 function showToast(message) {
   els.toast.textContent = message;
   els.toast.classList.add("show");
-  window.setTimeout(() => els.toast.classList.remove("show"), 2200);
+  window.clearTimeout(showToast.timer);
+  showToast.timer = window.setTimeout(() => els.toast.classList.remove("show"), 2200);
 }
 
 function getMonthlyStats() {
@@ -131,6 +162,41 @@ function getMonthlyStats() {
   const monthIncome = monthRecords.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
   const todayExpense = records.filter((r) => r.date === todayISO() && r.type === "expense").reduce((s, r) => s + r.amount, 0);
   return { monthExpense, monthIncome, todayExpense, monthBalance: monthIncome - monthExpense };
+}
+
+function getRangeBounds() {
+  const now = new Date();
+  let start;
+  let end;
+  if (currentRange === "lastMonth") {
+    start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    end = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else if (currentRange === "30days") {
+    start = new Date(now);
+    start.setDate(now.getDate() - 29);
+    end = new Date(now);
+  } else if (currentRange === "year") {
+    start = new Date(now.getFullYear(), 0, 1);
+    end = new Date(now.getFullYear(), 11, 31);
+  } else {
+    start = new Date(now.getFullYear(), now.getMonth(), 1);
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+  return { start, end };
+}
+
+function getFilteredRecords() {
+  const { start, end } = getRangeBounds();
+  return records.filter((record) => {
+    const d = new Date(record.date);
+    return d >= start && d <= end;
+  });
+}
+
+function summarize(list) {
+  const income = list.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
+  const expense = list.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
+  return { income, expense, balance: income - expense };
 }
 
 function buildTrendData() {
@@ -146,47 +212,63 @@ function buildTrendData() {
   return { labels, expenseData, incomeData };
 }
 
-function buildCategoryData() {
+function buildCategoryData(list) {
   const map = {};
-  records.filter((r) => r.type === "expense" && sameMonth(r.date)).forEach((r) => {
+  list.filter((r) => r.type === "expense").forEach((r) => {
     map[r.category] = (map[r.category] || 0) + r.amount;
   });
   return { labels: Object.keys(map), data: Object.values(map) };
 }
 
-function renderStats() {
-  const stats = getMonthlyStats();
-  els.monthBalance.textContent = money(stats.monthBalance);
-  els.todayExpense.textContent = money(stats.todayExpense);
-  els.monthExpense.textContent = money(stats.monthExpense);
-  els.monthIncome.textContent = money(stats.monthIncome);
-  els.budgetValue.textContent = money(budget);
-  els.budgetInput.value = budget;
-  const rate = budget > 0 ? Math.min((stats.monthExpense / budget) * 100, 100) : 0;
-  els.budgetProgress.style.width = `${rate}%`;
-  els.budgetText.textContent = `已使用 ${rate.toFixed(1)}% · 剩余 ${money(Math.max(budget - stats.monthExpense, 0))}`;
-}
-
-function renderRecords() {
-  const recent = [...records].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
-  els.recordList.innerHTML = recent.map((record) => `
-    <div class="record-item">
+function recordMarkup(record) {
+  return `
+    <article class="record-item">
       <div class="record-main">
         <div class="record-title">${record.title}</div>
         <div class="record-meta">${record.date} · ${record.category}</div>
       </div>
       <div class="record-side">
-        <span class="amount ${record.type === "income" ? "income" : ""}">${record.type === "income" ? "+" : "-"}${money(record.amount)}</span>
+        <span class="record-amount ${record.type}">${record.type === "income" ? "+" : "-"}${money(record.amount)}</span>
         <button class="delete-btn" data-id="${record.id}" aria-label="删除">×</button>
       </div>
-    </div>
-  `).join("");
+    </article>
+  `;
+}
+
+function renderAI() {
+  const stats = getMonthlyStats();
+  els.aiTodayExpense.textContent = money(stats.todayExpense);
+  els.aiMonthBalance.textContent = money(stats.monthBalance);
+  const recent = [...records].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+  els.aiRecentList.innerHTML = recent.map(recordMarkup).join("") || `<p class="subtext">还没有账单，先记一笔吧。</p>`;
+}
+
+function renderStats() {
+  const filtered = getFilteredRecords();
+  const stats = summarize(filtered);
+  const { start, end } = getRangeBounds();
+  const rate = budget > 0 ? Math.min((stats.expense / budget) * 100, 100) : 0;
+  els.rangeText.textContent = `${formatDate(start)} - ${formatDate(end)}`;
+  els.summaryBalance.textContent = money(stats.balance);
+  els.summaryIncome.textContent = `+${money(stats.income)}`;
+  els.summaryExpense.textContent = `-${money(stats.expense)}`;
+  els.metricIncome.textContent = money(stats.income);
+  els.metricExpense.textContent = money(stats.expense);
+  els.budgetBadge.textContent = money(budget);
+  els.budgetProgress.style.width = `${rate}%`;
+  els.budgetText.textContent = `预算已使用 ${rate.toFixed(0)}%`;
+  els.budgetInput.value = budget;
+}
+
+function renderList() {
+  const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  els.recordCount.textContent = `${sorted.length} 条`;
+  els.recordList.innerHTML = sorted.map(recordMarkup).join("") || `<p class="subtext">还没有账单。</p>`;
 }
 
 function renderCharts() {
   const trend = buildTrendData();
-  const category = buildCategoryData();
-
+  const category = buildCategoryData(getFilteredRecords());
   if (trendChart) trendChart.destroy();
   if (categoryChart) categoryChart.destroy();
 
@@ -195,15 +277,45 @@ function renderCharts() {
     data: {
       labels: trend.labels,
       datasets: [
-        { label: "支出", data: trend.expenseData, borderColor: "#111827", backgroundColor: "rgba(17,24,39,.12)", tension: .35, fill: true },
-        { label: "收入", data: trend.incomeData, borderColor: "#9ca3af", backgroundColor: "rgba(156,163,175,.12)", tension: .35, fill: true },
+        {
+          label: "支出",
+          data: trend.expenseData,
+          borderColor: "#0b8f8b",
+          backgroundColor: "rgba(11,143,139,.18)",
+          tension: .35,
+          fill: true,
+          pointRadius: 2,
+        },
+        {
+          label: "收入",
+          data: trend.incomeData,
+          borderColor: "#86ece2",
+          backgroundColor: "rgba(134,236,226,.20)",
+          tension: .35,
+          fill: true,
+          pointRadius: 2,
+        },
       ],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: true } },
-      scales: { y: { beginAtZero: true } },
+      plugins: {
+        legend: {
+          labels: { color: "#607083" },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { color: "#607083" },
+          grid: { color: "rgba(16,32,50,.08)" },
+        },
+        x: {
+          ticks: { color: "#607083" },
+          grid: { display: false },
+        },
+      },
     },
   });
 
@@ -213,47 +325,54 @@ function renderCharts() {
       labels: category.labels,
       datasets: [{
         data: category.data,
-        backgroundColor: ["#111827", "#374151", "#6b7280", "#9ca3af", "#d1d5db", "#4b5563", "#737373"],
+        backgroundColor: ["#086a73", "#0b8f8b", "#86ece2", "#6ec7f4", "#a9efe7", "#53b9b3", "#b8e5ff"],
+        borderWidth: 0,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom" } },
+      cutout: "64%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: { color: "#607083", boxWidth: 12, padding: 16 },
+        },
+      },
     },
   });
 }
 
-function render() {
+function renderAll() {
+  renderAI();
   renderStats();
-  renderRecords();
-  renderCharts();
+  renderList();
+  if (currentView === "stats") renderCharts();
 }
 
-els.aiAddBtn.addEventListener("click", () => {
-  const parsed = parseNaturalLanguage(els.aiInput.value);
-  if (!parsed.length) {
-    showToast("我没识别到账单金额，试试：今天午饭28，打车12");
-    return;
+function switchView(name) {
+  currentView = name;
+  Object.entries(els.views).forEach(([key, el]) => el.classList.toggle("active", key === name));
+  els.navBtns.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
+  if (name === "stats") {
+    renderStats();
+    requestAnimationFrame(renderCharts);
   }
-  records = [...parsed, ...records];
-  saveRecords(records);
-  els.aiInput.value = "";
-  render();
-  showToast(`已识别并添加 ${parsed.length} 条账单`);
-});
+  if (name === "ai") renderAI();
+  if (name === "list") renderList();
+}
 
-els.aiInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") els.aiAddBtn.click();
-});
+function openSheet() {
+  document.body.classList.add("sheet-open");
+  els.addSheet.setAttribute("aria-hidden", "false");
+}
 
-els.budgetInput.addEventListener("input", () => {
-  budget = Math.max(Number(els.budgetInput.value) || 0, 0);
-  saveBudget(budget);
-  renderStats();
-});
+function closeSheet() {
+  document.body.classList.remove("sheet-open");
+  els.addSheet.setAttribute("aria-hidden", "true");
+}
 
-els.manualAddBtn.addEventListener("click", () => {
+function addManualRecord() {
   const title = els.manualTitle.value.trim();
   const amount = Number(els.manualAmount.value);
   if (!title || !Number.isFinite(amount) || amount <= 0) {
@@ -271,20 +390,84 @@ els.manualAddBtn.addEventListener("click", () => {
   saveRecords(records);
   els.manualTitle.value = "";
   els.manualAmount.value = "";
-  render();
+  closeSheet();
+  renderAll();
   showToast("已添加一条账单");
+}
+
+function removeRecord(id) {
+  records = records.filter((record) => record.id !== id);
+  saveRecords(records);
+  renderAll();
+  showToast("已删除该账单");
+}
+
+function exportRecords() {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "ai-ledger-records.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+els.navBtns.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
+
+els.rangeChips.forEach((button) => button.addEventListener("click", () => {
+  currentRange = button.dataset.range;
+  els.rangeChips.forEach((item) => item.classList.toggle("active", item === button));
+  renderStats();
+  renderCharts();
+}));
+
+els.sampleBtns.forEach((button) => button.addEventListener("click", () => {
+  els.aiInput.value = button.dataset.sample;
+  els.aiInput.focus();
+}));
+
+els.aiAddBtn.addEventListener("click", () => {
+  const parsed = parseNaturalLanguage(els.aiInput.value);
+  if (!parsed.length) {
+    showToast("我没识别到账单金额，试试：今天午饭28，打车12");
+    return;
+  }
+  records = [...parsed, ...records];
+  saveRecords(records);
+  els.aiInput.value = "";
+  renderAll();
+  showToast(`已识别并添加 ${parsed.length} 条账单`);
 });
 
-els.recordList.addEventListener("click", (event) => {
+els.fabAdd.addEventListener("click", openSheet);
+els.closeSheetBtn.addEventListener("click", closeSheet);
+els.sheetMask.addEventListener("click", closeSheet);
+els.manualAddBtn.addEventListener("click", addManualRecord);
+
+[els.recordList, els.aiRecentList].forEach((list) => list.addEventListener("click", (event) => {
   const button = event.target.closest("[data-id]");
   if (!button) return;
-  records = records.filter((record) => record.id !== button.dataset.id);
+  removeRecord(button.dataset.id);
+}));
+
+els.budgetInput.addEventListener("input", () => {
+  budget = Math.max(Number(els.budgetInput.value) || 0, 0);
+  saveBudget(budget);
+  renderStats();
+});
+
+els.exportBtn.addEventListener("click", exportRecords);
+els.resetBtn.addEventListener("click", () => {
+  if (!window.confirm("确定要清空全部账单吗？")) return;
+  records = [];
   saveRecords(records);
-  render();
+  renderAll();
+  showToast("已清空全部账单");
 });
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
 }
 
-render();
+renderAll();
+switchView("stats");
