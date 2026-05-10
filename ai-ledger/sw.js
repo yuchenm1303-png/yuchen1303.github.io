@@ -1,12 +1,15 @@
-const CACHE_NAME = 'ai-ledger-v6';
+const CACHE_NAME = 'ai-ledger-v8';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './liquid.css',
   './chat-v2.css',
+  './auth.css',
   './config.js',
-  './app-v2.js',
+  './app-v3.js',
+  './chat-actions.js',
+  './auth.js',
   './manifest.webmanifest',
   './icon.svg'
 ];
