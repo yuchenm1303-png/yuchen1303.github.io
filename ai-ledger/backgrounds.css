@@ -1,0 +1,281 @@
+:root {
+  --scene-image: url("./liquid-bg.svg");
+  --scene-overlay: linear-gradient(rgba(5, 8, 22, .10), rgba(5, 8, 22, .10));
+  --scene-base: linear-gradient(145deg, #070a18 0%, #0d1434 52%, #17113a 100%);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  background: #070a18;
+  overflow: hidden;
+}
+
+.scene-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    var(--scene-overlay),
+    var(--scene-image) center / cover no-repeat,
+    var(--scene-base);
+  transform: scale(1.04);
+}
+
+.scene-backdrop::before {
+  content: "";
+  position: absolute;
+  inset: -8%;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255,255,255,.18), transparent 22%),
+    radial-gradient(circle at 78% 14%, rgba(180,210,255,.16), transparent 24%),
+    radial-gradient(circle at 75% 78%, rgba(116,231,255,.12), transparent 28%),
+    radial-gradient(circle at 20% 84%, rgba(191,135,255,.12), transparent 26%);
+  filter: blur(30px);
+  opacity: .88;
+}
+
+.scene-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255,255,255,.16), transparent 34%),
+    linear-gradient(180deg, rgba(0,0,0,.04), rgba(0,0,0,.20));
+}
+
+body::before,
+body::after {
+  display: none;
+}
+
+.ambient {
+  z-index: -1;
+}
+
+.app-shell {
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.app-shell::-webkit-scrollbar {
+  display: none;
+}
+
+.glass-card,
+.bottom-nav,
+.add-sheet,
+.auth-sheet,
+.account-row,
+.summary-chip,
+.record-item,
+.draft-card,
+.draft-item,
+textarea,
+input,
+select,
+.tag-btn,
+.range-chip,
+.ghost-btn,
+.mini-ghost-btn,
+.summary-box,
+.budget-pill,
+.roadmap span,
+.auth-tab,
+.icon-btn,
+.delete-btn,
+.ai-badge,
+.chat-row.assistant .chat-bubble {
+  backdrop-filter: blur(28px) saturate(180%) contrast(1.08);
+  -webkit-backdrop-filter: blur(28px) saturate(180%) contrast(1.08);
+}
+
+.glass-card::before,
+.bottom-nav::before,
+.add-sheet::before,
+.auth-sheet::before,
+.account-row::before,
+.summary-chip::before,
+.record-item::before,
+.draft-card::before,
+.draft-item::before,
+.tag-btn::before,
+.range-chip::before,
+.ghost-btn::before,
+.mini-ghost-btn::before,
+.summary-box::before,
+.budget-pill::before,
+.roadmap span::before,
+.auth-tab::before,
+.icon-btn::before,
+.delete-btn::before,
+.ai-badge::before,
+.chat-row.assistant .chat-bubble::before {
+  background:
+    radial-gradient(circle at var(--shine-x, 18%) var(--shine-y, 0%), rgba(255,255,255,.28), transparent 28%),
+    linear-gradient(135deg, rgba(255,255,255,.20), rgba(255,255,255,0) 28%, rgba(255,255,255,0) 72%, rgba(190,214,255,.12));
+}
+
+body[data-bg="aurora"] {
+  --scene-image: url("./liquid-bg.svg");
+  --scene-overlay: linear-gradient(rgba(5, 8, 22, .10), rgba(5, 8, 22, .10));
+  --scene-base: linear-gradient(145deg, #070a18 0%, #0d1434 52%, #17113a 100%);
+}
+
+body[data-bg="jade"] {
+  --scene-image: url("./bg-jade-ocean.svg");
+  --scene-overlay: linear-gradient(rgba(2, 15, 20, .10), rgba(2, 15, 20, .16));
+  --scene-base: linear-gradient(145deg, #04141a 0%, #062d36 52%, #063c43 100%);
+}
+
+body[data-bg="sunset"] {
+  --scene-image: url("./bg-sunset-glow.svg");
+  --scene-overlay: linear-gradient(rgba(16, 6, 18, .10), rgba(16, 6, 18, .18));
+  --scene-base: linear-gradient(145deg, #170a18 0%, #341127 52%, #351827 100%);
+}
+
+body[data-bg="dawn"] {
+  color-scheme: light;
+  --scene-image: url("./bg-dawn-pearl.svg");
+  --scene-overlay: linear-gradient(rgba(255,255,255,.04), rgba(255,255,255,.10));
+  --scene-base: linear-gradient(145deg, #f7eaf7 0%, #e9f7ff 52%, #d8f5f1 100%);
+  --ink: rgba(20, 30, 48, .94);
+  --muted: rgba(52, 70, 94, .66);
+  --teal: #0f7b8c;
+  --teal-deep: #0a6674;
+  --liquid-fill: rgba(255,255,255,.20);
+  --liquid-fill-soft: rgba(255,255,255,.16);
+  --liquid-fill-strong: rgba(255,255,255,.26);
+  --liquid-line: rgba(255,255,255,.52);
+  --liquid-shadow:
+    0 18px 46px rgba(73, 99, 126, .12),
+    inset 0 1px 0 rgba(255,255,255,.70),
+    inset 0 -1px 0 rgba(255,255,255,.22),
+    inset 1px 0 0 rgba(255,255,255,.22),
+    inset -1px 0 0 rgba(255,255,255,.18);
+}
+
+body[data-bg="dawn"] .page-header h1,
+body[data-bg="dawn"] .section-head h2,
+body[data-bg="dawn"] .sheet-head h2,
+body[data-bg="dawn"] .auth-head h2,
+body[data-bg="dawn"] .big-money,
+body[data-bg="dawn"] .record-title,
+body[data-bg="dawn"] .draft-title,
+body[data-bg="dawn"] .summary-chip strong,
+body[data-bg="dawn"] .metric-card strong {
+  color: rgba(20, 30, 48, .96);
+}
+
+body[data-bg="dawn"] .summary-card {
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.34), rgba(255,255,255,.14)),
+    rgba(255,255,255,.10);
+}
+
+body[data-bg="dawn"] .summary-card .subtext.light,
+body[data-bg="dawn"] .summary-card .progress-text,
+body[data-bg="dawn"] .summary-card .summary-box span,
+body[data-bg="dawn"] .summary-card .budget-pill {
+  color: rgba(36, 53, 75, .78);
+}
+
+body[data-bg="dawn"] textarea::placeholder,
+body[data-bg="dawn"] input::placeholder {
+  color: rgba(52, 70, 94, .44);
+}
+
+body[data-bg="dawn"] .nav-btn {
+  color: rgba(52, 70, 94, .58);
+}
+
+body[data-bg="dawn"] .nav-btn.active,
+body[data-bg="dawn"] .primary-btn,
+body[data-bg="dawn"] .send-btn,
+body[data-bg="dawn"] .confirm-btn,
+body[data-bg="dawn"] .auth-tab.active,
+body[data-bg="dawn"] .range-chip.active {
+  color: #fff;
+}
+
+.background-picker {
+  display: grid;
+  gap: 12px;
+}
+
+.background-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.bg-option {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-width: 0;
+  border: none;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+.bg-preview {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,.32);
+  box-shadow: 0 12px 22px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.32);
+  background-position: center;
+  background-size: cover;
+  overflow: hidden;
+}
+
+.bg-option[data-bg="aurora"] .bg-preview {
+  background-image: url("./liquid-bg.svg");
+}
+
+.bg-option[data-bg="jade"] .bg-preview {
+  background-image: url("./bg-jade-ocean.svg");
+}
+
+.bg-option[data-bg="sunset"] .bg-preview {
+  background-image: url("./bg-sunset-glow.svg");
+}
+
+.bg-option[data-bg="dawn"] .bg-preview {
+  background-image: url("./bg-dawn-pearl.svg");
+}
+
+.bg-option span:last-child {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.bg-option.active .bg-preview {
+  border-color: rgba(115,231,255,.82);
+  box-shadow:
+    0 0 0 3px rgba(115,231,255,.22),
+    0 16px 26px rgba(0,0,0,.24),
+    inset 0 1px 0 rgba(255,255,255,.44);
+}
+
+.bg-option.active span:last-child {
+  color: var(--ink);
+}
+
+@media (max-width: 390px) {
+  .background-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
