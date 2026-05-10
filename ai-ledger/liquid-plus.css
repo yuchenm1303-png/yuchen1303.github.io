@@ -101,7 +101,6 @@ body::after {
 }
 
 .glass-card,
-.bottom-nav,
 .add-sheet,
 .auth-sheet,
 .account-row,
@@ -128,6 +127,27 @@ select,
   overflow: hidden;
   color: var(--ink);
   background: var(--liquid-fill);
+  border-color: var(--liquid-line);
+  box-shadow: var(--liquid-shadow);
+  backdrop-filter: blur(22px) saturate(170%) contrast(1.07);
+  -webkit-backdrop-filter: blur(22px) saturate(170%) contrast(1.07);
+}
+
+.bottom-nav {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  right: auto;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(92vw, 500px);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-radius: 28px;
+  overflow: hidden;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .055);
   border-color: var(--liquid-line);
   box-shadow: var(--liquid-shadow);
   backdrop-filter: blur(22px) saturate(170%) contrast(1.07);
@@ -348,10 +368,6 @@ select {
     0 0 24px rgba(102, 128, 255, .14),
     inset 0 1px 0 rgba(255, 255, 255, .26),
     inset 0 -1px 0 rgba(255, 255, 255, .06);
-}
-
-.bottom-nav {
-  background: rgba(255, 255, 255, .055);
 }
 
 .nav-btn {
