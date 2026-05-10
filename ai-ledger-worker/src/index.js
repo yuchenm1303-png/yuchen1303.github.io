@@ -1,6 +1,6 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending"];
-const WORKER_VERSION = "2026-05-10-diagnostics-1";
+const WORKER_VERSION = "2026-05-10-workers-ai-1";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -20,8 +20,9 @@ export default {
         ok: true,
         worker: "ai-ledger-parser",
         version: WORKER_VERSION,
-        model: env.OPENAI_MODEL || "gpt-4.1-mini",
-        hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
+        provider: "workers_ai",
+        model: env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct",
+        hasAiBinding: Boolean(env.AI),
       }, 200, corsHeaders);
     }
 
@@ -29,10 +30,10 @@ export default {
       return json({ error: "Method not allowed", code: "method_not_allowed", version: WORKER_VERSION }, 405, corsHeaders);
     }
 
-    if (!env.OPENAI_API_KEY) {
+    if (!env.AI) {
       return json({
-        error: "Server is missing OPENAI_API_KEY",
-        code: "missing_openai_api_key",
+        error: "Server is missing Workers AI binding",
+        code: "missing_workers_ai_binding",
         version: WORKER_VERSION,
       }, 500, corsHeaders);
     }
@@ -109,6 +110,7 @@ export default {
       "date 必须返回 YYYY-MM-DD 格式。",
       "title 保持简短，优先使用事项本身，如‘火锅’‘地铁’‘兼职’；不要把整句话当标题。",
       "不要虚构金额，不要补充用户未表达的账单。",
+      "只返回合法 JSON，不要输出 Markdown，不要输出解释文字。",
       "示例1：用户：你好。输出 action=chat，reply 可以是自然问候，records=[]。",
       "示例2：用户：帮我记一笔午饭。因为缺少金额，输出 action=chat，reply 追问‘午饭花了多少钱？’，records=[]。",
       "示例3：用户：昨天和室友吃火锅我付了126，我自己花63。输出 action=draft，records 只包含火锅63元。",
@@ -124,53 +126,30 @@ export default {
       "请根据最后一条用户消息作答。"
     ].join("\n\n");
 
-    let upstream;
+    let aiResult;
     try {
-      upstream = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "authorization": `Bearer ${env.OPENAI_API_KEY}`,
+      aiResult = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", {
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: context },
+        ],
+        temperature: 0.2,
+        max_tokens: 700,
+        response_format: {
+          type: "json_schema",
+          json_schema: schema,
         },
-        body: JSON.stringify({
-          model: env.OPENAI_MODEL || "gpt-4.1-mini",
-          instructions,
-          input: context,
-          temperature: 0.2,
-          max_output_tokens: 800,
-          text: {
-            format: {
-              type: "json_schema",
-              name: "ledger_conversation_reply",
-              strict: true,
-              schema,
-            },
-          },
-        }),
       });
     } catch (error) {
       return json({
-        error: "Failed to reach AI provider",
-        code: "provider_unreachable",
-        detail: String(error),
+        error: "Workers AI provider error",
+        code: "workers_ai_error",
+        providerMessage: String(error?.message || error),
         version: WORKER_VERSION,
       }, 502, corsHeaders);
     }
 
-    if (!upstream.ok) {
-      const provider = await readProviderError(upstream);
-      return json({
-        error: "AI provider error",
-        code: "provider_error",
-        providerStatus: upstream.status,
-        providerCode: provider.code,
-        providerMessage: provider.message,
-        version: WORKER_VERSION,
-      }, 502, corsHeaders);
-    }
-
-    const data = await upstream.json();
-    const raw = extractOutputText(data);
+    const raw = extractWorkersAiText(aiResult);
 
     let parsed;
     try {
@@ -187,7 +166,7 @@ export default {
     const records = sanitizeRecords(parsed.records, now);
     const action = sanitizeAction(parsed.action, records, pendingDraft);
     const reply = sanitizeReply(parsed.reply, action, records);
-    return json({ reply, action, records, source: "cloud_ai", version: WORKER_VERSION }, 200, corsHeaders);
+    return json({ reply, action, records, source: "workers_ai", version: WORKER_VERSION }, 200, corsHeaders);
   },
 };
 
@@ -218,34 +197,10 @@ function json(payload, status = 200, corsHeaders = {}) {
   });
 }
 
-async function readProviderError(response) {
-  try {
-    const payload = await response.json();
-    const err = payload?.error || {};
-    return {
-      code: err.code || err.type || "unknown_provider_error",
-      message: err.message || `Provider returned HTTP ${response.status}`,
-    };
-  } catch {
-    return {
-      code: "unknown_provider_error",
-      message: `Provider returned HTTP ${response.status}`,
-    };
-  }
-}
-
-function extractOutputText(data) {
-  if (typeof data.output_text === "string") return data.output_text;
-
-  const chunks = [];
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (content.type === "output_text" && typeof content.text === "string") {
-        chunks.push(content.text);
-      }
-    }
-  }
-  return chunks.join("");
+function extractWorkersAiText(result) {
+  if (typeof result === "string") return result;
+  if (typeof result?.response === "string") return result.response;
+  return JSON.stringify(result);
 }
 
 function normalizeIsoDate(value) {
