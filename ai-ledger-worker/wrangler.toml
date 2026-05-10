@@ -1,0 +1,7 @@
+name = "ai-ledger-parser"
+main = "src/index.js"
+compatibility_date = "2026-05-10"
+
+[vars]
+OPENAI_MODEL = "gpt-4.1-mini"
+ALLOWED_ORIGINS = "https://yuchenm1303-png.github.io"
