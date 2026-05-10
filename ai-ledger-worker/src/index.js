@@ -1,6 +1,6 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending"];
-const WORKER_VERSION = "2026-05-10-workers-ai-1";
+const WORKER_VERSION = "2026-05-10-hybrid-ai-1";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -21,6 +21,7 @@ export default {
         worker: "ai-ledger-parser",
         version: WORKER_VERSION,
         provider: "workers_ai",
+        mode: "hybrid_rules_plus_ai",
         model: env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct",
         hasAiBinding: Boolean(env.AI),
       }, 200, corsHeaders);
@@ -51,6 +52,7 @@ export default {
     const conversation = messages.length ? buildConversation(messages) : text;
     const pendingDraft = sanitizeRecords(body?.pendingDraft, now);
     const ledgerContext = sanitizeLedgerContext(body?.ledgerContext, now);
+    const lastUserText = getLastUserText(messages, text);
 
     if (!conversation) {
       return json({ error: "messages or text is required", code: "missing_conversation", version: WORKER_VERSION }, 400, corsHeaders);
@@ -58,6 +60,11 @@ export default {
 
     if (conversation.length > 5000) {
       return json({ error: "conversation is too long", code: "conversation_too_long", version: WORKER_VERSION }, 400, corsHeaders);
+    }
+
+    const deterministic = tryDeterministicReply({ lastUserText, messages, pendingDraft, ledgerContext, now });
+    if (deterministic) {
+      return json({ ...deterministic, source: "hybrid_rules", version: WORKER_VERSION }, 200, corsHeaders);
     }
 
     const schema = {
@@ -133,8 +140,8 @@ export default {
           { role: "system", content: instructions },
           { role: "user", content: context },
         ],
-        temperature: 0.2,
-        max_tokens: 700,
+        temperature: 0.1,
+        max_tokens: 500,
         response_format: {
           type: "json_schema",
           json_schema: schema,
@@ -197,6 +204,144 @@ function json(payload, status = 200, corsHeaders = {}) {
   });
 }
 
+function getLastUserText(messages, fallbackText) {
+  const last = [...messages].reverse().find((message) => message.role === "user");
+  return String(last?.content || fallbackText || "").trim();
+}
+
+function tryDeterministicReply({ lastUserText, messages, pendingDraft, ledgerContext, now }) {
+  const text = String(lastUserText || "").trim();
+  if (!text) return null;
+
+  if (pendingDraft.length && /^(好|好的|对|确认|保存|记上|就这样)$/u.test(text)) {
+    return { reply: "好的，已帮你记上。", action: "confirm_pending", records: [] };
+  }
+
+  if (pendingDraft.length && /^(算了|不用了|先别记|取消)$/u.test(text)) {
+    return { reply: "好的，这次先不保存。", action: "cancel_pending", records: [] };
+  }
+
+  if (/^(你好|您好|嗨|哈喽|在吗|hello|hi)$/iu.test(text)) {
+    return { reply: "你好呀。想记一笔，还是查一下最近的账？", action: "chat", records: [] };
+  }
+
+  if (/(你有|你会|有哪些).*(功能|能做什么)/u.test(text)) {
+    return {
+      reply: "我可以帮你记账、补问金额、确认或取消账单，也能查本月收支和分类花费。",
+      action: "chat",
+      records: [],
+    };
+  }
+
+  const simpleRecords = parseSimpleRecords(text, now);
+  if (simpleRecords.length) {
+    return {
+      reply: `我先整理出 ${simpleRecords.length} 笔待确认账单，你回复“好”我就帮你保存。`,
+      action: "draft",
+      records: simpleRecords,
+    };
+  }
+
+  const requestedItem = extractIncompleteItem(text) || extractStandaloneItem(text);
+  if (requestedItem) {
+    return { reply: `${requestedItem}花了多少钱？`, action: "chat", records: [] };
+  }
+
+  const categoryQuery = extractCategoryQuery(text);
+  if (categoryQuery) {
+    const total = sumCategoryThisMonth(ledgerContext.recentRecords, categoryQuery, now);
+    return {
+      reply: `你这个月${categoryQuery}一共花了 ¥${total.toFixed(2)}。`,
+      action: "chat",
+      records: [],
+    };
+  }
+
+  return null;
+}
+
+function parseSimpleRecords(text, now) {
+  if (/(我付了|自己花|垫付|平摊|AA)/u.test(text)) return [];
+  const parts = text.split(/[，,。；;、\n]/).map((item) => item.trim()).filter(Boolean);
+  if (!parts.length) return [];
+  const records = parts.map((part) => {
+    const amountMatch = part.match(/(\d+(?:\.\d+)?)/u);
+    if (!amountMatch) return null;
+    const amount = Number(amountMatch[1]);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    return {
+      title: cleanTitle(part),
+      amount,
+      type: inferType(part),
+      category: inferCategory(part),
+      date: /昨天/u.test(part) ? shiftDate(now, -1) : /前天/u.test(part) ? shiftDate(now, -2) : now,
+    };
+  }).filter(Boolean);
+  return records.length === parts.length ? records : [];
+}
+
+function extractIncompleteItem(text) {
+  if (/\d/u.test(text)) return null;
+  const match = text.match(/(?:帮我)?(?:记|记一笔|记个)(?:一下)?\s*([\u4e00-\u9fa5A-Za-z]+)$/u);
+  if (!match) return null;
+  return normalizeItem(match[1]);
+}
+
+function extractStandaloneItem(text) {
+  if (/\d/u.test(text)) return null;
+  if (!/^(早餐|午饭|午餐|晚饭|晚餐|奶茶|咖啡|地铁|公交|打车|火锅|外卖)$/u.test(text)) return null;
+  return normalizeItem(text);
+}
+
+function normalizeItem(text) {
+  return String(text || "")
+    .replace(/^(一笔|一个|一下)/u, "")
+    .replace(/金额$/u, "")
+    .trim();
+}
+
+function extractCategoryQuery(text) {
+  const match = text.match(/这个月(餐饮|交通|购物|居住|饮品|工资|礼物|其他)(?:花了多少|支出多少|多少钱)/u);
+  return match?.[1] || null;
+}
+
+function sumCategoryThisMonth(records, category, now) {
+  const prefix = String(now).slice(0, 7);
+  return (Array.isArray(records) ? records : [])
+    .filter((record) => record.type === "expense" && record.category === category && String(record.date).startsWith(prefix))
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+}
+
+function inferCategory(text) {
+  const t = String(text || "").toLowerCase();
+  if (/(饭|早餐|午餐|晚餐|外卖|面|米线|火锅|烧烤|餐)/u.test(t)) return "餐饮";
+  if (/(奶茶|咖啡|饮料|可乐|茶)/u.test(t)) return "饮品";
+  if (/(打车|出租|公交|地铁|高铁|火车|机票|加油)/u.test(t)) return "交通";
+  if (/(淘宝|京东|拼多多|买|衣服|鞋|超市|购物)/u.test(t)) return "购物";
+  if (/(房租|水电|物业|宿舍|宽带)/u.test(t)) return "居住";
+  if (/(工资|兼职|奖金|补贴|报销|收入)/u.test(t)) return "工资";
+  if (/(礼物|红包)/u.test(t)) return "礼物";
+  return "其他";
+}
+
+function inferType(text) {
+  return /(收入|工资|兼职|奖金|报销|收到|进账)/u.test(String(text || "")) ? "income" : "expense";
+}
+
+function cleanTitle(text) {
+  return String(text || "")
+    .replace(/今天|昨天|前天|花了|花费|消费|支出|收入|进账|收到|元|块钱|块/gu, "")
+    .replace(/[0-9.]/gu, "")
+    .replace(/[，,。；;、]/gu, "")
+    .trim() || "未命名账单";
+}
+
+function shiftDate(isoDate, offsetDays) {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
 function extractWorkersAiText(result) {
   if (typeof result === "string") return result;
   if (typeof result?.response === "string") return result.response;
@@ -211,10 +356,10 @@ function normalizeIsoDate(value) {
 function normalizeMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
-    .slice(-16)
+    .slice(-10)
     .map((message) => ({
       role: message?.role === "assistant" ? "assistant" : "user",
-      content: String(message?.content || "").trim().slice(0, 600),
+      content: String(message?.content || "").trim().slice(0, 400),
     }))
     .filter((message) => message.content);
 }
