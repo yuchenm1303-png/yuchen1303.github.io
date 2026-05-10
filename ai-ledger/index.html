@@ -17,22 +17,27 @@
 
   <main class="app-shell">
     <section id="view-ai" class="view">
-      <header class="page-header reveal">
-        <p class="eyebrow">AI 智能记账</p>
-        <h1>一句话完成记账</h1>
-        <p class="subtext">直接输入自然语言，系统会自动识别金额、分类和收支类型。</p>
+      <header class="page-header reveal chat-header">
+        <div>
+          <p class="eyebrow">AI 记账助手</p>
+          <h1>像聊天一样记账</h1>
+          <p class="subtext">随口说一句，我会先整理成待确认账单，再由你决定是否保存。</p>
+        </div>
+        <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
       </header>
 
-      <section class="glass-card ai-card reveal delay-1">
-        <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
-        <textarea id="aiInput" placeholder="例如：昨天和室友吃火锅我付了126，我自己花63；今天兼职收入180"></textarea>
-        <button id="aiAddBtn" class="primary-btn">智能识别并添加</button>
-        <p id="aiModeHint" class="helper-text">未配置云端 AI 时，会自动使用本地规则识别。</p>
-        <div class="quick-tags">
-          <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">餐饮示例</button>
-          <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">复杂示例</button>
-          <button class="tag-btn sample-btn" data-sample="兼职收入300，报销80">收入示例</button>
+      <section class="glass-card chat-shell reveal delay-1">
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="quick-tags chat-tags">
+          <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">一句话记多笔</button>
+          <button class="tag-btn sample-btn" data-sample="昨天和室友吃火锅我付了126，我自己花63">复杂分摊</button>
+          <button class="tag-btn sample-btn" data-sample="帮我记一笔午饭">让 AI 追问</button>
         </div>
+        <form id="chatForm" class="chat-composer">
+          <textarea id="aiInput" rows="1" placeholder="说点什么，例如：今天午饭28"></textarea>
+          <button id="aiAddBtn" class="send-btn" type="submit" aria-label="发送">➤</button>
+        </form>
+        <p id="aiModeHint" class="helper-text chat-hint">未配置云端 AI 时，会自动使用本地规则识别。</p>
       </section>
 
       <section class="mini-grid reveal delay-2">
@@ -167,6 +172,7 @@
       <section class="glass-card reveal delay-3">
         <div class="section-head"><h2>数据工具</h2></div>
         <div class="settings-actions">
+          <button id="clearChatBtn" class="ghost-btn">清空聊天记录</button>
           <button id="exportBtn" class="ghost-btn">导出账单 JSON</button>
           <button id="resetBtn" class="danger-btn">清空全部数据</button>
         </div>
@@ -176,7 +182,7 @@
         <div class="section-head"><h2>开发路线</h2></div>
         <div class="roadmap">
           <span>已完成：本地记账</span>
-          <span>当前：云端 AI</span>
+          <span>当前：对话式 AI</span>
           <span>后续：登录与云同步</span>
         </div>
       </section>
