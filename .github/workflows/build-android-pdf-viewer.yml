@@ -6,6 +6,10 @@ on:
     paths:
       - 'android-pdf-viewer/**'
       - '.github/workflows/build-android-pdf-viewer.yml'
+  pull_request:
+    paths:
+      - 'android-pdf-viewer/**'
+      - '.github/workflows/build-android-pdf-viewer.yml'
 
 jobs:
   build:
