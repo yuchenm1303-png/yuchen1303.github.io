@@ -7,15 +7,17 @@
   <title>AI 记账</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=20260510-14" />
-  <link rel="stylesheet" href="./liquid.css?v=20260510-14" />
-  <link rel="stylesheet" href="./chat-v2.css?v=20260510-14" />
-  <link rel="stylesheet" href="./auth.css?v=20260510-14" />
-  <link rel="stylesheet" href="./liquid-plus.css?v=20260510-14" />
-  <link rel="stylesheet" href="./modal-fix.css?v=20260510-14" />
+  <link rel="stylesheet" href="./styles.css?v=20260510-15" />
+  <link rel="stylesheet" href="./liquid.css?v=20260510-15" />
+  <link rel="stylesheet" href="./chat-v2.css?v=20260510-15" />
+  <link rel="stylesheet" href="./auth.css?v=20260510-15" />
+  <link rel="stylesheet" href="./liquid-plus.css?v=20260510-15" />
+  <link rel="stylesheet" href="./modal-fix.css?v=20260510-15" />
+  <link rel="stylesheet" href="./backgrounds.css?v=20260510-15" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body data-bg="aurora">
+  <div class="scene-backdrop" aria-hidden="true"></div>
   <div class="ambient ambient-1"></div>
   <div class="ambient ambient-2"></div>
   <div class="ambient ambient-3"></div>
@@ -176,12 +178,37 @@
       </section>
 
       <section class="glass-card reveal delay-2">
+        <div class="section-head"><h2>外观设置</h2></div>
+        <div id="backgroundPicker" class="background-picker">
+          <p class="helper-text">背景固定不动，卡片滑过时会带一点折射高光。可选择内置背景。</p>
+          <div class="background-options">
+            <button class="bg-option active" type="button" data-bg="aurora" aria-label="选择极光夜幕背景">
+              <span class="bg-preview"></span>
+              <span>极光夜幕</span>
+            </button>
+            <button class="bg-option" type="button" data-bg="jade" aria-label="选择翡翠海雾背景">
+              <span class="bg-preview"></span>
+              <span>翡翠海雾</span>
+            </button>
+            <button class="bg-option" type="button" data-bg="sunset" aria-label="选择暮色流金背景">
+              <span class="bg-preview"></span>
+              <span>暮色流金</span>
+            </button>
+            <button class="bg-option" type="button" data-bg="dawn" aria-label="选择晨光珍珠背景">
+              <span class="bg-preview"></span>
+              <span>晨光珍珠</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card reveal delay-3">
         <div class="section-head"><h2>预算设置</h2></div>
         <label class="field-label" for="budgetInput">本月预算</label>
         <input id="budgetInput" type="number" min="0" />
       </section>
 
-      <section class="glass-card reveal delay-3">
+      <section class="glass-card reveal delay-4">
         <div class="section-head"><h2>AI 设置</h2></div>
         <label class="field-label" for="aiEndpointInput">接口</label>
         <input id="aiEndpointInput" placeholder="https://你的-worker.workers.dev" />
@@ -192,7 +219,7 @@
         </div>
       </section>
 
-      <section class="glass-card reveal delay-4">
+      <section class="glass-card reveal delay-5">
         <div class="section-head"><h2>数据工具</h2></div>
         <div class="settings-actions">
           <button id="clearChatBtn" class="ghost-btn">清空聊天记录</button>
@@ -285,11 +312,12 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-14"></script>
-  <script src="./app-v3.js?v=20260510-14"></script>
-  <script src="./chat-actions.js?v=20260510-14"></script>
-  <script src="./ui-motion.js?v=20260510-14"></script>
-  <script type="module" src="./auth.js?v=20260510-14"></script>
-  <script type="module" src="./sync.js?v=20260510-14"></script>
+  <script src="./config.js?v=20260510-15"></script>
+  <script src="./app-v3.js?v=20260510-15"></script>
+  <script src="./chat-actions.js?v=20260510-15"></script>
+  <script src="./ui-motion.js?v=20260510-15"></script>
+  <script src="./background-picker.js?v=20260510-15"></script>
+  <script type="module" src="./auth.js?v=20260510-15"></script>
+  <script type="module" src="./sync.js?v=20260510-15"></script>
 </body>
 </html>
