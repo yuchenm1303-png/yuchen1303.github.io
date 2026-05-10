@@ -1,0 +1,74 @@
+<svg width="1080" height="1920" viewBox="0 0 1080 1920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="80" y1="70" x2="970" y2="1850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D3E7FF"/>
+      <stop offset="0.48" stop-color="#D9F7F1"/>
+      <stop offset="1" stop-color="#E8E4FF"/>
+    </linearGradient>
+    <radialGradient id="cyan" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(840 260) rotate(124) scale(510 470)">
+      <stop stop-color="#5CE9E0" stop-opacity="0.78"/>
+      <stop offset="1" stop-color="#5CE9E0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(160 300) rotate(42) scale(450 520)">
+      <stop stop-color="#69B7FF" stop-opacity="0.74"/>
+      <stop offset="1" stop-color="#69B7FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violet" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 1560) rotate(18) scale(520 480)">
+      <stop stop-color="#A8A5FF" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#A8A5FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mint" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(850 1480) rotate(148) scale(520 560)">
+      <stop stop-color="#8CFFE3" stop-opacity="0.58"/>
+      <stop offset="1" stop-color="#8CFFE3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="whiteGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 850) rotate(90) scale(760 580)">
+      <stop stop-color="white" stop-opacity="0.46"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur120" x="-240" y="-240" width="1560" height="2400" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="120"/>
+    </filter>
+    <filter id="blur70" x="-180" y="-180" width="1440" height="2280" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="70"/>
+    </filter>
+    <linearGradient id="ribbonA" x1="118" y1="218" x2="944" y2="1630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0"/>
+      <stop offset="0.34" stop-color="white" stop-opacity="0.36"/>
+      <stop offset="0.68" stop-color="#B8FFF2" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ribbonB" x1="950" y1="250" x2="150" y2="1660" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0"/>
+      <stop offset="0.31" stop-color="#D7E8FF" stop-opacity="0.30"/>
+      <stop offset="0.72" stop-color="white" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1080" height="1920" fill="url(#base)"/>
+
+  <g filter="url(#blur120)">
+    <ellipse cx="160" cy="300" rx="360" ry="430" fill="url(#blue)"/>
+    <ellipse cx="840" cy="260" rx="420" ry="360" fill="url(#cyan)"/>
+    <ellipse cx="210" cy="1560" rx="460" ry="410" fill="url(#violet)"/>
+    <ellipse cx="850" cy="1480" rx="470" ry="470" fill="url(#mint)"/>
+    <ellipse cx="520" cy="860" rx="620" ry="620" fill="url(#whiteGlow)"/>
+  </g>
+
+  <g filter="url(#blur70)">
+    <path d="M-140 492C142 248 264 348 456 668C648 988 824 1068 1220 748" stroke="url(#ribbonA)" stroke-width="160" stroke-linecap="round"/>
+    <path d="M1166 350C888 462 818 662 684 916C550 1170 392 1324 -126 1210" stroke="url(#ribbonB)" stroke-width="140" stroke-linecap="round"/>
+    <path d="M-144 1440C184 1300 368 1394 560 1590C752 1786 908 1798 1210 1646" stroke="url(#ribbonA)" stroke-width="130" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.44">
+    <circle cx="140" cy="232" r="4" fill="white"/>
+    <circle cx="272" cy="390" r="3" fill="white"/>
+    <circle cx="840" cy="410" r="4" fill="white"/>
+    <circle cx="920" cy="682" r="3" fill="white"/>
+    <circle cx="164" cy="972" r="3" fill="white"/>
+    <circle cx="310" cy="1220" r="4" fill="white"/>
+    <circle cx="886" cy="1288" r="4" fill="white"/>
+    <circle cx="760" cy="1704" r="3" fill="white"/>
+  </g>
+</svg>
