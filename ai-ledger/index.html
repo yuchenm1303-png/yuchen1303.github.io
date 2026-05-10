@@ -7,9 +7,10 @@
   <title>AI 记账</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css?v=20260510-7" />
-  <link rel="stylesheet" href="./liquid.css?v=20260510-7" />
-  <link rel="stylesheet" href="./chat-v2.css?v=20260510-7" />
+  <link rel="stylesheet" href="./styles.css?v=20260510-8" />
+  <link rel="stylesheet" href="./liquid.css?v=20260510-8" />
+  <link rel="stylesheet" href="./chat-v2.css?v=20260510-8" />
+  <link rel="stylesheet" href="./auth.css?v=20260510-8" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -153,12 +154,30 @@
       </header>
 
       <section class="glass-card reveal delay-1">
+        <div class="section-head"><h2>账号与同步</h2></div>
+        <div class="account-panel">
+          <div class="account-row">
+            <div class="account-main">
+              <p class="account-label">当前账号</p>
+              <p id="authStatusText" class="account-value">未登录</p>
+            </div>
+            <span id="authStatusPill" class="account-pill">本地模式</span>
+          </div>
+          <p id="authHint" class="helper-text">未登录时仍可继续本地使用；登录后下一步可以开启云同步。</p>
+          <div class="settings-actions inline-actions">
+            <button id="openAuthBtn" class="ghost-btn" type="button">登录 / 注册</button>
+            <button id="logoutBtn" class="ghost-btn" type="button" hidden>退出登录</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card reveal delay-2">
         <div class="section-head"><h2>预算设置</h2></div>
         <label class="field-label" for="budgetInput">本月预算</label>
         <input id="budgetInput" type="number" min="0" />
       </section>
 
-      <section class="glass-card reveal delay-2">
+      <section class="glass-card reveal delay-3">
         <div class="section-head"><h2>AI 设置</h2></div>
         <label class="field-label" for="aiEndpointInput">云端 AI 接口地址</label>
         <input id="aiEndpointInput" placeholder="https://你的-worker.workers.dev" />
@@ -169,7 +188,7 @@
         </div>
       </section>
 
-      <section class="glass-card reveal delay-3">
+      <section class="glass-card reveal delay-4">
         <div class="section-head"><h2>数据工具</h2></div>
         <div class="settings-actions">
           <button id="clearChatBtn" class="ghost-btn">清空聊天记录</button>
@@ -178,12 +197,12 @@
         </div>
       </section>
 
-      <section class="glass-card reveal delay-4">
+      <section class="glass-card reveal delay-5">
         <div class="section-head"><h2>开发路线</h2></div>
         <div class="roadmap">
           <span>已完成：本地记账</span>
-          <span>当前：对话式 AI</span>
-          <span>后续：登录与云同步</span>
+          <span>当前：登录与账号</span>
+          <span>后续：云同步</span>
         </div>
       </section>
     </section>
@@ -228,9 +247,43 @@
     </div>
   </section>
 
+  <div id="authOverlay" class="auth-overlay" aria-hidden="true">
+    <section class="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="auth-head">
+        <div>
+          <h2 id="authTitle">账号登录</h2>
+          <p>先用邮箱登录，后面就能把账单同步到云端。</p>
+        </div>
+        <button id="closeAuthBtn" class="icon-btn" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" type="button" data-auth-mode="login">登录</button>
+        <button class="auth-tab" type="button" data-auth-mode="register">注册</button>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <label>
+          邮箱
+          <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
+        </label>
+        <label>
+          密码
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" minlength="6" required />
+        </label>
+        <p id="authMessage" class="auth-message">用邮箱和密码登录。</p>
+        <div class="auth-foot">
+          <button id="authSubmitBtn" class="primary-btn" type="submit">登录</button>
+          <button class="text-btn" type="button" onclick="document.querySelector('#authOverlay')?.classList.remove('open')">先继续本地使用</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-7"></script>
-  <script src="./app-v3.js?v=20260510-7"></script>
-  <script src="./chat-actions.js?v=20260510-7"></script>
+  <script src="./config.js?v=20260510-8"></script>
+  <script src="./app-v3.js?v=20260510-8"></script>
+  <script src="./chat-actions.js?v=20260510-8"></script>
+  <script type="module" src="./auth.js?v=20260510-8"></script>
 </body>
 </html>
