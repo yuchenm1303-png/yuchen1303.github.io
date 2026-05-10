@@ -126,11 +126,16 @@ textarea {
   letter-spacing: 0.2px;
 }
 
-.subtext {
+.subtext,
+.helper-text {
   margin: 8px 0 0;
   color: var(--muted);
   font-size: 14px;
   line-height: 1.65;
+}
+
+.helper-text {
+  margin-top: 0;
 }
 
 .subtext.light {
@@ -226,6 +231,12 @@ select:focus {
   box-shadow: 0 14px 24px rgba(11,143,139,.25);
   font-weight: 800;
   transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+}
+
+.primary-btn.loading,
+.primary-btn:disabled {
+  opacity: .72;
+  cursor: wait;
 }
 
 .primary-btn:active,
@@ -499,6 +510,11 @@ select:focus {
   gap: 12px;
 }
 
+.inline-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
 .ghost-btn,
 .danger-btn {
   min-height: 50px;
@@ -715,7 +731,8 @@ select:focus {
   .summary-grid,
   .mini-grid,
   .metric-grid,
-  .form-grid {
+  .form-grid,
+  .inline-actions {
     grid-template-columns: 1fr;
   }
 
