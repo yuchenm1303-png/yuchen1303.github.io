@@ -6,8 +6,14 @@ window.AI_LEDGER_CONFIG = {
 };
 
 (() => {
-  const script = document.createElement('script');
-  script.src = './assistant-profile.js?v=20260512-1';
-  script.defer = true;
-  document.head.appendChild(script);
+  const scripts = [
+    './assistant-profile.js?v=20260512-2',
+    './tools-center.js?v=20260512-1'
+  ];
+  scripts.forEach((src) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.defer = true;
+    document.head.appendChild(script);
+  });
 })();
