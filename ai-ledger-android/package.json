@@ -1,12 +1,13 @@
 {
   "name": "ai-ledger-android",
   "version": "1.0.0",
-  "description": "AI 智能记账 Android App built with Capacitor.",
+  "description": "AI multifunction assistant Android App built with Capacitor.",
   "private": true,
   "scripts": {
     "copy:web": "node scripts/copy-web.js",
-    "android:init": "npm install && npm run copy:web && npx cap add android",
-    "android:sync": "npm run copy:web && npx cap sync android",
+    "android:init": "npm install && npm run copy:web && npx cap add android && npm run android:install-plugin",
+    "android:sync": "npm run copy:web && npx cap sync android && npm run android:install-plugin",
+    "android:install-plugin": "node scripts/install-mobile-assistant-plugin.js",
     "android:open": "npx cap open android",
     "android:build:debug": "cd android && ./gradlew assembleDebug",
     "android:build:release": "cd android && ./gradlew assembleRelease"
