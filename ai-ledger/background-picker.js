@@ -34,3 +34,5 @@
 
   if (!picker) return;
 })();
+
+import("./liquid-refraction.js?v=20260513-1").catch(() => {});
