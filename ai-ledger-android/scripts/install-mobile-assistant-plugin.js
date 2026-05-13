@@ -8,6 +8,9 @@ const javaDir = path.join(mainDir, 'java', 'com', 'yuchen', 'ailedger');
 const mainActivity = path.join(javaDir, 'MainActivity.java');
 const pluginFile = path.join(javaDir, 'MobileAssistantPlugin.java');
 const manifestFile = path.join(mainDir, 'AndroidManifest.xml');
+const gradlePropertiesFile = path.join(androidDir, 'gradle.properties');
+const gradleWrapperFile = path.join(androidDir, 'gradle', 'wrapper', 'gradle-wrapper.properties');
+const localPropertiesFile = path.join(androidDir, 'local.properties');
 
 function ensureAndroidProject() {
   if (!fs.existsSync(androidDir) || !fs.existsSync(mainDir)) {
@@ -194,18 +197,98 @@ function patchManifest() {
     return;
   }
   let source = fs.readFileSync(manifestFile, 'utf8');
-  if (!source.includes('com.android.alarm.permission.SET_ALARM')) {
-    source = source.replace('<manifest ', '<manifest ');
-    source = source.replace(/<application\b/, '    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />\n\n    <application');
-    fs.writeFileSync(manifestFile, source, 'utf8');
-    console.log('Patched AndroidManifest.xml with SET_ALARM permission.');
-  } else {
-    console.log('AndroidManifest.xml already has SET_ALARM permission.');
+  if (!source.includes('<package android:name="com.tencent.mm" />')) {
+    const queries = `    <queries>
+        <package android:name="com.tencent.mm" />
+        <package android:name="com.eg.android.AlipayGphone" />
+        <package android:name="com.taobao.taobao" />
+        <package android:name="com.tencent.mobileqq" />
+        <package android:name="com.autonavi.minimap" />
+        <package android:name="com.baidu.BaiduMap" />
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+    </queries>
+
+`;
+    source = source.replace(/(<manifest\b[^>]*>\s*)/, `$1${queries}`);
   }
+  if (!source.includes('com.android.alarm.permission.SET_ALARM')) {
+    source = source.replace(/<application\b/, '    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />\n\n    <application');
+  }
+  fs.writeFileSync(manifestFile, source, 'utf8');
+  console.log('Patched AndroidManifest.xml with MobileAssistant permissions and package queries.');
+}
+
+function patchGradleProperties() {
+  if (!fs.existsSync(gradlePropertiesFile)) {
+    console.warn('gradle.properties not found, skipped Gradle path patch.');
+    return;
+  }
+  const flag = 'android.overridePathCheck=true';
+  let source = fs.readFileSync(gradlePropertiesFile, 'utf8');
+  if (source.includes(flag)) {
+    console.log('gradle.properties already allows non-ASCII Windows paths.');
+    return;
+  }
+  if (source.length && !source.endsWith('\n')) source += '\n';
+  source += `\n# Allow local Windows builds from user paths that contain non-ASCII characters.\n${flag}\n`;
+  fs.writeFileSync(gradlePropertiesFile, source, 'utf8');
+  console.log('Patched gradle.properties for non-ASCII Windows paths.');
+}
+
+function patchGradleWrapper() {
+  if (!fs.existsSync(gradleWrapperFile)) {
+    console.warn('gradle-wrapper.properties not found, skipped Gradle mirror patch.');
+    return;
+  }
+
+  let source = fs.readFileSync(gradleWrapperFile, 'utf8');
+  if (!source.includes('services.gradle.org/distributions/')) {
+    console.log('gradle-wrapper.properties already uses a non-default distribution host.');
+    return;
+  }
+
+  source = source.replace(
+    /https\\:\/\/services\.gradle\.org\/distributions\//g,
+    'https\\://mirrors.cloud.tencent.com/gradle/'
+  );
+  fs.writeFileSync(gradleWrapperFile, source, 'utf8');
+  console.log('Patched gradle-wrapper.properties to use Tencent Cloud Gradle mirror.');
+}
+
+function patchLocalProperties() {
+  const defaultSdk = process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk')
+    : '';
+  const sdkDir = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || defaultSdk;
+
+  if (!sdkDir || !fs.existsSync(sdkDir)) {
+    console.warn('Android SDK not found, skipped local.properties patch.');
+    return;
+  }
+
+  const normalizedSdkDir = sdkDir.replace(/\\/g, '/');
+  let source = fs.existsSync(localPropertiesFile)
+    ? fs.readFileSync(localPropertiesFile, 'utf8')
+    : '';
+
+  if (/^sdk\.dir=/m.test(source)) {
+    console.log('local.properties already defines sdk.dir.');
+    return;
+  }
+
+  if (source.length && !source.endsWith('\n')) source += '\n';
+  source += `sdk.dir=${normalizedSdkDir}\n`;
+  fs.writeFileSync(localPropertiesFile, source, 'utf8');
+  console.log('Patched local.properties with Android SDK path.');
 }
 
 ensureAndroidProject();
 writePlugin();
 patchMainActivity();
 patchManifest();
+patchGradleProperties();
+patchGradleWrapper();
+patchLocalProperties();
 console.log('MobileAssistant plugin installed. Run: npm run android:sync');

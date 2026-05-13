@@ -14,11 +14,19 @@
 - 功能中心：账单、统计、提醒闹钟、应用控制
 - Android 原生动作插件骨架：设置闹钟、打开常用 App
 
+## Windows 本地环境
+
+- Node.js 18+。
+- JDK 使用 Eclipse Temurin 17，并设置 `JAVA_HOME`。
+- Android SDK 需要包含 `platform-tools`、`platforms;android-36` 和 `build-tools;36.0.0`。
+- 如果 PowerShell 阻止 `npm.ps1`，请使用 `npm.cmd`，例如 `npm.cmd run android:init`。
+- 依赖已固定在 Capacitor 6.2.1，避免 `latest` 升到需要 Java 21 的版本。
+
 ## 本地生成 Android 工程
 
 ```bash
 cd ai-ledger-android
-npm run android:init
+npm.cmd run android:init
 ```
 
 该命令会：
@@ -27,11 +35,12 @@ npm run android:init
 2. 复制网页资源到 `www`；
 3. 生成 Capacitor Android 工程；
 4. 自动安装 `MobileAssistant` 原生插件。
+5. 尽量自动修复 Windows 中文路径构建、Gradle 镜像和 Android SDK 本地路径。
 
 ## 同步网页更新到 Android 工程
 
 ```bash
-npm run android:sync
+npm.cmd run android:sync
 ```
 
 该命令会同步网页文件，并重新安装原生插件。
@@ -39,7 +48,7 @@ npm run android:sync
 ## 单独安装原生插件
 
 ```bash
-npm run android:install-plugin
+npm.cmd run android:install-plugin
 ```
 
 插件会写入：
@@ -58,13 +67,13 @@ MobileAssistant.openApp({ appName })
 ## 在 Android Studio 打开
 
 ```bash
-npm run android:open
+npm.cmd run android:open
 ```
 
 ## 构建 debug APK
 
 ```bash
-npm run android:build:debug
+npm.cmd run android:build:debug
 ```
 
 生成路径通常为：
