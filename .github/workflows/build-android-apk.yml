@@ -36,15 +36,25 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-ledger-android
-        run: npm install
+        run: npm ci
 
-      - name: Generate Android project and install native plugin
+      - name: Copy web assets
         working-directory: ai-ledger-android
-        run: npm run android:init
+        run: npm run copy:web
+
+      - name: Add Android platform
+        working-directory: ai-ledger-android
+        run: npx cap add android
+
+      - name: Install native assistant plugin
+        working-directory: ai-ledger-android
+        run: npm run android:install-plugin
 
       - name: Build debug APK
-        working-directory: ai-ledger-android
-        run: npm run android:build:debug
+        working-directory: ai-ledger-android/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
       - name: Rename APK
         run: |
