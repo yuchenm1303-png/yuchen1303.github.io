@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-ledger-v15';
+const CACHE_NAME = 'ai-ledger-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -9,11 +9,13 @@ const ASSETS = [
   './liquid-plus.css',
   './modal-fix.css',
   './backgrounds.css',
+  './liquid-refraction.css',
   './config.js',
   './app-v3.js',
   './chat-actions.js',
   './ui-motion.js',
   './background-picker.js',
+  './liquid-refraction.js',
   './auth.js',
   './sync.js',
   './manifest.webmanifest',
