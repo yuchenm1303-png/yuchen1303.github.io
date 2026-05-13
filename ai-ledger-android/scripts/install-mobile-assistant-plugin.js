@@ -11,6 +11,8 @@ const manifestFile = path.join(mainDir, 'AndroidManifest.xml');
 const gradlePropertiesFile = path.join(androidDir, 'gradle.properties');
 const gradleWrapperFile = path.join(androidDir, 'gradle', 'wrapper', 'gradle-wrapper.properties');
 const localPropertiesFile = path.join(androidDir, 'local.properties');
+const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+const isWindows = process.platform === 'win32';
 
 function ensureAndroidProject() {
   if (!fs.existsSync(androidDir) || !fs.existsSync(mainDir)) {
@@ -238,6 +240,10 @@ function patchGradleProperties() {
 }
 
 function patchGradleWrapper() {
+  if (!isWindows || isGitHubActions) {
+    console.log('Skipped Gradle mirror patch outside local Windows.');
+    return;
+  }
   if (!fs.existsSync(gradleWrapperFile)) {
     console.warn('gradle-wrapper.properties not found, skipped Gradle mirror patch.');
     return;
