@@ -42,9 +42,9 @@ jobs:
         working-directory: ai-ledger-android
         run: npm run copy:web
 
-      - name: Add Android platform
+      - name: Sync Android platform
         working-directory: ai-ledger-android
-        run: npx cap add android
+        run: npx cap sync android
 
       - name: Install native assistant plugin
         working-directory: ai-ledger-android
