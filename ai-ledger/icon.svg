@@ -1,7 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="120" fill="#111827"/>
-  <path d="M144 168c0-22.1 17.9-40 40-40h144c22.1 0 40 17.9 40 40v176c0 22.1-17.9 40-40 40H184c-22.1 0-40-17.9-40-40V168Z" fill="#fff"/>
-  <path d="M192 192h128M192 240h128M192 288h72" stroke="#111827" stroke-width="24" stroke-linecap="round"/>
-  <circle cx="312" cy="320" r="52" fill="#111827"/>
-  <path d="M312 288v64M280 320h64" stroke="#fff" stroke-width="20" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AI助手图标">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#37F2E7"/>
+      <stop offset="0.45" stop-color="#6477FF"/>
+      <stop offset="1" stop-color="#8A3FFC"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="46%" r="54%">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="0.32" stop-color="#C8FFFF" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#071827"/>
+  <rect x="18" y="18" width="476" height="476" rx="118" fill="url(#bg)" opacity="0.94"/>
+  <circle cx="188" cy="140" r="116" fill="#FFFFFF" opacity="0.12"/>
+  <circle cx="376" cy="360" r="148" fill="#071827" opacity="0.18"/>
+  <circle cx="256" cy="250" r="166" fill="url(#glow)"/>
+  <g opacity="0.78" stroke="#EFFFFF" stroke-width="10" stroke-linecap="round" fill="none">
+    <path d="M126 258c48-75 204-75 252 0" opacity="0.52"/>
+    <path d="M134 304c72 42 172 42 244 0" opacity="0.44"/>
+    <path d="M154 206c61-34 143-34 204 0" opacity="0.36"/>
+  </g>
+  <g filter="url(#soft)" opacity="0.92">
+    <circle cx="256" cy="256" r="78" fill="#BFFFFB"/>
+  </g>
+  <path d="M256 129l31 83 83 31-83 31-31 83-31-83-83-31 83-31 31-83Z" fill="#FFFFFF"/>
+  <path d="M256 178l17 47 47 17-47 17-17 47-17-47-47-17 47-17 17-47Z" fill="#58F5E9" opacity="0.95"/>
+  <circle cx="145" cy="159" r="12" fill="#FFFFFF" opacity="0.88"/>
+  <circle cx="374" cy="176" r="9" fill="#FFFFFF" opacity="0.72"/>
+  <circle cx="378" cy="337" r="13" fill="#FFFFFF" opacity="0.72"/>
+  <circle cx="151" cy="352" r="8" fill="#FFFFFF" opacity="0.58"/>
 </svg>
