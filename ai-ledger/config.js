@@ -7,6 +7,7 @@ window.AI_LEDGER_CONFIG = {
 
 (() => {
   const scripts = [
+    './splash-screen.js?v=20260513-1',
     './assistant-profile.js?v=20260512-2',
     './tools-center.js?v=20260512-1'
   ];
