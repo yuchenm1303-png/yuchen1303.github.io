@@ -13,6 +13,34 @@
 - 本地数据保存
 - 功能中心：账单、统计、提醒闹钟、应用控制
 - Android 原生动作插件骨架：设置闹钟、打开常用 App
+- GitHub Actions 自动构建 debug APK
+
+## GitHub 在线打包 APK
+
+仓库已经添加自动构建流程：
+
+```text
+.github/workflows/build-android-apk.yml
+```
+
+手动打包步骤：
+
+1. 打开 GitHub 仓库。
+2. 进入 `Actions`。
+3. 选择 `Build Android APK`。
+4. 点击 `Run workflow`。
+5. 分支选择 `dev-update-1`。
+6. 等待构建完成。
+7. 打开最新一次成功的运行记录。
+8. 在 `Artifacts` 下载 `AI-Assistant-debug-apk`。
+9. 解压后得到 `AI-Assistant-debug.apk`。
+10. 发送到手机并安装。
+
+说明：
+
+- 这个 APK 是 debug 包，适合测试和自用。
+- 手机安装时可能提示未知来源，请允许本次安装。
+- 只有 APK 安装版能调用 Android 原生能力；浏览器网页版本不能真正打开微信或设置系统闹钟。
 
 ## Windows 本地环境
 
