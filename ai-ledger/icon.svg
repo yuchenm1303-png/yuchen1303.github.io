@@ -1,21 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AI助手图标">
   <defs>
-    <linearGradient id="blue" x1="64" y1="26" x2="448" y2="486" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2B8DFF"/>
-      <stop offset="0.52" stop-color="#0A84FF"/>
-      <stop offset="1" stop-color="#0067E6"/>
+    <linearGradient id="bg" x1="58" y1="30" x2="454" y2="482" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F91FF"/>
+      <stop offset="0.48" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#006BE8"/>
     </linearGradient>
-    <radialGradient id="shine" cx="42%" cy="28%" r="70%">
-      <stop offset="0" stop-color="#70B9FF" stop-opacity=".56"/>
-      <stop offset=".48" stop-color="#2C92FF" stop-opacity=".18"/>
+    <radialGradient id="glow" cx="38%" cy="23%" r="78%">
+      <stop offset="0" stop-color="#76C3FF" stop-opacity="0.45"/>
+      <stop offset="0.55" stop-color="#1C8CFF" stop-opacity="0.14"/>
       <stop offset="1" stop-color="#005DCE" stop-opacity="0"/>
     </radialGradient>
-    <filter id="softShadow" x="-18%" y="-18%" width="136%" height="136%">
-      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#004EA8" flood-opacity=".34"/>
+    <filter id="starShadow" x="-16%" y="-16%" width="132%" height="132%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#0052B8" flood-opacity="0.20"/>
     </filter>
   </defs>
-  <rect width="512" height="512" rx="106" fill="url(#blue)"/>
-  <rect width="512" height="512" rx="106" fill="url(#shine)"/>
-  <rect x="18" y="18" width="476" height="476" rx="92" fill="none" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="2"/>
-  <path filter="url(#softShadow)" fill="#FFFFFF" d="M256 54c8 0 12 8 13 20l18 150c1 8 10 11 17 6l120-90c12-9 24 4 15 16L349 276c-5 7-2 16 6 17l129 20c13 2 13 20 0 22l-129 20c-8 1-11 10-6 17l90 120c9 12-4 25-16 15l-119-90c-7-5-16-2-17 6l-18 150c-1 12-5 20-13 20s-12-8-13-20l-18-150c-1-8-10-11-17-6L88 507c-12 10-25-3-16-15l90-120c5-7 2-16-6-17L27 335c-13-2-13-20 0-22l129-20c8-1 11-10 6-17L72 156c-9-12 3-25 15-16l121 90c7 5 16 2 17-6l18-150c1-12 5-20 13-20Z"/>
+  <rect width="512" height="512" rx="106" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="106" fill="url(#glow)"/>
+  <path filter="url(#starShadow)" fill="#FFFFFF" d="M256.41 22.86 L243.75 211.9 L176.38 169.03 L219.25 237.22 L31.85 249.06 L218.03 272.33 L143.31 372.36 L245.79 300.91 L271.52 485.87 L283.76 300.91 L406.66 400.54 L311.53 279.27 L399.72 260.9 L309.89 239.26 L408.7 114.32 L282.13 215.58 Z"/>
 </svg>
