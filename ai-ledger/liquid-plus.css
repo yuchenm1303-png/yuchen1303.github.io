@@ -549,18 +549,18 @@ button,
 
 /* iOS-folder style neutral liquid glass refinement */
 :root {
-  --liquid-fill: rgba(224, 228, 236, .125);
-  --liquid-fill-soft: rgba(224, 228, 236, .085);
-  --liquid-fill-strong: rgba(230, 234, 242, .165);
-  --liquid-line: rgba(244, 247, 255, .32);
-  --liquid-edge: rgba(250, 252, 255, .44);
-  --liquid-edge-cool: rgba(255, 255, 255, .14);
-  --liquid-edge-warm: rgba(255, 255, 255, .10);
+  --liquid-fill: rgba(246, 250, 255, .046);
+  --liquid-fill-soft: rgba(246, 250, 255, .030);
+  --liquid-fill-strong: rgba(248, 252, 255, .078);
+  --liquid-line: rgba(250, 252, 255, .42);
+  --liquid-edge: rgba(250, 252, 255, .66);
+  --liquid-edge-cool: rgba(186, 222, 255, .20);
+  --liquid-edge-warm: rgba(255, 255, 255, .16);
   --liquid-shadow:
-    0 22px 54px rgba(0, 0, 0, .28),
-    0 3px 16px rgba(255, 255, 255, .045),
-    inset 0 1px 1px rgba(255, 255, 255, .42),
-    inset 0 -1px 1px rgba(0, 0, 0, .20),
+    0 22px 48px rgba(0, 0, 0, .22),
+    0 3px 12px rgba(255, 255, 255, .052),
+    inset 0 1px 1px rgba(255, 255, 255, .62),
+    inset 0 -1px 1px rgba(5, 10, 24, .085),
     inset 1px 0 1px var(--liquid-edge-cool),
     inset -1px 0 1px var(--liquid-edge-warm);
 }
@@ -591,13 +591,13 @@ select,
 .tools-panel-card,
 .tools-back {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .130), rgba(255, 255, 255, .030) 42%, rgba(0, 0, 0, .055)),
+    linear-gradient(145deg, rgba(255, 255, 255, .105), rgba(255, 255, 255, .012) 38%, rgba(255, 255, 255, .024) 68%, rgba(0, 0, 0, .020)),
     var(--liquid-fill) !important;
   border: 1px solid var(--liquid-line) !important;
   box-shadow: var(--liquid-shadow) !important;
-  backdrop-filter: blur(16px) saturate(82%) contrast(1.10) brightness(1.10) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(82%) contrast(1.10) brightness(1.10) !important;
-  contain: paint;
+  backdrop-filter: blur(18px) saturate(155%) contrast(1.06) brightness(1.12) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(155%) contrast(1.06) brightness(1.12) !important;
+  isolation: isolate;
 }
 
 .summary-chip,
@@ -620,10 +620,10 @@ select,
 .chat-row.assistant .chat-bubble,
 .tools-back {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .115), rgba(255, 255, 255, .020) 48%, rgba(0, 0, 0, .045)),
+    linear-gradient(145deg, rgba(255, 255, 255, .090), rgba(255, 255, 255, .010) 48%, rgba(255, 255, 255, .020) 74%, rgba(0, 0, 0, .014)),
     var(--liquid-fill-soft) !important;
-  backdrop-filter: blur(11px) saturate(86%) contrast(1.08) brightness(1.08) !important;
-  -webkit-backdrop-filter: blur(11px) saturate(86%) contrast(1.08) brightness(1.08) !important;
+  backdrop-filter: blur(14px) saturate(150%) contrast(1.05) brightness(1.10) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(150%) contrast(1.05) brightness(1.10) !important;
 }
 
 .glass-card::before,
@@ -650,10 +650,10 @@ select,
 .tools-panel-card::before,
 .tools-back::before {
   background:
-    linear-gradient(112deg, transparent 0 18%, rgba(255, 255, 255, .155) 31%, transparent 46%),
-    linear-gradient(155deg, rgba(255, 255, 255, .205), transparent 26%, transparent 74%, rgba(255, 255, 255, .095)),
-    radial-gradient(ellipse at 12% 0%, rgba(255, 255, 255, .175), transparent 36%);
-  opacity: .58;
+    linear-gradient(112deg, transparent 0 20%, rgba(255, 255, 255, .235) 31%, transparent 43%),
+    linear-gradient(155deg, rgba(255, 255, 255, .260), transparent 23%, transparent 74%, rgba(255, 255, 255, .120)),
+    radial-gradient(ellipse at 10% 0%, rgba(255, 255, 255, .240), transparent 34%);
+  opacity: .64;
 }
 
 .glass-card::after,
@@ -666,13 +666,13 @@ select,
 .add-sheet::after,
 .tools-panel-card::after {
   inset: 0;
-  border: 1px solid rgba(255, 255, 255, .10);
+  border: 1px solid rgba(255, 255, 255, .15);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, .07),
-    inset 0 10px 18px rgba(255, 255, 255, .055),
-    inset 0 -18px 24px rgba(0, 0, 0, .20),
-    inset 12px 0 18px rgba(255, 255, 255, .055),
-    inset -12px 0 18px rgba(255, 255, 255, .035);
+    inset 0 0 0 1px rgba(255, 255, 255, .11),
+    inset 0 10px 18px rgba(255, 255, 255, .080),
+    inset 0 -14px 22px rgba(3, 8, 22, .075),
+    inset 14px 0 18px rgba(255, 255, 255, .070),
+    inset -14px 0 18px rgba(255, 255, 255, .048);
   background: none;
 }
 
@@ -681,8 +681,8 @@ select,
 .add-sheet,
 .auth-sheet {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .135), rgba(255, 255, 255, .026) 45%, rgba(0, 0, 0, .065)),
-    rgba(224, 228, 236, .115) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .100), rgba(255, 255, 255, .010) 45%, rgba(0, 0, 0, .028)),
+    rgba(246, 250, 255, .042) !important;
 }
 
 .bottom-nav {
@@ -694,17 +694,17 @@ select,
   padding: 8px;
   border-radius: 30px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .160), rgba(255, 255, 255, .030) 48%, rgba(0, 0, 0, .13)),
-    rgba(24, 27, 34, .36) !important;
-  border: 1px solid rgba(246, 248, 255, .34) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .115), rgba(255, 255, 255, .012) 48%, rgba(0, 0, 0, .042)),
+    rgba(246, 250, 255, .044) !important;
+  border: 1px solid rgba(246, 248, 255, .38) !important;
   box-shadow:
-    0 20px 44px rgba(0, 0, 0, .34),
-    inset 0 1px 1px rgba(255, 255, 255, .38),
-    inset 0 -1px 1px rgba(0, 0, 0, .28),
-    inset 1px 0 1px rgba(255, 255, 255, .16),
-    inset -1px 0 1px rgba(255, 255, 255, .11) !important;
-  backdrop-filter: blur(16px) saturate(76%) contrast(1.12) brightness(1.12) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(76%) contrast(1.12) brightness(1.12) !important;
+    0 18px 38px rgba(0, 0, 0, .24),
+    inset 0 1px 1px rgba(255, 255, 255, .58),
+    inset 0 -1px 1px rgba(5, 10, 24, .12),
+    inset 1px 0 1px rgba(255, 255, 255, .20),
+    inset -1px 0 1px rgba(255, 255, 255, .14) !important;
+  backdrop-filter: blur(20px) saturate(152%) contrast(1.06) brightness(1.12) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(152%) contrast(1.06) brightness(1.12) !important;
 }
 
 .nav-btn {
@@ -745,15 +745,15 @@ select,
 
 .nav-btn.active {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .245), rgba(255, 255, 255, .075)),
-    rgba(246, 248, 255, .120) !important;
-  border: 1px solid rgba(250, 252, 255, .36);
+    linear-gradient(145deg, rgba(255, 255, 255, .215), rgba(255, 255, 255, .040) 54%, rgba(142, 176, 255, .050)),
+    rgba(248, 251, 255, .070) !important;
+  border: 1px solid rgba(250, 252, 255, .44);
   box-shadow:
-    0 12px 24px rgba(0, 0, 0, .18),
-    inset 0 1px 1px rgba(255, 255, 255, .48),
-    inset 0 -1px 1px rgba(0, 0, 0, .18) !important;
-  backdrop-filter: blur(12px) saturate(78%) contrast(1.10) brightness(1.12);
-  -webkit-backdrop-filter: blur(12px) saturate(78%) contrast(1.10) brightness(1.12);
+    0 10px 20px rgba(0, 0, 0, .13),
+    inset 0 1px 1px rgba(255, 255, 255, .62),
+    inset 0 -1px 1px rgba(5, 10, 24, .095) !important;
+  backdrop-filter: blur(16px) saturate(150%) contrast(1.05) brightness(1.14);
+  -webkit-backdrop-filter: blur(16px) saturate(150%) contrast(1.05) brightness(1.14);
 }
 
 .send-btn,
@@ -763,12 +763,15 @@ select,
 .range-chip.active,
 .auth-tab.active {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .255), rgba(255, 255, 255, .080)),
-    rgba(246, 248, 255, .140) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .210), rgba(255, 255, 255, .040) 55%, rgba(143, 180, 255, .050)),
+    rgba(248, 251, 255, .066) !important;
+  border: 1px solid rgba(250, 252, 255, .42);
   box-shadow:
-    0 14px 30px rgba(0, 0, 0, .18),
-    inset 0 1px 1px rgba(255, 255, 255, .48),
-    inset 0 -1px 1px rgba(0, 0, 0, .16) !important;
+    0 12px 26px rgba(0, 0, 0, .13),
+    inset 0 1px 1px rgba(255, 255, 255, .62),
+    inset 0 -1px 1px rgba(5, 10, 24, .095) !important;
+  backdrop-filter: blur(16px) saturate(150%) contrast(1.05) brightness(1.14);
+  -webkit-backdrop-filter: blur(16px) saturate(150%) contrast(1.05) brightness(1.14);
 }
 
 .chat-composer {
@@ -802,18 +805,51 @@ select,
 .add-sheet input,
 .add-sheet select,
 .chat-composer textarea {
-  border-color: rgba(221, 235, 255, .34) !important;
+  border-color: rgba(229, 240, 255, .38) !important;
   box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, .28),
-    inset 0 -1px 1px rgba(0, 0, 0, .18),
-    inset 1px 0 1px rgba(112, 204, 255, .10),
+    inset 0 1px 1px rgba(255, 255, 255, .40),
+    inset 0 -1px 1px rgba(5, 10, 24, .10),
+    inset 1px 0 1px rgba(112, 204, 255, .12),
     inset -1px 0 1px rgba(175, 118, 255, .10) !important;
 }
 
 body[data-bg="dawn"] {
-  --liquid-fill: rgba(255, 255, 255, .18);
-  --liquid-fill-soft: rgba(255, 255, 255, .12);
-  --liquid-line: rgba(255, 255, 255, .44);
+  --liquid-fill: rgba(255, 255, 255, .082);
+  --liquid-fill-soft: rgba(255, 255, 255, .054);
+  --liquid-line: rgba(255, 255, 255, .48);
+}
+
+html,
+body,
+.app-shell,
+.chat-messages {
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-messages {
+  overscroll-behavior: contain;
+  transform: translateZ(0);
+}
+
+.chat-shell .summary-chip,
+.chat-shell .tag-btn,
+.chat-shell .chat-row.assistant .chat-bubble,
+.chat-shell .chat-composer textarea,
+.chat-shell .send-btn {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.chat-shell .summary-chip,
+.chat-shell .tag-btn,
+.chat-shell .chat-row.assistant .chat-bubble,
+.chat-shell .chat-composer textarea {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .120), rgba(255, 255, 255, .016) 48%, rgba(255, 255, 255, .030)),
+    rgba(248, 252, 255, .050) !important;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .48),
+    inset 0 -1px 1px rgba(5, 10, 24, .080) !important;
 }
 
 @media (max-width: 520px) {
@@ -841,5 +877,60 @@ body[data-bg="dawn"] {
 
   .bottom-nav {
     bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .glass-card,
+  .add-sheet,
+  .auth-sheet,
+  .tools-panel-card {
+    backdrop-filter: blur(16px) saturate(145%) contrast(1.05) brightness(1.10) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(145%) contrast(1.05) brightness(1.10) !important;
+  }
+
+  .bottom-nav {
+    backdrop-filter: blur(18px) saturate(148%) contrast(1.05) brightness(1.10) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(148%) contrast(1.05) brightness(1.10) !important;
+  }
+
+  .summary-chip,
+  .record-item,
+  .draft-item,
+  textarea,
+  input,
+  select,
+  .tag-btn,
+  .range-chip,
+  .ghost-btn,
+  .mini-ghost-btn,
+  .summary-box,
+  .budget-pill,
+  .roadmap span,
+  .auth-tab,
+  .icon-btn,
+  .delete-btn,
+  .ai-badge,
+  .chat-row.assistant .chat-bubble,
+  .tools-back {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .ambient,
+  body::before,
+  body::after {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
   }
 }

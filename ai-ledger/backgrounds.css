@@ -91,8 +91,8 @@ select,
 .delete-btn,
 .ai-badge,
 .chat-row.assistant .chat-bubble {
-  backdrop-filter: blur(22px) saturate(170%) contrast(1.06);
-  -webkit-backdrop-filter: blur(22px) saturate(170%) contrast(1.06);
+  backdrop-filter: blur(18px) saturate(155%) contrast(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(155%) contrast(1.05);
 }
 
 .glass-card::before,
@@ -148,14 +148,14 @@ body[data-bg="dawn"] {
   --muted: rgba(52, 70, 94, .66);
   --teal: #0f7b8c;
   --teal-deep: #0a6674;
-  --liquid-fill: rgba(255,255,255,.20);
-  --liquid-fill-soft: rgba(255,255,255,.16);
-  --liquid-fill-strong: rgba(255,255,255,.26);
-  --liquid-line: rgba(255,255,255,.52);
+  --liquid-fill: rgba(255,255,255,.082);
+  --liquid-fill-soft: rgba(255,255,255,.054);
+  --liquid-fill-strong: rgba(255,255,255,.120);
+  --liquid-line: rgba(255,255,255,.48);
   --liquid-shadow:
-    0 18px 46px rgba(73, 99, 126, .12),
-    inset 0 1px 0 rgba(255,255,255,.70),
-    inset 0 -1px 0 rgba(255,255,255,.22),
+    0 18px 46px rgba(73, 99, 126, .10),
+    inset 0 1px 0 rgba(255,255,255,.74),
+    inset 0 -1px 0 rgba(111, 133, 160, .12),
     inset 1px 0 0 rgba(255,255,255,.22),
     inset -1px 0 0 rgba(255,255,255,.18);
 }
@@ -174,8 +174,8 @@ body[data-bg="dawn"] .metric-card strong {
 
 body[data-bg="dawn"] .summary-card {
   background:
-    linear-gradient(145deg, rgba(255,255,255,.34), rgba(255,255,255,.14)),
-    rgba(255,255,255,.10);
+    linear-gradient(145deg, rgba(255,255,255,.18), rgba(255,255,255,.050)),
+    rgba(255,255,255,.040);
 }
 
 body[data-bg="dawn"] .summary-card .subtext.light,
