@@ -20,6 +20,7 @@
     inset 1px 0 0 rgba(154, 225, 255, .08),
     inset -1px 0 0 rgba(188, 168, 255, .08);
   --spring: cubic-bezier(.18, 1.28, .28, 1);
+  --glass-press: cubic-bezier(.17, .89, .28, 1.35);
 }
 
 body {
@@ -496,27 +497,67 @@ button,
 .draft-item,
 .auth-tab {
   transform-origin: center;
+  touch-action: manipulation;
+  transform: translateZ(0);
+  will-change: transform;
   transition:
-    transform .40s var(--spring),
-    box-shadow .34s ease,
-    filter .28s ease,
-    background .28s ease;
+    transform .30s var(--glass-press),
+    box-shadow .22s ease,
+    filter .18s ease,
+    background .18s ease;
 }
 
 .is-pressed {
-  transform: scale(.945, .975);
-  filter: saturate(1.08) brightness(1.04);
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.966, .982);
+  filter: saturate(1.14) brightness(1.07);
+  transition-duration: 78ms;
+  transition-timing-function: cubic-bezier(.2, 0, .2, 1);
+}
+
+.is-pressed::before {
+  background:
+    radial-gradient(circle at var(--press-x, 50%) var(--press-y, 50%), rgba(255, 255, 255, .34), transparent 30%),
+    linear-gradient(135deg, rgba(255, 255, 255, .230), rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0) 70%, rgba(196, 222, 255, .120)) !important;
+  opacity: .78 !important;
+}
+
+.is-pressed::after {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .18),
+    inset 0 8px 16px rgba(255, 255, 255, .10),
+    inset 0 -10px 18px rgba(3, 8, 22, .10) !important;
+}
+
+.send-btn.is-pressed,
+.fab.is-pressed,
+.nav-btn.is-pressed,
+.nav-btn.active.is-pressed,
+.tag-btn.is-pressed,
+.primary-btn.is-pressed,
+.confirm-btn.is-pressed,
+.auth-tab.is-pressed,
+.range-chip.is-pressed {
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.940, .960);
+  filter: saturate(1.18) brightness(1.10);
+}
+
+.chart-card.is-pressed,
+.summary-card.is-pressed,
+.tool-card.is-pressed,
+.record-item.is-pressed,
+.draft-card.is-pressed {
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.978);
 }
 
 .is-releasing {
-  animation: elasticRelease .72s cubic-bezier(.18, 1.34, .24, 1);
+  animation: elasticRelease .54s cubic-bezier(.16, 1.10, .28, 1);
 }
 
 @keyframes elasticRelease {
-  0% { transform: scale(.945, .975); }
-  40% { transform: scale(1.035, 1.012); }
-  66% { transform: scale(.988, .996); }
-  82% { transform: scale(1.010, 1.004); }
+  0% { transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.966, .982); }
+  36% { transform: scale(1.018, 1.008); }
+  62% { transform: scale(.994, .998); }
+  82% { transform: scale(1.006, 1.002); }
   100% { transform: scale(1); }
 }
 

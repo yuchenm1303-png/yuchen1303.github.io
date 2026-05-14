@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-ledger-v17';
+const CACHE_NAME = 'ai-ledger-v18';
 const ASSETS = [
   './',
   './index.html',

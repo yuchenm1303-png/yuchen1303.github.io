@@ -1,7 +1,8 @@
 (() => {
   const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const pressableSelector = isCoarsePointer
-    ? ['button', '.record-item', '.draft-item', '.auth-tab'].join(', ')
+    ? ['button', '.record-item', '.draft-item', '.auth-tab', '.summary-card', '.chart-card', '.tool-card', '.tools-back'].join(', ')
     : [
         'button',
         '.record-item',
@@ -10,6 +11,8 @@
         '.metric-card',
         '.chart-card',
         '.summary-card',
+        '.tool-card',
+        '.tools-back',
         '.account-row',
         '.draft-card',
         '.draft-item',
@@ -32,11 +35,39 @@
   function endPress(el) {
     if (!el) return;
     el.classList.remove('is-pressed');
-    if (isCoarsePointer) return;
+    if (prefersReducedMotion) return;
     el.classList.remove('is-releasing');
     void el.offsetWidth;
     el.classList.add('is-releasing');
     window.setTimeout(() => el.classList.remove('is-releasing'), 760);
+  }
+
+  function updatePressPoint(el, event) {
+    if (!el || typeof event.clientX !== 'number') return;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    const centerX = Math.max(-1, Math.min(1, (x - 50) / 50));
+    const centerY = Math.max(-1, Math.min(1, (y - 50) / 50));
+    el.style.setProperty('--press-x', `${Math.max(0, Math.min(100, x)).toFixed(1)}%`);
+    el.style.setProperty('--press-y', `${Math.max(0, Math.min(100, y)).toFixed(1)}%`);
+    el.style.setProperty('--press-shift-x', `${(centerX * 1.8).toFixed(2)}px`);
+    el.style.setProperty('--press-shift-y', `${(Math.max(.35, centerY + 1) * 1.2).toFixed(2)}px`);
+  }
+
+  function clearPressPoint(el) {
+    if (!el) return;
+    window.setTimeout(() => {
+      if (el.classList.contains('is-pressed')) return;
+      el.style.removeProperty('--press-shift-x');
+      el.style.removeProperty('--press-shift-y');
+    }, 760);
+  }
+
+  function pulseHaptic() {
+    if (!isCoarsePointer || prefersReducedMotion || !navigator.vibrate) return;
+    navigator.vibrate(8);
   }
 
   function ensureDetailOverlay() {
@@ -316,17 +347,30 @@
   function bindPressFeedback() {
     document.addEventListener('pointerdown', (event) => {
       const el = event.target.closest(pressableSelector);
+      updatePressPoint(el, event);
       beginPress(el);
+      pulseHaptic();
+    }, { passive: true });
+
+    document.addEventListener('pointermove', (event) => {
+      const el = event.target.closest(pressableSelector);
+      if (!el?.classList.contains('is-pressed')) return;
+      updatePressPoint(el, event);
     }, { passive: true });
 
     ['pointerup', 'pointercancel'].forEach((type) => {
       document.addEventListener(type, (event) => {
-        endPress(event.target.closest?.(pressableSelector));
+        const el = event.target.closest?.(pressableSelector);
+        updatePressPoint(el, event);
+        endPress(el);
+        clearPressPoint(el);
       }, { passive: true });
     });
 
     document.addEventListener('pointerleave', (event) => {
-      endPress(event.target.closest?.(pressableSelector));
+      const el = event.target.closest?.(pressableSelector);
+      endPress(el);
+      clearPressPoint(el);
     }, true);
   }
 
