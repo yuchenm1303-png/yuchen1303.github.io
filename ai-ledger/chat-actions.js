@@ -5,7 +5,7 @@
     {
       id: "welcome",
       role: "assistant",
-      content: "你好，我是你的 AI 记账助手。你可以直接和我说：今天午饭28；也可以问我：这个月餐饮花了多少。",
+      content: "你好，我是你的 AI 助手。你可以让我记账、查账单、设置提醒、打开应用，也可以直接和我聊天。",
       action: "chat",
       records: [],
       draftState: "none",

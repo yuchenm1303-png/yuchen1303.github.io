@@ -49,7 +49,7 @@ const initialChat = [
   {
     id: "welcome",
     role: "assistant",
-    content: "你好，我是你的 AI 记账助手。你可以直接说：今天午饭28，或者和我多聊两句，我会先整理成待确认账单再保存。",
+    content: "你好，我是你的 AI 助手。你可以直接说：今天午饭28，或者和我多聊两句，我会先整理成待确认账单再保存。",
     status: "none",
     records: [],
     draftState: "none",

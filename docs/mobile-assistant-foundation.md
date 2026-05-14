@@ -1,6 +1,6 @@
 # Mobile Assistant Foundation
 
-This branch adds the first foundation layer for turning AI Ledger into a mobile assistant while keeping the current UI and animation style unchanged.
+This branch adds the first foundation layer for turning the app into a mobile AI assistant while keeping the current UI and animation style unchanged.
 
 ## What changed
 
