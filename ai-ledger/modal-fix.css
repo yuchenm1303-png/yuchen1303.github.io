@@ -28,3 +28,10 @@ body.detail-open .fab {
   backdrop-filter: blur(12px) saturate(145%) !important;
   -webkit-backdrop-filter: blur(12px) saturate(145%) !important;
 }
+
+/* Clean up release UI: hide cloud AI entry and development roadmap card. */
+#aiModeBadge,
+#view-settings > section:nth-of-type(4),
+#view-settings > section:nth-of-type(6) {
+  display: none !important;
+}
