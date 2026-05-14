@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0b1024" />
-  <title>AI 记账</title>
+  <title>AI助手</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css?v=20260510-17" />
   <link rel="stylesheet" href="./liquid.css?v=20260510-17" />
   <link rel="stylesheet" href="./chat-v2.css?v=20260510-17" />
   <link rel="stylesheet" href="./auth.css?v=20260510-17" />
-  <link rel="stylesheet" href="./liquid-plus.css?v=20260510-17" />
+  <link rel="stylesheet" href="./liquid-plus.css?v=20260514-2" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260510-17" />
   <link rel="stylesheet" href="./backgrounds.css?v=20260510-17" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
@@ -24,15 +24,15 @@
   <div class="ambient ambient-4"></div>
 
   <main class="app-shell">
-    <section id="view-ai" class="view">
+    <section id="view-ai" class="view active">
       <header class="page-header chat-header reveal">
         <div>
-          <p class="eyebrow">AI 记账助手</p>
-          <h1>聊天控制台</h1>
-          <p class="subtext">控制设备</p>
+          <p class="eyebrow">AI 多功能助手</p>
+          <h1>对话中枢</h1>
+          <p class="subtext">聊天、记账、提醒与手机任务</p>
         </div>
         <div class="chat-header-actions">
-          <div id="aiModeBadge" class="ai-badge">✨ 本地智能识别</div>
+          <div id="aiModeBadge" class="ai-badge">✨ 本地助手模式</div>
           <button id="clearChatInlineBtn" class="mini-ghost-btn" type="button">清空对话</button>
         </div>
       </header>
@@ -52,23 +52,69 @@
         <div id="chatMessages" class="chat-messages"></div>
 
         <div class="quick-tags chat-tags">
-          <button class="tag-btn sample-btn" data-sample="今天午饭28，奶茶16，地铁3">记账</button>
-          <button class="tag-btn sample-btn" data-sample="今天下午会下雨吗">今天天气如何</button>
-          <button class="tag-btn sample-btn" data-sample="我这个月餐饮花了多少">本月开支</button>
+          <button class="tag-btn sample-btn" data-sample="明天早上8点叫我起床">设提醒</button>
+          <button class="tag-btn sample-btn" data-sample="打开微信">打开微信</button>
+          <button class="tag-btn sample-btn" data-sample="今天午饭28">记一笔</button>
         </div>
 
         <form id="chatForm" class="chat-composer">
-          <textarea id="aiInput" rows="1" placeholder="和我说点什么，例如：今天午饭28"></textarea>
+          <textarea id="aiInput" rows="1" placeholder="和我说点什么，例如：明早8点叫我起床"></textarea>
           <button id="aiAddBtn" class="send-btn" type="submit" aria-label="发送">➤</button>
         </form>
-        <p id="aiModeHint" class="helper-text chat-hint">未配置云端 AI 时，会自动使用本地规则识别。</p>
+        <p id="aiModeHint" class="helper-text chat-hint">可以像聊天一样交流，也可以让我记账、设置提醒、打开应用。</p>
       </section>
     </section>
 
-    <section id="view-stats" class="view active">
+    <section id="view-tools" class="view">
+      <div id="toolsHome" class="tools-home">
+        <header class="page-header reveal">
+          <p class="eyebrow">功能中心</p>
+          <h1>工具与能力</h1>
+          <p class="subtext">账单、统计、提醒、应用控制和手机任务都在这里。</p>
+        </header>
+
+        <section class="tools-grid reveal delay-1" aria-label="功能中心">
+          <button class="glass-card tool-card" type="button" data-tool="ledger">
+            <div class="tool-icon">▤</div>
+            <h3>账单中心</h3>
+            <p>查看记录、管理分类、导出账单数据。</p>
+          </button>
+          <button class="glass-card tool-card" type="button" data-tool="stats">
+            <div class="tool-icon">▣</div>
+            <h3>数据统计</h3>
+            <p>查看收支总览、趋势图、分类占比和预算。</p>
+          </button>
+          <button class="glass-card tool-card" type="button" data-tool="alarm">
+            <div class="tool-icon">⏰</div>
+            <h3>提醒闹钟</h3>
+            <p>通过对话生成提醒和系统闹钟动作。</p>
+          </button>
+          <button class="glass-card tool-card" type="button" data-tool="apps">
+            <div class="tool-icon">◎</div>
+            <h3>应用控制</h3>
+            <p>打开微信、支付宝等常用手机 App。</p>
+          </button>
+          <button class="glass-card tool-card" type="button" data-tool="shortcuts">
+            <div class="tool-icon">⌁</div>
+            <h3>快捷指令</h3>
+            <p>沉淀常用任务，一句话复用。</p>
+          </button>
+          <button class="glass-card tool-card" type="button" data-tool="tasks">
+            <div class="tool-icon">✓</div>
+            <h3>任务记录</h3>
+            <p>查看手机动作卡片和执行历史。</p>
+          </button>
+        </section>
+      </div>
+
+      <section id="toolsPanel" class="tools-panel" aria-live="polite"></section>
+    </section>
+
+    <section id="view-stats" class="view">
+      <button class="tools-back" type="button" data-open-view="tools">← 功能中心</button>
       <header class="page-header reveal">
-        <p class="eyebrow">统计分析</p>
-        <h1>本月收支</h1>
+        <p class="eyebrow">数据统计</p>
+        <h1>收支总览</h1>
         <p id="rangeText" class="subtext">—</p>
       </header>
 
@@ -135,10 +181,11 @@
     </section>
 
     <section id="view-list" class="view">
+      <button class="tools-back" type="button" data-open-view="tools">← 功能中心</button>
       <header class="page-header reveal">
-        <p class="eyebrow">账单流水</p>
+        <p class="eyebrow">账单中心</p>
         <h1>全部记录</h1>
-        <p class="subtext">查看最近的收入和支出明细。</p>
+        <p class="subtext">查看和管理最近的收入、支出明细。</p>
       </header>
 
       <section class="glass-card reveal delay-1">
@@ -239,44 +286,11 @@
     </section>
   </main>
 
-  <button id="fabAdd" class="fab" aria-label="新增账单">＋</button>
-
   <nav class="bottom-nav" aria-label="主导航">
-    <button class="nav-btn" data-view="ai"><span>✦</span><em>AI记账</em></button>
-    <button class="nav-btn active" data-view="stats"><span>▣</span><em>统计</em></button>
-    <button class="nav-btn" data-view="list"><span>▤</span><em>流水</em></button>
+    <button class="nav-btn active" data-view="ai"><span>✦</span><em>AI助手</em></button>
+    <button class="nav-btn" data-view="tools"><span>▦</span><em>功能</em></button>
     <button class="nav-btn" data-view="settings"><span>⚙</span><em>设置</em></button>
   </nav>
-
-  <div id="sheetMask" class="sheet-mask"></div>
-  <section id="addSheet" class="add-sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <h2>新增账单</h2>
-      <button id="closeSheetBtn" class="icon-btn" aria-label="关闭">×</button>
-    </div>
-    <div class="sheet-form">
-      <input id="manualTitle" placeholder="账单名称" />
-      <input id="manualAmount" type="number" placeholder="金额" />
-      <div class="form-grid">
-        <select id="manualType">
-          <option value="expense">支出</option>
-          <option value="income">收入</option>
-        </select>
-        <select id="manualCategory">
-          <option>餐饮</option>
-          <option>交通</option>
-          <option>购物</option>
-          <option>居住</option>
-          <option>饮品</option>
-          <option>工资</option>
-          <option>礼物</option>
-          <option>其他</option>
-        </select>
-      </div>
-      <button id="manualAddBtn" class="primary-btn">确认添加</button>
-    </div>
-  </section>
 
   <div id="authOverlay" class="auth-overlay" aria-hidden="true">
     <section class="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="authTitle">
@@ -312,8 +326,8 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-17"></script>
-  <script src="./app-v3.js?v=20260510-17"></script>
+  <script src="./config.js?v=20260514-2"></script>
+  <script src="./app-v3.js?v=20260514-2"></script>
   <script src="./chat-actions.js?v=20260510-17"></script>
   <script src="./ui-motion.js?v=20260510-17"></script>
   <script src="./background-picker.js?v=20260510-17"></script>

@@ -1,6 +1,6 @@
 {
   "appId": "com.yuchen.ailedger",
-  "appName": "AI记账",
+  "appName": "AI助手",
   "webDir": "www",
   "bundledWebRuntime": false,
   "server": {

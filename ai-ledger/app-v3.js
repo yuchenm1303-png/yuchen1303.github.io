@@ -58,7 +58,7 @@ const initialChat = [
   {
     id: "welcome",
     role: "assistant",
-    content: "你好，我是你的 AI 记账助手。你可以直接和我说：今天午饭28；也可以问我：这个月餐饮花了多少。",
+    content: "你好，我是你的 AI 助手。你可以让我记账、查账单、设置提醒、打开应用，也可以直接和我聊天。",
     action: "chat",
     records: [],
     draftState: "none",
@@ -186,7 +186,7 @@ function saveAiEndpoint(value) {
 let records = getRecords();
 let budget = getBudget();
 let chatMessages = getChatMessages();
-let currentView = "stats";
+let currentView = "ai";
 let currentRange = "month";
 let aiEndpoint = getAiEndpoint();
 let trendChart;
@@ -195,6 +195,7 @@ let categoryChart;
 const els = {
   views: {
     ai: document.querySelector("#view-ai"),
+    tools: document.querySelector("#view-tools"),
     stats: document.querySelector("#view-stats"),
     list: document.querySelector("#view-list"),
     settings: document.querySelector("#view-settings"),
@@ -524,10 +525,16 @@ function renderAll() {
   if (currentView === "stats") renderCharts();
 }
 
+function getTopLevelView(name) {
+  return name === "stats" || name === "list" ? "tools" : name;
+}
+
 function switchView(name) {
+  if (!els.views[name]) name = "ai";
   currentView = name;
   Object.entries(els.views).forEach(([key, el]) => el.classList.toggle("active", key === name));
-  els.navBtns.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === name));
+  const topLevelView = getTopLevelView(name);
+  els.navBtns.forEach((btn) => btn.classList.toggle("active", btn.dataset.view === topLevelView));
   if (name === "stats") {
     renderStats();
     requestAnimationFrame(renderCharts);
@@ -535,19 +542,28 @@ function switchView(name) {
   if (name === "ai") renderAI();
   if (name === "list") renderList();
   if (name === "settings") updateAiModeUI();
+  if (name === "tools") window.dispatchEvent(new CustomEvent("ai-tools-home"));
 }
 
+window.AiAssistantViews = {
+  open: switchView,
+  current: () => currentView,
+};
+
 function openSheet() {
+  if (!els.addSheet) return;
   document.body.classList.add("sheet-open");
   els.addSheet.setAttribute("aria-hidden", "false");
 }
 
 function closeSheet() {
+  if (!els.addSheet) return;
   document.body.classList.remove("sheet-open");
   els.addSheet.setAttribute("aria-hidden", "true");
 }
 
 function addManualRecord() {
+  if (!els.manualTitle || !els.manualAmount || !els.manualType || !els.manualCategory) return;
   const title = els.manualTitle.value.trim();
   const amount = Number(els.manualAmount.value);
   if (!title || !Number.isFinite(amount) || amount <= 0) {
@@ -778,6 +794,12 @@ async function testAiEndpoint() {
 
 els.navBtns.forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
 
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-open-view]");
+  if (!button) return;
+  switchView(button.dataset.openView);
+});
+
 els.rangeChips.forEach((button) => button.addEventListener("click", () => {
   currentRange = button.dataset.range;
   els.rangeChips.forEach((item) => item.classList.toggle("active", item === button));
@@ -819,10 +841,10 @@ els.chatMessages.addEventListener("click", (event) => {
   }
 });
 
-els.fabAdd.addEventListener("click", openSheet);
-els.closeSheetBtn.addEventListener("click", closeSheet);
-els.sheetMask.addEventListener("click", closeSheet);
-els.manualAddBtn.addEventListener("click", addManualRecord);
+els.fabAdd?.addEventListener("click", openSheet);
+els.closeSheetBtn?.addEventListener("click", closeSheet);
+els.sheetMask?.addEventListener("click", closeSheet);
+els.manualAddBtn?.addEventListener("click", addManualRecord);
 
 els.recordList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-id]");
@@ -858,4 +880,4 @@ if ("serviceWorker" in navigator) {
 }
 
 renderAll();
-switchView("stats");
+switchView("ai");

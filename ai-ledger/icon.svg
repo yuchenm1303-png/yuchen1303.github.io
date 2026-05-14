@@ -1,7 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="120" fill="#111827"/>
-  <path d="M144 168c0-22.1 17.9-40 40-40h144c22.1 0 40 17.9 40 40v176c0 22.1-17.9 40-40 40H184c-22.1 0-40-17.9-40-40V168Z" fill="#fff"/>
-  <path d="M192 192h128M192 240h128M192 288h72" stroke="#111827" stroke-width="24" stroke-linecap="round"/>
-  <circle cx="312" cy="320" r="52" fill="#111827"/>
-  <path d="M312 288v64M280 320h64" stroke="#fff" stroke-width="20" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AI助手图标">
+  <defs>
+    <linearGradient id="plate" x1="78" y1="48" x2="434" y2="472" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#142339"/>
+      <stop offset="0.54" stop-color="#081421"/>
+      <stop offset="1" stop-color="#111633"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="148" y1="80" x2="364" y2="432" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F8FBFF"/>
+      <stop offset="0.45" stop-color="#C9D3DD"/>
+      <stop offset="1" stop-color="#8E9BAA"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="170" y1="126" x2="340" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BFF7FF"/>
+      <stop offset="1" stop-color="#6A7CFF"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#000000" flood-opacity="0.36"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="116" fill="url(#plate)"/>
+  <rect x="28" y="28" width="456" height="456" rx="96" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
+  <circle cx="256" cy="256" r="154" fill="none" stroke="#CDEEFF" stroke-opacity="0.13" stroke-width="2"/>
+  <circle cx="256" cy="256" r="94" fill="none" stroke="#CDEEFF" stroke-opacity="0.09" stroke-width="1.5"/>
+
+  <g filter="url(#shadow)">
+    <path d="M256 52 L285 221 L421 120 L320 256 L421 392 L285 291 L256 460 L227 291 L91 392 L192 256 L91 120 L227 221 Z" fill="url(#metal)"/>
+    <path d="M256 104 L275 232 L360 152 L280 256 L360 360 L275 280 L256 408 L237 280 L152 360 L232 256 L152 152 L237 232 Z" fill="#07111D" opacity="0.14"/>
+    <path d="M256 116 L271 236 L344 168 L276 256 L344 344 L271 276 L256 396 L241 276 L168 344 L236 256 L168 168 L241 236 Z" fill="url(#accent)" opacity="0.22"/>
+    <circle cx="256" cy="256" r="18" fill="#F8FBFF" opacity="0.92"/>
+  </g>
 </svg>
