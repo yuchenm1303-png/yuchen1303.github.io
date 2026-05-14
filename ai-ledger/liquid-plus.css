@@ -546,3 +546,295 @@ button,
     grid-template-columns: 1fr;
   }
 }
+
+/* iOS-folder style liquid glass refinement */
+:root {
+  --liquid-fill: rgba(18, 25, 56, .30);
+  --liquid-fill-soft: rgba(18, 25, 56, .22);
+  --liquid-fill-strong: rgba(28, 36, 78, .36);
+  --liquid-line: rgba(205, 222, 255, .30);
+  --liquid-edge: rgba(235, 246, 255, .42);
+  --liquid-edge-cool: rgba(115, 210, 255, .20);
+  --liquid-edge-warm: rgba(185, 130, 255, .20);
+  --liquid-shadow:
+    0 22px 54px rgba(0, 0, 0, .34),
+    0 3px 16px rgba(65, 100, 255, .10),
+    inset 0 1px 1px rgba(255, 255, 255, .42),
+    inset 0 -1px 1px rgba(0, 0, 0, .24),
+    inset 1px 0 1px var(--liquid-edge-cool),
+    inset -1px 0 1px var(--liquid-edge-warm);
+}
+
+.glass-card,
+.add-sheet,
+.auth-sheet,
+.account-row,
+.summary-chip,
+.record-item,
+.draft-card,
+.draft-item,
+textarea,
+input,
+select,
+.tag-btn,
+.range-chip,
+.ghost-btn,
+.mini-ghost-btn,
+.summary-box,
+.budget-pill,
+.roadmap span,
+.auth-tab,
+.icon-btn,
+.delete-btn,
+.ai-badge,
+.chat-row.assistant .chat-bubble,
+.tools-panel-card,
+.tools-back {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .010) 42%, rgba(0, 0, 0, .045)),
+    var(--liquid-fill) !important;
+  border: 1px solid var(--liquid-line) !important;
+  box-shadow: var(--liquid-shadow) !important;
+  backdrop-filter: blur(15px) saturate(205%) contrast(1.18) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(205%) contrast(1.18) brightness(1.08) !important;
+}
+
+.summary-chip,
+.record-item,
+.draft-item,
+textarea,
+input,
+select,
+.tag-btn,
+.range-chip,
+.ghost-btn,
+.mini-ghost-btn,
+.summary-box,
+.budget-pill,
+.roadmap span,
+.auth-tab,
+.icon-btn,
+.delete-btn,
+.ai-badge,
+.chat-row.assistant .chat-bubble,
+.tools-back {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .006) 48%, rgba(0, 0, 0, .035)),
+    var(--liquid-fill-soft) !important;
+}
+
+.glass-card::before,
+.bottom-nav::before,
+.add-sheet::before,
+.auth-sheet::before,
+.account-row::before,
+.summary-chip::before,
+.record-item::before,
+.draft-card::before,
+.draft-item::before,
+.tag-btn::before,
+.range-chip::before,
+.ghost-btn::before,
+.mini-ghost-btn::before,
+.summary-box::before,
+.budget-pill::before,
+.roadmap span::before,
+.auth-tab::before,
+.icon-btn::before,
+.delete-btn::before,
+.ai-badge::before,
+.chat-row.assistant .chat-bubble::before,
+.tools-panel-card::before,
+.tools-back::before {
+  background:
+    linear-gradient(112deg, transparent 0 18%, rgba(255, 255, 255, .14) 31%, transparent 46%),
+    linear-gradient(155deg, rgba(255, 255, 255, .18), transparent 26%, transparent 74%, rgba(147, 197, 255, .10)),
+    radial-gradient(ellipse at 12% 0%, rgba(255, 255, 255, .16), transparent 36%);
+  opacity: .55;
+}
+
+.glass-card::after,
+.record-item::after,
+.summary-chip::after,
+.draft-card::after,
+.summary-box::after,
+.bottom-nav::after,
+.auth-sheet::after,
+.add-sheet::after,
+.tools-panel-card::after {
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, .10);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .07),
+    inset 0 10px 18px rgba(255, 255, 255, .055),
+    inset 0 -18px 24px rgba(0, 0, 0, .20),
+    inset 12px 0 18px rgba(88, 190, 255, .075),
+    inset -12px 0 18px rgba(164, 98, 255, .075);
+  background: none;
+}
+
+.chat-shell,
+.summary-card,
+.add-sheet,
+.auth-sheet {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .050), rgba(255, 255, 255, .008) 45%, rgba(0, 0, 0, .055)),
+    rgba(17, 23, 55, .34) !important;
+}
+
+.bottom-nav {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  align-items: center;
+  gap: 8px;
+  width: min(88vw, 420px);
+  min-height: 88px;
+  padding: 8px;
+  border-radius: 30px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .050), rgba(255, 255, 255, .008) 48%, rgba(0, 0, 0, .12)),
+    rgba(9, 16, 34, .50) !important;
+  border: 1px solid rgba(218, 233, 255, .28) !important;
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, .42),
+    inset 0 1px 1px rgba(255, 255, 255, .38),
+    inset 0 -1px 1px rgba(0, 0, 0, .32),
+    inset 1px 0 1px rgba(114, 204, 255, .17),
+    inset -1px 0 1px rgba(180, 122, 255, .16) !important;
+  backdrop-filter: blur(15px) saturate(210%) contrast(1.20) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(15px) saturate(210%) contrast(1.20) brightness(1.08) !important;
+}
+
+.nav-btn {
+  width: 100%;
+  min-width: 0;
+  height: 70px;
+  min-height: 70px;
+  display: grid;
+  grid-template-rows: 26px 20px;
+  place-items: center;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px 4px;
+  border-radius: 22px;
+  color: rgba(224, 232, 252, .58);
+  line-height: 1;
+}
+
+.nav-btn span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.nav-btn em {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.nav-btn.active {
+  background:
+    linear-gradient(145deg, rgba(114, 160, 255, .82), rgba(112, 77, 244, .72)),
+    rgba(70, 82, 180, .48) !important;
+  border: 1px solid rgba(220, 231, 255, .28);
+  box-shadow:
+    0 12px 24px rgba(55, 68, 170, .32),
+    inset 0 1px 1px rgba(255, 255, 255, .35),
+    inset 0 -1px 1px rgba(35, 20, 120, .24) !important;
+}
+
+.send-btn,
+.primary-btn,
+.confirm-btn,
+.fab,
+.range-chip.active,
+.auth-tab.active {
+  background:
+    linear-gradient(145deg, rgba(124, 171, 255, .88), rgba(118, 79, 248, .78)),
+    rgba(75, 95, 210, .62) !important;
+  box-shadow:
+    0 14px 30px rgba(45, 58, 170, .34),
+    inset 0 1px 1px rgba(255, 255, 255, .38),
+    inset 0 -1px 1px rgba(35, 20, 120, .20) !important;
+}
+
+.chat-composer {
+  grid-template-columns: minmax(0, 1fr) 56px;
+  align-items: stretch;
+}
+
+.chat-shell {
+  grid-template-rows: auto minmax(220px, 1fr) auto auto auto;
+  min-height: min(570px, calc(100dvh - 190px));
+  padding-bottom: 18px;
+}
+
+.chat-messages {
+  min-height: 220px;
+}
+
+.chat-composer textarea {
+  min-width: 0;
+  min-height: 56px;
+  padding: 13px 16px;
+  border-radius: 24px;
+}
+
+.send-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 24px;
+}
+
+.add-sheet input,
+.add-sheet select,
+.chat-composer textarea {
+  border-color: rgba(221, 235, 255, .34) !important;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, .28),
+    inset 0 -1px 1px rgba(0, 0, 0, .18),
+    inset 1px 0 1px rgba(112, 204, 255, .10),
+    inset -1px 0 1px rgba(175, 118, 255, .10) !important;
+}
+
+body[data-bg="dawn"] {
+  --liquid-fill: rgba(255, 255, 255, .22);
+  --liquid-fill-soft: rgba(255, 255, 255, .16);
+  --liquid-line: rgba(255, 255, 255, .48);
+}
+
+@media (max-width: 520px) {
+  .app-shell {
+    padding-bottom: calc(132px + env(safe-area-inset-bottom));
+  }
+
+  .chat-header {
+    display: block;
+  }
+
+  .chat-header-actions {
+    justify-items: start;
+    margin-top: 12px;
+  }
+
+  .chat-shell {
+    min-height: auto;
+    margin-bottom: 24px;
+  }
+
+  .chat-messages {
+    min-height: clamp(190px, 34dvh, 300px);
+  }
+
+  .bottom-nav {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
