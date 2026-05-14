@@ -1,7 +1,10 @@
 :root {
-  --scene-image: url("./liquid-bg.svg");
-  --scene-overlay: linear-gradient(rgba(5, 8, 22, .10), rgba(5, 8, 22, .10));
-  --scene-base: linear-gradient(145deg, #070a18 0%, #0d1434 52%, #17113a 100%);
+  --scene-image:
+    radial-gradient(ellipse at 70% 14%, rgba(124, 171, 255, .18), transparent 28%),
+    radial-gradient(ellipse at 42% 62%, rgba(89, 106, 166, .28), transparent 38%);
+  --scene-overlay:
+    linear-gradient(180deg, rgba(10, 21, 39, .18), rgba(15, 22, 41, .08) 42%, rgba(72, 58, 88, .32));
+  --scene-base: linear-gradient(165deg, #0b172c 0%, #17233f 47%, #4a3f5d 100%);
 }
 
 html,
@@ -24,31 +27,68 @@ body {
   pointer-events: none;
   background:
     var(--scene-overlay),
-    var(--scene-image) center / cover no-repeat,
+    var(--scene-image),
     var(--scene-base);
   transform: scale(1.04);
+  transform-origin: center;
+  animation: weatherSkyBreathe 38s ease-in-out infinite alternate;
 }
 
 .scene-backdrop::before {
   content: "";
   position: absolute;
-  inset: -8%;
+  inset: -10%;
   background:
-    radial-gradient(circle at 16% 18%, rgba(255,255,255,.18), transparent 22%),
-    radial-gradient(circle at 78% 14%, rgba(180,210,255,.16), transparent 24%),
-    radial-gradient(circle at 75% 78%, rgba(116,231,255,.12), transparent 28%),
-    radial-gradient(circle at 20% 84%, rgba(191,135,255,.12), transparent 26%);
-  filter: blur(30px);
-  opacity: .88;
+    radial-gradient(ellipse at 26% 14%, rgba(160, 188, 255, .20), transparent 30%),
+    radial-gradient(ellipse at 78% 20%, rgba(115, 150, 226, .18), transparent 26%),
+    radial-gradient(ellipse at 70% 82%, rgba(151, 96, 147, .18), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.030), transparent 46%, rgba(219, 126, 154, .070));
+  filter: blur(20px);
+  opacity: .76;
+  animation: weatherMistDrift 54s linear infinite alternate;
 }
 
 .scene-backdrop::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -12%;
   background:
-    radial-gradient(circle at 50% 18%, rgba(255,255,255,.16), transparent 34%),
-    linear-gradient(180deg, rgba(0,0,0,.04), rgba(0,0,0,.20));
+    radial-gradient(circle at 9% 16%, rgba(255,255,255,.70) 0 1px, transparent 1.7px),
+    radial-gradient(circle at 22% 8%, rgba(255,255,255,.36) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 35% 27%, rgba(255,255,255,.48) 0 1px, transparent 1.9px),
+    radial-gradient(circle at 52% 12%, rgba(255,255,255,.58) 0 1.1px, transparent 2px),
+    radial-gradient(circle at 66% 30%, rgba(255,255,255,.34) 0 .9px, transparent 1.8px),
+    radial-gradient(circle at 78% 10%, rgba(255,255,255,.66) 0 1px, transparent 2px),
+    radial-gradient(circle at 90% 25%, rgba(255,255,255,.44) 0 .9px, transparent 1.8px),
+    radial-gradient(circle at 16% 45%, rgba(255,255,255,.36) 0 .9px, transparent 1.8px),
+    radial-gradient(circle at 42% 53%, rgba(255,255,255,.32) 0 .8px, transparent 1.7px),
+    radial-gradient(circle at 62% 47%, rgba(255,255,255,.42) 0 1px, transparent 1.9px),
+    radial-gradient(circle at 86% 56%, rgba(255,255,255,.30) 0 .8px, transparent 1.7px),
+    radial-gradient(circle at 30% 76%, rgba(255,255,255,.30) 0 .8px, transparent 1.7px),
+    radial-gradient(circle at 70% 78%, rgba(255,255,255,.36) 0 .9px, transparent 1.8px);
+  opacity: .54;
+  animation: weatherStarsTwinkle 9s ease-in-out infinite alternate, weatherStarsDrift 72s linear infinite;
+}
+
+@keyframes weatherSkyBreathe {
+  from { transform: scale(1.035) translate3d(0, 0, 0); }
+  to { transform: scale(1.055) translate3d(-.7%, -.45%, 0); }
+}
+
+@keyframes weatherMistDrift {
+  from { transform: translate3d(-1%, 0, 0); opacity: .70; }
+  to { transform: translate3d(1.2%, -.8%, 0); opacity: .82; }
+}
+
+@keyframes weatherStarsTwinkle {
+  from { opacity: .36; }
+  50% { opacity: .68; }
+  to { opacity: .48; }
+}
+
+@keyframes weatherStarsDrift {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-1.4%, 1.8%, 0); }
 }
 
 body::before,
@@ -122,26 +162,29 @@ select,
 }
 
 body[data-bg="aurora"] {
-  --scene-image: url("./liquid-bg.svg");
-  --scene-overlay: linear-gradient(rgba(5, 8, 22, .10), rgba(5, 8, 22, .10));
-  --scene-base: linear-gradient(145deg, #070a18 0%, #0d1434 52%, #17113a 100%);
+  --scene-image:
+    radial-gradient(ellipse at 70% 14%, rgba(124, 171, 255, .18), transparent 28%),
+    radial-gradient(ellipse at 42% 62%, rgba(89, 106, 166, .28), transparent 38%);
+  --scene-overlay:
+    linear-gradient(180deg, rgba(10, 21, 39, .18), rgba(15, 22, 41, .08) 42%, rgba(72, 58, 88, .32));
+  --scene-base: linear-gradient(165deg, #0b172c 0%, #17233f 47%, #4a3f5d 100%);
 }
 
 body[data-bg="jade"] {
-  --scene-image: url("./bg-jade-ocean.svg");
+  --scene-image: url("./bg-jade-ocean.svg") center / cover no-repeat;
   --scene-overlay: linear-gradient(rgba(2, 15, 20, .10), rgba(2, 15, 20, .16));
   --scene-base: linear-gradient(145deg, #04141a 0%, #062d36 52%, #063c43 100%);
 }
 
 body[data-bg="sunset"] {
-  --scene-image: url("./bg-sunset-glow.svg");
+  --scene-image: url("./bg-sunset-glow.svg") center / cover no-repeat;
   --scene-overlay: linear-gradient(rgba(16, 6, 18, .10), rgba(16, 6, 18, .18));
   --scene-base: linear-gradient(145deg, #170a18 0%, #341127 52%, #351827 100%);
 }
 
 body[data-bg="dawn"] {
   color-scheme: light;
-  --scene-image: url("./bg-dawn-pearl.svg");
+  --scene-image: url("./bg-dawn-pearl.svg") center / cover no-repeat;
   --scene-overlay: linear-gradient(rgba(255,255,255,.04), rgba(255,255,255,.10));
   --scene-base: linear-gradient(145deg, #f7eaf7 0%, #e9f7ff 52%, #d8f5f1 100%);
   --ink: rgba(20, 30, 48, .94);
@@ -237,7 +280,11 @@ body[data-bg="dawn"] .range-chip.active {
 }
 
 .bg-option[data-bg="aurora"] .bg-preview {
-  background-image: url("./liquid-bg.svg");
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(255,255,255,.68) 0 1px, transparent 2px),
+    radial-gradient(circle at 68% 20%, rgba(255,255,255,.55) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 56%, rgba(255,255,255,.42) 0 1px, transparent 2px),
+    linear-gradient(165deg, #0b172c 0%, #17233f 52%, #4a3f5d 100%);
 }
 
 .bg-option[data-bg="jade"] .bg-preview {
@@ -272,11 +319,16 @@ body[data-bg="dawn"] .range-chip.active {
 
 @media (pointer: coarse), (max-width: 768px) {
   .scene-backdrop {
-    transform: none;
+    animation-duration: 70s;
   }
 
   .scene-backdrop::before {
-    filter: blur(22px);
+    filter: blur(16px);
+    animation-duration: 86s;
+  }
+
+  .scene-backdrop::after {
+    animation-duration: 12s, 110s;
   }
 
   .ambient {

@@ -132,7 +132,7 @@
           renderChart();
           detailChartTimer = null;
         });
-      }, 220);
+      }, 80);
     }
   }
 
@@ -192,7 +192,7 @@
             })),
           },
           options: {
-            animation: { duration: 260 },
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
             interaction: { intersect: false, mode: 'index' },
@@ -242,7 +242,7 @@
             }],
           },
           options: {
-            animation: { duration: 260 },
+            animation: false,
             responsive: true,
             maintainAspectRatio: false,
             cutout: '60%',

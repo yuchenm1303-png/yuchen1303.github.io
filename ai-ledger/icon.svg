@@ -1,33 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AI助手图标">
   <defs>
-    <linearGradient id="plate" x1="78" y1="48" x2="434" y2="472" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#142339"/>
-      <stop offset="0.54" stop-color="#081421"/>
-      <stop offset="1" stop-color="#111633"/>
+    <linearGradient id="blue" x1="64" y1="26" x2="448" y2="486" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2B8DFF"/>
+      <stop offset="0.52" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0067E6"/>
     </linearGradient>
-    <linearGradient id="metal" x1="148" y1="80" x2="364" y2="432" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F8FBFF"/>
-      <stop offset="0.45" stop-color="#C9D3DD"/>
-      <stop offset="1" stop-color="#8E9BAA"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="170" y1="126" x2="340" y2="384" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#BFF7FF"/>
-      <stop offset="1" stop-color="#6A7CFF"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#000000" flood-opacity="0.36"/>
+    <radialGradient id="shine" cx="42%" cy="28%" r="70%">
+      <stop offset="0" stop-color="#70B9FF" stop-opacity=".56"/>
+      <stop offset=".48" stop-color="#2C92FF" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#005DCE" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softShadow" x="-18%" y="-18%" width="136%" height="136%">
+      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#004EA8" flood-opacity=".34"/>
     </filter>
   </defs>
-
-  <rect width="512" height="512" rx="116" fill="url(#plate)"/>
-  <rect x="28" y="28" width="456" height="456" rx="96" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
-  <circle cx="256" cy="256" r="154" fill="none" stroke="#CDEEFF" stroke-opacity="0.13" stroke-width="2"/>
-  <circle cx="256" cy="256" r="94" fill="none" stroke="#CDEEFF" stroke-opacity="0.09" stroke-width="1.5"/>
-
-  <g filter="url(#shadow)">
-    <path d="M256 52 L285 221 L421 120 L320 256 L421 392 L285 291 L256 460 L227 291 L91 392 L192 256 L91 120 L227 221 Z" fill="url(#metal)"/>
-    <path d="M256 104 L275 232 L360 152 L280 256 L360 360 L275 280 L256 408 L237 280 L152 360 L232 256 L152 152 L237 232 Z" fill="#07111D" opacity="0.14"/>
-    <path d="M256 116 L271 236 L344 168 L276 256 L344 344 L271 276 L256 396 L241 276 L168 344 L236 256 L168 168 L241 236 Z" fill="url(#accent)" opacity="0.22"/>
-    <circle cx="256" cy="256" r="18" fill="#F8FBFF" opacity="0.92"/>
-  </g>
+  <rect width="512" height="512" rx="106" fill="url(#blue)"/>
+  <rect width="512" height="512" rx="106" fill="url(#shine)"/>
+  <rect x="18" y="18" width="476" height="476" rx="92" fill="none" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="2"/>
+  <path filter="url(#softShadow)" fill="#FFFFFF" d="M256 54c8 0 12 8 13 20l18 150c1 8 10 11 17 6l120-90c12-9 24 4 15 16L349 276c-5 7-2 16 6 17l129 20c13 2 13 20 0 22l-129 20c-8 1-11 10-6 17l90 120c9 12-4 25-16 15l-119-90c-7-5-16-2-17 6l-18 150c-1 12-5 20-13 20s-12-8-13-20l-18-150c-1-8-10-11-17-6L88 507c-12 10-25-3-16-15l90-120c5-7 2-16-6-17L27 335c-13-2-13-20 0-22l129-20c8-1 11-10 6-17L72 156c-9-12 3-25 15-16l121 90c7 5 16 2 17-6l18-150c1-12 5-20 13-20Z"/>
 </svg>

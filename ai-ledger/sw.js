@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ai-ledger-v18';
+const CACHE_NAME = 'ai-ledger-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -18,6 +18,8 @@ const ASSETS = [
   './sync.js',
   './manifest.webmanifest',
   './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
   './liquid-bg.svg',
   './bg-jade-ocean.svg',
   './bg-sunset-glow.svg',

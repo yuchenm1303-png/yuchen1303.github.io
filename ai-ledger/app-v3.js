@@ -488,6 +488,7 @@ function renderCharts() {
       ],
     },
     options: {
+      animation: false,
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { labels: { color: "#607083" } } },
@@ -509,6 +510,7 @@ function renderCharts() {
       }],
     },
     options: {
+      animation: false,
       responsive: true,
       maintainAspectRatio: false,
       cutout: "64%",
