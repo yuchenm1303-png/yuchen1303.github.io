@@ -551,16 +551,19 @@ window.AiAssistantViews = {
 };
 
 function openSheet() {
+  if (!els.addSheet) return;
   document.body.classList.add("sheet-open");
   els.addSheet.setAttribute("aria-hidden", "false");
 }
 
 function closeSheet() {
+  if (!els.addSheet) return;
   document.body.classList.remove("sheet-open");
   els.addSheet.setAttribute("aria-hidden", "true");
 }
 
 function addManualRecord() {
+  if (!els.manualTitle || !els.manualAmount || !els.manualType || !els.manualCategory) return;
   const title = els.manualTitle.value.trim();
   const amount = Number(els.manualAmount.value);
   if (!title || !Number.isFinite(amount) || amount <= 0) {
@@ -838,10 +841,10 @@ els.chatMessages.addEventListener("click", (event) => {
   }
 });
 
-els.fabAdd.addEventListener("click", openSheet);
-els.closeSheetBtn.addEventListener("click", closeSheet);
-els.sheetMask.addEventListener("click", closeSheet);
-els.manualAddBtn.addEventListener("click", addManualRecord);
+els.fabAdd?.addEventListener("click", openSheet);
+els.closeSheetBtn?.addEventListener("click", closeSheet);
+els.sheetMask?.addEventListener("click", closeSheet);
+els.manualAddBtn?.addEventListener("click", addManualRecord);
 
 els.recordList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-id]");

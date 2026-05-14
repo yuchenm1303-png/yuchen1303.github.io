@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="./liquid.css?v=20260510-17" />
   <link rel="stylesheet" href="./chat-v2.css?v=20260510-17" />
   <link rel="stylesheet" href="./auth.css?v=20260510-17" />
-  <link rel="stylesheet" href="./liquid-plus.css?v=20260514-1" />
+  <link rel="stylesheet" href="./liquid-plus.css?v=20260514-2" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260510-17" />
   <link rel="stylesheet" href="./backgrounds.css?v=20260510-17" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
@@ -77,7 +77,7 @@
           <button class="glass-card tool-card" type="button" data-tool="ledger">
             <div class="tool-icon">▤</div>
             <h3>账单中心</h3>
-            <p>查看记录、新增账单、导出账单数据。</p>
+            <p>查看记录、管理分类、导出账单数据。</p>
           </button>
           <button class="glass-card tool-card" type="button" data-tool="stats">
             <div class="tool-icon">▣</div>
@@ -286,43 +286,11 @@
     </section>
   </main>
 
-  <button id="fabAdd" class="fab" aria-label="新增账单">＋</button>
-
   <nav class="bottom-nav" aria-label="主导航">
     <button class="nav-btn active" data-view="ai"><span>✦</span><em>AI助手</em></button>
     <button class="nav-btn" data-view="tools"><span>▦</span><em>功能</em></button>
     <button class="nav-btn" data-view="settings"><span>⚙</span><em>设置</em></button>
   </nav>
-
-  <div id="sheetMask" class="sheet-mask"></div>
-  <section id="addSheet" class="add-sheet" aria-hidden="true">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <h2>新增账单</h2>
-      <button id="closeSheetBtn" class="icon-btn" aria-label="关闭">×</button>
-    </div>
-    <div class="sheet-form">
-      <input id="manualTitle" placeholder="账单名称" />
-      <input id="manualAmount" type="number" placeholder="金额" />
-      <div class="form-grid">
-        <select id="manualType">
-          <option value="expense">支出</option>
-          <option value="income">收入</option>
-        </select>
-        <select id="manualCategory">
-          <option>餐饮</option>
-          <option>交通</option>
-          <option>购物</option>
-          <option>居住</option>
-          <option>饮品</option>
-          <option>工资</option>
-          <option>礼物</option>
-          <option>其他</option>
-        </select>
-      </div>
-      <button id="manualAddBtn" class="primary-btn">确认添加</button>
-    </div>
-  </section>
 
   <div id="authOverlay" class="auth-overlay" aria-hidden="true">
     <section class="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="authTitle">
@@ -358,8 +326,8 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="./config.js?v=20260510-17"></script>
-  <script src="./app-v3.js?v=20260510-17"></script>
+  <script src="./config.js?v=20260514-2"></script>
+  <script src="./app-v3.js?v=20260514-2"></script>
   <script src="./chat-actions.js?v=20260510-17"></script>
   <script src="./ui-motion.js?v=20260510-17"></script>
   <script src="./background-picker.js?v=20260510-17"></script>

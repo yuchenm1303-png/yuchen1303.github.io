@@ -547,20 +547,20 @@ button,
   }
 }
 
-/* iOS-folder style liquid glass refinement */
+/* iOS-folder style neutral liquid glass refinement */
 :root {
-  --liquid-fill: rgba(18, 25, 56, .30);
-  --liquid-fill-soft: rgba(18, 25, 56, .22);
-  --liquid-fill-strong: rgba(28, 36, 78, .36);
-  --liquid-line: rgba(205, 222, 255, .30);
-  --liquid-edge: rgba(235, 246, 255, .42);
-  --liquid-edge-cool: rgba(115, 210, 255, .20);
-  --liquid-edge-warm: rgba(185, 130, 255, .20);
+  --liquid-fill: rgba(224, 228, 236, .125);
+  --liquid-fill-soft: rgba(224, 228, 236, .085);
+  --liquid-fill-strong: rgba(230, 234, 242, .165);
+  --liquid-line: rgba(244, 247, 255, .32);
+  --liquid-edge: rgba(250, 252, 255, .44);
+  --liquid-edge-cool: rgba(255, 255, 255, .14);
+  --liquid-edge-warm: rgba(255, 255, 255, .10);
   --liquid-shadow:
-    0 22px 54px rgba(0, 0, 0, .34),
-    0 3px 16px rgba(65, 100, 255, .10),
+    0 22px 54px rgba(0, 0, 0, .28),
+    0 3px 16px rgba(255, 255, 255, .045),
     inset 0 1px 1px rgba(255, 255, 255, .42),
-    inset 0 -1px 1px rgba(0, 0, 0, .24),
+    inset 0 -1px 1px rgba(0, 0, 0, .20),
     inset 1px 0 1px var(--liquid-edge-cool),
     inset -1px 0 1px var(--liquid-edge-warm);
 }
@@ -591,12 +591,13 @@ select,
 .tools-panel-card,
 .tools-back {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .010) 42%, rgba(0, 0, 0, .045)),
+    linear-gradient(145deg, rgba(255, 255, 255, .130), rgba(255, 255, 255, .030) 42%, rgba(0, 0, 0, .055)),
     var(--liquid-fill) !important;
   border: 1px solid var(--liquid-line) !important;
   box-shadow: var(--liquid-shadow) !important;
-  backdrop-filter: blur(15px) saturate(205%) contrast(1.18) brightness(1.08) !important;
-  -webkit-backdrop-filter: blur(15px) saturate(205%) contrast(1.18) brightness(1.08) !important;
+  backdrop-filter: blur(16px) saturate(82%) contrast(1.10) brightness(1.10) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(82%) contrast(1.10) brightness(1.10) !important;
+  contain: paint;
 }
 
 .summary-chip,
@@ -619,8 +620,10 @@ select,
 .chat-row.assistant .chat-bubble,
 .tools-back {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, .006) 48%, rgba(0, 0, 0, .035)),
+    linear-gradient(145deg, rgba(255, 255, 255, .115), rgba(255, 255, 255, .020) 48%, rgba(0, 0, 0, .045)),
     var(--liquid-fill-soft) !important;
+  backdrop-filter: blur(11px) saturate(86%) contrast(1.08) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(11px) saturate(86%) contrast(1.08) brightness(1.08) !important;
 }
 
 .glass-card::before,
@@ -647,10 +650,10 @@ select,
 .tools-panel-card::before,
 .tools-back::before {
   background:
-    linear-gradient(112deg, transparent 0 18%, rgba(255, 255, 255, .14) 31%, transparent 46%),
-    linear-gradient(155deg, rgba(255, 255, 255, .18), transparent 26%, transparent 74%, rgba(147, 197, 255, .10)),
-    radial-gradient(ellipse at 12% 0%, rgba(255, 255, 255, .16), transparent 36%);
-  opacity: .55;
+    linear-gradient(112deg, transparent 0 18%, rgba(255, 255, 255, .155) 31%, transparent 46%),
+    linear-gradient(155deg, rgba(255, 255, 255, .205), transparent 26%, transparent 74%, rgba(255, 255, 255, .095)),
+    radial-gradient(ellipse at 12% 0%, rgba(255, 255, 255, .175), transparent 36%);
+  opacity: .58;
 }
 
 .glass-card::after,
@@ -668,8 +671,8 @@ select,
     inset 0 0 0 1px rgba(255, 255, 255, .07),
     inset 0 10px 18px rgba(255, 255, 255, .055),
     inset 0 -18px 24px rgba(0, 0, 0, .20),
-    inset 12px 0 18px rgba(88, 190, 255, .075),
-    inset -12px 0 18px rgba(164, 98, 255, .075);
+    inset 12px 0 18px rgba(255, 255, 255, .055),
+    inset -12px 0 18px rgba(255, 255, 255, .035);
   background: none;
 }
 
@@ -678,8 +681,8 @@ select,
 .add-sheet,
 .auth-sheet {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .050), rgba(255, 255, 255, .008) 45%, rgba(0, 0, 0, .055)),
-    rgba(17, 23, 55, .34) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .135), rgba(255, 255, 255, .026) 45%, rgba(0, 0, 0, .065)),
+    rgba(224, 228, 236, .115) !important;
 }
 
 .bottom-nav {
@@ -691,17 +694,17 @@ select,
   padding: 8px;
   border-radius: 30px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .050), rgba(255, 255, 255, .008) 48%, rgba(0, 0, 0, .12)),
-    rgba(9, 16, 34, .50) !important;
-  border: 1px solid rgba(218, 233, 255, .28) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .160), rgba(255, 255, 255, .030) 48%, rgba(0, 0, 0, .13)),
+    rgba(24, 27, 34, .36) !important;
+  border: 1px solid rgba(246, 248, 255, .34) !important;
   box-shadow:
-    0 20px 44px rgba(0, 0, 0, .42),
+    0 20px 44px rgba(0, 0, 0, .34),
     inset 0 1px 1px rgba(255, 255, 255, .38),
-    inset 0 -1px 1px rgba(0, 0, 0, .32),
-    inset 1px 0 1px rgba(114, 204, 255, .17),
-    inset -1px 0 1px rgba(180, 122, 255, .16) !important;
-  backdrop-filter: blur(15px) saturate(210%) contrast(1.20) brightness(1.08) !important;
-  -webkit-backdrop-filter: blur(15px) saturate(210%) contrast(1.20) brightness(1.08) !important;
+    inset 0 -1px 1px rgba(0, 0, 0, .28),
+    inset 1px 0 1px rgba(255, 255, 255, .16),
+    inset -1px 0 1px rgba(255, 255, 255, .11) !important;
+  backdrop-filter: blur(16px) saturate(76%) contrast(1.12) brightness(1.12) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(76%) contrast(1.12) brightness(1.12) !important;
 }
 
 .nav-btn {
@@ -742,13 +745,15 @@ select,
 
 .nav-btn.active {
   background:
-    linear-gradient(145deg, rgba(114, 160, 255, .82), rgba(112, 77, 244, .72)),
-    rgba(70, 82, 180, .48) !important;
-  border: 1px solid rgba(220, 231, 255, .28);
+    linear-gradient(145deg, rgba(255, 255, 255, .245), rgba(255, 255, 255, .075)),
+    rgba(246, 248, 255, .120) !important;
+  border: 1px solid rgba(250, 252, 255, .36);
   box-shadow:
-    0 12px 24px rgba(55, 68, 170, .32),
-    inset 0 1px 1px rgba(255, 255, 255, .35),
-    inset 0 -1px 1px rgba(35, 20, 120, .24) !important;
+    0 12px 24px rgba(0, 0, 0, .18),
+    inset 0 1px 1px rgba(255, 255, 255, .48),
+    inset 0 -1px 1px rgba(0, 0, 0, .18) !important;
+  backdrop-filter: blur(12px) saturate(78%) contrast(1.10) brightness(1.12);
+  -webkit-backdrop-filter: blur(12px) saturate(78%) contrast(1.10) brightness(1.12);
 }
 
 .send-btn,
@@ -758,12 +763,12 @@ select,
 .range-chip.active,
 .auth-tab.active {
   background:
-    linear-gradient(145deg, rgba(124, 171, 255, .88), rgba(118, 79, 248, .78)),
-    rgba(75, 95, 210, .62) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .255), rgba(255, 255, 255, .080)),
+    rgba(246, 248, 255, .140) !important;
   box-shadow:
-    0 14px 30px rgba(45, 58, 170, .34),
-    inset 0 1px 1px rgba(255, 255, 255, .38),
-    inset 0 -1px 1px rgba(35, 20, 120, .20) !important;
+    0 14px 30px rgba(0, 0, 0, .18),
+    inset 0 1px 1px rgba(255, 255, 255, .48),
+    inset 0 -1px 1px rgba(0, 0, 0, .16) !important;
 }
 
 .chat-composer {
@@ -806,9 +811,9 @@ select,
 }
 
 body[data-bg="dawn"] {
-  --liquid-fill: rgba(255, 255, 255, .22);
-  --liquid-fill-soft: rgba(255, 255, 255, .16);
-  --liquid-line: rgba(255, 255, 255, .48);
+  --liquid-fill: rgba(255, 255, 255, .18);
+  --liquid-fill-soft: rgba(255, 255, 255, .12);
+  --liquid-line: rgba(255, 255, 255, .44);
 }
 
 @media (max-width: 520px) {
