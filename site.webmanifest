@@ -1,0 +1,15 @@
+{
+  "name": "GaN HEMT 重离子辐照仿真分析",
+  "short_name": "GaN HEMT",
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "theme_color": "#0b7cff",
+  "background_color": "#0b7cff",
+  "display": "standalone"
+}
