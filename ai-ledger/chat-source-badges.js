@@ -10,6 +10,13 @@
     gemini_text_fallback: { label: "Gemini 兜底", tone: "cloud-fallback" },
     gemini_error: { label: "Gemini 错误", tone: "error" },
     hybrid_rules: { label: "云端规则", tone: "cloud-rule" },
+    weather_tool: { label: "实时天气", tone: "online" },
+    wiki_tool: { label: "百科摘要", tone: "online" },
+    webpage_tool: { label: "网页读取", tone: "online" },
+    web_search_tool: { label: "联网搜索", tone: "online" },
+    search_not_configured: { label: "搜索未配置", tone: "cloud-fallback" },
+    calculator_tool: { label: "计算器", tone: "utility" },
+    datetime_tool: { label: "日期时间", tone: "utility" },
     builtin_profile: { label: "内置回复", tone: "builtin" },
     local: { label: "本地规则", tone: "local" },
     local_mobile: { label: "手机动作", tone: "mobile" },
@@ -60,6 +67,8 @@
       .chat-source-badge::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
+      .chat-source-badge.online{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34)}
+      .chat-source-badge.utility{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32)}
       .chat-source-badge.cloud-fallback{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32)}
       .chat-source-badge.cloud-rule{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28)}
       .chat-source-badge.builtin{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30)}
