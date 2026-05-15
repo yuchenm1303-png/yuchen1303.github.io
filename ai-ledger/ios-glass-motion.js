@@ -50,18 +50,13 @@
     style.id = STYLE_ID;
     style.textContent = `
       :root {
-        --liquid-motion-fast: 150ms;
-        --liquid-motion-mid: 320ms;
-        --liquid-motion-slow: 560ms;
+        --liquid-motion-mid: 280ms;
         --liquid-ease-out: cubic-bezier(.22,1,.36,1);
-        --liquid-ease-spring: cubic-bezier(.18,1.24,.26,1);
+        --liquid-ease-spring: cubic-bezier(.18,1.18,.26,1);
         --liquid-ease-nav: cubic-bezier(.18,.86,.18,1);
       }
 
-      body.assistant-liquid-motion {
-        text-rendering: optimizeLegibility;
-      }
-
+      body.assistant-liquid-motion { text-rendering: optimizeLegibility; }
       .liquid-touch-glow { display: none !important; content: none !important; }
 
       .liquid-motion-target,
@@ -80,14 +75,10 @@
         position: relative !important;
         transform: translate3d(0,0,0) scale(1);
         transform-origin: center center !important;
-        transition:
-          transform var(--liquid-motion-mid) var(--liquid-ease-spring),
-          filter 180ms ease,
-          opacity 160ms ease !important;
+        transition: transform var(--liquid-motion-mid) var(--liquid-ease-spring), filter 160ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         backface-visibility: hidden;
-        contain: paint;
       }
 
       .liquid-motion-target.is-pressed,
@@ -95,14 +86,10 @@
         animation: none !important;
       }
 
-      .liquid-motion-target::before {
-        transition: opacity 180ms ease, background 180ms ease !important;
-      }
-
       .liquid-motion-target.liquid-pressed {
-        transition-duration: 86ms !important;
+        transition-duration: 82ms !important;
         transition-timing-function: cubic-bezier(.2,0,.2,1) !important;
-        filter: brightness(1.045) saturate(1.025);
+        filter: brightness(1.04) saturate(1.02);
       }
 
       .tool-card.liquid-pressed,
@@ -114,7 +101,7 @@
       .icon-btn.liquid-pressed,
       .delete-btn.liquid-pressed,
       .send-btn.liquid-pressed {
-        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.3px), 0) scale(.950) !important;
+        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.3px), 0) scale(.952) !important;
       }
 
       .tag-btn.liquid-pressed,
@@ -129,24 +116,21 @@
       .confirm-btn.liquid-pressed,
       .confirm-draft.liquid-pressed,
       .cancel-draft.liquid-pressed {
-        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.972) !important;
+        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.974) !important;
       }
 
       .liquid-motion-target.liquid-pressed::before {
         background:
-          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.30), transparent 30%),
-          linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,0) 42%, rgba(185,220,255,.08)) !important;
-        opacity: .74 !important;
+          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.28), transparent 30%),
+          linear-gradient(135deg, rgba(255,255,255,.16), rgba(255,255,255,0) 42%, rgba(185,220,255,.08)) !important;
+        opacity: .70 !important;
       }
 
-      .liquid-release {
-        animation: liquidRelease 420ms var(--liquid-ease-spring) both;
-      }
+      .liquid-release { animation: liquidRelease 360ms var(--liquid-ease-spring) both; }
 
       @keyframes liquidRelease {
-        0% { transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.982); }
-        44% { transform: translate3d(0,-.35px,0) scale(1.012); }
-        74% { transform: translate3d(0,0,0) scale(.997); }
+        0% { transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.984); }
+        48% { transform: translate3d(0,-.25px,0) scale(1.008); }
         100% { transform: translate3d(0,0,0) scale(1); }
       }
 
@@ -173,9 +157,7 @@
         border-radius: 22px;
         pointer-events: none;
         opacity: .88;
-        transform:
-          translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0)
-          scale(var(--nav-indicator-scale, 1));
+        transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0) scale(var(--nav-indicator-scale, 1));
         background:
           radial-gradient(circle at 24% 14%, rgba(255,255,255,.52), rgba(255,255,255,.16) 34%, transparent 68%),
           linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,.040) 46%, rgba(126,189,255,.10));
@@ -183,66 +165,29 @@
           inset 0 .8px 0 rgba(255,255,255,.48),
           inset 0 -.8px 0 rgba(0,0,0,.09),
           0 10px 22px rgba(0,0,0,.14);
-        transition:
-          transform 560ms var(--liquid-ease-nav),
-          width 560ms var(--liquid-ease-nav),
-          height 560ms var(--liquid-ease-nav),
-          opacity 180ms ease,
-          filter 180ms ease;
+        transition: transform 460ms var(--liquid-ease-nav), width 460ms var(--liquid-ease-nav), height 460ms var(--liquid-ease-nav), opacity 160ms ease;
         will-change: transform;
         backface-visibility: hidden;
       }
 
       .bottom-nav.liquid-nav-moving .liquid-nav-indicator {
-        --nav-indicator-scale: 1.035;
+        --nav-indicator-scale: 1.02;
         opacity: .96;
-        filter: brightness(1.07) saturate(1.04);
       }
 
-      .nav-btn.liquid-nav-pop { animation: refinedNavContent 420ms var(--liquid-ease-spring) both; }
-      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 520ms var(--liquid-ease-spring) both; }
-      .tool-card.liquid-card-pop,
-      .settings-group-card.liquid-card-pop {
-        animation: refinedEntryBloom 430ms var(--liquid-ease-spring) both;
-        animation-delay: var(--tool-pop-delay, 0ms);
-      }
-      .tools-grid.liquid-grid-pop { animation: refinedGridFloat 360ms var(--liquid-ease-out) both; }
-
-      .view.active.liquid-view-pop > .page-header,
-      .view.active.liquid-view-pop > .glass-card,
-      .view.active.liquid-view-pop .tools-grid,
-      .view.active.liquid-view-pop .chip-row {
-        animation: liquidViewIn 360ms var(--liquid-ease-out) both;
-      }
+      .nav-btn.liquid-nav-pop { animation: refinedNavContent 340ms var(--liquid-ease-spring) both; }
+      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 400ms var(--liquid-ease-spring) both; }
 
       @keyframes refinedNavContent {
-        0% { transform: translate3d(0,0,0) scale(.952); }
-        48% { transform: translate3d(0,-.7px,0) scale(1.028); }
-        76% { transform: translate3d(0,0,0) scale(.996); }
+        0% { transform: translate3d(0,0,0) scale(.954); }
+        52% { transform: translate3d(0,-.5px,0) scale(1.018); }
         100% { transform: translate3d(0,0,0) scale(1); }
       }
 
       @keyframes refinedNavBody {
         0% { transform: translateX(-50%) translateZ(0) scale(1); }
-        42% { transform: translateX(-50%) translateZ(0) scale(1.008); }
-        80% { transform: translateX(-50%) translateZ(0) scale(.999); }
+        50% { transform: translateX(-50%) translateZ(0) scale(1.004); }
         100% { transform: translateX(-50%) translateZ(0) scale(1); }
-      }
-
-      @keyframes refinedEntryBloom {
-        0% { opacity: .92; transform: translate3d(0,7px,0) scale(.985); }
-        50% { opacity: 1; transform: translate3d(0,-1px,0) scale(1.008); }
-        100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
-      }
-
-      @keyframes refinedGridFloat {
-        0% { transform: translate3d(0,5px,0); }
-        100% { transform: translate3d(0,0,0); }
-      }
-
-      @keyframes liquidViewIn {
-        0% { opacity: .01; transform: translate3d(0,10px,0) scale(.992); }
-        100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
       }
 
       .settings-group-detail.open,
@@ -263,19 +208,13 @@
       }
 
       @media (pointer: coarse), (max-width: 760px) {
-        .liquid-motion-target { contain: paint; }
         .bottom-nav { contain: layout paint; }
-        .chat-messages { contain: content; }
       }
 
       body.assistant-motion-off .liquid-motion-target,
       body.assistant-motion-off .nav-btn.liquid-nav-pop,
       body.assistant-motion-off .bottom-nav.liquid-nav-wobble,
-      body.assistant-motion-off .bottom-nav.liquid-nav-moving,
-      body.assistant-motion-off .tool-card.liquid-card-pop,
-      body.assistant-motion-off .settings-group-card.liquid-card-pop,
-      body.assistant-motion-off .tools-grid.liquid-grid-pop,
-      body.assistant-motion-off .view.active.liquid-view-pop > * {
+      body.assistant-motion-off .bottom-nav.liquid-nav-moving {
         animation: none !important;
         transition: none !important;
         transform: none !important;
@@ -285,11 +224,7 @@
         .liquid-motion-target,
         .nav-btn.liquid-nav-pop,
         .bottom-nav.liquid-nav-wobble,
-        .bottom-nav.liquid-nav-moving,
-        .tool-card.liquid-card-pop,
-        .settings-group-card.liquid-card-pop,
-        .tools-grid.liquid-grid-pop,
-        .view.active.liquid-view-pop > * {
+        .bottom-nav.liquid-nav-moving {
           animation: none !important;
           transition: none !important;
           transform: none !important;
@@ -313,8 +248,8 @@
 
   function cleanupOldStates() {
     document.querySelectorAll('.liquid-touch-glow').forEach((node) => node.remove());
-    document.querySelectorAll('.is-liquid-pressed,.is-liquid-releasing').forEach((node) => {
-      node.classList.remove('is-liquid-pressed', 'is-liquid-releasing');
+    document.querySelectorAll('.is-liquid-pressed,.is-liquid-releasing,.liquid-view-pop,.liquid-card-pop,.liquid-grid-pop').forEach((node) => {
+      node.classList.remove('is-liquid-pressed', 'is-liquid-releasing', 'liquid-view-pop', 'liquid-card-pop', 'liquid-grid-pop');
     });
   }
 
@@ -339,8 +274,8 @@
     if (!rect.width || !rect.height) return;
     const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
-    const shiftX = ((x - 50) / 50) * 1.15;
-    const shiftY = Math.max(.3, ((y - 38) / 62) * 1.1);
+    const shiftX = ((x - 50) / 50) * 1.1;
+    const shiftY = Math.max(.3, ((y - 38) / 62) * 1.0);
     target.style.setProperty('--liquid-touch-x', `${x.toFixed(1)}%`);
     target.style.setProperty('--liquid-touch-y', `${y.toFixed(1)}%`);
     target.style.setProperty('--liquid-shift-x', `${shiftX.toFixed(2)}px`);
@@ -353,7 +288,7 @@
       if (target.classList.contains(PRESSED_CLASS)) return;
       target.style.removeProperty('--liquid-shift-x');
       target.style.removeProperty('--liquid-shift-y');
-    }, 460);
+    }, 420);
   }
 
   function softVibrate() {
@@ -364,7 +299,7 @@
     try { navigator.vibrate(3); } catch {}
   }
 
-  function popClass(element, className, timeout = 520) {
+  function popClass(element, className, timeout = 420) {
     if (!element || isMotionDisabled()) return;
     element.classList.remove(className);
     raf(() => {
@@ -412,7 +347,7 @@
     const target = activePress.target;
     activePress = null;
     target.classList.remove(PRESSED_CLASS);
-    if (animate && !isMotionDisabled()) popClass(target, RELEASE_CLASS, 430);
+    if (animate && !isMotionDisabled()) popClass(target, RELEASE_CLASS, 380);
     clearTouchPoint(target);
   }
 
@@ -423,11 +358,8 @@
 
     if (target.classList.contains('nav-btn')) {
       moveNavIndicatorTo(target, true);
-      popClass(target, 'liquid-nav-pop', 440);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 540);
-      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 140);
-    } else if (target.classList.contains('tool-card') || target.classList.contains('settings-group-card')) {
-      popClass(target, 'liquid-card-pop', 500);
+      popClass(target, 'liquid-nav-pop', 360);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 420);
     }
   }
 
@@ -482,7 +414,7 @@
     if (!animated || isMotionDisabled()) return;
     nav.classList.add('liquid-nav-moving');
     window.clearTimeout(navSettleTimer);
-    navSettleTimer = window.setTimeout(() => nav.classList.remove('liquid-nav-moving'), 560);
+    navSettleTimer = window.setTimeout(() => nav.classList.remove('liquid-nav-moving'), 460);
   }
 
   function moveNavIndicatorTo(button, animated = true) {
@@ -496,29 +428,6 @@
     const nav = document.querySelector('.bottom-nav');
     const active = nav?.querySelector('.nav-btn.active') || nav?.querySelector('.nav-btn');
     moveNavIndicatorTo(active, animated);
-  }
-
-  function popToolCards() {
-    if (isMotionDisabled()) return;
-    const grid = document.querySelector('#toolsHome .tools-grid');
-    const cards = [...document.querySelectorAll('#toolsHome .tool-card')];
-    if (!grid || !cards.length) return;
-    popClass(grid, 'liquid-grid-pop', 420);
-    cards.forEach((card, index) => {
-      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 26, 130)}ms`);
-      popClass(card, 'liquid-card-pop', 520 + index * 26);
-    });
-  }
-
-  function popActiveView() {
-    if (isMotionDisabled()) return;
-    const view = document.querySelector('.view.active');
-    if (!view) return;
-    view.classList.remove('liquid-view-pop');
-    raf(() => {
-      view.classList.add('liquid-view-pop');
-      window.setTimeout(() => view.classList.remove('liquid-view-pop'), 460);
-    });
   }
 
   function bindEvents() {
@@ -542,11 +451,8 @@
       if (nav) window.setTimeout(() => moveNavIndicatorTo(nav, true), 34);
     }, { passive: true });
 
-    window.addEventListener('assistant-nav-polished', () => {
-      scheduleNavIndicator(true);
-      popActiveView();
-    }, { passive: true });
-    window.addEventListener('ai-tools-home', () => window.setTimeout(popToolCards, 80), { passive: true });
+    window.addEventListener('assistant-nav-polished', () => scheduleNavIndicator(true), { passive: true });
+    window.addEventListener('ai-tools-home', () => scheduleNavIndicator(false), { passive: true });
     window.addEventListener('resize', () => scheduleNavIndicator(false), { passive: true });
     window.addEventListener('orientationchange', () => window.setTimeout(() => scheduleNavIndicator(false), 180), { passive: true });
   }
