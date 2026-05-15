@@ -30,6 +30,7 @@
   let activeTarget = null;
   let clearTimer = 0;
   let lastVibrationAt = 0;
+  let navFrame = 0;
 
   function installStyle() {
     const old = document.querySelector(`#${STYLE_ID}`);
@@ -55,30 +56,16 @@
       .liquid-motion-target {
         position: relative !important;
         transform-origin: center center !important;
-        transition:
-          transform 210ms cubic-bezier(.2,.8,.22,1),
-          filter 210ms ease,
-          box-shadow 260ms ease,
-          opacity 210ms ease !important;
+        transition: transform 180ms cubic-bezier(.22,1,.36,1), opacity 160ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
-      }
-
-      .liquid-motion-target.liquid-pressed,
-      .liquid-motion-target:active {
-        filter: brightness(1.07) saturate(1.04) !important;
       }
 
       .tool-card.liquid-pressed,
       .tool-card:active,
       .settings-group-card.liquid-pressed,
       .settings-group-card:active {
-        transform: translateY(2px) scale(.976) !important;
-        box-shadow:
-          0 9px 20px rgba(0,0,0,.15),
-          inset 0 1px 0 rgba(255,255,255,.38),
-          inset 0 -1px 0 rgba(0,0,0,.10),
-          0 0 0 1px rgba(255,255,255,.12) !important;
+        transform: translate3d(0,1px,0) scale(.988) !important;
       }
 
       .nav-btn.liquid-pressed,
@@ -89,7 +76,7 @@
       .delete-btn:active,
       .send-btn.liquid-pressed,
       .send-btn:active {
-        transform: scale(.925) !important;
+        transform: translate3d(0,0,0) scale(.955) !important;
       }
 
       .tag-btn.liquid-pressed,
@@ -110,7 +97,7 @@
       .bg-option:active,
       .appearance-toggle.liquid-pressed,
       .appearance-toggle:active {
-        transform: translateY(1.5px) scale(.966) !important;
+        transform: translate3d(0,1px,0) scale(.975) !important;
       }
 
       .bottom-nav {
@@ -128,123 +115,96 @@
         z-index: 1;
         left: 0;
         top: 0;
-        width: 0;
-        height: 0;
+        width: var(--nav-indicator-w, 0px);
+        height: var(--nav-indicator-h, 0px);
         border-radius: 18px;
         pointer-events: none;
-        opacity: .88;
-        transform: translate3d(0,0,0) scale(1);
+        opacity: .86;
+        transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0) scale(1);
         background:
-          radial-gradient(circle at 22% 18%, rgba(255,255,255,.42), rgba(255,255,255,.12) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(255,255,255,.24), rgba(255,255,255,.050) 48%, rgba(145,210,255,.10));
+          radial-gradient(circle at 24% 18%, rgba(255,255,255,.36), rgba(255,255,255,.12) 34%, transparent 68%),
+          linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.055) 48%, rgba(145,210,255,.09));
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.40),
+          inset 0 1px 0 rgba(255,255,255,.38),
           inset 0 -1px 0 rgba(0,0,0,.10),
-          0 10px 24px rgba(0,0,0,.14);
+          0 8px 18px rgba(0,0,0,.12);
         transition:
-          transform 650ms cubic-bezier(.17,1.05,.24,1),
-          width 650ms cubic-bezier(.17,1.05,.24,1),
-          height 650ms cubic-bezier(.17,1.05,.24,1),
-          border-radius 650ms cubic-bezier(.17,1.05,.24,1),
-          opacity 260ms ease;
+          transform 520ms cubic-bezier(.22,1,.36,1),
+          opacity 220ms ease;
+        will-change: transform;
       }
 
       .bottom-nav.liquid-nav-travel .liquid-nav-indicator {
-        animation: indicatorBreath 720ms cubic-bezier(.17,1.05,.24,1) both;
+        animation: indicatorSoftBreathe 560ms cubic-bezier(.22,1,.36,1) both;
       }
 
-      .nav-btn.liquid-nav-pop { animation: elasticNavContent 560ms cubic-bezier(.18,.95,.22,1) both; }
-      .bottom-nav.liquid-nav-wobble { animation: elasticNavBody 680ms cubic-bezier(.18,.95,.22,1) both; }
-      .tool-card.liquid-card-pop { animation: liquidCardBloom 640ms cubic-bezier(.18,.95,.22,1) both; animation-delay: var(--tool-pop-delay, 0ms); }
-      .tools-grid.liquid-grid-pop { animation: liquidGridFloat 540ms ease both; }
-      .settings-group-card.liquid-card-pop { animation: liquidEntryBloom 520ms cubic-bezier(.18,.95,.22,1) both; }
+      .nav-btn.liquid-nav-pop { animation: refinedNavContent 420ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
+      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 480ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
+      .tool-card.liquid-card-pop { animation: refinedToolCardBloom 520ms cubic-bezier(.22,1,.36,1) both; animation-delay: var(--tool-pop-delay, 0ms); will-change: transform, opacity; }
+      .tools-grid.liquid-grid-pop { animation: refinedGridFloat 420ms cubic-bezier(.22,1,.36,1) both; will-change: transform, opacity; }
+      .settings-group-card.liquid-card-pop { animation: refinedEntryBloom 440ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
 
-      .tool-card.liquid-card-pop::after,
-      .nav-btn.liquid-nav-pop::after {
-        content: '' !important;
-        position: absolute !important;
-        inset: 0 !important;
-        border-radius: inherit !important;
-        pointer-events: none !important;
-        z-index: 2 !important;
-        background: radial-gradient(circle at 32% 18%, rgba(255,255,255,.30), transparent 48%) !important;
-        animation: softGlassGlint 620ms ease-out both !important;
+      @keyframes indicatorSoftBreathe {
+        0% { opacity: .78; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(.985); }
+        48% { opacity: .94; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1.018); }
+        100% { opacity: .86; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1); }
       }
 
-      .nav-btn > *,
-      .tool-card > *,
-      .settings-group-card > * {
-        position: relative;
-        z-index: 4;
+      @keyframes refinedNavContent {
+        0% { transform: translate3d(0,0,0) scale(.955); }
+        44% { transform: translate3d(0,-.5px,0) scale(1.036); }
+        72% { transform: translate3d(0,0,0) scale(.992); }
+        100% { transform: translate3d(0,0,0) scale(1); }
       }
 
-      @keyframes indicatorBreath {
-        0% { opacity: .72; filter: brightness(1); }
-        34% { opacity: .98; filter: brightness(1.16); }
-        100% { opacity: .88; filter: brightness(1); }
-      }
-
-      @keyframes elasticNavContent {
-        0% { transform: scale(.925); }
-        42% { transform: scale(1.082); }
-        68% { transform: scale(.982); }
-        100% { transform: scale(1); }
-      }
-
-      @keyframes elasticNavBody {
+      @keyframes refinedNavBody {
         0% { transform: translateX(-50%) scale(1); }
-        36% { transform: translateX(-50%) scale(1.022); }
-        68% { transform: translateX(-50%) scale(.992); }
+        44% { transform: translateX(-50%) scale(1.010); }
+        78% { transform: translateX(-50%) scale(.998); }
         100% { transform: translateX(-50%) scale(1); }
       }
 
-      @keyframes liquidCardBloom {
-        0% { opacity: .62; transform: translateY(24px) scale(.935); filter: blur(4px) brightness(.96); }
-        42% { opacity: 1; transform: translateY(-5px) scale(1.030); filter: blur(0) brightness(1.06); }
-        68% { opacity: 1; transform: translateY(1px) scale(.994); filter: blur(0) brightness(1.01); }
-        100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) brightness(1); }
+      @keyframes refinedToolCardBloom {
+        0% { opacity: .76; transform: translate3d(0,14px,0) scale(.970); }
+        46% { opacity: 1; transform: translate3d(0,-2px,0) scale(1.014); }
+        76% { opacity: 1; transform: translate3d(0,0,0) scale(.997); }
+        100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
       }
 
-      @keyframes liquidEntryBloom {
-        0% { transform: translateY(2px) scale(.976); }
-        46% { transform: translateY(-2px) scale(1.018); }
-        100% { transform: translateY(0) scale(1); }
+      @keyframes refinedEntryBloom {
+        0% { transform: translate3d(0,1px,0) scale(.988); }
+        46% { transform: translate3d(0,-1px,0) scale(1.010); }
+        100% { transform: translate3d(0,0,0) scale(1); }
       }
 
-      @keyframes liquidGridFloat {
-        0% { transform: translateY(10px); opacity: .86; }
-        100% { transform: translateY(0); opacity: 1; }
-      }
-
-      @keyframes softGlassGlint {
-        0% { opacity: 0; transform: scale(.92); }
-        32% { opacity: .75; transform: scale(1); }
-        100% { opacity: 0; transform: scale(1.18); }
+      @keyframes refinedGridFloat {
+        0% { transform: translate3d(0,6px,0); opacity: .90; }
+        100% { transform: translate3d(0,0,0); opacity: 1; }
       }
 
       .settings-group-detail.open,
       .appearance-detail-overlay.open,
       .auth-overlay.open {
-        animation: liquidOverlaySoftIn 260ms ease both !important;
+        animation: refinedOverlayIn 180ms ease both !important;
       }
 
       .settings-group-detail.open .settings-group-sheet,
       .appearance-detail-overlay.open .appearance-detail-panel,
       .auth-overlay.open .auth-sheet {
-        animation: liquidSheetSoftExpand 520ms cubic-bezier(.17,1.02,.23,1) both !important;
+        animation: refinedSheetExpand 420ms cubic-bezier(.22,1,.36,1) both !important;
         transform-origin: 50% 100%;
+        will-change: transform, opacity;
       }
 
-      @keyframes liquidOverlaySoftIn {
+      @keyframes refinedOverlayIn {
         from { opacity: 0; }
         to { opacity: 1; }
       }
 
-      @keyframes liquidSheetSoftExpand {
-        0% { opacity: 0; transform: translateY(28px) scale(.955); }
-        48% { opacity: 1; transform: translateY(-3px) scale(1.012); }
-        78% { opacity: 1; transform: translateY(1px) scale(.997); }
-        100% { opacity: 1; transform: translateY(0) scale(1); }
+      @keyframes refinedSheetExpand {
+        0% { opacity: 0; transform: translate3d(0,18px,0) scale(.975); }
+        54% { opacity: 1; transform: translate3d(0,-1.5px,0) scale(1.006); }
+        100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
       }
 
       body.assistant-motion-off .liquid-motion-target,
@@ -260,7 +220,7 @@
       body.assistant-motion-off .appearance-detail-overlay.open .appearance-detail-panel,
       body.assistant-motion-off .auth-overlay.open,
       body.assistant-motion-off .auth-overlay.open .auth-sheet {
-        animation: none !important; transition: none !important; transform: none !important; filter: none !important;
+        animation: none !important; transition: none !important; transform: none !important;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -277,7 +237,7 @@
         .appearance-detail-overlay.open .appearance-detail-panel,
         .auth-overlay.open,
         .auth-overlay.open .auth-sheet {
-          animation: none !important; transition: none !important; transform: none !important; filter: none !important;
+          animation: none !important; transition: none !important; transform: none !important;
         }
       }
     `;
@@ -307,14 +267,14 @@
       if (!target.closest(IGNORE_SELECTOR)) target.classList.add('liquid-motion-target');
     });
     ensureNavIndicator();
-    updateNavIndicator(false);
+    scheduleNavIndicator(false);
   }
 
   function softVibrate() {
     const now = Date.now();
-    if (now - lastVibrationAt < 900) return;
+    if (now - lastVibrationAt < 1000) return;
     lastVibrationAt = now;
-    try { navigator.vibrate?.(5); } catch {}
+    try { navigator.vibrate?.(4); } catch {}
   }
 
   function press(target) {
@@ -326,7 +286,7 @@
     softVibrate();
   }
 
-  function popClass(el, className, timeout = 720) {
+  function popClass(el, className, timeout = 620) {
     if (!el || isMotionDisabled()) return;
     el.classList.remove(className);
     void el.offsetWidth;
@@ -343,6 +303,11 @@
     nav.prepend(indicator);
   }
 
+  function scheduleNavIndicator(animated = true) {
+    window.cancelAnimationFrame(navFrame);
+    navFrame = window.requestAnimationFrame(() => updateNavIndicator(animated));
+  }
+
   function updateNavIndicator(animated = true) {
     const nav = document.querySelector('.bottom-nav');
     const indicator = nav?.querySelector('.liquid-nav-indicator');
@@ -352,10 +317,11 @@
     const activeRect = active.getBoundingClientRect();
     const x = activeRect.left - navRect.left;
     const y = activeRect.top - navRect.top;
-    indicator.style.width = `${activeRect.width}px`;
-    indicator.style.height = `${activeRect.height}px`;
-    indicator.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-    if (animated) popClass(nav, 'liquid-nav-travel', 760);
+    nav.style.setProperty('--nav-indicator-w', `${activeRect.width}px`);
+    nav.style.setProperty('--nav-indicator-h', `${activeRect.height}px`);
+    nav.style.setProperty('--nav-indicator-x', `${x}px`);
+    nav.style.setProperty('--nav-indicator-y', `${y}px`);
+    if (animated) popClass(nav, 'liquid-nav-travel', 620);
   }
 
   function popToolCards() {
@@ -363,10 +329,10 @@
     const grid = document.querySelector('#toolsHome .tools-grid');
     const cards = [...document.querySelectorAll('#toolsHome .tool-card')];
     if (!grid || !cards.length) return;
-    popClass(grid, 'liquid-grid-pop', 620);
+    popClass(grid, 'liquid-grid-pop', 520);
     cards.forEach((card, index) => {
-      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 42, 210)}ms`);
-      popClass(card, 'liquid-card-pop', 860 + index * 42);
+      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 32, 160)}ms`);
+      popClass(card, 'liquid-card-pop', 720 + index * 32);
     });
   }
 
@@ -374,15 +340,15 @@
     if (!activeTarget) return;
     const target = activeTarget;
     activeTarget = null;
-    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 90);
+    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 70);
 
     if (target.classList.contains('nav-btn')) {
-      popClass(target, 'liquid-nav-pop', 680);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 760);
-      window.setTimeout(() => updateNavIndicator(true), 40);
-      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 180);
+      popClass(target, 'liquid-nav-pop', 520);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 600);
+      window.setTimeout(() => scheduleNavIndicator(true), 35);
+      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 150);
     } else if (target.classList.contains('tool-card') || target.classList.contains('settings-group-card')) {
-      popClass(target, 'liquid-card-pop', 720);
+      popClass(target, 'liquid-card-pop', 560);
     }
   }
 
@@ -398,8 +364,8 @@
 
     document.addEventListener('click', (event) => {
       const nav = event.target.closest?.('.nav-btn');
-      if (nav) window.setTimeout(() => updateNavIndicator(true), 80);
-      if (nav?.dataset.view === 'tools') window.setTimeout(popToolCards, 220);
+      if (nav) window.setTimeout(() => scheduleNavIndicator(true), 70);
+      if (nav?.dataset.view === 'tools') window.setTimeout(popToolCards, 190);
     }, { passive: true });
 
     document.addEventListener('keydown', (event) => {
@@ -411,7 +377,7 @@
       release();
     });
 
-    window.addEventListener('resize', () => updateNavIndicator(false), { passive: true });
+    window.addEventListener('resize', () => scheduleNavIndicator(false), { passive: true });
     window.setTimeout(() => { cleanupOldGlow(); prepareTargets(); }, 300);
     window.setTimeout(() => { cleanupOldGlow(); prepareTargets(); }, 1200);
   }
