@@ -29,9 +29,159 @@ body.detail-open .fab {
   -webkit-backdrop-filter: blur(12px) saturate(145%) !important;
 }
 
-/* Clean up release UI: hide cloud AI entry and development roadmap card. */
 #aiModeBadge,
 #view-settings > section:nth-of-type(4),
 #view-settings > section:nth-of-type(6) {
   display: none !important;
+}
+
+:root {
+  --perf-line: rgba(255, 255, 255, .18);
+  --perf-shadow: 0 14px 30px rgba(0, 0, 0, .17), inset 0 .7px 0 rgba(255, 255, 255, .34), inset 0 -.7px 0 rgba(0, 0, 0, .08);
+}
+
+.glass-card,
+.chat-shell,
+.summary-card,
+.add-sheet,
+.auth-sheet,
+.tools-panel-card,
+.account-row {
+  background: linear-gradient(145deg, rgba(255,255,255,.058), rgba(255,255,255,.010) 46%, rgba(0,0,0,.018)), rgba(255,255,255,.034) !important;
+  border-color: var(--perf-line) !important;
+  box-shadow: var(--perf-shadow) !important;
+  backdrop-filter: blur(18px) saturate(132%) brightness(1.07) contrast(1.03) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(132%) brightness(1.07) contrast(1.03) !important;
+  contain: paint;
+}
+
+.summary-chip,
+.record-item,
+.draft-card,
+.draft-item,
+textarea,
+input,
+select,
+.tag-btn,
+.range-chip,
+.ghost-btn,
+.mini-ghost-btn,
+.summary-box,
+.budget-pill,
+.auth-tab,
+.icon-btn,
+.delete-btn,
+.chat-row.assistant .chat-bubble,
+.tools-back,
+.account-pill {
+  background: linear-gradient(145deg, rgba(255,255,255,.070), rgba(255,255,255,.012) 52%, rgba(0,0,0,.012)), rgba(255,255,255,.042) !important;
+  border-color: rgba(255,255,255,.16) !important;
+  box-shadow: 0 8px 18px rgba(0,0,0,.12), inset 0 .7px 0 rgba(255,255,255,.30), inset 0 -.7px 0 rgba(0,0,0,.07) !important;
+  backdrop-filter: blur(10px) saturate(126%) brightness(1.06) contrast(1.02) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(126%) brightness(1.06) contrast(1.02) !important;
+  contain: paint;
+}
+
+.bottom-nav {
+  background: linear-gradient(145deg, rgba(255,255,255,.080), rgba(255,255,255,.018) 54%, rgba(0,0,0,.026)), rgba(255,255,255,.032) !important;
+  border-color: rgba(255,255,255,.20) !important;
+  box-shadow: 0 14px 28px rgba(0,0,0,.18), inset 0 .8px 0 rgba(255,255,255,.38), inset 0 -.8px 0 rgba(0,0,0,.09) !important;
+  backdrop-filter: blur(16px) saturate(128%) brightness(1.07) contrast(1.03) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(128%) brightness(1.07) contrast(1.03) !important;
+}
+
+.nav-btn.active,
+.primary-btn,
+.send-btn,
+.confirm-btn,
+.range-chip.active,
+.auth-tab.active {
+  background: linear-gradient(145deg, rgba(255,255,255,.150), rgba(255,255,255,.030) 56%, rgba(132,178,255,.030)), rgba(255,255,255,.052) !important;
+  box-shadow: 0 8px 16px rgba(0,0,0,.12), inset 0 .8px 0 rgba(255,255,255,.42), inset 0 -.8px 0 rgba(0,0,0,.08) !important;
+}
+
+.glass-card::before,
+.bottom-nav::before,
+.summary-chip::before,
+.record-item::before,
+.draft-card::before,
+.draft-item::before,
+.tag-btn::before,
+.range-chip::before,
+.ghost-btn::before,
+.mini-ghost-btn::before,
+.summary-box::before,
+.auth-tab::before,
+.icon-btn::before,
+.delete-btn::before,
+.chat-row.assistant .chat-bubble::before,
+.tools-panel-card::before,
+.tools-back::before {
+  opacity: .26 !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.16), transparent 30%), linear-gradient(105deg, rgba(255,255,255,.070), transparent 28%, transparent 76%, rgba(190,220,255,.045)) !important;
+}
+
+@media (pointer: coarse), (max-width: 760px) {
+  body { background-attachment: scroll !important; }
+  body::before { animation: none !important; filter: blur(18px) !important; opacity: .42 !important; }
+  body::after { animation: none !important; opacity: .46 !important; }
+  .ambient { display: none !important; }
+
+  .glass-card,
+  .chat-shell,
+  .summary-card,
+  .add-sheet,
+  .auth-sheet,
+  .tools-panel-card,
+  .account-row {
+    backdrop-filter: blur(12px) saturate(118%) brightness(1.05) contrast(1.02) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(118%) brightness(1.05) contrast(1.02) !important;
+  }
+
+  .summary-chip,
+  .record-item,
+  .draft-card,
+  .draft-item,
+  textarea,
+  input,
+  select,
+  .tag-btn,
+  .range-chip,
+  .ghost-btn,
+  .mini-ghost-btn,
+  .summary-box,
+  .budget-pill,
+  .auth-tab,
+  .icon-btn,
+  .delete-btn,
+  .chat-row.assistant .chat-bubble,
+  .tools-back,
+  .account-pill {
+    backdrop-filter: blur(7px) saturate(112%) brightness(1.04) contrast(1.01) !important;
+    -webkit-backdrop-filter: blur(7px) saturate(112%) brightness(1.04) contrast(1.01) !important;
+  }
+
+  .bottom-nav {
+    backdrop-filter: blur(11px) saturate(116%) brightness(1.05) contrast(1.02) !important;
+    -webkit-backdrop-filter: blur(11px) saturate(116%) brightness(1.05) contrast(1.02) !important;
+  }
+
+  .interactive,
+  button,
+  .record-item,
+  .summary-chip,
+  .summary-box,
+  .metric-card,
+  .chart-card,
+  .summary-card,
+  .account-row,
+  .draft-card,
+  .draft-item,
+  .auth-tab {
+    will-change: auto !important;
+    transition: transform .14s cubic-bezier(.2,.8,.2,1), opacity .14s ease !important;
+  }
+
+  .is-releasing { animation: none !important; }
+  .is-pressed::before { opacity: .34 !important; }
 }
