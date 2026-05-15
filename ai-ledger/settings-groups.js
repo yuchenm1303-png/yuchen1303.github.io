@@ -124,6 +124,15 @@
         pointer-events:auto;
       }
 
+      .settings-group-detail.preparing .settings-group-content{
+        opacity:0!important;
+      }
+
+      .settings-group-detail.ready .settings-group-content{
+        opacity:1!important;
+        transition:opacity 90ms ease!important;
+      }
+
       .settings-group-sheet{
         width:min(100%,520px);
         max-height:min(86vh,820px);
@@ -205,8 +214,8 @@
 
   function closeDetail() {
     const detail = document.querySelector(`#${DETAIL_ID}`);
-    if (detail) detail.classList.remove('open');
-    document.body.classList.remove('detail-open', 'settings-group-open');
+    if (detail) detail.classList.remove('open', 'preparing', 'ready');
+    document.body.classList.remove('detail-open', 'settings-group-open', 'settings-group-opening');
     restoreMovedNodes();
     const content = document.querySelector('#settingsGroupContent');
     if (content) content.innerHTML = '';
@@ -227,23 +236,31 @@
     if (!group || !nodes.length) return;
     const detail = ensureDetail();
     const content = document.querySelector('#settingsGroupContent');
+    document.body.classList.add('settings-group-opening');
+    detail.classList.add('open', 'preparing');
     document.querySelector('#settingsGroupTitle').textContent = group.title;
     document.querySelector('#settingsGroupDesc').textContent = group.desc;
     content.innerHTML = '';
 
-    returnAnchor = document.createElement('span');
-    returnAnchor.hidden = true;
-    returnAnchor.dataset.settingsReturnAnchor = id;
-    nodes[0].before(returnAnchor);
-    movedNodes = nodes;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        returnAnchor = document.createElement('span');
+        returnAnchor.hidden = true;
+        returnAnchor.dataset.settingsReturnAnchor = id;
+        nodes[0].before(returnAnchor);
+        movedNodes = nodes;
 
-    nodes.forEach((node) => {
-      node.classList.remove('settings-group-hidden');
-      content.appendChild(node);
+        nodes.forEach((node) => {
+          node.classList.remove('settings-group-hidden');
+          content.appendChild(node);
+        });
+
+        detail.classList.remove('preparing');
+        detail.classList.add('ready');
+        document.body.classList.remove('settings-group-opening');
+        document.body.classList.add('detail-open', 'settings-group-open');
+      });
     });
-
-    detail.classList.add('open');
-    document.body.classList.add('detail-open', 'settings-group-open');
   }
 
   function tagOriginalSections(settingsView) {
