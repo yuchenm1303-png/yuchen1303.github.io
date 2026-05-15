@@ -57,7 +57,7 @@
       .liquid-motion-target {
         position: relative !important;
         transform-origin: center center !important;
-        transition: transform 160ms cubic-bezier(.22,1,.36,1), opacity 140ms ease !important;
+        transition: transform 190ms cubic-bezier(.25,.82,.25,1), opacity 190ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         backface-visibility: hidden;
@@ -67,7 +67,7 @@
       .tool-card:active,
       .settings-group-card.liquid-pressed,
       .settings-group-card:active {
-        transform: translate3d(0,.8px,0) scale(.990) !important;
+        transform: translate3d(0,.7px,0) scale(.992) !important;
       }
 
       .nav-btn.liquid-pressed,
@@ -78,7 +78,7 @@
       .delete-btn:active,
       .send-btn.liquid-pressed,
       .send-btn:active {
-        transform: translate3d(0,0,0) scale(.958) !important;
+        transform: translate3d(0,0,0) scale(.972) !important;
       }
 
       .tag-btn.liquid-pressed,
@@ -99,11 +99,12 @@
       .bg-option:active,
       .appearance-toggle.liquid-pressed,
       .appearance-toggle:active {
-        transform: translate3d(0,.8px,0) scale(.978) !important;
+        transform: translate3d(0,.7px,0) scale(.985) !important;
       }
 
       .bottom-nav {
         overflow: hidden !important;
+        will-change: auto !important;
       }
 
       .bottom-nav .nav-btn {
@@ -121,84 +122,76 @@
         height: var(--nav-indicator-h, 0px);
         border-radius: 18px;
         pointer-events: none;
-        opacity: .86;
-        transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0) scale(1);
+        opacity: .84;
+        transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0);
         background:
-          radial-gradient(circle at 24% 18%, rgba(255,255,255,.34), rgba(255,255,255,.12) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(255,255,255,.22), rgba(255,255,255,.055) 48%, rgba(145,210,255,.09));
+          radial-gradient(circle at 26% 16%, rgba(255,255,255,.30), rgba(255,255,255,.11) 34%, transparent 70%),
+          linear-gradient(135deg, rgba(255,255,255,.20), rgba(255,255,255,.055) 50%, rgba(145,210,255,.08));
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.38),
-          inset 0 -1px 0 rgba(0,0,0,.10),
-          0 8px 18px rgba(0,0,0,.12);
-        transition: transform 440ms cubic-bezier(.22,1,.36,1), opacity 180ms ease;
+          inset 0 1px 0 rgba(255,255,255,.34),
+          inset 0 -1px 0 rgba(0,0,0,.12),
+          0 8px 18px rgba(0,0,0,.11);
+        transition: transform 520ms cubic-bezier(.21,.82,.22,1), opacity 260ms ease;
         will-change: transform;
         backface-visibility: hidden;
       }
 
       .bottom-nav.liquid-nav-travel .liquid-nav-indicator {
-        animation: indicatorSoftBreathe 480ms cubic-bezier(.22,1,.36,1) both;
+        animation: navIndicatorFadeSettle 560ms cubic-bezier(.21,.82,.22,1) both;
       }
 
-      .nav-btn.liquid-nav-pop { animation: refinedNavContent 360ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
-      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 420ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
-      .tool-card.liquid-card-pop { animation: refinedEntryBloom 400ms cubic-bezier(.22,1,.36,1) both; animation-delay: var(--tool-pop-delay, 0ms); will-change: transform; }
-      .tools-grid.liquid-grid-pop { animation: refinedGridFloat 360ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
-      .settings-group-card.liquid-card-pop { animation: refinedEntryBloom 400ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
+      .nav-btn.liquid-nav-pop { animation: matureNavContent 420ms cubic-bezier(.21,.82,.22,1) both; }
+      .bottom-nav.liquid-nav-wobble { animation: none !important; }
+      .tool-card.liquid-card-pop,
+      .settings-group-card.liquid-card-pop { animation: matureCardSlide 540ms cubic-bezier(.21,.82,.22,1) both; animation-delay: var(--tool-pop-delay, 0ms); }
+      .tools-grid.liquid-grid-pop { animation: matureGridFade 480ms cubic-bezier(.21,.82,.22,1) both; }
 
-      @keyframes indicatorSoftBreathe {
-        0% { opacity: .80; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(.990); }
-        48% { opacity: .92; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1.010); }
-        100% { opacity: .86; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1); }
+      @keyframes navIndicatorFadeSettle {
+        0% { opacity: .70; }
+        44% { opacity: .90; }
+        100% { opacity: .84; }
       }
 
-      @keyframes refinedNavContent {
-        0% { transform: translate3d(0,0,0) scale(.958); }
-        46% { transform: translate3d(0,-.4px,0) scale(1.026); }
-        74% { transform: translate3d(0,0,0) scale(.994); }
+      @keyframes matureNavContent {
+        0% { transform: translate3d(0,0,0) scale(.972); }
+        52% { transform: translate3d(0,-.3px,0) scale(1.010); }
         100% { transform: translate3d(0,0,0) scale(1); }
       }
 
-      @keyframes refinedNavBody {
-        0% { transform: translateX(-50%) scale(1); }
-        46% { transform: translateX(-50%) scale(1.006); }
-        80% { transform: translateX(-50%) scale(.999); }
-        100% { transform: translateX(-50%) scale(1); }
+      @keyframes matureCardSlide {
+        0% { opacity: .88; transform: translate3d(0,10px,0) scale(.992); }
+        58% { opacity: 1; transform: translate3d(0,-.8px,0) scale(1.002); }
+        100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
       }
 
-      @keyframes refinedEntryBloom {
-        0% { transform: translate3d(0,5px,0) scale(.988); }
-        50% { transform: translate3d(0,-1px,0) scale(1.006); }
-        100% { transform: translate3d(0,0,0) scale(1); }
-      }
-
-      @keyframes refinedGridFloat {
-        0% { transform: translate3d(0,4px,0); }
-        100% { transform: translate3d(0,0,0); }
+      @keyframes matureGridFade {
+        0% { opacity: .94; transform: translate3d(0,4px,0); }
+        100% { opacity: 1; transform: translate3d(0,0,0); }
       }
 
       .settings-group-detail.open,
       .appearance-detail-overlay.open,
       .auth-overlay.open {
-        animation: refinedOverlayIn 120ms ease both !important;
+        animation: matureOverlayFade 170ms ease both !important;
       }
 
       .settings-group-detail.open .settings-group-sheet,
       .appearance-detail-overlay.open .appearance-detail-panel,
       .auth-overlay.open .auth-sheet {
-        animation: refinedSheetExpand 360ms cubic-bezier(.22,1,.36,1) both !important;
+        animation: matureSheetSlide 520ms cubic-bezier(.21,.82,.22,1) both !important;
         transform-origin: 50% 100%;
         will-change: transform, opacity;
         backface-visibility: hidden;
       }
 
-      @keyframes refinedOverlayIn {
+      @keyframes matureOverlayFade {
         from { opacity: 0; }
         to { opacity: 1; }
       }
 
-      @keyframes refinedSheetExpand {
-        0% { opacity: .92; transform: translate3d(0,14px,0) scale(.982); }
-        58% { opacity: 1; transform: translate3d(0,-1px,0) scale(1.004); }
+      @keyframes matureSheetSlide {
+        0% { opacity: .86; transform: translate3d(0,18px,0) scale(.986); }
+        62% { opacity: 1; transform: translate3d(0,-1px,0) scale(1.002); }
         100% { opacity: 1; transform: translate3d(0,0,0) scale(1); }
       }
 
@@ -267,9 +260,9 @@
 
   function softVibrate() {
     const now = Date.now();
-    if (now - lastVibrationAt < 1200) return;
+    if (now - lastVibrationAt < 1500) return;
     lastVibrationAt = now;
-    try { navigator.vibrate?.(3); } catch {}
+    try { navigator.vibrate?.(2); } catch {}
   }
 
   function press(target) {
@@ -281,7 +274,7 @@
     softVibrate();
   }
 
-  function popClass(el, className, timeout = 520) {
+  function popClass(el, className, timeout = 620) {
     if (!el || isMotionDisabled()) return;
     el.classList.remove(className);
     window.requestAnimationFrame(() => {
@@ -319,7 +312,7 @@
     nav.style.setProperty('--nav-indicator-h', `${activeRect.height}px`);
     nav.style.setProperty('--nav-indicator-x', `${x}px`);
     nav.style.setProperty('--nav-indicator-y', `${y}px`);
-    if (animated) popClass(nav, 'liquid-nav-travel', 520);
+    if (animated) popClass(nav, 'liquid-nav-travel', 620);
   }
 
   function popToolCards() {
@@ -329,10 +322,10 @@
       const grid = document.querySelector('#toolsHome .tools-grid');
       const cards = [...document.querySelectorAll('#toolsHome .tool-card')];
       if (!grid || !cards.length) return;
-      popClass(grid, 'liquid-grid-pop', 420);
+      popClass(grid, 'liquid-grid-pop', 540);
       cards.forEach((card, index) => {
-        card.style.setProperty('--tool-pop-delay', `${Math.min(index * 28, 140)}ms`);
-        popClass(card, 'liquid-card-pop', 560 + index * 28);
+        card.style.setProperty('--tool-pop-delay', `${Math.min(index * 22, 110)}ms`);
+        popClass(card, 'liquid-card-pop', 680 + index * 22);
       });
     }, 0);
   }
@@ -341,15 +334,14 @@
     if (!activeTarget) return;
     const target = activeTarget;
     activeTarget = null;
-    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 60);
+    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 80);
 
     if (target.classList.contains('nav-btn')) {
-      popClass(target, 'liquid-nav-pop', 460);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 520);
+      popClass(target, 'liquid-nav-pop', 500);
       window.setTimeout(() => scheduleNavIndicator(true), 35);
-      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 140);
+      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 150);
     } else if (target.classList.contains('tool-card') || target.classList.contains('settings-group-card')) {
-      popClass(target, 'liquid-card-pop', 480);
+      popClass(target, 'liquid-card-pop', 580);
     }
   }
 
