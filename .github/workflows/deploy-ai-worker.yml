@@ -39,8 +39,11 @@ jobs:
         run: npm install
 
       - name: Upload Gemini secret when configured
-        if: ${{ secrets.GEMINI_API_KEY != '' }}
         run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY is not configured. Skipping Gemini secret upload."
+            exit 0
+          fi
           printf "%s" "$GEMINI_API_KEY" | npx wrangler secret put GEMINI_API_KEY
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
