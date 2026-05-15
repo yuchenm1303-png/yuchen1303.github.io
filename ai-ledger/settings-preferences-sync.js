@@ -21,8 +21,7 @@
   const MAP_LABEL = { baidu: '百度地图', amap: '高德地图' };
   const MODE_LABEL = { driving: '驾车', walking: '步行', riding: '骑行', transit: '公交/地铁' };
 
-  let lastSignature = '';
-  let observer = null;
+  let lastSavedSignature = '';
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -31,7 +30,6 @@
   function readPrefs() {
     const fromModule = window.AssistantPreferences?.getPreferences?.();
     if (fromModule?.places) return normalizePrefs(fromModule);
-
     try {
       return normalizePrefs(JSON.parse(localStorage.getItem(NAV_PREF_KEY) || '{}'));
     } catch {
@@ -55,31 +53,23 @@
     return prefs;
   }
 
-  function writeInput(selector, value) {
+  function isUserEditingPreferencePanel() {
+    const active = document.activeElement;
+    return Boolean(active?.closest?.('#assistantPreferencePanel'))
+      && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+  }
+
+  function setValue(selector, value) {
     const el = document.querySelector(selector);
     if (!el) return false;
-    if (el.value === value) return true;
     el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   }
 
-  function writeSelect(selector, value) {
+  function setChecked(selector, checked) {
     const el = document.querySelector(selector);
     if (!el) return false;
-    if (el.value === value) return true;
-    el.value = value;
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  }
-
-  function writeCheckbox(selector, checked) {
-    const el = document.querySelector(selector);
-    if (!el) return false;
-    if (el.checked === checked) return true;
     el.checked = checked;
-    el.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   }
 
@@ -106,7 +96,7 @@
       .replaceAll("'", '&#039;');
   }
 
-  function refreshPreview(prefs) {
+  function refreshPreviewFromPrefs(prefs) {
     const preview = document.querySelector('#assistantPrefPreview');
     if (!preview) return;
     const places = [
@@ -115,7 +105,6 @@
       prefs.places.work ? `公司：${prefs.places.work}` : '',
       prefs.places.dorm ? `宿舍：${prefs.places.dorm}` : '',
     ].filter(Boolean).slice(0, 3).join('；');
-
     const map = MAP_LABEL[prefs.mapProvider] || '百度地图';
     const mode = MODE_LABEL[prefs.defaultMode] || '驾车';
     preview.innerHTML = places
@@ -123,28 +112,30 @@
       : `还没填写常用地址。填写后，AI 可以把“导航回家、去学校、去公司”自动替换为具体地址。当前默认：<strong>${escapeHtml(map)}</strong> · <strong>${escapeHtml(mode)}</strong>。`;
   }
 
-  function syncPanel(force = false) {
+  function syncPanel({ force = false, allowWhileEditing = false, flash = false } = {}) {
+    const panel = document.querySelector('#assistantPreferencePanel');
+    if (!panel) return;
+    if (!allowWhileEditing && isUserEditingPreferencePanel()) return;
+
     const prefs = readPrefs();
     const signature = JSON.stringify(prefs);
-    if (!force && signature === lastSignature) return;
-    lastSignature = signature;
+    if (!force && signature === lastSavedSignature) return;
+    lastSavedSignature = signature;
 
-    const hasPanel = Boolean(document.querySelector('#assistantPreferencePanel'));
-    if (!hasPanel) return;
-
-    writeInput('#assistantHomeAddressInput', prefs.places.home || '');
-    writeInput('#assistantSchoolAddressInput', prefs.places.school || '');
-    writeInput('#assistantWorkAddressInput', prefs.places.work || '');
-    writeInput('#assistantDormAddressInput', prefs.places.dorm || '');
-    writeInput('#assistantCustomPlacesInput', formatCustomPlaces(prefs.customPlaces));
-    writeSelect('#assistantMapProviderSelect', prefs.mapProvider || 'baidu');
-    writeSelect('#assistantDefaultModeSelect', prefs.defaultMode || 'driving');
-    writeCheckbox('#assistantAvoidHighwayInput', Boolean(prefs.routeOptions.avoidHighway));
-    writeCheckbox('#assistantAvoidTollsInput', Boolean(prefs.routeOptions.avoidTolls));
-    writeCheckbox('#assistantPreferSubwayInput', Boolean(prefs.routeOptions.preferSubway));
-    writeCheckbox('#assistantPreferLessWalkInput', Boolean(prefs.routeOptions.preferLessWalk));
-    writeCheckbox('#assistantRealtimeTrafficInput', Boolean(prefs.routeOptions.useRealtimeTraffic));
-    refreshPreview(prefs);
+    setValue('#assistantHomeAddressInput', prefs.places.home || '');
+    setValue('#assistantSchoolAddressInput', prefs.places.school || '');
+    setValue('#assistantWorkAddressInput', prefs.places.work || '');
+    setValue('#assistantDormAddressInput', prefs.places.dorm || '');
+    setValue('#assistantCustomPlacesInput', formatCustomPlaces(prefs.customPlaces));
+    setValue('#assistantMapProviderSelect', prefs.mapProvider || 'baidu');
+    setValue('#assistantDefaultModeSelect', prefs.defaultMode || 'driving');
+    setChecked('#assistantAvoidHighwayInput', Boolean(prefs.routeOptions.avoidHighway));
+    setChecked('#assistantAvoidTollsInput', Boolean(prefs.routeOptions.avoidTolls));
+    setChecked('#assistantPreferSubwayInput', Boolean(prefs.routeOptions.preferSubway));
+    setChecked('#assistantPreferLessWalkInput', Boolean(prefs.routeOptions.preferLessWalk));
+    setChecked('#assistantRealtimeTrafficInput', Boolean(prefs.routeOptions.useRealtimeTraffic));
+    refreshPreviewFromPrefs(prefs);
+    if (flash) flashPanel();
   }
 
   function installStyle() {
@@ -152,9 +143,7 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #assistantPreferencePanel[data-sync-flash="true"]{
-        animation: navPrefSyncFlash 680ms ease both;
-      }
+      #assistantPreferencePanel[data-sync-flash="true"]{animation:navPrefSyncFlash 680ms ease both}
       @keyframes navPrefSyncFlash{
         0%{box-shadow:0 0 0 rgba(11,143,139,0)}
         38%{box-shadow:0 0 0 4px rgba(11,143,139,.16),0 18px 45px rgba(8,106,115,.14)}
@@ -173,49 +162,45 @@
     window.setTimeout(() => { panel.dataset.syncFlash = 'false'; }, 700);
   }
 
-  function scheduleSync(force = false, flash = false) {
-    window.setTimeout(() => {
-      syncPanel(force);
-      if (flash) flashPanel();
-    }, 0);
-    window.setTimeout(() => syncPanel(force), 120);
-    window.setTimeout(() => syncPanel(force), 420);
-  }
-
-  function watchPanelCreation() {
-    if (observer) return;
-    observer = new MutationObserver(() => scheduleSync(true));
-    observer.observe(document.body, { childList: true, subtree: true });
+  function scheduleSync(options = {}) {
+    window.setTimeout(() => syncPanel(options), 0);
+    window.setTimeout(() => syncPanel(options), 160);
+    window.setTimeout(() => syncPanel(options), 520);
   }
 
   function patchApplyPreferenceUpdate() {
     const prefsApi = window.AssistantPreferences;
-    if (!prefsApi || prefsApi.__syncPatched || typeof prefsApi.applyPreferenceUpdate !== 'function') return;
+    if (!prefsApi || prefsApi.__safeSyncPatched || typeof prefsApi.applyPreferenceUpdate !== 'function') return;
     const original = prefsApi.applyPreferenceUpdate.bind(prefsApi);
     prefsApi.applyPreferenceUpdate = (updates = {}) => {
       const result = original(updates);
-      scheduleSync(true, true);
+      scheduleSync({ force: true, allowWhileEditing: true, flash: true });
       return result;
     };
-    prefsApi.__syncPatched = true;
+    prefsApi.__safeSyncPatched = true;
   }
 
   function boot() {
     installStyle();
-    watchPanelCreation();
     patchApplyPreferenceUpdate();
-    scheduleSync(true);
+    scheduleSync({ force: true });
 
-    window.addEventListener('assistant-preferences-changed', () => scheduleSync(true, true));
+    window.addEventListener('assistant-preferences-changed', () => {
+      scheduleSync({ force: true, allowWhileEditing: true, flash: true });
+    });
+
     document.addEventListener('click', (event) => {
-      if (event.target.closest?.('[data-settings-group="phone"], .nav-btn[data-view="settings"], #saveAssistantPrefsBtn')) {
-        scheduleSync(true);
+      if (event.target.closest?.('[data-settings-group="phone"], .nav-btn[data-view="settings"]')) {
+        scheduleSync({ force: true });
       }
     }, true);
-    window.addEventListener('focus', () => scheduleSync(true));
 
-    window.setTimeout(() => { patchApplyPreferenceUpdate(); scheduleSync(true); }, 300);
-    window.setTimeout(() => { patchApplyPreferenceUpdate(); scheduleSync(true); }, 1200);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) scheduleSync({ force: true });
+    });
+
+    window.setTimeout(() => { patchApplyPreferenceUpdate(); scheduleSync({ force: true }); }, 300);
+    window.setTimeout(() => { patchApplyPreferenceUpdate(); scheduleSync({ force: true }); }, 1200);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
