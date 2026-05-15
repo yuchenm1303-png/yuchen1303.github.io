@@ -7,11 +7,11 @@ window.AI_LEDGER_CONFIG = {
 
 (() => {
   const scripts = [
-    './assistant-profile.js?v=20260515-3',
+    './assistant-profile.js?v=20260515-4',
     './settings-preferences.js?v=20260515-1',
     './settings-appearance-plus.js?v=20260515-1',
     './navigation-preferences.js?v=20260515-1',
-    './chat-source-badges.js?v=20260515-1',
+    './chat-source-badges.js?v=20260515-2',
     './tools-center.js?v=20260515-1'
   ];
   scripts.forEach((src) => {
