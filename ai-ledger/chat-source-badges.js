@@ -6,12 +6,16 @@
     cloud_ai: { label: "云端 AI", tone: "cloud" },
     workers_ai: { label: "云端 AI", tone: "cloud" },
     workers_ai_text_fallback: { label: "云端兜底", tone: "cloud-fallback" },
+    gemini_ai: { label: "Gemini AI", tone: "gemini" },
+    gemini_text_fallback: { label: "Gemini 兜底", tone: "cloud-fallback" },
+    gemini_error: { label: "Gemini 错误", tone: "error" },
     hybrid_rules: { label: "云端规则", tone: "cloud-rule" },
     builtin_profile: { label: "内置回复", tone: "builtin" },
     local: { label: "本地规则", tone: "local" },
     local_mobile: { label: "手机动作", tone: "mobile" },
     navigation_preferences: { label: "导航偏好", tone: "mobile" },
     missing_workers_ai_binding: { label: "云端未绑定", tone: "error" },
+    missing_cloud_ai: { label: "云端未配置", tone: "error" },
   };
 
   function escapeHtml(value) {
@@ -55,6 +59,7 @@
       .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;line-height:1;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px)}
       .chat-source-badge::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
+      .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
       .chat-source-badge.cloud-fallback{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32)}
       .chat-source-badge.cloud-rule{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28)}
       .chat-source-badge.builtin{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30)}
@@ -95,10 +100,7 @@
     addBadges();
   }
 
-  window.ChatSourceBadges = {
-    refresh: addBadges,
-    labels: SOURCE_LABELS,
-  };
+  window.ChatSourceBadges = { refresh: addBadges, labels: SOURCE_LABELS };
 
   window.addEventListener("DOMContentLoaded", () => {
     installStyle();
