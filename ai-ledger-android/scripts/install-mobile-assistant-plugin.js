@@ -26,6 +26,7 @@ function writePlugin() {
   const source = `package com.yuchen.ailedger;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.provider.AlarmClock;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -125,6 +126,57 @@ public class MobileAssistantPlugin extends Plugin {
     } catch (Exception error) {
       call.reject("Cannot open app: " + error.getMessage());
     }
+  }
+
+  @PluginMethod
+  public void navigate(PluginCall call) {
+    String destination = call.getString("destination", "").trim();
+    String mode = call.getString("mode", "driving").trim();
+
+    if (destination.isEmpty()) {
+      call.reject("Navigation destination is required");
+      return;
+    }
+
+    Intent launchIntent = getContext().getPackageManager().getLaunchIntentForPackage("com.baidu.BaiduMap");
+    if (launchIntent == null) {
+      JSObject ret = new JSObject();
+      ret.put("ok", false);
+      ret.put("message", "没有找到百度地图，请先安装百度地图后再试。");
+      call.resolve(ret);
+      return;
+    }
+
+    Uri uri = new Uri.Builder()
+      .scheme("baidumap")
+      .authority("map")
+      .path("direction")
+      .appendQueryParameter("destination", destination)
+      .appendQueryParameter("coord_type", "bd09ll")
+      .appendQueryParameter("mode", normalizeNavigationMode(mode))
+      .appendQueryParameter("src", "andr.yuchen.aiassistant")
+      .build();
+
+    Intent intent = new Intent(Intent.ACTION_VIEW, uri)
+      .setPackage("com.baidu.BaiduMap")
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+    try {
+      getContext().startActivity(intent);
+      JSObject ret = new JSObject();
+      ret.put("ok", true);
+      ret.put("message", "已尝试用百度地图导航到“" + destination + "”。");
+      call.resolve(ret);
+    } catch (Exception error) {
+      call.reject("Cannot open Baidu Map navigation: " + error.getMessage());
+    }
+  }
+
+  private String normalizeNavigationMode(String mode) {
+    if ("walking".equals(mode) || "riding".equals(mode) || "driving".equals(mode)) {
+      return mode;
+    }
+    return "driving";
   }
 
   private String findPackageByLabel(String appName) {

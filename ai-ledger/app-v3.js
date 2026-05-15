@@ -128,6 +128,58 @@ function normalizeRecords(list) {
   return (Array.isArray(list) ? list : []).map(normalizeRecord).filter(Boolean);
 }
 
+function normalizeMobileCommand(command) {
+  if (!command || typeof command !== "object") return null;
+  const type = String(command.type || "").trim();
+  const params = command.params && typeof command.params === "object" ? command.params : {};
+
+  if (type === "set_alarm") {
+    const hour = Number(params.hour);
+    const minute = Number(params.minute || 0);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    const label = String(params.label || "提醒").trim() || "提醒";
+    return {
+      id: command.id || createId(),
+      type,
+      title: "设置闹钟",
+      summary: command.summary || `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      params: {
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(params.date || "")) ? params.date : todayISO(),
+        hour,
+        minute,
+        label,
+      },
+    };
+  }
+
+  if (type === "open_app") {
+    const appName = String(params.appName || command.summary || "").trim();
+    if (!appName) return null;
+    return {
+      id: command.id || createId(),
+      type,
+      title: "打开应用",
+      summary: appName,
+      params: { appName, packageName: String(params.packageName || "").trim() },
+    };
+  }
+
+  if (type === "navigate") {
+    const destination = String(params.destination || command.summary || "").replace(/^到\s*/, "").trim();
+    if (!destination) return null;
+    const mode = ["driving", "walking", "riding"].includes(params.mode) ? params.mode : "driving";
+    return {
+      id: command.id || createId(),
+      type,
+      title: "百度地图导航",
+      summary: `到 ${destination}`,
+      params: { appName: "百度地图", destination, mode },
+    };
+  }
+
+  return null;
+}
+
 function getRecords() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return seedRecords;
@@ -186,6 +238,7 @@ function saveAiEndpoint(value) {
 let records = getRecords();
 let budget = getBudget();
 let chatMessages = getChatMessages();
+let renderedChatIds = new Set(chatMessages.map((message) => message.id));
 let currentView = "ai";
 let currentRange = "month";
 let aiEndpoint = getAiEndpoint();
@@ -400,25 +453,33 @@ function draftMarkup(message) {
   `;
 }
 
+function mobileCommandMarkup(message) {
+  if (!message.mobileCommand || !window.MobileCommandActions?.renderCard) return "";
+  return window.MobileCommandActions.renderCard(message.mobileCommand);
+}
+
 function renderChat() {
   els.chatMessages.innerHTML = chatMessages.map((message) => {
+    const enterClass = renderedChatIds.has(message.id) ? "" : " new-message";
     if (message.role === "user") {
-      return `<div class="chat-row user"><div class="chat-bubble">${escapeHtml(message.content)}</div></div>`;
+      return `<div class="chat-row user${enterClass}" data-message-id="${escapeHtml(message.id)}"><div class="chat-bubble">${escapeHtml(message.content)}</div></div>`;
     }
     return `
-      <div class="chat-row assistant">
+      <div class="chat-row assistant${enterClass}" data-message-id="${escapeHtml(message.id)}">
         <div class="chat-response">
           <div class="chat-bubble">${escapeHtml(message.content)}</div>
           ${draftMarkup(message)}
+          ${mobileCommandMarkup(message)}
         </div>
       </div>
     `;
   }).join("");
+  chatMessages.forEach((message) => renderedChatIds.add(message.id));
   els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 }
 
 function renderTyping() {
-  els.chatMessages.insertAdjacentHTML("beforeend", `<div id="typingRow" class="chat-row assistant"><div class="chat-bubble typing"><span></span><span></span><span></span></div></div>`);
+  els.chatMessages.insertAdjacentHTML("beforeend", `<div id="typingRow" class="chat-row assistant typing-row new-message"><div class="chat-bubble typing"><span></span><span></span><span></span></div></div>`);
   els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
 }
 
@@ -649,6 +710,7 @@ async function askCloudAI() {
       messages: conversationPayload(),
       pendingDraft: pending?.records || [],
       ledgerContext: getLedgerContext(),
+      clientTools: window.MobileCommandActions?.tools || [],
       now: todayISO(),
     }),
   }, Number(DEFAULT_AI_CONFIG.aiTimeoutMs) || 12000);
@@ -659,10 +721,16 @@ async function askCloudAI() {
     throw error;
   }
 
+  const mobileCommand = normalizeMobileCommand(result.data?.mobileCommand);
+  const action = result.data?.action === "mobile_command" && !mobileCommand
+    ? "chat"
+    : result.data?.action || "chat";
+
   return {
     reply: String(result.data?.reply || "").trim(),
-    action: result.data?.action || "chat",
+    action,
     records: normalizeRecords(result.data?.records),
+    mobileCommand,
     source: "cloud_ai",
     version: result.data?.version,
   };
@@ -675,6 +743,16 @@ function localChatFallback(text) {
   }
   if (pending && /^(算了|不用了|先别记|取消)$/u.test(text)) {
     return { reply: "好的，这次先不保存。", action: "cancel_pending", records: [], source: "local" };
+  }
+  const mobileCommand = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
+  if (mobileCommand) {
+    return {
+      reply: window.MobileCommandActions?.createReply?.(mobileCommand) || "我整理好了这个手机动作，确认后我再执行。",
+      action: "mobile_command",
+      records: [],
+      mobileCommand,
+      source: "local_mobile",
+    };
   }
   const parsed = parseNaturalLanguage(text);
   if (parsed.length) {
@@ -726,6 +804,7 @@ async function askAssistant(text) {
     action: result.action,
     records: result.action === "draft" ? result.records : [],
     draftState: result.action === "draft" && result.records.length ? "pending" : "none",
+    mobileCommand: result.action === "mobile_command" ? result.mobileCommand : null,
     source: result.source,
   });
   saveChatMessages();

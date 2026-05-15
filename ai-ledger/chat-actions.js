@@ -1,6 +1,26 @@
 (() => {
   const CHAT_KEY = "ai-ledger-chat-v2";
   const MOBILE_STYLE_ID = "mobile-command-style";
+  const MOBILE_TOOLS = [
+    {
+      name: "mobile.set_alarm",
+      action: "mobile_command",
+      commandType: "set_alarm",
+      title: "设置系统闹钟",
+    },
+    {
+      name: "mobile.open_app",
+      action: "mobile_command",
+      commandType: "open_app",
+      title: "打开手机应用",
+    },
+    {
+      name: "mobile.navigate",
+      action: "mobile_command",
+      commandType: "navigate",
+      title: "百度地图导航",
+    },
+  ];
   const initialChat = [
     {
       id: "welcome",
@@ -19,10 +39,6 @@
     window.location.reload();
   }
 
-  function createId() {
-    return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  }
-
   function escapeHtml(value) {
     return String(value)
       .replaceAll("&", "&amp;")
@@ -39,10 +55,6 @@
     } catch {
       return [...initialChat];
     }
-  }
-
-  function saveChatMessages(messages) {
-    localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-60)));
   }
 
   function addDays(date, days) {
@@ -127,8 +139,41 @@
     };
   }
 
+  function parseNavigationCommand(text) {
+    if (!/(导航|路线|带我去|回家|到家|怎么走)/u.test(text)) return null;
+
+    const destinationMatch = text.match(/(?:导航(?:到|去)?|路线到|带我去|怎么去|怎么到)\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+)$/u)
+      || text.match(/去\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+?)(?:怎么走|路线|导航)$/u);
+    let destination = destinationMatch?.[1]?.trim() || "";
+
+    if (/回家|到家|去家|家里|我家/u.test(text)) destination = "家";
+    destination = destination
+      .replace(/^(百度地图|地图|帮我|请|给我)/u, "")
+      .replace(/(?:怎么走|路线|导航)$/u, "")
+      .trim();
+
+    if (!destination || /^(打开|启动)?(百度地图|地图)$/u.test(destination)) return null;
+
+    const mode = /步行|走路/u.test(text)
+      ? "walking"
+      : /骑行|骑车|单车/u.test(text)
+        ? "riding"
+        : "driving";
+
+    return {
+      type: "navigate",
+      title: "百度地图导航",
+      summary: `到 ${destination}`,
+      params: {
+        appName: "百度地图",
+        destination,
+        mode,
+      },
+    };
+  }
+
   function parseMobileCommand(text) {
-    return parseAlarmCommand(text) || parseOpenAppCommand(text);
+    return parseAlarmCommand(text) || parseNavigationCommand(text) || parseOpenAppCommand(text);
   }
 
   function getStatusText(state) {
@@ -150,6 +195,18 @@
       return [
         ["动作", "打开应用"],
         ["应用", command.params.appName],
+      ];
+    }
+    if (command.type === "navigate") {
+      const modeLabel = {
+        driving: "驾车",
+        walking: "步行",
+        riding: "骑行",
+      }[command.params.mode] || "驾车";
+      return [
+        ["动作", "百度地图导航"],
+        ["目的地", command.params.destination],
+        ["方式", modeLabel],
       ];
     }
     return [["动作", command.title || command.type]];
@@ -177,31 +234,14 @@
     </div>`;
   }
 
-  function appendChatRow(role, content, command) {
-    const chat = document.querySelector("#chatMessages");
-    if (!chat) return;
-    if (role === "user") {
-      chat.insertAdjacentHTML("beforeend", `<div class="chat-row user"><div class="chat-bubble">${escapeHtml(content)}</div></div>`);
-    } else {
-      const card = command ? renderMobileCard(command) : "";
-      chat.insertAdjacentHTML("beforeend", `<div class="chat-row assistant mobile-command-extra"><div class="chat-response"><div class="chat-bubble">${escapeHtml(content)}</div>${card}</div></div>`);
+  function createMobileReply(command) {
+    if (command.type === "set_alarm") {
+      return `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`;
     }
-    chat.scrollTop = chat.scrollHeight;
-  }
-
-  function pushMobileConversation(userText, assistantText, command) {
-    const messages = readChatMessages();
-    messages.push({ id: createId(), role: "user", content: userText });
-    messages.push({
-      id: createId(),
-      role: "assistant",
-      content: assistantText,
-      action: "mobile_command",
-      records: [],
-      draftState: "none",
-      mobileCommand: command,
-    });
-    saveChatMessages(messages);
+    if (command.type === "navigate") {
+      return `我理解为要用百度地图导航到“${command.params.destination}”，确认后我再执行。`;
+    }
+    return `我理解为要打开“${command.params.appName}”，确认后我再执行。`;
   }
 
   function getCapacitorPlugin() {
@@ -221,6 +261,9 @@
     }
     if (command.type === "open_app" && typeof plugin.openApp === "function") {
       return await plugin.openApp(command.params);
+    }
+    if (command.type === "navigate" && typeof plugin.navigate === "function") {
+      return await plugin.navigate(command.params);
     }
     return { ok: false, message: "Android 插件还没有实现这个动作。" };
   }
@@ -262,31 +305,6 @@
     document.head.appendChild(style);
   }
 
-  function interceptMobileSubmit() {
-    const form = document.querySelector("#chatForm");
-    const input = document.querySelector("#aiInput");
-    if (!form || !input) return;
-
-    form.addEventListener("submit", (event) => {
-      const text = input.value.trim();
-      const parsed = parseMobileCommand(text);
-      if (!parsed) return;
-
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      const command = { id: createId(), ...parsed };
-      const reply = command.type === "set_alarm"
-        ? `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`
-        : `我理解为要打开“${command.params.appName}”，确认后我再执行。`;
-
-      input.value = "";
-      appendChatRow("user", text);
-      appendChatRow("assistant", reply, command);
-      pushMobileConversation(text, reply, command);
-    }, true);
-  }
-
   function installMobileCardHandlers() {
     document.addEventListener("click", async (event) => {
       const runBtn = event.target.closest("[data-mobile-run]");
@@ -318,10 +336,16 @@
     });
   }
 
+  window.MobileCommandActions = {
+    tools: MOBILE_TOOLS,
+    parse: parseMobileCommand,
+    renderCard: renderMobileCard,
+    createReply: createMobileReply,
+  };
+
   window.addEventListener("DOMContentLoaded", () => {
     document.querySelector("#clearChatInlineBtn")?.addEventListener("click", clearConversation);
     installMobileStyles();
-    interceptMobileSubmit();
     installMobileCardHandlers();
   });
 })();

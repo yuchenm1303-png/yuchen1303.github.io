@@ -10,6 +10,7 @@
 - 功能中心：账单中心、数据统计、提醒闹钟、应用控制、快捷指令、任务记录
 - 提醒闹钟动作卡片
 - 应用控制动作卡片
+- 百度地图导航动作卡片
 - 打开微信 / 支付宝
 - Android 原生动作插件
 - GitHub Actions 自动构建 debug APK
@@ -73,6 +74,7 @@ android/app/src/main/java/com/yuchen/ailedger/MobileAssistantPlugin.java
 ```js
 MobileAssistant.setAlarm({ hour, minute, label, date })
 MobileAssistant.openApp({ appName })
+MobileAssistant.navigate({ destination, mode })
 ```
 
 ## 在 Android Studio 打开
@@ -101,13 +103,14 @@ android/app/build/outputs/apk/debug/app-debug.apk
 明天早上8点叫我起床
 打开微信
 打开支付宝
+导航回家
 今天午饭28
 我这个月餐饮花了多少
 ```
 
 预期效果：
 
-- 闹钟和打开应用会生成动作卡片。
+- 闹钟、打开应用和百度地图导航会生成动作卡片。
 - 点击确认后，Android 版会尝试调用原生插件。
 - 部分手机设置系统闹钟时会打开闹钟确认页，需要用户再点一次保存。
 - 记账和查账单功能继续走现有账单数据流程。
