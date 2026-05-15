@@ -46,11 +46,67 @@
     localStorage.setItem(CHAT_KEY, JSON.stringify(messages));
   }
 
+  function createChatId() {
+    return typeof createId === "function"
+      ? createId()
+      : (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  }
+
+  function hasPendingDraft() {
+    return typeof getPendingMessage === "function" && Boolean(getPendingMessage());
+  }
+
+  function hasMobileCommand(text) {
+    return typeof localMobileCommandResult === "function" && Boolean(localMobileCommandResult(text));
+  }
+
+  function addBuiltInExchange(userText, reply) {
+    if (!Array.isArray(chatMessages)) return false;
+    chatMessages.push({ id: createChatId(), role: "user", content: userText });
+    chatMessages.push({
+      id: createChatId(),
+      role: "assistant",
+      content: reply,
+      action: "chat",
+      records: [],
+      draftState: "none",
+      mobileCommand: null,
+      source: "builtin_profile",
+    });
+    if (typeof saveChatMessages === "function") saveChatMessages();
+    if (typeof renderAll === "function") renderAll();
+    return true;
+  }
+
+  function installMainFlowHook() {
+    const form = document.querySelector("#chatForm");
+    const input = document.querySelector("#aiInput");
+    if (!form || !input || form.dataset.builtinReplyHook === "ready") return;
+    form.dataset.builtinReplyHook = "ready";
+
+    form.addEventListener("submit", (event) => {
+      const text = input.value.trim();
+      const reply = getBuiltInReply(text);
+      if (!reply || hasPendingDraft() || hasMobileCommand(text)) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      input.value = "";
+      input.style.height = "auto";
+      addBuiltInExchange(text, reply);
+    }, true);
+  }
+
   window.BuiltInAssistantProfile = {
     getReply: getBuiltInReply,
     updateWelcomeMessage,
-    version: "2026-05-15-main-flow-1",
+    installMainFlowHook,
+    version: "2026-05-15-shared-state-2",
   };
 
-  window.addEventListener("DOMContentLoaded", updateWelcomeMessage);
+  window.addEventListener("DOMContentLoaded", () => {
+    updateWelcomeMessage();
+    window.setTimeout(installMainFlowHook, 0);
+    window.setTimeout(installMainFlowHook, 300);
+  });
 })();
