@@ -60,11 +60,9 @@
       }
 
       #settingsGroupDetail {
-        background:
-          radial-gradient(circle at 50% 15%, rgba(255,255,255,.08), transparent 38%),
-          rgba(3,7,18,.72) !important;
-        backdrop-filter: blur(6px) saturate(1.08) !important;
-        -webkit-backdrop-filter: blur(6px) saturate(1.08) !important;
+        background: rgba(4, 8, 20, .82) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
 
       #settingsGroupDetail.open {
@@ -77,15 +75,17 @@
         position: relative !important;
         z-index: 96 !important;
         background:
-          linear-gradient(145deg, rgba(255,255,255,.115), rgba(255,255,255,.045) 45%, rgba(0,0,0,.035)),
-          rgba(20,31,58,.88) !important;
-        border-color: rgba(255,255,255,.24) !important;
+          linear-gradient(145deg, rgba(255,255,255,.112), rgba(255,255,255,.042) 45%, rgba(0,0,0,.038)),
+          rgba(17,28,54,.94) !important;
+        border-color: rgba(255,255,255,.22) !important;
         box-shadow:
-          0 24px 56px rgba(0,0,0,.42),
-          inset 0 1px 0 rgba(255,255,255,.26),
+          0 22px 48px rgba(0,0,0,.38),
+          inset 0 1px 0 rgba(255,255,255,.24),
           inset 0 -1px 0 rgba(0,0,0,.12) !important;
         opacity: 1 !important;
         visibility: visible !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
 
       #settingsGroupDetail .settings-group-sheet *,
@@ -95,10 +95,19 @@
       }
 
       body.settings-group-open .app-shell {
-        opacity: .34 !important;
-        filter: blur(1.5px) saturate(.9) brightness(.82) !important;
+        opacity: .18 !important;
+        filter: none !important;
         pointer-events: none !important;
         transform: none !important;
+      }
+
+      body.settings-group-open .app-shell .glass-card,
+      body.settings-group-open .app-shell .settings-group-card,
+      body.settings-group-open .app-shell .bottom-nav {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        animation: none !important;
+        transition: none !important;
       }
 
       body.settings-group-open .bottom-nav,
@@ -107,6 +116,7 @@
         visibility: hidden !important;
         pointer-events: none !important;
         transform: translateX(-50%) !important;
+        transition: none !important;
       }
 
       body.settings-group-open .settings-group-detail,
@@ -123,22 +133,22 @@
 
       @media (pointer: coarse), (max-width: 760px) {
         #settingsGroupDetail {
-          background: rgba(4,8,20,.78) !important;
-          backdrop-filter: blur(3px) saturate(1.04) !important;
-          -webkit-backdrop-filter: blur(3px) saturate(1.04) !important;
+          background: rgba(4,8,20,.84) !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
         }
 
         #settingsGroupDetail .settings-group-sheet {
           max-height: 84vh !important;
           background:
             linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.040) 45%, rgba(0,0,0,.040)),
-            rgba(17,28,54,.92) !important;
+            rgba(17,28,54,.95) !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
         }
 
         body.settings-group-open .app-shell {
-          opacity: .22 !important;
+          opacity: .16 !important;
           filter: none !important;
         }
       }
