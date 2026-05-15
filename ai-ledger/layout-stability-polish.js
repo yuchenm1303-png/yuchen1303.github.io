@@ -36,40 +36,84 @@
       }
 
       .chat-shell {
-        grid-template-rows: auto minmax(260px, 1fr) auto auto !important;
-        min-height: min(620px, calc(100vh - 168px)) !important;
+        grid-template-rows: auto minmax(300px, 1fr) auto auto auto !important;
+        min-height: min(640px, calc(100vh - 168px)) !important;
         overflow: hidden !important;
       }
 
       .chat-messages {
-        min-height: 260px !important;
+        min-height: 300px !important;
         max-height: none !important;
         overflow-y: auto !important;
         overscroll-behavior: contain !important;
       }
 
       .chat-composer {
-        grid-template-columns: minmax(0, 1fr) 48px !important;
+        display: flex !important;
         align-items: center !important;
+        gap: 10px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 8px !important;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        border-radius: 26px !important;
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.080), rgba(255,255,255,.026) 48%, rgba(0,0,0,.018)),
+          rgba(255,255,255,.052) !important;
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.20),
+          0 10px 22px rgba(0,0,0,.10) !important;
       }
 
       .chat-composer textarea,
       #aiInput {
-        width: 100% !important;
+        order: 2 !important;
+        flex: 1 1 auto !important;
+        width: auto !important;
         min-width: 0 !important;
-        min-height: 48px !important;
-        max-height: 104px !important;
+        min-height: 44px !important;
+        max-height: 96px !important;
+        padding: 11px 12px !important;
+        border: 0 !important;
+        border-radius: 18px !important;
+        background: transparent !important;
+        box-shadow: none !important;
         writing-mode: horizontal-tb !important;
         text-orientation: mixed !important;
         resize: none !important;
         overflow-y: auto !important;
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+        line-height: 1.42 !important;
+      }
+
+      .chat-composer textarea::placeholder,
+      #aiInput::placeholder {
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+        white-space: normal !important;
+      }
+
+      .chat-composer button {
+        flex: 0 0 46px !important;
+        width: 46px !important;
+        height: 46px !important;
+        min-width: 46px !important;
+        min-height: 46px !important;
+        border-radius: 18px !important;
+        display: grid !important;
+        place-items: center !important;
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+      }
+
+      .chat-composer button:not(#aiAddBtn):not(.send-btn) {
+        order: 1 !important;
       }
 
       .send-btn,
       #aiAddBtn {
-        width: 48px !important;
-        height: 48px !important;
-        min-width: 48px !important;
+        order: 3 !important;
         place-self: center !important;
       }
 
@@ -135,11 +179,11 @@
 
       @media (pointer: coarse), (max-width: 760px) {
         .chat-shell {
-          min-height: min(600px, calc(100vh - 156px)) !important;
+          min-height: min(620px, calc(100vh - 156px)) !important;
         }
 
         .chat-messages {
-          min-height: 245px !important;
+          min-height: 275px !important;
         }
 
         .tools-grid {
@@ -153,7 +197,20 @@
         }
 
         .chat-shell {
-          min-height: min(580px, calc(100vh - 150px)) !important;
+          min-height: min(590px, calc(100vh - 150px)) !important;
+        }
+
+        .chat-composer {
+          gap: 8px !important;
+          padding: 7px !important;
+        }
+
+        .chat-composer button {
+          flex-basis: 44px !important;
+          width: 44px !important;
+          height: 44px !important;
+          min-width: 44px !important;
+          min-height: 44px !important;
         }
       }
     `;
