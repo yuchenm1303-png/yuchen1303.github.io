@@ -1,6 +1,8 @@
 (() => {
   const STYLE_ID = 'settings-groups-style';
   const DETAIL_ID = 'settingsGroupDetail';
+  let returnAnchor = null;
+  let movedNodes = [];
 
   function installStyle() {
     if (document.querySelector(`#${STYLE_ID}`)) return;
@@ -8,15 +10,38 @@
     style.id = STYLE_ID;
     style.textContent = `
       .settings-group-list{display:grid;gap:14px;margin-bottom:16px}
-      .settings-group-entry{width:100%;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;padding:18px;border:0;text-align:left;color:inherit;cursor:pointer}
+      .settings-group-card{padding:0!important;overflow:hidden}
+      .settings-group-entry,
+      .settings-group-entry:hover,
+      .settings-group-entry:active,
+      .settings-group-entry:focus{
+        -webkit-appearance:none!important;
+        appearance:none!important;
+        width:100%;
+        min-height:96px;
+        display:grid;
+        grid-template-columns:auto 1fr auto;
+        align-items:center;
+        gap:14px;
+        padding:18px!important;
+        border:0!important;
+        border-radius:28px;
+        text-align:left;
+        color:inherit!important;
+        cursor:pointer;
+        background:transparent!important;
+        box-shadow:none!important;
+        outline:none!important;
+      }
+      .settings-group-entry::before,.settings-group-entry::after{display:none!important;content:none!important}
       .settings-group-icon{width:44px;height:44px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,var(--assistant-glass-control-alpha,.042));box-shadow:inset 0 .7px 0 rgba(255,255,255,.28);font-size:20px;font-weight:900;color:rgba(248,250,255,.95)}
       .settings-group-title{display:block;font-size:18px;line-height:1.2;font-weight:900;color:rgba(248,250,255,.98)}
       .settings-group-desc{display:block;margin-top:5px;font-size:13px;line-height:1.45;color:rgba(214,224,246,.68)}
       .settings-group-arrow{font-size:28px;line-height:1;color:rgba(248,250,255,.74);font-weight:500}
       .settings-group-hidden{display:none!important}
-      .settings-group-detail{position:fixed;z-index:92;inset:0;display:none;padding:18px;background:rgba(3,7,18,.30)}
-      .settings-group-detail.open{display:grid;place-items:end center}
-      .settings-group-sheet{width:min(100%,520px);max-height:min(86vh,820px);overflow:auto;padding:18px;border-radius:30px;border:1px solid rgba(255,255,255,.18);background:linear-gradient(145deg,rgba(255,255,255,.058),rgba(255,255,255,.010) 46%,rgba(0,0,0,.018)),rgba(255,255,255,var(--assistant-glass-panel-alpha,.034));box-shadow:0 18px 42px rgba(0,0,0,.28);backdrop-filter:blur(var(--assistant-glass-panel-blur,12px)) saturate(1.14);-webkit-backdrop-filter:blur(var(--assistant-glass-panel-blur,12px)) saturate(1.14)}
+      .settings-group-detail{position:fixed;z-index:92;inset:0;display:none;padding:18px;background:rgba(3,7,18,.30);pointer-events:none}
+      .settings-group-detail.open{display:grid;place-items:end center;pointer-events:auto}
+      .settings-group-sheet{width:min(100%,520px);max-height:min(86vh,820px);overflow:auto;padding:18px;border-radius:30px;border:1px solid rgba(255,255,255,.18);background:linear-gradient(145deg,rgba(255,255,255,.058),rgba(255,255,255,.010) 46%,rgba(0,0,0,.018)),rgba(255,255,255,var(--assistant-glass-panel-alpha,.034));box-shadow:0 18px 42px rgba(0,0,0,.28)}
       .settings-group-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
       .settings-group-head h2{margin:0;font-size:22px;font-weight:900;color:rgba(248,250,255,.98)}
       .settings-group-head p{margin:6px 0 0;font-size:13px;line-height:1.55;color:rgba(214,224,246,.68)}
@@ -66,19 +91,24 @@
     return detail;
   }
 
+  function restoreMovedNodes() {
+    if (!returnAnchor) return;
+    movedNodes.forEach((node) => {
+      node.classList.add('settings-group-hidden');
+      returnAnchor.before(node);
+    });
+    returnAnchor.remove();
+    returnAnchor = null;
+    movedNodes = [];
+  }
+
   function closeDetail() {
     const detail = document.querySelector(`#${DETAIL_ID}`);
-    if (!detail) return;
-    detail.classList.remove('open');
+    if (detail) detail.classList.remove('open');
     document.body.classList.remove('detail-open');
+    restoreMovedNodes();
     const content = document.querySelector('#settingsGroupContent');
-    const placeholder = content?.querySelector('[data-return-before]');
-    if (content && placeholder) {
-      [...content.children].forEach((node) => {
-        if (node !== placeholder && node.nodeType === 1) placeholder.before(node);
-      });
-      placeholder.remove();
-    }
+    if (content) content.innerHTML = '';
   }
 
   const GROUPS = {
@@ -90,28 +120,33 @@
   };
 
   function openGroup(id) {
+    closeDetail();
     const group = GROUPS[id];
-    const nodes = [...document.querySelectorAll(`[data-settings-group-target="${id}"]`)];
+    const nodes = [...document.querySelectorAll(`#view-settings > section[data-settings-group-target="${id}"]`)];
     if (!group || !nodes.length) return;
     const detail = ensureDetail();
+    const content = document.querySelector('#settingsGroupContent');
     document.querySelector('#settingsGroupTitle').textContent = group.title;
     document.querySelector('#settingsGroupDesc').textContent = group.desc;
-    const content = document.querySelector('#settingsGroupContent');
     content.innerHTML = '';
-    const placeholder = document.createElement('span');
-    placeholder.hidden = true;
-    placeholder.dataset.returnBefore = '1';
-    nodes[0].before(placeholder);
-    content.appendChild(placeholder);
+
+    returnAnchor = document.createElement('span');
+    returnAnchor.hidden = true;
+    returnAnchor.dataset.settingsReturnAnchor = id;
+    nodes[0].before(returnAnchor);
+    movedNodes = nodes;
+
     nodes.forEach((node) => {
       node.classList.remove('settings-group-hidden');
       content.appendChild(node);
     });
+
     detail.classList.add('open');
     document.body.classList.add('detail-open');
   }
 
   function tagOriginalSections(settingsView) {
+    if (!settingsView) return;
     const sections = [...settingsView.querySelectorAll(':scope > section')].filter((s) => !s.classList.contains('settings-group-card'));
     sections.forEach((section) => {
       const title = section.querySelector('.section-head h2')?.textContent?.trim() || '';
@@ -127,8 +162,9 @@
 
   function installGroups() {
     const settingsView = document.querySelector('#view-settings');
-    if (!settingsView || document.querySelector('#settingsGroupList')) return;
+    if (!settingsView) return;
     tagOriginalSections(settingsView);
+    if (document.querySelector('#settingsGroupList')) return;
     const header = settingsView.querySelector('.page-header');
     const list = document.createElement('div');
     list.id = 'settingsGroupList';
@@ -151,8 +187,8 @@
     installStyle();
     ensureDetail();
     setTimeout(installGroups, 80);
-    setTimeout(() => { tagOriginalSections(document.querySelector('#view-settings')); }, 500);
-    setTimeout(() => { tagOriginalSections(document.querySelector('#view-settings')); }, 1200);
+    setTimeout(installGroups, 500);
+    setTimeout(installGroups, 1200);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
