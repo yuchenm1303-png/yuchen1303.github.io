@@ -72,7 +72,7 @@
       }
 
       body.settings-group-open #settingsGroupDetail.open {
-        animation: settingsOverlayStaticFade 120ms ease-out both !important;
+        animation: settingsOverlayStaticFade 90ms ease-out both !important;
       }
 
       #settingsGroupDetail .settings-group-sheet {
@@ -96,7 +96,7 @@
       }
 
       body.settings-group-open #settingsGroupDetail.open .settings-group-sheet {
-        animation: settingsSheetStableSlide 300ms cubic-bezier(.22,.78,.22,1) both !important;
+        animation: settingsSheetStableSlide 220ms cubic-bezier(.18,.72,.26,1) both !important;
       }
 
       #settingsGroupDetail .settings-group-content {
@@ -178,7 +178,7 @@
       }
 
       @keyframes settingsSheetStableSlide {
-        0% { opacity: .98; transform: translate3d(0, 10px, 0) scale(.992); }
+        0% { opacity: .98; transform: translate3d(0, 7px, 0) scale(.996); }
         100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
       }
 
