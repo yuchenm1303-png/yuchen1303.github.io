@@ -2,32 +2,50 @@
   const STYLE_ID = 'glass-stability-style';
 
   function installStableGlassStyle() {
-    const old = document.querySelector(`#${STYLE_ID}`);
-    if (old) old.remove();
+    document.querySelector(`#${STYLE_ID}`)?.remove();
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      @media (pointer: coarse), (max-width: 760px) {
-        html, body {
-          background-attachment: scroll !important;
-          transform: none !important;
-        }
+      html,
+      body {
+        background-attachment: scroll !important;
+      }
 
+      .stable-glass-rendering .view:not(.active) {
+        content-visibility: hidden;
+        contain-intrinsic-size: 1px 720px;
+      }
+
+      .stable-glass-rendering .view.active {
+        content-visibility: visible;
+      }
+
+      .stable-glass-rendering .chat-messages,
+      .stable-glass-rendering .record-list,
+      .stable-glass-rendering .tools-panel,
+      .stable-glass-rendering .tools-grid {
+        contain: content;
+      }
+
+      .stable-glass-rendering .chart-wrap,
+      .stable-glass-rendering canvas {
+        contain: layout paint size;
+      }
+
+      .stable-glass-rendering .ambient,
+      .stable-glass-rendering body::before,
+      .stable-glass-rendering body::after {
+        will-change: auto !important;
+      }
+
+      @media (pointer: coarse), (max-width: 760px) {
         body::before,
         body::after,
         .scene-backdrop::before,
         .scene-backdrop::after,
         .ambient {
           animation: none !important;
-          transform: none !important;
-        }
-
-        body.detail-open .app-shell,
-        body.detail-open .bottom-nav,
-        body.detail-open .fab {
-          transform: none !important;
-          opacity: .92 !important;
         }
 
         .glass-card,
@@ -36,62 +54,15 @@
         .metric-card,
         .chart-card,
         .tool-card,
-        .record-item,
-        .draft-card,
-        .draft-item,
-        .add-sheet,
         .auth-sheet,
         .mobile-command-card,
         .tools-panel-card,
         .account-row,
-        .summary-chip,
-        .tag-btn,
-        .range-chip,
-        .ghost-btn,
-        .mini-ghost-btn,
-        .summary-box,
-        .budget-pill,
-        .auth-tab,
-        .icon-btn,
-        .delete-btn,
-        .chat-row.assistant .chat-bubble,
-        .tools-back,
-        .account-pill,
-        .bottom-nav,
         .appearance-detail-panel,
         .settings-group-sheet,
-        .appearance-preview,
-        input,
-        textarea,
-        select {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
+        .bottom-nav {
           will-change: auto !important;
-          contain: none !important;
-          isolation: auto !important;
-        }
-
-        .glass-card,
-        .chat-shell,
-        .summary-card,
-        .metric-card,
-        .chart-card,
-        .tool-card,
-        .auth-sheet,
-        .mobile-command-card,
-        .tools-panel-card,
-        .account-row,
-        .appearance-detail-panel,
-        .settings-group-sheet {
-          background:
-            linear-gradient(145deg, rgba(255,255,255,.078), rgba(255,255,255,.026) 44%, rgba(0,0,0,.026)),
-            radial-gradient(circle at 20% 0%, rgba(255,255,255,.075), transparent 46%),
-            rgba(255,255,255,var(--assistant-glass-panel-alpha,.044)) !important;
-          border-color: rgba(255,255,255,.18) !important;
-          box-shadow:
-            0 14px 28px rgba(0,0,0,.16),
-            inset 0 .8px 0 rgba(255,255,255,.28),
-            inset 0 -.8px 0 rgba(0,0,0,.07) !important;
+          isolation: isolate;
         }
 
         .summary-chip,
@@ -114,88 +85,133 @@
         .tools-back,
         .account-pill,
         .appearance-preview {
-          background:
-            linear-gradient(145deg, rgba(255,255,255,.090), rgba(255,255,255,.020) 52%, rgba(0,0,0,.018)),
-            rgba(255,255,255,var(--assistant-glass-control-alpha,.050)) !important;
-          border-color: rgba(255,255,255,.16) !important;
-          box-shadow:
-            0 7px 16px rgba(0,0,0,.11),
-            inset 0 .7px 0 rgba(255,255,255,.26),
-            inset 0 -.7px 0 rgba(0,0,0,.065) !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+
+        .glass-card,
+        .chat-shell,
+        .summary-card,
+        .metric-card,
+        .chart-card,
+        .tool-card,
+        .auth-sheet,
+        .mobile-command-card,
+        .tools-panel-card,
+        .account-row,
+        .appearance-detail-panel,
+        .settings-group-sheet {
+          backdrop-filter: blur(18px) saturate(130%) brightness(1.05) !important;
+          -webkit-backdrop-filter: blur(18px) saturate(130%) brightness(1.05) !important;
         }
 
         .bottom-nav {
-          background:
-            linear-gradient(145deg, rgba(255,255,255,.105), rgba(255,255,255,.028) 54%, rgba(0,0,0,.030)),
-            rgba(255,255,255,var(--assistant-glass-nav-alpha,.050)) !important;
-          border-color: rgba(255,255,255,.20) !important;
-          box-shadow:
-            0 14px 26px rgba(0,0,0,.18),
-            inset 0 .8px 0 rgba(255,255,255,.30),
-            inset 0 -.8px 0 rgba(0,0,0,.08) !important;
+          backdrop-filter: blur(20px) saturate(132%) brightness(1.06) !important;
+          -webkit-backdrop-filter: blur(20px) saturate(132%) brightness(1.06) !important;
         }
 
-        .glass-card::before,
-        .glass-card::after,
-        .bottom-nav::before,
-        .bottom-nav::after,
-        .summary-chip::before,
-        .summary-chip::after,
-        .record-item::before,
-        .record-item::after,
-        .draft-card::before,
-        .draft-card::after,
-        .draft-item::before,
-        .draft-item::after,
-        .tag-btn::before,
-        .tag-btn::after,
-        .range-chip::before,
-        .range-chip::after,
-        .ghost-btn::before,
-        .ghost-btn::after,
-        .mini-ghost-btn::before,
-        .mini-ghost-btn::after,
-        .summary-box::before,
-        .summary-box::after,
-        .auth-tab::before,
-        .auth-tab::after,
-        .icon-btn::before,
-        .icon-btn::after,
-        .delete-btn::before,
-        .delete-btn::after,
-        .tools-panel-card::before,
-        .tools-panel-card::after,
-        .tools-back::before,
-        .tools-back::after {
-          animation: none !important;
-          filter: none !important;
-          transform: none !important;
-          opacity: .18 !important;
+        .detail-overlay,
+        .auth-overlay,
+        .appearance-detail-overlay,
+        .settings-group-detail {
+          backdrop-filter: blur(14px) saturate(112%) !important;
+          -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
         }
 
         .reveal,
         .view.active .reveal,
         .appearance-plus-card {
-          opacity: 1 !important;
-          transform: none !important;
-          animation: none !important;
+          animation-duration: .34s !important;
+          animation-timing-function: cubic-bezier(.22,1,.36,1) !important;
           visibility: visible !important;
         }
+      }
 
-        .interactive,
-        button,
-        .record-item,
-        .summary-chip,
-        .summary-box,
-        .metric-card,
-        .chart-card,
-        .summary-card,
-        .account-row,
-        .draft-card,
-        .draft-item,
-        .auth-tab {
-          transition: transform .10s ease, opacity .10s ease !important;
-        }
+      body.assistant-android-glass .glass-card,
+      body.assistant-android-glass .chat-shell,
+      body.assistant-android-glass .summary-card,
+      body.assistant-android-glass .metric-card,
+      body.assistant-android-glass .chart-card,
+      body.assistant-android-glass .tool-card,
+      body.assistant-android-glass .auth-sheet,
+      body.assistant-android-glass .mobile-command-card,
+      body.assistant-android-glass .tools-panel-card,
+      body.assistant-android-glass .account-row,
+      body.assistant-android-glass .appearance-detail-panel,
+      body.assistant-android-glass .settings-group-sheet {
+        transform: translateZ(0);
+      }
+
+      body.assistant-lite-motion .glass-card,
+      body.assistant-lite-motion .chat-shell,
+      body.assistant-lite-motion .summary-card,
+      body.assistant-lite-motion .metric-card,
+      body.assistant-lite-motion .chart-card,
+      body.assistant-lite-motion .tool-card,
+      body.assistant-lite-motion .auth-sheet,
+      body.assistant-lite-motion .mobile-command-card,
+      body.assistant-lite-motion .tools-panel-card,
+      body.assistant-lite-motion .account-row,
+      body.assistant-lite-motion .appearance-detail-panel,
+      body.assistant-lite-motion .settings-group-sheet,
+      body.assistant-lite-motion .bottom-nav {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.090), rgba(255,255,255,.020) 52%, rgba(0,0,0,.018)),
+          rgba(255,255,255,var(--assistant-glass-panel-alpha,.050)) !important;
+      }
+
+      body.assistant-lite-motion .glass-card::before,
+      body.assistant-lite-motion .glass-card::after,
+      body.assistant-lite-motion .bottom-nav::before,
+      body.assistant-lite-motion .bottom-nav::after,
+      body.assistant-lite-motion .summary-chip::before,
+      body.assistant-lite-motion .summary-chip::after,
+      body.assistant-lite-motion .record-item::before,
+      body.assistant-lite-motion .record-item::after,
+      body.assistant-lite-motion .draft-card::before,
+      body.assistant-lite-motion .draft-card::after,
+      body.assistant-lite-motion .draft-item::before,
+      body.assistant-lite-motion .draft-item::after,
+      body.assistant-lite-motion .tag-btn::before,
+      body.assistant-lite-motion .tag-btn::after,
+      body.assistant-lite-motion .range-chip::before,
+      body.assistant-lite-motion .range-chip::after,
+      body.assistant-lite-motion .ghost-btn::before,
+      body.assistant-lite-motion .ghost-btn::after,
+      body.assistant-lite-motion .mini-ghost-btn::before,
+      body.assistant-lite-motion .mini-ghost-btn::after,
+      body.assistant-lite-motion .summary-box::before,
+      body.assistant-lite-motion .summary-box::after,
+      body.assistant-lite-motion .auth-tab::before,
+      body.assistant-lite-motion .auth-tab::after,
+      body.assistant-lite-motion .icon-btn::before,
+      body.assistant-lite-motion .icon-btn::after,
+      body.assistant-lite-motion .delete-btn::before,
+      body.assistant-lite-motion .delete-btn::after,
+      body.assistant-lite-motion .tools-panel-card::before,
+      body.assistant-lite-motion .tools-panel-card::after,
+      body.assistant-lite-motion .tools-back::before,
+      body.assistant-lite-motion .tools-back::after {
+        animation: none !important;
+        filter: none !important;
+        opacity: .18 !important;
+      }
+
+      body.detail-open .app-shell,
+      body.detail-open .bottom-nav,
+      body.detail-open .fab {
+        opacity: .92 !important;
+      }
+
+      body.assistant-motion-off *,
+      body.assistant-motion-off *::before,
+      body.assistant-motion-off *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+        scroll-behavior: auto !important;
       }
     `;
     document.head.appendChild(style);
@@ -203,11 +219,10 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installStableGlassStyle);
+    document.addEventListener('DOMContentLoaded', installStableGlassStyle, { once: true });
   } else {
     installStableGlassStyle();
   }
 
-  window.setTimeout(installStableGlassStyle, 300);
-  window.setTimeout(installStableGlassStyle, 1200);
+  window.setTimeout(installStableGlassStyle, 420);
 })();
