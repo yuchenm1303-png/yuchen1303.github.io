@@ -8,8 +8,9 @@ window.AI_LEDGER_CONFIG = {
 (() => {
   const scripts = [
     './splash-screen.js?v=20260513-1',
-    './assistant-profile.js?v=20260514-2',
-    './tools-center.js?v=20260514-2'
+    './assistant-profile.js?v=20260515-1',
+    './tools-center.js?v=20260515-1',
+    './device-actions.js?v=20260515-1'
   ];
   scripts.forEach((src) => {
     const script = document.createElement('script');
