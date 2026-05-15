@@ -1,5 +1,5 @@
 name = "ai-ledger-parser"
-main = "src/index-stable.js"
+main = "src/index-smart.js"
 compatibility_date = "2026-05-10"
 
 [ai]
