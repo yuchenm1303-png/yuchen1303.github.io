@@ -1,24 +1,22 @@
 (() => {
   const STYLE_ID = 'ios-glass-motion-style';
+  const PRESSED_CLASS = 'liquid-pressed';
   const TARGET_SELECTOR = [
-    'button',
-    '[role="button"]',
     '.settings-group-card',
     '.tool-card',
-    '.record-item',
-    '.summary-chip',
-    '.range-chip',
+    '.nav-btn',
     '.tag-btn',
+    '.range-chip',
     '.ghost-btn',
     '.mini-ghost-btn',
     '.primary-btn',
     '.danger-btn',
-    '.nav-btn',
     '.icon-btn',
     '.delete-btn',
     '.tools-back',
     '.bg-option',
-    '.appearance-toggle'
+    '.appearance-toggle',
+    '.send-btn'
   ].join(',');
 
   const IGNORE_SELECTOR = [
@@ -26,14 +24,11 @@
     'textarea',
     'select',
     '[type="range"]',
-    '[disabled]',
-    '.appearance-select-wrap',
-    '.settings-group-detail',
-    '.auth-overlay'
+    '[disabled]'
   ].join(',');
 
   let activeTarget = null;
-  let pointerMoveFrame = 0;
+  let clearTimer = 0;
   let lastVibrationAt = 0;
 
   function installStyle() {
@@ -43,137 +38,120 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      :root {
-        --liquid-motion-duration: 220ms;
-        --liquid-motion-ease: cubic-bezier(.2,.8,.2,1);
-        --liquid-spring-ease: cubic-bezier(.18, .86, .22, 1.12);
+      .liquid-touch-glow {
+        display: none !important;
+        content: none !important;
+      }
+
+      .liquid-motion-target,
+      .liquid-motion-target > * {
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
+      }
+
+      .settings-group-card,
+      .settings-group-card > *,
+      .settings-group-title,
+      .settings-group-desc,
+      .settings-group-arrow,
+      .settings-group-icon {
+        writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
       }
 
       .liquid-motion-target {
-        position: relative !important;
-        overflow: hidden !important;
         transform-origin: center center !important;
         transition:
-          transform 150ms var(--liquid-motion-ease),
-          box-shadow 180ms var(--liquid-motion-ease),
-          opacity 160ms ease,
-          background 180ms ease !important;
+          transform 120ms cubic-bezier(.2,.8,.2,1),
+          filter 120ms ease,
+          box-shadow 150ms ease,
+          opacity 120ms ease !important;
+        -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
       }
 
-      .liquid-motion-target > *:not(.liquid-touch-glow) {
-        position: relative;
-        z-index: 3;
+      .liquid-motion-target.liquid-pressed,
+      .liquid-motion-target:active {
+        filter: brightness(1.08) saturate(1.04) !important;
       }
 
-      .liquid-touch-glow {
-        position: absolute;
-        z-index: 2;
-        inset: -1px;
-        border-radius: inherit;
-        pointer-events: none;
-        opacity: 0;
-        transform: scale(.86);
-        background:
-          radial-gradient(circle at var(--press-x,50%) var(--press-y,50%), rgba(255,255,255,.56) 0%, rgba(255,255,255,.28) 16%, rgba(143,225,255,.10) 38%, transparent 66%),
-          linear-gradient(120deg, transparent 0%, rgba(255,255,255,.16) 38%, transparent 64%);
-        mix-blend-mode: screen;
-        transition:
-          opacity 150ms ease,
-          transform 240ms var(--liquid-spring-ease),
-          background-position 200ms ease;
+      .settings-group-card.liquid-pressed,
+      .settings-group-card:active,
+      .tool-card.liquid-pressed,
+      .tool-card:active {
+        transform: translateY(1px) scale(.992) !important;
+        box-shadow:
+          0 10px 22px rgba(0,0,0,.14),
+          inset 0 1px 0 rgba(255,255,255,.34),
+          inset 0 -1px 0 rgba(0,0,0,.08),
+          0 0 0 1px rgba(255,255,255,.10) !important;
       }
 
-      .liquid-motion-target.is-liquid-pressed {
-        transform: translateY(1px) scale(.982) !important;
+      .nav-btn.liquid-pressed,
+      .nav-btn:active,
+      .icon-btn.liquid-pressed,
+      .icon-btn:active,
+      .delete-btn.liquid-pressed,
+      .delete-btn:active,
+      .send-btn.liquid-pressed,
+      .send-btn:active {
+        transform: scale(.965) !important;
       }
 
-      .liquid-motion-target.is-liquid-pressed .liquid-touch-glow {
-        opacity: .92;
-        transform: scale(1);
+      .tag-btn.liquid-pressed,
+      .tag-btn:active,
+      .range-chip.liquid-pressed,
+      .range-chip:active,
+      .ghost-btn.liquid-pressed,
+      .ghost-btn:active,
+      .mini-ghost-btn.liquid-pressed,
+      .mini-ghost-btn:active,
+      .primary-btn.liquid-pressed,
+      .primary-btn:active,
+      .danger-btn.liquid-pressed,
+      .danger-btn:active,
+      .tools-back.liquid-pressed,
+      .tools-back:active,
+      .bg-option.liquid-pressed,
+      .bg-option:active,
+      .appearance-toggle.liquid-pressed,
+      .appearance-toggle:active {
+        transform: translateY(1px) scale(.975) !important;
       }
 
-      .liquid-motion-target.is-liquid-releasing {
-        animation: liquidReleasePop 300ms var(--liquid-spring-ease) both;
-      }
-
-      .liquid-motion-target.is-liquid-releasing .liquid-touch-glow {
-        animation: liquidGlowRelease 360ms ease-out both;
-      }
-
-      .settings-group-card.is-liquid-pressed,
-      .tool-card.is-liquid-pressed,
-      .record-item.is-liquid-pressed {
-        transform: translateY(1px) scale(.986) !important;
-      }
-
-      .nav-btn.is-liquid-pressed,
-      .icon-btn.is-liquid-pressed,
-      .delete-btn.is-liquid-pressed {
-        transform: scale(.955) !important;
-      }
-
-      .bottom-nav .nav-btn.active .liquid-touch-glow {
-        opacity: .28;
-        transform: scale(1);
-      }
-
-      .bottom-nav .nav-btn.active.is-liquid-pressed .liquid-touch-glow {
-        opacity: .88;
+      .settings-group-card.liquid-pressed::after,
+      .settings-group-card:active::after,
+      .tool-card.liquid-pressed::after,
+      .tool-card:active::after,
+      .nav-btn.liquid-pressed::after,
+      .nav-btn:active::after {
+        opacity: .22 !important;
       }
 
       .settings-group-detail.open,
       .appearance-detail-overlay.open,
       .auth-overlay.open {
-        animation: liquidOverlayIn 180ms ease both;
+        animation: safeOverlayFadeIn 140ms ease both;
       }
 
       .settings-group-detail.open .settings-group-sheet,
       .appearance-detail-overlay.open .appearance-detail-panel,
       .auth-overlay.open .auth-sheet {
-        animation: liquidSheetRise 280ms var(--liquid-spring-ease) both;
+        animation: safeSheetRise 180ms cubic-bezier(.2,.8,.2,1) both;
         transform-origin: 50% 100%;
       }
 
-      .bottom-nav {
-        transition:
-          transform 220ms var(--liquid-spring-ease),
-          opacity 160ms ease,
-          box-shadow 180ms ease !important;
-      }
-
-      .bottom-nav:has(.nav-btn.is-liquid-pressed) {
-        box-shadow:
-          0 16px 32px rgba(0,0,0,.20),
-          inset 0 .8px 0 rgba(255,255,255,.34),
-          inset 0 -.8px 0 rgba(0,0,0,.10) !important;
-      }
-
-      @keyframes liquidReleasePop {
-        0% { transform: translateY(1px) scale(.982); }
-        56% { transform: translateY(-.5px) scale(1.010); }
-        100% { transform: translateY(0) scale(1); }
-      }
-
-      @keyframes liquidGlowRelease {
-        0% { opacity: .85; transform: scale(1); }
-        70% { opacity: .22; transform: scale(1.16); }
-        100% { opacity: 0; transform: scale(1.22); }
-      }
-
-      @keyframes liquidOverlayIn {
+      @keyframes safeOverlayFadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
       }
 
-      @keyframes liquidSheetRise {
-        0% { opacity: 0; transform: translateY(22px) scale(.965); }
-        58% { opacity: 1; transform: translateY(-2px) scale(1.006); }
-        100% { opacity: 1; transform: translateY(0) scale(1); }
+      @keyframes safeSheetRise {
+        from { opacity: 0; transform: translateY(12px) scale(.985); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
 
       body.assistant-motion-off .liquid-motion-target,
-      body.assistant-motion-off .liquid-touch-glow,
       body.assistant-motion-off .settings-group-detail.open,
       body.assistant-motion-off .settings-group-detail.open .settings-group-sheet,
       body.assistant-motion-off .appearance-detail-overlay.open,
@@ -183,15 +161,11 @@
         animation: none !important;
         transition: none !important;
         transform: none !important;
-      }
-
-      body.assistant-motion-off .liquid-touch-glow {
-        opacity: 0 !important;
+        filter: none !important;
       }
 
       @media (prefers-reduced-motion: reduce) {
         .liquid-motion-target,
-        .liquid-touch-glow,
         .settings-group-detail.open,
         .settings-group-detail.open .settings-group-sheet,
         .appearance-detail-overlay.open,
@@ -201,117 +175,81 @@
           animation: none !important;
           transition: none !important;
           transform: none !important;
-        }
-
-        .liquid-touch-glow {
-          opacity: 0 !important;
+          filter: none !important;
         }
       }
     `;
     document.head.appendChild(style);
   }
 
+  function cleanupOldGlow() {
+    document.querySelectorAll('.liquid-touch-glow').forEach((node) => node.remove());
+    document.querySelectorAll('.is-liquid-pressed,.is-liquid-releasing').forEach((node) => {
+      node.classList.remove('is-liquid-pressed', 'is-liquid-releasing');
+    });
+  }
+
   function isMotionDisabled() {
     return document.body.classList.contains('assistant-motion-off') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
-  function getTarget(eventTarget) {
+  function targetFrom(eventTarget) {
     if (!eventTarget || eventTarget.closest?.(IGNORE_SELECTOR)) return null;
     const target = eventTarget.closest?.(TARGET_SELECTOR);
     if (!target || target.closest?.(IGNORE_SELECTOR)) return null;
     return target;
   }
 
-  function ensureGlow(target) {
-    let glow = target.querySelector(':scope > .liquid-touch-glow');
-    if (!glow) {
-      glow = document.createElement('span');
-      glow.className = 'liquid-touch-glow';
-      glow.setAttribute('aria-hidden', 'true');
-      target.prepend(glow);
-    }
-    target.classList.add('liquid-motion-target');
-    return glow;
-  }
-
-  function setPressPoint(target, event) {
-    const rect = target.getBoundingClientRect();
-    const clientX = event.clientX ?? (event.touches?.[0]?.clientX) ?? rect.left + rect.width / 2;
-    const clientY = event.clientY ?? (event.touches?.[0]?.clientY) ?? rect.top + rect.height / 2;
-    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
-    target.style.setProperty('--press-x', `${x.toFixed(1)}%`);
-    target.style.setProperty('--press-y', `${y.toFixed(1)}%`);
+  function prepareTargets() {
+    document.querySelectorAll(TARGET_SELECTOR).forEach((target) => {
+      if (!target.closest(IGNORE_SELECTOR)) target.classList.add('liquid-motion-target');
+    });
   }
 
   function softVibrate() {
     const now = Date.now();
-    if (now - lastVibrationAt < 650) return;
+    if (now - lastVibrationAt < 900) return;
     lastVibrationAt = now;
-    try { navigator.vibrate?.(6); } catch {}
+    try { navigator.vibrate?.(4); } catch {}
   }
 
-  function press(target, event) {
+  function press(target) {
     if (!target || isMotionDisabled()) return;
+    window.clearTimeout(clearTimer);
+    if (activeTarget && activeTarget !== target) activeTarget.classList.remove(PRESSED_CLASS);
     activeTarget = target;
-    ensureGlow(target);
-    setPressPoint(target, event);
-    target.classList.remove('is-liquid-releasing');
-    target.classList.add('is-liquid-pressed');
+    target.classList.add(PRESSED_CLASS);
     softVibrate();
   }
 
-  function move(event) {
-    if (!activeTarget || isMotionDisabled()) return;
-    window.cancelAnimationFrame(pointerMoveFrame);
-    pointerMoveFrame = window.requestAnimationFrame(() => setPressPoint(activeTarget, event));
-  }
-
-  function release(target = activeTarget) {
-    if (!target) return;
-    target.classList.remove('is-liquid-pressed');
-    if (!isMotionDisabled()) {
-      target.classList.remove('is-liquid-releasing');
-      void target.offsetWidth;
-      target.classList.add('is-liquid-releasing');
-      window.setTimeout(() => target.classList.remove('is-liquid-releasing'), 380);
-    }
-    if (target === activeTarget) activeTarget = null;
-  }
-
-  function attachInitialTargets() {
-    document.querySelectorAll(TARGET_SELECTOR).forEach((target) => {
-      if (!target.closest(IGNORE_SELECTOR)) {
-        target.classList.add('liquid-motion-target');
-        ensureGlow(target);
-      }
-    });
+  function release() {
+    if (!activeTarget) return;
+    const target = activeTarget;
+    activeTarget = null;
+    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 70);
   }
 
   function boot() {
     installStyle();
-    attachInitialTargets();
+    cleanupOldGlow();
+    prepareTargets();
 
-    document.addEventListener('pointerdown', (event) => press(getTarget(event.target), event), { passive: true });
-    document.addEventListener('pointermove', move, { passive: true });
-    document.addEventListener('pointerup', () => release(), { passive: true });
-    document.addEventListener('pointercancel', () => release(), { passive: true });
-    document.addEventListener('mouseleave', () => release(), { passive: true });
+    document.addEventListener('pointerdown', (event) => press(targetFrom(event.target)), { passive: true });
+    document.addEventListener('pointerup', release, { passive: true });
+    document.addEventListener('pointercancel', release, { passive: true });
+    document.addEventListener('scroll', release, { passive: true, capture: true });
 
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
-      press(getTarget(event.target), event);
+      press(targetFrom(event.target));
     });
     document.addEventListener('keyup', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
-      release(getTarget(event.target));
+      release();
     });
 
-    const observer = new MutationObserver(() => attachInitialTargets());
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    window.setTimeout(attachInitialTargets, 300);
-    window.setTimeout(attachInitialTargets, 1200);
+    window.setTimeout(() => { cleanupOldGlow(); prepareTargets(); }, 300);
+    window.setTimeout(() => { cleanupOldGlow(); prepareTargets(); }, 1200);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
