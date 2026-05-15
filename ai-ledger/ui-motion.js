@@ -1,8 +1,9 @@
 (() => {
   const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const pressCancelDistance = isCoarsePointer ? 10 : 14;
   const pressableSelector = isCoarsePointer
-    ? ['button', '.record-item', '.draft-item', '.auth-tab', '.summary-card', '.chart-card', '.tool-card', '.tools-back'].join(', ')
+    ? ['button', '.auth-tab', '.tag-btn', '.range-chip', '.tools-back'].join(', ')
     : [
         'button',
         '.record-item',
@@ -21,21 +22,40 @@
 
   let detailChart = null;
   let detailChartTimer = null;
+  let activePress = null;
+  let scrollTimer = null;
 
   function money(value) {
     return `¥${Number(value || 0).toFixed(2)}`;
   }
 
-  function beginPress(el) {
+  function beginPress(el, event) {
     if (!el) return;
     el.classList.remove('is-releasing');
     el.classList.add('is-pressed');
+    activePress = {
+      el,
+      pointerId: event?.pointerId,
+      startX: event?.clientX || 0,
+      startY: event?.clientY || 0,
+      canceled: false,
+    };
   }
 
-  function endPress(el) {
+  function cancelPress(el) {
     if (!el) return;
     el.classList.remove('is-pressed');
+    el.classList.remove('is-releasing');
+    clearPressPoint(el);
+    if (activePress?.el === el) activePress = null;
+  }
+
+  function endPress(el, animate = true) {
+    if (!el) return;
+    el.classList.remove('is-pressed');
+    if (activePress?.el === el) activePress = null;
     if (prefersReducedMotion) return;
+    if (!animate) return;
     el.classList.remove('is-releasing');
     void el.offsetWidth;
     el.classList.add('is-releasing');
@@ -63,6 +83,15 @@
       el.style.removeProperty('--press-shift-x');
       el.style.removeProperty('--press-shift-y');
     }, 760);
+  }
+
+  function markScrolling() {
+    document.body.classList.add('is-scrolling');
+    if (scrollTimer) window.clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(() => {
+      document.body.classList.remove('is-scrolling');
+      scrollTimer = null;
+    }, 140);
   }
 
   function pulseHaptic() {
@@ -346,32 +375,47 @@
 
   function bindPressFeedback() {
     document.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button > 0) return;
       const el = event.target.closest(pressableSelector);
       updatePressPoint(el, event);
-      beginPress(el);
+      beginPress(el, event);
       pulseHaptic();
     }, { passive: true });
 
     document.addEventListener('pointermove', (event) => {
-      const el = event.target.closest(pressableSelector);
+      const el = activePress?.el;
       if (!el?.classList.contains('is-pressed')) return;
+      if (activePress.pointerId !== undefined && event.pointerId !== activePress.pointerId) return;
+      const dx = event.clientX - activePress.startX;
+      const dy = event.clientY - activePress.startY;
+      if (Math.hypot(dx, dy) > pressCancelDistance) {
+        activePress.canceled = true;
+        markScrolling();
+        cancelPress(el);
+        return;
+      }
       updatePressPoint(el, event);
     }, { passive: true });
 
     ['pointerup', 'pointercancel'].forEach((type) => {
       document.addEventListener(type, (event) => {
-        const el = event.target.closest?.(pressableSelector);
+        const el = activePress?.el || event.target.closest?.(pressableSelector);
+        const animate = type === 'pointerup' && !activePress?.canceled && !document.body.classList.contains('is-scrolling');
         updatePressPoint(el, event);
-        endPress(el);
+        endPress(el, animate);
         clearPressPoint(el);
       }, { passive: true });
     });
 
     document.addEventListener('pointerleave', (event) => {
-      const el = event.target.closest?.(pressableSelector);
-      endPress(el);
-      clearPressPoint(el);
+      const el = activePress?.el || event.target.closest?.(pressableSelector);
+      cancelPress(el);
     }, true);
+
+    document.addEventListener('scroll', () => {
+      markScrolling();
+      if (activePress?.el) cancelPress(activePress.el);
+    }, { passive: true, capture: true });
   }
 
   function init() {

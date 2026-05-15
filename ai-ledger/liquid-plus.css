@@ -499,7 +499,6 @@ button,
   transform-origin: center;
   touch-action: manipulation;
   transform: translateZ(0);
-  will-change: transform;
   transition:
     transform .30s var(--glass-press),
     box-shadow .22s ease,
@@ -508,10 +507,10 @@ button,
 }
 
 .is-pressed {
-  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.966, .982);
-  filter: saturate(1.14) brightness(1.07);
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, .5px), 0) scale(.980, .990);
   transition-duration: 78ms;
   transition-timing-function: cubic-bezier(.2, 0, .2, 1);
+  will-change: transform;
 }
 
 .is-pressed::before {
@@ -537,8 +536,7 @@ button,
 .confirm-btn.is-pressed,
 .auth-tab.is-pressed,
 .range-chip.is-pressed {
-  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.940, .960);
-  filter: saturate(1.18) brightness(1.10);
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, .5px), 0) scale(.955, .970);
 }
 
 .chart-card.is-pressed,
@@ -546,7 +544,7 @@ button,
 .tool-card.is-pressed,
 .record-item.is-pressed,
 .draft-card.is-pressed {
-  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.978);
+  transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, .5px), 0) scale(.990);
 }
 
 .is-releasing {
@@ -554,11 +552,18 @@ button,
 }
 
 @keyframes elasticRelease {
-  0% { transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, 1px), 0) scale(.966, .982); }
-  36% { transform: scale(1.018, 1.008); }
-  62% { transform: scale(.994, .998); }
-  82% { transform: scale(1.006, 1.002); }
+  0% { transform: translate3d(var(--press-shift-x, 0), var(--press-shift-y, .5px), 0) scale(.980, .990); }
+  36% { transform: scale(1.010, 1.004); }
+  62% { transform: scale(.997, .999); }
+  82% { transform: scale(1.003, 1.001); }
   100% { transform: scale(1); }
+}
+
+body.is-scrolling .is-pressed,
+body.is-scrolling .is-releasing {
+  transform: translateZ(0) !important;
+  transition-duration: .001ms !important;
+  animation: none !important;
 }
 
 .record-item.expanded .record-extra {
@@ -590,13 +595,13 @@ button,
 
 /* iOS-folder style neutral liquid glass refinement */
 :root {
-  --liquid-fill: rgba(248, 252, 255, .018);
-  --liquid-fill-soft: rgba(248, 252, 255, .014);
-  --liquid-fill-strong: rgba(250, 253, 255, .036);
-  --liquid-line: rgba(250, 252, 255, .16);
-  --liquid-edge: rgba(250, 252, 255, .36);
-  --liquid-edge-cool: rgba(186, 222, 255, .10);
-  --liquid-edge-warm: rgba(255, 255, 255, .075);
+  --liquid-fill: rgba(248, 252, 255, .012);
+  --liquid-fill-soft: rgba(248, 252, 255, .010);
+  --liquid-fill-strong: rgba(250, 253, 255, .028);
+  --liquid-line: rgba(250, 252, 255, .13);
+  --liquid-edge: rgba(250, 252, 255, .30);
+  --liquid-edge-cool: rgba(186, 222, 255, .085);
+  --liquid-edge-warm: rgba(255, 255, 255, .060);
   --liquid-shadow:
     0 18px 44px rgba(0, 0, 0, .20),
     0 1px 8px rgba(255, 255, 255, .035),
@@ -632,7 +637,7 @@ select,
 .tools-panel-card,
 .tools-back {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .046), rgba(255, 255, 255, .004) 38%, rgba(255, 255, 255, .009) 68%, rgba(0, 0, 0, .014)),
+    linear-gradient(145deg, rgba(255, 255, 255, .036), rgba(255, 255, 255, .003) 38%, rgba(255, 255, 255, .007) 68%, rgba(0, 0, 0, .012)),
     var(--liquid-fill) !important;
   border: 1px solid var(--liquid-line) !important;
   box-shadow: var(--liquid-shadow) !important;
@@ -722,8 +727,8 @@ select,
 .add-sheet,
 .auth-sheet {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .044), rgba(255, 255, 255, .004) 45%, rgba(0, 0, 0, .018)),
-    rgba(248, 252, 255, .014) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .034), rgba(255, 255, 255, .003) 45%, rgba(0, 0, 0, .016)),
+    rgba(248, 252, 255, .010) !important;
 }
 
 .bottom-nav {
@@ -886,8 +891,8 @@ body,
 .chat-shell .chat-row.assistant .chat-bubble,
 .chat-shell .chat-composer textarea {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .074), rgba(255, 255, 255, .010) 48%, rgba(255, 255, 255, .016)),
-    rgba(248, 252, 255, .030) !important;
+    linear-gradient(145deg, rgba(255, 255, 255, .060), rgba(255, 255, 255, .008) 48%, rgba(255, 255, 255, .012)),
+    rgba(248, 252, 255, .024) !important;
   box-shadow:
     inset 0 .7px 0 rgba(255, 255, 255, .34),
     inset 0 -.7px 0 rgba(5, 10, 24, .075) !important;
