@@ -131,8 +131,8 @@ select,
 .delete-btn,
 .ai-badge,
 .chat-row.assistant .chat-bubble {
-  backdrop-filter: blur(18px) saturate(155%) contrast(1.05);
-  -webkit-backdrop-filter: blur(18px) saturate(155%) contrast(1.05);
+  backdrop-filter: blur(26px) saturate(142%) contrast(1.04) brightness(1.08);
+  -webkit-backdrop-filter: blur(26px) saturate(142%) contrast(1.04) brightness(1.08);
 }
 
 .glass-card::before,
@@ -157,8 +157,9 @@ select,
 .ai-badge::before,
 .chat-row.assistant .chat-bubble::before {
   background:
-    radial-gradient(circle at var(--shine-x, 18%) var(--shine-y, 0%), rgba(255,255,255,.24), transparent 28%),
-    linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,0) 28%, rgba(255,255,255,0) 72%, rgba(190,214,255,.10));
+    linear-gradient(180deg, rgba(255,255,255,.14), transparent 32%),
+    linear-gradient(90deg, rgba(255,255,255,.075), transparent 18%, transparent 82%, rgba(190,222,255,.060)),
+    radial-gradient(ellipse at var(--shine-x, 18%) -8%, rgba(255,255,255,.15), transparent 38%);
 }
 
 body[data-bg="aurora"] {
@@ -339,8 +340,8 @@ body[data-bg="dawn"] .range-chip.active {
   .bottom-nav,
   .add-sheet,
   .auth-sheet {
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(136%) contrast(1.03) brightness(1.07);
+    -webkit-backdrop-filter: blur(22px) saturate(136%) contrast(1.03) brightness(1.07);
   }
 
   .account-row,
@@ -388,7 +389,7 @@ body[data-bg="dawn"] .range-chip.active {
   .delete-btn::before,
   .ai-badge::before,
   .chat-row.assistant .chat-bubble::before {
-    opacity: .45;
+    opacity: .30;
   }
 }
 
