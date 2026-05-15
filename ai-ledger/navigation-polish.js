@@ -22,9 +22,9 @@
         border-radius: inherit;
         pointer-events: none;
         background:
-          linear-gradient(180deg, rgba(255,255,255,.32), rgba(255,255,255,.045) 52%, rgba(0,0,0,.025)),
-          radial-gradient(circle at 50% -20%, rgba(255,255,255,.34), transparent 54%);
-        opacity: .72;
+          linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,.040) 52%, rgba(0,0,0,.025)),
+          radial-gradient(circle at 50% -20%, rgba(255,255,255,.24), transparent 54%);
+        opacity: .66;
       }
 
       .bottom-nav .nav-btn {
@@ -37,17 +37,18 @@
       .bottom-nav .nav-btn em {
         position: relative;
         z-index: 4;
-        transition: transform 260ms cubic-bezier(.22,1,.36,1), color 220ms ease, opacity 220ms ease;
+        transition: none !important;
+        transform: none !important;
       }
 
       .bottom-nav .nav-btn.active {
         color: rgba(247,253,255,.98) !important;
         background: transparent !important;
-        text-shadow: 0 1px 10px rgba(31,123,148,.24);
+        text-shadow: 0 1px 8px rgba(31,123,148,.18);
       }
 
       .bottom-nav .nav-btn.active span {
-        transform: translate3d(0,-1px,0) scale(1.04);
+        transform: none !important;
       }
 
       .bottom-nav .nav-btn:not(.active) em {
@@ -62,17 +63,17 @@
       .bottom-nav .liquid-nav-indicator {
         border-radius: 18px !important;
         background:
-          radial-gradient(circle at 26% 14%, rgba(255,255,255,.62), rgba(255,255,255,.18) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(30,178,184,.72), rgba(67,142,221,.38) 52%, rgba(255,255,255,.12)) !important;
+          radial-gradient(circle at 26% 14%, rgba(255,255,255,.48), rgba(255,255,255,.15) 34%, transparent 68%),
+          linear-gradient(135deg, rgba(92,164,196,.40), rgba(98,128,190,.28) 52%, rgba(255,255,255,.11)) !important;
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.52),
+          inset 0 1px 0 rgba(255,255,255,.46),
           inset 0 -1px 0 rgba(0,0,0,.08),
-          0 10px 22px rgba(14,101,128,.20) !important;
+          0 9px 20px rgba(14,101,128,.14) !important;
       }
 
       @media (hover:hover) {
         .bottom-nav .nav-btn:not(.active):hover {
-          background: rgba(255,255,255,.18) !important;
+          background: rgba(255,255,255,.12) !important;
         }
       }
 
