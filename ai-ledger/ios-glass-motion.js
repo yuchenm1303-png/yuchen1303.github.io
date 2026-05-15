@@ -55,27 +55,27 @@
       .liquid-motion-target {
         transform-origin: center center !important;
         transition:
-          transform 115ms cubic-bezier(.2,.8,.2,1),
-          filter 115ms ease,
-          box-shadow 150ms ease,
-          opacity 120ms ease !important;
+          transform 185ms cubic-bezier(.18,.82,.22,1),
+          filter 180ms ease,
+          box-shadow 220ms ease,
+          opacity 180ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
       }
 
       .liquid-motion-target.liquid-pressed,
-      .liquid-motion-target:active { filter: brightness(1.075) saturate(1.035) !important; }
+      .liquid-motion-target:active { filter: brightness(1.055) saturate(1.025) !important; }
 
       .settings-group-card.liquid-pressed,
       .settings-group-card:active,
       .tool-card.liquid-pressed,
       .tool-card:active {
-        transform: translateY(1px) scale(.988) !important;
+        transform: translateY(.6px) scale(.994) !important;
         box-shadow:
-          0 10px 22px rgba(0,0,0,.14),
-          inset 0 1px 0 rgba(255,255,255,.34),
+          0 11px 24px rgba(0,0,0,.145),
+          inset 0 1px 0 rgba(255,255,255,.32),
           inset 0 -1px 0 rgba(0,0,0,.08),
-          0 0 0 1px rgba(255,255,255,.10) !important;
+          0 0 0 1px rgba(255,255,255,.08) !important;
       }
 
       .nav-btn.liquid-pressed,
@@ -85,7 +85,7 @@
       .delete-btn.liquid-pressed,
       .delete-btn:active,
       .send-btn.liquid-pressed,
-      .send-btn:active { transform: scale(.94) !important; }
+      .send-btn:active { transform: scale(.965) !important; }
 
       .tag-btn.liquid-pressed,
       .tag-btn:active,
@@ -104,35 +104,35 @@
       .bg-option.liquid-pressed,
       .bg-option:active,
       .appearance-toggle.liquid-pressed,
-      .appearance-toggle:active { transform: translateY(1px) scale(.970) !important; }
+      .appearance-toggle:active { transform: translateY(.6px) scale(.985) !important; }
 
-      .nav-btn.liquid-nav-pop { animation: safeNavButtonPop 310ms cubic-bezier(.16,.92,.24,1.12) both; }
-      .bottom-nav.liquid-nav-wobble { animation: safeBottomNavWobble 360ms cubic-bezier(.16,.92,.24,1.10) both; }
-      .tool-card.liquid-card-pop { animation: safeToolCardPop 360ms cubic-bezier(.16,.92,.24,1.08) both; animation-delay: var(--tool-pop-delay, 0ms); }
-      .tools-grid.liquid-grid-pop { animation: safeGridSettle 280ms ease both; }
+      .nav-btn.liquid-nav-pop { animation: refinedNavButtonPop 460ms cubic-bezier(.16,.86,.25,1) both; }
+      .bottom-nav.liquid-nav-wobble { animation: refinedBottomNavSettle 520ms cubic-bezier(.16,.86,.25,1) both; }
+      .tool-card.liquid-card-pop { animation: refinedToolCardSettle 520ms cubic-bezier(.16,.86,.25,1) both; animation-delay: var(--tool-pop-delay, 0ms); }
+      .tools-grid.liquid-grid-pop { animation: refinedGridSettle 420ms ease both; }
 
-      @keyframes safeNavButtonPop {
-        0% { transform: scale(.94); }
-        48% { transform: scale(1.095); }
-        72% { transform: scale(.985); }
+      @keyframes refinedNavButtonPop {
+        0% { transform: scale(.965); }
+        38% { transform: scale(1.045); }
+        70% { transform: scale(.992); }
         100% { transform: scale(1); }
       }
 
-      @keyframes safeBottomNavWobble {
+      @keyframes refinedBottomNavSettle {
         0% { transform: translateX(-50%) scale(1); }
-        42% { transform: translateX(-50%) scale(1.018); }
-        72% { transform: translateX(-50%) scale(.996); }
+        38% { transform: translateX(-50%) scale(1.008); }
+        68% { transform: translateX(-50%) scale(.998); }
         100% { transform: translateX(-50%) scale(1); }
       }
 
-      @keyframes safeToolCardPop {
-        0% { opacity: .82; transform: translateY(9px) scale(.982); }
-        58% { opacity: 1; transform: translateY(-2px) scale(1.018); }
+      @keyframes refinedToolCardSettle {
+        0% { opacity: .94; transform: translateY(6px) scale(.992); }
+        48% { opacity: 1; transform: translateY(-1px) scale(1.008); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
       }
 
-      @keyframes safeGridSettle {
-        0% { transform: translateY(4px); }
+      @keyframes refinedGridSettle {
+        0% { transform: translateY(3px); }
         100% { transform: translateY(0); }
       }
 
@@ -191,9 +191,9 @@
 
   function softVibrate() {
     const now = Date.now();
-    if (now - lastVibrationAt < 900) return;
+    if (now - lastVibrationAt < 1100) return;
     lastVibrationAt = now;
-    try { navigator.vibrate?.(4); } catch {}
+    try { navigator.vibrate?.(3); } catch {}
   }
 
   function press(target) {
@@ -205,7 +205,7 @@
     softVibrate();
   }
 
-  function popClass(el, className, timeout = 420) {
+  function popClass(el, className, timeout = 620) {
     if (!el || isMotionDisabled()) return;
     el.classList.remove(className);
     void el.offsetWidth;
@@ -218,10 +218,10 @@
     const grid = document.querySelector('#toolsHome .tools-grid');
     const cards = [...document.querySelectorAll('#toolsHome .tool-card')];
     if (!grid || !cards.length) return;
-    popClass(grid, 'liquid-grid-pop', 360);
+    popClass(grid, 'liquid-grid-pop', 520);
     cards.forEach((card, index) => {
-      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 26, 130)}ms`);
-      popClass(card, 'liquid-card-pop', 520 + index * 26);
+      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 34, 170)}ms`);
+      popClass(card, 'liquid-card-pop', 700 + index * 34);
     });
   }
 
@@ -229,14 +229,14 @@
     if (!activeTarget) return;
     const target = activeTarget;
     activeTarget = null;
-    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 55);
+    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 90);
 
     if (target.classList.contains('nav-btn')) {
-      popClass(target, 'liquid-nav-pop', 360);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 420);
-      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 90);
+      popClass(target, 'liquid-nav-pop', 560);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 640);
+      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 140);
     } else if (target.classList.contains('tool-card') || target.classList.contains('settings-group-card')) {
-      popClass(target, 'liquid-card-pop', 430);
+      popClass(target, 'liquid-card-pop', 620);
     }
   }
 
@@ -252,7 +252,7 @@
 
     document.addEventListener('click', (event) => {
       const nav = event.target.closest?.('.nav-btn');
-      if (nav?.dataset.view === 'tools') window.setTimeout(popToolCards, 120);
+      if (nav?.dataset.view === 'tools') window.setTimeout(popToolCards, 160);
     }, { passive: true });
 
     document.addEventListener('keydown', (event) => {
