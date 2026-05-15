@@ -765,6 +765,19 @@ function localChatFallback(text) {
   return { reply: "我还没听清要记什么。你可以继续说，我会跟着问。", action: "chat", records: [], source: "local" };
 }
 
+function localMobileCommandResult(text) {
+  if (getPendingMessage()) return null;
+  const mobileCommand = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
+  if (!mobileCommand) return null;
+  return {
+    reply: window.MobileCommandActions?.createReply?.(mobileCommand) || "我整理好了这个手机动作，确认后我再执行。",
+    action: "mobile_command",
+    records: [],
+    mobileCommand,
+    source: "local_mobile",
+  };
+}
+
 async function askAssistant(text) {
   chatMessages.push({ id: createId(), role: "user", content: text });
   saveChatMessages();
@@ -773,7 +786,10 @@ async function askAssistant(text) {
   setAiLoading(true);
 
   let result;
-  if (aiEndpoint) {
+  const localMobile = localMobileCommandResult(text);
+  if (localMobile) {
+    result = localMobile;
+  } else if (aiEndpoint) {
     try {
       result = await askCloudAI();
       setAiStatus(`云端 AI 已连接${result.version ? ` · ${result.version}` : ""}`, "success");
