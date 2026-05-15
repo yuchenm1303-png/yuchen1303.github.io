@@ -2,9 +2,6 @@ name = "ai-ledger-parser"
 main = "src/index.js"
 compatibility_date = "2026-05-10"
 
-[ai]
-binding = "AI"
-
 [vars]
-AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+GEMINI_MODEL = "gemini-1.5-flash"
 ALLOWED_ORIGINS = "https://yuchenm1303-png.github.io,https://localhost"
