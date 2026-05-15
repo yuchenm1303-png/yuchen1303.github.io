@@ -12,20 +12,24 @@
         background-attachment: scroll !important;
       }
 
-      .stable-glass-rendering .view:not(.active) {
-        content-visibility: hidden;
-        contain-intrinsic-size: 1px 720px;
+      .stable-glass-rendering .view .reveal,
+      .stable-glass-rendering .view.active .reveal,
+      .stable-glass-rendering .appearance-plus-card {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        visibility: visible !important;
       }
 
-      .stable-glass-rendering .view.active {
-        content-visibility: visible;
+      .stable-glass-rendering .view {
+        content-visibility: visible !important;
       }
 
       .stable-glass-rendering .chat-messages,
       .stable-glass-rendering .record-list,
       .stable-glass-rendering .tools-panel,
       .stable-glass-rendering .tools-grid {
-        contain: content;
+        contain: layout paint;
       }
 
       .stable-glass-rendering .chart-wrap,
@@ -116,14 +120,6 @@
         .settings-group-detail {
           backdrop-filter: blur(14px) saturate(112%) !important;
           -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
-        }
-
-        .reveal,
-        .view.active .reveal,
-        .appearance-plus-card {
-          animation-duration: .34s !important;
-          animation-timing-function: cubic-bezier(.22,1,.36,1) !important;
-          visibility: visible !important;
         }
       }
 
