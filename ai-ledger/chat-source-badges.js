@@ -7,6 +7,9 @@
     workers_ai: { label: "云端 AI", tone: "cloud" },
     workers_ai_text_fallback: { label: "云端兜底", tone: "cloud-fallback" },
     gemini_ai: { label: "Gemini AI", tone: "gemini" },
+    gemini_vision: { label: "Gemini 识图", tone: "vision" },
+    gemini_vision_error: { label: "识图错误", tone: "error" },
+    attachment_ai_missing_key: { label: "识图未配置", tone: "error" },
     gemini_text_fallback: { label: "Gemini 兜底", tone: "cloud-fallback" },
     gemini_error: { label: "Gemini 错误", tone: "error" },
     hybrid_rules: { label: "云端规则", tone: "cloud-rule" },
@@ -67,6 +70,7 @@
       .chat-source-badge::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
+      .chat-source-badge.vision{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34)}
       .chat-source-badge.online{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34)}
       .chat-source-badge.utility{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32)}
       .chat-source-badge.cloud-fallback{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32)}
