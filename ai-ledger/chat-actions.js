@@ -29,13 +29,11 @@
     {
       name: "mobile.navigation_preferences",
       action: "mobile_command",
-      commandType: "navigation_preference",
+      commandType: "navigate",
+      intent: "navigation_preference",
       title: "保存导航偏好",
       params: {
-        places: "家、学校、公司、宿舍或自定义常用地点",
-        mapProvider: "baidu | amap",
-        defaultMode: "driving | walking | riding | transit",
-        routeOptions: "路线习惯",
+        updates: "家、学校、公司、宿舍、默认地图、默认出行方式和路线习惯",
       },
     },
   ];
@@ -93,6 +91,10 @@
   function makeCommandId(prefix = "cmd") {
     if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function isNavigationPreferenceCommand(command) {
+    return command?.commandKind === "navigation_preference" || command?.params?.intent === "navigation_preference" || command?.params?.updates;
   }
 
   function addDays(date, days) {
@@ -282,10 +284,12 @@
 
     return {
       id: makeCommandId("nav-pref"),
-      type: "navigation_preference",
+      type: "navigate",
+      commandKind: "navigation_preference",
       title: "保存导航偏好",
       summary: summaryRows.map(([key, value]) => `${key}：${value}`).join("；") || "更新导航偏好",
       params: {
+        intent: "navigation_preference",
         updates,
         rows: summaryRows,
       },
@@ -368,7 +372,7 @@
         ["应用", command.params.appName],
       ];
     }
-    if (command.type === "navigation_preference") {
+    if (isNavigationPreferenceCommand(command)) {
       const rows = command.params?.rows?.length ? command.params.rows : [["偏好", command.summary || "更新导航偏好"]];
       return [["动作", "保存导航偏好"], ...rows];
     }
@@ -391,7 +395,7 @@
     const rows = getActionRows(command)
       .map(([key, value]) => `<div class="mobile-command-row"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`)
       .join("");
-    const confirmText = command.type === "navigation_preference" ? "确认保存" : "确认执行";
+    const confirmText = isNavigationPreferenceCommand(command) ? "确认保存" : "确认执行";
     const buttons = state === "pending"
       ? `<div class="mobile-command-actions">
           <button class="mobile-command-confirm" type="button" data-mobile-run="${escapeHtml(command.id)}">${confirmText}</button>
@@ -414,7 +418,7 @@
     if (command.type === "set_alarm") {
       return `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`;
     }
-    if (command.type === "navigation_preference") {
+    if (isNavigationPreferenceCommand(command)) {
       return `我整理好了导航偏好：${command.summary || "更新导航习惯"}。确认后我会保存到手机偏好里。`;
     }
     if (command.type === "navigate") {
@@ -433,7 +437,7 @@
   }
 
   async function executeCommand(command) {
-    if (command.type === "navigation_preference") {
+    if (isNavigationPreferenceCommand(command)) {
       if (!window.AssistantPreferences?.applyPreferenceUpdate) {
         return { ok: false, message: "导航偏好模块还没有加载完成。" };
       }
@@ -513,7 +517,7 @@
         return;
       }
 
-      updateCard(commandId, "pending", command.type === "navigation_preference" ? "正在保存导航偏好……" : "正在调用 Android 能力……");
+      updateCard(commandId, "pending", isNavigationPreferenceCommand(command) ? "正在保存导航偏好……" : "正在调用 Android 能力……");
       try {
         const result = await executeCommand(command);
         if (result?.ok) {
