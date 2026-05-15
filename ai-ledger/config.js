@@ -9,6 +9,7 @@ window.AI_LEDGER_CONFIG = {
   const scripts = [
     './assistant-profile.js?v=20260515-3',
     './settings-preferences.js?v=20260515-1',
+    './navigation-preferences.js?v=20260515-1',
     './tools-center.js?v=20260515-1'
   ];
   scripts.forEach((src) => {
