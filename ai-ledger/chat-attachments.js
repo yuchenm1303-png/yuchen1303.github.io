@@ -3,6 +3,7 @@
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
   const ACCEPT = "image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.js,.css,.py,.java,.c,.cpp,.h,.doc,.docx";
   let pendingAttachments = [];
+  let sendingAttachments = null;
 
   function escapeHtml(value) {
     return String(value || "")
@@ -46,6 +47,9 @@
 
   function guessMime(name) {
     const lower = String(name || "").toLowerCase();
+    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+    if (lower.endsWith(".png")) return "image/png";
+    if (lower.endsWith(".webp")) return "image/webp";
     if (lower.endsWith(".pdf")) return "application/pdf";
     if (lower.endsWith(".txt") || lower.endsWith(".md")) return "text/plain";
     if (lower.endsWith(".csv")) return "text/csv";
@@ -84,7 +88,9 @@
   }
 
   async function handleFiles(files) {
-    const list = Array.from(files || []).slice(0, MAX_FILES - pendingAttachments.length);
+    const room = MAX_FILES - pendingAttachments.length;
+    if (room <= 0) return toast(`最多同时上传 ${MAX_FILES} 个附件`);
+    const list = Array.from(files || []).slice(0, room);
     if (!list.length) return;
     try {
       for (const file of list) {
@@ -112,10 +118,45 @@
       .attachment-pill strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
       .attachment-pill em{font-style:normal;opacity:.62}
       .attachment-pill button{border:0;background:rgba(255,255,255,.18);color:inherit;border-radius:999px;width:20px;height:20px;font-weight:900}
-      .attachment-preview{margin-top:8px;border-radius:18px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);padding:8px;display:flex;gap:8px;flex-wrap:wrap}
-      .attachment-preview span{font-size:12px;opacity:.74}
     `;
     document.head.appendChild(style);
+  }
+
+  function takeAttachments() {
+    const current = pendingAttachments;
+    pendingAttachments = [];
+    renderTray();
+    return current;
+  }
+
+  function peekAttachments() {
+    return pendingAttachments.slice();
+  }
+
+  function installFetchPatch() {
+    if (window.__chatAttachmentsFetchPatched) return;
+    window.__chatAttachmentsFetchPatched = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      try {
+        const method = String(init?.method || "GET").toUpperCase();
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (method === "POST" && body && (sendingAttachments?.length || pendingAttachments.length)) {
+          const payload = JSON.parse(body);
+          if (payload && (Array.isArray(payload.messages) || payload.text || payload.ledgerContext)) {
+            const attachments = sendingAttachments?.length ? sendingAttachments : takeAttachments();
+            sendingAttachments = null;
+            if (attachments.length) {
+              payload.attachments = attachments.map(({ id, name, mimeType, size, data }) => ({ id, name, mimeType, size, data }));
+              init = { ...init, body: JSON.stringify(payload) };
+            }
+          }
+        }
+      } catch {
+        // keep original request if parsing fails
+      }
+      return originalFetch(input, init);
+    };
   }
 
   function installUI() {
@@ -125,6 +166,7 @@
     form.dataset.attachmentsReady = "ready";
 
     installStyle();
+    installFetchPatch();
 
     const picker = document.createElement("input");
     picker.id = "chatAttachmentInput";
@@ -154,6 +196,12 @@
       picker.value = "";
     });
 
+    form.addEventListener("submit", () => {
+      if (!pendingAttachments.length) return;
+      if (!input.value.trim()) input.value = "请分析这个附件";
+      sendingAttachments = peekAttachments();
+    }, true);
+
     tray.addEventListener("click", (event) => {
       const remove = event.target.closest("[data-remove-attachment]");
       if (!remove) return;
@@ -162,24 +210,14 @@
     });
   }
 
-  function takeAttachments() {
-    const current = pendingAttachments;
-    pendingAttachments = [];
-    renderTray();
-    return current;
-  }
-
-  function peekAttachments() {
-    return pendingAttachments.slice();
-  }
-
   window.ChatAttachments = {
     take: takeAttachments,
     peek: peekAttachments,
     has: () => pendingAttachments.length > 0,
-    version: "2026-05-15-attachments-1",
+    version: "2026-05-15-attachments-2-send",
   };
 
+  installFetchPatch();
   window.addEventListener("DOMContentLoaded", () => {
     installUI();
     setTimeout(installUI, 300);
