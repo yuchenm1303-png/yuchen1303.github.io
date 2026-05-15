@@ -30,6 +30,7 @@
   let clearTimer = 0;
   let lastVibrationAt = 0;
   let navFrame = 0;
+  let navLagTimer = 0;
   let toolPopTimer = 0;
 
   function installStyle() {
@@ -128,23 +129,23 @@
           inset 0 1px 0 rgba(255,255,255,.38),
           inset 0 -1px 0 rgba(0,0,0,.10),
           0 8px 18px rgba(0,0,0,.12);
-        transition: transform 440ms cubic-bezier(.22,1,.36,1), opacity 180ms ease;
+        transition: transform 720ms cubic-bezier(.19,.72,.16,1), opacity 220ms ease;
         will-change: transform;
         backface-visibility: hidden;
       }
 
       .bottom-nav.liquid-nav-travel .liquid-nav-indicator {
-        animation: indicatorSoftBreathe 480ms cubic-bezier(.22,1,.36,1) both;
+        animation: indicatorSoftBreathe 680ms cubic-bezier(.19,.72,.16,1) both;
       }
 
-      .nav-btn.liquid-nav-pop { animation: refinedNavContent 360ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
-      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 420ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
+      .nav-btn.liquid-nav-pop { animation: refinedNavContent 420ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
+      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 520ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
       .tool-card.liquid-card-pop { animation: refinedEntryBloom 400ms cubic-bezier(.22,1,.36,1) both; animation-delay: var(--tool-pop-delay, 0ms); will-change: transform; }
       .tools-grid.liquid-grid-pop { animation: refinedGridFloat 360ms cubic-bezier(.22,1,.36,1) both; will-change: transform; }
 
       @keyframes indicatorSoftBreathe {
-        0% { opacity: .80; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(.990); }
-        48% { opacity: .92; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1.010); }
+        0% { opacity: .76; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(.986); }
+        54% { opacity: .92; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1.012); }
         100% { opacity: .86; transform: translate3d(var(--nav-indicator-x,0px), var(--nav-indicator-y,0px), 0) scale(1); }
       }
 
@@ -245,7 +246,7 @@
     activeTarget = target;
     target.classList.add(PRESSED_CLASS);
     if (target.classList.contains('nav-btn')) {
-      moveNavIndicatorTo(target, true);
+      scheduleLaggedNavIndicator(target, true, 64);
     }
     softVibrate();
   }
@@ -275,6 +276,11 @@
     navFrame = window.requestAnimationFrame(() => updateNavIndicator(animated));
   }
 
+  function scheduleLaggedNavIndicator(button, animated = true, delay = 70) {
+    window.clearTimeout(navLagTimer);
+    navLagTimer = window.setTimeout(() => moveNavIndicatorTo(button, animated), delay);
+  }
+
   function setNavIndicator(nav, button, animated = true) {
     const navRect = nav.getBoundingClientRect();
     const activeRect = button.getBoundingClientRect();
@@ -284,7 +290,7 @@
     nav.style.setProperty('--nav-indicator-h', `${activeRect.height}px`);
     nav.style.setProperty('--nav-indicator-x', `${x}px`);
     nav.style.setProperty('--nav-indicator-y', `${y}px`);
-    if (animated) popClass(nav, 'liquid-nav-travel', 520);
+    if (animated) popClass(nav, 'liquid-nav-travel', 700);
   }
 
   function moveNavIndicatorTo(button, animated = true) {
@@ -324,10 +330,10 @@
     clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 60);
 
     if (target.classList.contains('nav-btn')) {
-      moveNavIndicatorTo(target, true);
+      scheduleLaggedNavIndicator(target, true, 48);
       popClass(target, 'liquid-nav-pop', 460);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 520);
-      window.setTimeout(() => scheduleNavIndicator(true), 180);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 560);
+      window.setTimeout(() => scheduleNavIndicator(true), 260);
       if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 140);
     } else if (target.classList.contains('tool-card')) {
       popClass(target, 'liquid-card-pop', 480);
@@ -346,7 +352,7 @@
 
     document.addEventListener('click', (event) => {
       const nav = event.target.closest?.('.nav-btn');
-      if (nav) moveNavIndicatorTo(nav, true);
+      if (nav) scheduleLaggedNavIndicator(nav, true, 54);
     }, { passive: true });
 
     window.addEventListener('assistant-nav-polished', () => scheduleNavIndicator(true), { passive: true });
