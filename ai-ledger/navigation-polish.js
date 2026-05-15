@@ -128,6 +128,12 @@
     syncNavState();
   }
 
+  function isPreferenceCard(command) {
+    return command?.commandKind === 'navigation_preference'
+      || command?.params?.intent === 'navigation_preference'
+      || Boolean(command?.params?.updates);
+  }
+
   function explicitMapProvider(text) {
     if (/高德|amap/i.test(text)) return 'amap';
     if (/百度|baidu/i.test(text)) return 'baidu';
@@ -147,12 +153,23 @@
   }
 
   function enhanceNavigationCommand(command, sourceText = '') {
-    if (!command || command.type !== 'navigate') return command;
+    if (!command || command.type !== 'navigate' || isPreferenceCard(command)) return command;
+
+    if (window.AssistantPreferences?.decorateNavigationParams) {
+      const params = window.AssistantPreferences.decorateNavigationParams(command.params || {}, { sourceText });
+      return {
+        ...command,
+        title: `${params.appName || '地图'}导航`,
+        summary: params.placeAddressMissing ? `${params.destinationAlias || params.destination}（未填写地址）` : `到 ${params.destination}`,
+        params,
+      };
+    }
+
     const prefs = window.AssistantPreferences?.getPreferences?.() || {};
     const provider = explicitMapProvider(sourceText) || prefs.mapProvider || command.params?.mapProvider || 'baidu';
-    const rawDestination = String(command.params?.destination || command.params?.destinationAlias || '').trim();
+    const rawDestination = String(command.params?.destinationAlias || command.params?.destination || '').trim();
     const homeRequested = isHomeDestination(rawDestination);
-    const homeAddress = String(prefs.homeAddress || '').trim();
+    const homeAddress = String(prefs.places?.home || prefs.homeAddress || '').trim();
     const destination = homeRequested && homeAddress ? homeAddress : rawDestination;
     const params = {
       ...(command.params || {}),
@@ -161,7 +178,7 @@
       destination,
       destinationAlias: rawDestination,
       homeAddressMissing: homeRequested && !homeAddress,
-      mode: ['driving', 'walking', 'riding'].includes(command.params?.mode) ? command.params.mode : 'driving',
+      mode: ['driving', 'walking', 'riding', 'transit'].includes(command.params?.mode) ? command.params.mode : (prefs.defaultMode || 'driving'),
     };
     return {
       ...command,
@@ -190,13 +207,15 @@
     if (typeof baseCreateReply === 'function') {
       actions.createReply = (command) => {
         const next = enhanceNavigationCommand(command);
+        if (isPreferenceCard(next)) return baseCreateReply(next);
         if (next?.type !== 'navigate') return baseCreateReply(command);
         const map = next.params?.appName || '地图';
         const alias = next.params?.destinationAlias || next.params?.destination || '目的地';
-        if (next.params?.homeAddressMissing) {
-          return `我理解为要用${map}导航回家，但你还没有填写家庭地址。确认后会先按“${alias}”尝试导航；也可以到设置里的“手机偏好”填写家庭地址。`;
+        if (next.params?.homeAddressMissing || next.params?.placeAddressMissing) {
+          return `我知道你想去“${alias}”，但这个常用地址还没填写。你可以先确认尝试打开${map}，也可以说“把${alias}设为具体地址”。`;
         }
-        return `我理解为要用${map}导航到“${next.params.destination}”，确认后我再执行。`;
+        const modeLabel = window.AssistantPreferences?.getModeLabel?.(next.params?.mode) || '驾车';
+        return `我理解为要用${map}${modeLabel}导航到“${next.params.destination}”，确认后我再执行。`;
       };
     }
   }
