@@ -11,6 +11,7 @@ window.AI_LEDGER_CONFIG = {
     './settings-preferences.js?v=20260515-1',
     './settings-appearance-plus.js?v=20260515-1',
     './navigation-preferences.js?v=20260515-1',
+    './chat-attachments.js?v=20260515-2',
     './chat-source-badges.js?v=20260515-2',
     './tools-center.js?v=20260515-1'
   ];
