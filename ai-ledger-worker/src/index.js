@@ -1,12 +1,14 @@
 const ALLOWED_CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
+const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending", "mobile_command"];
+const ALLOWED_MOBILE_ACTIONS = ["set_alarm", "open_app", "navigate"];
+const WORKER_VERSION = "2026-05-15-json-repair-2";
+
 const TOOL_REGISTRY = [
   {
     name: "ledger.draft_records",
     action: "draft",
     title: "整理待确认账单",
     description: "当用户表达真实收支时，把内容整理成待确认账单；缺金额等关键信息时先追问。",
-    params: ["records[].title", "records[].amount", "records[].type", "records[].category", "records[].date"],
-    safety: "不直接保存，必须等待用户确认。",
   },
   {
     name: "mobile.set_alarm",
@@ -14,8 +16,6 @@ const TOOL_REGISTRY = [
     commandType: "set_alarm",
     title: "设置系统闹钟",
     description: "当用户要求叫醒、闹钟、提醒某个具体时间时使用。",
-    params: ["date", "hour", "minute", "label"],
-    safety: "生成动作卡片，用户确认后才调用 Android 原生能力。",
   },
   {
     name: "mobile.open_app",
@@ -23,22 +23,15 @@ const TOOL_REGISTRY = [
     commandType: "open_app",
     title: "打开手机应用",
     description: "当用户要求打开微信、支付宝、淘宝、QQ、百度地图等应用时使用。",
-    params: ["appName", "packageName?"],
-    safety: "生成动作卡片，用户确认后才调用 Android 原生能力。",
   },
   {
     name: "mobile.navigate",
     action: "mobile_command",
     commandType: "navigate",
-    title: "百度地图导航",
+    title: "地图导航",
     description: "当用户要求导航、回家、去某地怎么走、带我去某地时使用。",
-    params: ["destination", "mode"],
-    safety: "默认用百度地图；用户确认后才调用 Android 原生能力。",
   },
 ];
-const ALLOWED_ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending", "mobile_command"];
-const ALLOWED_MOBILE_ACTIONS = TOOL_REGISTRY.map((tool) => tool.commandType).filter(Boolean);
-const WORKER_VERSION = "2026-05-15-agent-tools-1";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -59,9 +52,9 @@ export default {
         worker: "ai-ledger-parser",
         version: WORKER_VERSION,
         provider: "workers_ai",
-        mode: "hybrid_rules_plus_ai",
+        mode: "hybrid_rules_plus_ai_json_repair",
         agentMode: "general_chat_plus_tool_registry",
-        tools: TOOL_REGISTRY.map(({ name, action, commandType, title }) => ({ name, action, commandType, title })),
+        tools: TOOL_REGISTRY,
         model: env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct",
         hasAiBinding: Boolean(env.AI),
       }, 200, corsHeaders);
@@ -69,14 +62,6 @@ export default {
 
     if (request.method !== "POST") {
       return json({ error: "Method not allowed", code: "method_not_allowed", version: WORKER_VERSION }, 405, corsHeaders);
-    }
-
-    if (!env.AI) {
-      return json({
-        error: "Server is missing Workers AI binding",
-        code: "missing_workers_ai_binding",
-        version: WORKER_VERSION,
-      }, 500, corsHeaders);
     }
 
     let body;
@@ -89,11 +74,11 @@ export default {
     const now = normalizeIsoDate(body?.now) || new Date().toISOString().slice(0, 10);
     const messages = normalizeMessages(body?.messages);
     const text = String(body?.text || "").trim();
-    const conversation = messages.length ? buildConversation(messages) : text;
     const pendingDraft = sanitizeRecords(body?.pendingDraft, now);
     const ledgerContext = sanitizeLedgerContext(body?.ledgerContext, now);
     const clientTools = sanitizeClientTools(body?.clientTools);
     const lastUserText = getLastUserText(messages, text);
+    const conversation = messages.length ? buildConversation(messages) : lastUserText;
 
     if (!conversation) {
       return json({ error: "messages or text is required", code: "missing_conversation", version: WORKER_VERSION }, 400, corsHeaders);
@@ -103,109 +88,31 @@ export default {
       return json({ error: "conversation is too long", code: "conversation_too_long", version: WORKER_VERSION }, 400, corsHeaders);
     }
 
-    const deterministic = tryDeterministicReply({ lastUserText, messages, pendingDraft, ledgerContext, now });
+    const deterministic = tryDeterministicReply({ lastUserText, pendingDraft, ledgerContext, now });
     if (deterministic) {
       return json({ ...deterministic, source: "hybrid_rules", version: WORKER_VERSION }, 200, corsHeaders);
     }
 
-    const schema = {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        reply: { type: "string" },
-        action: { type: "string", enum: ALLOWED_ACTIONS },
-        mobileCommand: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            type: { type: "string", enum: ALLOWED_MOBILE_ACTIONS },
-            title: { type: "string" },
-            summary: { type: "string" },
-            params: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                date: { type: "string" },
-                hour: { type: "number" },
-                minute: { type: "number" },
-                label: { type: "string" },
-                appName: { type: "string" },
-                packageName: { type: "string" },
-                destination: { type: "string" },
-                mode: { type: "string", enum: ["driving", "walking", "riding"] }
-              }
-            }
-          },
-          required: ["type", "params"]
-        },
-        records: {
-          type: "array",
-          minItems: 0,
-          maxItems: 10,
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              title: { type: "string" },
-              amount: { type: "number" },
-              type: { type: "string", enum: ["expense", "income"] },
-              category: { type: "string", enum: ALLOWED_CATEGORIES },
-              date: { type: "string" }
-            },
-            required: ["title", "amount", "type", "category", "date"]
-          }
-        }
-      },
-      required: ["reply", "action", "records"]
-    };
+    if (!env.AI) {
+      return json({
+        reply: "云端 AI 还没有绑定成功。我现在只能处理记账、闹钟、打开应用和导航等本地规则任务。",
+        action: "chat",
+        records: [],
+        mobileCommand: null,
+        source: "missing_workers_ai_binding",
+        version: WORKER_VERSION,
+      }, 200, corsHeaders);
+    }
 
-    const instructions = [
-      "你是一个中文通用手机 AI 智能体。你不是单纯的字段解析器，而是能自然聊天、理解上下文，并在合适时调用工具的个人助手。",
-      "你的核心能力：1. 像正常助手一样随意聊天；2. 根据账本上下文回答收支问题；3. 用账单工具整理待确认账单；4. 用手机工具生成可确认执行的动作卡片。",
-      "你必须先理解用户意图，再决定是否需要工具。普通聊天不要强行调用工具；工具只在用户明显需要记账或控制手机时使用。",
-      "下面是 Tool Registry。只能使用注册表里的工具，不要发明工具名、动作类型或参数。",
-      JSON.stringify(TOOL_REGISTRY),
-      "输出协议：chat=普通回复或继续追问；draft=使用 ledger.draft_records；confirm_pending=用户同意保存当前待确认账单；cancel_pending=用户取消当前待确认账单；mobile_command=使用 mobile.* 工具生成待确认手机动作。",
-      "如果 action=mobile_command，records 必须为空数组，mobileCommand 必须完整。mobileCommand.type 只能是 set_alarm、open_app、navigate。",
-      "如果 action=draft，mobileCommand 不要返回有效内容，records 必须包含完整待确认账单。",
-      "如果 action=chat、confirm_pending、cancel_pending，records 必须为空数组，除非你在继续追问或普通聊天。",
-      "手机工具安全规则：所有 mobile_command 都只是生成动作卡片，不能声称已经执行。回复必须提示用户确认后再执行。",
-      "导航规则：用户说回家、到家、我想回家了、带我回家，destination 返回“家”。用户说步行/走路用 mode=walking，骑行/骑车用 mode=riding，其他默认 driving。",
-      "如果用户对已有待确认账单说‘好’‘对’‘确认’‘记上’‘保存’‘就这样’等同意语，且存在 pendingDraft，action 必须为 confirm_pending，records 为空数组。",
-      "如果用户对已有待确认账单说‘算了’‘不用了’‘先别记’‘取消’等拒绝语，且存在 pendingDraft，action 必须为 cancel_pending，records 为空数组。",
-      "如果存在 pendingDraft，用户说‘改成58’‘分类改成交通’‘日期改成昨天’等，action 必须为 draft，并返回更新后的完整待确认账单，不要只返回被修改的一部分。",
-      "如果缺少关键信息，例如没有金额，先自然追问最关键的一项，不要猜测，不要创建账单。",
-      "账本问答只能依据 ledgerContext 中提供的数据回答；如果上下文不足，要坦率说明。",
-      "只记录用户本人真实承担或真实收到的金额，不要把同一件事中的多个金额拆成重复账单。",
-      "如果用户同时说了总额和自己的份额，例如‘昨天和室友吃火锅我付了126，我自己花63’，只记录一笔‘火锅’支出63，不得再额外记录126。",
-      "如果用户说‘我先垫付126，最后自己承担63’，同样只记录63；除非用户明确要求记录代付或应收款，否则不要记录垫付总额。",
-      "如果一句话里有多个互相独立的事件，例如‘午饭28，奶茶16，兼职收入180’，可以返回多条账单。",
-      "若同一事件中出现多个金额且无法确定哪个才是用户实际承担金额，优先追问，不要猜测。",
-      "type 只能是 expense 或 income。",
-      `category 只能从 ${ALLOWED_CATEGORIES.join("、")} 中选择。`,
-      `今天日期是 ${now}。请正确解析今天、昨天、前天等相对日期。`,
-      "date 必须返回 YYYY-MM-DD 格式。",
-      "title 保持简短，优先使用事项本身，如‘火锅’‘地铁’‘兼职’；不要把整句话当标题。",
-      "不要虚构金额，不要补充用户未表达的账单。",
-      "回复要自然、简短、像人在聊天，不要每次都机械地重复固定模板。",
-      "只返回合法 JSON，不要输出 Markdown，不要输出解释文字。",
-      "示例1：用户：你好。输出 action=chat，reply 可以是自然问候，records=[]。",
-      "示例2：用户：帮我记一笔午饭。因为缺少金额，输出 action=chat，reply 追问‘午饭花了多少钱？’，records=[]。",
-      "示例3：用户：昨天和室友吃火锅我付了126，我自己花63。输出 action=draft，records 只包含火锅63元。",
-      "示例4：已有 pendingDraft 后，用户：好。输出 action=confirm_pending。",
-      "示例5：已有 pendingDraft 后，用户：把这笔改成交通。输出 action=draft，records 返回修改后的完整草稿。",
-      "示例6：用户：我想回家了。输出 action=mobile_command，mobileCommand.type=navigate，params.destination=家，params.mode=driving。",
-      "示例7：用户：打开微信。输出 action=mobile_command，mobileCommand.type=open_app，params.appName=微信。",
-      "示例8：用户：明天早上8点叫我起床。输出 action=mobile_command，mobileCommand.type=set_alarm，params.date=明天日期，hour=8，minute=0，label=起床。"
-    ].join("\n");
-
+    const schema = buildResponseSchema();
+    const instructions = buildInstructions(now);
     const context = [
       `今天日期：${now}`,
       `待确认账单：${pendingDraft.length ? JSON.stringify(pendingDraft) : "无"}`,
       `账本上下文：${JSON.stringify(ledgerContext)}`,
       `客户端可执行工具：${clientTools.length ? JSON.stringify(clientTools) : "未上报，按默认 Tool Registry 处理"}`,
       `对话历史：\n${conversation}`,
-      "请根据最后一条用户消息作答。"
+      "请根据最后一条用户消息作答。",
     ].join("\n\n");
 
     let aiResult;
@@ -215,8 +122,8 @@ export default {
           { role: "system", content: instructions },
           { role: "user", content: context },
         ],
-        temperature: 0.1,
-        max_tokens: 500,
+        temperature: 0.15,
+        max_tokens: 700,
         response_format: {
           type: "json_schema",
           json_schema: schema,
@@ -232,24 +139,34 @@ export default {
     }
 
     const raw = extractWorkersAiText(aiResult);
+    const parsed = parseAiJson(raw);
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
+    if (!parsed) {
+      const textReply = cleanRawAiText(raw) || createSafeFallbackReply(lastUserText);
       return json({
-        error: "AI returned invalid JSON",
-        code: "invalid_ai_json",
-        raw: String(raw || "").slice(0, 500),
+        reply: textReply,
+        action: "chat",
+        records: [],
+        mobileCommand: null,
+        source: "workers_ai_text_fallback",
         version: WORKER_VERSION,
-      }, 502, corsHeaders);
+        repaired: true,
+      }, 200, corsHeaders);
     }
 
     const records = sanitizeRecords(parsed.records, now);
     const mobileCommand = sanitizeMobileCommand(parsed.mobileCommand, now);
     const action = sanitizeAction(parsed.action, records, pendingDraft, mobileCommand);
     const reply = sanitizeReply(parsed.reply, action, records, mobileCommand);
-    return json({ reply, action, records, mobileCommand, source: "workers_ai", version: WORKER_VERSION }, 200, corsHeaders);
+
+    return json({
+      reply,
+      action,
+      records,
+      mobileCommand,
+      source: "workers_ai",
+      version: WORKER_VERSION,
+    }, 200, corsHeaders);
   },
 };
 
@@ -259,11 +176,7 @@ function getCorsHeaders(request, env) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-
-  const allowOrigin = allowed.includes("*") || allowed.includes(origin)
-    ? origin || "*"
-    : allowed[0] || "*";
-
+  const allowOrigin = allowed.includes("*") || allowed.includes(origin) ? origin || "*" : allowed[0] || "*";
   return {
     ...jsonHeaders,
     "access-control-allow-origin": allowOrigin,
@@ -280,71 +193,119 @@ function json(payload, status = 200, corsHeaders = {}) {
   });
 }
 
+function buildResponseSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reply: { type: "string" },
+      action: { type: "string", enum: ALLOWED_ACTIONS },
+      mobileCommand: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: { type: "string", enum: ALLOWED_MOBILE_ACTIONS },
+          title: { type: "string" },
+          summary: { type: "string" },
+          params: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              date: { type: "string" },
+              hour: { type: "number" },
+              minute: { type: "number" },
+              label: { type: "string" },
+              appName: { type: "string" },
+              packageName: { type: "string" },
+              destination: { type: "string" },
+              mode: { type: "string", enum: ["driving", "walking", "riding"] },
+            },
+          },
+        },
+        required: ["type", "params"],
+      },
+      records: {
+        type: "array",
+        minItems: 0,
+        maxItems: 10,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string" },
+            amount: { type: "number" },
+            type: { type: "string", enum: ["expense", "income"] },
+            category: { type: "string", enum: ALLOWED_CATEGORIES },
+            date: { type: "string" },
+          },
+          required: ["title", "amount", "type", "category", "date"],
+        },
+      },
+    },
+    required: ["reply", "action", "records"],
+  };
+}
+
+function buildInstructions(now) {
+  return [
+    "你是一个中文通用手机 AI 智能体。你能自然聊天、理解上下文，并在合适时调用工具。",
+    "普通聊天就正常回答，不要强行记账或调用手机工具。复杂问题也要尽量回答，但保持简洁。",
+    "如果用户明显要记账，使用 action=draft 并返回 records；缺金额时先追问。",
+    "如果用户明显要设置闹钟、打开应用或导航，使用 action=mobile_command 并返回 mobileCommand。所有手机动作都只是生成确认卡片，不能声称已经执行。",
+    "如果用户对待确认账单表示同意，使用 confirm_pending；表示取消，使用 cancel_pending。",
+    "账本问答只能依据 ledgerContext 中提供的数据回答；上下文不足时要坦率说明。",
+    "只记录用户本人真实承担或真实收到的金额。垫付、AA、总额和个人份额同时出现时，只记录个人实际承担金额。",
+    `category 只能从 ${ALLOWED_CATEGORIES.join("、")} 中选择。今天日期是 ${now}。date 必须是 YYYY-MM-DD。`,
+    "输出协议必须尽量返回 JSON：{ reply, action, records, mobileCommand }。不要输出 Markdown。",
+    "如果你无法严格组织 JSON，也至少直接给出自然语言回答；系统会自动兜底。",
+    `Tool Registry: ${JSON.stringify(TOOL_REGISTRY)}`,
+  ].join("\n");
+}
+
 function getLastUserText(messages, fallbackText) {
   const last = [...messages].reverse().find((message) => message.role === "user");
   return String(last?.content || fallbackText || "").trim();
 }
 
-function tryDeterministicReply({ lastUserText, messages, pendingDraft, ledgerContext, now }) {
+function tryDeterministicReply({ lastUserText, pendingDraft, ledgerContext, now }) {
   const text = String(lastUserText || "").trim();
   if (!text) return null;
 
   if (pendingDraft.length && /^(好|好的|对|确认|保存|记上|就这样)$/u.test(text)) {
-    return { reply: "好的，已帮你记上。", action: "confirm_pending", records: [] };
+    return { reply: "好的，已帮你记上。", action: "confirm_pending", records: [], mobileCommand: null };
   }
 
   if (pendingDraft.length && /^(算了|不用了|先别记|取消)$/u.test(text)) {
-    return { reply: "好的，这次先不保存。", action: "cancel_pending", records: [] };
+    return { reply: "好的，这次先不保存。", action: "cancel_pending", records: [], mobileCommand: null };
   }
 
   if (/^(你好|您好|嗨|哈喽|在吗|hello|hi)$/iu.test(text)) {
-    return { reply: "你好呀。想记一笔，还是查一下最近的账？", action: "chat", records: [] };
+    return { reply: "我在。你可以直接说任务，比如记账、设置闹钟、打开应用、导航，也可以正常聊天。", action: "chat", records: [], mobileCommand: null };
   }
 
-  if (/^(想记点账|想记账|我要记账|我想记账|记点账|记账)$/u.test(text)) {
-    return { reply: "好呀，想记什么？", action: "chat", records: [] };
-  }
-
-  if (/(你有|你会|有哪些).*(功能|能做什么)/u.test(text)) {
-    return {
-      reply: "我可以帮你记账、查收支，也能生成打开应用、设置闹钟、百度地图导航这些手机动作。",
-      action: "chat",
-      records: [],
-    };
+  if (/(你有|你会|有哪些).*(功能|能做什么|会干什么)/u.test(text)) {
+    return { reply: "我可以聊天、记账、查账本，也能生成设置闹钟、打开应用、地图导航这些手机动作卡片。", action: "chat", records: [], mobileCommand: null };
   }
 
   const mobileCommand = parseMobileCommand(text, now);
   if (mobileCommand) {
-    return {
-      reply: createMobileReply(mobileCommand),
-      action: "mobile_command",
-      records: [],
-      mobileCommand,
-    };
+    return { reply: createMobileReply(mobileCommand), action: "mobile_command", records: [], mobileCommand };
   }
 
   const simpleRecords = parseSimpleRecords(text, now);
   if (simpleRecords.length) {
-    return {
-      reply: `我先整理出 ${simpleRecords.length} 笔待确认账单，你回复“好”我就帮你保存。`,
-      action: "draft",
-      records: simpleRecords,
-    };
+    return { reply: `我先整理出 ${simpleRecords.length} 笔待确认账单，你回复“好”我就帮你保存。`, action: "draft", records: simpleRecords, mobileCommand: null };
   }
 
   const requestedItem = extractIncompleteItem(text) || extractStandaloneItem(text);
   if (requestedItem) {
-    return { reply: `${requestedItem}花了多少钱？`, action: "chat", records: [] };
+    return { reply: `${requestedItem}花了多少钱？`, action: "chat", records: [], mobileCommand: null };
   }
 
   const categoryQuery = extractCategoryQuery(text);
   if (categoryQuery) {
     const total = sumCategoryThisMonth(ledgerContext.recentRecords, categoryQuery, now);
-    return {
-      reply: `你这个月${categoryQuery}一共花了 ¥${total.toFixed(2)}。`,
-      action: "chat",
-      records: [],
-    };
+    return { reply: `你这个月${categoryQuery}一共花了 ¥${total.toFixed(2)}。`, action: "chat", records: [], mobileCommand: null };
   }
 
   return null;
@@ -394,12 +355,7 @@ function parseOpenAppCommand(text) {
   if (!match) return null;
   const appName = match[1].trim();
   if (!appName || /(闹钟|提醒|记账)/u.test(appName)) return null;
-  return {
-    type: "open_app",
-    title: "打开应用",
-    summary: appName,
-    params: { appName },
-  };
+  return { type: "open_app", title: "打开应用", summary: appName, params: { appName } };
 }
 
 function parseNavigationCommand(text) {
@@ -407,30 +363,19 @@ function parseNavigationCommand(text) {
   const destinationMatch = text.match(/(?:导航(?:到|去)?|路线到|带我去|怎么去|怎么到)\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+)$/u)
     || text.match(/去\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+?)(?:怎么走|路线|导航)$/u);
   let destination = destinationMatch?.[1]?.trim() || "";
-
   if (/回家|到家|去家|家里|我家|我想回家/u.test(text)) destination = "家";
   destination = destination
-    .replace(/^(百度地图|地图|帮我|请|给我)/u, "")
+    .replace(/^(百度地图|高德地图|地图|帮我|请|给我)/u, "")
     .replace(/(?:怎么走|路线|导航)$/u, "")
     .trim();
-
-  if (!destination || /^(打开|启动)?(百度地图|地图)$/u.test(destination)) return null;
+  if (!destination || /^(打开|启动)?(百度地图|高德地图|地图)$/u.test(destination)) return null;
   const mode = /步行|走路/u.test(text) ? "walking" : /骑行|骑车|单车/u.test(text) ? "riding" : "driving";
-  return {
-    type: "navigate",
-    title: "百度地图导航",
-    summary: `到 ${destination}`,
-    params: { appName: "百度地图", destination, mode },
-  };
+  return { type: "navigate", title: "地图导航", summary: `到 ${destination}`, params: { appName: "地图", destination, mode } };
 }
 
 function createMobileReply(command) {
-  if (command.type === "set_alarm") {
-    return `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`;
-  }
-  if (command.type === "navigate") {
-    return `我理解为要用百度地图导航到“${command.params.destination}”，确认后我再执行。`;
-  }
+  if (command.type === "set_alarm") return `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`;
+  if (command.type === "navigate") return `我理解为要导航到“${command.params.destination}”，确认后我再执行。`;
   return `我理解为要打开“${command.params.appName}”，确认后我再执行。`;
 }
 
@@ -470,10 +415,7 @@ function extractStandaloneItem(text) {
 }
 
 function normalizeItem(text) {
-  return String(text || "")
-    .replace(/^(一笔|一个|一下)/u, "")
-    .replace(/金额$/u, "")
-    .trim();
+  return String(text || "").replace(/^(一笔|一个|一下)/u, "").replace(/金额$/u, "").trim();
 }
 
 function extractCategoryQuery(text) {
@@ -521,7 +463,83 @@ function shiftDate(isoDate, offsetDays) {
 function extractWorkersAiText(result) {
   if (typeof result === "string") return result;
   if (typeof result?.response === "string") return result.response;
+  if (typeof result?.result?.response === "string") return result.result.response;
+  if (typeof result?.output_text === "string") return result.output_text;
+  if (Array.isArray(result?.content)) {
+    return result.content.map((item) => item?.text || item).join("\n");
+  }
   return JSON.stringify(result);
+}
+
+function parseAiJson(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+
+  const direct = tryJson(text);
+  if (direct) return direct;
+
+  const unfenced = text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const fromFence = tryJson(unfenced);
+  if (fromFence) return fromFence;
+
+  const balanced = extractFirstBalancedObject(unfenced);
+  if (balanced) {
+    const parsed = tryJson(balanced);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function tryJson(text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch {}
+  return null;
+}
+
+function extractFirstBalancedObject(text) {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function cleanRawAiText(raw) {
+  const text = String(raw || "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  if (!text) return "";
+  if (text.startsWith("{") && text.endsWith("}")) return "";
+  return text.slice(0, 520);
+}
+
+function createSafeFallbackReply(lastUserText) {
+  const text = String(lastUserText || "").trim();
+  if (!text) return "我在，你可以继续说。";
+  return "这个问题我可以继续聊，但刚才云端模型返回格式不稳定。我先按普通聊天处理：你可以换一种说法，或者把问题拆成更短的一句。";
 }
 
 function normalizeIsoDate(value) {
@@ -541,14 +559,11 @@ function normalizeMessages(messages) {
 }
 
 function buildConversation(messages) {
-  return messages
-    .map((message) => `${message.role === "assistant" ? "助手" : "用户"}：${message.content}`)
-    .join("\n");
+  return messages.map((message) => `${message.role === "assistant" ? "助手" : "用户"}：${message.content}`).join("\n");
 }
 
 function sanitizeRecords(records, fallbackDate) {
   if (!Array.isArray(records)) return [];
-
   return records
     .slice(0, 10)
     .map((record) => ({
@@ -600,35 +615,20 @@ function sanitizeMobileCommand(command, fallbackDate) {
     if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
     const date = normalizeIsoDate(params.date) || fallbackDate;
     const label = String(params.label || "提醒").trim().slice(0, 30) || "提醒";
-    return {
-      type,
-      title: "设置闹钟",
-      summary: `${date} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      params: { date, hour, minute, label },
-    };
+    return { type, title: "设置闹钟", summary: `${date} ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`, params: { date, hour, minute, label } };
   }
 
   if (type === "open_app") {
     const appName = String(params.appName || command.summary || "").trim().slice(0, 30);
     if (!appName) return null;
-    return {
-      type,
-      title: "打开应用",
-      summary: appName,
-      params: { appName, packageName: String(params.packageName || "").trim().slice(0, 80) },
-    };
+    return { type, title: "打开应用", summary: appName, params: { appName, packageName: String(params.packageName || "").trim().slice(0, 80) } };
   }
 
   if (type === "navigate") {
     const destination = String(params.destination || command.summary || "").replace(/^到\s*/, "").trim().slice(0, 80);
     if (!destination) return null;
     const mode = ["driving", "walking", "riding"].includes(params.mode) ? params.mode : "driving";
-    return {
-      type,
-      title: "百度地图导航",
-      summary: `到 ${destination}`,
-      params: { appName: "百度地图", destination, mode },
-    };
+    return { type, title: "地图导航", summary: `到 ${destination}`, params: { appName: String(params.appName || "地图"), destination, mode } };
   }
 
   return null;
@@ -639,32 +639,18 @@ function sanitizeAction(action, records, pendingDraft, mobileCommand) {
     if (mobileCommand) return "mobile_command";
     return records.length ? "draft" : "chat";
   }
-  if (action === "draft") {
-    return records.length ? "draft" : "chat";
-  }
-  if (action === "mobile_command") {
-    return mobileCommand ? "mobile_command" : "chat";
-  }
-  if ((action === "confirm_pending" || action === "cancel_pending") && !pendingDraft.length) {
-    return "chat";
-  }
+  if (action === "draft") return records.length ? "draft" : "chat";
+  if (action === "mobile_command") return mobileCommand ? "mobile_command" : "chat";
+  if ((action === "confirm_pending" || action === "cancel_pending") && !pendingDraft.length) return "chat";
   return action;
 }
 
 function sanitizeReply(reply, action, records, mobileCommand) {
   const text = String(reply || "").trim();
-  if (text) return text.slice(0, 320);
-  if (action === "mobile_command" && mobileCommand) {
-    return createMobileReply(mobileCommand);
-  }
-  if (action === "draft" && records.length) {
-    return `我整理出 ${records.length} 笔待确认账单，你回复“好”我就帮你保存。`;
-  }
-  if (action === "confirm_pending") {
-    return "好的，已帮你记上。";
-  }
-  if (action === "cancel_pending") {
-    return "好的，这次先不保存。";
-  }
+  if (text) return text.slice(0, 520);
+  if (action === "mobile_command" && mobileCommand) return createMobileReply(mobileCommand);
+  if (action === "draft" && records.length) return `我整理出 ${records.length} 笔待确认账单，你回复“好”我就帮你保存。`;
+  if (action === "confirm_pending") return "好的，已帮你记上。";
+  if (action === "cancel_pending") return "好的，这次先不保存。";
   return "我在，直接和我说就行。";
 }
