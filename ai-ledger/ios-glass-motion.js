@@ -51,7 +51,6 @@
     style.textContent = `
       :root {
         --liquid-motion-mid: 280ms;
-        --liquid-ease-out: cubic-bezier(.22,1,.36,1);
         --liquid-ease-spring: cubic-bezier(.18,1.18,.26,1);
         --liquid-ease-nav: cubic-bezier(.18,.86,.18,1);
       }
