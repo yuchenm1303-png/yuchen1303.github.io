@@ -1,102 +1,10 @@
 (() => {
-  const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const pressCancelDistance = isCoarsePointer ? 10 : 14;
-  const pressableSelector = isCoarsePointer
-    ? ['button', '.auth-tab', '.tag-btn', '.range-chip', '.tools-back'].join(', ')
-    : [
-        'button',
-        '.record-item',
-        '.summary-chip',
-        '.summary-box',
-        '.metric-card',
-        '.chart-card',
-        '.summary-card',
-        '.tool-card',
-        '.tools-back',
-        '.account-row',
-        '.draft-card',
-        '.draft-item',
-        '.auth-tab'
-      ].join(', ');
-
   let detailChart = null;
   let detailChartTimer = null;
-  let activePress = null;
-  let scrollTimer = null;
+  let recordObserver = null;
 
   function money(value) {
     return `¥${Number(value || 0).toFixed(2)}`;
-  }
-
-  function beginPress(el, event) {
-    if (!el) return;
-    el.classList.remove('is-releasing');
-    el.classList.add('is-pressed');
-    activePress = {
-      el,
-      pointerId: event?.pointerId,
-      startX: event?.clientX || 0,
-      startY: event?.clientY || 0,
-      canceled: false,
-    };
-  }
-
-  function cancelPress(el) {
-    if (!el) return;
-    el.classList.remove('is-pressed');
-    el.classList.remove('is-releasing');
-    clearPressPoint(el);
-    if (activePress?.el === el) activePress = null;
-  }
-
-  function endPress(el, animate = true) {
-    if (!el) return;
-    el.classList.remove('is-pressed');
-    if (activePress?.el === el) activePress = null;
-    if (prefersReducedMotion) return;
-    if (!animate) return;
-    el.classList.remove('is-releasing');
-    void el.offsetWidth;
-    el.classList.add('is-releasing');
-    window.setTimeout(() => el.classList.remove('is-releasing'), 760);
-  }
-
-  function updatePressPoint(el, event) {
-    if (!el || typeof event.clientX !== 'number') return;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    const centerX = Math.max(-1, Math.min(1, (x - 50) / 50));
-    const centerY = Math.max(-1, Math.min(1, (y - 50) / 50));
-    el.style.setProperty('--press-x', `${Math.max(0, Math.min(100, x)).toFixed(1)}%`);
-    el.style.setProperty('--press-y', `${Math.max(0, Math.min(100, y)).toFixed(1)}%`);
-    el.style.setProperty('--press-shift-x', `${(centerX * 1.8).toFixed(2)}px`);
-    el.style.setProperty('--press-shift-y', `${(Math.max(.35, centerY + 1) * 1.2).toFixed(2)}px`);
-  }
-
-  function clearPressPoint(el) {
-    if (!el) return;
-    window.setTimeout(() => {
-      if (el.classList.contains('is-pressed')) return;
-      el.style.removeProperty('--press-shift-x');
-      el.style.removeProperty('--press-shift-y');
-    }, 760);
-  }
-
-  function markScrolling() {
-    document.body.classList.add('is-scrolling');
-    if (scrollTimer) window.clearTimeout(scrollTimer);
-    scrollTimer = window.setTimeout(() => {
-      document.body.classList.remove('is-scrolling');
-      scrollTimer = null;
-    }, 140);
-  }
-
-  function pulseHaptic() {
-    if (!isCoarsePointer || prefersReducedMotion || !navigator.vibrate) return;
-    navigator.vibrate(8);
   }
 
   function ensureDetailOverlay() {
@@ -114,7 +22,7 @@
             <h2 id="detailTitle">详细信息</h2>
             <p id="detailSubtitle">轻点空白处即可收起</p>
           </div>
-          <button id="detailCloseBtn" class="detail-close" type="button" aria-label="关闭">×</button>
+          <button id="detailCloseBtn" class="detail-close liquid-motion-target" type="button" aria-label="关闭">×</button>
         </div>
         <div id="detailBody"></div>
         <div id="detailSummary" class="detail-summary"></div>
@@ -150,7 +58,7 @@
     overlay.querySelector('#detailTitle').textContent = title;
     overlay.querySelector('#detailSubtitle').textContent = subtitle;
     overlay.querySelector('#detailBody').innerHTML = bodyHtml;
-    overlay.querySelector('#detailSummary').innerHTML = summaryHtml;
+    overlay.querySelector('#detailSummary').innerHTML = summaryHtml || '';
     document.body.classList.add('detail-open');
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
@@ -187,7 +95,7 @@
     const totalIncome = income.reduce((sum, value) => sum + Number(value || 0), 0);
     const maxExpense = Math.max(0, ...expense.map((value) => Number(value || 0)));
     const maxIncome = Math.max(0, ...income.map((value) => Number(value || 0)));
-    const labels = [...chart.data.labels];
+    const labels = [...(chart.data.labels || [])];
     const datasets = chart.data.datasets.map((dataset) => ({
       label: dataset.label,
       data: [...dataset.data],
@@ -214,11 +122,7 @@
           type: 'line',
           data: {
             labels,
-            datasets: datasets.map((dataset) => ({
-              ...dataset,
-              pointRadius: 4,
-              pointHoverRadius: 6,
-            })),
+            datasets: datasets.map((dataset) => ({ ...dataset, pointRadius: 4, pointHoverRadius: 6 })),
           },
           options: {
             animation: false,
@@ -262,14 +166,7 @@
         if (!ctx) return;
         detailChart = new Chart(ctx, {
           type: 'doughnut',
-          data: {
-            labels,
-            datasets: [{
-              data: [...data],
-              backgroundColor: colors,
-              borderWidth: 0,
-            }],
-          },
+          data: { labels, datasets: [{ data: [...data], backgroundColor: colors, borderWidth: 0 }] },
           options: {
             animation: false,
             responsive: true,
@@ -300,10 +197,7 @@
           <article class="detail-chip"><span>本期支出</span><strong>${expense}</strong></article>
         </div>
       `,
-      summaryHtml: `
-        <article class="detail-chip"><span>预算状态</span><strong>${budgetText}</strong></article>
-        <article class="detail-chip"><span>提示</span><strong>继续轻点查看</strong></article>
-      `,
+      summaryHtml: `<article class="detail-chip"><span>预算状态</span><strong>${budgetText}</strong></article>`,
     });
   }
 
@@ -321,10 +215,12 @@
 
   function bindExpandableCards() {
     document.addEventListener('click', (event) => {
+      if (event.target.closest('.delete-btn, button, input, textarea, select')) return;
       const chartCard = event.target.closest('.chart-card');
       if (chartCard) {
         if (chartCard.querySelector('#trendChart')) openTrendDetail();
         if (chartCard.querySelector('#categoryChart')) openCategoryDetail();
+        return;
       }
       if (event.target.closest('.summary-card')) openSummaryDetail();
     });
@@ -340,9 +236,9 @@
   function decorateRecordItems() {
     document.querySelectorAll('.record-item').forEach((item) => {
       if (item.querySelector('.record-extra')) return;
-      const title = item.querySelector('.record-title')?.textContent || '未命名账单';
-      const meta = item.querySelector('.record-meta')?.textContent || '';
-      const amount = item.querySelector('.record-amount')?.textContent || '';
+      const title = item.querySelector('.record-title, strong')?.textContent || '未命名账单';
+      const meta = item.querySelector('.record-meta, span')?.textContent || '';
+      const amount = item.querySelector('.record-amount, em')?.textContent || '';
       const extra = document.createElement('div');
       extra.className = 'record-extra';
       extra.textContent = `账单：${title} ｜ ${meta} ｜ 金额 ${amount}`;
@@ -355,7 +251,7 @@
   function bindRecordExpansion() {
     document.addEventListener('click', (event) => {
       const item = event.target.closest('.record-item');
-      if (!item || event.target.closest('.delete-btn')) return;
+      if (!item || event.target.closest('.delete-btn, button')) return;
       item.classList.toggle('expanded');
     });
 
@@ -367,55 +263,10 @@
     });
 
     const list = document.querySelector('#recordList');
-    if (list) {
-      const observer = new MutationObserver(() => decorateRecordItems());
-      observer.observe(list, { childList: true, subtree: true });
-    }
-  }
-
-  function bindPressFeedback() {
-    document.addEventListener('pointerdown', (event) => {
-      if (event.button !== undefined && event.button > 0) return;
-      const el = event.target.closest(pressableSelector);
-      updatePressPoint(el, event);
-      beginPress(el, event);
-      pulseHaptic();
-    }, { passive: true });
-
-    document.addEventListener('pointermove', (event) => {
-      const el = activePress?.el;
-      if (!el?.classList.contains('is-pressed')) return;
-      if (activePress.pointerId !== undefined && event.pointerId !== activePress.pointerId) return;
-      const dx = event.clientX - activePress.startX;
-      const dy = event.clientY - activePress.startY;
-      if (Math.hypot(dx, dy) > pressCancelDistance) {
-        activePress.canceled = true;
-        markScrolling();
-        cancelPress(el);
-        return;
-      }
-      updatePressPoint(el, event);
-    }, { passive: true });
-
-    ['pointerup', 'pointercancel'].forEach((type) => {
-      document.addEventListener(type, (event) => {
-        const el = activePress?.el || event.target.closest?.(pressableSelector);
-        const animate = type === 'pointerup' && !activePress?.canceled && !document.body.classList.contains('is-scrolling');
-        updatePressPoint(el, event);
-        endPress(el, animate);
-        clearPressPoint(el);
-      }, { passive: true });
-    });
-
-    document.addEventListener('pointerleave', (event) => {
-      const el = activePress?.el || event.target.closest?.(pressableSelector);
-      cancelPress(el);
-    }, true);
-
-    document.addEventListener('scroll', () => {
-      markScrolling();
-      if (activePress?.el) cancelPress(activePress.el);
-    }, { passive: true, capture: true });
+    if (!list) return;
+    recordObserver?.disconnect();
+    recordObserver = new MutationObserver(() => requestAnimationFrame(decorateRecordItems));
+    recordObserver.observe(list, { childList: true });
   }
 
   function init() {
@@ -423,12 +274,11 @@
     decorateRecordItems();
     bindExpandableCards();
     bindRecordExpansion();
-    bindPressFeedback();
     ensureDetailOverlay();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', init, { once: true });
   } else {
     init();
   }

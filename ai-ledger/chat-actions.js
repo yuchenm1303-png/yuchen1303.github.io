@@ -18,7 +18,23 @@
       name: "mobile.navigate",
       action: "mobile_command",
       commandType: "navigate",
-      title: "百度地图导航",
+      title: "地图导航",
+      params: {
+        mapProvider: "baidu | amap",
+        destination: "目的地或常用地点别名",
+        mode: "driving | walking | riding | transit",
+        routeOptions: "避开高速、少收费、地铁优先、少步行、实时路况等偏好",
+      },
+    },
+    {
+      name: "mobile.navigation_preferences",
+      action: "mobile_command",
+      commandType: "navigate",
+      intent: "navigation_preference",
+      title: "保存导航偏好",
+      params: {
+        updates: "家、学校、公司、宿舍、默认地图、默认出行方式和路线习惯",
+      },
     },
   ];
   const initialChat = [
@@ -32,6 +48,21 @@
     },
   ];
 
+  const MODE_LABELS = {
+    driving: "驾车",
+    walking: "步行",
+    riding: "骑行",
+    transit: "公交/地铁",
+  };
+
+  const ROUTE_OPTION_LABELS = {
+    avoidHighway: "避开高速",
+    avoidTolls: "少收费",
+    preferSubway: "地铁优先",
+    preferLessWalk: "少步行",
+    useRealtimeTraffic: "参考实时路况",
+  };
+
   function clearConversation() {
     const ok = window.confirm("确定清空当前对话吗？账单记录不会被删除。");
     if (!ok) return;
@@ -40,7 +71,7 @@
   }
 
   function escapeHtml(value) {
-    return String(value)
+    return String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
@@ -55,6 +86,15 @@
     } catch {
       return [...initialChat];
     }
+  }
+
+  function makeCommandId(prefix = "cmd") {
+    if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function isNavigationPreferenceCommand(command) {
+    return command?.commandKind === "navigation_preference" || command?.params?.intent === "navigation_preference" || command?.params?.updates;
   }
 
   function addDays(date, days) {
@@ -73,6 +113,10 @@
 
   function formatDisplayDate(date) {
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+  }
+
+  function cleanText(value, max = 120) {
+    return String(value || "").trim().replace(/\s+/g, " ").slice(0, max);
   }
 
   function normalizeMeridiem(hour, text) {
@@ -114,6 +158,7 @@
       .trim() || (/起床|叫醒/u.test(text) ? "起床" : "提醒");
 
     return {
+      id: makeCommandId("alarm"),
       type: "set_alarm",
       title: "设置闹钟",
       summary: `${formatDisplayDate(target)} ${pad2(hour)}:${pad2(minute)}`,
@@ -132,6 +177,7 @@
     const appName = match[1].trim();
     if (!appName || /(闹钟|提醒|记账)/u.test(appName)) return null;
     return {
+      id: makeCommandId("app"),
       type: "open_app",
       title: "打开应用",
       summary: appName,
@@ -139,41 +185,170 @@
     };
   }
 
-  function parseNavigationCommand(text) {
-    if (!/(导航|路线|带我去|回家|到家|怎么走)/u.test(text)) return null;
+  function inferMapProvider(text) {
+    if (/高德|amap/i.test(text)) return "amap";
+    if (/百度|baidu/i.test(text)) return "baidu";
+    return "";
+  }
 
-    const destinationMatch = text.match(/(?:导航(?:到|去)?|路线到|带我去|怎么去|怎么到)\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+)$/u)
-      || text.match(/去\s*([\u4e00-\u9fa5A-Za-z0-9·.\- ]+?)(?:怎么走|路线|导航)$/u);
-    let destination = destinationMatch?.[1]?.trim() || "";
+  function inferTravelMode(text, fallback = "") {
+    if (/公交|地铁|轨道|轻轨|换乘|坐车|公共交通/u.test(text)) return "transit";
+    if (/步行|走路|步走/u.test(text)) return "walking";
+    if (/骑行|骑车|单车|自行车|电动车/u.test(text)) return "riding";
+    if (/驾车|开车|自驾|打车|出租车|网约车/u.test(text)) return "driving";
+    return fallback || window.AssistantPreferences?.getPreferences?.().defaultMode || "driving";
+  }
 
-    if (/回家|到家|去家|家里|我家/u.test(text)) destination = "家";
-    destination = destination
-      .replace(/^(百度地图|地图|帮我|请|给我)/u, "")
-      .replace(/(?:怎么走|路线|导航)$/u, "")
-      .trim();
+  function inferRouteOptions(text) {
+    const options = {};
+    if (/避开高速|不走高速|不要高速|少走高速/u.test(text)) options.avoidHighway = true;
+    if (/高速优先|走高速/u.test(text) && !/不走高速|不要高速/u.test(text)) options.avoidHighway = false;
+    if (/少收费|少花钱|避免收费|不走收费|避开收费/u.test(text)) options.avoidTolls = true;
+    if (/地铁优先|优先地铁|多坐地铁/u.test(text)) options.preferSubway = true;
+    if (/少步行|少走路|不要走太多|步行少一点/u.test(text)) options.preferLessWalk = true;
+    if (/实时路况|躲拥堵|避开拥堵|避堵/u.test(text)) options.useRealtimeTraffic = true;
+    return options;
+  }
 
-    if (!destination || /^(打开|启动)?(百度地图|地图)$/u.test(destination)) return null;
+  function routeOptionText(options = {}) {
+    return Object.entries(options)
+      .filter(([, value]) => Boolean(value))
+      .map(([key]) => ROUTE_OPTION_LABELS[key] || key)
+      .join("、") || "按默认路线";
+  }
 
-    const mode = /步行|走路/u.test(text)
-      ? "walking"
-      : /骑行|骑车|单车/u.test(text)
-        ? "riding"
-        : "driving";
+  function normalizePlaceKey(alias) {
+    return window.AssistantPreferences?.normalizePlaceKey?.(alias) || (() => {
+      const text = cleanText(alias, 24);
+      if (/^(家|我家|家里|回家|到家)$/u.test(text)) return "home";
+      if (/^(学校|校区|大学|学院)$/u.test(text)) return "school";
+      if (/^(公司|单位|办公室)$/u.test(text)) return "work";
+      if (/^(宿舍|寝室|住处)$/u.test(text)) return "dorm";
+      return "";
+    })();
+  }
+
+  function parseNavigationPreferenceCommand(text) {
+    if (!/(默认|以后|偏好|习惯|地址|设为|设置为|保存为|改成|定为|记住|少步行|避开高速|少收费|地铁优先)/u.test(text)) return null;
+    const updates = { places: {}, customPlaces: [], routeOptions: {} };
+    const summaryRows = [];
+
+    const provider = inferMapProvider(text);
+    if (provider && /(默认|以后|导航|地图|偏好|习惯)/u.test(text)) {
+      updates.mapProvider = provider;
+      summaryRows.push(["默认地图", provider === "amap" ? "高德地图" : "百度地图"]);
+    }
+
+    const mode = inferTravelMode(text, "");
+    if (mode && /(默认|以后|导航|出行方式|路线|通勤|偏好|习惯)/u.test(text)) {
+      updates.defaultMode = mode;
+      summaryRows.push(["默认方式", MODE_LABELS[mode] || "驾车"]);
+    }
+
+    const routeOptions = inferRouteOptions(text);
+    if (Object.keys(routeOptions).length) {
+      updates.routeOptions = { ...updates.routeOptions, ...routeOptions };
+      summaryRows.push(["路线习惯", routeOptionText(routeOptions)]);
+    }
+
+    const placePatterns = [
+      /(?:把|将)?(家|我家|家里|学校|校区|公司|单位|办公室|宿舍|寝室|住处)(?:的)?(?:地址|位置)?(?:设为|设置为|改成|定为|保存为|记为|是)\s*([^，。；;\n]+)/u,
+      /([^，。；;\n]{1,12})(?:地址|位置)(?:设为|设置为|改成|定为|保存为|记为|是)\s*([^，。；;\n]+)/u,
+      /以后(?:去|回|到)([^，。；;\n]{1,12})(?:就是|去|到)?\s*([^，。；;\n]+)/u,
+    ];
+
+    placePatterns.forEach((pattern) => {
+      const match = text.match(pattern);
+      if (!match) return;
+      const alias = cleanText(match[1], 16);
+      const address = cleanText(match[2], 120)
+        .replace(/^(在|是|为|到|去)/u, "")
+        .replace(/(默认|以后|导航|地图)$/u, "")
+        .trim();
+      if (!alias || !address) return;
+      const key = normalizePlaceKey(alias);
+      if (key) updates.places[key] = address;
+      else updates.customPlaces.push({ name: alias, address });
+      summaryRows.push([key ? `常用地址 · ${alias}` : `自定义地点 · ${alias}`, address]);
+    });
+
+    updates.customPlaces = updates.customPlaces.filter((item) => item.name && item.address);
+    if (!Object.keys(updates.places).length) delete updates.places;
+    if (!updates.customPlaces.length) delete updates.customPlaces;
+    if (!Object.keys(updates.routeOptions).length) delete updates.routeOptions;
+
+    const hasUpdates = Boolean(
+      updates.mapProvider || updates.defaultMode || updates.places || updates.customPlaces || updates.routeOptions
+    );
+    if (!hasUpdates) return null;
 
     return {
+      id: makeCommandId("nav-pref"),
       type: "navigate",
-      title: "百度地图导航",
-      summary: `到 ${destination}`,
+      commandKind: "navigation_preference",
+      title: "保存导航偏好",
+      summary: summaryRows.map(([key, value]) => `${key}：${value}`).join("；") || "更新导航偏好",
       params: {
-        appName: "百度地图",
-        destination,
-        mode,
+        intent: "navigation_preference",
+        updates,
+        rows: summaryRows,
       },
     };
   }
 
+  function cleanDestination(text) {
+    return cleanText(text, 120)
+      .replace(/^(百度地图|高德地图|地图|帮我|请|给我|用百度|用高德|打开地图|开车|驾车|步行|走路|骑行|公交|地铁|坐公交|坐地铁)/u, "")
+      .replace(/(怎么走|怎么去|路线|导航|导航一下|带路)$/u, "")
+      .replace(/^(到|去|回)/u, "")
+      .trim();
+  }
+
+  function parseNavigationCommand(text) {
+    if (!/(导航|路线|带我去|回家|到家|怎么走|怎么去|去学校|去公司|去宿舍|去寝室|去家里)/u.test(text)) return null;
+
+    const destinationMatch = text.match(/(?:导航(?:到|去)?|路线到|带我去|怎么去|怎么到)\s*([^，。；;\n]+)/u)
+      || text.match(/去\s*([^，。；;\n]+?)(?:怎么走|怎么去|路线|导航)?$/u)
+      || text.match(/(?:回|到)(家|学校|公司|宿舍|寝室)$/u);
+    let destination = destinationMatch?.[1]?.trim() || "";
+
+    if (/回家|到家|去家|家里|我家/u.test(text)) destination = "家";
+    if (/去学校|到学校|回学校/u.test(text)) destination = "学校";
+    if (/去公司|到公司|回公司|去单位|到单位/u.test(text)) destination = "公司";
+    if (/去宿舍|回宿舍|到宿舍|去寝室|回寝室/u.test(text)) destination = "宿舍";
+
+    destination = cleanDestination(destination);
+    if (!destination || /^(打开|启动)?(百度地图|高德地图|地图)$/u.test(destination)) return null;
+
+    const mode = inferTravelMode(text);
+    const routeOptions = inferRouteOptions(text);
+    const provider = inferMapProvider(text);
+    const decorated = window.AssistantPreferences?.decorateNavigationParams?.({
+      mapProvider: provider || undefined,
+      destination,
+      destinationAlias: destination,
+      mode,
+      routeOptions,
+    }, { sourceText: text }) || {
+      appName: provider === "amap" ? "高德地图" : "百度地图",
+      mapProvider: provider || "baidu",
+      destination,
+      destinationAlias: destination,
+      mode,
+      routeOptions,
+    };
+
+    return {
+      id: makeCommandId("nav"),
+      type: "navigate",
+      title: `${decorated.appName || "地图"}导航`,
+      summary: decorated.placeAddressMissing ? `${decorated.destinationAlias || destination}（未填写地址）` : `到 ${decorated.destination}`,
+      params: decorated,
+    };
+  }
+
   function parseMobileCommand(text) {
-    return parseAlarmCommand(text) || parseNavigationCommand(text) || parseOpenAppCommand(text);
+    return parseAlarmCommand(text) || parseNavigationPreferenceCommand(text) || parseNavigationCommand(text) || parseOpenAppCommand(text);
   }
 
   function getStatusText(state) {
@@ -197,28 +372,33 @@
         ["应用", command.params.appName],
       ];
     }
+    if (isNavigationPreferenceCommand(command)) {
+      const rows = command.params?.rows?.length ? command.params.rows : [["偏好", command.summary || "更新导航偏好"]];
+      return [["动作", "保存导航偏好"], ...rows];
+    }
     if (command.type === "navigate") {
-      const modeLabel = {
-        driving: "驾车",
-        walking: "步行",
-        riding: "骑行",
-      }[command.params.mode] || "驾车";
-      return [
-        ["动作", "百度地图导航"],
-        ["目的地", command.params.destination],
+      const modeLabel = MODE_LABELS[command.params.mode] || "驾车";
+      const rows = [
+        ["动作", `${command.params.appName || "地图"}导航`],
+        ["目的地", command.params.placeAddressMissing ? `${command.params.destinationAlias || command.params.destination}（未填写地址）` : command.params.destination],
         ["方式", modeLabel],
       ];
+      const options = routeOptionText(command.params.routeOptions || {});
+      if (options !== "按默认路线") rows.push(["路线偏好", options]);
+      return rows;
     }
     return [["动作", command.title || command.type]];
   }
 
   function renderMobileCard(command, state = "pending", message = "") {
+    command.id = command.id || makeCommandId(command.type || "cmd");
     const rows = getActionRows(command)
       .map(([key, value]) => `<div class="mobile-command-row"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`)
       .join("");
+    const confirmText = isNavigationPreferenceCommand(command) ? "确认保存" : "确认执行";
     const buttons = state === "pending"
       ? `<div class="mobile-command-actions">
-          <button class="mobile-command-confirm" type="button" data-mobile-run="${escapeHtml(command.id)}">确认执行</button>
+          <button class="mobile-command-confirm" type="button" data-mobile-run="${escapeHtml(command.id)}">${confirmText}</button>
           <button class="mobile-command-cancel" type="button" data-mobile-cancel="${escapeHtml(command.id)}">取消</button>
         </div>`
       : "";
@@ -238,8 +418,16 @@
     if (command.type === "set_alarm") {
       return `我理解为要${command.summary}设置“${command.params.label}”闹钟，确认后我再执行。`;
     }
+    if (isNavigationPreferenceCommand(command)) {
+      return `我整理好了导航偏好：${command.summary || "更新导航习惯"}。确认后我会保存到手机偏好里。`;
+    }
     if (command.type === "navigate") {
-      return `我理解为要用百度地图导航到“${command.params.destination}”，确认后我再执行。`;
+      const map = command.params?.appName || "地图";
+      const mode = MODE_LABELS[command.params?.mode] || "驾车";
+      if (command.params?.placeAddressMissing) {
+        return `我知道你想去“${command.params.destinationAlias || command.params.destination}”，但这个常用地址还没填写。你可以先确认尝试打开${map}，也可以说“把${command.params.destinationAlias}设为具体地址”。`;
+      }
+      return `我理解为要用${map}${mode}导航到“${command.params.destination}”，确认后我再执行。`;
     }
     return `我理解为要打开“${command.params.appName}”，确认后我再执行。`;
   }
@@ -249,6 +437,13 @@
   }
 
   async function executeCommand(command) {
+    if (isNavigationPreferenceCommand(command)) {
+      if (!window.AssistantPreferences?.applyPreferenceUpdate) {
+        return { ok: false, message: "导航偏好模块还没有加载完成。" };
+      }
+      return window.AssistantPreferences.applyPreferenceUpdate(command.params?.updates || {});
+    }
+
     const plugin = getCapacitorPlugin();
     if (!plugin) {
       return {
@@ -322,7 +517,7 @@
         return;
       }
 
-      updateCard(commandId, "pending", "正在调用 Android 能力……");
+      updateCard(commandId, "pending", isNavigationPreferenceCommand(command) ? "正在保存导航偏好……" : "正在调用 Android 能力……");
       try {
         const result = await executeCommand(command);
         if (result?.ok) {
