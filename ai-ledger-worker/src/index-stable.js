@@ -1,4 +1,4 @@
-const VERSION = "2026-05-15-stable-online-tools-1";
+const VERSION = "2026-05-15-stable-online-tools-2-weatherfix";
 const CATEGORIES = ["餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他"];
 const ACTIONS = ["chat", "draft", "confirm_pending", "cancel_pending", "mobile_command"];
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
@@ -16,7 +16,7 @@ export default {
         version: VERSION,
         provider: env.GEMINI_API_KEY ? "gemini" : "workers_ai",
         model: env.GEMINI_API_KEY ? (env.GEMINI_MODEL || "gemini-2.5-flash") : (env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"),
-        mode: "stable_online_tools",
+        mode: "stable_online_tools_weatherfix",
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasAiBinding: Boolean(env.AI),
         searchProviders: {
@@ -97,7 +97,7 @@ async function onlineTool(text, env, now) {
   const calc = calculator(value);
   if (calc) return calc;
   if (/(今天几号|今天星期几|今天日期|现在日期|今天是什么日子)/u.test(value)) return datetime(now);
-  if (/(天气|下雨|气温|温度|风速|降雨|穿什么)/u.test(value)) return weather(value);
+  if (/(天气|下雨|气温|温度|风速|降雨|穿什么|预报)/u.test(value)) return weather(value);
   if (/(搜索|查一下|搜一下|最新|新闻|价格|官网|联网查)/u.test(value)) return search(value, env);
   if (/(百科|维基|介绍一下|是什么|是谁)/u.test(value) && value.length <= 60 && !/(你是谁|你叫什么|你是什么|你能做什么)/u.test(value)) {
     const topic = value.replace(/请|帮我|百科|维基|介绍一下|是什么|是谁|查一下|搜索/gu, "").replace(/[？?。！!]/g, "").trim();
@@ -107,18 +107,66 @@ async function onlineTool(text, env, now) {
 }
 
 async function weather(text) {
-  const location = text.replace(/今天|明天|后天|天气|下雨|气温|温度|怎么样|如何|会不会|查询|查一下|请问|现在|的/gu, "").replace(/[，。！？?\s]/g, "").trim().slice(0, 24);
-  if (!location) return pack("你想查哪里的天气？例如：重庆今天会下雨吗。", "weather_tool");
+  const candidates = weatherLocationCandidates(text);
+  if (!candidates.length) return pack("你想查哪里的天气？例如：重庆今天会下雨吗。", "weather_tool");
   try {
-    const geo = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=zh&format=json`);
-    const p = geo?.results?.[0];
-    if (!p) return pack(`我没有找到“${location}”的天气位置。`, "weather_tool");
+    const found = await geocodeWeatherLocation(candidates);
+    if (!found) return pack(`我没有找到“${candidates[0]}”的天气位置。你可以换成更明确的城市名，比如“重庆市天气”或“北京海淀天气”。`, "weather_tool");
+    const p = found.place;
     const f = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=3&timezone=auto`);
     const c = f.current || {};
     const d = f.daily || {};
     const rain = d.precipitation_probability_max?.[0];
     return pack(`${p.name}${p.admin1 ? `（${p.admin1}）` : ""}当前约 ${r(c.temperature_2m)}℃，体感 ${r(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${r(c.wind_speed_10m)} km/h。今天气温约 ${r(d.temperature_2m_min?.[0])}–${r(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, "weather_tool");
-  } catch (e) { return pack(`天气查询失败：${String(e?.message || e).slice(0, 120)}`, "weather_tool"); }
+  } catch (e) {
+    return pack(`天气查询失败：${String(e?.message || e).slice(0, 120)}`, "weather_tool");
+  }
+}
+
+function weatherLocationCandidates(text) {
+  const raw = String(text || "").trim();
+  const patterns = [
+    /(?:查一下|查询|看看|帮我查|帮我看看|请问)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:今天|今日|现在|当前|明天|后天)?(?:的)?(?:天气|气温|温度|预报)/u,
+    /(?:查一下|查询|看看|帮我查|帮我看看|请问)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:今天|今日|明天|后天)?(?:会不会|会)?(?:下雨|降雨)/u,
+    /(?:今天|今日|现在|当前|明天|后天)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:会不会|会)?(?:下雨|降雨|天气|气温|温度)/u,
+  ];
+  let loc = "";
+  for (const pattern of patterns) {
+    const m = raw.match(pattern);
+    if (m?.[1]) { loc = m[1]; break; }
+  }
+  if (!loc) loc = raw;
+  loc = cleanWeatherLocation(loc);
+  const fallback = cleanWeatherLocation(raw);
+  const base = loc || fallback;
+  if (!base) return [];
+  const items = [base];
+  if (base.endsWith("市") || base.endsWith("区") || base.endsWith("县")) items.push(base.slice(0, -1));
+  else if (/^[\u4e00-\u9fa5]{2,6}$/u.test(base)) items.push(`${base}市`);
+  if (base === "重庆") items.push("重庆市", "Chongqing");
+  if (base === "北京") items.push("北京市", "Beijing");
+  if (base === "上海") items.push("上海市", "Shanghai");
+  if (base === "天津") items.push("天津市", "Tianjin");
+  return [...new Set(items.filter(Boolean))].slice(0, 6);
+}
+
+function cleanWeatherLocation(value) {
+  return String(value || "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/请问|请|帮我|帮忙|给我|麻烦|上网|联网|搜索|搜一下|查一下|查询|看看|看一下|一下|今天|今日|现在|当前|明天|后天|天气|气温|温度|预报|下雨|降雨|会不会|会|不会|怎么样|如何|多少|几度|穿什么|适合|出门|带伞|的|吗|呢|啊|呀/gu, "")
+    .replace(/[，。！？?、,.!！\s]/g, "")
+    .trim()
+    .slice(0, 32);
+}
+
+async function geocodeWeatherLocation(candidates) {
+  for (const name of candidates) {
+    const geo = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=5&language=zh&format=json`);
+    const results = Array.isArray(geo?.results) ? geo.results : [];
+    const china = results.find(x => x.country_code === "CN") || results[0];
+    if (china?.latitude && china?.longitude) return { query: name, place: china };
+  }
+  return null;
 }
 
 async function wiki(topic) {
