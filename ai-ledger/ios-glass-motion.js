@@ -38,17 +38,10 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      .liquid-touch-glow {
-        display: none !important;
-        content: none !important;
-      }
+      .liquid-touch-glow { display: none !important; content: none !important; }
 
       .liquid-motion-target,
-      .liquid-motion-target > * {
-        writing-mode: horizontal-tb !important;
-        text-orientation: mixed !important;
-      }
-
+      .liquid-motion-target > *,
       .settings-group-card,
       .settings-group-card > *,
       .settings-group-title,
@@ -62,8 +55,8 @@
       .liquid-motion-target {
         transform-origin: center center !important;
         transition:
-          transform 120ms cubic-bezier(.2,.8,.2,1),
-          filter 120ms ease,
+          transform 115ms cubic-bezier(.2,.8,.2,1),
+          filter 115ms ease,
           box-shadow 150ms ease,
           opacity 120ms ease !important;
         -webkit-tap-highlight-color: transparent;
@@ -71,15 +64,13 @@
       }
 
       .liquid-motion-target.liquid-pressed,
-      .liquid-motion-target:active {
-        filter: brightness(1.08) saturate(1.04) !important;
-      }
+      .liquid-motion-target:active { filter: brightness(1.075) saturate(1.035) !important; }
 
       .settings-group-card.liquid-pressed,
       .settings-group-card:active,
       .tool-card.liquid-pressed,
       .tool-card:active {
-        transform: translateY(1px) scale(.992) !important;
+        transform: translateY(1px) scale(.988) !important;
         box-shadow:
           0 10px 22px rgba(0,0,0,.14),
           inset 0 1px 0 rgba(255,255,255,.34),
@@ -94,9 +85,7 @@
       .delete-btn.liquid-pressed,
       .delete-btn:active,
       .send-btn.liquid-pressed,
-      .send-btn:active {
-        transform: scale(.965) !important;
-      }
+      .send-btn:active { transform: scale(.94) !important; }
 
       .tag-btn.liquid-pressed,
       .tag-btn:active,
@@ -115,67 +104,61 @@
       .bg-option.liquid-pressed,
       .bg-option:active,
       .appearance-toggle.liquid-pressed,
-      .appearance-toggle:active {
-        transform: translateY(1px) scale(.975) !important;
+      .appearance-toggle:active { transform: translateY(1px) scale(.970) !important; }
+
+      .nav-btn.liquid-nav-pop { animation: safeNavButtonPop 310ms cubic-bezier(.16,.92,.24,1.12) both; }
+      .bottom-nav.liquid-nav-wobble { animation: safeBottomNavWobble 360ms cubic-bezier(.16,.92,.24,1.10) both; }
+      .tool-card.liquid-card-pop { animation: safeToolCardPop 360ms cubic-bezier(.16,.92,.24,1.08) both; animation-delay: var(--tool-pop-delay, 0ms); }
+      .tools-grid.liquid-grid-pop { animation: safeGridSettle 280ms ease both; }
+
+      @keyframes safeNavButtonPop {
+        0% { transform: scale(.94); }
+        48% { transform: scale(1.095); }
+        72% { transform: scale(.985); }
+        100% { transform: scale(1); }
       }
 
-      .settings-group-card.liquid-pressed::after,
-      .settings-group-card:active::after,
-      .tool-card.liquid-pressed::after,
-      .tool-card:active::after,
-      .nav-btn.liquid-pressed::after,
-      .nav-btn:active::after {
-        opacity: .22 !important;
+      @keyframes safeBottomNavWobble {
+        0% { transform: translateX(-50%) scale(1); }
+        42% { transform: translateX(-50%) scale(1.018); }
+        72% { transform: translateX(-50%) scale(.996); }
+        100% { transform: translateX(-50%) scale(1); }
+      }
+
+      @keyframes safeToolCardPop {
+        0% { opacity: .82; transform: translateY(9px) scale(.982); }
+        58% { opacity: 1; transform: translateY(-2px) scale(1.018); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      @keyframes safeGridSettle {
+        0% { transform: translateY(4px); }
+        100% { transform: translateY(0); }
       }
 
       .settings-group-detail.open,
       .appearance-detail-overlay.open,
-      .auth-overlay.open {
-        animation: safeOverlayFadeIn 140ms ease both;
-      }
+      .auth-overlay.open { opacity: 1 !important; animation: none !important; }
 
       .settings-group-detail.open .settings-group-sheet,
       .appearance-detail-overlay.open .appearance-detail-panel,
-      .auth-overlay.open .auth-sheet {
-        animation: safeSheetRise 180ms cubic-bezier(.2,.8,.2,1) both;
-        transform-origin: 50% 100%;
-      }
-
-      @keyframes safeOverlayFadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-
-      @keyframes safeSheetRise {
-        from { opacity: 0; transform: translateY(12px) scale(.985); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-      }
+      .auth-overlay.open .auth-sheet { opacity: 1 !important; transform: none !important; animation: none !important; }
 
       body.assistant-motion-off .liquid-motion-target,
-      body.assistant-motion-off .settings-group-detail.open,
-      body.assistant-motion-off .settings-group-detail.open .settings-group-sheet,
-      body.assistant-motion-off .appearance-detail-overlay.open,
-      body.assistant-motion-off .appearance-detail-overlay.open .appearance-detail-panel,
-      body.assistant-motion-off .auth-overlay.open,
-      body.assistant-motion-off .auth-overlay.open .auth-sheet {
-        animation: none !important;
-        transition: none !important;
-        transform: none !important;
-        filter: none !important;
+      body.assistant-motion-off .nav-btn.liquid-nav-pop,
+      body.assistant-motion-off .bottom-nav.liquid-nav-wobble,
+      body.assistant-motion-off .tool-card.liquid-card-pop,
+      body.assistant-motion-off .tools-grid.liquid-grid-pop {
+        animation: none !important; transition: none !important; transform: none !important; filter: none !important;
       }
 
       @media (prefers-reduced-motion: reduce) {
         .liquid-motion-target,
-        .settings-group-detail.open,
-        .settings-group-detail.open .settings-group-sheet,
-        .appearance-detail-overlay.open,
-        .appearance-detail-overlay.open .appearance-detail-panel,
-        .auth-overlay.open,
-        .auth-overlay.open .auth-sheet {
-          animation: none !important;
-          transition: none !important;
-          transform: none !important;
-          filter: none !important;
+        .nav-btn.liquid-nav-pop,
+        .bottom-nav.liquid-nav-wobble,
+        .tool-card.liquid-card-pop,
+        .tools-grid.liquid-grid-pop {
+          animation: none !important; transition: none !important; transform: none !important; filter: none !important;
         }
       }
     `;
@@ -222,11 +205,39 @@
     softVibrate();
   }
 
+  function popClass(el, className, timeout = 420) {
+    if (!el || isMotionDisabled()) return;
+    el.classList.remove(className);
+    void el.offsetWidth;
+    el.classList.add(className);
+    window.setTimeout(() => el.classList.remove(className), timeout);
+  }
+
+  function popToolCards() {
+    if (isMotionDisabled()) return;
+    const grid = document.querySelector('#toolsHome .tools-grid');
+    const cards = [...document.querySelectorAll('#toolsHome .tool-card')];
+    if (!grid || !cards.length) return;
+    popClass(grid, 'liquid-grid-pop', 360);
+    cards.forEach((card, index) => {
+      card.style.setProperty('--tool-pop-delay', `${Math.min(index * 26, 130)}ms`);
+      popClass(card, 'liquid-card-pop', 520 + index * 26);
+    });
+  }
+
   function release() {
     if (!activeTarget) return;
     const target = activeTarget;
     activeTarget = null;
-    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 70);
+    clearTimer = window.setTimeout(() => target.classList.remove(PRESSED_CLASS), 55);
+
+    if (target.classList.contains('nav-btn')) {
+      popClass(target, 'liquid-nav-pop', 360);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 420);
+      if (target.dataset.view === 'tools') window.setTimeout(popToolCards, 90);
+    } else if (target.classList.contains('tool-card') || target.classList.contains('settings-group-card')) {
+      popClass(target, 'liquid-card-pop', 430);
+    }
   }
 
   function boot() {
@@ -238,6 +249,11 @@
     document.addEventListener('pointerup', release, { passive: true });
     document.addEventListener('pointercancel', release, { passive: true });
     document.addEventListener('scroll', release, { passive: true, capture: true });
+
+    document.addEventListener('click', (event) => {
+      const nav = event.target.closest?.('.nav-btn');
+      if (nav?.dataset.view === 'tools') window.setTimeout(popToolCards, 120);
+    }, { passive: true });
 
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
