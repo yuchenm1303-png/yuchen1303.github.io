@@ -9,6 +9,8 @@
   const CHAT_KEY = shared.CHAT_KEY || 'ai-ledger-chat-v2';
   const { SOURCE_LABELS = {}, escapeHtml = (v) => String(v || '') } = shared;
   const animatedIds = new Set();
+  let repaintTimer = 0;
+  let repaintFlip = false;
 
   function readMessages() {
     const out = [];
@@ -128,22 +130,24 @@
       @keyframes chatBubbleInUser{0%{opacity:0;transform:translate(10px,12px) scale(.965);filter:blur(4px)}68%{opacity:1;transform:translate(-1px,-1px) scale(1.006);filter:blur(0)}100%{opacity:1;transform:translate(0,0) scale(1);filter:blur(0)}}
       @keyframes chatBadgeIn{0%{opacity:0;transform:translateY(-4px) scale(.94)}100%{opacity:1;transform:translateY(0) scale(1)}}
       @keyframes chatActionsIn{0%{opacity:0;transform:translateY(-3px) scale(.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
-      .chat-hard-badge{display:inline-flex!important;align-items:center!important;gap:6px!important;width:fit-content!important;max-width:100%!important;box-sizing:border-box!important;margin:14px 0 0 0!important;padding:7px 12px!important;border-radius:999px!important;font-size:11px!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.01em!important;white-space:normal!important;word-break:break-word!important;opacity:1!important;visibility:visible!important;position:relative!important;z-index:30!important;pointer-events:none!important;color:rgba(238,250,255,.84)!important;background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(255,255,255,.075))!important;border:1px solid rgba(255,255,255,.25)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 8px 18px rgba(0,0,0,.10)!important;backdrop-filter:blur(14px) saturate(150%)!important;-webkit-backdrop-filter:blur(14px) saturate(150%)!important;}
+      #chatMessages[data-badge-repaint="1"] .chat-hard-badge,#chatMessages[data-badge-repaint="1"] .chat-hard-actions{transform:translateZ(.01px)!important;}
+      #chatMessages[data-badge-repaint="2"] .chat-hard-badge,#chatMessages[data-badge-repaint="2"] .chat-hard-actions{transform:translateZ(.02px)!important;}
+      .chat-hard-badge{display:inline-flex!important;align-items:center!important;gap:6px!important;width:fit-content!important;max-width:100%!important;box-sizing:border-box!important;margin:14px 0 0 0!important;padding:7px 12px!important;border-radius:999px!important;font-size:11px!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.01em!important;white-space:normal!important;word-break:break-word!important;opacity:1!important;visibility:visible!important;position:relative!important;z-index:30!important;pointer-events:none!important;color:rgba(238,250,255,.86)!important;background:rgba(255,255,255,.135)!important;border:1px solid rgba(255,255,255,.24)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 8px 18px rgba(0,0,0,.10)!important;transform:translateZ(0)!important;will-change:transform,opacity!important;contain:paint!important;}
       .chat-row.user .chat-hard-badge{margin-left:auto!important;}
       .chat-hard-badge::before{content:'';display:inline-block;width:8px;height:8px;border-radius:999px;background:currentColor;opacity:.92;box-shadow:0 0 12px currentColor;flex:0 0 auto;}
-      .chat-hard-badge[data-tone="cloud"]{color:#8cf7ff!important;border-color:rgba(132,221,255,.38)!important;background:linear-gradient(135deg,rgba(33,197,255,.20),rgba(88,130,255,.10))!important;}
-      .chat-hard-badge[data-tone="gemini"]{color:#d6c8ff!important;border-color:rgba(173,145,255,.42)!important;background:linear-gradient(135deg,rgba(126,87,255,.22),rgba(236,72,153,.10))!important;}
-      .chat-hard-badge[data-tone="vision"]{color:#ffd1fb!important;border-color:rgba(236,72,153,.38)!important;background:linear-gradient(135deg,rgba(236,72,153,.18),rgba(126,87,255,.10))!important;}
-      .chat-hard-badge[data-tone="online"]{color:#9af8cc!important;border-color:rgba(22,190,121,.38)!important;background:linear-gradient(135deg,rgba(22,190,121,.18),rgba(33,197,255,.08))!important;}
-      .chat-hard-badge[data-tone="attachment"]{color:#e7edff!important;border-color:rgba(181,190,255,.38)!important;background:linear-gradient(135deg,rgba(148,163,255,.20),rgba(255,255,255,.08))!important;}
-      .chat-hard-badge[data-tone="error"]{color:#ffc1c1!important;border-color:rgba(255,91,91,.38)!important;background:linear-gradient(135deg,rgba(255,91,91,.20),rgba(236,72,153,.08))!important;}
+      .chat-hard-badge[data-tone="cloud"]{color:#8cf7ff!important;border-color:rgba(132,221,255,.38)!important;background:rgba(33,197,255,.16)!important;}
+      .chat-hard-badge[data-tone="gemini"]{color:#d6c8ff!important;border-color:rgba(173,145,255,.42)!important;background:rgba(126,87,255,.17)!important;}
+      .chat-hard-badge[data-tone="vision"]{color:#ffd1fb!important;border-color:rgba(236,72,153,.38)!important;background:rgba(236,72,153,.15)!important;}
+      .chat-hard-badge[data-tone="online"]{color:#9af8cc!important;border-color:rgba(22,190,121,.38)!important;background:rgba(22,190,121,.15)!important;}
+      .chat-hard-badge[data-tone="attachment"]{color:#e7edff!important;border-color:rgba(181,190,255,.38)!important;background:rgba(148,163,255,.16)!important;}
+      .chat-hard-badge[data-tone="error"]{color:#ffc1c1!important;border-color:rgba(255,91,91,.38)!important;background:rgba(255,91,91,.16)!important;}
       .chat-source-badge-row,.chat-message-actions:not(.chat-hard-actions){display:none!important;}
       .chat-bubble[data-badge-text]::before,.chat-response[data-badge-text]::before,.chat-bubble[data-badge-text]::after,.chat-response[data-badge-text]::after{display:none!important;content:none!important;}
-      .chat-hard-actions{display:flex!important;align-items:center!important;gap:8px!important;min-height:30px!important;margin:8px 0 3px 8px!important;position:relative!important;z-index:31!important;}
+      .chat-hard-actions{display:flex!important;align-items:center!important;gap:8px!important;min-height:30px!important;margin:8px 0 3px 8px!important;position:relative!important;z-index:31!important;transform:translateZ(0)!important;will-change:transform,opacity!important;}
       .chat-row.user .chat-hard-actions{justify-content:flex-end!important;margin-left:auto!important;margin-right:8px!important;}
-      .chat-hard-actions .chat-action-btn{appearance:none!important;border-radius:999px!important;min-width:48px!important;min-height:29px!important;padding:0 12px!important;font-size:11px!important;font-weight:900!important;line-height:1!important;backdrop-filter:blur(14px) saturate(155%)!important;-webkit-backdrop-filter:blur(14px) saturate(155%)!important;}
-      .chat-hard-actions .retry{color:#d8caff!important;border:1px solid rgba(174,150,255,.36)!important;background:linear-gradient(135deg,rgba(126,87,255,.22),rgba(255,255,255,.07))!important;}
-      .chat-hard-actions .copy{color:#9ff8d4!important;border:1px solid rgba(42,218,150,.34)!important;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(255,255,255,.07))!important;}
+      .chat-hard-actions .chat-action-btn{appearance:none!important;border-radius:999px!important;min-width:48px!important;min-height:29px!important;padding:0 12px!important;font-size:11px!important;font-weight:900!important;line-height:1!important;}
+      .chat-hard-actions .retry{color:#d8caff!important;border:1px solid rgba(174,150,255,.36)!important;background:rgba(126,87,255,.20)!important;}
+      .chat-hard-actions .copy{color:#9ff8d4!important;border:1px solid rgba(42,218,150,.34)!important;background:rgba(22,190,121,.18)!important;}
       @media (prefers-reduced-motion:reduce){.chat-row[data-entered="1"] .chat-bubble,.chat-row[data-entered="1"] .chat-response,.chat-row[data-entered="1"] .chat-hard-badge,.chat-row[data-entered="1"] .chat-hard-actions{animation:none!important;}}
     `;
     document.head.appendChild(style);
@@ -157,6 +161,18 @@
       bubble.removeAttribute('data-badge-tone');
       bubble.removeAttribute('data-badge-key');
     }
+  }
+
+  function nudgeRepaint() {
+    const host = document.querySelector('#chatMessages');
+    if (!host || repaintTimer) return;
+    repaintTimer = window.setTimeout(() => {
+      repaintTimer = 0;
+      repaintFlip = !repaintFlip;
+      host.dataset.badgeRepaint = repaintFlip ? '1' : '2';
+      // 读一下布局，强制 Android WebView 把这一层重新合成。不要改滚动位置。
+      void host.offsetHeight;
+    }, 24);
   }
 
   function ensureEntrance(row, id) {
@@ -214,7 +230,12 @@
     const host = document.querySelector('#chatMessages');
     if (!host) return;
     const byId = messageMap();
-    host.querySelectorAll('.chat-row[data-message-id]').forEach((row) => ensureRow(row, byId));
+    let changed = false;
+    host.querySelectorAll('.chat-row[data-message-id]').forEach((row) => {
+      if (ensureRow(row, byId)) changed = true;
+    });
+    nudgeRepaint();
+    if (changed) setTimeout(nudgeRepaint, 90);
   }
 
   function flashButton(button, label) {
@@ -318,21 +339,37 @@
       setTimeout(refresh, 80);
       setTimeout(refresh, 280);
     });
-    observer.observe(host, { childList: true, subtree: true });
+    observer.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-message-id'] });
+  }
+
+  function installRepaintHooks() {
+    const host = document.querySelector('#chatMessages');
+    if (host && host.dataset.hardBadgeRepaintHooks !== '1') {
+      host.dataset.hardBadgeRepaintHooks = '1';
+      ['scroll', 'touchend', 'pointerup'].forEach((eventName) => host.addEventListener(eventName, () => {
+        refresh();
+        nudgeRepaint();
+      }, { passive: true }));
+    }
+    ['touchend', 'pointerup', 'visibilitychange', 'focus', 'resize'].forEach((eventName) => window.addEventListener(eventName, () => {
+      refresh();
+      nudgeRepaint();
+    }, { passive: true }));
   }
 
   function boot() {
     installStyle();
     installActionEvents();
     installObserver();
+    installRepaintHooks();
     refresh();
-    setInterval(refresh, 900);
+    setInterval(() => { refresh(); nudgeRepaint(); }, 600);
     window.addEventListener('ai-ledger-model-change', refresh);
     window.addEventListener('focus', refresh);
   }
 
   const oldRefresh = window.ChatSourceBadges?.refresh;
-  window.ChatBadgeActionsHardener = { refresh, version: '20260516-hardener-3' };
+  window.ChatBadgeActionsHardener = { refresh, repaint: nudgeRepaint, version: '20260516-hardener-4' };
   if (window.ChatSourceBadges) {
     window.ChatSourceBadges.refresh = () => {
       try { oldRefresh?.(); } catch {}
