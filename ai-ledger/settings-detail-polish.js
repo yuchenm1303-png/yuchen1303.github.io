@@ -1,14 +1,24 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'settings-detail-polish-style';
   const DETAIL_ID = 'settingsGroupDetail';
+  let bodyObserver = null;
+  let detailObserver = null;
+  let syncFrame = 0;
+
+  function scheduleSyncOpenState() {
+    cancelAnimationFrame(syncFrame);
+    syncFrame = requestAnimationFrame(syncOpenState);
+  }
 
   function syncOpenState() {
     const isOpen = !!document.querySelector(`#${DETAIL_ID}.open`);
-    document.body.classList.toggle('settings-group-open', isOpen);
+    document.body?.classList.toggle('settings-group-open', isOpen);
   }
 
   function installStyle() {
-    if (document.querySelector(`#${STYLE_ID}`)) return;
+    if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -96,7 +106,7 @@
       }
 
       body.settings-group-open #settingsGroupDetail.open .settings-group-sheet {
-        animation: settingsSheetStableSlide 220ms cubic-bezier(.18,.72,.26,1) both !important;
+        animation: settingsSheetStableSlide 200ms cubic-bezier(.18,.72,.26,1) both !important;
       }
 
       #settingsGroupDetail .settings-group-content {
@@ -178,7 +188,7 @@
       }
 
       @keyframes settingsSheetStableSlide {
-        0% { opacity: .98; transform: translate3d(0, 7px, 0) scale(.996); }
+        0% { opacity: .98; transform: translate3d(0, 6px, 0) scale(.997); }
         100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
       }
 
@@ -203,21 +213,35 @@
   }
 
   function observeDetail() {
-    const detail = document.querySelector(`#${DETAIL_ID}`);
-    if (!detail || detail.dataset.polishObserved === '1') return;
+    const detail = document.getElementById(DETAIL_ID);
+    if (!detail || detail.dataset.polishObserved === '1') return Boolean(detail);
     detail.dataset.polishObserved = '1';
-    const observer = new MutationObserver(syncOpenState);
-    observer.observe(detail, { attributes: true, attributeFilter: ['class'] });
-    syncOpenState();
+    detailObserver?.disconnect();
+    detailObserver = new MutationObserver(scheduleSyncOpenState);
+    detailObserver.observe(detail, { attributes: true, attributeFilter: ['class'] });
+    scheduleSyncOpenState();
+    return true;
+  }
+
+  function observeBodyUntilDetailExists() {
+    if (observeDetail() || bodyObserver) return;
+    bodyObserver = new MutationObserver(() => {
+      if (observeDetail()) {
+        bodyObserver.disconnect();
+        bodyObserver = null;
+      }
+    });
+    bodyObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   function boot() {
+    if (document.documentElement.dataset.settingsDetailPolishReady === 'true') return;
+    document.documentElement.dataset.settingsDetailPolishReady = 'true';
     installStyle();
-    observeDetail();
-    setTimeout(() => { observeDetail(); syncOpenState(); }, 300);
-    setTimeout(() => { observeDetail(); syncOpenState(); }, 1200);
+    observeBodyUntilDetailExists();
+    scheduleSyncOpenState();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
 })();
