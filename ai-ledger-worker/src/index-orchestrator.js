@@ -1,3 +1,11 @@
+/**
+ * AI Ledger Worker Orchestrator
+ *
+ * 当前 Cloudflare Worker 统一入口，wrangler.toml 必须指向本文件。
+ * 职责：intent 分类、天气/搜索/附件/聊天/command protocol 分流、模型选择严格模式。
+ * 注意：本文件不直接执行手机动作，只返回结构化结果；本地动作必须交给前端确认执行。
+ * 后续拆分时优先把 provider/tool/shared 纯函数迁移到对应目录，避免一次性大重构。
+ */
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
