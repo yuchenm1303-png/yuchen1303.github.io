@@ -80,17 +80,158 @@
     const style = document.createElement('style');
     style.id = MODEL_POLISH_STYLE_ID;
     style.textContent = `
-      .chat-summary-strip.model-picker-hero-strip { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:0!important; margin-bottom:2px!important; }
-      .chat-summary-strip.model-picker-hero-strip .summary-chip { display:none!important; }
-      .model-picker-btn.hero-model-picker-btn { width:100%!important; min-width:0!important; height:62px!important; min-height:62px!important; padding:10px 12px!important; display:grid!important; grid-template-columns:38px minmax(0,1fr) auto!important; align-items:center!important; gap:10px!important; border-radius:22px!important; text-align:left!important; font-size:22px!important; line-height:1!important; letter-spacing:-.035em!important; font-weight:900!important; color:rgba(246,250,255,.95)!important; background:radial-gradient(ellipse at 14% 0%,rgba(139,247,255,.14),transparent 34%),radial-gradient(ellipse at 98% 100%,rgba(151,110,255,.13),transparent 42%),linear-gradient(145deg,rgba(255,255,255,.115),rgba(255,255,255,.038) 58%,rgba(255,255,255,.022)),rgba(126,146,205,.115)!important; border:1px solid rgba(238,246,255,.24)!important; box-shadow:0 10px 22px rgba(0,0,0,.10),inset 0 .8px 0 rgba(255,255,255,.30),inset 0 -.8px 0 rgba(4,8,22,.08)!important; backdrop-filter:blur(18px) saturate(136%) contrast(1.02) brightness(1.04)!important; -webkit-backdrop-filter:blur(18px) saturate(136%) contrast(1.02) brightness(1.04)!important; overflow:hidden!important; transition:transform .18s cubic-bezier(.18,.86,.2,1),filter .18s ease,box-shadow .18s ease!important; }
-      .model-picker-btn.hero-model-picker-btn::before { content:'AI'!important; width:38px!important; height:38px!important; display:grid!important; place-items:center!important; margin:0!important; border-radius:15px!important; font-size:14px!important; letter-spacing:-.035em!important; font-weight:950!important; color:rgba(255,255,255,.96)!important; background:radial-gradient(circle at 28% 18%,rgba(255,255,255,.44),transparent 44%),linear-gradient(135deg,rgba(121,235,255,.42),rgba(142,105,255,.44))!important; box-shadow:inset 0 .8px 0 rgba(255,255,255,.28),0 7px 14px rgba(0,0,0,.10)!important; opacity:1!important; }
-      .model-picker-btn.hero-model-picker-btn::after { content:'模型'!important; justify-self:end!important; padding:7px 10px!important; border-radius:999px!important; font-size:11px!important; line-height:1!important; letter-spacing:.04em!important; font-weight:900!important; color:rgba(224,242,255,.72)!important; background:rgba(255,255,255,.075)!important; border:1px solid rgba(255,255,255,.13)!important; }
-      .model-picker-btn.hero-model-picker-btn:active,.model-picker-btn.hero-model-picker-btn.liquid-pressed { transform:scale(.992)!important; filter:brightness(1.035) saturate(1.025)!important; }
-      .model-picker-sheet-mask.open { display:grid!important; place-items:end center!important; background:rgba(4,8,20,.36)!important; backdrop-filter:blur(14px) saturate(112%)!important; -webkit-backdrop-filter:blur(14px) saturate(112%)!important; animation:modelMaskFadeIn .16s ease both!important; }
-      .model-picker-sheet { width:min(94vw,500px)!important; margin:0 0 max(14px,env(safe-area-inset-bottom))!important; padding:15px!important; border-radius:30px!important; color:rgba(248,252,255,.98)!important; background:radial-gradient(ellipse at 18% 0%,rgba(139,247,255,.16),transparent 34%),radial-gradient(ellipse at 90% 96%,rgba(154,126,255,.20),transparent 40%),linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.075) 58%,rgba(255,255,255,.048)),rgba(40,48,84,.68)!important; border:1px solid rgba(255,255,255,.28)!important; box-shadow:0 28px 78px rgba(0,0,0,.40),inset 0 1px 0 rgba(255,255,255,.34)!important; backdrop-filter:blur(26px) saturate(160%) contrast(1.03)!important; -webkit-backdrop-filter:blur(26px) saturate(160%) contrast(1.03)!important; animation:modelSheetPopIn .25s cubic-bezier(.18,1.04,.24,1) both!important; }
-      .model-picker-head strong{font-size:19px!important;letter-spacing:-.04em!important}.model-picker-head span{max-width:310px!important;line-height:1.42!important}.model-picker-list{gap:9px!important}.model-choice{min-height:64px!important;padding:12px!important;border-radius:20px!important;background:rgba(255,255,255,.085)!important;border:1px solid rgba(255,255,255,.16)!important;box-shadow:inset 0 .7px 0 rgba(255,255,255,.16)!important;transition:transform .18s cubic-bezier(.18,.86,.2,1),background .18s ease,border-color .18s ease,box-shadow .18s ease!important}.model-choice.active{background:radial-gradient(ellipse at 18% 0%,rgba(139,247,255,.20),transparent 38%),linear-gradient(135deg,rgba(99,226,255,.20),rgba(145,106,255,.18))!important;border-color:rgba(139,247,255,.38)!important;box-shadow:inset 0 .8px 0 rgba(255,255,255,.28),0 10px 22px rgba(65,88,188,.13)!important}.model-choice.is-selecting{animation:modelChoiceSelect .24s cubic-bezier(.18,1.06,.2,1) both!important}.model-choice-dot{width:12px!important;height:12px!important;border-width:2px!important;transition:transform .18s ease,background .18s ease,box-shadow .18s ease!important}.model-choice.active .model-choice-dot,.model-choice.is-selecting .model-choice-dot{transform:scale(1.14)!important;background:#8bf7ff!important;border-color:#8bf7ff!important;box-shadow:0 0 0 4px rgba(139,247,255,.12),0 0 20px rgba(139,247,255,.54)!important}
-      @keyframes modelMaskFadeIn{from{opacity:0}to{opacity:1}} @keyframes modelSheetPopIn{from{transform:translateY(20px) scale(.98);opacity:.38}to{transform:none;opacity:1}} @keyframes modelChoiceSelect{0%{transform:scale(.988)}55%{transform:scale(1.012)}100%{transform:scale(1)}}
-      @media (pointer:coarse),(max-width:768px){.model-picker-btn.hero-model-picker-btn{backdrop-filter:blur(15px) saturate(130%) contrast(1.02) brightness(1.03)!important;-webkit-backdrop-filter:blur(15px) saturate(130%) contrast(1.02) brightness(1.03)!important}}
+      .chat-summary-strip.model-picker-hero-strip {
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr) !important;
+        align-items: center !important;
+        gap: 10px !important;
+        margin-bottom: 4px !important;
+        min-height: 44px !important;
+      }
+
+      .chat-summary-strip.model-picker-hero-strip .summary-chip {
+        display: none !important;
+      }
+
+      .chat-summary-strip.model-picker-hero-strip::after {
+        content: '✦ 智能路由 · 轻量待命' !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        min-width: 0 !important;
+        height: 40px !important;
+        padding: 0 13px !important;
+        border-radius: 999px !important;
+        color: rgba(222, 239, 255, .62) !important;
+        font-size: 12px !important;
+        font-weight: 850 !important;
+        letter-spacing: .015em !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        background:
+          radial-gradient(ellipse at 82% 12%, rgba(139, 247, 255, .10), transparent 38%),
+          linear-gradient(145deg, rgba(255,255,255,.072), rgba(255,255,255,.020) 62%, rgba(255,255,255,.012)),
+          rgba(255,255,255,.028) !important;
+        border: 1px solid rgba(255,255,255,.115) !important;
+        box-shadow: inset 0 .6px 0 rgba(255,255,255,.18) !important;
+        pointer-events: none !important;
+      }
+
+      .model-picker-btn.hero-model-picker-btn {
+        width: auto !important;
+        min-width: 116px !important;
+        max-width: 146px !important;
+        height: 42px !important;
+        min-height: 42px !important;
+        padding: 0 13px !important;
+        display: inline-grid !important;
+        grid-template-columns: 24px auto !important;
+        align-items: center !important;
+        justify-content: start !important;
+        gap: 8px !important;
+        border-radius: 999px !important;
+        text-align: left !important;
+        font-size: 15px !important;
+        line-height: 1 !important;
+        letter-spacing: -.015em !important;
+        font-weight: 900 !important;
+        color: rgba(246, 250, 255, .94) !important;
+        background:
+          radial-gradient(circle at 18% 10%, rgba(139,247,255,.18), transparent 42%),
+          linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.042) 62%, rgba(255,255,255,.022)),
+          rgba(126,146,205,.10) !important;
+        border: 1px solid rgba(238,246,255,.22) !important;
+        box-shadow: 0 8px 16px rgba(0,0,0,.10), inset 0 .7px 0 rgba(255,255,255,.26), inset 0 -.7px 0 rgba(4,8,22,.07) !important;
+        backdrop-filter: blur(14px) saturate(128%) contrast(1.02) brightness(1.03) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(128%) contrast(1.02) brightness(1.03) !important;
+        overflow: hidden !important;
+        transition: transform .18s cubic-bezier(.18,.86,.2,1), filter .18s ease, box-shadow .18s ease !important;
+      }
+
+      .model-picker-btn.hero-model-picker-btn::before {
+        content: 'AI' !important;
+        width: 24px !important;
+        height: 24px !important;
+        display: grid !important;
+        place-items: center !important;
+        margin: 0 !important;
+        border-radius: 10px !important;
+        font-size: 10px !important;
+        letter-spacing: -.03em !important;
+        font-weight: 950 !important;
+        color: rgba(255,255,255,.95) !important;
+        background:
+          radial-gradient(circle at 30% 18%, rgba(255,255,255,.44), transparent 45%),
+          linear-gradient(135deg, rgba(121,235,255,.40), rgba(142,105,255,.42)) !important;
+        box-shadow: inset 0 .6px 0 rgba(255,255,255,.28), 0 5px 10px rgba(0,0,0,.09) !important;
+        opacity: 1 !important;
+      }
+
+      .model-picker-btn.hero-model-picker-btn::after {
+        display: none !important;
+        content: '' !important;
+      }
+
+      .model-picker-btn.hero-model-picker-btn:active,
+      .model-picker-btn.hero-model-picker-btn.liquid-pressed {
+        transform: scale(.976) !important;
+        filter: brightness(1.04) saturate(1.025) !important;
+      }
+
+      .model-picker-sheet-mask.open {
+        display: grid !important;
+        place-items: end center !important;
+        background: rgba(4,8,20,.34) !important;
+        backdrop-filter: blur(14px) saturate(112%) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
+        animation: modelMaskFadeIn .16s ease both !important;
+      }
+
+      .model-picker-sheet {
+        width: min(94vw, 500px) !important;
+        margin: 0 0 max(14px, env(safe-area-inset-bottom)) !important;
+        padding: 15px !important;
+        border-radius: 30px !important;
+        color: rgba(248,252,255,.98) !important;
+        background:
+          radial-gradient(ellipse at 18% 0%, rgba(139,247,255,.16), transparent 34%),
+          radial-gradient(ellipse at 90% 96%, rgba(154,126,255,.20), transparent 40%),
+          linear-gradient(145deg, rgba(255,255,255,.20), rgba(255,255,255,.075) 58%, rgba(255,255,255,.048)),
+          rgba(40,48,84,.68) !important;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        box-shadow: 0 28px 78px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.34) !important;
+        backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
+        -webkit-backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
+        animation: modelSheetPopIn .25s cubic-bezier(.18,1.04,.24,1) both !important;
+      }
+
+      .model-picker-head strong { font-size: 19px !important; letter-spacing: -.04em !important; }
+      .model-picker-head span { max-width: 310px !important; line-height: 1.42 !important; }
+      .model-picker-list { gap: 9px !important; }
+      .model-choice { min-height: 64px !important; padding: 12px !important; border-radius: 20px !important; background: rgba(255,255,255,.085) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 .7px 0 rgba(255,255,255,.16) !important; transition: transform .18s cubic-bezier(.18,.86,.2,1), background .18s ease, border-color .18s ease, box-shadow .18s ease !important; }
+      .model-choice.active { background: radial-gradient(ellipse at 18% 0%, rgba(139,247,255,.20), transparent 38%), linear-gradient(135deg, rgba(99,226,255,.20), rgba(145,106,255,.18)) !important; border-color: rgba(139,247,255,.38) !important; box-shadow: inset 0 .8px 0 rgba(255,255,255,.28), 0 10px 22px rgba(65,88,188,.13) !important; }
+      .model-choice.is-selecting { animation: modelChoiceSelect .24s cubic-bezier(.18,1.06,.2,1) both !important; }
+      .model-choice-dot { width: 12px !important; height: 12px !important; border-width: 2px !important; transition: transform .18s ease, background .18s ease, box-shadow .18s ease !important; }
+      .model-choice.active .model-choice-dot,
+      .model-choice.is-selecting .model-choice-dot { transform: scale(1.14) !important; background: #8bf7ff !important; border-color: #8bf7ff !important; box-shadow: 0 0 0 4px rgba(139,247,255,.12), 0 0 20px rgba(139,247,255,.54) !important; }
+
+      @keyframes modelMaskFadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes modelSheetPopIn { from { transform: translateY(20px) scale(.98); opacity: .38; } to { transform: none; opacity: 1; } }
+      @keyframes modelChoiceSelect { 0% { transform: scale(.988); } 55% { transform: scale(1.012); } 100% { transform: scale(1); } }
+
+      @media (max-width: 390px) {
+        .chat-summary-strip.model-picker-hero-strip::after {
+          content: '✦ 轻量待命' !important;
+          padding-inline: 10px !important;
+          font-size: 11px !important;
+        }
+        .model-picker-btn.hero-model-picker-btn {
+          min-width: 104px !important;
+          max-width: 132px !important;
+          font-size: 14px !important;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -147,7 +288,7 @@
     strip.classList.add('model-picker-hero-strip');
     strip.querySelectorAll('.summary-chip').forEach((node) => node.remove());
     btn.classList.add('hero-model-picker-btn');
-    if (btn.parentElement !== strip) strip.appendChild(btn);
+    if (btn.parentElement !== strip) strip.prepend(btn);
     syncModelHeroLabel();
   }
 
@@ -182,7 +323,7 @@
   }
 
   window.NavigationExecutionCompat = {
-    version: '2026-05-16-7-static-model-picker-no-flash',
+    version: '2026-05-16-8-model-capsule-decor',
     normalizeMode,
     normalizeNavigateParams,
     patchAll,
