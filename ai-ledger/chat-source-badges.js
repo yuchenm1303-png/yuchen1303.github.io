@@ -6,21 +6,22 @@
 
   const MODELS = [
     { id: "auto", label: "自动", short: "自动", hint: "按额度和可用性自动切换" },
-    { id: "kimi", label: "Kimi K2.6", short: "Kimi", hint: "只使用 Kimi，不自动切到 Gemini" },
-    { id: "gemini", label: "Gemini 2.5 Flash", short: "Gemini", hint: "只使用 Gemini，不自动切到 Kimi" },
+    { id: "kimi", label: "Kimi K2.6", short: "Kimi", hint: "只使用 Kimi，不自动切到其他模型" },
+    { id: "mistral", label: "Mistral Medium 3.5", short: "Mistral", hint: "只使用 Mistral，不自动切到 Kimi/Gemini" },
+    { id: "gemini", label: "Gemini 2.5 Flash", short: "Gemini", hint: "只使用 Gemini，不自动切到其他模型" },
     { id: "workers", label: "Workers AI", short: "Workers", hint: "只使用 Workers AI 兜底模型" },
   ];
 
   const SOURCE_LABELS = {
     cloud_ai: { label: "云端 AI", tone: "cloud" },
-    nvidia_chat: { label: "Kimi 对话", tone: "cloud" },
+    nvidia_chat: { label: "NVIDIA NIM", tone: "cloud" },
     tavily_ai_summary: { label: "联网总结", tone: "online" },
     workers_ai: { label: "Workers AI", tone: "cloud" },
     workers_ai_text_fallback: { label: "Workers AI", tone: "cloud-fallback" },
     workers_ai_vision: { label: "Workers AI 识图", tone: "vision" },
     workers_ai_vision_fallback: { label: "Workers AI 识图兜底", tone: "vision" },
-    nvidia_vision: { label: "Kimi 识图", tone: "vision" },
-    nvidia_vision_fallback: { label: "Kimi 识图兜底", tone: "vision" },
+    nvidia_vision: { label: "NVIDIA 识图", tone: "vision" },
+    nvidia_vision_fallback: { label: "NVIDIA 识图兜底", tone: "vision" },
     selected_model_failed: { label: "所选模型失败", tone: "error" },
     nvidia_chat_fallback: { label: "NVIDIA 兜底", tone: "cloud-fallback" },
     gemini_ai: { label: "Gemini AI", tone: "gemini" },
@@ -112,10 +113,21 @@
     return "cloud_ai";
   }
 
-  function sourceMeta(source) {
+  function nvidiaLabelFromMessage(message) {
+    const text = `${message?.modelLabel || ""} ${message?.model || ""} ${message?.version || ""}`.toLowerCase();
+    if (text.includes("kimi")) return "Kimi 对话";
+    if (text.includes("mistral")) return "Mistral 对话";
+    if (text.includes("qwen")) return "Qwen 对话";
+    if (text.includes("deepseek")) return "DeepSeek 对话";
+    return "NVIDIA NIM";
+  }
+
+  function sourceMeta(source, message) {
+    if (source === "nvidia_chat") return { label: nvidiaLabelFromMessage(message), tone: "cloud" };
+    if (source === "nvidia_vision" || source === "nvidia_vision_fallback") return { label: nvidiaLabelFromMessage(message).replace("对话", "识图"), tone: "vision" };
     if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
     if (/vision|image|attachment/i.test(source || "")) return { label: "识图", tone: "vision" };
-    if (/nvidia|nim|kimi|qwen|mistral|deepseek/i.test(source || "")) return { label: "云端模型", tone: "cloud" };
+    if (/nvidia|nim|kimi|qwen|mistral|deepseek/i.test(source || "")) return { label: "NVIDIA NIM", tone: "cloud" };
     if (/gemini/i.test(source || "")) return { label: "Gemini AI", tone: "gemini" };
     if (/tavily|search/i.test(source || "")) return { label: "联网搜索", tone: "online" };
     if (/weather/i.test(source || "")) return { label: "实时天气", tone: "online" };
@@ -163,9 +175,11 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      .chat-source-badge-row{display:flex;justify-content:flex-start;margin:7px 0 0 4px;gap:6px;flex-wrap:wrap}
-      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 0 0}
-      .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;line-height:1;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;word-break:break-word}
+      #chatMessages{scroll-padding-bottom:28px!important;padding-bottom:12px!important}
+      .chat-row,.chat-response,.chat-bubble{overflow:visible!important}
+      .chat-source-badge-row{display:flex;justify-content:flex-start;margin:8px 0 2px 4px;gap:6px;flex-wrap:wrap;min-height:22px;position:relative;z-index:3}
+      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 2px 0}
+      .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;line-height:1.12;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;word-break:break-word;box-sizing:border-box}
       .chat-source-badge::before{content:"";width:6px;height:6px;min-width:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
@@ -179,18 +193,18 @@
       .chat-source-badge.local{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28)}
       .chat-source-badge.mobile{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32)}
       .chat-source-badge.error{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30)}
-      .model-picker-btn{width:48px;height:48px;min-width:48px;border-radius:20px;border:1px solid rgba(255,255,255,.30);background:linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.08));color:rgba(255,255,255,.92);font-size:11px;font-weight:950;display:grid;place-items:center;text-align:center;line-height:1.05;backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 10px 24px rgba(0,0,0,.12)}
+      .model-picker-btn{width:48px;height:48px;min-width:48px;border-radius:20px;border:1px solid rgba(255,255,255,.30);background:linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.08));color:rgba(255,255,255,.92);font-size:10px;font-weight:950;display:grid;place-items:center;text-align:center;line-height:1.05;backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 10px 24px rgba(0,0,0,.12)}
       .model-picker-btn::before{content:'AI';font-size:10px;opacity:.7;margin-bottom:1px;display:block}.model-picker-btn:active{transform:scale(.96)}
       .model-picker-sheet-mask{position:fixed;inset:0;z-index:1300;display:none;background:rgba(4,8,20,.30);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}.model-picker-sheet-mask.open{display:grid;place-items:end center}
       .model-picker-sheet{width:min(94vw,520px);margin:0 0 max(14px,env(safe-area-inset-bottom));border-radius:30px;padding:16px;background:linear-gradient(145deg,rgba(246,250,255,.24),rgba(255,255,255,.10) 58%,rgba(255,255,255,.06)),rgba(40,48,84,.56);border:1px solid rgba(255,255,255,.28);box-shadow:0 28px 80px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.35);color:rgba(255,255,255,.94);backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);animation:modelSheetIn .22s cubic-bezier(.2,.9,.2,1)}
       @keyframes modelSheetIn{from{transform:translateY(18px) scale(.98);opacity:.3}to{transform:none;opacity:1}}
       .model-picker-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.model-picker-head strong{display:block;font-size:18px;letter-spacing:-.03em}.model-picker-head span{display:block;margin-top:4px;font-size:12px;opacity:.68}.model-picker-close{width:34px;height:34px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:inherit;font-size:22px;line-height:1}.model-picker-list{display:grid;gap:9px}.model-choice{display:flex;align-items:center;gap:10px;width:100%;padding:12px;border-radius:20px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.10);color:inherit;text-align:left}.model-choice.active{background:linear-gradient(135deg,rgba(99,226,255,.24),rgba(145,106,255,.20));border-color:rgba(132,221,255,.42);box-shadow:inset 0 1px 0 rgba(255,255,255,.28)}.model-choice-dot{width:11px;height:11px;border-radius:999px;border:2px solid rgba(255,255,255,.52);box-shadow:0 0 0 4px rgba(255,255,255,.05)}.model-choice.active .model-choice-dot{background:#8bf7ff;border-color:#8bf7ff;box-shadow:0 0 18px rgba(139,247,255,.55)}.model-choice-text{display:grid;gap:3px}.model-choice-text strong{font-size:14px}.model-choice-text em{font-size:12px;font-style:normal;opacity:.66;line-height:1.35}
-      #typingRow .chat-bubble{min-width:168px;min-height:44px;display:inline-flex;align-items:center;justify-content:flex-start;gap:8px;padding:12px 16px;border-radius:24px;background:linear-gradient(135deg,rgba(255,255,255,.19),rgba(255,255,255,.08)),rgba(138,118,255,.08);position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 12px 28px rgba(25,20,60,.18)}
+      #typingRow .chat-bubble{min-width:168px;min-height:44px;display:inline-flex;align-items:center;justify-content:flex-start;gap:8px;padding:12px 16px;border-radius:24px;background:linear-gradient(135deg,rgba(255,255,255,.19),rgba(255,255,255,.08)),rgba(138,118,255,.08);position:relative;overflow:hidden!important;border:1px solid rgba(255,255,255,.20);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 12px 28px rgba(25,20,60,.18)}
       #typingRow .chat-bubble::before{content:'正在生成';position:relative;z-index:2;font-size:13px;font-weight:850;color:rgba(255,255,255,.86);letter-spacing:.02em;text-shadow:0 1px 8px rgba(255,255,255,.20)}
       #typingRow .chat-bubble::after{content:'';position:absolute;inset:0;background:linear-gradient(105deg,transparent 0%,rgba(139,247,255,.00) 24%,rgba(139,247,255,.22) 44%,rgba(188,160,255,.28) 52%,rgba(139,247,255,.00) 70%,transparent 100%);transform:translateX(-120%);animation:aiLiquidSweep 1.9s ease-in-out infinite;pointer-events:none}
       #typingRow .typing-dot{position:relative;z-index:2;display:inline-block!important;width:6px;height:6px;border-radius:999px;background:rgba(210,235,255,.90);box-shadow:0 0 10px rgba(149,217,255,.55);animation:aiSoftDot 1.15s ease-in-out infinite}.typing-dot:nth-child(2){animation-delay:.16s}.typing-dot:nth-child(3){animation-delay:.32s}
       @keyframes aiLiquidSweep{0%{transform:translateX(-120%);opacity:.25}45%{opacity:.95}100%{transform:translateX(120%);opacity:.25}}@keyframes aiSoftDot{0%,100%{transform:translateY(2px) scale(.72);opacity:.42}50%{transform:translateY(-1px) scale(1.06);opacity:1}}
-      body.assistant-compact .chat-source-badge-row{margin-top:5px}body.assistant-compact .chat-source-badge{font-size:10px;padding:3px 7px}body.assistant-compact .model-picker-btn{width:44px;height:44px;min-width:44px;border-radius:18px;font-size:10px}
+      body.assistant-compact .chat-source-badge-row{margin-top:5px}body.assistant-compact .chat-source-badge{font-size:10px;padding:4px 8px}body.assistant-compact .model-picker-btn{width:44px;height:44px;min-width:44px;border-radius:18px;font-size:9px}
     `;
     document.head.appendChild(style);
   }
@@ -201,6 +215,7 @@
   }
 
   function addBadges() {
+    let inserted = false;
     const messages = readMessages();
     const byId = new Map(messages.map((message) => [String(message.id), message]));
     document.querySelectorAll(".chat-row[data-message-id]").forEach((row) => {
@@ -220,19 +235,22 @@
         if (att) {
           const detail = att.detail ? ` · ${escapeHtml(att.detail)}` : "";
           response.insertAdjacentHTML("beforeend", `<div class="chat-source-badge-row"><span class="chat-source-badge attachment">${escapeHtml(att.label)}${detail}</span></div>`);
+          inserted = true;
         }
         row.dataset.sourceBadgeReady = "ready";
         return;
       }
       if (message.role === "assistant") {
         const source = inferSource(message);
-        const meta = sourceMeta(source);
+        const meta = sourceMeta(source, message);
         const detail = modelText(message);
         const detailText = detail ? ` · ${escapeHtml(detail)}` : "";
         response.insertAdjacentHTML("beforeend", `<div class="chat-source-badge-row"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`);
         row.dataset.sourceBadgeReady = "ready";
+        inserted = true;
       }
     });
+    if (inserted) pinChatBottom("badge-insert");
   }
 
   function pinChatBottom(reason = "") {
@@ -240,16 +258,16 @@
     if (!host) return;
     lastPinnedAt = Date.now();
     const run = () => {
-      try { host.scrollTop = host.scrollHeight; } catch {}
+      try { host.scrollTop = host.scrollHeight + 80; } catch {}
     };
     requestAnimationFrame(run);
-    [24, 80, 180, 360].forEach((delay) => window.setTimeout(run, delay));
+    [24, 80, 180, 360, 700].forEach((delay) => window.setTimeout(run, delay));
   }
 
   function shouldPinAfterMutation(mutations) {
     return mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
       if (!(node instanceof HTMLElement)) return false;
-      return node.id === "typingRow" || node.classList?.contains("chat-row") || node.querySelector?.(".chat-row");
+      return node.id === "typingRow" || node.classList?.contains("chat-row") || node.querySelector?.(".chat-row") || node.classList?.contains("chat-source-badge-row");
     }));
   }
 
@@ -299,7 +317,7 @@
       });
     }
     const selected = readModelPreference();
-    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式才会切换模型；手动选 Kimi / Gemini / Workers 时会严格使用所选模型。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${MODELS.map((item) => `<button type="button" class="model-choice ${item.id === selected ? "active" : ""}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint)}</em></span></button>`).join("")}</div></section>`;
+    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式才会切换模型；手动选 Kimi / Mistral / Gemini / Workers 时会严格使用所选模型。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${MODELS.map((item) => `<button type="button" class="model-choice ${item.id === selected ? "active" : ""}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint)}</em></span></button>`).join("")}</div></section>`;
   }
 
   function openModelSheet() { renderModelSheet(); document.querySelector("#modelPickerSheetMask")?.classList.add("open"); }
@@ -332,7 +350,7 @@
     const host = document.querySelector("#chatMessages");
     if (!host) return;
     const bottomGap = host.scrollHeight - host.clientHeight - host.scrollTop;
-    if (document.querySelector("#typingRow") || (Date.now() - lastPinnedAt < 1400 && bottomGap > 8)) pinChatBottom("watchdog");
+    if (document.querySelector("#typingRow") || (Date.now() - lastPinnedAt < 1800 && bottomGap > 6)) pinChatBottom("watchdog");
   }
 
   window.ChatSourceBadges = { refresh: addBadges, labels: SOURCE_LABELS, pinBottom: pinChatBottom };
@@ -344,6 +362,6 @@
     installModelButton();
     window.setTimeout(installObserver, 0);
     window.setTimeout(installObserver, 300);
-    window.setInterval(() => { addBadges(); installModelButton(); updateModelButton(); badgeWatchdog(); }, 900);
+    window.setInterval(() => { addBadges(); installModelButton(); updateModelButton(); badgeWatchdog(); }, 700);
   });
 })();
