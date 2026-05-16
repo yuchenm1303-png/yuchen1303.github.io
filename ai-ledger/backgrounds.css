@@ -1,3 +1,15 @@
+/*
+ * Ownership target:
+ * This file should own background themes, scene backdrop layers, and background picker previews.
+ *
+ * Refactor note:
+ * Several non-background responsibilities are still present below to preserve the stable baseline:
+ * global app-shell layout, glass material tuning, Android/WebView performance fallbacks,
+ * and emergency rollback selectors for old visual-design-v1 experiments.
+ *
+ * Do not remove those legacy sections until an APK has been tested after moving them to their target files.
+ */
+
 :root {
   --scene-image:
     radial-gradient(ellipse at 76% 12%, rgba(128, 176, 255, .20), transparent 27%),
@@ -21,6 +33,7 @@ body {
   touch-action: pan-y;
 }
 
+/* Background ownership: scene backdrop layers and subtle background motion. */
 .scene-backdrop {
   position: fixed;
   inset: 0;
@@ -120,6 +133,7 @@ body::after {
   z-index: -1;
 }
 
+/* legacy: global layout belongs in base/layout CSS, not backgrounds.css. */
 .app-shell {
   min-height: 100dvh;
   height: auto;
@@ -127,6 +141,7 @@ body::after {
   touch-action: pan-y;
 }
 
+/* legacy: glass material tuning belongs in liquid.css/liquid-plus.css or a dedicated glass.css. */
 .glass-card,
 .bottom-nav,
 .add-sheet,
@@ -182,6 +197,7 @@ select,
     radial-gradient(ellipse at var(--shine-x, 18%) -8%, rgba(255,255,255,.15), transparent 38%);
 }
 
+/* Background ownership: named background themes. */
 body[data-bg="aurora"] {
   --scene-image:
     radial-gradient(ellipse at 76% 12%, rgba(128, 176, 255, .20), transparent 27%),
@@ -225,6 +241,7 @@ body[data-bg="dawn"] {
     inset -1px 0 0 rgba(255,255,255,.18);
 }
 
+/* legacy: dawn foreground theme overrides span multiple feature components. Later move to theme-specific CSS. */
 body[data-bg="dawn"] .page-header h1,
 body[data-bg="dawn"] .section-head h2,
 body[data-bg="dawn"] .sheet-head h2,
@@ -268,6 +285,7 @@ body[data-bg="dawn"] .range-chip.active {
   color: #fff;
 }
 
+/* Background ownership: background picker preview cards. */
 .background-picker {
   display: grid;
   gap: 12px;
@@ -339,6 +357,7 @@ body[data-bg="dawn"] .range-chip.active {
   color: var(--ink);
 }
 
+/* legacy: WebView performance/stability rules belong in glass-stability or a dedicated performance CSS layer. */
 @media (pointer: coarse), (max-width: 768px) {
   .scene-backdrop {
     animation-duration: 96s;
@@ -422,7 +441,7 @@ body[data-bg="dawn"] .range-chip.active {
   }
 }
 
-/* WebView emergency stabilization after visual polish: keep the earlier good layout, avoid oversized nav and keyboard deformation. */
+/* legacy: WebView emergency stabilization after visual polish. Remove after visual-design-v1 injection is fully gone. */
 html body.visual-design-v1:not(.quick-ai-entry) .app-shell.app-shell {
   width: min(100%, 480px) !important;
   max-width: 480px !important;
