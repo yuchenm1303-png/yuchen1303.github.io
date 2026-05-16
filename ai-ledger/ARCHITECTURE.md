@@ -1,6 +1,6 @@
 # AI Ledger 前端代码地图
 
-> 目的：把当前补丁式增长的前端脚本先整理成清晰边界，后续修改先看本文件，避免误伤液态玻璃 UI、导航动画和安卓 WebView 稳定性。
+> 目的：把当前补丁式增长的前端脚本整理成清晰边界，后续修改先看本文件，避免误伤液态玻璃 UI、导航动画和安卓 WebView 稳定性。
 
 ## 当前原则
 
@@ -39,14 +39,33 @@
   - 负责把附件带到 Worker。
   - 注意聊天记录保存时必须先 snapshot，避免清空同一个数组引用。
 
-- `chat-source-badges.js`
-  - 当前包含：气泡底部模型标签、模型选择器、请求注入、生成动画、滚动兜底。
-  - 这个文件责任已经偏重，后续建议拆成：
-    - `chat-model-picker.js`
-    - `chat-source-badges.js`
-    - `chat-typing-indicator.js`
-    - `chat-scroll-stability.js`
-    - `chat-request-patcher.js`
+## 聊天模块拆分现状
+
+`chat-source-badges.js` 现在已经改成轻量加载器，不再直接塞全部逻辑。它负责提供共享常量和按顺序加载子模块。
+
+当前聊天子模块：
+
+- `chat-request-patcher.js`
+  - 拦截聊天/附件请求，注入 `modelPreference` 和 `aiModelPreference`。
+  - 必须在真正发起 Worker 请求前加载。
+
+- `chat-scroll-stability.js`
+  - 聊天区滚动稳定。
+  - 负责生成中和新消息出现后固定到底部，避免自动跳到顶部。
+
+- `chat-typing-indicator.js`
+  - 正在生成动画样式。
+  - 只负责视觉，不处理网络请求。
+
+- `chat-model-picker.js`
+  - 模型选择按钮和底部弹窗。
+  - 负责 `auto / kimi / mistral / gemini / workers` 的本地偏好保存。
+
+- `chat-source-badges-core.js`
+  - 气泡底部来源标签渲染。
+  - 根据 `source + modelLabel + version` 展示真实调用来源。
+
+后续注意：不要再把模型选择器、请求注入、滚动稳定和生成动画重新塞回 `chat-source-badges.js`。
 
 - `assistant-profile.js`
   - 助手身份、默认提示、欢迎语等。
@@ -90,7 +109,7 @@
 3. `assistant-profile.js`
 4. `navigation-preferences.js`
 5. `chat-attachments.js`
-6. `chat-source-badges.js`
+6. `chat-source-badges.js`（聊天模块加载器）
 7. `tools-center.js`
 8. `ai-command-router-v2.js`
 9. `cloud-command-bridge.js`
@@ -99,7 +118,15 @@
 12. `navigation-execution-compat.js`
 13. `auth.js` / `sync.js`
 
-如果新增聊天补丁脚本，优先放在 `app-v3.js` 后面；如果它要拦截请求，必须在发起请求前加载。
+`chat-source-badges.js` 内部会继续加载：
+
+```txt
+chat-request-patcher.js
+chat-scroll-stability.js
+chat-typing-indicator.js
+chat-model-picker.js
+chat-source-badges-core.js
+```
 
 ## 冒烟测试清单
 
@@ -116,9 +143,9 @@
 
 ## 后续整理路线
 
-第一阶段：只写文档和边界说明，不动功能。
+第一阶段：只写文档和边界说明，不动功能。已完成。
 
-第二阶段：从 `chat-source-badges.js` 里拆出模型选择器、生成动画、滚动稳定和请求注入。
+第二阶段：从 `chat-source-badges.js` 里拆出模型选择器、生成动画、滚动稳定和请求注入。已完成基础拆分。
 
 第三阶段：把本地动作路由和云端动作桥的 schema 固化，减少重复字段补丁。
 
