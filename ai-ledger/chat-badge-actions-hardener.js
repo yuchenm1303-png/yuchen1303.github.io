@@ -8,6 +8,7 @@
   const STYLE_ID = 'chat-badge-actions-hardener-style';
   const CHAT_KEY = shared.CHAT_KEY || 'ai-ledger-chat-v2';
   const { SOURCE_LABELS = {}, escapeHtml = (v) => String(v || '') } = shared;
+  const animatedIds = new Set();
 
   function readMessages() {
     const out = [];
@@ -38,6 +39,7 @@
       .replace(/orchestrator-/i, 'orch-')
       .replace(/attachment-gateway-/i, 'attach-')
       .replace(/command-protocol-/i, 'cmd-')
+      .replace(/cloud-error-normalizer-/i, 'err-')
       .slice(0, 90);
   }
 
@@ -117,6 +119,15 @@
       .chat-row{overflow:visible!important;}
       .chat-row.assistant{flex-direction:column!important;align-items:flex-start!important;}
       .chat-row.user{flex-direction:column!important;align-items:flex-end!important;}
+      .chat-row[data-entered="1"] .chat-bubble,.chat-row[data-entered="1"] .chat-response{animation:chatBubbleIn .34s cubic-bezier(.2,.9,.18,1) both;transform-origin:center bottom;}
+      .chat-row.user[data-entered="1"] .chat-bubble,.chat-row.user[data-entered="1"] .chat-response{animation-name:chatBubbleInUser;transform-origin:right bottom;}
+      .chat-row.assistant[data-entered="1"] .chat-bubble,.chat-row.assistant[data-entered="1"] .chat-response{transform-origin:left bottom;}
+      .chat-row[data-entered="1"] .chat-hard-badge{animation:chatBadgeIn .38s cubic-bezier(.2,.9,.18,1) .05s both;}
+      .chat-row[data-entered="1"] .chat-hard-actions{animation:chatActionsIn .34s cubic-bezier(.2,.9,.18,1) .08s both;}
+      @keyframes chatBubbleIn{0%{opacity:0;transform:translateY(12px) scale(.965);filter:blur(4px)}68%{opacity:1;transform:translateY(-1px) scale(1.006);filter:blur(0)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+      @keyframes chatBubbleInUser{0%{opacity:0;transform:translate(10px,12px) scale(.965);filter:blur(4px)}68%{opacity:1;transform:translate(-1px,-1px) scale(1.006);filter:blur(0)}100%{opacity:1;transform:translate(0,0) scale(1);filter:blur(0)}}
+      @keyframes chatBadgeIn{0%{opacity:0;transform:translateY(-4px) scale(.94)}100%{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes chatActionsIn{0%{opacity:0;transform:translateY(-3px) scale(.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
       .chat-hard-badge{display:inline-flex!important;align-items:center!important;gap:6px!important;width:fit-content!important;max-width:min(92%,620px)!important;box-sizing:border-box!important;margin:9px 0 2px 8px!important;padding:7px 12px!important;border-radius:999px!important;font-size:11px!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.01em!important;white-space:normal!important;word-break:break-word!important;opacity:1!important;visibility:visible!important;position:relative!important;z-index:30!important;pointer-events:none!important;color:rgba(238,250,255,.84)!important;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,.075))!important;border:1px solid rgba(255,255,255,.30)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.30),0 10px 22px rgba(0,0,0,.11)!important;backdrop-filter:blur(14px) saturate(150%)!important;-webkit-backdrop-filter:blur(14px) saturate(150%)!important;}
       .chat-row.user .chat-hard-badge{margin-left:auto!important;margin-right:8px!important;}
       .chat-hard-badge::before{content:'';display:inline-block;width:8px;height:8px;border-radius:999px;background:currentColor;opacity:.92;box-shadow:0 0 12px currentColor;flex:0 0 auto;}
@@ -126,19 +137,35 @@
       .chat-hard-badge[data-tone="online"]{color:#9af8cc!important;border-color:rgba(22,190,121,.38)!important;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(33,197,255,.08))!important;}
       .chat-hard-badge[data-tone="attachment"]{color:#e7edff!important;border-color:rgba(181,190,255,.38)!important;background:linear-gradient(135deg,rgba(148,163,255,.22),rgba(255,255,255,.08))!important;}
       .chat-hard-badge[data-tone="error"]{color:#ffc1c1!important;border-color:rgba(255,91,91,.38)!important;background:linear-gradient(135deg,rgba(255,91,91,.22),rgba(236,72,153,.08))!important;}
+      .chat-source-badge-row,.chat-message-actions:not(.chat-hard-actions){display:none!important;}
+      .chat-bubble[data-badge-text]::before,.chat-response[data-badge-text]::before,.chat-bubble[data-badge-text]::after,.chat-response[data-badge-text]::after{display:none!important;content:none!important;}
       .chat-hard-actions{display:flex!important;align-items:center!important;gap:8px!important;min-height:30px!important;margin:8px 0 3px 8px!important;position:relative!important;z-index:31!important;}
       .chat-row.user .chat-hard-actions{justify-content:flex-end!important;margin-left:auto!important;margin-right:8px!important;}
       .chat-hard-actions .chat-action-btn{appearance:none!important;border-radius:999px!important;min-width:48px!important;min-height:29px!important;padding:0 12px!important;font-size:11px!important;font-weight:900!important;line-height:1!important;backdrop-filter:blur(14px) saturate(155%)!important;-webkit-backdrop-filter:blur(14px) saturate(155%)!important;}
       .chat-hard-actions .retry{color:#d8caff!important;border:1px solid rgba(174,150,255,.36)!important;background:linear-gradient(135deg,rgba(126,87,255,.22),rgba(255,255,255,.07))!important;}
       .chat-hard-actions .copy{color:#9ff8d4!important;border:1px solid rgba(42,218,150,.34)!important;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(255,255,255,.07))!important;}
+      @media (prefers-reduced-motion:reduce){.chat-row[data-entered="1"] .chat-bubble,.chat-row[data-entered="1"] .chat-response,.chat-row[data-entered="1"] .chat-hard-badge,.chat-row[data-entered="1"] .chat-hard-actions{animation:none!important;}}
     `;
     document.head.appendChild(style);
   }
 
-  function removeOldHardNodes(row) {
-    Array.from(row.children).forEach((child) => {
-      if (child.classList?.contains('chat-hard-badge') || child.classList?.contains('chat-hard-actions')) child.remove();
-    });
+  function purgeLegacyNodes(row) {
+    row.querySelectorAll('.chat-source-badge-row,.chat-message-actions:not(.chat-hard-actions)').forEach((node) => node.remove());
+    const bubble = row.querySelector('.chat-response,.chat-bubble');
+    if (bubble) {
+      bubble.removeAttribute('data-badge-text');
+      bubble.removeAttribute('data-badge-tone');
+      bubble.removeAttribute('data-badge-key');
+    }
+  }
+
+  function ensureEntrance(row, id) {
+    if (!id || animatedIds.has(id)) return;
+    animatedIds.add(id);
+    row.dataset.entered = '1';
+    setTimeout(() => {
+      if (row?.dataset?.entered === '1') row.dataset.entered = 'done';
+    }, 680);
   }
 
   function ensureRow(row, byId) {
@@ -148,6 +175,8 @@
     const message = byId.get(id);
     const bubble = row.querySelector('.chat-response,.chat-bubble');
     if (!bubble) return false;
+    purgeLegacyNodes(row);
+    ensureEntrance(row, id);
 
     let changed = false;
     const badge = badgeFor(row, message);
@@ -208,13 +237,13 @@
     installStyle();
     installObserver();
     refresh();
-    setInterval(refresh, 500);
+    setInterval(refresh, 700);
     window.addEventListener('ai-ledger-model-change', refresh);
     window.addEventListener('focus', refresh);
   }
 
   const oldRefresh = window.ChatSourceBadges?.refresh;
-  window.ChatBadgeActionsHardener = { refresh, version: '20260516-hardener-1' };
+  window.ChatBadgeActionsHardener = { refresh, version: '20260516-hardener-2' };
   if (window.ChatSourceBadges) {
     window.ChatSourceBadges.refresh = () => {
       try { oldRefresh?.(); } catch {}
