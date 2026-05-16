@@ -13,6 +13,8 @@
     gemini_text_fallback: { label: "Gemini 兜底", tone: "cloud-fallback" },
     gemini_error: { label: "Gemini 错误", tone: "error" },
     hybrid_rules: { label: "云端规则", tone: "cloud-rule" },
+    cloud_command_bridge: { label: "云端指令", tone: "mobile" },
+    command_protocol: { label: "云端指令", tone: "mobile" },
     weather_tool: { label: "实时天气", tone: "online" },
     wiki_tool: { label: "百科摘要", tone: "online" },
     webpage_tool: { label: "网页读取", tone: "online" },
@@ -48,25 +50,28 @@
 
   function inferSource(message) {
     if (!message || message.role !== "assistant") return null;
+    const version = String(message.version || "");
     if (message.source) return message.source;
+    if (/command-protocol|worker-command|cloud-command/i.test(version)) return "command_protocol";
     if (message.mobileCommand) return "local_mobile";
     if (Array.isArray(message.records) && message.records.length) return "local";
     if (message.id === "welcome") return "builtin_profile";
-    return "unknown";
+    return "cloud_ai";
   }
 
   function sourceMeta(source) {
     if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
-    return { label: "来源未知", tone: "unknown" };
+    return { label: "云端 AI", tone: "cloud" };
   }
 
   function installStyle() {
-    if (document.querySelector(`#${STYLE_ID}`)) return;
+    const old = document.querySelector(`#${STYLE_ID}`);
+    if (old) old.remove();
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
       .chat-source-badge-row{display:flex;justify-content:flex-start;margin:7px 0 0 4px;gap:6px;flex-wrap:wrap}
-      .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;line-height:1;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px)}
+      .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;line-height:1;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
       .chat-source-badge::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
@@ -84,6 +89,11 @@
       body.assistant-compact .chat-source-badge{font-size:10px;padding:3px 7px}
     `;
     document.head.appendChild(style);
+  }
+
+  function clearOldBadges() {
+    document.querySelectorAll(".chat-source-badge-row").forEach((el) => el.remove());
+    document.querySelectorAll(".chat-row.assistant[data-message-id]").forEach((row) => delete row.dataset.sourceBadgeReady);
   }
 
   function addBadges() {
@@ -110,10 +120,11 @@
     target.dataset.sourceBadgeObserver = "ready";
     const observer = new MutationObserver(() => addBadges());
     observer.observe(target, { childList: true, subtree: true });
+    clearOldBadges();
     addBadges();
   }
 
-  window.ChatSourceBadges = { refresh: addBadges, labels: SOURCE_LABELS };
+  window.ChatSourceBadges = { refresh: () => { clearOldBadges(); addBadges(); }, labels: SOURCE_LABELS };
 
   window.addEventListener("DOMContentLoaded", () => {
     installStyle();
