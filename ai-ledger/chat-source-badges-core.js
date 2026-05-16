@@ -11,9 +11,20 @@
     return Array.isArray(window.chatMessages) ? window.chatMessages : [];
   }
 
+  function allMessages() {
+    const seen = new Set();
+    const list = [];
+    [...readMessages(), ...windowMessages()].filter(Boolean).forEach((message) => {
+      if (!message?.id || seen.has(String(message.id))) return;
+      seen.add(String(message.id));
+      list.push(message);
+    });
+    return list;
+  }
+
   function mergedMessages() {
     const map = new Map();
-    [...readMessages(), ...windowMessages()].filter(Boolean).forEach((message) => {
+    allMessages().forEach((message) => {
       if (message?.id) map.set(String(message.id), message);
     });
     return map;
@@ -121,40 +132,34 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #chatMessages{scroll-padding-bottom:44px!important;padding-bottom:24px!important;}
+      #chatMessages{scroll-padding-bottom:50px!important;padding-bottom:28px!important;}
       .chat-row,.chat-response,.chat-bubble{overflow:visible!important;}
-      .chat-bubble[data-badge-text]{position:relative!important;padding-bottom:48px!important;}
-      .chat-bubble[data-badge-text]::after{content:attr(data-badge-text);position:absolute;left:28px;right:auto;bottom:12px;display:inline-flex;max-width:calc(100% - 46px);box-sizing:border-box;border-radius:999px;padding:6px 10px 6px 22px;font-size:11px;font-weight:850;line-height:1.12;white-space:normal;word-break:break-word;z-index:12;opacity:1!important;visibility:visible!important;color:rgba(238,250,255,.78);background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.10);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
-      .chat-bubble[data-badge-text]::before{content:'';position:absolute;left:39px;bottom:22px;width:6px;height:6px;border-radius:999px;z-index:13;background:currentColor;opacity:.88;color:rgba(238,250,255,.78);}
-      .chat-row.user .chat-bubble[data-badge-text]::after{left:auto;right:28px;}
-      .chat-row.user .chat-bubble[data-badge-text]::before{left:auto;right:40px;}
-      .chat-bubble[data-badge-tone="cloud"]::after{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
-      .chat-bubble[data-badge-tone="cloud"]::before{color:#83f7ff;}
-      .chat-bubble[data-badge-tone="gemini"]::after{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
-      .chat-bubble[data-badge-tone="gemini"]::before{color:#c7b7ff;}
-      .chat-bubble[data-badge-tone="vision"]::after{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34);}
-      .chat-bubble[data-badge-tone="vision"]::before{color:#ffd1fb;}
-      .chat-bubble[data-badge-tone="attachment"]::after{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34);}
-      .chat-bubble[data-badge-tone="attachment"]::before{color:#e5edff;}
-      .chat-bubble[data-badge-tone="online"]::after{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34);}
-      .chat-bubble[data-badge-tone="online"]::before{color:#8ff7c4;}
-      .chat-bubble[data-badge-tone="utility"]::after{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32);}
-      .chat-bubble[data-badge-tone="utility"]::before{color:#ffe38f;}
-      .chat-bubble[data-badge-tone="cloud-fallback"]::after{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32);}
-      .chat-bubble[data-badge-tone="cloud-fallback"]::before{color:#ffd28a;}
-      .chat-bubble[data-badge-tone="cloud-rule"]::after{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);}
-      .chat-bubble[data-badge-tone="cloud-rule"]::before{color:#a7f3d0;}
-      .chat-bubble[data-badge-tone="builtin"]::after{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30);}
-      .chat-bubble[data-badge-tone="builtin"]::before{color:#e7ddff;}
-      .chat-bubble[data-badge-tone="local"]::after{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28);}
-      .chat-bubble[data-badge-tone="local"]::before{color:#cbd5e1;}
-      .chat-bubble[data-badge-tone="mobile"]::after{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32);}
-      .chat-bubble[data-badge-tone="mobile"]::before{color:#86ece2;}
-      .chat-bubble[data-badge-tone="error"]::after{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30);}
-      .chat-bubble[data-badge-tone="error"]::before{color:#ffb4b4;}
+      .chat-bubble[data-badge-text],.chat-response[data-badge-text]{position:relative!important;}
+      .chat-bubble[data-badge-text]::before,.chat-response[data-badge-text]::before{display:none!important;content:none!important;}
+      .chat-bubble[data-badge-text]::after,.chat-response[data-badge-text]::after{content:'● ' attr(data-badge-text);position:static!important;display:block;width:fit-content;max-width:100%;box-sizing:border-box;margin-top:14px;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:900;letter-spacing:.01em;line-height:1.18;white-space:normal;word-break:break-word;z-index:12;opacity:1!important;visibility:visible!important;color:rgba(238,250,255,.82);background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,.075));border:1px solid rgba(255,255,255,.30);box-shadow:inset 0 1px 0 rgba(255,255,255,.30),0 10px 22px rgba(0,0,0,.11);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);}
+      .chat-row.user .chat-bubble[data-badge-text]::after,.chat-row.user .chat-response[data-badge-text]::after{margin-left:auto;}
+      .chat-bubble[data-badge-tone="cloud"]::after,.chat-response[data-badge-tone="cloud"]::after{color:#8cf7ff;background:linear-gradient(135deg,rgba(33,197,255,.22),rgba(88,130,255,.10));border-color:rgba(132,221,255,.38);}
+      .chat-bubble[data-badge-tone="gemini"]::after,.chat-response[data-badge-tone="gemini"]::after{color:#d6c8ff;background:linear-gradient(135deg,rgba(126,87,255,.24),rgba(236,72,153,.10));border-color:rgba(173,145,255,.42);}
+      .chat-bubble[data-badge-tone="vision"]::after,.chat-response[data-badge-tone="vision"]::after{color:#ffd1fb;background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(126,87,255,.10));border-color:rgba(236,72,153,.38);}
+      .chat-bubble[data-badge-tone="attachment"]::after,.chat-response[data-badge-tone="attachment"]::after{color:#e7edff;background:linear-gradient(135deg,rgba(148,163,255,.22),rgba(255,255,255,.08));border-color:rgba(181,190,255,.38);}
+      .chat-bubble[data-badge-tone="online"]::after,.chat-response[data-badge-tone="online"]::after{color:#9af8cc;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(33,197,255,.08));border-color:rgba(22,190,121,.38);}
+      .chat-bubble[data-badge-tone="utility"]::after,.chat-response[data-badge-tone="utility"]::after{color:#ffe69a;background:linear-gradient(135deg,rgba(240,180,50,.20),rgba(255,255,255,.08));border-color:rgba(240,180,50,.36);}
+      .chat-bubble[data-badge-tone="cloud-fallback"]::after,.chat-response[data-badge-tone="cloud-fallback"]::after{color:#ffd79b;background:linear-gradient(135deg,rgba(255,189,91,.20),rgba(255,255,255,.075));border-color:rgba(255,189,91,.36);}
+      .chat-bubble[data-badge-tone="cloud-rule"]::after,.chat-response[data-badge-tone="cloud-rule"]::after{color:#a7f3d0;background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(255,255,255,.075));border-color:rgba(16,185,129,.32);}
+      .chat-bubble[data-badge-tone="builtin"]::after,.chat-response[data-badge-tone="builtin"]::after{color:#e7ddff;background:linear-gradient(135deg,rgba(161,117,255,.18),rgba(255,255,255,.075));border-color:rgba(161,117,255,.34);}
+      .chat-bubble[data-badge-tone="local"]::after,.chat-response[data-badge-tone="local"]::after{color:#d3dbe9;background:linear-gradient(135deg,rgba(148,163,184,.18),rgba(255,255,255,.075));border-color:rgba(148,163,184,.30);}
+      .chat-bubble[data-badge-tone="mobile"]::after,.chat-response[data-badge-tone="mobile"]::after{color:#8df4ed;background:linear-gradient(135deg,rgba(11,143,139,.20),rgba(33,197,255,.08));border-color:rgba(11,143,139,.36);}
+      .chat-bubble[data-badge-tone="error"]::after,.chat-response[data-badge-tone="error"]::after{color:#ffc1c1;background:linear-gradient(135deg,rgba(255,91,91,.22),rgba(236,72,153,.08));border-color:rgba(255,91,91,.38);}
       .chat-source-badge-row{display:none!important;}
-      body.assistant-compact .chat-bubble[data-badge-text]{padding-bottom:42px!important;}
-      body.assistant-compact .chat-bubble[data-badge-text]::after{font-size:10px;padding:5px 9px 5px 20px;}
+      .chat-message-actions{display:flex;align-items:center;gap:8px;margin:8px 0 2px 4px;min-height:30px;position:relative;z-index:10;}
+      .chat-row.user .chat-message-actions{justify-content:flex-end;margin-right:4px;}
+      .chat-action-btn{appearance:none;border:1px solid rgba(255,255,255,.24);border-radius:999px;background:linear-gradient(135deg,rgba(255,255,255,.18),rgba(255,255,255,.06));color:rgba(235,243,255,.78);min-height:28px;padding:0 12px;font-size:11px;font-weight:850;letter-spacing:.01em;backdrop-filter:blur(12px) saturate(145%);-webkit-backdrop-filter:blur(12px) saturate(145%);box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 8px 18px rgba(0,0,0,.10);}
+      .chat-action-btn:active{transform:scale(.96);}
+      .chat-action-btn.retry{color:#c7b7ff;border-color:rgba(173,145,255,.32);}
+      .chat-action-btn.copy{color:#9af8cc;border-color:rgba(22,190,121,.30);}
+      body.assistant-compact .chat-bubble[data-badge-text]::after,body.assistant-compact .chat-response[data-badge-text]::after{font-size:10px;padding:6px 10px;margin-top:10px;}
+      body.assistant-compact .chat-message-actions{margin-top:6px;gap:6px;}
+      body.assistant-compact .chat-action-btn{min-height:25px;padding:0 10px;font-size:10px;}
     `;
     document.head.appendChild(style);
   }
@@ -208,13 +213,102 @@
     return true;
   }
 
+  function ensureActions(row, byId) {
+    if (!row || row.id === 'typingRow' || row.classList.contains('user')) return false;
+    const id = row.dataset.messageId || '';
+    const message = id ? byId.get(String(id)) : null;
+    if (!message || message.role !== 'assistant' || message.id === 'welcome') return false;
+    const bubble = row.querySelector('.chat-response,.chat-bubble');
+    if (!bubble) return false;
+    const existing = row.querySelector(':scope .chat-message-actions');
+    if (existing && existing.dataset.forMessage === id) return false;
+    existing?.remove();
+    bubble.insertAdjacentHTML('afterend', `<div class="chat-message-actions" data-for-message="${escapeHtml(id)}"><button class="chat-action-btn retry" type="button" data-chat-action="retry" data-message-id="${escapeHtml(id)}">重试</button><button class="chat-action-btn copy" type="button" data-chat-action="copy" data-message-id="${escapeHtml(id)}">复制</button></div>`);
+    return true;
+  }
+
   function addBadges() {
     const byId = mergedMessages();
     let changed = false;
     document.querySelectorAll('.chat-row').forEach((row) => {
       if (ensureBadge(row, byId)) changed = true;
+      if (ensureActions(row, byId)) changed = true;
     });
-    if (changed) pinChatBottom('badge-bubble');
+    if (changed) pinChatBottom('badge-actions');
+  }
+
+  function findMessageIndex(id) {
+    const list = allMessages();
+    const index = list.findIndex((message) => String(message.id) === String(id));
+    return { list, index };
+  }
+
+  function cleanCopyText(message) {
+    return String(message?.content || '').trim();
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+
+  function flashButton(button, label) {
+    if (!button) return;
+    const old = button.textContent;
+    button.textContent = label;
+    window.setTimeout(() => { button.textContent = old; }, 1200);
+  }
+
+  async function handleCopy(button, id) {
+    const { list, index } = findMessageIndex(id);
+    const message = index >= 0 ? list[index] : null;
+    const text = cleanCopyText(message);
+    if (!text) return flashButton(button, '无内容');
+    try {
+      await copyText(text);
+      flashButton(button, '已复制');
+    } catch {
+      flashButton(button, '复制失败');
+    }
+  }
+
+  function handleRetry(button, id) {
+    const { list, index } = findMessageIndex(id);
+    if (index < 0) return flashButton(button, '未找到');
+    const prevUser = list.slice(0, index).reverse().find((message) => message.role === 'user' && String(message.content || '').trim());
+    if (!prevUser) return flashButton(button, '无上文');
+    const input = document.querySelector('#aiInput');
+    const form = document.querySelector('#chatForm');
+    if (!input || !form) return flashButton(button, '不可重试');
+    input.value = prevUser.content;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flashButton(button, '重试中');
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  function installActionEvents() {
+    if (document.body.dataset.chatMessageActionsBound === '1') return;
+    document.body.dataset.chatMessageActionsBound = '1';
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-chat-action]');
+      if (!button) return;
+      const action = button.dataset.chatAction;
+      const id = button.dataset.messageId;
+      if (action === 'copy') handleCopy(button, id);
+      if (action === 'retry') handleRetry(button, id);
+    });
   }
 
   function installObserver() {
@@ -233,6 +327,7 @@
 
   function boot() {
     installStyle();
+    installActionEvents();
     installObserver();
     window.setInterval(addBadges, 300);
     window.addEventListener('ai-ledger-model-change', addBadges);
