@@ -1,6 +1,7 @@
 import orchestrator from "./index-orchestrator.js";
 import { modelMeta, normalizeModelPreference } from "./shared/model-meta.js";
 import { json, JSON_HEADERS } from "./shared/response.js";
+import { raceWithTimeout, fetchWithTimeout } from "./shared/provider-timeout.js";
 
 const DIAGNOSTICS_VERSION = "ai-ledger-orchestrator-diagnostics-v2";
 
@@ -317,24 +318,6 @@ function orchestratorTimeoutMs(modelPreference) {
   if (pref === "gemini") return 18000;
   if (pref === "workers") return 18000;
   return 22000;
-}
-
-function raceWithTimeout(promise, timeoutMs, label = "timeout") {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)), timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function corsFromRequestLike() {
