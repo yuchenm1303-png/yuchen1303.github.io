@@ -1,7 +1,7 @@
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
-const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v5-nvidia-planner";
+const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v6-provider-pool-search-summary";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const ACTION_INTENTS = new Set([
   "navigation.start",
@@ -38,15 +38,17 @@ export default {
       return json({
         ok: true,
         version: ORCHESTRATOR_VERSION,
-        mode: "cloud_brain_local_executor_orchestrator_nvidia_planner",
+        mode: "cloud_brain_local_executor_provider_pool_search_summary",
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasNvidiaKey: Boolean(env.NVIDIA_API_KEY),
         hasTavilyKey: Boolean(env.TAVILY_API_KEY),
         hasWorkersAI: Boolean(env.AI),
         plannerProvider: plannerProvider(env),
+        providerPool: providerPool(env).map((item) => ({ provider: item.provider, model: item.model, label: item.label, tasks: item.tasks })),
         defaultGeminiModel: geminiModel(env),
         nvidiaPlannerModel: nvidiaPlannerModel(env),
         nvidiaPlannerLabel: nvidiaModelLabel(nvidiaPlannerModel(env)),
+        nvidiaChatModel: nvidiaChatModel(env),
         nvidiaBaseUrl: nvidiaBaseUrl(env),
         commandWorker: commandHealth,
         attachmentGateway: attachmentHealth,
@@ -58,19 +60,13 @@ export default {
 
     const originalForDelegate = request.clone();
     let body;
-    try {
-      body = await request.json();
-    } catch {
-      return commandWorker.fetch(originalForDelegate, env, ctx);
-    }
+    try { body = await request.json(); } catch { return commandWorker.fetch(originalForDelegate, env, ctx); }
 
     const text = lastUserText(body?.messages, body?.text);
     const memory = normalizeMemoryContext(body?.memoryContext);
     const hasAttachments = Array.isArray(body?.attachments) && body.attachments.length > 0;
 
-    if (hasAttachments) {
-      return attachmentGateway.fetch(cloneRequestWithJson(request, { ...body, memoryContext: memory }), env, ctx);
-    }
+    if (hasAttachments) return attachmentGateway.fetch(cloneRequestWithJson(request, { ...body, memoryContext: memory }), env, ctx);
 
     const forceSearch = isForcedWebSearch(body);
     const explicitSearch = isExplicitSearchQuery(text) && !isWeatherLikeText(text);
@@ -88,10 +84,7 @@ export default {
     }
 
     if (intent.intent === "weather.query") {
-      const weatherInput = cleanWeatherLocation(intent.toolInput?.location)
-        || memory.currentCity
-        || memory.currentLocation
-        || text;
+      const weatherInput = cleanWeatherLocation(intent.toolInput?.location) || memory.currentCity || memory.currentLocation || text;
       return json(await weather(weatherInput, memory), 200, corsHeaders);
     }
 
@@ -102,9 +95,7 @@ export default {
       return json(searchError(search.error), 200, corsHeaders);
     }
 
-    if (intent.intent === "chat") {
-      return json(await chatWithGemini(env, body, text, memory), 200, corsHeaders);
-    }
+    if (intent.intent === "chat") return json(await chatWithProviderPool(env, body, text, memory), 200, corsHeaders);
 
     return delegateCommandWorker(request, env, ctx, {
       ...body,
@@ -128,14 +119,8 @@ async function delegateCommandWorker(originalRequest, env, ctx, body, intent = {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch {}
   if (!data || typeof data !== "object") return response;
-  const meta = intent.provider
-    ? modelMeta(intent.provider, intent.model, `${intent.modelLabel || intent.model || intent.provider} Planner`)
-    : modelMeta("Gemini", geminiModel(env), "Command Planner");
-  return json({
-    ...data,
-    ...meta,
-    version: appendRunLabel(data.version || ORCHESTRATOR_VERSION, meta.modelLabel),
-  }, response.status, response.headers);
+  const meta = intent.provider ? modelMeta(intent.provider, intent.model, `${intent.modelLabel || intent.model || intent.provider} Planner`) : modelMeta("Gemini", geminiModel(env), "Command Planner");
+  return json({ ...data, ...meta, version: appendRunLabel(data.version || ORCHESTRATOR_VERSION, meta.modelLabel) }, response.status, response.headers);
 }
 
 async function safeHealth(worker, originalRequest, env, ctx) {
@@ -143,9 +128,7 @@ async function safeHealth(worker, originalRequest, env, ctx) {
     const url = new URL(originalRequest.url);
     const res = await worker.fetch(new Request(`${url.origin}/health`, { method: "GET", headers: originalRequest.headers }), env, ctx);
     return await res.json().catch(() => ({ ok: res.ok, status: res.status }));
-  } catch (error) {
-    return { ok: false, error: String(error?.message || error).slice(0, 120) };
-  }
+  } catch (error) { return { ok: false, error: String(error?.message || error).slice(0, 120) }; }
 }
 
 function cloneRequestWithJson(originalRequest, body) {
@@ -157,25 +140,20 @@ function cloneRequestWithJson(originalRequest, body) {
 
 async function classifyIntent(env, body, text, memory = {}) {
   const fallback = heuristicIntent(body, text);
-
   if (fallback.confidence >= 0.9 && ACTION_INTENTS.has(fallback.intent)) return fallback;
-
   const provider = plannerProvider(env);
   if (provider === "nvidia" && env.NVIDIA_API_KEY) {
     const nvidia = await classifyWithNvidia(env, body, text, memory, fallback);
     if (nvidia) return nvidia;
   }
-
   if (env.GEMINI_API_KEY) {
     const gemini = await classifyWithGemini(env, body, text, memory, fallback);
     if (gemini) return gemini;
   }
-
   if (env.NVIDIA_API_KEY && provider !== "nvidia") {
     const nvidia = await classifyWithNvidia(env, body, text, memory, fallback);
     if (nvidia) return nvidia;
   }
-
   return fallback;
 }
 
@@ -185,79 +163,44 @@ function buildPlannerPrompt(body, text, memory) {
     "你是 AI 助手的意图规划器。你只判断最后一句用户话应该交给哪一个工具或对话层，不回答正文。",
     "必须只返回 JSON object，不要 markdown，不要解释。",
     "允许 intent：attachment.analyze, weather.query, web.search, news.query, navigation.start, navigation.modify, navigation.preference.set, alarm.set, app.open, ledger.create, chat。",
-    "返回格式必须是：",
-    JSON.stringify({ intent: "chat", confidence: 0.8, toolInput: {}, reason: "short" }),
+    "返回格式必须是：", JSON.stringify({ intent: "chat", confidence: 0.8, toolInput: {}, reason: "short" }),
     "硬规则：",
-    "1. 用户明确说“搜一下/搜索/查一下/联网查/上网查”，且没有天气、气温、下雨、几度等天气词 → web.search 或 news.query，不能判成 weather.query。",
-    "2. 用户说新闻、大新闻、热点、今日新闻、最新消息 → news.query。不要把“新闻”当作城市。",
-    "3. 天气、气温、下雨、穿衣建议、几度、带伞 → weather.query。toolInput.location 有城市就填，没有则空；不要把“这里/本地/当前位置/新闻/定义/生命”等当城市。",
-    "4. 如果上一条助手问城市天气，用户只回“重庆吧/北京/温州”，才判为 weather.query，并把 location 写成这个城市。",
+    "1. 搜一下/搜索/查一下/联网查/上网查，且没有天气词 → web.search 或 news.query，不能判成 weather.query。",
+    "2. 新闻、大新闻、热点、今日新闻、最新消息 → news.query。不要把“新闻”当作城市。",
+    "3. 天气、气温、下雨、穿衣建议、几度、带伞 → weather.query。toolInput.location 有城市就填，没有则空。",
+    "4. 如果上一条助手问城市天气，用户只回城市名，才判为 weather.query。",
     "5. 导航、修改导航、保存家/学校/公司/宿舍地址、默认地图/默认出行方式 → 对应 navigation intent。",
     "6. 设置提醒/闹钟 → alarm.set。打开 App → app.open。真实收支 → ledger.create。",
-    "7. 普通解释、定义、学习问题，例如“生命的定义是什么/人工智能是什么” → chat。",
-    "本地记忆：",
-    JSON.stringify(memory || {}),
-    "对话历史：",
-    JSON.stringify(messages),
-    "最后一句：",
-    text,
+    "7. 普通解释、定义、学习问题 → chat。",
+    "本地记忆：", JSON.stringify(memory || {}),
+    "对话历史：", JSON.stringify(messages),
+    "最后一句：", text,
   ].join("\n");
 }
 
 async function classifyWithNvidia(env, body, text, memory, fallback) {
   try {
     const model = nvidiaPlannerModel(env);
-    const endpoint = `${nvidiaBaseUrl(env).replace(/\/+$/g, "")}/chat/completions`;
     const prompt = buildPlannerPrompt(body, text, memory);
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${env.NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: "You are a strict JSON-only intent planner. Return valid JSON only." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0,
-        max_tokens: 320,
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) return null;
-    const raw = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
+    const raw = await callNvidiaChat(env, model, [
+      { role: "system", content: "You are a strict JSON-only intent planner. Return valid JSON only." },
+      { role: "user", content: prompt },
+    ], 320, 0);
     const parsed = parseJsonObject(raw);
     if (!parsed) return null;
     return normalizeIntent(parsed, fallback, modelMeta("NVIDIA NIM", model, nvidiaModelLabel(model)));
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function classifyWithGemini(env, body, text, memory, fallback) {
   try {
     const model = geminiModel(env);
-    const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
     const prompt = buildPlannerPrompt(body, text, memory);
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 320, responseMimeType: "application/json" },
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) return null;
-    const raw = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim() || "";
+    const raw = await callGeminiText(env, model, prompt, 320, 0, true);
     const parsed = parseJsonObject(raw);
     if (!parsed) return null;
     return normalizeIntent(parsed, fallback, modelMeta("Gemini", model, `${geminiModelLabel(model)} Planner`));
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function parseJsonObject(raw) {
@@ -271,13 +214,7 @@ function parseJsonObject(raw) {
 function normalizeIntent(input, fallback, meta = {}) {
   const intent = ALLOWED_INTENTS.has(input?.intent) ? input.intent : fallback.intent;
   const confidence = Number(input?.confidence);
-  return {
-    intent,
-    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : fallback.confidence,
-    toolInput: input?.toolInput && typeof input.toolInput === "object" ? input.toolInput : fallback.toolInput || {},
-    reason: String(input?.reason || fallback.reason || "").slice(0, 120),
-    ...meta,
-  };
+  return { intent, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : fallback.confidence, toolInput: input?.toolInput && typeof input.toolInput === "object" ? input.toolInput : fallback.toolInput || {}, reason: String(input?.reason || fallback.reason || "").slice(0, 120), ...meta };
 }
 
 function heuristicIntent(body, text) {
@@ -297,11 +234,7 @@ function heuristicIntent(body, text) {
   return { intent: "chat", confidence: 0.55, toolInput: {}, reason: "default", ...modelMeta("Orchestrator", "heuristic", "Local Heuristic") };
 }
 
-function previousAssistantText(body) {
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  const msg = [...messages].reverse().find((m) => m?.role === "assistant" && String(m?.content || "").trim());
-  return String(msg?.content || "");
-}
+function previousAssistantText(body) { const messages = Array.isArray(body?.messages) ? body.messages : []; const msg = [...messages].reverse().find((m) => m?.role === "assistant" && String(m?.content || "").trim()); return String(msg?.content || ""); }
 
 async function weather(locationOrText, memory = {}) {
   const location = cleanWeatherLocation(extractWeatherLocation(locationOrText)) || cleanWeatherLocation(memory.currentCity || memory.currentLocation);
@@ -310,88 +243,124 @@ async function weather(locationOrText, memory = {}) {
     const place = await geocode(location);
     if (!place) return baseResponse(`我没有找到“${location}”的天气位置。可以换成更明确的城市名，比如“重庆市天气”。`, "weather_tool", modelMeta("Open-Meteo", "geocoding+forecast", "Open-Meteo"));
     const f = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=3&timezone=auto`);
-    const c = f.current || {};
-    const d = f.daily || {};
-    const rain = d.precipitation_probability_max?.[0];
+    const c = f.current || {}; const d = f.daily || {}; const rain = d.precipitation_probability_max?.[0];
     return baseResponse(`${place.name}${place.admin1 ? `（${place.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, memory.currentCity ? "weather_tool_memory" : "weather_tool", modelMeta("Open-Meteo", "forecast-v1", "Open-Meteo"));
-  } catch {
-    return baseResponse("天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。", "weather_error", modelMeta("Open-Meteo", "forecast-v1", "Open-Meteo"));
-  }
+  } catch { return baseResponse("天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。", "weather_error", modelMeta("Open-Meteo", "forecast-v1", "Open-Meteo")); }
 }
 
 async function searchWeb(env, rawQuery) {
   const query = cleanSearchQuery(rawQuery) || "今日新闻";
-  if (env.TAVILY_API_KEY) {
+  if (!env.TAVILY_API_KEY) return { ok: false, error: "missing_tavily_key" };
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.TAVILY_API_KEY}` },
+      body: JSON.stringify({ query, search_depth: "advanced", topic: "general", max_results: 6, include_answer: true, include_raw_content: false, include_images: false }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || data?.message || `Tavily HTTP ${res.status}`);
+    const results = Array.isArray(data?.results) ? data.results.slice(0, 6) : [];
+    if (!results.length && !data?.answer) throw new Error("Tavily empty");
+    const sources = results.map((r) => ({ title: r.title || r.url, url: r.url, score: r.score, content: r.content }));
+    const summary = await summarizeSearchResults(env, query, data?.answer || "", sources);
+    const meta = summary?.meta || modelMeta("Tavily", "tavily-search", "Tavily Search");
+    const rawLines = sources.slice(0, 4).map((r, i) => `${i + 1}. ${r.title}${r.url ? `\n   ${r.url}` : ""}`).join("\n");
+    return {
+      ok: true,
+      reply: summary?.reply || `${data?.answer ? `${data.answer}\n\n` : ""}已通过 Tavily 联网搜索“${query}”。\n${rawLines}`,
+      action: "chat",
+      records: [],
+      mobileCommand: null,
+      webSearchUsed: true,
+      webSearchMode: "orchestrator",
+      sources,
+      citations: sources.map((r) => r.url).filter(Boolean),
+      source: summary?.source || "tavily_web_search",
+      ...meta,
+      version: appendRunLabel(ORCHESTRATOR_VERSION, meta.modelLabel || "Tavily Search"),
+    };
+  } catch (error) { return { ok: false, error: String(error?.message || error) }; }
+}
+
+async function summarizeSearchResults(env, query, tavilyAnswer, sources) {
+  const sourceText = sources.map((s, i) => `[${i + 1}] 标题：${s.title}\n链接：${s.url || ""}\n摘要：${String(s.content || "").slice(0, 600)}`).join("\n\n");
+  const prompt = [
+    "你是手机端 AI 助手的联网搜索总结器。请把搜索结果整理成清晰中文答案，不要直接堆搜索片段。",
+    "要求：",
+    "1. 先用 2-4 句话直接回答用户问题。",
+    "2. 再列出 3 条以内的关键点。",
+    "3. 如果搜索结果质量差或像词典/论坛碎片，要明确说“搜索结果质量一般”，并给出更合适的查询建议。",
+    "4. 不要编造来源没有的信息。",
+    "5. 结尾加一行“来源：”列出 2-4 个来源标题，不要输出长链接。",
+    `用户查询：${query}`,
+    tavilyAnswer ? `Tavily answer：${tavilyAnswer}` : "",
+    `搜索结果：\n${sourceText}`,
+  ].filter(Boolean).join("\n\n");
+  const result = await callTextProviderPool(env, prompt, { task: "search_summary", maxTokens: 900, temperature: 0.25 });
+  if (!result?.text) return null;
+  return { reply: result.text.trim(), source: "tavily_ai_summary", meta: result.meta };
+}
+
+async function chatWithProviderPool(env, body, text, memory = {}) {
+  const messages = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
+  const conversation = messages.map((m) => `${m?.role === "assistant" ? "助手" : "用户"}：${String(m?.content || "").slice(0, 1200)}`).join("\n");
+  const prompt = ["你是手机端 AI 助手的普通聊天层。", "只回答普通聊天、学习解释、概念说明和非本地执行类问题。", "可以参考本地记忆理解上下文，但不要无故复述隐私记忆。", "不要生成 command/mobileCommand，不要声称已经执行手机动作。", "回答用中文，简洁自然；必要时分点，但不要太啰嗦。", "本地记忆：", JSON.stringify(memory || {}), "对话历史：", conversation || `用户：${text}`].join("\n");
+  const result = await callTextProviderPool(env, prompt, { task: "chat", maxTokens: 1200, temperature: 0.35 });
+  if (result?.text) return baseResponse(result.text.trim(), result.source, result.meta);
+  return baseResponse("云端 AI 暂时不可用：Gemini、NVIDIA 和 Workers AI 都没有成功返回。", "provider_pool_failed", modelMeta("Provider Pool", "all_failed", "多云端 AI 均不可用"));
+}
+
+async function callTextProviderPool(env, prompt, options = {}) {
+  const errors = [];
+  for (const provider of providerPool(env).filter((item) => item.tasks.includes(options.task || "chat") || item.tasks.includes("chat"))) {
     try {
-      const res = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${env.TAVILY_API_KEY}` },
-        body: JSON.stringify({ query, search_depth: "advanced", topic: "general", max_results: 6, include_answer: true, include_raw_content: false, include_images: false }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || data?.message || `Tavily HTTP ${res.status}`);
-      const results = Array.isArray(data?.results) ? data.results.slice(0, 6) : [];
-      if (!results.length && !data?.answer) throw new Error("Tavily empty");
-      const lines = results.map((r, i) => `${i + 1}. ${r.title || r.url}${r.content ? `：${trim(r.content, 96)}` : ""}`);
-      const meta = modelMeta("Tavily", "tavily-search", "Tavily Search");
-      return { ok: true, reply: `${data?.answer ? `${data.answer}\n\n` : ""}已通过 Tavily 联网搜索“${query}”。${lines.length ? `\n${lines.join("\n")}` : ""}`, action: "chat", records: [], mobileCommand: null, webSearchUsed: true, webSearchMode: "orchestrator", sources: results.map((r) => ({ title: r.title || r.url, url: r.url, score: r.score, content: r.content })), citations: results.map((r) => r.url).filter(Boolean), source: "tavily_web_search", ...meta, version: versionWithMeta(meta.modelLabel) };
-    } catch (error) {
-      return { ok: false, error: String(error?.message || error) };
-    }
+      let text = "";
+      if (provider.kind === "nvidia") text = await callNvidiaChat(env, provider.model, [{ role: "system", content: "你是中文手机 AI 助手。回答要清楚、简洁、可靠。" }, { role: "user", content: prompt }], options.maxTokens || 1000, options.temperature ?? 0.35);
+      else if (provider.kind === "gemini") text = await callGeminiText(env, provider.model, prompt, options.maxTokens || 1000, options.temperature ?? 0.35, false);
+      else if (provider.kind === "workers_ai") text = await callWorkersAIText(env, prompt, options.maxTokens || 800);
+      if (String(text || "").trim()) return { text: String(text).trim(), source: provider.source, meta: modelMeta(provider.provider, provider.model, provider.label) };
+    } catch (error) { errors.push(`${provider.label}: ${String(error?.message || error).slice(0, 80)}`); }
   }
-  return { ok: false, error: "missing_tavily_key" };
+  return { text: "", errors };
 }
 
-async function chatWithGemini(env, body, text, memory = {}) {
-  const model = geminiModel(env);
-  const meta = modelMeta("Gemini", model, geminiModelLabel(model));
-  if (!env.GEMINI_API_KEY) return baseResponse("云端 AI 暂时不可用：Worker 没有配置 GEMINI_API_KEY，所以普通聊天和知识问答无法调用 Gemini。", "gemini_missing_key", meta);
-  try {
-    const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
-    const messages = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
-    const conversation = messages.map((m) => `${m?.role === "assistant" ? "助手" : "用户"}：${String(m?.content || "").slice(0, 1200)}`).join("\n");
-    const prompt = ["你是手机端 AI 助手的普通聊天层。", "只回答普通聊天、学习解释、概念说明和非本地执行类问题。", "可以参考本地记忆理解上下文，但不要无故复述隐私记忆。", "不要生成 command/mobileCommand，不要声称已经执行手机动作。", "回答用中文，简洁自然；必要时分点，但不要太啰嗦。", "本地记忆：", JSON.stringify(memory || {}), "对话历史：", conversation || `用户：${text}`].join("\n");
-    const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.35, maxOutputTokens: 1200 } }) });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
-    const reply = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("\n").trim();
-    return baseResponse(reply || "Gemini 没有返回可读内容。", "gemini_chat", meta);
-  } catch (error) {
-    if (env.NVIDIA_API_KEY && String(env.NVIDIA_CHAT_FALLBACK || "true") !== "false") return chatWithNvidiaFallback(env, body, text, memory, String(error?.message || error));
-    return baseResponse(friendlyGeminiError(String(error?.message || error)), "gemini_chat_error", meta);
-  }
+function providerPool(env) {
+  const pool = [];
+  if (env.NVIDIA_API_KEY) pool.push({ kind: "nvidia", provider: "NVIDIA NIM", model: nvidiaChatModel(env), label: nvidiaModelLabel(nvidiaChatModel(env)), source: "nvidia_chat", tasks: ["chat", "search_summary"] });
+  if (env.GEMINI_API_KEY) pool.push({ kind: "gemini", provider: "Gemini", model: geminiModel(env), label: geminiModelLabel(geminiModel(env)), source: "gemini_chat", tasks: ["chat", "search_summary"] });
+  if (env.AI) pool.push({ kind: "workers_ai", provider: "Cloudflare Workers AI", model: String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), label: "Workers AI Llama 3.1 8B", source: "workers_ai_text_fallback", tasks: ["chat", "search_summary"] });
+  return pool;
 }
 
-async function chatWithNvidiaFallback(env, body, text, memory = {}, geminiError = "") {
-  const model = nvidiaChatModel(env);
-  const meta = modelMeta("NVIDIA NIM", model, `${nvidiaModelLabel(model)} Fallback`);
-  try {
-    const endpoint = `${nvidiaBaseUrl(env).replace(/\/+$/g, "")}/chat/completions`;
-    const messages = Array.isArray(body?.messages) ? body.messages.slice(-10) : [];
-    const history = messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 1200) }));
-    const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.NVIDIA_API_KEY}` }, body: JSON.stringify({ model, messages: [{ role: "system", content: "你是手机端 AI 助手。用中文简洁回答普通聊天和知识问题，不要声称已执行手机动作。" }, { role: "system", content: `本地记忆：${JSON.stringify(memory || {})}` }, ...history], temperature: 0.35, max_tokens: 1000 }) });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error?.message || data?.message || `NVIDIA HTTP ${res.status}`);
-    const reply = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
-    return baseResponse(`${String(reply).trim()}\n\n注：Gemini 当前不可用，已切换到 NVIDIA NIM 兜底。`, "nvidia_chat_fallback", meta);
-  } catch {
-    return baseResponse(friendlyGeminiError(geminiError), "gemini_chat_error", modelMeta("Gemini", geminiModel(env), geminiModelLabel(geminiModel(env))));
-  }
+async function callNvidiaChat(env, model, messages, maxTokens = 1000, temperature = 0.35) {
+  const endpoint = `${nvidiaBaseUrl(env).replace(/\/+$/g, "")}/chat/completions`;
+  const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${env.NVIDIA_API_KEY}` }, body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error?.message || data?.message || `NVIDIA HTTP ${res.status}`);
+  return data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
 }
 
-function friendlyGeminiError(message) {
-  const raw = String(message || "");
-  if (/quota|rate.?limit|billing|exceeded|429/i.test(raw)) return "云端 AI 当前配额不足或被限流了。可以稍后再试，或更换/升级 Gemini Key。";
-  if (/GEMINI_API_KEY|api key|permission|unauthorized|403|401/i.test(raw)) return "云端 AI 暂时不可用：Gemini Key 可能缺失、无权限或配置错误。";
-  if (/abort|timeout|network|fetch|502|503|504|temporarily/i.test(raw)) return "云端 AI 请求超时或服务暂时不可用，请稍后再试。";
-  return `云端 AI 暂时不可用：${raw.slice(0, 180) || "未知错误"}`;
+async function callGeminiText(env, model, prompt, maxTokens = 1000, temperature = 0.35, jsonMode = false) {
+  const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+  const generationConfig = { temperature, maxOutputTokens: maxTokens };
+  if (jsonMode) generationConfig.responseMimeType = "application/json";
+  const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig }) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
+  return data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("\n").trim() || "";
 }
 
-function searchError(error) {
-  const meta = modelMeta("Tavily", "tavily-search", "Tavily Search");
-  return { reply: String(error || "").includes("missing_tavily_key") ? "当前还没有配置 TAVILY_API_KEY，所以无法进行稳定联网搜索。" : "联网搜索已经触发，但搜索源暂时请求失败。请检查 TAVILY_API_KEY 是否有效，或稍后再试。", action: "chat", records: [], mobileCommand: null, webSearchUsed: false, source: "web_search_error", ...meta, version: versionWithMeta(meta.modelLabel) };
+async function callWorkersAIText(env, prompt, maxTokens = 800) {
+  if (!env.AI) throw new Error("Workers AI binding is not available");
+  const result = await env.AI.run(String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), { messages: [{ role: "system", content: "你是中文手机 AI 助手。回答简洁可靠。" }, { role: "user", content: prompt }], max_tokens: maxTokens });
+  return String(result?.response || result?.text || "").trim();
 }
 
+// Backward compatible name used by older branches.
+async function chatWithGemini(env, body, text, memory = {}) { return chatWithProviderPool(env, body, text, memory); }
+
+function friendlyGeminiError(message) { const raw = String(message || ""); if (/quota|rate.?limit|billing|exceeded|429/i.test(raw)) return "云端 AI 当前配额不足或被限流了。可以稍后再试，或更换/升级 Gemini Key。"; if (/GEMINI_API_KEY|api key|permission|unauthorized|403|401/i.test(raw)) return "云端 AI 暂时不可用：Gemini Key 可能缺失、无权限或配置错误。"; if (/abort|timeout|network|fetch|502|503|504|temporarily/i.test(raw)) return "云端 AI 请求超时或服务暂时不可用，请稍后再试。"; return `云端 AI 暂时不可用：${raw.slice(0, 180) || "未知错误"}`; }
+function searchError(error) { const meta = modelMeta("Tavily", "tavily-search", "Tavily Search"); return { reply: String(error || "").includes("missing_tavily_key") ? "当前还没有配置 TAVILY_API_KEY，所以无法进行稳定联网搜索。" : "联网搜索已经触发，但搜索源暂时请求失败。请检查 TAVILY_API_KEY 是否有效，或稍后再试。", action: "chat", records: [], mobileCommand: null, webSearchUsed: false, source: "web_search_error", ...meta, version: versionWithMeta(meta.modelLabel) }; }
 function baseResponse(reply, source, meta = {}) { return { reply, action: "chat", records: [], mobileCommand: null, source, ...meta, version: versionWithMeta(meta.modelLabel) }; }
 
 async function geocode(location) { const candidates = weatherLocationCandidates(location); for (const name of candidates) { const geo = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=5&language=zh&format=json`); const results = Array.isArray(geo?.results) ? geo.results : []; const china = results.find((x) => x.country_code === "CN") || results[0]; if (china?.latitude && china?.longitude) return china; } return null; }
