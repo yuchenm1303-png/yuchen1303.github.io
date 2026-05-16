@@ -2,7 +2,17 @@
   'use strict';
 
   const PATCH_FLAG = '__navigationExecutionCompatPatched';
-  const MODEL_POLISH_STYLE_ID = 'model-picker-hero-polish-style';
+  const CHAT_KEY = 'ai-ledger-chat-v2';
+  const MODEL_STYLE_ID = 'model-picker-hero-polish-style';
+  const MODEL_PREF_KEY = 'ai-ledger-model-preference-v1';
+
+  const FALLBACK_MODELS = [
+    { id: 'auto', label: '自动', short: '自动', hint: '按可用性自动切换' },
+    { id: 'kimi', label: 'Kimi K2.6', short: 'Kimi', hint: '严格使用 Kimi' },
+    { id: 'mistral', label: 'Mistral Medium 3.5', short: 'Mistral', hint: '严格使用 Mistral' },
+    { id: 'gemini', label: 'Gemini 2.5 Flash', short: 'Gemini', hint: '严格使用 Gemini' },
+    { id: 'workers', label: 'Workers AI', short: 'Workers', hint: '使用 Workers AI 兜底' },
+  ];
 
   function normalizeMode(value) {
     const raw = String(value || '').trim();
@@ -18,29 +28,12 @@
     const normalized = normalizeMode(mode);
     const amapRouteType = { driving: '0', transit: '1', walking: '2', riding: '3' }[normalized] || '0';
     const baiduMode = { driving: 'driving', transit: 'transit', walking: 'walking', riding: 'riding' }[normalized] || 'driving';
-    return {
-      mode: normalized,
-      travelMode: normalized,
-      navigationMode: normalized,
-      transportMode: normalized,
-      routeMode: normalized,
-      baiduMode,
-      amapMode: normalized,
-      amapRouteType,
-      modeCode: amapRouteType,
-    };
+    return { mode: normalized, travelMode: normalized, navigationMode: normalized, transportMode: normalized, routeMode: normalized, baiduMode, amapMode: normalized, amapRouteType, modeCode: amapRouteType };
   }
 
   function normalizeNavigateParams(params = {}) {
     const normalizedMode = normalizeMode(params.mode || params.travelMode || params.navigationMode || params.transportMode || params.routeMode);
-    return {
-      ...params,
-      ...modeAliases(normalizedMode),
-      routeOptions: {
-        useRealtimeTraffic: true,
-        ...(params.routeOptions || {}),
-      },
-    };
+    return { ...params, ...modeAliases(normalizedMode), routeOptions: { useRealtimeTraffic: true, ...(params.routeOptions || {}) } };
   }
 
   function patchPlugin(plugin, name) {
@@ -66,191 +59,81 @@
   }
 
   function escapeHtml(value) {
-    return String(value ?? '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
+    return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
   }
 
-  function installModelPickerPolishStyle() {
-    const old = document.getElementById(MODEL_POLISH_STYLE_ID);
-    if (old) old.remove();
+  function readMessages() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }
+
+  function models() {
+    return window.AiLedgerModelPicker?.models || FALLBACK_MODELS;
+  }
+
+  function currentModelId() {
+    if (window.AiLedgerModelPicker?.current) return window.AiLedgerModelPicker.current();
+    try {
+      const value = JSON.parse(localStorage.getItem(MODEL_PREF_KEY) || '{}').model || 'auto';
+      return models().some((item) => item.id === value) ? value : 'auto';
+    } catch { return 'auto'; }
+  }
+
+  function setModel(id) {
+    if (window.AiLedgerModelPicker?.set) window.AiLedgerModelPicker.set(id);
+    else localStorage.setItem(MODEL_PREF_KEY, JSON.stringify({ model: id, updatedAt: Date.now() }));
+    syncModelLabel();
+  }
+
+  function currentModel() {
+    const id = currentModelId();
+    return models().find((item) => item.id === id) || models()[0] || FALLBACK_MODELS[0];
+  }
+
+  function showToast(text) {
+    const toast = document.querySelector('#toast');
+    if (!toast) return;
+    toast.textContent = text;
+    toast.classList.add('show');
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  function clearConversation() {
+    const initial = [{ id: 'welcome', role: 'assistant', content: '你好，我是你的 AI 助手。你可以让我记账、查账单、查天气、读网页、设置提醒、打开应用，也可以直接和我聊天。', action: 'chat', records: [], draftState: 'none', source: 'builtin_profile' }];
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(initial));
+      window.chatMessages = initial;
+    } catch {}
+    if (window.AiAssistantRuntime?.setChatWindowLimit) window.AiAssistantRuntime.setChatWindowLimit(60);
+    if (typeof window.renderAll === 'function') window.renderAll();
+    else if (typeof window.renderChat === 'function') window.renderChat();
+    else window.location.reload();
+    window.setTimeout(() => window.ChatSourceBadges?.refresh?.(), 80);
+    updateProgress();
+    showToast('已清空对话');
+  }
+
+  function installStyle() {
+    document.getElementById(MODEL_STYLE_ID)?.remove();
     const style = document.createElement('style');
-    style.id = MODEL_POLISH_STYLE_ID;
+    style.id = MODEL_STYLE_ID;
     style.textContent = `
-      .chat-summary-strip.model-picker-hero-strip {
-        display: grid !important;
-        grid-template-columns: auto minmax(0, 1fr) !important;
-        align-items: center !important;
-        gap: 10px !important;
-        margin-bottom: 4px !important;
-        min-height: 44px !important;
-      }
-
-      .chat-summary-strip.model-picker-hero-strip .summary-chip {
-        display: none !important;
-      }
-
-      .chat-summary-strip.model-picker-hero-strip::after {
-        content: '✦ 智能路由 · 轻量待命' !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        min-width: 0 !important;
-        height: 40px !important;
-        padding: 0 13px !important;
-        border-radius: 999px !important;
-        color: rgba(222, 239, 255, .62) !important;
-        font-size: 12px !important;
-        font-weight: 850 !important;
-        letter-spacing: .015em !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        background:
-          radial-gradient(ellipse at 82% 12%, rgba(139, 247, 255, .10), transparent 38%),
-          linear-gradient(145deg, rgba(255,255,255,.072), rgba(255,255,255,.020) 62%, rgba(255,255,255,.012)),
-          rgba(255,255,255,.028) !important;
-        border: 1px solid rgba(255,255,255,.115) !important;
-        box-shadow: inset 0 .6px 0 rgba(255,255,255,.18) !important;
-        pointer-events: none !important;
-      }
-
-      .model-picker-btn.hero-model-picker-btn {
-        width: auto !important;
-        min-width: 116px !important;
-        max-width: 146px !important;
-        height: 42px !important;
-        min-height: 42px !important;
-        padding: 0 13px !important;
-        display: inline-grid !important;
-        grid-template-columns: 24px auto !important;
-        align-items: center !important;
-        justify-content: start !important;
-        gap: 8px !important;
-        border-radius: 999px !important;
-        text-align: left !important;
-        font-size: 15px !important;
-        line-height: 1 !important;
-        letter-spacing: -.015em !important;
-        font-weight: 900 !important;
-        color: rgba(246, 250, 255, .94) !important;
-        background:
-          radial-gradient(circle at 18% 10%, rgba(139,247,255,.18), transparent 42%),
-          linear-gradient(145deg, rgba(255,255,255,.13), rgba(255,255,255,.042) 62%, rgba(255,255,255,.022)),
-          rgba(126,146,205,.10) !important;
-        border: 1px solid rgba(238,246,255,.22) !important;
-        box-shadow: 0 8px 16px rgba(0,0,0,.10), inset 0 .7px 0 rgba(255,255,255,.26), inset 0 -.7px 0 rgba(4,8,22,.07) !important;
-        backdrop-filter: blur(14px) saturate(128%) contrast(1.02) brightness(1.03) !important;
-        -webkit-backdrop-filter: blur(14px) saturate(128%) contrast(1.02) brightness(1.03) !important;
-        overflow: hidden !important;
-        transition: transform .18s cubic-bezier(.18,.86,.2,1), filter .18s ease, box-shadow .18s ease !important;
-      }
-
-      .model-picker-btn.hero-model-picker-btn::before {
-        content: 'AI' !important;
-        width: 24px !important;
-        height: 24px !important;
-        display: grid !important;
-        place-items: center !important;
-        margin: 0 !important;
-        border-radius: 10px !important;
-        font-size: 10px !important;
-        letter-spacing: -.03em !important;
-        font-weight: 950 !important;
-        color: rgba(255,255,255,.95) !important;
-        background:
-          radial-gradient(circle at 30% 18%, rgba(255,255,255,.44), transparent 45%),
-          linear-gradient(135deg, rgba(121,235,255,.40), rgba(142,105,255,.42)) !important;
-        box-shadow: inset 0 .6px 0 rgba(255,255,255,.28), 0 5px 10px rgba(0,0,0,.09) !important;
-        opacity: 1 !important;
-      }
-
-      .model-picker-btn.hero-model-picker-btn::after {
-        display: none !important;
-        content: '' !important;
-      }
-
-      .model-picker-btn.hero-model-picker-btn:active,
-      .model-picker-btn.hero-model-picker-btn.liquid-pressed {
-        transform: scale(.976) !important;
-        filter: brightness(1.04) saturate(1.025) !important;
-      }
-
-      .model-picker-sheet-mask.open {
-        display: grid !important;
-        place-items: end center !important;
-        background: rgba(4,8,20,.34) !important;
-        backdrop-filter: blur(14px) saturate(112%) !important;
-        -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
-        animation: modelMaskFadeIn .16s ease both !important;
-      }
-
-      .model-picker-sheet {
-        width: min(94vw, 500px) !important;
-        margin: 0 0 max(14px, env(safe-area-inset-bottom)) !important;
-        padding: 15px !important;
-        border-radius: 30px !important;
-        color: rgba(248,252,255,.98) !important;
-        background:
-          radial-gradient(ellipse at 18% 0%, rgba(139,247,255,.16), transparent 34%),
-          radial-gradient(ellipse at 90% 96%, rgba(154,126,255,.20), transparent 40%),
-          linear-gradient(145deg, rgba(255,255,255,.20), rgba(255,255,255,.075) 58%, rgba(255,255,255,.048)),
-          rgba(40,48,84,.68) !important;
-        border: 1px solid rgba(255,255,255,.28) !important;
-        box-shadow: 0 28px 78px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.34) !important;
-        backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
-        -webkit-backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
-        animation: modelSheetPopIn .25s cubic-bezier(.18,1.04,.24,1) both !important;
-      }
-
-      .model-picker-head strong { font-size: 19px !important; letter-spacing: -.04em !important; }
-      .model-picker-head span { max-width: 310px !important; line-height: 1.42 !important; }
-      .model-picker-list { gap: 9px !important; }
-      .model-choice { min-height: 64px !important; padding: 12px !important; border-radius: 20px !important; background: rgba(255,255,255,.085) !important; border: 1px solid rgba(255,255,255,.16) !important; box-shadow: inset 0 .7px 0 rgba(255,255,255,.16) !important; transition: transform .18s cubic-bezier(.18,.86,.2,1), background .18s ease, border-color .18s ease, box-shadow .18s ease !important; }
-      .model-choice.active { background: radial-gradient(ellipse at 18% 0%, rgba(139,247,255,.20), transparent 38%), linear-gradient(135deg, rgba(99,226,255,.20), rgba(145,106,255,.18)) !important; border-color: rgba(139,247,255,.38) !important; box-shadow: inset 0 .8px 0 rgba(255,255,255,.28), 0 10px 22px rgba(65,88,188,.13) !important; }
-      .model-choice.is-selecting { animation: modelChoiceSelect .24s cubic-bezier(.18,1.06,.2,1) both !important; }
-      .model-choice-dot { width: 12px !important; height: 12px !important; border-width: 2px !important; transition: transform .18s ease, background .18s ease, box-shadow .18s ease !important; }
-      .model-choice.active .model-choice-dot,
-      .model-choice.is-selecting .model-choice-dot { transform: scale(1.14) !important; background: #8bf7ff !important; border-color: #8bf7ff !important; box-shadow: 0 0 0 4px rgba(139,247,255,.12), 0 0 20px rgba(139,247,255,.54) !important; }
-
-      @keyframes modelMaskFadeIn { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes modelSheetPopIn { from { transform: translateY(20px) scale(.98); opacity: .38; } to { transform: none; opacity: 1; } }
-      @keyframes modelChoiceSelect { 0% { transform: scale(.988); } 55% { transform: scale(1.012); } 100% { transform: scale(1); } }
-
-      @media (max-width: 390px) {
-        .chat-summary-strip.model-picker-hero-strip::after {
-          content: '✦ 轻量待命' !important;
-          padding-inline: 10px !important;
-          font-size: 11px !important;
-        }
-        .model-picker-btn.hero-model-picker-btn {
-          min-width: 104px !important;
-          max-width: 132px !important;
-          font-size: 14px !important;
-        }
-      }
+      .chat-summary-strip.model-picker-hero-strip{display:grid!important;grid-template-columns:auto auto auto minmax(96px,1fr)!important;align-items:center!important;gap:8px!important;min-height:46px!important;margin-bottom:5px!important}.chat-summary-strip.model-picker-hero-strip .summary-chip{display:none!important}.chat-summary-strip.model-picker-hero-strip::after{display:none!important}.model-picker-btn.hero-model-picker-btn,#view-ai #aiModeBadge,#view-ai #clearChatInlineBtn{height:40px!important;min-height:40px!important;border-radius:999px!important;border:1px solid rgba(238,246,255,.22)!important;background:radial-gradient(circle at 20% 8%,rgba(139,247,255,.14),transparent 42%),linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.038) 62%,rgba(255,255,255,.022)),rgba(126,146,205,.10)!important;box-shadow:0 7px 14px rgba(0,0,0,.09),inset 0 .7px 0 rgba(255,255,255,.24)!important;backdrop-filter:blur(12px) saturate(124%) contrast(1.02) brightness(1.03)!important;-webkit-backdrop-filter:blur(12px) saturate(124%) contrast(1.02) brightness(1.03)!important}.model-picker-btn.hero-model-picker-btn{width:auto!important;min-width:104px!important;max-width:132px!important;padding:0 12px!important;display:inline-grid!important;grid-template-columns:22px auto!important;align-items:center!important;gap:7px!important;font-size:14px!important;font-weight:920!important;color:rgba(246,250,255,.94)!important}.model-picker-btn.hero-model-picker-btn::before{content:'AI'!important;width:22px!important;height:22px!important;display:grid!important;place-items:center!important;border-radius:9px!important;font-size:9px!important;font-weight:950!important;background:linear-gradient(135deg,rgba(121,235,255,.42),rgba(142,105,255,.44))!important}.model-picker-btn.hero-model-picker-btn::after{display:none!important}#view-ai #aiModeBadge{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:92px!important;padding:0 12px!important;font-size:13px!important;font-weight:900!important;color:rgba(224,246,255,.88)!important;white-space:nowrap!important}#view-ai #clearChatInlineBtn{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:74px!important;padding:0 11px!important;font-size:13px!important;font-weight:900!important;color:rgba(246,250,255,.86)!important;white-space:nowrap!important}.chat-count-card{min-width:0!important;height:40px!important;padding:7px 11px!important;display:grid!important;align-content:center!important;gap:5px!important;border-radius:999px!important;color:rgba(224,242,255,.72)!important;background:radial-gradient(ellipse at 80% 0%,rgba(139,247,255,.12),transparent 40%),linear-gradient(145deg,rgba(255,255,255,.075),rgba(255,255,255,.020) 62%,rgba(255,255,255,.012)),rgba(255,255,255,.026)!important;border:1px solid rgba(255,255,255,.12)!important;box-shadow:inset 0 .6px 0 rgba(255,255,255,.18)!important;overflow:hidden!important}.chat-count-top{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:6px!important;font-size:10px!important;line-height:1!important;font-weight:850!important;white-space:nowrap!important}.chat-count-top strong{color:rgba(246,250,255,.88)!important;font-size:11px!important}.chat-count-track{height:4px!important;border-radius:999px!important;overflow:hidden!important;background:rgba(255,255,255,.105)!important}.chat-count-fill{display:block!important;width:var(--chat-progress,0%)!important;height:100%!important;border-radius:inherit!important;background:linear-gradient(90deg,rgba(139,247,255,.82),rgba(154,126,255,.82))!important;box-shadow:0 0 12px rgba(139,247,255,.35)!important;transition:width .24s ease!important}.model-picker-sheet-mask.open{display:grid!important;place-items:end center!important;background:rgba(4,8,20,.34)!important;backdrop-filter:blur(14px) saturate(112%)!important;-webkit-backdrop-filter:blur(14px) saturate(112%)!important}.model-picker-sheet{width:min(94vw,500px)!important;margin:0 0 max(14px,env(safe-area-inset-bottom))!important;padding:15px!important;border-radius:30px!important;color:rgba(248,252,255,.98)!important;background:linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.075)),rgba(40,48,84,.72)!important;border:1px solid rgba(255,255,255,.28)!important;box-shadow:0 28px 78px rgba(0,0,0,.40),inset 0 1px 0 rgba(255,255,255,.34)!important;backdrop-filter:blur(26px) saturate(160%) contrast(1.03)!important;-webkit-backdrop-filter:blur(26px) saturate(160%) contrast(1.03)!important}.model-picker-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}.model-picker-head strong{display:block;font-size:19px!important}.model-picker-head span{display:block;margin-top:4px;font-size:12px;opacity:.68}.model-picker-close{width:34px;height:34px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:inherit;font-size:22px}.model-picker-list{display:grid;gap:9px}.model-choice{display:flex;align-items:center;gap:10px;width:100%;min-height:64px!important;padding:12px!important;border-radius:20px!important;background:rgba(255,255,255,.085)!important;border:1px solid rgba(255,255,255,.16)!important;color:inherit;text-align:left}.model-choice.active{background:linear-gradient(135deg,rgba(99,226,255,.20),rgba(145,106,255,.18))!important;border-color:rgba(139,247,255,.38)!important}.model-choice-dot{width:12px;height:12px;border-radius:999px;border:2px solid rgba(255,255,255,.52)}.model-choice.active .model-choice-dot{background:#8bf7ff;border-color:#8bf7ff;box-shadow:0 0 20px rgba(139,247,255,.54)}.model-choice-text{display:grid;gap:3px}.model-choice-text strong{font-size:14px}.model-choice-text em{font-size:12px;font-style:normal;opacity:.66;line-height:1.35}@media(max-width:390px){.chat-summary-strip.model-picker-hero-strip{grid-template-columns:auto auto auto minmax(78px,1fr)!important;gap:6px!important}.model-picker-btn.hero-model-picker-btn{min-width:92px!important;max-width:110px!important;padding:0 9px!important;font-size:13px!important}#view-ai #aiModeBadge{min-width:72px!important;padding:0 9px!important;font-size:12px!important}#view-ai #clearChatInlineBtn{min-width:58px!important;padding:0 8px!important;font-size:12px!important}.chat-count-top span{display:none!important}}
     `;
     document.head.appendChild(style);
   }
 
-  function syncModelHeroLabel() {
-    const picker = window.AiLedgerModelPicker;
+  function syncModelLabel() {
     const btn = document.querySelector('#chatModelPickerBtn');
-    if (!picker || !btn) return;
-    const current = picker.current?.() || 'auto';
-    const model = (picker.models || []).find((item) => item.id === current);
-    btn.dataset.modelId = current;
-    btn.dataset.modelLabel = model?.label || btn.textContent || '自动';
-    btn.dataset.modelHint = model?.hint || '';
-    btn.textContent = model?.short || btn.textContent || '自动';
+    if (!btn) return;
+    const model = currentModel();
+    btn.textContent = model.short || model.label || '自动';
   }
 
-  function renderFallbackModelSheet() {
-    const picker = window.AiLedgerModelPicker;
-    if (!picker?.models?.length) return null;
+  function renderModelSheet() {
     let mask = document.querySelector('#modelPickerSheetMask');
     if (!mask) {
       mask = document.createElement('div');
@@ -258,89 +141,115 @@
       mask.className = 'model-picker-sheet-mask';
       document.body.appendChild(mask);
     }
-    const selected = picker.current?.() || 'auto';
-    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式会按可用性切换；手动选择时会优先使用指定模型。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${picker.models.map((item) => `<button type="button" class="model-choice ${item.id === selected ? 'active' : ''}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint)}</em></span></button>`).join('')}</div></section>`;
+    const selected = currentModelId();
+    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式会按可用性切换；手动选择时会优先使用指定模型。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${models().map((item) => `<button type="button" class="model-choice ${item.id === selected ? 'active' : ''}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint || '')}</em></span></button>`).join('')}</div></section>`;
     return mask;
   }
 
-  function openModelPickerSheet() {
-    const mask = renderFallbackModelSheet();
-    if (!mask) return;
-    mask.classList.add('open');
+  function openModelSheet() {
+    renderModelSheet().classList.add('open');
   }
 
-  function installModelButtonFallback() {
-    if (document.documentElement.dataset.staticModelButtonReady === 'true') return;
-    document.documentElement.dataset.staticModelButtonReady = 'true';
-    document.addEventListener('click', (event) => {
-      const btn = event.target.closest?.('#chatModelPickerBtn');
-      if (!btn) return;
-      event.preventDefault();
-      openModelPickerSheet();
-    }, false);
+  function ensureModelButton(strip) {
+    let btn = document.querySelector('#chatModelPickerBtn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'chatModelPickerBtn';
+      btn.className = 'model-picker-btn';
+      btn.type = 'button';
+      btn.setAttribute('aria-label', '选择云端模型');
+    }
+    btn.classList.add('hero-model-picker-btn');
+    if (btn.parentElement !== strip) strip.appendChild(btn);
+    syncModelLabel();
+    return btn;
   }
 
-  function installModelHero() {
-    installModelPickerPolishStyle();
+  function ensureCountCard(strip) {
+    let card = strip.querySelector('#chatCountCard');
+    if (card) return card;
+    card = document.createElement('div');
+    card.id = 'chatCountCard';
+    card.className = 'chat-count-card';
+    card.innerHTML = '<div class="chat-count-top"><span>对话进度</span><strong id="chatCountText">0 条</strong></div><div class="chat-count-track"><span id="chatCountFill" class="chat-count-fill"></span></div>';
+    strip.appendChild(card);
+    return card;
+  }
+
+  function updateProgress() {
+    const count = readMessages().filter((item) => item?.id !== 'welcome' && (item?.role === 'user' || item?.role === 'assistant')).length;
+    const percent = Math.max(4, Math.min(100, Math.round((count / 40) * 100)));
+    const card = document.querySelector('#chatCountCard');
+    const text = document.querySelector('#chatCountText');
+    const fill = document.querySelector('#chatCountFill');
+    card?.style.setProperty('--chat-progress', `${percent}%`);
+    if (text) text.textContent = `${count} 条`;
+    if (fill) fill.style.width = `${percent}%`;
+  }
+
+  function arrangeControls() {
+    installStyle();
+    document.body.classList.add('chat-panel-fixed');
     const strip = document.querySelector('.chat-summary-strip');
-    const btn = document.querySelector('#chatModelPickerBtn');
-    if (!strip || !btn) return;
+    if (!strip) return;
     strip.classList.add('model-picker-hero-strip');
     strip.querySelectorAll('.summary-chip').forEach((node) => node.remove());
-    btn.classList.add('hero-model-picker-btn');
-    if (btn.parentElement !== strip) strip.prepend(btn);
-    syncModelHeroLabel();
+
+    const modelBtn = ensureModelButton(strip);
+    const badge = document.querySelector('#aiModeBadge');
+    const clear = document.querySelector('#clearChatInlineBtn');
+    if (badge && badge.parentElement !== strip) strip.appendChild(badge);
+    if (clear && clear.parentElement !== strip) strip.appendChild(clear);
+    if (clear) {
+      clear.textContent = '清空';
+      if (clear.dataset.fixedPanelBound !== 'true') {
+        clear.dataset.fixedPanelBound = 'true';
+        clear.addEventListener('click', (event) => { event.preventDefault(); clearConversation(); });
+      }
+    }
+    ensureCountCard(strip);
+    updateProgress();
+    return modelBtn;
   }
 
-  function installModelChoiceAnimation() {
-    if (document.documentElement.dataset.modelChoiceAnimationReady === 'true') return;
-    document.documentElement.dataset.modelChoiceAnimationReady = 'true';
+  function installClicks() {
+    if (document.documentElement.dataset.fixedControlClicksReady === 'true') return;
+    document.documentElement.dataset.fixedControlClicksReady = 'true';
     document.addEventListener('click', (event) => {
+      const modelBtn = event.target.closest?.('#chatModelPickerBtn');
+      if (modelBtn) { event.preventDefault(); openModelSheet(); return; }
       const mask = document.querySelector('#modelPickerSheetMask');
-      if (event.target === mask || event.target.closest?.('#modelPickerSheetMask [data-model-picker-close]')) {
-        mask?.classList.remove('open');
-        return;
+      if (event.target === mask || event.target.closest?.('[data-model-picker-close]')) { mask?.classList.remove('open'); return; }
+      const choice = event.target.closest?.('[data-model-choice]');
+      if (choice && choice.closest('#modelPickerSheetMask')) {
+        event.preventDefault();
+        setModel(choice.dataset.modelChoice || 'auto');
+        mask?.querySelectorAll('.model-choice').forEach((node) => node.classList.toggle('active', node === choice));
+        window.setTimeout(() => mask?.classList.remove('open'), 180);
       }
-      const choice = event.target.closest?.('#modelPickerSheetMask .model-choice[data-model-choice]');
-      if (!choice) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      mask?.querySelectorAll('.model-choice').forEach((item) => item.classList.remove('active', 'is-selecting'));
-      choice.classList.add('active', 'is-selecting');
-      window.AiLedgerModelPicker?.set?.(choice.dataset.modelChoice);
-      window.setTimeout(() => {
-        syncModelHeroLabel();
-        mask?.classList.remove('open');
-      }, 220);
     }, true);
   }
 
-  function bootModelPolish() {
-    installModelHero();
-    installModelButtonFallback();
-    installModelChoiceAnimation();
+  function observeMessages() {
+    const host = document.querySelector('#chatMessages');
+    if (!host || host.dataset.fixedPanelProgressReady === 'true') return;
+    host.dataset.fixedPanelProgressReady = 'true';
+    new MutationObserver(updateProgress).observe(host, { childList: true, subtree: true });
   }
 
-  window.NavigationExecutionCompat = {
-    version: '2026-05-16-8-model-capsule-decor',
-    normalizeMode,
-    normalizeNavigateParams,
-    patchAll,
-    removeUnstableVisualLayer,
-    bootModelPolish,
-  };
-
-  removeUnstableVisualLayer();
-  patchAll();
-  bootModelPolish();
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { removeUnstableVisualLayer(); patchAll(); bootModelPolish(); }, { once: true });
-  } else {
+  function boot() {
     removeUnstableVisualLayer();
-    bootModelPolish();
+    patchAll();
+    arrangeControls();
+    installClicks();
+    observeMessages();
+    updateProgress();
   }
-  window.setTimeout(() => { removeUnstableVisualLayer(); patchAll(); bootModelPolish(); }, 300);
-  window.setTimeout(() => { removeUnstableVisualLayer(); patchAll(); bootModelPolish(); }, 1200);
-  window.setInterval(() => { removeUnstableVisualLayer(); bootModelPolish(); }, 900);
+
+  window.NavigationExecutionCompat = { version: '2026-05-16-9-fixed-chat-control-bar', normalizeMode, normalizeNavigateParams, patchAll, removeUnstableVisualLayer, bootModelPolish: boot, bootFixedPanel: boot };
+
+  boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  [160, 360, 900, 1500].forEach((delay) => window.setTimeout(boot, delay));
+  window.setInterval(boot, 1200);
 })();
