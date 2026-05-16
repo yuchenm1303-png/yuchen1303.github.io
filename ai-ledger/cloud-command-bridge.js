@@ -1,4 +1,17 @@
 (() => {
+  'use strict';
+
+  // Cloud command bridge
+  // 负责：
+  // 1. 给云端请求注入联网开关、commandProtocol、navigationContext。
+  // 2. 把云端返回的 command / mobileCommand 标准化成本地动作卡片。
+  // 3. 管理“自动联网 / 强制联网”按钮状态。
+  //
+  // 维护边界：
+  // - 本文件不负责天气、新闻、闲聊回答本身，避免和 Orchestrator 抢活。
+  // - 本文件不直接执行手机动作，只负责补全 mobileCommand，执行仍需用户确认。
+  // - 本文件只处理高置信结构化指令转换；低置信语义判断留给云端 Orchestrator。
+
   const FORCE_SEARCH_KEY = 'ai-assistant-force-web-search-v1';
   const CHAT_KEY = 'ai-ledger-chat-v2';
   const AI_CONFIG_KEY = 'ai-ledger-ai-config-v1';
@@ -12,6 +25,10 @@
   let forceWebSearch = localStorage.getItem(FORCE_SEARCH_KEY) === 'true';
   let fetchPatched = false;
 
+  // ---------------------------------------------------------------------------
+  // Basic helpers
+  // ---------------------------------------------------------------------------
+
   function cleanText(value, max = 160) {
     return String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
   }
@@ -24,6 +41,10 @@
     if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
+
+  // ---------------------------------------------------------------------------
+  // Navigation normalization
+  // ---------------------------------------------------------------------------
 
   function normalizeProvider(value) {
     const text = String(value || '').toLowerCase();
@@ -42,6 +63,8 @@
   }
 
   function addModeAliases(params = {}) {
+    // 兼容 navigation-execution-compat.js。地图 Deep Link 会读取多个 mode 字段，
+    // 所以这里统一补齐，避免卡片显示公交/地铁但执行时默认驾车。
     const mode = normalizeMode(params.mode || params.travelMode || params.navigationMode || params.transportMode);
     return {
       ...params,
@@ -155,6 +178,10 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Cloud command materialization
+  // ---------------------------------------------------------------------------
+
   function buildNavigateCommand(payload = {}, baseCommand = null) {
     const prefs = readNavPrefs();
     const base = baseCommand ? clone(baseCommand) : null;
@@ -233,6 +260,10 @@
     if (next.webSources && !next.citations) next.citations = next.webSources;
     return next;
   }
+
+  // ---------------------------------------------------------------------------
+  // Request injection
+  // ---------------------------------------------------------------------------
 
   function getAiConfig() {
     try { return JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || '{}'); }
@@ -340,6 +371,10 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Web search toggle UI
+  // ---------------------------------------------------------------------------
+
   function installStyle() {
     if (document.querySelector(`#${STYLE_ID}`)) return;
     const style = document.createElement('style');
@@ -395,6 +430,10 @@
     updateToggle(button);
     host.appendChild(button);
   }
+
+  // ---------------------------------------------------------------------------
+  // Public debug API and boot
+  // ---------------------------------------------------------------------------
 
   function installDebugApi() {
     window.CloudCommandBridge = {
