@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="./auth.css?v=20260514-6" />
   <link rel="stylesheet" href="./liquid-plus.css?v=20260514-6" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260514-6" />
-  <link rel="stylesheet" href="./backgrounds.css?v=20260514-6" />
+  <link rel="stylesheet" href="./backgrounds.css?v=20260516-9" />
   <style>
     html[data-entry="quick-ai"],
     html[data-entry="quick-ai"] body {
@@ -171,15 +171,8 @@
       </header>
 
       <section class="glass-card chat-shell reveal delay-1">
-        <div class="chat-summary-strip">
-          <article class="summary-chip">
-            <span>今日支出</span>
-            <strong id="aiTodayExpense">¥0.00</strong>
-          </article>
-          <article class="summary-chip">
-            <span>本月结余</span>
-            <strong id="aiMonthBalance">¥0.00</strong>
-          </article>
+        <div class="chat-summary-strip model-picker-hero-strip">
+          <button id="chatModelPickerBtn" class="model-picker-btn hero-model-picker-btn" type="button" aria-label="选择云端模型">自动</button>
         </div>
 
         <div id="chatMessages" class="chat-messages"></div>
@@ -455,7 +448,7 @@
   <script src="./assistant-profile.js?v=20260516-1"></script>
   <script src="./navigation-preferences.js?v=20260516-1"></script>
   <script src="./chat-attachments.js?v=20260516-5"></script>
-  <script src="./chat-source-badges.js?v=20260516-3"></script>
+  <script src="./chat-source-badges.js?v=20260516-8"></script>
   <script src="./tools-center.js?v=20260516-1"></script>
   <script src="./ai-command-router-v2.js?v=20260516-4"></script>
   <script src="./cloud-command-bridge.js?v=20260516-4"></script>
@@ -627,8 +620,8 @@
   <script src="./ios-glass-motion.js?v=20260516-1"></script>
   <script src="./layout-stability-polish.js?v=20260516-3"></script>
   <script src="./navigation-polish.js?v=20260516-2"></script>
-  <script src="./navigation-execution-compat.js?v=20260516-2"></script>
-  <script type="module" src="./auth.js?v=20260510-17"></script>
+  <script src="./navigation-execution-compat.js?v=20260516-7"></script>
+  <script type="module" src="./auth.js?v=20260516-2"></script>
   <script type="module" src="./sync.js?v=20260510-17"></script>
 </body>
 </html>
