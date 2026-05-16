@@ -5,7 +5,6 @@
   const NAV_SYNC_EVENT = 'assistant-nav-polished';
   let navObserver = null;
   let syncFrame = 0;
-  let patchFrame = 0;
 
   function installStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -112,23 +111,21 @@
     if (!nav) return;
     const buttons = [...nav.querySelectorAll('.nav-btn')];
     const active = getActiveButton();
-    let changed = nav.dataset.activeView !== (active?.dataset.view || '');
+    const nextView = active?.dataset.view || '';
+    const changed = nav.dataset.activeView !== nextView;
 
     buttons.forEach((button) => {
       const isActive = button === active;
-      const nextCurrent = isActive ? 'page' : null;
-      if (isActive && button.getAttribute('aria-current') !== nextCurrent) button.setAttribute('aria-current', nextCurrent);
-      if (!isActive && button.hasAttribute('aria-current')) button.removeAttribute('aria-current');
+      if (isActive) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
 
       const label = button.querySelector('em')?.textContent?.trim() || button.dataset.view || '页面';
       const nextLabel = isActive ? `${label}，当前页` : `切换到${label}`;
       if (button.getAttribute('aria-label') !== nextLabel) button.setAttribute('aria-label', nextLabel);
     });
 
-    nav.dataset.activeView = active?.dataset.view || '';
-    if (changed) {
-      window.dispatchEvent(new CustomEvent(NAV_SYNC_EVENT, { detail: { view: nav.dataset.activeView } }));
-    }
+    nav.dataset.activeView = nextView;
+    if (changed) window.dispatchEvent(new CustomEvent(NAV_SYNC_EVENT, { detail: { view: nextView } }));
   }
 
   function watchNav() {
@@ -145,113 +142,13 @@
     return true;
   }
 
-  function isPreferenceCard(command) {
-    return command?.commandKind === 'navigation_preference'
-      || command?.params?.intent === 'navigation_preference'
-      || Boolean(command?.params?.updates);
-  }
-
-  function explicitMapProvider(text) {
-    if (/高德|amap/i.test(text)) return 'amap';
-    if (/百度|baidu/i.test(text)) return 'baidu';
-    return '';
-  }
-
-  function providerLabel(provider) {
-    if (window.AssistantPreferences?.getMapLabel) return window.AssistantPreferences.getMapLabel(provider);
-    return provider === 'amap' ? '高德地图' : '百度地图';
-  }
-
-  function isHomeDestination(destination) {
-    if (window.AssistantPreferences?.isHomeDestination) {
-      return window.AssistantPreferences.isHomeDestination(destination);
-    }
-    return /^(家|回家|我家|家里|到家)$/u.test(String(destination || '').trim());
-  }
-
-  function enhanceNavigationCommand(command, sourceText = '') {
-    if (!command || command.type !== 'navigate' || isPreferenceCard(command)) return command;
-
-    if (window.AssistantPreferences?.decorateNavigationParams) {
-      const params = window.AssistantPreferences.decorateNavigationParams(command.params || {}, { sourceText });
-      return {
-        ...command,
-        title: `${params.appName || '地图'}导航`,
-        summary: params.placeAddressMissing ? `${params.destinationAlias || params.destination}（未填写地址）` : `到 ${params.destination}`,
-        params,
-      };
-    }
-
-    const prefs = window.AssistantPreferences?.getPreferences?.() || {};
-    const provider = explicitMapProvider(sourceText) || prefs.mapProvider || command.params?.mapProvider || 'baidu';
-    const rawDestination = String(command.params?.destinationAlias || command.params?.destination || '').trim();
-    const homeRequested = isHomeDestination(rawDestination);
-    const homeAddress = String(prefs.places?.home || prefs.homeAddress || '').trim();
-    const destination = homeRequested && homeAddress ? homeAddress : rawDestination;
-    const params = {
-      ...(command.params || {}),
-      appName: providerLabel(provider),
-      mapProvider: provider === 'amap' ? 'amap' : 'baidu',
-      destination,
-      destinationAlias: rawDestination,
-      homeAddressMissing: homeRequested && !homeAddress,
-      mode: ['driving', 'walking', 'riding', 'transit'].includes(command.params?.mode) ? command.params.mode : (prefs.defaultMode || 'driving'),
-    };
-    return {
-      ...command,
-      title: `${params.appName}导航`,
-      summary: params.homeAddressMissing ? '回家（未填写家庭地址）' : `到 ${destination}`,
-      params,
-    };
-  }
-
-  function installMobileNavigationPatch() {
-    const actions = window.MobileCommandActions;
-    if (!actions || actions.__navigationPolished) return Boolean(actions);
-    actions.__navigationPolished = true;
-
-    const baseParse = actions.parse;
-    if (typeof baseParse === 'function') {
-      actions.parse = (text) => enhanceNavigationCommand(baseParse(text), text);
-    }
-
-    const baseRenderCard = actions.renderCard;
-    if (typeof baseRenderCard === 'function') {
-      actions.renderCard = (command, state, message) => baseRenderCard(enhanceNavigationCommand(command), state, message);
-    }
-
-    const baseCreateReply = actions.createReply;
-    if (typeof baseCreateReply === 'function') {
-      actions.createReply = (command) => {
-        const next = enhanceNavigationCommand(command);
-        if (isPreferenceCard(next)) return baseCreateReply(next);
-        if (next?.type !== 'navigate') return baseCreateReply(command);
-        const map = next.params?.appName || '地图';
-        const alias = next.params?.destinationAlias || next.params?.destination || '目的地';
-        if (next.params?.homeAddressMissing || next.params?.placeAddressMissing) {
-          return `我知道你想去“${alias}”，但这个常用地址还没填写。你可以先确认尝试打开${map}，也可以说“把${alias}设为具体地址”。`;
-        }
-        const modeLabel = window.AssistantPreferences?.getModeLabel?.(next.params?.mode) || '驾车';
-        return `我理解为要用${map}${modeLabel}导航到“${next.params.destination}”，确认后我再执行。`;
-      };
-    }
-    return true;
-  }
-
-  function schedulePatchRetries() {
-    if (installMobileNavigationPatch()) return;
-    cancelAnimationFrame(patchFrame);
-    patchFrame = requestAnimationFrame(() => {
-      if (!installMobileNavigationPatch()) window.setTimeout(installMobileNavigationPatch, 500);
-    });
-  }
-
   function boot() {
     if (document.documentElement.dataset.navigationPolishReady === 'true') return;
     document.documentElement.dataset.navigationPolishReady = 'true';
     installStyle();
-    watchNav();
-    schedulePatchRetries();
+    if (!watchNav()) {
+      requestAnimationFrame(watchNav);
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
