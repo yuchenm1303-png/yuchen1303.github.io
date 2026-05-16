@@ -1,8 +1,8 @@
 import commandWorker from "./index.js";
 import { modelMeta, appendRunLabel, normalizeModelPreference } from "./shared/model-meta.js";
+import { json, cors, optionsResponse } from "./shared/response.js";
 
 const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v9-nvidia-model-split-vision";
-const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
 const INLINE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"]);
@@ -13,7 +13,7 @@ export default {
     const corsHeaders = cors(request, env);
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
+    if (request.method === "OPTIONS") return optionsResponse(corsHeaders);
 
     if (request.method === "GET" && url.pathname === "/health") {
       const base = await readBaseHealth(env, ctx, request);
@@ -240,5 +240,3 @@ function nvidiaVisionLabel(model) { const value = String(model || ""); if (/kimi
 function lastUserText(messages, fallback) { if (Array.isArray(messages)) { const last = [...messages].reverse().find((item) => item?.role === "user" && String(item?.content || "").trim()); if (last) return String(last.content).trim(); } return String(fallback || "").trim(); }
 function decodeText(base64) { try { const binary = atob(base64); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return new TextDecoder("utf-8", { fatal: false }).decode(bytes); } catch { return "[文本文件解码失败]"; } }
 function base64ToNumberArray(base64) { const binary = atob(base64); const bytes = new Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return bytes; }
-function json(payload, status = 200, headers = {}) { return new Response(JSON.stringify(payload), { status, headers: { ...JSON_HEADERS, ...headers } }); }
-function cors(request, env) { const origin = request.headers.get("Origin") || ""; const allowed = String(env.ALLOWED_ORIGINS || "*").split(",").map((item) => item.trim()).filter(Boolean); const allowOrigin = allowed.includes("*") || allowed.includes(origin) ? origin || "*" : allowed[0] || "*"; return { ...JSON_HEADERS, "access-control-allow-origin": allowOrigin, "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "content-type", vary: "Origin" }; }
