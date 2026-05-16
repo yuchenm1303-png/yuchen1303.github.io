@@ -1,10 +1,21 @@
 (() => {
+  'use strict';
+
+  // Chat attachment module
+  // 负责：附件选择、附件托盘、附件消息保存、附件请求发送。
+  // 维护原则：本文件曾经出现过“保存聊天记录时清空同一个数组引用”的问题，
+  // 后续修改 saveChatMessages / readChatMessages 时必须先确认 window.chatMessages 与传入数组是否同引用。
+
   const MAX_FILES = 3;
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
   const ACCEPT = "image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.js,.css,.py,.java,.c,.cpp,.h";
   const CHAT_KEY = "ai-ledger-chat-v2";
   const AI_CONFIG_KEY = "ai-ledger-ai-config-v1";
   let pendingAttachments = [];
+
+  // ---------------------------------------------------------------------------
+  // Basic helpers
+  // ---------------------------------------------------------------------------
 
   function escapeHtml(value) {
     return String(value || "")
@@ -29,6 +40,14 @@
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  // ---------------------------------------------------------------------------
+  // App state readers
+  // ---------------------------------------------------------------------------
+
   function readAiEndpoint() {
     try {
       const saved = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || "{}");
@@ -49,6 +68,8 @@
   }
 
   function saveChatMessages(messages) {
+    // Important: snapshot first. Never empty window.chatMessages when it is the
+    // same array object as `messages`, otherwise the visible chat list becomes blank.
     const snapshot = Array.isArray(messages) ? messages.map((message) => ({ ...message })) : [];
     try {
       localStorage.setItem(CHAT_KEY, JSON.stringify(snapshot));
@@ -63,10 +84,6 @@
     } catch (error) {
       console.warn("Failed to save attachment chat messages", error);
     }
-  }
-
-  function todayISO() {
-    return new Date().toISOString().slice(0, 10);
   }
 
   function conversationPayload(messages) {
@@ -100,6 +117,10 @@
       },
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // File reading and attachment metadata
+  // ---------------------------------------------------------------------------
 
   function fileToAttachment(file) {
     return new Promise((resolve, reject) => {
@@ -139,6 +160,10 @@
     if (type.startsWith("text/") || /json|csv|javascript|css/.test(type)) return "📝";
     return "📎";
   }
+
+  // ---------------------------------------------------------------------------
+  // Attachment tray UI
+  // ---------------------------------------------------------------------------
 
   function renderTray() {
     const tray = document.querySelector("#attachmentTray");
@@ -192,6 +217,10 @@
     `;
     document.head.appendChild(style);
   }
+
+  // ---------------------------------------------------------------------------
+  // Chat loading indicator and network request
+  // ---------------------------------------------------------------------------
 
   function setLoading(isLoading) {
     const input = document.querySelector("#aiInput");
@@ -282,6 +311,10 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Composer integration
+  // ---------------------------------------------------------------------------
+
   function installUI() {
     const form = document.querySelector("#chatForm");
     const input = document.querySelector("#aiInput");
@@ -334,6 +367,10 @@
       renderTray();
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Public API used by other chat modules
+  // ---------------------------------------------------------------------------
 
   window.ChatAttachments = {
     take: () => { const current = pendingAttachments; pendingAttachments = []; renderTray(); return current; },
