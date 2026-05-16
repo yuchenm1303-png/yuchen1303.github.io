@@ -1,9 +1,22 @@
 (() => {
+  /*
+   * Ownership target:
+   * This file currently owns chat source badges and cloud model picker behavior.
+   *
+   * Refactor note:
+   * Source badge rendering can stay here.
+   * Model picker state/sheet and fetch model-preference injection may later move to `model-picker.js`.
+   * Keep all behavior unchanged until the model picker split is tested in an APK.
+   */
+
   const CHAT_KEY = "ai-ledger-chat-v2";
   const STYLE_ID = "chat-source-badges-style";
+
+  // model-picker ownership: later move model preference constants/state to model-picker.js.
   const PREF_KEY = "ai-ledger-model-preference-v1";
   const FETCH_PATCH_FLAG = "__aiLedgerModelPreferenceFetchPatched";
 
+  // model-picker ownership: model registry used by the top capsule and model sheet.
   const MODELS = [
     { id: "auto", label: "自动", short: "自动", hint: "按额度和可用性自动切换" },
     { id: "kimi", label: "Kimi K2.6", short: "Kimi", hint: "只使用 Kimi，不自动切到其他模型" },
@@ -12,6 +25,7 @@
     { id: "workers", label: "Workers AI", short: "Workers", hint: "只使用 Workers AI 兜底模型" },
   ];
 
+  // source-badge ownership: maps assistant source ids to visible badge labels.
   const SOURCE_LABELS = {
     cloud_ai: { label: "云端 AI", tone: "cloud" },
     nvidia_chat: { label: "NVIDIA NIM", tone: "cloud" },
@@ -78,6 +92,7 @@
     }
   }
 
+  // model-picker ownership starts here.
   function readModelPreference() {
     try {
       const parsed = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
@@ -97,7 +112,9 @@
   function modelShort() {
     return (MODELS.find((item) => item.id === readModelPreference()) || MODELS[0]).short;
   }
+  // model-picker ownership ends here for preference helpers.
 
+  // source-badge ownership starts here.
   function inferSource(message) {
     if (!message || message.role !== "assistant") return null;
     const version = String(message.version || "");
@@ -168,7 +185,10 @@
     const names = list.map((item) => item.name).filter(Boolean).slice(0, 2).join("、");
     return { label: `已附带 ${labels.join("+") || "附件"}`, detail: names };
   }
+  // source-badge ownership ends here for metadata helpers.
 
+  // mixed ownership: style injection includes source badges, model picker, and typing indicator styles.
+  // Later split into chat-badges.css, model-picker.css, and typing-indicator.css.
   function installStyle() {
     const old = document.querySelector(`#${STYLE_ID}`);
     if (old) old.remove();
@@ -209,11 +229,13 @@
     document.head.appendChild(style);
   }
 
+  // source-badge ownership: remove repeated badge rows from chat bubbles.
   function removeDuplicateBadges(row) {
     const badges = row.querySelectorAll(":scope .chat-source-badge-row");
     badges.forEach((badge, index) => { if (index > 0) badge.remove(); });
   }
 
+  // source-badge ownership: insert visible source/model/file badges into rendered chat rows.
   function addBadges() {
     let inserted = false;
     const messages = readMessages();
@@ -253,6 +275,7 @@
     if (inserted) pinChatBottom("badge-insert");
   }
 
+  // source-badge ownership: after inserting badges, keep the latest message visible.
   function pinChatBottom(reason = "") {
     const host = document.querySelector("#chatMessages");
     if (!host) return;
@@ -271,6 +294,7 @@
     }));
   }
 
+  // source-badge ownership: watch chat DOM changes and add badges to newly rendered rows.
   function installObserver() {
     const target = document.querySelector("#chatMessages");
     if (!target || target.dataset.sourceBadgeObserver === "ready") return;
@@ -284,6 +308,7 @@
     pinChatBottom("boot");
   }
 
+  // model-picker ownership: create the small model picker button near the composer.
   function installModelButton() {
     const form = document.querySelector("#chatForm");
     const input = document.querySelector("#aiInput");
@@ -300,6 +325,7 @@
     btn.addEventListener("click", openModelSheet);
   }
 
+  // model-picker ownership: render the model picker bottom sheet.
   function renderModelSheet() {
     let mask = document.querySelector("#modelPickerSheetMask");
     if (!mask) {
@@ -324,6 +350,7 @@
   function closeModelSheet() { document.querySelector("#modelPickerSheetMask")?.classList.remove("open"); }
   function updateModelButton() { const btn = document.querySelector("#chatModelPickerBtn"); if (btn) btn.textContent = modelShort(); }
 
+  // model-picker ownership: inject selected model preference into cloud/chat requests.
   function patchFetch() {
     if (window[FETCH_PATCH_FLAG]) return;
     window[FETCH_PATCH_FLAG] = true;
