@@ -1,6 +1,6 @@
 import commandWorker from "./index.js";
 
-const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v4-tavily";
+const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v5-auto-tools";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
@@ -26,7 +26,7 @@ export default {
       return json({
         ok: true,
         version: GATEWAY_VERSION,
-        mode: "attachment_gateway_preserve_command_protocol_weather_tavily_first",
+        mode: "attachment_gateway_preserve_command_protocol_auto_tools",
         commandWorker: base,
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasWorkersAI: Boolean(env.AI),
@@ -49,12 +49,12 @@ export default {
     const userText = lastUserText(body?.messages, body?.text);
     const attachments = sanitizeAttachments(body?.attachments);
 
-    if (!attachments.length && isWeatherQuery(userText)) {
+    if (!attachments.length && (isWeatherQuery(userText) || isWeatherLocationFollowup(body, userText))) {
       const weatherReply = await weather(userText);
       return json(weatherReply, 200, corsHeaders);
     }
 
-    if (!attachments.length && isForcedWebSearch(body)) {
+    if (!attachments.length && (isForcedWebSearch(body) || isAutoWebSearchQuery(userText))) {
       const search = await searchPublicWeb(env, userText);
       if (search.ok) return json(search, 200, corsHeaders);
       return json(createMissingSearchResponse(search.error), 200, corsHeaders);
@@ -213,6 +213,20 @@ function isWeatherQuery(text) {
   return /(天气|下雨|气温|温度|风速|降雨|穿什么|预报)/u.test(String(text || ""));
 }
 
+function isWeatherLocationFollowup(body, text) {
+  const cleaned = cleanWeatherLocation(text);
+  if (!cleaned || cleaned.length > 12 || /新闻|最新|搜索|查|导航|记账|提醒/u.test(String(text || ""))) return false;
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const prevAssistant = [...messages].reverse().find((item) => item?.role === "assistant" && String(item?.content || "").trim());
+  return /哪个城市.*天气|想查.*天气|城市.*天气/u.test(String(prevAssistant?.content || ""));
+}
+
+function isAutoWebSearchQuery(text) {
+  const raw = String(text || "").trim();
+  return /(新闻|大新闻|热点|今日热点|最新|最近|搜索|搜一下|查一下|查查|上网查|联网查|资料|官网|价格|榜单|实时|现在发生)/u.test(raw)
+    && !/(导航|记账|提醒|闹钟|打开|保存|设置家|回家)/u.test(raw);
+}
+
 async function weather(text) {
   const candidates = weatherLocationCandidates(text);
   if (!candidates.length) {
@@ -288,7 +302,7 @@ function weatherLocationCandidates(text) {
 function cleanWeatherLocation(value) {
   return String(value || "")
     .replace(/https?:\/\/\S+/gi, "")
-    .replace(/请问|请|帮我|帮忙|给我|麻烦|上网|联网|搜索|搜一下|查一下|查询|看看|看一下|一下|今天|今日|现在|当前|明天|后天|天气|气温|温度|预报|下雨|降雨|会不会|会|不会|怎么样|如何|多少|几度|穿什么|适合|出门|带伞|的|吗|呢|啊|呀/gu, "")
+    .replace(/请问|请|帮我|帮忙|给我|麻烦|上网|联网|搜索|搜一下|查一下|查询|看看|看一下|一下|今天|今日|现在|当前|明天|后天|天气|气温|温度|预报|下雨|降雨|会不会|会|不会|怎么样|如何|多少|几度|穿什么|适合|出门|带伞|的|吗|呢|啊|呀|吧|呗|哈|噻/gu, "")
     .replace(/[，。！？?、,.!！\s]/g, "")
     .trim()
     .slice(0, 32);
@@ -371,7 +385,7 @@ async function searchTavily(env, query) {
       records: [],
       mobileCommand: null,
       webSearchUsed: true,
-      webSearchMode: "force",
+      webSearchMode: "auto_or_force",
       sources: results.map((item) => ({ title: item.title || item.url, url: item.url, score: item.score, content: item.content })),
       citations: results.map((item) => item.url).filter(Boolean),
       source: "tavily_web_search",
@@ -421,7 +435,7 @@ function buildSearchResponse(query, items, source) {
     records: [],
     mobileCommand: null,
     webSearchUsed: true,
-    webSearchMode: "force",
+    webSearchMode: "auto_or_force",
     sources: items.map((item) => ({ title: item.title, url: item.link, source: item.source, publishedAt: item.pubDate })),
     citations: items.map((item) => item.link),
     source,
@@ -434,13 +448,13 @@ function createMissingSearchResponse(error) {
   const isRateLimited = /429|503|rate|limit|quota|blocked/i.test(errorText);
   return {
     reply: isRateLimited
-      ? "当前强制联网已经触发，但搜索源暂时被限流或不可用。Tavily 已配置时通常会更稳定；如果仍失败，请检查 TAVILY_API_KEY 是否有效或稍后再试。"
-      : "当前强制联网已经触发，但搜索源暂时请求失败。请检查 TAVILY_API_KEY 是否有效，或稍后再试。",
+      ? "当前联网搜索已经触发，但搜索源暂时被限流或不可用。Tavily 已配置时通常会更稳定；如果仍失败，请检查 TAVILY_API_KEY 是否有效或稍后再试。"
+      : "当前联网搜索已经触发，但搜索源暂时请求失败。请检查 TAVILY_API_KEY 是否有效，或稍后再试。",
     action: "chat",
     records: [],
     mobileCommand: null,
     webSearchUsed: false,
-    webSearchMode: "force",
+    webSearchMode: "auto_or_force",
     sources: [],
     citations: [],
     source: "web_search_error",
@@ -478,7 +492,7 @@ function decodeXml(value) {
 
 function cleanSearchQuery(text) {
   return String(text || "")
-    .replace(/搜索一下|搜一下|查一下|联网|今天的|今天|新闻|最新/gu, " ")
+    .replace(/搜索一下|搜一下|查一下|查查|联网|上网查|联网查|今天的|今天|今日|有什么|吗|呢|吧|大新闻|新闻|热点|最新|最近/gu, " ")
     .replace(/\s+/g, " ")
     .trim() || "科技 新闻";
 }
