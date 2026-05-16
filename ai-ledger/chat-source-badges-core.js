@@ -121,64 +121,79 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #chatMessages{scroll-padding-bottom:38px!important;padding-bottom:18px!important;}
+      #chatMessages{scroll-padding-bottom:44px!important;padding-bottom:24px!important;}
       .chat-row,.chat-response,.chat-bubble{overflow:visible!important;}
-      .chat-source-badge-row{display:flex!important;justify-content:flex-start;margin:8px 0 3px 4px;gap:6px;flex-wrap:wrap;min-height:24px;position:relative;z-index:9;opacity:1!important;visibility:visible!important;}
-      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 3px 0;}
-      .chat-source-badge{display:inline-flex!important;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;line-height:1.12;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;white-space:normal;word-break:break-word;box-sizing:border-box;opacity:1!important;visibility:visible!important;}
-      .chat-source-badge::before{content:"";width:6px;height:6px;min-width:6px;border-radius:999px;background:currentColor;opacity:.85;}
-      .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
-      .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
-      .chat-source-badge.vision{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34);}
-      .chat-source-badge.attachment{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34);}
-      .chat-source-badge.online{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34);}
-      .chat-source-badge.utility{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32);}
-      .chat-source-badge.cloud-fallback{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32);}
-      .chat-source-badge.cloud-rule{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);}
-      .chat-source-badge.builtin{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30);}
-      .chat-source-badge.local{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28);}
-      .chat-source-badge.mobile{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32);}
-      .chat-source-badge.error{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30);}
-      body.assistant-compact .chat-source-badge-row{margin-top:5px;}
-      body.assistant-compact .chat-source-badge{font-size:10px;padding:4px 8px;}
+      .chat-row[data-badge-text]{position:relative!important;padding-bottom:32px!important;}
+      .chat-row[data-badge-text]::after{content:attr(data-badge-text);position:absolute;left:40px;bottom:2px;display:inline-flex;max-width:calc(100% - 72px);box-sizing:border-box;border-radius:999px;padding:6px 10px 6px 22px;font-size:11px;font-weight:850;line-height:1.12;white-space:normal;word-break:break-word;z-index:12;opacity:1!important;visibility:visible!important;color:rgba(238,250,255,.78);background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.10);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+      .chat-row[data-badge-text]::before{content:'';position:absolute;left:52px;bottom:12px;width:6px;height:6px;border-radius:999px;z-index:13;background:currentColor;opacity:.88;color:rgba(238,250,255,.78);}
+      .chat-row.user[data-badge-text]::after{left:auto;right:12px;max-width:calc(100% - 72px);}
+      .chat-row.user[data-badge-text]::before{left:auto;right:calc(12px + 12px);}
+      .chat-row[data-badge-tone="cloud"]::after{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
+      .chat-row[data-badge-tone="cloud"]::before{color:#83f7ff;}
+      .chat-row[data-badge-tone="gemini"]::after{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
+      .chat-row[data-badge-tone="gemini"]::before{color:#c7b7ff;}
+      .chat-row[data-badge-tone="vision"]::after{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34);}
+      .chat-row[data-badge-tone="vision"]::before{color:#ffd1fb;}
+      .chat-row[data-badge-tone="attachment"]::after{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34);}
+      .chat-row[data-badge-tone="attachment"]::before{color:#e5edff;}
+      .chat-row[data-badge-tone="online"]::after{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34);}
+      .chat-row[data-badge-tone="online"]::before{color:#8ff7c4;}
+      .chat-row[data-badge-tone="utility"]::after{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32);}
+      .chat-row[data-badge-tone="utility"]::before{color:#ffe38f;}
+      .chat-row[data-badge-tone="cloud-fallback"]::after{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32);}
+      .chat-row[data-badge-tone="cloud-fallback"]::before{color:#ffd28a;}
+      .chat-row[data-badge-tone="cloud-rule"]::after{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);}
+      .chat-row[data-badge-tone="cloud-rule"]::before{color:#a7f3d0;}
+      .chat-row[data-badge-tone="builtin"]::after{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30);}
+      .chat-row[data-badge-tone="builtin"]::before{color:#e7ddff;}
+      .chat-row[data-badge-tone="local"]::after{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28);}
+      .chat-row[data-badge-tone="local"]::before{color:#cbd5e1;}
+      .chat-row[data-badge-tone="mobile"]::after{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32);}
+      .chat-row[data-badge-tone="mobile"]::before{color:#86ece2;}
+      .chat-row[data-badge-tone="error"]::after{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30);}
+      .chat-row[data-badge-tone="error"]::before{color:#ffb4b4;}
+      .chat-source-badge-row{display:none!important;}
+      body.assistant-compact .chat-row[data-badge-text]{padding-bottom:28px!important;}
+      body.assistant-compact .chat-row[data-badge-text]::after{font-size:10px;padding:5px 9px 5px 20px;}
     `;
     document.head.appendChild(style);
   }
 
-  function badgeHtml(message) {
+  function badgeParts(message) {
     if (message.role === 'user') {
       const att = attachmentMeta(message);
-      if (!att) return '';
-      const detail = att.detail ? ` · ${escapeHtml(att.detail)}` : '';
-      return `<div class="chat-source-badge-row" data-chat-source-badge="1" data-badge-key="user-attachment"><span class="chat-source-badge attachment">${escapeHtml(att.label)}${detail}</span></div>`;
+      if (!att) return null;
+      const detail = att.detail ? ` · ${att.detail}` : '';
+      return { text: `${att.label}${detail}`, tone: 'attachment', key: 'user-attachment' };
     }
     const source = inferSource(message);
     const meta = sourceMeta(source, message);
     const detail = modelText(message);
-    const detailText = detail ? ` · ${escapeHtml(detail)}` : '';
+    const detailText = detail ? ` · ${detail}` : '';
     const key = `${source || 'cloud_ai'}|${message.modelLabel || message.model || ''}|${message.version || ''}|${message.__fallbackBadge ? 'fallback' : 'real'}`;
-    return `<div class="chat-source-badge-row" data-chat-source-badge="1" data-badge-key="${escapeHtml(key)}"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`;
+    return { text: `${meta.label}${detailText}`, tone: meta.tone, key };
   }
 
   function ensureBadge(row, byId) {
     if (!row || row.id === 'typingRow') return false;
-    const response = row.querySelector('.chat-response,.chat-bubble');
-    if (!response) return false;
     const message = getMessage(row, byId);
-    const html = badgeHtml(message);
-    const existing = row.querySelector(':scope .chat-source-badge-row');
-    if (!html) {
-      if (existing) existing.remove();
-      return false;
-    }
-    const keyMatch = html.match(/data-badge-key="([^"]*)"/);
-    const nextKey = keyMatch ? keyMatch[1] : '';
-    const currentKey = existing?.dataset?.badgeKey || '';
-    const shouldReplaceFallback = existing?.dataset?.badgeKey?.includes('fallback') && !message.__fallbackBadge;
-    if (existing && currentKey === nextKey) return false;
-    if (existing && !shouldReplaceFallback && currentKey && nextKey && currentKey !== nextKey && message.__fallbackBadge) return false;
+    const parts = badgeParts(message);
     row.querySelectorAll(':scope .chat-source-badge-row').forEach((node) => node.remove());
-    response.insertAdjacentHTML('beforeend', html);
+    if (!parts?.text) {
+      const had = row.hasAttribute('data-badge-text');
+      row.removeAttribute('data-badge-text');
+      row.removeAttribute('data-badge-tone');
+      row.removeAttribute('data-badge-key');
+      return had;
+    }
+    const currentKey = row.dataset.badgeKey || '';
+    const shouldKeepReal = currentKey && !currentKey.includes('fallback') && parts.key.includes('fallback');
+    if (shouldKeepReal) return false;
+    const changed = row.dataset.badgeText !== parts.text || row.dataset.badgeTone !== parts.tone || row.dataset.badgeKey !== parts.key;
+    if (!changed) return false;
+    row.dataset.badgeText = parts.text;
+    row.dataset.badgeTone = parts.tone || 'cloud';
+    row.dataset.badgeKey = parts.key;
     row.dataset.sourceBadgeReady = 'ready';
     return true;
   }
@@ -189,7 +204,7 @@
     document.querySelectorAll('.chat-row').forEach((row) => {
       if (ensureBadge(row, byId)) changed = true;
     });
-    if (changed) pinChatBottom('badge-insert');
+    if (changed) pinChatBottom('badge-attrs');
   }
 
   function installObserver() {
@@ -197,6 +212,7 @@
     if (!target || target.dataset.sourceBadgeObserver === 'ready') return;
     target.dataset.sourceBadgeObserver = 'ready';
     const observer = new MutationObserver(() => {
+      addBadges();
       requestAnimationFrame(addBadges);
       setTimeout(addBadges, 80);
       setTimeout(addBadges, 260);
@@ -208,7 +224,7 @@
   function boot() {
     installStyle();
     installObserver();
-    window.setInterval(addBadges, 450);
+    window.setInterval(addBadges, 300);
     window.addEventListener('ai-ledger-model-change', addBadges);
   }
 
