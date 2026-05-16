@@ -1,8 +1,13 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'glass-stability-style';
 
   function installStableGlassStyle() {
-    document.querySelector(`#${STYLE_ID}`)?.remove();
+    if (document.getElementById(STYLE_ID)) {
+      document.body?.classList.add('stable-glass-rendering');
+      return;
+    }
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -105,21 +110,21 @@
         .account-row,
         .appearance-detail-panel,
         .settings-group-sheet {
-          backdrop-filter: blur(18px) saturate(130%) brightness(1.05) !important;
-          -webkit-backdrop-filter: blur(18px) saturate(130%) brightness(1.05) !important;
+          backdrop-filter: blur(16px) saturate(126%) brightness(1.045) !important;
+          -webkit-backdrop-filter: blur(16px) saturate(126%) brightness(1.045) !important;
         }
 
         .bottom-nav {
-          backdrop-filter: blur(20px) saturate(132%) brightness(1.06) !important;
-          -webkit-backdrop-filter: blur(20px) saturate(132%) brightness(1.06) !important;
+          backdrop-filter: blur(18px) saturate(128%) brightness(1.05) !important;
+          -webkit-backdrop-filter: blur(18px) saturate(128%) brightness(1.05) !important;
         }
 
         .detail-overlay,
         .auth-overlay,
         .appearance-detail-overlay,
         .settings-group-detail {
-          backdrop-filter: blur(14px) saturate(112%) !important;
-          -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
+          backdrop-filter: blur(10px) saturate(108%) !important;
+          -webkit-backdrop-filter: blur(10px) saturate(108%) !important;
         }
       }
 
@@ -214,11 +219,15 @@
     document.body?.classList.add('stable-glass-rendering');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', installStableGlassStyle, { once: true });
-  } else {
+  function boot() {
+    if (document.documentElement.dataset.glassStabilityReady === 'true') return;
+    document.documentElement.dataset.glassStabilityReady = 'true';
     installStableGlassStyle();
   }
 
-  window.setTimeout(installStableGlassStyle, 420);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
+  }
 })();
