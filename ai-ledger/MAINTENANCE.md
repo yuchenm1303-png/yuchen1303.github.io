@@ -51,10 +51,35 @@ ai-ledger/navigation-polish.js
 
 修改这些文件前必须明确目标是 UI/动画/稳定性，不要顺手塞 AI 逻辑。
 
+## 当前稳定入口
+
+```txt
+ai-ledger/index.html
+ai-ledger/app-v3.js
+ai-ledger/chat-source-badges.js
+ai-ledger-worker/src/index-orchestrator-diagnostics.js
+```
+
+其中 `index-orchestrator-diagnostics.js` 是诊断外壳，内部仍调用 `index-orchestrator.js`。
+
+## 前端聊天模块现状
+
+聊天相关补丁已经拆成模块，由 `chat-source-badges.js` 统一加载：
+
+```txt
+chat-request-patcher.js          注入 modelPreference，并拉长模型请求超时
+chat-scroll-stability.js         聊天区滚动稳定
+chat-typing-indicator.js         正在生成动画
+chat-model-picker.js             模型选择器
+chat-source-badges-core.js       气泡来源标签
+chat-message-actions-polish.js   重试、复制、用户气泡复制
+```
+
+后续新增聊天 UI 功能，优先新建独立模块，再由 `chat-source-badges.js` 加载；不要再把大量逻辑塞回 `app-v3.js`。
+
 ## 当前建议优先整理文件
 
 ```txt
-ai-ledger/chat-source-badges.js
 ai-ledger/chat-attachments.js
 ai-ledger/cloud-command-bridge.js
 ai-ledger/ai-command-router-v2.js
@@ -62,20 +87,6 @@ ai-ledger-worker/src/index-orchestrator.js
 ai-ledger-worker/src/index-attachments-gateway.js
 ai-ledger-worker/src/index.js
 ```
-
-## 前端聊天拆分目标
-
-`chat-source-badges.js` 后续应拆成：
-
-```txt
-chat-model-picker.js
-chat-source-badges.js
-chat-typing-indicator.js
-chat-scroll-stability.js
-chat-request-patcher.js
-```
-
-先复制/迁移一小块逻辑，验证稳定后再删除旧逻辑。
 
 ## Worker 拆分目标
 
@@ -93,9 +104,29 @@ shared/cors.js
 shared/model-meta.js
 ```
 
+当前已经开始建立 shared：
+
+```txt
+ai-ledger-worker/src/shared/response.js
+ai-ledger-worker/src/shared/model-meta.js
+```
+
+但暂时不要强行整文件改 `index-orchestrator.js`，后续从附件网关或较短文件开始接入 shared。
+
+## 当前模型状态
+
+```txt
+Gemini 2.5 Flash：可用，但免费层容易 429 限流
+Workers AI：轻量稳定，适合作为默认快速兜底
+Mistral via NVIDIA NIM：可用性取决于 NVIDIA 免费端点
+Kimi via NVIDIA NIM：经常慢、排队或超时，不建议作为默认优先模型
+```
+
+自动模式建议：优先 Workers / Gemini，Kimi 仅作为手动体验或低优先级备用。
+
 ## 每次提交前自检
 
-- `wrangler.toml` 是否仍然指向 `src/index-orchestrator.js`。
+- `wrangler.toml` 是否仍然指向 `src/index-orchestrator-diagnostics.js`。
 - `index.html` 是否仍能按顺序加载核心脚本。
 - 是否误动了冻结 UI 文件。
 - 是否新增了未加载的 JS 文件。
@@ -127,3 +158,8 @@ tackle是什么意思
 明天早上8点叫我起床
 上传图片并提取文字
 ```
+
+## 近期事故记录
+
+- `index.html` 曾因整文件更新被截断，导致脚本链路缺失、页面变形。后续严禁在未完整校验时覆盖该文件。
+- `app-startup-stability.js` 是一次启动遮罩实验，已确认不适合当前页面加载链路并删除。
