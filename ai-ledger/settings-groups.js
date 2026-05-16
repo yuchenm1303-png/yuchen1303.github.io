@@ -7,6 +7,8 @@
   let movedNodes = [];
   let settingsObserver = null;
   let openFrame = 0;
+  let openTimer = 0;
+  let openToken = 0;
   let retagFrame = 0;
 
   function installStyle() {
@@ -156,11 +158,12 @@
           linear-gradient(145deg,rgba(255,255,255,.092),rgba(255,255,255,.034) 45%,rgba(0,0,0,.038)),
           rgba(17,28,54,.96);
         box-shadow:0 18px 36px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.20);
-        transform:translate3d(0,14px,0) scale(.992);
+        transform:translate3d(0,12px,0) scale(.994);
         opacity:.96;
-        transition:transform 170ms cubic-bezier(.18,.78,.22,1), opacity 140ms ease;
+        transition:transform 180ms cubic-bezier(.18,.78,.22,1), opacity 145ms ease;
         contain:layout paint style;
         backface-visibility:hidden;
+        will-change:transform,opacity;
       }
 
       .settings-group-detail.open.ready .settings-group-sheet{
@@ -168,20 +171,21 @@
         opacity:1;
       }
 
-      .settings-group-detail.preparing .settings-group-content{
+      .settings-group-detail.preparing .settings-group-content,
+      .settings-group-detail:not(.content-ready) .settings-group-content{
         opacity:0!important;
       }
 
-      .settings-group-detail.ready .settings-group-content{
+      .settings-group-detail.content-ready .settings-group-content{
         opacity:1!important;
-        transition:opacity 80ms ease!important;
+        transition:opacity 90ms ease!important;
       }
 
       .settings-group-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
       .settings-group-head h2{margin:0;font-size:20px;font-weight:900;color:rgba(248,250,255,.98)}
       .settings-group-head p{margin:5px 0 0;font-size:12px;line-height:1.45;color:rgba(214,224,246,.70)}
       .settings-group-close{width:36px;height:36px;border-radius:13px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,var(--assistant-glass-control-alpha,.052));color:rgba(248,250,255,.92);font-size:22px}
-      .settings-group-content{display:grid;gap:11px;contain:layout paint style}
+      .settings-group-content{display:grid;gap:11px;min-height:96px;contain:layout paint style}
       .settings-group-content>.glass-card{display:block!important;margin-bottom:0!important;opacity:1!important;visibility:visible!important;content-visibility:visible!important}
 
       @media(max-width:720px){
@@ -245,9 +249,11 @@
   }
 
   function closeDetail() {
+    openToken += 1;
     cancelAnimationFrame(openFrame);
+    clearTimeout(openTimer);
     const detail = document.getElementById(DETAIL_ID);
-    if (detail) detail.classList.remove('open', 'preparing', 'ready');
+    if (detail) detail.classList.remove('open', 'preparing', 'ready', 'content-ready');
     document.body.classList.remove('detail-open', 'settings-group-open', 'settings-group-opening');
     window.setTimeout(() => {
       if (document.getElementById(DETAIL_ID)?.classList.contains('open')) return;
@@ -267,6 +273,7 @@
 
   function openGroup(id) {
     closeDetail();
+    const token = ++openToken;
     const group = GROUPS[id];
     const nodes = [...document.querySelectorAll(`#view-settings > section[data-settings-group-target="${id}"]`)];
     if (!group || !nodes.length) return;
@@ -279,11 +286,20 @@
 
     document.body.classList.add('settings-group-opening', 'detail-open');
     detail.classList.add('open', 'preparing');
+    detail.classList.remove('ready', 'content-ready');
     title.textContent = group.title;
     desc.textContent = group.desc;
     content.textContent = '';
 
     openFrame = requestAnimationFrame(() => {
+      if (token !== openToken || !detail.classList.contains('open')) return;
+      detail.classList.add('ready');
+      document.body.classList.add('settings-group-open');
+    });
+
+    openTimer = window.setTimeout(() => {
+      if (token !== openToken || !detail.classList.contains('open')) return;
+
       returnAnchor = document.createElement('span');
       returnAnchor.hidden = true;
       returnAnchor.dataset.settingsReturnAnchor = id;
@@ -301,13 +317,13 @@
       content.appendChild(fragment);
 
       requestAnimationFrame(() => {
+        if (token !== openToken || !detail.classList.contains('open')) return;
         detail.classList.remove('preparing');
-        detail.classList.add('ready');
+        detail.classList.add('content-ready');
         document.body.classList.remove('settings-group-opening');
-        document.body.classList.add('settings-group-open');
         content.scrollTop = 0;
       });
-    });
+    }, 92);
   }
 
   function tagSection(section) {
