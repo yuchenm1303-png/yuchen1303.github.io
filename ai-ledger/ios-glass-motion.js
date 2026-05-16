@@ -1,4 +1,6 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'ios-glass-motion-style';
   const PRESSED_CLASS = 'liquid-pressed';
   const RELEASE_CLASS = 'liquid-release';
@@ -43,15 +45,18 @@
   let targetRefreshFrame = 0;
   let lastVibrationAt = 0;
   let observer = null;
+  let eventBound = false;
+  const pendingRoots = new Set();
 
   function installStyle() {
-    document.querySelector(`#${STYLE_ID}`)?.remove();
+    if (document.getElementById(STYLE_ID)) return;
+
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
       :root {
-        --liquid-motion-mid: 280ms;
-        --liquid-ease-spring: cubic-bezier(.18,1.18,.26,1);
+        --liquid-motion-mid: 260ms;
+        --liquid-ease-spring: cubic-bezier(.18,1.12,.24,1);
         --liquid-ease-nav: cubic-bezier(.18,.86,.18,1);
       }
 
@@ -74,10 +79,15 @@
         position: relative !important;
         transform: translate3d(0,0,0) scale(1);
         transform-origin: center center !important;
-        transition: transform var(--liquid-motion-mid) var(--liquid-ease-spring), filter 160ms ease !important;
+        transition: transform var(--liquid-motion-mid) var(--liquid-ease-spring), filter 140ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         backface-visibility: hidden;
+      }
+
+      .liquid-motion-target.liquid-pressed,
+      .liquid-motion-target.liquid-release {
+        will-change: transform;
       }
 
       .liquid-motion-target.is-pressed,
@@ -86,21 +96,21 @@
       }
 
       .liquid-motion-target.liquid-pressed {
-        transition-duration: 82ms !important;
+        transition-duration: 78ms !important;
         transition-timing-function: cubic-bezier(.2,0,.2,1) !important;
-        filter: brightness(1.04) saturate(1.02);
+        filter: brightness(1.035) saturate(1.018);
       }
 
       .tool-card.liquid-pressed,
       .settings-group-card.liquid-pressed {
-        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.986) !important;
+        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.987) !important;
       }
 
       .nav-btn.liquid-pressed,
       .icon-btn.liquid-pressed,
       .delete-btn.liquid-pressed,
       .send-btn.liquid-pressed {
-        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.3px), 0) scale(.952) !important;
+        transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.3px), 0) scale(.954) !important;
       }
 
       .tag-btn.liquid-pressed,
@@ -120,16 +130,16 @@
 
       .liquid-motion-target.liquid-pressed::before {
         background:
-          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.28), transparent 30%),
-          linear-gradient(135deg, rgba(255,255,255,.16), rgba(255,255,255,0) 42%, rgba(185,220,255,.08)) !important;
-        opacity: .70 !important;
+          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.26), transparent 30%),
+          linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,0) 42%, rgba(185,220,255,.075)) !important;
+        opacity: .66 !important;
       }
 
-      .liquid-release { animation: liquidRelease 360ms var(--liquid-ease-spring) both; }
+      .liquid-release { animation: liquidRelease 320ms var(--liquid-ease-spring) both; }
 
       @keyframes liquidRelease {
-        0% { transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.984); }
-        48% { transform: translate3d(0,-.25px,0) scale(1.008); }
+        0% { transform: translate3d(var(--liquid-shift-x,0px), var(--liquid-shift-y,.7px), 0) scale(.985); }
+        48% { transform: translate3d(0,-.22px,0) scale(1.006); }
         100% { transform: translate3d(0,0,0) scale(1); }
       }
 
@@ -158,34 +168,34 @@
         opacity: .88;
         transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0) scale(var(--nav-indicator-scale, 1));
         background:
-          radial-gradient(circle at 24% 14%, rgba(255,255,255,.52), rgba(255,255,255,.16) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(255,255,255,.18), rgba(255,255,255,.040) 46%, rgba(126,189,255,.10));
+          radial-gradient(circle at 24% 14%, rgba(255,255,255,.50), rgba(255,255,255,.15) 34%, transparent 68%),
+          linear-gradient(135deg, rgba(255,255,255,.17), rgba(255,255,255,.038) 46%, rgba(126,189,255,.09));
         box-shadow:
-          inset 0 .8px 0 rgba(255,255,255,.48),
-          inset 0 -.8px 0 rgba(0,0,0,.09),
-          0 10px 22px rgba(0,0,0,.14);
-        transition: transform 460ms var(--liquid-ease-nav), width 460ms var(--liquid-ease-nav), height 460ms var(--liquid-ease-nav), opacity 160ms ease;
-        will-change: transform;
+          inset 0 .8px 0 rgba(255,255,255,.46),
+          inset 0 -.8px 0 rgba(0,0,0,.08),
+          0 10px 22px rgba(0,0,0,.13);
+        transition: transform 420ms var(--liquid-ease-nav), width 420ms var(--liquid-ease-nav), height 420ms var(--liquid-ease-nav), opacity 140ms ease;
         backface-visibility: hidden;
       }
 
       .bottom-nav.liquid-nav-moving .liquid-nav-indicator {
-        --nav-indicator-scale: 1.02;
+        --nav-indicator-scale: 1.018;
         opacity: .96;
+        will-change: transform;
       }
 
-      .nav-btn.liquid-nav-pop { animation: refinedNavContent 340ms var(--liquid-ease-spring) both; }
-      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 400ms var(--liquid-ease-spring) both; }
+      .nav-btn.liquid-nav-pop { animation: refinedNavContent 300ms var(--liquid-ease-spring) both; }
+      .bottom-nav.liquid-nav-wobble { animation: refinedNavBody 340ms var(--liquid-ease-spring) both; }
 
       @keyframes refinedNavContent {
-        0% { transform: translate3d(0,0,0) scale(.954); }
-        52% { transform: translate3d(0,-.5px,0) scale(1.018); }
+        0% { transform: translate3d(0,0,0) scale(.958); }
+        52% { transform: translate3d(0,-.45px,0) scale(1.014); }
         100% { transform: translate3d(0,0,0) scale(1); }
       }
 
       @keyframes refinedNavBody {
         0% { transform: translateX(-50%) translateZ(0) scale(1); }
-        50% { transform: translateX(-50%) translateZ(0) scale(1.004); }
+        50% { transform: translateX(-50%) translateZ(0) scale(1.003); }
         100% { transform: translateX(-50%) translateZ(0) scale(1); }
       }
 
@@ -198,22 +208,24 @@
 
       @media (hover:hover) and (pointer:fine) {
         .liquid-motion-target:hover {
-          transform: translate3d(0,-1.5px,0) scale(1.004);
-          filter: brightness(1.035);
+          transform: translate3d(0,-1.2px,0) scale(1.003);
+          filter: brightness(1.025);
         }
         .nav-btn.liquid-motion-target:hover {
-          transform: translate3d(0,-.6px,0) scale(1.010);
+          transform: translate3d(0,-.5px,0) scale(1.008);
         }
       }
 
       @media (pointer: coarse), (max-width: 760px) {
         .bottom-nav { contain: layout paint; }
+        body.assistant-lite-motion .liquid-motion-target.liquid-pressed { filter: none !important; }
       }
 
       body.assistant-motion-off .liquid-motion-target,
       body.assistant-motion-off .nav-btn.liquid-nav-pop,
       body.assistant-motion-off .bottom-nav.liquid-nav-wobble,
-      body.assistant-motion-off .bottom-nav.liquid-nav-moving {
+      body.assistant-motion-off .bottom-nav.liquid-nav-moving,
+      body.assistant-motion-off .liquid-nav-indicator {
         animation: none !important;
         transition: none !important;
         transform: none !important;
@@ -223,7 +235,8 @@
         .liquid-motion-target,
         .nav-btn.liquid-nav-pop,
         .bottom-nav.liquid-nav-wobble,
-        .bottom-nav.liquid-nav-moving {
+        .bottom-nav.liquid-nav-moving,
+        .liquid-nav-indicator {
           animation: none !important;
           transition: none !important;
           transform: none !important;
@@ -268,13 +281,16 @@
   }
 
   function setTouchPoint(target, event) {
-    if (!target || typeof event?.clientX !== 'number') return;
+    if (!target) return;
     const rect = target.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
-    const shiftX = ((x - 50) / 50) * 1.1;
-    const shiftY = Math.max(.3, ((y - 38) / 62) * 1.0);
+    const hasPoint = Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY);
+    const clientX = hasPoint ? event.clientX : rect.left + rect.width / 2;
+    const clientY = hasPoint ? event.clientY : rect.top + rect.height / 2;
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+    const shiftX = ((x - 50) / 50) * 1.0;
+    const shiftY = Math.max(.25, ((y - 38) / 62) * .95);
     target.style.setProperty('--liquid-touch-x', `${x.toFixed(1)}%`);
     target.style.setProperty('--liquid-touch-y', `${y.toFixed(1)}%`);
     target.style.setProperty('--liquid-shift-x', `${shiftX.toFixed(2)}px`);
@@ -287,7 +303,7 @@
       if (target.classList.contains(PRESSED_CLASS)) return;
       target.style.removeProperty('--liquid-shift-x');
       target.style.removeProperty('--liquid-shift-y');
-    }, 420);
+    }, 360);
   }
 
   function softVibrate() {
@@ -298,7 +314,7 @@
     try { navigator.vibrate(3); } catch {}
   }
 
-  function popClass(element, className, timeout = 420) {
+  function popClass(element, className, timeout = 360) {
     if (!element || isMotionDisabled()) return;
     element.classList.remove(className);
     raf(() => {
@@ -307,19 +323,31 @@
     });
   }
 
+  function prepareTarget(target) {
+    if (!target || isIgnored(target) || target.dataset.liquidMotionManaged === 'true') return;
+    target.classList.add('liquid-motion-target');
+    target.dataset.liquidMotionManaged = 'true';
+  }
+
   function prepareTargets(root = document) {
-    root.querySelectorAll?.(TARGET_SELECTOR).forEach((target) => {
-      if (isIgnored(target)) return;
-      target.classList.add('liquid-motion-target');
-      target.dataset.liquidMotionManaged = 'true';
-    });
+    if (root.nodeType === Node.ELEMENT_NODE) {
+      if (root.matches?.(TARGET_SELECTOR)) prepareTarget(root);
+      root.querySelectorAll?.(TARGET_SELECTOR).forEach(prepareTarget);
+    } else {
+      root.querySelectorAll?.(TARGET_SELECTOR).forEach(prepareTarget);
+    }
     ensureNavIndicator();
     scheduleNavIndicator(false);
   }
 
   function schedulePrepareTargets(root = document) {
+    if (root) pendingRoots.add(root);
     caf(targetRefreshFrame);
-    targetRefreshFrame = raf(() => prepareTargets(root));
+    targetRefreshFrame = raf(() => {
+      const roots = [...pendingRoots];
+      pendingRoots.clear();
+      roots.forEach((item) => prepareTargets(item));
+    });
   }
 
   function beginPress(target, event) {
@@ -332,9 +360,9 @@
     target.classList.add(PRESSED_CLASS);
     activePress = {
       target,
-      pointerId: event.pointerId,
-      startX: event.clientX || 0,
-      startY: event.clientY || 0,
+      pointerId: event?.pointerId,
+      startX: Number(event?.clientX) || 0,
+      startY: Number(event?.clientY) || 0,
       canceled: false,
     };
     if (target.classList.contains('nav-btn')) moveNavIndicatorTo(target, true);
@@ -346,7 +374,7 @@
     const target = activePress.target;
     activePress = null;
     target.classList.remove(PRESSED_CLASS);
-    if (animate && !isMotionDisabled()) popClass(target, RELEASE_CLASS, 380);
+    if (animate && !isMotionDisabled()) popClass(target, RELEASE_CLASS, 340);
     clearTouchPoint(target);
   }
 
@@ -357,8 +385,8 @@
 
     if (target.classList.contains('nav-btn')) {
       moveNavIndicatorTo(target, true);
-      popClass(target, 'liquid-nav-pop', 360);
-      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 420);
+      popClass(target, 'liquid-nav-pop', 320);
+      popClass(document.querySelector('.bottom-nav'), 'liquid-nav-wobble', 360);
     }
   }
 
@@ -413,7 +441,7 @@
     if (!animated || isMotionDisabled()) return;
     nav.classList.add('liquid-nav-moving');
     window.clearTimeout(navSettleTimer);
-    navSettleTimer = window.setTimeout(() => nav.classList.remove('liquid-nav-moving'), 460);
+    navSettleTimer = window.setTimeout(() => nav.classList.remove('liquid-nav-moving'), 420);
   }
 
   function moveNavIndicatorTo(button, animated = true) {
@@ -430,6 +458,9 @@
   }
 
   function bindEvents() {
+    if (eventBound) return;
+    eventBound = true;
+
     document.addEventListener('pointerdown', handlePointerDown, { passive: true });
     document.addEventListener('pointermove', handlePointerMove, { passive: true });
     document.addEventListener('pointerup', handlePointerUp, { passive: true });
@@ -447,33 +478,41 @@
 
     document.addEventListener('click', (event) => {
       const nav = event.target.closest?.('.nav-btn');
-      if (nav) window.setTimeout(() => moveNavIndicatorTo(nav, true), 34);
+      if (nav) raf(() => moveNavIndicatorTo(nav, true));
     }, { passive: true });
 
     window.addEventListener('assistant-nav-polished', () => scheduleNavIndicator(true), { passive: true });
     window.addEventListener('ai-tools-home', () => scheduleNavIndicator(false), { passive: true });
     window.addEventListener('resize', () => scheduleNavIndicator(false), { passive: true });
-    window.addEventListener('orientationchange', () => window.setTimeout(() => scheduleNavIndicator(false), 180), { passive: true });
+    window.addEventListener('orientationchange', () => window.setTimeout(() => scheduleNavIndicator(false), 160), { passive: true });
   }
 
   function watchDom() {
     observer?.disconnect();
     observer = new MutationObserver((mutations) => {
-      if (!mutations.some((mutation) => mutation.addedNodes.length)) return;
-      schedulePrepareTargets(document);
+      let needNav = false;
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          if (node.matches?.('.bottom-nav') || node.querySelector?.('.bottom-nav')) needNav = true;
+          schedulePrepareTargets(node);
+        });
+      });
+      if (needNav) scheduleNavIndicator(false);
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
   function boot() {
+    if (document.documentElement.dataset.iosGlassMotionReady === 'true') return;
+    document.documentElement.dataset.iosGlassMotionReady = 'true';
     installStyle();
     classifyDevice();
     cleanupOldStates();
     prepareTargets();
     bindEvents();
     watchDom();
-    window.setTimeout(() => schedulePrepareTargets(document), 260);
-    window.setTimeout(() => scheduleNavIndicator(false), 720);
+    raf(() => scheduleNavIndicator(false));
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
