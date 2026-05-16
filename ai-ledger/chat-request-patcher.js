@@ -15,12 +15,26 @@
     return method === 'POST' && typeof body === 'string' && (body.includes('messages') || body.includes('attachments'));
   }
 
+  function normalizePreference(value) {
+    const model = String(value || 'auto').toLowerCase().trim();
+    if (['auto', 'gemini', 'kimi', 'mistral', 'workers', 'workers_ai'].includes(model)) {
+      return model === 'workers_ai' ? 'workers' : model;
+    }
+    return 'auto';
+  }
+
+  function effectivePreference(selected) {
+    // 当前 Gemini 免费层容易 429，NVIDIA NIM 的 Kimi/Mistral 免费端点容易排队超时。
+    // 因此“自动”先走稳定的 Workers AI，手动选择仍保持严格模式，不偷偷回退。
+    return normalizePreference(selected) === 'auto' ? 'workers' : normalizePreference(selected);
+  }
+
   function timeoutForModel(model) {
-    const value = String(model || 'auto').toLowerCase();
+    const value = normalizePreference(model);
     if (value === 'kimi') return 36000;
     if (value === 'mistral') return 32000;
-    if (value === 'gemini') return 22000;
-    if (value === 'workers') return 22000;
+    if (value === 'gemini') return 24000;
+    if (value === 'workers') return 24000;
     return 26000;
   }
 
@@ -33,9 +47,12 @@
       if (isAiPost(method, body)) {
         const data = JSON.parse(body);
         if (data) {
-          model = String(data.modelPreference || data.aiModelPreference || readModelPreference() || 'auto').toLowerCase();
-          if (!data.modelPreference) data.modelPreference = model;
-          if (!data.aiModelPreference) data.aiModelPreference = model;
+          const selected = normalizePreference(data.modelPreference || data.aiModelPreference || readModelPreference() || 'auto');
+          model = effectivePreference(selected);
+          data.requestedModelPreference = selected;
+          data.modelPreference = model;
+          data.aiModelPreference = model;
+          data.modelRoutingReason = selected === 'auto' && model === 'workers' ? 'auto_stability_workers_first' : 'manual_strict';
           init = { ...init, body: JSON.stringify(data) };
           shouldExtendTimeout = ['kimi', 'mistral', 'gemini', 'workers', 'auto'].includes(model);
         }
