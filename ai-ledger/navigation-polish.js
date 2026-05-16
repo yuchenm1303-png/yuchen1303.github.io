@@ -1,10 +1,14 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'navigation-polish-style';
   const NAV_SYNC_EVENT = 'assistant-nav-polished';
+  let navObserver = null;
+  let syncFrame = 0;
+  let patchFrame = 0;
 
   function installStyle() {
-    const old = document.querySelector(`#${STYLE_ID}`);
-    if (old) old.remove();
+    if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -22,9 +26,9 @@
         border-radius: inherit;
         pointer-events: none;
         background:
-          linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,.040) 52%, rgba(0,0,0,.025)),
-          radial-gradient(circle at 50% -20%, rgba(255,255,255,.24), transparent 54%);
-        opacity: .66;
+          linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.038) 52%, rgba(0,0,0,.025)),
+          radial-gradient(circle at 50% -20%, rgba(255,255,255,.22), transparent 54%);
+        opacity: .62;
       }
 
       .bottom-nav .nav-btn {
@@ -44,7 +48,7 @@
       .bottom-nav .nav-btn.active {
         color: rgba(247,253,255,.98) !important;
         background: transparent !important;
-        text-shadow: 0 1px 8px rgba(31,123,148,.18);
+        text-shadow: 0 1px 8px rgba(31,123,148,.16);
       }
 
       .bottom-nav .nav-btn.active span {
@@ -64,16 +68,16 @@
         border-radius: 18px !important;
         background:
           radial-gradient(circle at 26% 14%, rgba(255,255,255,.48), rgba(255,255,255,.15) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(92,164,196,.40), rgba(98,128,190,.28) 52%, rgba(255,255,255,.11)) !important;
+          linear-gradient(135deg, rgba(92,164,196,.38), rgba(98,128,190,.26) 52%, rgba(255,255,255,.10)) !important;
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.46),
+          inset 0 1px 0 rgba(255,255,255,.44),
           inset 0 -1px 0 rgba(0,0,0,.08),
-          0 9px 20px rgba(14,101,128,.14) !important;
+          0 8px 18px rgba(14,101,128,.13) !important;
       }
 
       @media (hover:hover) {
         .bottom-nav .nav-btn:not(.active):hover {
-          background: rgba(255,255,255,.12) !important;
+          background: rgba(255,255,255,.10) !important;
         }
       }
 
@@ -98,34 +102,47 @@
     return nav?.querySelector('.nav-btn.active') || null;
   }
 
+  function scheduleSyncNavState() {
+    cancelAnimationFrame(syncFrame);
+    syncFrame = requestAnimationFrame(syncNavState);
+  }
+
   function syncNavState() {
     const nav = getNav();
     if (!nav) return;
     const buttons = [...nav.querySelectorAll('.nav-btn')];
     const active = getActiveButton();
+    let changed = nav.dataset.activeView !== (active?.dataset.view || '');
+
     buttons.forEach((button) => {
       const isActive = button === active;
-      if (isActive) button.setAttribute('aria-current', 'page');
-      else button.removeAttribute('aria-current');
+      const nextCurrent = isActive ? 'page' : null;
+      if (isActive && button.getAttribute('aria-current') !== nextCurrent) button.setAttribute('aria-current', nextCurrent);
+      if (!isActive && button.hasAttribute('aria-current')) button.removeAttribute('aria-current');
+
       const label = button.querySelector('em')?.textContent?.trim() || button.dataset.view || '页面';
-      button.setAttribute('aria-label', isActive ? `${label}，当前页` : `切换到${label}`);
+      const nextLabel = isActive ? `${label}，当前页` : `切换到${label}`;
+      if (button.getAttribute('aria-label') !== nextLabel) button.setAttribute('aria-label', nextLabel);
     });
+
     nav.dataset.activeView = active?.dataset.view || '';
-    window.dispatchEvent(new CustomEvent(NAV_SYNC_EVENT, {
-      detail: { view: nav.dataset.activeView },
-    }));
+    if (changed) {
+      window.dispatchEvent(new CustomEvent(NAV_SYNC_EVENT, { detail: { view: nav.dataset.activeView } }));
+    }
   }
 
   function watchNav() {
     const nav = getNav();
-    if (!nav || nav.dataset.navPolishObserved === 'true') return;
+    if (!nav || nav.dataset.navPolishObserved === 'true') return Boolean(nav);
     nav.dataset.navPolishObserved = 'true';
-    const observer = new MutationObserver(syncNavState);
+    navObserver?.disconnect();
+    navObserver = new MutationObserver(scheduleSyncNavState);
     nav.querySelectorAll('.nav-btn').forEach((button) => {
-      observer.observe(button, { attributes: true, attributeFilter: ['class'] });
+      navObserver.observe(button, { attributes: true, attributeFilter: ['class'] });
     });
-    nav.addEventListener('click', () => window.setTimeout(syncNavState, 0), { passive: true });
-    syncNavState();
+    nav.addEventListener('click', scheduleSyncNavState, { passive: true });
+    scheduleSyncNavState();
+    return true;
   }
 
   function isPreferenceCard(command) {
@@ -190,7 +207,7 @@
 
   function installMobileNavigationPatch() {
     const actions = window.MobileCommandActions;
-    if (!actions || actions.__navigationPolished) return;
+    if (!actions || actions.__navigationPolished) return Boolean(actions);
     actions.__navigationPolished = true;
 
     const baseParse = actions.parse;
@@ -218,16 +235,25 @@
         return `我理解为要用${map}${modeLabel}导航到“${next.params.destination}”，确认后我再执行。`;
       };
     }
+    return true;
+  }
+
+  function schedulePatchRetries() {
+    if (installMobileNavigationPatch()) return;
+    cancelAnimationFrame(patchFrame);
+    patchFrame = requestAnimationFrame(() => {
+      if (!installMobileNavigationPatch()) window.setTimeout(installMobileNavigationPatch, 500);
+    });
   }
 
   function boot() {
+    if (document.documentElement.dataset.navigationPolishReady === 'true') return;
+    document.documentElement.dataset.navigationPolishReady = 'true';
     installStyle();
     watchNav();
-    installMobileNavigationPatch();
-    window.setTimeout(() => { watchNav(); installMobileNavigationPatch(); }, 300);
-    window.setTimeout(() => { watchNav(); installMobileNavigationPatch(); }, 1200);
+    schedulePatchRetries();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
 })();
