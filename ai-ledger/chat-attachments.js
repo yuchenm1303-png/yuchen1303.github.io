@@ -49,16 +49,20 @@
   }
 
   function saveChatMessages(messages) {
+    const snapshot = Array.isArray(messages) ? messages.map((message) => ({ ...message })) : [];
     try {
-      localStorage.setItem(CHAT_KEY, JSON.stringify(messages));
-      if (Array.isArray(window.chatMessages)) {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(snapshot));
+      if (Array.isArray(window.chatMessages) && window.chatMessages !== messages) {
         window.chatMessages.length = 0;
-        messages.forEach((message) => window.chatMessages.push(message));
+        snapshot.forEach((message) => window.chatMessages.push(message));
       }
-      if (typeof window.saveChatMessages === "function") window.saveChatMessages();
+      // Do not clear window.chatMessages when it is the same array reference as messages.
+      // The previous implementation emptied the same array and made the chat area blank.
       if (typeof window.renderAll === "function") window.renderAll();
       else window.ChatSourceBadges?.refresh?.();
-    } catch {}
+    } catch (error) {
+      console.warn("Failed to save attachment chat messages", error);
+    }
   }
 
   function todayISO() {
@@ -73,7 +77,28 @@
   }
 
   function ledgerContext() {
+    if (typeof window.getLedgerContext === "function") {
+      try { return window.getLedgerContext(); } catch {}
+    }
     return { summary: {}, recentRecords: [] };
+  }
+
+  function webSearchPayload() {
+    if (window.CloudCommandBridge?.getWebSearchPayload) {
+      try { return window.CloudCommandBridge.getWebSearchPayload(); } catch {}
+    }
+    const force = Boolean(window.CloudCommandBridge?.isForceWebSearch?.());
+    return {
+      forceWebSearch: force,
+      webSearchMode: force ? "force" : "auto",
+      searchMode: force ? "force" : "auto",
+      webSearch: {
+        mode: force ? "force" : "auto",
+        force,
+        keepAutoSearchWhenOff: true,
+        requireCitationsWhenForced: true,
+      },
+    };
   }
 
   function fileToAttachment(file) {
@@ -186,6 +211,16 @@
     document.querySelector("#attachmentTypingRow")?.remove();
   }
 
+  async function fetchWithTimeout(url, options, timeoutMs = 45000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function sendAttachmentChat(text) {
     const endpoint = readAiEndpoint();
     if (!endpoint) {
@@ -205,7 +240,8 @@
     setLoading(true);
 
     try {
-      const response = await fetch(endpoint, {
+      const searchPayload = webSearchPayload();
+      const response = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -216,6 +252,7 @@
           ledgerContext: ledgerContext(),
           clientTools: window.MobileCommandActions?.tools || [],
           now: todayISO(),
+          ...searchPayload,
         }),
       });
       const data = await response.json().catch(() => null);
@@ -234,9 +271,10 @@
       saveChatMessages(messages);
       toast("附件分析完成");
     } catch (error) {
-      messages.push({ id: createId("assistant"), role: "assistant", content: `附件分析失败：${String(error?.message || error).slice(0, 160)}`, action: "chat", records: [], draftState: "none", mobileCommand: null, source: "gemini_vision_error" });
+      const isAbort = error?.name === "AbortError";
+      messages.push({ id: createId("assistant"), role: "assistant", content: isAbort ? "附件分析超时了。可以换一张更小的图片，或压缩后再试。" : `附件分析失败：${String(error?.message || error).slice(0, 160)}`, action: "chat", records: [], draftState: "none", mobileCommand: null, source: "gemini_vision_error" });
       saveChatMessages(messages);
-      toast("附件分析失败");
+      toast(isAbort ? "附件分析超时" : "附件分析失败");
     } finally {
       removeTyping();
       setLoading(false);
@@ -301,7 +339,7 @@
     take: () => { const current = pendingAttachments; pendingAttachments = []; renderTray(); return current; },
     peek: () => pendingAttachments.slice(),
     has: () => pendingAttachments.length > 0,
-    version: "2026-05-16-attachments-direct-1",
+    version: "2026-05-16-attachments-direct-2-statefix",
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", installUI);
