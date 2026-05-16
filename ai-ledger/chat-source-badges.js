@@ -6,7 +6,7 @@
 
   const MODELS = [
     { id: "auto", label: "自动", short: "自动", hint: "按额度和可用性自动切换" },
-    { id: "kimi", label: "Kimi K2.6", short: "Kimi", hint: "NVIDIA NIM · 闲聊、总结、中文能力" },
+    { id: "kimi", label: "Kimi K2.6", short: "Kimi", hint: "NVIDIA NIM · 闲聊、总结、识图优先" },
     { id: "gemini", label: "Gemini 2.5 Flash", short: "Gemini", hint: "Google Gemini · 普通知识和对话" },
     { id: "workers", label: "Workers AI", short: "Workers", hint: "Cloudflare Workers AI · 兜底" },
   ];
@@ -19,14 +19,15 @@
     workers_ai_text_fallback: { label: "Workers AI 兜底", tone: "cloud-fallback" },
     workers_ai_vision: { label: "Workers AI 识图", tone: "vision" },
     workers_ai_vision_fallback: { label: "Workers AI 识图兜底", tone: "vision" },
-    nvidia_vision: { label: "多模态识图", tone: "vision" },
-    nvidia_vision_fallback: { label: "多模态识图兜底", tone: "vision" },
+    nvidia_vision: { label: "Kimi 识图", tone: "vision" },
+    nvidia_vision_fallback: { label: "Kimi 识图兜底", tone: "vision" },
     nvidia_chat_fallback: { label: "NVIDIA 兜底", tone: "cloud-fallback" },
     gemini_ai: { label: "Gemini AI", tone: "gemini" },
     gemini_chat: { label: "Gemini 对话", tone: "gemini" },
     gemini_chat_error: { label: "Gemini 错误", tone: "error" },
     gemini_missing_key: { label: "Gemini 未配置", tone: "error" },
     gemini_vision: { label: "Gemini 识图", tone: "vision" },
+    gemini_vision_fallback: { label: "Gemini 识图兜底", tone: "vision" },
     gemini_vision_error: { label: "识图错误", tone: "error" },
     vision_all_failed: { label: "识图失败", tone: "error" },
     vision_quota_exceeded: { label: "识图配额不足", tone: "error" },
@@ -55,11 +56,12 @@
     local_mobile: { label: "手机动作", tone: "mobile" },
     navigation_preferences: { label: "导航偏好", tone: "mobile" },
     ai_command_router_v3: { label: "本地指令路由", tone: "mobile" },
-    missing_workers_ai_binding: { label: "云端未绑定", tone: "error" },
-    missing_cloud_ai: { label: "云端未配置", tone: "error" },
     cloud_error_normalized: { label: "云端错误", tone: "error" },
     cloud_fetch_failed: { label: "云端连接失败", tone: "error" },
+    provider_pool_failed: { label: "模型池失败", tone: "error" },
   };
+
+  let lastPinnedAt = 0;
 
   function escapeHtml(value) {
     return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -111,9 +113,9 @@
 
   function sourceMeta(source) {
     if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
+    if (/vision|image|attachment/i.test(source || "")) return { label: "识图", tone: "vision" };
     if (/nvidia|nim|kimi|qwen|mistral|deepseek/i.test(source || "")) return { label: "云端模型", tone: "cloud" };
     if (/gemini/i.test(source || "")) return { label: "Gemini AI", tone: "gemini" };
-    if (/vision|image|attachment/i.test(source || "")) return { label: "识图", tone: "vision" };
     if (/tavily|search/i.test(source || "")) return { label: "联网搜索", tone: "online" };
     if (/weather/i.test(source || "")) return { label: "实时天气", tone: "online" };
     if (/worker/i.test(source || "")) return { label: "Workers AI", tone: "cloud" };
@@ -127,7 +129,7 @@
       .replace(/orchestrator-/i, "orch-")
       .replace(/attachment-gateway-/i, "attach-")
       .replace(/command-protocol-/i, "cmd-")
-      .slice(0, 80);
+      .slice(0, 90);
   }
 
   function modelText(message) {
@@ -176,7 +178,6 @@
       .chat-source-badge.local{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28)}
       .chat-source-badge.mobile{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32)}
       .chat-source-badge.error{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30)}
-      .chat-source-badge.unknown{color:#d8dce8;background:rgba(255,255,255,.12)}
       .model-picker-btn{width:48px;height:48px;min-width:48px;border-radius:20px;border:1px solid rgba(255,255,255,.30);background:linear-gradient(145deg,rgba(255,255,255,.20),rgba(255,255,255,.08));color:rgba(255,255,255,.92);font-size:11px;font-weight:950;display:grid;place-items:center;text-align:center;line-height:1.05;backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 10px 24px rgba(0,0,0,.12)}
       .model-picker-btn::before{content:'AI';font-size:10px;opacity:.7;margin-bottom:1px;display:block}.model-picker-btn:active{transform:scale(.96)}
       .model-picker-sheet-mask{position:fixed;inset:0;z-index:1300;display:none;background:rgba(4,8,20,.30);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}.model-picker-sheet-mask.open{display:grid;place-items:end center}
@@ -189,9 +190,9 @@
     document.head.appendChild(style);
   }
 
-  function clearOldBadges() {
-    document.querySelectorAll(".chat-source-badge-row").forEach((el) => el.remove());
-    document.querySelectorAll(".chat-row[data-message-id]").forEach((row) => delete row.dataset.sourceBadgeReady);
+  function removeDuplicateBadges(row) {
+    const badges = row.querySelectorAll(":scope .chat-source-badge-row");
+    badges.forEach((badge, index) => { if (index > 0) badge.remove(); });
   }
 
   function addBadges() {
@@ -199,7 +200,12 @@
     const byId = new Map(messages.map((message) => [String(message.id), message]));
     document.querySelectorAll(".chat-row[data-message-id]").forEach((row) => {
       const id = row.dataset.messageId;
-      if (!id || row.dataset.sourceBadgeReady === "ready") return;
+      if (!id) return;
+      removeDuplicateBadges(row);
+      if (row.querySelector(":scope .chat-source-badge-row")) {
+        row.dataset.sourceBadgeReady = "ready";
+        return;
+      }
       const message = byId.get(String(id));
       if (!message) return;
       const response = row.querySelector(".chat-response");
@@ -224,14 +230,35 @@
     });
   }
 
+  function pinChatBottom(reason = "") {
+    const host = document.querySelector("#chatMessages");
+    if (!host) return;
+    lastPinnedAt = Date.now();
+    const run = () => {
+      try { host.scrollTop = host.scrollHeight; } catch {}
+    };
+    requestAnimationFrame(run);
+    [24, 80, 180, 360].forEach((delay) => window.setTimeout(run, delay));
+  }
+
+  function shouldPinAfterMutation(mutations) {
+    return mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      return node.id === "typingRow" || node.classList?.contains("chat-row") || node.querySelector?.(".chat-row");
+    }));
+  }
+
   function installObserver() {
     const target = document.querySelector("#chatMessages");
     if (!target || target.dataset.sourceBadgeObserver === "ready") return;
     target.dataset.sourceBadgeObserver = "ready";
-    const observer = new MutationObserver(() => addBadges());
+    const observer = new MutationObserver((mutations) => {
+      addBadges();
+      if (shouldPinAfterMutation(mutations)) pinChatBottom("message-mutation");
+    });
     observer.observe(target, { childList: true, subtree: true });
-    clearOldBadges();
     addBadges();
+    pinChatBottom("boot");
   }
 
   function installModelButton() {
@@ -267,22 +294,12 @@
       });
     }
     const selected = readModelPreference();
-    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式会按额度在 Kimi、Gemini、Workers AI 间切换。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${MODELS.map((item) => `<button type="button" class="model-choice ${item.id === selected ? "active" : ""}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint)}</em></span></button>`).join("")}</div></section>`;
+    mask.innerHTML = `<section class="model-picker-sheet" role="dialog" aria-modal="true" aria-label="选择云端模型"><div class="model-picker-head"><div><strong>选择云端模型</strong><span>自动模式会按额度在 Kimi、Gemini、Workers AI 间切换。选择 Kimi 时，图片识别也会优先走 Kimi。</span></div><button class="model-picker-close" type="button" data-model-picker-close>×</button></div><div class="model-picker-list">${MODELS.map((item) => `<button type="button" class="model-choice ${item.id === selected ? "active" : ""}" data-model-choice="${escapeHtml(item.id)}"><span class="model-choice-dot"></span><span class="model-choice-text"><strong>${escapeHtml(item.label)}</strong><em>${escapeHtml(item.hint)}</em></span></button>`).join("")}</div></section>`;
   }
 
-  function openModelSheet() {
-    renderModelSheet();
-    document.querySelector("#modelPickerSheetMask")?.classList.add("open");
-  }
-
-  function closeModelSheet() {
-    document.querySelector("#modelPickerSheetMask")?.classList.remove("open");
-  }
-
-  function updateModelButton() {
-    const btn = document.querySelector("#chatModelPickerBtn");
-    if (btn) btn.textContent = modelShort();
-  }
+  function openModelSheet() { renderModelSheet(); document.querySelector("#modelPickerSheetMask")?.classList.add("open"); }
+  function closeModelSheet() { document.querySelector("#modelPickerSheetMask")?.classList.remove("open"); }
+  function updateModelButton() { const btn = document.querySelector("#chatModelPickerBtn"); if (btn) btn.textContent = modelShort(); }
 
   function patchFetch() {
     if (window[FETCH_PATCH_FLAG]) return;
@@ -292,9 +309,9 @@
       try {
         const method = String(init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
         const body = init?.body;
-        if (method === "POST" && typeof body === "string" && body.includes("messages")) {
+        if (method === "POST" && typeof body === "string" && (body.includes("messages") || body.includes("attachments"))) {
           const data = JSON.parse(body);
-          if (data && Array.isArray(data.messages) && !data.modelPreference) {
+          if (data && !data.modelPreference) {
             data.modelPreference = readModelPreference();
             data.aiModelPreference = readModelPreference();
             init = { ...init, body: JSON.stringify(data) };
@@ -306,12 +323,14 @@
   }
 
   function badgeWatchdog() {
-    const rows = [...document.querySelectorAll(".chat-row.assistant[data-message-id]")].filter((row) => row.id !== "typingRow");
-    const missing = rows.some((row) => !row.querySelector(".chat-source-badge-row"));
-    if (missing) window.ChatSourceBadges?.refresh?.();
+    addBadges();
+    const host = document.querySelector("#chatMessages");
+    if (!host) return;
+    const bottomGap = host.scrollHeight - host.clientHeight - host.scrollTop;
+    if (document.querySelector("#typingRow") || (Date.now() - lastPinnedAt < 1400 && bottomGap > 8)) pinChatBottom("watchdog");
   }
 
-  window.ChatSourceBadges = { refresh: () => { clearOldBadges(); addBadges(); }, labels: SOURCE_LABELS };
+  window.ChatSourceBadges = { refresh: addBadges, labels: SOURCE_LABELS, pinBottom: pinChatBottom };
   window.AiLedgerModelPicker = { current: readModelPreference, set: writeModelPreference, models: MODELS };
 
   window.addEventListener("DOMContentLoaded", () => {
@@ -320,6 +339,6 @@
     installModelButton();
     window.setTimeout(installObserver, 0);
     window.setTimeout(installObserver, 300);
-    window.setInterval(() => { addBadges(); installModelButton(); updateModelButton(); badgeWatchdog(); }, 1200);
+    window.setInterval(() => { addBadges(); installModelButton(); updateModelButton(); badgeWatchdog(); }, 900);
   });
 })();
