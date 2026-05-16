@@ -1,9 +1,10 @@
 (() => {
   const MAX_FILES = 3;
   const MAX_FILE_BYTES = 4 * 1024 * 1024;
-  const ACCEPT = "image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.js,.css,.py,.java,.c,.cpp,.h,.doc,.docx";
+  const ACCEPT = "image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.js,.css,.py,.java,.c,.cpp,.h";
+  const CHAT_KEY = "ai-ledger-chat-v2";
+  const AI_CONFIG_KEY = "ai-ledger-ai-config-v1";
   let pendingAttachments = [];
-  let sendingAttachments = null;
 
   function escapeHtml(value) {
     return String(value || "")
@@ -23,6 +24,58 @@
     toast.timer = setTimeout(() => el.classList.remove("show"), 2200);
   }
 
+  function createId(prefix = "att") {
+    if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function readAiEndpoint() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || "{}");
+      return String(saved.endpoint || window.AI_LEDGER_CONFIG?.aiEndpoint || "").replace(/\/+$/g, "");
+    } catch {
+      return String(window.AI_LEDGER_CONFIG?.aiEndpoint || "").replace(/\/+$/g, "");
+    }
+  }
+
+  function readChatMessages() {
+    if (Array.isArray(window.chatMessages)) return window.chatMessages;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveChatMessages(messages) {
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify(messages));
+      if (Array.isArray(window.chatMessages)) {
+        window.chatMessages.length = 0;
+        messages.forEach((message) => window.chatMessages.push(message));
+      }
+      if (typeof window.saveChatMessages === "function") window.saveChatMessages();
+      if (typeof window.renderAll === "function") window.renderAll();
+      else window.ChatSourceBadges?.refresh?.();
+    } catch {}
+  }
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function conversationPayload(messages) {
+    return messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-16)
+      .map((message) => ({ role: message.role, content: message.content }));
+  }
+
+  function ledgerContext() {
+    return { summary: {}, recentRecords: [] };
+  }
+
   function fileToAttachment(file) {
     return new Promise((resolve, reject) => {
       if (!file) return reject(new Error("文件无效"));
@@ -32,13 +85,7 @@
         const dataUrl = String(reader.result || "");
         const comma = dataUrl.indexOf(",");
         const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-        resolve({
-          id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-          name: file.name || "未命名文件",
-          mimeType: file.type || guessMime(file.name),
-          size: file.size,
-          data: base64,
-        });
+        resolve({ id: createId("file"), name: file.name || "未命名文件", mimeType: file.type || guessMime(file.name), size: file.size, data: base64 });
       };
       reader.onerror = () => reject(new Error(`${file.name} 读取失败`));
       reader.readAsDataURL(file);
@@ -74,8 +121,10 @@
     if (!pendingAttachments.length) {
       tray.innerHTML = "";
       tray.classList.remove("show");
+      document.body.classList.remove("has-chat-attachments");
       return;
     }
+    document.body.classList.add("has-chat-attachments");
     tray.classList.add("show");
     tray.innerHTML = pendingAttachments.map((att) => `
       <div class="attachment-pill" data-attachment-id="${escapeHtml(att.id)}">
@@ -93,10 +142,7 @@
     const list = Array.from(files || []).slice(0, room);
     if (!list.length) return;
     try {
-      for (const file of list) {
-        const att = await fileToAttachment(file);
-        pendingAttachments.push(att);
-      }
+      for (const file of list) pendingAttachments.push(await fileToAttachment(file));
       renderTray();
       toast(`已添加 ${list.length} 个附件`);
     } catch (error) {
@@ -109,54 +155,93 @@
     const style = document.createElement("style");
     style.id = "chat-attachments-style";
     style.textContent = `
-      .chat-composer{position:relative;gap:10px;align-items:flex-end}
-      .attach-btn{width:48px;height:48px;min-width:48px;border-radius:20px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.12);color:rgba(255,255,255,.9);font-size:24px;font-weight:800;display:grid;place-items:center;backdrop-filter:blur(16px);box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+      .chat-composer{position:relative;gap:10px;align-items:flex-end;z-index:5}
+      .attach-btn{width:48px;height:48px;min-width:48px;border-radius:20px;border:1px solid rgba(255,255,255,.30);background:rgba(255,255,255,.14);color:rgba(255,255,255,.92);font-size:24px;font-weight:900;display:grid;place-items:center;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:inset 0 1px 0 rgba(255,255,255,.24)}
       .attach-btn:active{transform:scale(.96)}
-      .attachment-tray{display:none;gap:8px;flex-wrap:wrap;margin:10px 4px 8px}
+      .attachment-tray{display:none;position:relative;z-index:6;gap:8px;flex-wrap:wrap;margin:10px 4px 10px;max-width:100%}
       .attachment-tray.show{display:flex}
-      .attachment-pill{display:inline-flex;align-items:center;gap:6px;max-width:100%;border-radius:999px;padding:7px 9px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);color:rgba(255,255,255,.86);font-size:12px;backdrop-filter:blur(14px)}
-      .attachment-pill strong{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
-      .attachment-pill em{font-style:normal;opacity:.62}
-      .attachment-pill button{border:0;background:rgba(255,255,255,.18);color:inherit;border-radius:999px;width:20px;height:20px;font-weight:900}
+      .attachment-pill{display:inline-flex;align-items:center;gap:6px;max-width:100%;border-radius:999px;padding:7px 9px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.26);color:rgba(255,255,255,.88);font-size:12px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+      .attachment-pill strong{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:850}
+      .attachment-pill em{font-style:normal;opacity:.66}
+      .attachment-pill button{border:0;background:rgba(255,255,255,.20);color:inherit;border-radius:999px;width:22px;height:22px;font-weight:900;line-height:1}
     `;
     document.head.appendChild(style);
   }
 
-  function takeAttachments() {
-    const current = pendingAttachments;
+  function setLoading(isLoading) {
+    const input = document.querySelector("#aiInput");
+    const send = document.querySelector("#aiAddBtn") || document.querySelector("#sendBtn");
+    if (input) input.disabled = isLoading;
+    if (send) send.disabled = isLoading;
+  }
+
+  function addTyping() {
+    const box = document.querySelector("#chatMessages");
+    if (!box || document.querySelector("#attachmentTypingRow")) return;
+    box.insertAdjacentHTML("beforeend", `<div class="chat-row assistant" id="attachmentTypingRow"><div class="chat-bubble"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>`);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function removeTyping() {
+    document.querySelector("#attachmentTypingRow")?.remove();
+  }
+
+  async function sendAttachmentChat(text) {
+    const endpoint = readAiEndpoint();
+    if (!endpoint) {
+      toast("请先在设置里配置 AI 接口");
+      return;
+    }
+    const attachments = pendingAttachments.slice();
+    if (!attachments.length) return;
     pendingAttachments = [];
     renderTray();
-    return current;
-  }
 
-  function peekAttachments() {
-    return pendingAttachments.slice();
-  }
+    const messages = readChatMessages();
+    const userText = text.trim() || "请分析这个附件";
+    messages.push({ id: createId("user"), role: "user", content: userText, attachments: attachments.map(({ name, mimeType, size }) => ({ name, mimeType, size })) });
+    saveChatMessages(messages);
+    addTyping();
+    setLoading(true);
 
-  function installFetchPatch() {
-    if (window.__chatAttachmentsFetchPatched) return;
-    window.__chatAttachmentsFetchPatched = true;
-    const originalFetch = window.fetch.bind(window);
-    window.fetch = async (input, init = {}) => {
-      try {
-        const method = String(init?.method || "GET").toUpperCase();
-        const body = typeof init?.body === "string" ? init.body : "";
-        if (method === "POST" && body && (sendingAttachments?.length || pendingAttachments.length)) {
-          const payload = JSON.parse(body);
-          if (payload && (Array.isArray(payload.messages) || payload.text || payload.ledgerContext)) {
-            const attachments = sendingAttachments?.length ? sendingAttachments : takeAttachments();
-            sendingAttachments = null;
-            if (attachments.length) {
-              payload.attachments = attachments.map(({ id, name, mimeType, size, data }) => ({ id, name, mimeType, size, data }));
-              init = { ...init, body: JSON.stringify(payload) };
-            }
-          }
-        }
-      } catch {
-        // keep original request if parsing fails
-      }
-      return originalFetch(input, init);
-    };
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          messages: conversationPayload(messages),
+          text: userText,
+          attachments: attachments.map(({ id, name, mimeType, size, data }) => ({ id, name, mimeType, size, data })),
+          pendingDraft: [],
+          ledgerContext: ledgerContext(),
+          clientTools: window.MobileCommandActions?.tools || [],
+          now: todayISO(),
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || data?.reply || `HTTP ${response.status}`);
+      messages.push({
+        id: createId("assistant"),
+        role: "assistant",
+        content: String(data?.reply || "我看到了附件，但没有提取到明确内容。"),
+        action: data?.action || "chat",
+        records: Array.isArray(data?.records) ? data.records : [],
+        draftState: "none",
+        mobileCommand: data?.mobileCommand || null,
+        source: data?.source || "gemini_vision",
+        version: data?.version,
+      });
+      saveChatMessages(messages);
+      toast("附件分析完成");
+    } catch (error) {
+      messages.push({ id: createId("assistant"), role: "assistant", content: `附件分析失败：${String(error?.message || error).slice(0, 160)}`, action: "chat", records: [], draftState: "none", mobileCommand: null, source: "gemini_vision_error" });
+      saveChatMessages(messages);
+      toast("附件分析失败");
+    } finally {
+      removeTyping();
+      setLoading(false);
+      window.ChatSourceBadges?.refresh?.();
+    }
   }
 
   function installUI() {
@@ -164,9 +249,7 @@
     const input = document.querySelector("#aiInput");
     if (!form || !input || form.dataset.attachmentsReady === "ready") return;
     form.dataset.attachmentsReady = "ready";
-
     installStyle();
-    installFetchPatch();
 
     const picker = document.createElement("input");
     picker.id = "chatAttachmentInput";
@@ -196,10 +279,14 @@
       picker.value = "";
     });
 
-    form.addEventListener("submit", () => {
+    form.addEventListener("submit", (event) => {
       if (!pendingAttachments.length) return;
-      if (!input.value.trim()) input.value = "请分析这个附件";
-      sendingAttachments = peekAttachments();
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const text = input.value.trim() || "请分析这个附件";
+      input.value = "";
+      input.style.height = "auto";
+      sendAttachmentChat(text);
     }, true);
 
     tray.addEventListener("click", (event) => {
@@ -211,15 +298,13 @@
   }
 
   window.ChatAttachments = {
-    take: takeAttachments,
-    peek: peekAttachments,
+    take: () => { const current = pendingAttachments; pendingAttachments = []; renderTray(); return current; },
+    peek: () => pendingAttachments.slice(),
     has: () => pendingAttachments.length > 0,
-    version: "2026-05-15-attachments-2-send",
+    version: "2026-05-16-attachments-direct-1",
   };
 
-  installFetchPatch();
-  window.addEventListener("DOMContentLoaded", () => {
-    installUI();
-    setTimeout(installUI, 300);
-  });
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", installUI);
+  else installUI();
+  setTimeout(installUI, 300);
 })();
