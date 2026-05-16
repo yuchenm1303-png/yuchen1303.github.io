@@ -27,12 +27,15 @@
 
 .chat-shell {
   display: grid;
-  grid-template-rows: auto minmax(330px, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(260px, 1fr) auto auto auto;
   gap: 11px;
-  min-height: min(620px, calc(100vh - 178px));
+  min-height: min(620px, calc(var(--app-visual-vh, 100vh) - 178px));
+  max-height: calc(var(--app-visual-vh, 100vh) - 122px);
   padding: 13px;
   background: rgba(255,255,255,.075);
   border-color: rgba(255,255,255,.28);
+  contain: layout paint style;
+  overflow: hidden;
 }
 
 .chat-summary-strip {
@@ -64,18 +67,46 @@
 }
 
 .chat-messages {
-  min-height: 330px;
+  min-height: 260px;
   overflow-y: auto;
   display: grid;
   align-content: start;
   gap: 10px;
-  padding: 2px 1px;
+  padding: 2px 1px 4px;
   scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: layout paint style;
+  scrollbar-width: none;
+}
+
+.chat-messages::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-history-gate {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 4px;
+}
+
+.chat-history-gate button {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.20);
+  background: rgba(255,255,255,.075);
+  color: rgba(234,241,255,.78);
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: inset 0 .7px 0 rgba(255,255,255,.18);
 }
 
 .chat-row {
   display: flex;
   transform-origin: 50% 100%;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 72px;
 }
 
 .chat-row.user {
@@ -258,15 +289,18 @@
   grid-template-columns: 1fr 48px;
   gap: 9px;
   align-items: end;
+  position: relative;
+  z-index: 12;
 }
 
 .chat-composer textarea {
   min-height: 48px;
-  max-height: 116px;
+  max-height: 112px;
   padding: 12px 14px;
   line-height: 1.38;
   background: rgba(255,255,255,.105);
   border-color: rgba(255,255,255,.30);
+  resize: none;
 }
 
 .send-btn {
@@ -300,7 +334,8 @@
   min-height: 20px;
 }
 
-.typing span {
+.typing span,
+.typing-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -308,12 +343,87 @@
   animation: typingPulse 1.2s infinite;
 }
 
-.typing span:nth-child(2) {
+.typing span:nth-child(2),
+.typing-dot:nth-child(2) {
   animation-delay: .18s;
 }
 
-.typing span:nth-child(3) {
+.typing span:nth-child(3),
+.typing-dot:nth-child(3) {
   animation-delay: .36s;
+}
+
+body.keyboard-open {
+  overflow: hidden !important;
+}
+
+body.keyboard-open .app-shell {
+  padding-top: 10px !important;
+  padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  min-height: var(--app-visual-vh, 100vh) !important;
+}
+
+body.keyboard-open #view-ai.view.active {
+  min-height: calc(var(--app-visual-vh, 100vh) - 18px) !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+
+body.keyboard-open .chat-header {
+  margin-bottom: 0 !important;
+}
+
+body.keyboard-open .chat-header .subtext,
+body.keyboard-open .chat-header-actions,
+body.keyboard-open .chat-summary-strip,
+body.keyboard-open .chat-tags,
+body.keyboard-open .chat-hint,
+body.keyboard-open .bottom-nav,
+body.keyboard-open .fab {
+  display: none !important;
+}
+
+body.keyboard-open .chat-shell {
+  grid-template-rows: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  min-height: calc(var(--app-visual-vh, 100vh) - 92px) !important;
+  max-height: calc(var(--app-visual-vh, 100vh) - 92px) !important;
+  padding: 10px !important;
+  border-radius: 22px !important;
+}
+
+body.keyboard-open .chat-messages {
+  min-height: 0 !important;
+  padding-bottom: 6px !important;
+  scroll-behavior: auto !important;
+}
+
+body.keyboard-open .chat-composer {
+  grid-template-columns: 1fr 44px !important;
+  gap: 8px !important;
+}
+
+body.keyboard-open .chat-composer textarea {
+  min-height: 44px !important;
+  max-height: 96px !important;
+  padding: 10px 12px !important;
+}
+
+body.keyboard-open .send-btn {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: 16px !important;
+}
+
+body.viewport-resizing .chat-shell,
+body.viewport-resizing .bottom-nav,
+body.viewport-resizing .chat-row,
+body.viewport-resizing .chat-bubble,
+body.viewport-resizing .mobile-command-card,
+body.viewport-resizing .draft-card {
+  transition: none !important;
+  animation: none !important;
 }
 
 @keyframes typingPulse {
@@ -368,7 +478,8 @@
   .chat-row.new-message .chat-bubble,
   .chat-row.new-message .draft-card,
   .chat-row.new-message .mobile-command-card,
-  .typing span {
+  .typing span,
+  .typing-dot {
     animation: none;
   }
 }
@@ -384,11 +495,11 @@
   }
 
   .chat-shell {
-    min-height: calc(100vh - 190px);
+    min-height: calc(var(--app-visual-vh, 100vh) - 190px);
   }
 
   .chat-messages {
-    min-height: 315px;
+    min-height: 250px;
   }
 
   .chat-bubble,
