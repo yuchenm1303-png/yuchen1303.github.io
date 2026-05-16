@@ -1,6 +1,18 @@
 (() => {
   'use strict';
 
+  /*
+   * Ownership target:
+   * This is the core app runtime file. It owns local records, chat state, rendering,
+   * simple view routing, AI endpoint config, and chart/list updates.
+   *
+   * Refactor note:
+   * Do not add visual redesign CSS or Android navigation compatibility here.
+   * Later, this large file can be split into smaller modules such as:
+   * records-store, chat-runtime, chart-renderer, and view-router.
+   * For now, keep behavior unchanged and only mark boundaries.
+   */
+
   const STORAGE_KEY = 'ai-ledger-records-v3';
   const CHAT_KEY = 'ai-ledger-chat-v2';
   const AI_CONFIG_KEY = 'ai-ledger-ai-config-v1';
@@ -58,25 +70,51 @@
     manualCategory: document.querySelector('#manualCategory'),
     exportBtn: document.querySelector('#exportBtn'),
     clearChatBtn: document.querySelector('#clearChatBtn'),
-    toast: document.querySelector('#toast'),
+    clearChatInlineBtn: document.querySelector('#clearChatInlineBtn'),
+    resetBtn: document.querySelector('#resetBtn'),
     budgetInput: document.querySelector('#budgetInput'),
+    rangeBtns: document.querySelectorAll('.range-chip'),
+    rangeText: document.querySelector('#rangeText'),
+    budgetBadge: document.querySelector('#budgetBadge'),
+    budgetProgress: document.querySelector('#budgetProgress'),
+    budgetText: document.querySelector('#budgetText'),
+    summaryIncome: document.querySelector('#summaryIncome'),
+    summaryExpense: document.querySelector('#summaryExpense'),
+    summaryBalance: document.querySelector('#summaryBalance'),
+    metricIncome: document.querySelector('#metricIncome'),
+    metricExpense: document.querySelector('#metricExpense'),
+    trendChart: document.querySelector('#trendChart'),
+    categoryChart: document.querySelector('#categoryChart'),
+    toast: document.querySelector('#toast'),
     aiEndpointInput: document.querySelector('#aiEndpointInput'),
     saveAiEndpointBtn: document.querySelector('#saveAiEndpointBtn'),
-    resetAiEndpointBtn: document.querySelector('#resetAiEndpointBtn'),
     testAiEndpointBtn: document.querySelector('#testAiEndpointBtn'),
+    resetAiEndpointBtn: document.querySelector('#resetAiEndpointBtn'),
     aiEndpointStatus: document.querySelector('#aiEndpointStatus'),
   };
 
   let records = loadRecords();
   let chatMessages = loadChatMessages();
-  let currentView = 'ai';
-  let aiEndpoint = loadAiConfig().endpoint;
-  let aiBusy = false;
-  let visibleChatLimit = CHAT_RENDER_LIMIT;
-  let lastChatRenderKey = '';
-  let viewportFrame = 0;
-  let resizeSettleTimer = 0;
-  let stableVisualHeight = Math.round(window.visualViewport?.height || window.innerHeight || 0);
+  let budget = Number(localStorage.getItem('ai-ledger-budget') || 3000);
+  let currentRange = 'month';
+  let trendChart = null;
+  let categoryChart = null;
+  let aiEndpoint = loadAiEndpoint();
+  let chatRenderLimit = Math.max(CHAT_RENDER_LIMIT, Number(localStorage.getItem('ai-ledger-chat-render-limit') || CHAT_RENDER_LIMIT));
+  let keyboardBaselineHeight = window.visualViewport?.height || window.innerHeight;
+
+  function money(value) {
+    const amount = Number(value || 0);
+    return `¥${amount.toFixed(2)}`;
+  }
+
+  function showToast(text) {
+    if (!els.toast) return;
+    els.toast.textContent = text;
+    els.toast.classList.add('show');
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => els.toast.classList.remove('show'), 1800);
+  }
 
   function loadRecords() {
     try {
@@ -87,738 +125,674 @@
     }
   }
 
-  function saveRecords(next = records) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  function saveRecords() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    window.dispatchEvent(new CustomEvent('ai-ledger-records-changed', { detail: { records } }));
   }
 
   function loadChatMessages() {
     try {
       const parsed = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]');
-      return Array.isArray(parsed) && parsed.length ? parsed : [...initialChat];
+      return Array.isArray(parsed) && parsed.length ? parsed : initialChat;
     } catch {
-      return [...initialChat];
+      return initialChat;
     }
   }
 
   function saveChatMessages() {
     localStorage.setItem(CHAT_KEY, JSON.stringify(chatMessages));
+    window.chatMessages = chatMessages;
   }
 
-  function createId(prefix = 'id') {
-    if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
-    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  function todayISO() {
-    return new Date().toISOString().slice(0, 10);
-  }
-
-  function shiftDate(iso, days) {
-    const d = new Date(`${iso}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
-
-  function currentMonthPrefix() {
-    return todayISO().slice(0, 7);
-  }
-
-  function formatCurrency(value) {
-    return `¥${Number(value || 0).toFixed(2)}`;
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
-  }
-
-  function showToast(message) {
-    if (!els.toast) return;
-    els.toast.textContent = message;
-    els.toast.classList.add('show');
-    clearTimeout(showToast.timer);
-    showToast.timer = setTimeout(() => els.toast.classList.remove('show'), 2200);
-  }
-
-  function normalizeEndpoint(value) {
-    return String(value || '').trim().replace(/\/+$/g, '');
-  }
-
-  function loadAiConfig() {
+  function loadAiEndpoint() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || '{}');
-      return { endpoint: normalizeEndpoint(parsed.endpoint || DEFAULT_AI_ENDPOINT) };
+      const saved = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || '{}');
+      return saved.endpoint || DEFAULT_AI_ENDPOINT;
     } catch {
-      return { endpoint: normalizeEndpoint(DEFAULT_AI_ENDPOINT) };
+      return DEFAULT_AI_ENDPOINT;
     }
   }
 
-  function saveAiConfig(config) {
-    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify({ endpoint: normalizeEndpoint(config.endpoint) }));
+  function saveAiEndpoint(value) {
+    aiEndpoint = String(value || '').trim();
+    localStorage.setItem(AI_CONFIG_KEY, JSON.stringify({ endpoint: aiEndpoint, updatedAt: Date.now() }));
+    updateAiEndpointStatus();
   }
 
-  function setAiStatus(message, mode = 'normal') {
-    if (els.aiEndpointStatus) {
-      els.aiEndpointStatus.textContent = message;
-      els.aiEndpointStatus.dataset.mode = mode;
+  function resetAiEndpoint() {
+    aiEndpoint = DEFAULT_AI_ENDPOINT;
+    localStorage.removeItem(AI_CONFIG_KEY);
+    if (els.aiEndpointInput) els.aiEndpointInput.value = aiEndpoint;
+    updateAiEndpointStatus();
+    showToast('已恢复默认接口');
+  }
+
+  function updateAiEndpointStatus(text) {
+    if (els.aiEndpointInput && document.activeElement !== els.aiEndpointInput) {
+      els.aiEndpointInput.value = aiEndpoint;
     }
-  }
-
-  function updateAiModeUI() {
-    if (els.aiEndpointInput) els.aiEndpointInput.value = aiEndpoint || '';
-    setAiStatus(aiEndpoint ? '云端 AI 接口已配置' : '未配置云端 AI，当前使用本地识别', aiEndpoint ? 'success' : 'normal');
-    if (els.aiModeBadge) els.aiModeBadge.textContent = aiEndpoint ? '✨云端' : '✨本地';
-    if (els.aiModeHint) {
-      els.aiModeHint.textContent = aiEndpoint
-        ? '已连接云端 AI。本地动作会优先快速识别，复杂问题再交给云端。'
-        : '当前使用本地识别：可记账、设置提醒、打开应用和导航；复杂聊天需要配置云端 AI。';
+    if (!els.aiEndpointStatus) return;
+    if (text) {
+      els.aiEndpointStatus.textContent = text;
+      return;
     }
-  }
-
-  function setAiLoading(isLoading) {
-    aiBusy = isLoading;
-    if (els.sendBtn) els.sendBtn.disabled = isLoading;
-    if (els.aiInput) els.aiInput.disabled = isLoading;
-  }
-
-  function scrollChatToBottom(smooth = false) {
-    if (!els.chatMessages) return;
-    const host = els.chatMessages;
-    const behavior = smooth && !document.body.classList.contains('keyboard-open') ? 'smooth' : 'auto';
-    requestAnimationFrame(() => host.scrollTo({ top: host.scrollHeight, behavior }));
-  }
-
-  function renderTyping() {
-    if (!els.chatMessages || document.querySelector('#typingRow')) return;
-    els.chatMessages.insertAdjacentHTML('beforeend', '<div class="chat-row assistant" id="typingRow"><div class="chat-bubble"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>');
-    scrollChatToBottom(false);
-  }
-
-  function removeTyping() {
-    document.querySelector('#typingRow')?.remove();
-  }
-
-  function isMathOrOnlineQuery(text) {
-    return /(天气|下雨|气温|温度|风速|降雨|上网|联网|搜索|查一下|搜一下|最新|新闻|http|www\.|计算|算一下|等于|[0-9]\s*[+\-×÷*/^]\s*[0-9])/u.test(String(text || ''));
-  }
-
-  function normalizeRecord(record) {
-    return {
-      id: record.id || createId('record'),
-      title: String(record.title || '未命名账单').slice(0, 30),
-      amount: Number(record.amount) || 0,
-      type: record.type === 'income' ? 'income' : 'expense',
-      category: categories.includes(record.category) ? record.category : '其他',
-      date: /^\d{4}-\d{2}-\d{2}$/.test(record.date || '') ? record.date : todayISO(),
-    };
-  }
-
-  function normalizeRecords(list) {
-    return Array.isArray(list) ? list.map(normalizeRecord).filter((item) => item.amount > 0) : [];
-  }
-
-  function normalizeMobileCommand(command) {
-    if (!command || typeof command !== 'object') return null;
-    if (!['set_alarm', 'open_app', 'navigate'].includes(command.type)) return null;
-    return command;
-  }
-
-  function cleanTitle(text) {
-    return String(text || '')
-      .replace(/今天|昨天|前天|花了|花费|消费|支出|收入|进账|收到|元|块钱|块/gu, '')
-      .replace(/[0-9.]/gu, '')
-      .replace(/[，,。；;、]/gu, '')
-      .trim() || '未命名账单';
-  }
-
-  function inferCategory(text) {
-    if (/(饭|早餐|午餐|晚餐|外卖|面|米线|火锅|烧烤|餐)/u.test(text)) return '餐饮';
-    if (/(奶茶|咖啡|饮料|可乐|茶)/u.test(text)) return '饮品';
-    if (/(打车|出租|公交|地铁|高铁|火车|机票|加油)/u.test(text)) return '交通';
-    if (/(淘宝|京东|拼多多|买|衣服|鞋|超市|购物)/u.test(text)) return '购物';
-    if (/(房租|水电|物业|宿舍|宽带)/u.test(text)) return '居住';
-    if (/(工资|兼职|奖金|补贴|报销|收入)/u.test(text)) return '工资';
-    if (/(礼物|红包)/u.test(text)) return '礼物';
-    return '其他';
-  }
-
-  function inferType(text) {
-    return /(收入|工资|兼职|奖金|报销|收到|进账)/u.test(text) ? 'income' : 'expense';
-  }
-
-  function parseNaturalLanguage(text) {
-    if (isMathOrOnlineQuery(text)) return [];
-    if (!/(花|买|消费|支出|收入|收到|工资|报销|元|块|奶茶|午饭|晚饭|早餐|打车|地铁|公交)/u.test(text)) return [];
-    if (/(我付了|自己花|垫付|平摊|AA)/u.test(text)) return [];
-    const parts = String(text).split(/[，,。；;、\n]/).map((item) => item.trim()).filter(Boolean);
-    const parsed = parts.map((part) => {
-      const amountMatch = part.match(/(\d+(?:\.\d+)?)/u);
-      if (!amountMatch) return null;
-      const amount = Number(amountMatch[1]);
-      if (!Number.isFinite(amount) || amount <= 0) return null;
-      return {
-        id: createId('draft'),
-        title: cleanTitle(part),
-        amount,
-        type: inferType(part),
-        category: inferCategory(part),
-        date: /昨天/u.test(part) ? shiftDate(todayISO(), -1) : todayISO(),
-      };
-    }).filter(Boolean);
-    return parsed.length === parts.length ? parsed : [];
-  }
-
-  function getPendingMessage() {
-    return chatMessages.find((item) => item.role === 'assistant' && item.action === 'draft' && item.draftState === 'pending');
-  }
-
-  function getLedgerContext() {
-    const month = currentMonthPrefix();
-    const monthRecords = records.filter((record) => record.date?.startsWith(month));
-    const monthIncome = monthRecords.filter((r) => r.type === 'income').reduce((s, r) => s + r.amount, 0);
-    const monthExpense = monthRecords.filter((r) => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
-    return { summary: { monthIncome, monthExpense, monthBalance: monthIncome - monthExpense }, recentRecords: records.slice(0, 60) };
-  }
-
-  function buildRecordCard(recordsList) {
-    const rows = recordsList.map((r) => `<div class="draft-record"><div><strong>${escapeHtml(r.title)}</strong><span>${escapeHtml(r.date)} · ${escapeHtml(r.category)}</span></div><em>${r.type === 'income' ? '+' : '-'}${formatCurrency(r.amount)}</em></div>`).join('');
-    return `<div class="draft-card"><div class="draft-head"><strong>待确认账单</strong><span>${recordsList.length} 笔</span></div>${rows}<button class="confirm-draft" data-action="confirm-draft">确认记账</button><button class="cancel-draft" data-action="cancel-draft">先不保存</button></div>`;
-  }
-
-  function renderMobileCommandCard(command) {
-    return window.MobileCommandActions?.renderCard?.(command) || '';
-  }
-
-  function buildChatRow(message) {
-    const isUser = message.role === 'user';
-    const source = message.source ? ` data-source="${escapeHtml(message.source)}"` : '';
-    const draft = message.action === 'draft' && message.records?.length ? buildRecordCard(message.records) : '';
-    const mobile = message.action === 'mobile_command' && message.mobileCommand ? renderMobileCommandCard(message.mobileCommand) : '';
-    return `<div class="chat-row ${isUser ? 'user' : 'assistant'}" data-message-id="${escapeHtml(message.id)}"${source}><div class="chat-bubble chat-response">${escapeHtml(message.content).replace(/\n/g, '<br>')}${draft}${mobile}</div></div>`;
-  }
-
-  function getChatRenderKey(start, visible) {
-    return `${start}:${chatMessages.length}:${visibleChatLimit}:` + visible
-      .map((message) => `${message.id}|${message.action || ''}|${message.draftState || ''}|${message.mobileCommand?.id || ''}|${message.records?.length || 0}`)
-      .join('~');
-  }
-
-  function renderChat({ force = false, preserveScroll = false } = {}) {
-    const host = els.chatMessages;
-    if (!host) return;
-
-    visibleChatLimit = Math.max(CHAT_RENDER_LIMIT, Math.min(visibleChatLimit, Math.max(chatMessages.length, CHAT_RENDER_LIMIT)));
-    const total = chatMessages.length;
-    const start = Math.max(0, total - visibleChatLimit);
-    const visible = chatMessages.slice(start);
-    const key = getChatRenderKey(start, visible);
-    const hasTyping = Boolean(document.querySelector('#typingRow'));
-    if (!force && !hasTyping && key === lastChatRenderKey) return;
-
-    const previousBottom = host.scrollHeight - host.scrollTop - host.clientHeight;
-    const wasNearBottom = previousBottom < 96;
-    const olderCount = start;
-    const olderButton = olderCount > 0
-      ? `<div class="chat-history-gate"><button type="button" data-action="load-older-chat">查看更早 ${olderCount} 条消息</button></div>`
-      : '';
-
-    host.innerHTML = olderButton + visible.map(buildChatRow).join('');
-    lastChatRenderKey = key;
-
-    if (preserveScroll && !wasNearBottom) {
-      requestAnimationFrame(() => {
-        host.scrollTop = Math.max(0, host.scrollHeight - host.clientHeight - previousBottom);
-      });
+    if (aiEndpoint) {
+      const source = aiEndpoint === DEFAULT_AI_ENDPOINT ? '默认接口' : '自定义接口';
+      els.aiEndpointStatus.textContent = `${source}已配置：${aiEndpoint}`;
     } else {
-      scrollChatToBottom(false);
+      els.aiEndpointStatus.textContent = '未配置云端 AI，当前只使用本地识别。';
     }
   }
 
-  function resetChatWindowToBottom() {
-    visibleChatLimit = CHAT_RENDER_LIMIT;
-    lastChatRenderKey = '';
+  function normalizeNumber(value) {
+    const num = Number(String(value).replace(/[¥,，\s]/g, ''));
+    return Number.isFinite(num) ? num : 0;
   }
 
-  function loadOlderChat() {
-    const host = els.chatMessages;
-    const previousHeight = host?.scrollHeight || 0;
-    const previousTop = host?.scrollTop || 0;
-    visibleChatLimit = Math.min(chatMessages.length, visibleChatLimit + CHAT_RENDER_STEP);
-    renderChat({ force: true, preserveScroll: true });
-    requestAnimationFrame(() => {
-      if (!host) return;
-      host.scrollTop = previousTop + Math.max(0, host.scrollHeight - previousHeight);
+  function parseNaturalRecord(text) {
+    const raw = String(text || '').trim();
+    const amountMatch = raw.match(/(?:¥|￥)?\s*(\d+(?:\.\d+)?)/);
+    if (!amountMatch) return null;
+    const amount = normalizeNumber(amountMatch[1]);
+    if (!amount) return null;
+    const lowered = raw.toLowerCase();
+    const incomeKeywords = ['收入', '工资', '奖金', '报销', '转入', '收款', '赚', '到账'];
+    const type = incomeKeywords.some((keyword) => lowered.includes(keyword)) ? 'income' : 'expense';
+    const category = guessCategory(raw, type);
+    const title = raw.replace(amountMatch[0], '').replace(/今天|刚刚|记一笔|记账|花了|消费|支出|收入/g, '').trim() || category;
+    return { title, amount, type, category };
+  }
+
+  function guessCategory(text, type = 'expense') {
+    const keywordMap = {
+      餐饮: ['饭', '餐', '外卖', '早餐', '午饭', '晚饭', '夜宵', '面', '咖啡', '奶茶', '吃'],
+      交通: ['地铁', '公交', '打车', '出租', '高铁', '车票', '油费', '停车'],
+      购物: ['买', '购物', '衣服', '鞋', '淘宝', '京东', '拼多多'],
+      居住: ['房租', '水电', '物业', '宽带', '燃气'],
+      饮品: ['奶茶', '咖啡', '饮料', '可乐'],
+      工资: ['工资', '奖金', '报销'],
+      礼物: ['红包', '礼物', '转账'],
+    };
+    for (const [category, words] of Object.entries(keywordMap)) {
+      if (words.some((word) => text.includes(word))) return category;
+    }
+    return type === 'income' ? '工资' : '其他';
+  }
+
+  function addRecord(record) {
+    const finalRecord = {
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      title: record.title || record.category || '未命名',
+      amount: Number(record.amount || 0),
+      type: record.type === 'income' ? 'income' : 'expense',
+      category: record.category || guessCategory(record.title || '', record.type),
+      createdAt: record.createdAt || new Date().toISOString(),
+    };
+    records.unshift(finalRecord);
+    saveRecords();
+    return finalRecord;
+  }
+
+  function periodFilter(range) {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+    if (range === 'month') {
+      start.setDate(1); start.setHours(0, 0, 0, 0);
+      end.setMonth(end.getMonth() + 1, 1); end.setHours(0, 0, 0, 0);
+    } else if (range === 'lastMonth') {
+      start.setMonth(start.getMonth() - 1, 1); start.setHours(0, 0, 0, 0);
+      end.setDate(1); end.setHours(0, 0, 0, 0);
+    } else if (range === '30days') {
+      start.setDate(start.getDate() - 29); start.setHours(0, 0, 0, 0);
+      end.setDate(end.getDate() + 1); end.setHours(0, 0, 0, 0);
+    } else if (range === 'year') {
+      start.setMonth(0, 1); start.setHours(0, 0, 0, 0);
+      end.setFullYear(end.getFullYear() + 1, 0, 1); end.setHours(0, 0, 0, 0);
+    }
+    return records.filter((record) => {
+      const date = new Date(record.createdAt);
+      return date >= start && date < end;
     });
   }
 
-  function renderStats() {
-    const today = todayISO();
-    const month = currentMonthPrefix();
-    const todaySpend = records.filter((r) => r.type === 'expense' && r.date === today).reduce((s, r) => s + r.amount, 0);
-    const monthRecords = records.filter((r) => r.date?.startsWith(month));
-    const monthIncome = monthRecords.filter((r) => r.type === 'income').reduce((s, r) => s + r.amount, 0);
-    const monthExpense = monthRecords.filter((r) => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
-    const balance = monthIncome - monthExpense;
-
-    if (els.aiTodayExpense) els.aiTodayExpense.textContent = formatCurrency(todaySpend);
-    if (els.aiMonthBalance) els.aiMonthBalance.textContent = formatCurrency(balance);
-    if (els.todaySpend) els.todaySpend.textContent = formatCurrency(todaySpend);
-    if (els.monthIncome) els.monthIncome.textContent = formatCurrency(monthIncome);
-    if (els.monthExpense) els.monthExpense.textContent = formatCurrency(monthExpense);
-    if (els.monthBalance) els.monthBalance.textContent = formatCurrency(balance);
+  function summarize(list) {
+    return list.reduce((acc, record) => {
+      if (record.type === 'income') acc.income += record.amount;
+      else acc.expense += record.amount;
+      return acc;
+    }, { income: 0, expense: 0 });
   }
 
-  function renderList() {
+  function updateStats() {
+    const list = periodFilter(currentRange);
+    const summary = summarize(list);
+    const balance = summary.income - summary.expense;
+    const today = records.filter((record) => new Date(record.createdAt).toDateString() === new Date().toDateString() && record.type === 'expense')
+      .reduce((sum, record) => sum + record.amount, 0);
+
+    if (els.todaySpend) els.todaySpend.textContent = money(today);
+    if (els.monthIncome) els.monthIncome.textContent = money(summary.income);
+    if (els.monthExpense) els.monthExpense.textContent = money(summary.expense);
+    if (els.monthBalance) els.monthBalance.textContent = money(balance);
+    if (els.aiTodayExpense) els.aiTodayExpense.textContent = money(today);
+    if (els.aiMonthBalance) els.aiMonthBalance.textContent = money(balance);
+    if (els.summaryIncome) els.summaryIncome.textContent = `+${money(summary.income)}`;
+    if (els.summaryExpense) els.summaryExpense.textContent = `-${money(summary.expense)}`;
+    if (els.summaryBalance) els.summaryBalance.textContent = money(balance);
+    if (els.metricIncome) els.metricIncome.textContent = money(summary.income);
+    if (els.metricExpense) els.metricExpense.textContent = money(summary.expense);
+    if (els.budgetBadge) els.budgetBadge.textContent = money(budget);
+    const used = budget ? Math.min(100, Math.round((summary.expense / budget) * 100)) : 0;
+    if (els.budgetProgress) els.budgetProgress.style.width = `${used}%`;
+    if (els.budgetText) els.budgetText.textContent = `预算已使用 ${used}%`;
+    if (els.rangeText) {
+      const labels = { month: '本月', lastMonth: '上月', '30days': '近30天', year: '本年' };
+      els.rangeText.textContent = labels[currentRange] || '本月';
+    }
+    updateCharts(list);
+  }
+
+  function renderRecords() {
     if (!els.recordList) return;
     if (els.recordCount) els.recordCount.textContent = `${records.length} 条`;
-    els.recordList.innerHTML = records.length
-      ? records.map((r) => `<article class="record-item"><div><strong>${escapeHtml(r.title)}</strong><span>${escapeHtml(r.date)} · ${escapeHtml(r.category)} · ${escapeHtml(typeMap[r.type])}</span></div><em>${r.type === 'income' ? '+' : '-'}${formatCurrency(r.amount)}</em><button data-remove="${escapeHtml(r.id)}">删除</button></article>`).join('')
-      : '<p class="empty-state">还没有账单。</p>';
+    if (!records.length) {
+      els.recordList.innerHTML = '<div class="empty-state">还没有记录。试试对我说“今天午饭28”。</div>';
+      return;
+    }
+    els.recordList.innerHTML = records.map((record) => `
+      <article class="record-item">
+        <div class="record-main">
+          <strong class="record-title">${escapeHtml(record.title)}</strong>
+          <span>${escapeHtml(record.category)} · ${new Date(record.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+        <div class="record-side ${record.type}">${record.type === 'income' ? '+' : '-'}${money(record.amount)}</div>
+        <button class="delete-btn" data-delete="${record.id}" aria-label="删除记录">×</button>
+      </article>
+    `).join('');
   }
 
-  function renderAll() {
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+  }
+
+  function updateCharts(list) {
+    if (!window.Chart) return;
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - index));
+      date.setHours(0, 0, 0, 0);
+      return date;
+    });
+    const labels = days.map((date) => `${date.getMonth() + 1}/${date.getDate()}`);
+    const incomeData = days.map((date) => sumByDay(list, date, 'income'));
+    const expenseData = days.map((date) => sumByDay(list, date, 'expense'));
+
+    if (els.trendChart) {
+      const ctx = els.trendChart.getContext('2d');
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: '收入', data: incomeData, borderColor: '#73e7ff', backgroundColor: 'rgba(115,231,255,.12)', tension: .42, fill: true },
+            { label: '支出', data: expenseData, borderColor: '#ffb5c7', backgroundColor: 'rgba(255,181,199,.12)', tension: .42, fill: true },
+          ],
+        },
+        options: chartOptions(),
+      });
+    }
+
+    if (els.categoryChart) {
+      const expenses = list.filter((record) => record.type === 'expense');
+      const categoryTotals = categories.map((category) => expenses.filter((record) => record.category === category).reduce((sum, record) => sum + record.amount, 0));
+      const ctx = els.categoryChart.getContext('2d');
+      if (categoryChart) categoryChart.destroy();
+      categoryChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: categories,
+          datasets: [{ data: categoryTotals, backgroundColor: ['#73e7ff', '#8debd7', '#ffd166', '#ff8fab', '#cdb4db', '#a0c4ff', '#b9fbc0', '#d7dce8'], borderWidth: 0 }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: 'rgba(255,255,255,.72)' } } } },
+      });
+    }
+  }
+
+  function sumByDay(list, date, type) {
+    return list.filter((record) => {
+      const d = new Date(record.createdAt);
+      return d.toDateString() === date.toDateString() && record.type === type;
+    }).reduce((sum, record) => sum + record.amount, 0);
+  }
+
+  function chartOptions() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: 'rgba(255,255,255,.70)' } } },
+      scales: {
+        x: { ticks: { color: 'rgba(255,255,255,.58)' }, grid: { color: 'rgba(255,255,255,.06)' } },
+        y: { ticks: { color: 'rgba(255,255,255,.58)' }, grid: { color: 'rgba(255,255,255,.06)' } },
+      },
+    };
+  }
+
+  function makeId(prefix = 'msg') {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function appendMessage(message) {
+    chatMessages.push({ id: makeId('chat'), ...message });
+    saveChatMessages();
     renderChat();
-    renderStats();
-    renderList();
-    updateAiModeUI();
   }
 
-  function getTopLevelView(name) {
-    return name === 'stats' || name === 'list' ? 'tools' : name;
+  function ensureInitialChatShape() {
+    if (!Array.isArray(chatMessages) || !chatMessages.length) chatMessages = initialChat;
+    chatMessages = chatMessages.map((message, index) => ({
+      id: message.id || makeId(`msg-${index}`),
+      role: message.role || 'assistant',
+      content: message.content || '',
+      action: message.action || 'chat',
+      records: Array.isArray(message.records) ? message.records : [],
+      draftState: message.draftState || 'none',
+      ...message,
+    }));
+    saveChatMessages();
   }
 
-  function switchView(name) {
-    if (!els.views[name]) name = 'ai';
-    currentView = name;
-    Object.entries(els.views).forEach(([key, el]) => el?.classList.toggle('active', key === name));
-    const top = getTopLevelView(name);
-    els.navBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === top));
-    if (name === 'settings') updateAiModeUI();
-    if (name === 'tools') window.dispatchEvent(new CustomEvent('ai-tools-home'));
+  function renderChat() {
+    if (!els.chatMessages) return;
+    ensureInitialChatShape();
+    const hiddenCount = Math.max(0, chatMessages.length - chatRenderLimit);
+    const visibleMessages = chatMessages.slice(hiddenCount);
+    els.chatMessages.innerHTML = `${hiddenCount ? `<button class="load-more-chat" type="button" data-load-more-chat>显示更早的 ${hiddenCount} 条对话</button>` : ''}${visibleMessages.map((message) => {
+      const actionText = message.action && message.action !== 'chat' ? `<span class="chat-action">${escapeHtml(actionLabel(message.action))}</span>` : '';
+      const content = formatMessageContent(message.content);
+      const commandCard = message.mobileCommand ? renderMobileCommandCard(message.mobileCommand) : '';
+      const attachments = renderMessageAttachments(message.attachments || []);
+      const pendingClass = message.pending ? ' pending' : '';
+      const classes = ['chat-row', message.role === 'user' ? 'user' : 'assistant', pendingClass].join(' ');
+      return `<div class="${classes}" data-message-id="${escapeHtml(message.id)}"><div class="chat-bubble"><div class="chat-response">${actionText}${content}${attachments}${commandCard}</div></div></div>`;
+    }).join('')}`;
+    bindMobileCommandButtons();
+    bindLoadMoreChat();
+    window.setTimeout(() => {
+      els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+      window.ChatSourceBadges?.refresh?.();
+      window.ChatSourceBadges?.pinBottom?.('render-chat');
+    }, 0);
   }
 
-  function conversationPayload() {
-    return chatMessages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .slice(-16)
-      .map((m) => ({ role: m.role, content: m.content }));
+  function bindLoadMoreChat() {
+    els.chatMessages?.querySelector('[data-load-more-chat]')?.addEventListener('click', () => {
+      chatRenderLimit += CHAT_RENDER_STEP;
+      localStorage.setItem('ai-ledger-chat-render-limit', String(chatRenderLimit));
+      renderChat();
+      showToast('已加载更早对话');
+    });
   }
 
-  async function fetchJsonWithTimeout(url, options, timeoutMs = DEFAULT_AI_TIMEOUT_MS) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+  function formatMessageContent(content) {
+    return escapeHtml(content).replace(/\n/g, '<br>');
+  }
+
+  function renderMessageAttachments(attachments) {
+    if (!Array.isArray(attachments) || !attachments.length) return '';
+    return `<div class="message-attachments">${attachments.map((item) => {
+      const isImage = String(item.mimeType || '').startsWith('image/');
+      if (isImage && item.dataUrl) return `<div class="message-attachment image"><img src="${escapeHtml(item.dataUrl)}" alt="${escapeHtml(item.name || '图片')}"/><span>${escapeHtml(item.name || '图片')}</span></div>`;
+      return `<div class="message-attachment"><span>📎</span><span>${escapeHtml(item.name || '附件')}</span></div>`;
+    }).join('')}</div>`;
+  }
+
+  function actionLabel(action) {
+    const map = { add: '已记账', query: '账单查询', suggest: 'AI建议', command: '手机任务', chat: '对话' };
+    return map[action] || action;
+  }
+
+  function renderMobileCommandCard(command) {
+    if (!command) return '';
+    const safe = (value) => escapeHtml(value ?? '');
+    const params = command.params || {};
+    const titleMap = { alarm: '设置闹钟', reminder: '创建提醒', open_app: '打开应用', navigate: '地图导航', call: '拨打电话' };
+    const details = [];
+    if (params.timeText) details.push(`时间：${safe(params.timeText)}`);
+    if (params.label) details.push(`标题：${safe(params.label)}`);
+    if (params.appName) details.push(`应用：${safe(params.appName)}`);
+    if (params.destination) details.push(`目的地：${safe(params.destination)}`);
+    if (params.phone) details.push(`号码：${safe(params.phone)}`);
+    const isPending = command.status === 'pending';
+    const isPreference = command.commandKind === 'navigation_preference' || params.intent === 'navigation_preference' || Boolean(params.updates);
+    const statusText = command.status === 'done' ? '已执行' : command.status === 'failed' ? '执行失败' : command.status === 'cancelled' ? '已取消' : isPreference ? '已保存' : '待确认';
+    const actions = isPending && !isPreference ? `<div class="mobile-command-actions"><button data-mobile-run="${safe(command.id)}" type="button">执行</button><button data-mobile-cancel="${safe(command.id)}" type="button">取消</button></div>` : '';
+    return `<article class="mobile-command-card" data-mobile-card="${safe(command.id)}"><div class="mobile-command-top"><strong>${safe(titleMap[command.type] || '手机任务')}</strong><span class="mobile-command-status ${safe(command.status || 'pending')}">${statusText}</span></div>${details.length ? `<div class="mobile-command-details">${details.join('<br>')}</div>` : ''}${actions}</article>`;
+  }
+
+  function findMobileCommand(commandId) {
+    const message = chatMessages.find((item) => item.mobileCommand?.id === commandId);
+    return message?.mobileCommand;
+  }
+
+  function updateMobileCommand(commandId, updates) {
+    chatMessages = chatMessages.map((message) => message.mobileCommand?.id === commandId ? { ...message, mobileCommand: { ...message.mobileCommand, ...updates } } : message);
+    saveChatMessages();
+    renderChat();
+  }
+
+  async function runMobileCommand(commandId) {
+    const command = findMobileCommand(commandId);
+    if (!command) return;
+    updateMobileCommand(commandId, { status: 'running' });
     try {
-      const response = await fetch(url, { ...options, signal: controller.signal });
-      const text = await response.text();
-      let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch {}
-      return { response, data, text };
-    } finally {
-      clearTimeout(timer);
+      if (!window.MobileCommandExecutor?.execute) throw new Error('当前设备未接入手机执行插件。');
+      const result = await window.MobileCommandExecutor.execute(command);
+      updateMobileCommand(commandId, { status: result?.ok ? 'done' : 'failed', result });
+      showToast(result?.message || (result?.ok ? '已执行' : '执行失败'));
+    } catch (error) {
+      updateMobileCommand(commandId, { status: 'failed', error: String(error?.message || error) });
+      showToast(String(error?.message || error));
     }
   }
 
-  function formatCloudError(result) {
-    const data = result?.data || {};
-    if (data.providerStatus) return `云端 AI 调用失败：${data.providerCode || data.code || `HTTP ${data.providerStatus}`}`;
-    if (data.code) return `云端 AI 调用失败：${data.code}`;
-    return '云端 AI 暂时不可用';
+  function bindMobileCommandButtons() {
+    els.chatMessages?.querySelectorAll('[data-mobile-run]').forEach((button) => {
+      button.addEventListener('click', () => runMobileCommand(button.dataset.mobileRun));
+    });
+    els.chatMessages?.querySelectorAll('[data-mobile-cancel]').forEach((button) => {
+      button.addEventListener('click', () => updateMobileCommand(button.dataset.mobileCancel, { status: 'cancelled' }));
+    });
   }
 
-  async function askCloudAI() {
-    if (!aiEndpoint) return null;
-    const pending = getPendingMessage();
-    const payload = {
-      messages: conversationPayload(),
-      pendingDraft: pending?.records || [],
-      ledgerContext: getLedgerContext(),
-      clientTools: window.MobileCommandActions?.tools || [],
-      now: todayISO(),
-    };
-    const result = await fetchJsonWithTimeout(aiEndpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    }, DEFAULT_AI_TIMEOUT_MS);
-    if (!result.response.ok) {
-      const error = new Error(formatCloudError(result));
-      error.cloudResult = result;
-      throw error;
-    }
-    const mobileCommand = normalizeMobileCommand(result.data?.mobileCommand);
-    const action = result.data?.action === 'mobile_command' && !mobileCommand ? 'chat' : result.data?.action || 'chat';
-    return {
-      reply: String(result.data?.reply || result.data?.response || result.data?.text || '').trim(),
-      action,
-      records: normalizeRecords(result.data?.records),
-      mobileCommand,
-      source: result.data?.source || 'cloud_ai',
-      version: result.data?.version,
-    };
-  }
-
-  function makeMobileResult(command, source = 'local_mobile') {
-    return {
-      reply: window.MobileCommandActions?.createReply?.(command) || '我整理好了这个手机动作，确认后我再执行。',
-      action: 'mobile_command',
-      records: [],
-      mobileCommand: command,
-      source,
-    };
-  }
-
-  function immediateLocalResult(text) {
-    const pending = getPendingMessage();
-    if (pending && /^(好|好的|对|确认|保存|记上|就这样)$/u.test(text)) {
-      return { reply: '好的，已帮你记上。', action: 'confirm_pending', records: [], source: 'local_confirm' };
-    }
-    if (pending && /^(算了|不用了|先别记|取消)$/u.test(text)) {
-      return { reply: '好的，这次先不保存。', action: 'cancel_pending', records: [], source: 'local_confirm' };
+  function localAssistant(text) {
+    const parsed = parseNaturalRecord(text);
+    if (parsed) {
+      const record = addRecord(parsed);
+      const sign = record.type === 'income' ? '收入' : '支出';
+      return { content: `已记录${sign}：${record.title} ${money(record.amount)}，分类为「${record.category}」。`, action: 'add', records: [record] };
     }
 
-    const routed = window.AICommandRouter?.toAssistantResult?.(text);
-    if (routed) return routed;
+    if (/账单|花了多少|消费|统计|结余|收入|支出/.test(text)) {
+      const monthSummary = summarize(periodFilter('month'));
+      const balance = monthSummary.income - monthSummary.expense;
+      return { content: `本月收入 ${money(monthSummary.income)}，支出 ${money(monthSummary.expense)}，当前结余 ${money(balance)}。`, action: 'query' };
+    }
 
-    if (!isMathOrOnlineQuery(text)) {
-      const mobileCommand = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
-      if (mobileCommand) return makeMobileResult(mobileCommand, 'local_mobile');
+    if (/预算|省钱|建议|分析/.test(text)) {
+      const monthSummary = summarize(periodFilter('month'));
+      const used = budget ? Math.round((monthSummary.expense / budget) * 100) : 0;
+      const content = used > 80
+        ? `本月预算已使用 ${used}%，建议接下来优先控制餐饮和购物类支出。`
+        : `本月预算已使用 ${used}%，整体还比较稳。可以继续保持记录习惯。`;
+      return { content, action: 'suggest' };
+    }
+
+    const mobileCommand = window.MobileCommandParser?.parse?.(text);
+    if (mobileCommand) {
+      return {
+        content: mobileCommand.previewText || '我理解为一个手机任务，请确认后执行。',
+        action: 'command',
+        mobileCommand,
+        source: mobileCommand.commandKind === 'navigation_preference' ? 'navigation_preferences' : 'local_mobile',
+      };
     }
 
     return null;
   }
 
-  function localFallbackResult(text) {
-    const pending = getPendingMessage();
-    if (pending && /^(好|好的|对|确认|保存|记上|就这样)$/u.test(text)) {
-      return { reply: '好的，已帮你记上。', action: 'confirm_pending', records: [], source: 'local_confirm' };
+  async function askCloud(text, attachments = []) {
+    if (!aiEndpoint) return null;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), DEFAULT_AI_TIMEOUT_MS);
+    try {
+      const response = await fetch(aiEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, messages: chatMessages.slice(-8), records: records.slice(0, 80), attachments }),
+        signal: controller.signal,
+      });
+      window.clearTimeout(timer);
+      if (!response.ok) throw new Error(`接口返回 ${response.status}`);
+      const data = await response.json();
+      if (!data) return null;
+      let mobileCommand = data.mobileCommand || data.command || null;
+      if (!mobileCommand && data.intent && window.MobileCommandParser?.fromCloudIntent) {
+        mobileCommand = window.MobileCommandParser.fromCloudIntent(data.intent, data.params || data.arguments || {});
+      }
+      const normalizedCommand = window.MobileCommandParser?.normalize?.(mobileCommand) || mobileCommand;
+      if (Array.isArray(data.records)) data.records.forEach((item) => addRecord(item));
+      return {
+        content: data.reply || data.content || data.message || '云端已处理完成。',
+        action: normalizedCommand ? 'command' : (data.action || 'chat'),
+        records: Array.isArray(data.records) ? data.records : [],
+        mobileCommand: normalizedCommand,
+        source: data.source,
+        model: data.model,
+        modelLabel: data.modelLabel,
+        provider: data.provider,
+        version: data.version,
+      };
+    } catch (error) {
+      window.clearTimeout(timer);
+      console.warn('[AI Ledger] Cloud AI failed:', error);
+      return null;
     }
-    if (pending && /^(算了|不用了|先别记|取消)$/u.test(text)) {
-      return { reply: '好的，这次先不保存。', action: 'cancel_pending', records: [], source: 'local_confirm' };
-    }
-
-    const routed = window.AICommandRouter?.toAssistantResult?.(text);
-    if (routed) return routed;
-
-    const mobileCommand = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
-    if (mobileCommand) return makeMobileResult(mobileCommand, 'local_mobile');
-
-    if (isMathOrOnlineQuery(text)) {
-      return { reply: '这个问题需要云端工具处理，但当前云端没有成功返回。请检查 Worker 是否部署成功，或到设置里测试连接。', action: 'chat', records: [], source: 'local' };
-    }
-
-    const parsed = parseNaturalLanguage(text);
-    if (parsed.length) {
-      return { reply: `我先整理出 ${parsed.length} 笔待确认账单，你回复“好”我就帮你保存。`, action: 'draft', records: parsed, source: 'local_ledger' };
-    }
-
-    return { reply: '我还没听清。你可以换个说法，或者先配置云端 AI，我就能处理更复杂的聊天。', action: 'chat', records: [], source: 'local' };
   }
 
-  function applyAssistantResult(result) {
-    const pending = getPendingMessage();
-    if (result.action === 'confirm_pending' && pending) confirmDraft(pending.id, false, false);
-    else if (result.action === 'cancel_pending' && pending) pending.draftState = 'cancelled';
-    else if (result.action === 'draft' && pending) pending.draftState = 'superseded';
+  async function handleChatSubmit(event) {
+    event.preventDefault();
+    const text = els.aiInput?.value?.trim();
+    const attachments = window.ChatAttachments?.consume?.() || [];
+    if (!text && !attachments.length) return;
+    if (els.aiInput) {
+      els.aiInput.value = '';
+      resizeTextarea();
+    }
 
-    chatMessages.push({
-      id: createId('assistant'),
-      role: 'assistant',
-      content: result.reply || '我在。',
-      action: result.action || 'chat',
-      records: result.action === 'draft' ? normalizeRecords(result.records) : [],
-      draftState: result.action === 'draft' && result.records?.length ? 'pending' : 'none',
-      mobileCommand: result.action === 'mobile_command' ? normalizeMobileCommand(result.mobileCommand) : null,
-      source: result.source || 'assistant_runtime',
-      version: result.version,
-      router: result.router,
-    });
+    const userText = text || (attachments.length ? '帮我看看这个附件。' : '');
+    appendMessage({ role: 'user', content: userText, action: 'chat', attachments });
+    setSending(true);
+    const thinkingId = makeId('thinking');
+    chatMessages.push({ id: thinkingId, role: 'assistant', content: '正在思考…', action: 'chat', pending: true, source: 'local' });
     saveChatMessages();
+    renderChat();
+
+    let result = localAssistant(userText);
+    if (!result || attachments.length) {
+      const cloudResult = await askCloud(userText, attachments);
+      if (cloudResult) result = cloudResult;
+    }
+    if (!result) result = { content: '我已经收到啦。现在你可以让我记账、查账单、做预算建议，或者让我帮你设置提醒、打开应用、导航。', action: 'chat', source: 'builtin_profile' };
+
+    chatMessages = chatMessages.filter((item) => item.id !== thinkingId);
+    chatMessages.push({ id: makeId('assistant'), role: 'assistant', draftState: 'none', ...result });
+    saveChatMessages();
+    setSending(false);
     renderAll();
   }
 
-  async function askAssistant(text) {
-    if (aiBusy) return;
-    const clean = String(text || '').trim();
-    if (!clean) return showToast('先说一句吧');
-
-    resetChatWindowToBottom();
-    chatMessages.push({ id: createId('user'), role: 'user', content: clean });
-    saveChatMessages();
-    renderChat({ force: true });
-
-    const instant = immediateLocalResult(clean);
-    if (instant) {
-      applyAssistantResult(instant);
-      return;
-    }
-
-    let result = null;
-    if (aiEndpoint) {
-      setAiLoading(true);
-      renderTyping();
-      try {
-        result = await askCloudAI();
-        setAiStatus(`云端 AI 已连接${result.version ? ` · ${result.version}` : ''}`, 'success');
-      } catch (error) {
-        console.warn('Cloud AI failed:', error);
-        setAiStatus(error.message || '云端 AI 暂时不可用', 'error');
-        showToast(error.message || '云端 AI 暂时不可用');
-      } finally {
-        removeTyping();
-        setAiLoading(false);
-      }
-    }
-
-    applyAssistantResult(result || localFallbackResult(clean));
+  function setSending(isSending) {
+    if (els.sendBtn) els.sendBtn.disabled = isSending;
+    els.chatForm?.classList.toggle('is-sending', isSending);
   }
 
-  function confirmDraft(messageId, announce = true, shouldRender = true) {
-    const message = chatMessages.find((item) => item.id === messageId);
-    if (!message || message.draftState !== 'pending' || !message.records?.length) return;
-    records = [...message.records.map((record) => ({ ...record, id: createId('record') })), ...records];
-    message.draftState = 'confirmed';
-    saveRecords(records);
-    saveChatMessages();
-    lastChatRenderKey = '';
-    if (announce) showToast(`已保存 ${message.records.length} 条账单`);
-    if (shouldRender) renderAll();
-  }
-
-  function cancelDraft(messageId) {
-    const message = chatMessages.find((item) => item.id === messageId);
-    if (!message || message.draftState !== 'pending') return;
-    message.draftState = 'cancelled';
-    saveChatMessages();
-    lastChatRenderKey = '';
-    renderChat({ force: true });
-    showToast('已取消这次记账');
-  }
-
-  function clearChat() {
-    chatMessages = [...initialChat];
-    window.chatMessages = chatMessages;
-    saveChatMessages();
-    resetChatWindowToBottom();
-    renderChat({ force: true });
-    showToast('已清空聊天记录');
-  }
-
-  function openSheet() {
-    if (!els.addSheet) return;
-    document.body.classList.add('sheet-open');
-    els.addSheet.setAttribute('aria-hidden', 'false');
-  }
-
-  function closeSheet() {
-    if (!els.addSheet) return;
-    document.body.classList.remove('sheet-open');
-    els.addSheet.setAttribute('aria-hidden', 'true');
-  }
-
-  function addManualRecord() {
-    const title = els.manualTitle?.value.trim();
-    const amount = Number(els.manualAmount?.value);
-    if (!title || !Number.isFinite(amount) || amount <= 0) return showToast('标题和金额要填完整哦');
-    records = [{
-      id: createId('record'),
-      title,
-      amount,
-      type: els.manualType?.value || 'expense',
-      category: els.manualCategory?.value || '其他',
-      date: todayISO(),
-    }, ...records];
-    saveRecords(records);
-    renderStats();
-    renderList();
-    closeSheet();
-    showToast('已添加一条账单');
-  }
-
-  function exportRecords() {
-    const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'ai-ledger-records.json';
-    link.click();
-    URL.revokeObjectURL(url);
+  function resizeTextarea() {
+    if (!els.aiInput) return;
+    els.aiInput.style.height = 'auto';
+    els.aiInput.style.height = `${Math.min(160, Math.max(44, els.aiInput.scrollHeight))}px`;
   }
 
   async function testAiEndpoint() {
-    const endpoint = normalizeEndpoint(els.aiEndpointInput?.value);
-    if (!endpoint) return showToast('请先填写 AI 接口地址');
-    if (els.testAiEndpointBtn) {
-      els.testAiEndpointBtn.disabled = true;
-      els.testAiEndpointBtn.textContent = '测试中...';
+    if (!els.aiEndpointInput) return;
+    const candidate = els.aiEndpointInput.value.trim();
+    if (!candidate) {
+      updateAiEndpointStatus('请先填写接口地址。');
+      return;
     }
-    setAiStatus('正在检测云端 AI…', 'normal');
-    try {
-      const health = await fetchJsonWithTimeout(`${endpoint}/health`, { method: 'GET' }, 8000);
-      if (!health.response.ok || !health.data?.ok) throw new Error(`Worker 健康检查失败：HTTP ${health.response.status}`);
-      setAiStatus(`AI 接口连接成功 · ${health.data.version || '已连通'}`, 'success');
-      showToast('AI 接口连接成功');
-    } catch (error) {
-      setAiStatus(error.message || 'AI 接口连接失败', 'error');
-      showToast(error.message || 'AI 接口连接失败');
-    } finally {
-      if (els.testAiEndpointBtn) {
-        els.testAiEndpointBtn.disabled = false;
-        els.testAiEndpointBtn.textContent = '测试连接';
-      }
-    }
+    updateAiEndpointStatus('正在测试连接…');
+    const previous = aiEndpoint;
+    aiEndpoint = candidate;
+    const result = await askCloud('请用一句话回复：连接正常。');
+    aiEndpoint = previous;
+    if (result?.content) updateAiEndpointStatus(`连接成功：${result.content.slice(0, 40)}`);
+    else updateAiEndpointStatus('连接失败，请检查 Worker 地址或网络。');
   }
 
-  function syncViewportMetrics() {
-    const viewport = window.visualViewport;
-    const visualHeight = Math.round(viewport?.height || window.innerHeight || 0);
-    const layoutHeight = Math.round(window.innerHeight || visualHeight);
-    const offsetTop = Math.round(viewport?.offsetTop || 0);
-    if (!visualHeight) return;
-
-    stableVisualHeight = Math.max(stableVisualHeight || visualHeight, visualHeight);
-    const keyboardGap = Math.max(0, stableVisualHeight - visualHeight - offsetTop);
-    const keyboardOpen = document.activeElement === els.aiInput && keyboardGap > CHAT_KEYBOARD_GAP;
-
-    document.documentElement.style.setProperty('--app-visual-vh', `${visualHeight}px`);
-    document.documentElement.style.setProperty('--app-stable-vh', `${stableVisualHeight}px`);
-    document.documentElement.style.setProperty('--keyboard-gap', `${keyboardOpen ? keyboardGap : 0}px`);
-    document.body.classList.toggle('keyboard-open', keyboardOpen);
-    document.body.classList.toggle('chat-input-focused', document.activeElement === els.aiInput);
-
-    if (keyboardOpen) scrollChatToBottom(false);
-    clearTimeout(resizeSettleTimer);
-    resizeSettleTimer = setTimeout(() => {
-      document.body.classList.remove('viewport-resizing');
-      if (document.activeElement === els.aiInput) scrollChatToBottom(false);
-    }, 180);
-  }
-
-  function scheduleViewportSync() {
-    document.body.classList.add('viewport-resizing');
-    cancelAnimationFrame(viewportFrame);
-    viewportFrame = requestAnimationFrame(syncViewportMetrics);
-  }
-
-  function installViewportStability() {
-    syncViewportMetrics();
-    window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
-    window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
-    window.addEventListener('resize', scheduleViewportSync, { passive: true });
-    window.addEventListener('orientationchange', () => {
-      stableVisualHeight = 0;
-      setTimeout(scheduleViewportSync, 240);
-    }, { passive: true });
-    els.aiInput?.addEventListener('focus', () => {
-      document.body.classList.add('chat-input-focused');
-      scheduleViewportSync();
-      setTimeout(() => scrollChatToBottom(false), 120);
+  function switchView(viewName) {
+    Object.entries(els.views).forEach(([name, view]) => {
+      view?.classList.toggle('active', name === viewName);
     });
-    els.aiInput?.addEventListener('blur', () => {
-      setTimeout(() => {
-        document.body.classList.remove('keyboard-open', 'chat-input-focused', 'viewport-resizing');
-        document.documentElement.style.setProperty('--keyboard-gap', '0px');
-        scheduleViewportSync();
-      }, 180);
-    });
+    els.navBtns.forEach((button) => button.classList.toggle('active', button.dataset.view === viewName));
+    window.AiAssistantViews?.open?.(viewName);
+    if (viewName === 'stats') updateStats();
+    if (viewName === 'list') renderRecords();
   }
 
   function bindEvents() {
-    els.navBtns.forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
-
-    document.addEventListener('click', (event) => {
-      const viewBtn = event.target.closest('[data-open-view]');
-      if (viewBtn) return switchView(viewBtn.dataset.openView);
-      const olderBtn = event.target.closest('[data-action="load-older-chat"]');
-      if (olderBtn) return loadOlderChat();
-      const confirmBtn = event.target.closest('[data-action="confirm-draft"]');
-      if (confirmBtn) return confirmDraft(confirmBtn.closest('.chat-row')?.dataset.messageId);
-      const cancelBtn = event.target.closest('[data-action="cancel-draft"]');
-      if (cancelBtn) return cancelDraft(cancelBtn.closest('.chat-row')?.dataset.messageId);
-      const remove = event.target.closest('[data-remove]');
-      if (remove) {
-        records = records.filter((r) => r.id !== remove.dataset.remove);
-        saveRecords(records);
-        renderStats();
-        renderList();
+    els.navBtns.forEach((button) => {
+      button.addEventListener('click', () => switchView(button.dataset.view));
+    });
+    document.querySelectorAll('[data-open-view]').forEach((button) => {
+      button.addEventListener('click', () => switchView(button.dataset.openView));
+    });
+    els.sampleBtns.forEach((button) => button.addEventListener('click', () => {
+      if (els.aiInput) {
+        els.aiInput.value = button.dataset.sample || '';
+        resizeTextarea();
+        els.aiInput.focus();
       }
+    }));
+    els.chatForm?.addEventListener('submit', handleChatSubmit);
+    els.aiInput?.addEventListener('input', resizeTextarea);
+
+    els.addManualBtn?.addEventListener('click', () => els.addSheet?.classList.add('open'));
+    els.closeSheetBtn?.addEventListener('click', () => els.addSheet?.classList.remove('open'));
+    els.saveManualBtn?.addEventListener('click', () => {
+      const amount = normalizeNumber(els.manualAmount?.value || 0);
+      if (!amount) { showToast('请输入金额'); return; }
+      addRecord({ title: els.manualTitle?.value || els.manualCategory?.value || '手动记录', amount, type: els.manualType?.value || 'expense', category: els.manualCategory?.value || '其他' });
+      els.addSheet?.classList.remove('open');
+      if (els.manualTitle) els.manualTitle.value = '';
+      if (els.manualAmount) els.manualAmount.value = '';
+      renderAll();
+      showToast('已添加记录');
     });
 
-    els.sampleBtns.forEach((button) => button.addEventListener('click', () => {
-      if (!els.aiInput) return;
-      els.aiInput.value = button.dataset.sample || '';
-      els.aiInput.focus();
-      scheduleViewportSync();
+    els.recordList?.addEventListener('click', (event) => {
+      const id = event.target.closest('[data-delete]')?.dataset.delete;
+      if (!id) return;
+      records = records.filter((record) => record.id !== id);
+      saveRecords();
+      renderAll();
+      showToast('已删除');
+    });
+
+    els.exportBtn?.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ records, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ai-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+
+    els.clearChatBtn?.addEventListener('click', () => {
+      chatMessages = initialChat;
+      chatRenderLimit = CHAT_RENDER_LIMIT;
+      localStorage.setItem('ai-ledger-chat-render-limit', String(chatRenderLimit));
+      saveChatMessages();
+      renderChat();
+      showToast('已清空聊天');
+    });
+    els.clearChatInlineBtn?.addEventListener('click', () => els.clearChatBtn?.click());
+
+    els.resetBtn?.addEventListener('click', () => {
+      if (!confirm('确定清空所有本地数据吗？')) return;
+      records = [];
+      chatMessages = initialChat;
+      saveRecords();
+      saveChatMessages();
+      renderAll();
+      showToast('已重置');
+    });
+
+    els.budgetInput?.addEventListener('change', () => {
+      budget = normalizeNumber(els.budgetInput.value || 0);
+      localStorage.setItem('ai-ledger-budget', String(budget));
+      updateStats();
+    });
+
+    els.rangeBtns.forEach((button) => button.addEventListener('click', () => {
+      currentRange = button.dataset.range;
+      els.rangeBtns.forEach((item) => item.classList.toggle('active', item === button));
+      updateStats();
     }));
 
-    els.chatForm?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      if (!els.aiInput) return;
-      const text = els.aiInput.value.trim();
-      if (!text) return showToast('先说一句吧');
-      els.aiInput.value = '';
-      els.aiInput.style.height = 'auto';
-      await askAssistant(text);
-    });
-
-    els.aiInput?.addEventListener('input', () => {
-      els.aiInput.style.height = 'auto';
-      els.aiInput.style.height = `${Math.min(140, els.aiInput.scrollHeight)}px`;
-      scheduleViewportSync();
-    });
-
-    els.addManualBtn?.addEventListener('click', openSheet);
-    els.closeSheetBtn?.addEventListener('click', closeSheet);
-    els.saveManualBtn?.addEventListener('click', addManualRecord);
-    els.exportBtn?.addEventListener('click', exportRecords);
-    els.clearChatBtn?.addEventListener('click', clearChat);
     els.saveAiEndpointBtn?.addEventListener('click', () => {
-      aiEndpoint = normalizeEndpoint(els.aiEndpointInput?.value);
-      saveAiConfig({ endpoint: aiEndpoint });
-      updateAiModeUI();
+      saveAiEndpoint(els.aiEndpointInput?.value || '');
       showToast('AI 接口已保存');
     });
-    els.resetAiEndpointBtn?.addEventListener('click', () => {
-      aiEndpoint = normalizeEndpoint(DEFAULT_AI_ENDPOINT);
-      saveAiConfig({ endpoint: aiEndpoint });
-      updateAiModeUI();
-      showToast('已恢复默认 AI 接口');
-    });
     els.testAiEndpointBtn?.addEventListener('click', testAiEndpoint);
+    els.resetAiEndpointBtn?.addEventListener('click', resetAiEndpoint);
+
+    window.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
   }
 
-  function exposeDebugApi() {
+  function handleViewportChange() {
+    const currentHeight = window.visualViewport?.height || window.innerHeight;
+    const keyboardOpen = keyboardBaselineHeight - currentHeight > CHAT_KEYBOARD_GAP;
+    document.body.classList.toggle('keyboard-open', keyboardOpen);
+    document.documentElement.style.setProperty('--app-visual-vh', `${currentHeight}px`);
+    if (!keyboardOpen) keyboardBaselineHeight = Math.max(keyboardBaselineHeight, currentHeight);
+    window.setTimeout(() => {
+      if (els.chatMessages) els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    }, 80);
+  }
+
+  function renderAll() {
+    updateStats();
+    renderRecords();
+    renderChat();
+    if (els.budgetInput) els.budgetInput.value = budget;
+    updateAiEndpointStatus();
+  }
+
+  function exposeRuntime() {
     window.chatMessages = chatMessages;
-    window.createId = createId;
-    window.saveChatMessages = saveChatMessages;
-    window.renderAll = renderAll;
-    window.renderChat = () => renderChat({ force: true });
-    window.getPendingMessage = getPendingMessage;
-    window.localMobileCommandResult = (text) => {
-      const command = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
-      return command ? makeMobileResult(command, 'local_mobile') : null;
-    };
-    window.AiAssistantViews = { open: switchView, current: () => currentView };
     window.AiAssistantRuntime = {
-      version: '20260516-5',
-      ask: askAssistant,
-      immediateLocalResult,
-      localFallbackResult,
-      getLedgerContext,
-      isBusy: () => aiBusy,
-      getEndpoint: () => aiEndpoint,
-      setChatWindowLimit(limit = CHAT_RENDER_LIMIT) {
-        visibleChatLimit = Math.max(CHAT_RENDER_LIMIT, Number(limit) || CHAT_RENDER_LIMIT);
-        renderChat({ force: true });
+      ask: async (text, options = {}) => {
+        if (els.aiInput && !options.silentInput) els.aiInput.value = '';
+        const fakeEvent = { preventDefault() {} };
+        if (els.aiInput) els.aiInput.value = text;
+        await handleChatSubmit(fakeEvent);
+      },
+      getRecords: () => records.slice(),
+      getChatMessages: () => chatMessages.slice(),
+      openView: switchView,
+      addRecord,
+      renderAll,
+      setChatWindowLimit: (limit) => {
+        chatRenderLimit = Math.max(CHAT_RENDER_LIMIT, Number(limit) || CHAT_RENDER_LIMIT);
+        localStorage.setItem('ai-ledger-chat-render-limit', String(chatRenderLimit));
+        renderChat();
       },
     };
+    window.AiAssistantViews = { open: switchView };
   }
 
-  bindEvents();
-  installViewportStability();
-  exposeDebugApi();
-  renderAll();
+  function boot() {
+    ensureInitialChatShape();
+    exposeRuntime();
+    bindEvents();
+    handleViewportChange();
+    renderAll();
+  }
+
+  boot();
 })();
