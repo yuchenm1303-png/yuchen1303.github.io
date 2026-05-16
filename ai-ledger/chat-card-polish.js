@@ -1,5 +1,6 @@
 (() => {
   const STYLE_ID = 'chat-card-polish-style';
+  const COMPACT_ATTR = 'data-compact-command-card';
 
   function installStyle() {
     document.querySelector(`#${STYLE_ID}`)?.remove();
@@ -30,10 +31,11 @@
       }
 
       .draft-card,
-      .mobile-command-card {
-        width: min(100%, 318px) !important;
+      .mobile-command-card,
+      [data-mobile-card] {
+        width: min(100%, 306px) !important;
         height: auto !important;
-        min-height: unset !important;
+        min-height: 0 !important;
         max-height: none !important;
         align-self: start !important;
         display: block !important;
@@ -55,12 +57,12 @@
       }
 
       .draft-card *,
-      .mobile-command-card * {
-        box-sizing: border-box !important;
-      }
+      .mobile-command-card *,
+      [data-mobile-card] * { box-sizing: border-box !important; }
 
       .draft-head,
-      .mobile-command-head {
+      .mobile-command-head,
+      [data-mobile-card] .mobile-command-head {
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
@@ -71,7 +73,8 @@
       }
 
       .draft-head strong,
-      .mobile-command-title {
+      .mobile-command-title,
+      [data-mobile-card] .mobile-command-title {
         display: block !important;
         font-size: 13px !important;
         line-height: 1.18 !important;
@@ -80,7 +83,8 @@
       }
 
       .draft-head span,
-      .mobile-command-status {
+      .mobile-command-status,
+      [data-mobile-card] .mobile-command-status {
         flex: 0 0 auto !important;
         padding: 2px 7px !important;
         border-radius: 999px !important;
@@ -91,59 +95,8 @@
         color: rgba(128,255,235,.92) !important;
       }
 
-      .mobile-command-status.done {
-        background: rgba(105,231,158,.13) !important;
-        color: rgba(149,255,191,.96) !important;
-      }
-
-      .mobile-command-status.cancelled,
-      .mobile-command-status.failed {
-        background: rgba(255,135,135,.13) !important;
-        color: rgba(255,178,178,.96) !important;
-      }
-
-      .draft-record {
-        display: grid !important;
-        grid-template-columns: minmax(0,1fr) auto !important;
-        align-items: start !important;
-        gap: 7px !important;
-        padding: 2px 0 5px !important;
-        margin: 0 !important;
-        border: 0 !important;
-        min-height: 0 !important;
-      }
-
-      .draft-record strong,
-      .draft-record em,
-      .mobile-command-row strong {
-        color: rgba(250,252,255,.94) !important;
-        font-weight: 850 !important;
-      }
-
-      .draft-record strong,
-      .draft-record em {
-        font-size: 12px !important;
-        line-height: 1.25 !important;
-      }
-
-      .draft-record span,
-      .mobile-command-row span,
-      .mobile-command-message {
-        color: rgba(224,233,250,.63) !important;
-      }
-
-      .draft-record span {
-        font-size: 11px !important;
-        line-height: 1.25 !important;
-      }
-
-      .draft-record em {
-        font-style: normal !important;
-        text-align: right !important;
-        white-space: nowrap !important;
-      }
-
-      .mobile-command-detail {
+      .mobile-command-detail,
+      [data-mobile-card] .mobile-command-detail {
         display: grid !important;
         grid-auto-rows: min-content !important;
         gap: 3px !important;
@@ -152,7 +105,8 @@
         min-height: 0 !important;
       }
 
-      .mobile-command-row {
+      .mobile-command-row,
+      [data-mobile-card] .mobile-command-row {
         display: grid !important;
         grid-template-columns: 46px minmax(0,1fr) !important;
         align-items: center !important;
@@ -164,53 +118,25 @@
         min-height: 0 !important;
       }
 
-      .mobile-command-row strong {
+      .mobile-command-row span,
+      .mobile-command-message,
+      [data-mobile-card] .mobile-command-row span,
+      [data-mobile-card] .mobile-command-message {
+        color: rgba(224,233,250,.63) !important;
+      }
+
+      .mobile-command-row strong,
+      [data-mobile-card] .mobile-command-row strong {
+        color: rgba(250,252,255,.94) !important;
+        font-weight: 850 !important;
         text-align: right !important;
         overflow-wrap: anywhere !important;
         font-size: 11.5px !important;
         line-height: 1.25 !important;
       }
 
-      .draft-card button,
-      .mobile-command-actions button {
-        border: 1px solid rgba(255,255,255,.15) !important;
-        border-radius: 11px !important;
-        min-height: 29px !important;
-        height: 29px !important;
-        padding: 5px 9px !important;
-        font-weight: 850 !important;
-        font-size: 12px !important;
-        line-height: 1 !important;
-        box-shadow:
-          inset 0 .7px 0 rgba(255,255,255,.16),
-          0 5px 10px rgba(0,0,0,.075) !important;
-        writing-mode: horizontal-tb !important;
-        text-orientation: mixed !important;
-      }
-
-      .confirm-draft,
-      .mobile-command-confirm {
-        color: white !important;
-        background: linear-gradient(135deg, rgba(20,190,190,.90), rgba(45,139,220,.82)) !important;
-      }
-
-      .cancel-draft,
-      .mobile-command-cancel {
-        color: rgba(242,247,255,.88) !important;
-        background: rgba(255,255,255,.080) !important;
-      }
-
-      .draft-card .confirm-draft,
-      .draft-card .cancel-draft {
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: auto !important;
-        margin-top: 4px !important;
-        margin-right: 6px !important;
-      }
-
-      .mobile-command-actions {
+      .mobile-command-actions,
+      [data-mobile-card] .mobile-command-actions {
         display: flex !important;
         align-items: center !important;
         gap: 6px !important;
@@ -220,48 +146,137 @@
         min-height: 0 !important;
       }
 
-      .mobile-command-message {
+      .mobile-command-actions button,
+      [data-mobile-card] .mobile-command-actions button,
+      .draft-card button {
+        border: 1px solid rgba(255,255,255,.15) !important;
+        border-radius: 10px !important;
+        min-height: 27px !important;
+        height: 27px !important;
+        padding: 4px 8px !important;
+        font-weight: 850 !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+        box-shadow:
+          inset 0 .7px 0 rgba(255,255,255,.16),
+          0 5px 10px rgba(0,0,0,.075) !important;
+      }
+
+      .mobile-command-confirm,
+      [data-mobile-card] .mobile-command-confirm,
+      .confirm-draft {
+        color: white !important;
+        background: linear-gradient(135deg, rgba(20,190,190,.90), rgba(45,139,220,.82)) !important;
+      }
+
+      .mobile-command-cancel,
+      [data-mobile-card] .mobile-command-cancel,
+      .cancel-draft {
+        color: rgba(242,247,255,.88) !important;
+        background: rgba(255,255,255,.080) !important;
+      }
+
+      .mobile-command-message,
+      [data-mobile-card] .mobile-command-message {
         margin-top: 6px !important;
         font-size: 11px !important;
         line-height: 1.3 !important;
       }
 
       @media (pointer: coarse), (max-width: 760px) {
-        .chat-row.assistant .chat-bubble.chat-response {
-          max-width: 91% !important;
-          padding: 8px 10px !important;
-          font-size: 13.5px !important;
-        }
-
         .draft-card,
-        .mobile-command-card {
-          width: min(100%, 306px) !important;
-          padding: 8px 9px !important;
-          border-radius: 14px !important;
+        .mobile-command-card,
+        [data-mobile-card] {
+          width: min(100%, 292px) !important;
+          padding: 7px 8px !important;
+          border-radius: 13px !important;
         }
 
-        .mobile-command-row {
+        .mobile-command-row,
+        [data-mobile-card] .mobile-command-row {
           grid-template-columns: 42px minmax(0,1fr) !important;
           gap: 6px !important;
           font-size: 11px !important;
         }
 
-        .mobile-command-row strong {
-          font-size: 11px !important;
-        }
-
-        .draft-card button,
-        .mobile-command-actions button {
-          min-height: 28px !important;
-          height: 28px !important;
-          border-radius: 10px !important;
-          padding: 5px 8px !important;
-        }
+        .mobile-command-row strong,
+        [data-mobile-card] .mobile-command-row strong { font-size: 11px !important; }
       }
     `;
     document.head.appendChild(style);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installStyle, { once: true });
-  else installStyle();
+  function applyCompactCard(card) {
+    if (!card || card.getAttribute(COMPACT_ATTR) === 'true') return;
+    card.setAttribute(COMPACT_ATTR, 'true');
+    card.style.setProperty('width', 'min(100%, 292px)', 'important');
+    card.style.setProperty('height', 'auto', 'important');
+    card.style.setProperty('min-height', '0', 'important');
+    card.style.setProperty('max-height', 'none', 'important');
+    card.style.setProperty('display', 'block', 'important');
+    card.style.setProperty('align-self', 'start', 'important');
+    card.style.setProperty('margin', '6px 0 1px', 'important');
+    card.style.setProperty('padding', '7px 8px', 'important');
+    card.style.setProperty('border-radius', '13px', 'important');
+    card.style.setProperty('overflow', 'hidden', 'important');
+
+    card.querySelectorAll('.mobile-command-head,.draft-head').forEach((el) => {
+      el.style.setProperty('margin', '0 0 5px', 'important');
+      el.style.setProperty('padding', '0', 'important');
+      el.style.setProperty('min-height', '0', 'important');
+    });
+    card.querySelectorAll('.mobile-command-detail').forEach((el) => {
+      el.style.setProperty('gap', '3px', 'important');
+      el.style.setProperty('margin', '5px 0 7px', 'important');
+      el.style.setProperty('padding', '0', 'important');
+      el.style.setProperty('min-height', '0', 'important');
+    });
+    card.querySelectorAll('.mobile-command-row').forEach((el) => {
+      el.style.setProperty('grid-template-columns', '42px minmax(0,1fr)', 'important');
+      el.style.setProperty('gap', '6px', 'important');
+      el.style.setProperty('font-size', '11px', 'important');
+      el.style.setProperty('line-height', '1.25', 'important');
+      el.style.setProperty('margin', '0', 'important');
+      el.style.setProperty('padding', '0', 'important');
+      el.style.setProperty('min-height', '0', 'important');
+    });
+    card.querySelectorAll('.mobile-command-actions').forEach((el) => {
+      el.style.setProperty('gap', '6px', 'important');
+      el.style.setProperty('margin', '4px 0 0', 'important');
+      el.style.setProperty('padding', '0', 'important');
+      el.style.setProperty('min-height', '0', 'important');
+    });
+    card.querySelectorAll('button').forEach((el) => {
+      el.style.setProperty('height', '27px', 'important');
+      el.style.setProperty('min-height', '27px', 'important');
+      el.style.setProperty('padding', '4px 8px', 'important');
+      el.style.setProperty('border-radius', '10px', 'important');
+      el.style.setProperty('font-size', '12px', 'important');
+      el.style.setProperty('line-height', '1', 'important');
+    });
+  }
+
+  function compactAllCards() {
+    document.querySelectorAll('.mobile-command-card,[data-mobile-card],.draft-card').forEach(applyCompactCard);
+  }
+
+  function watchCards() {
+    compactAllCards();
+    const host = document.querySelector('#chatMessages') || document.body;
+    if (!host || host.dataset.compactCommandObserver === 'true') return;
+    host.dataset.compactCommandObserver = 'true';
+    const observer = new MutationObserver(() => window.requestAnimationFrame(compactAllCards));
+    observer.observe(host, { childList: true, subtree: true });
+  }
+
+  function boot() {
+    installStyle();
+    watchCards();
+    window.setTimeout(watchCards, 80);
+    window.setTimeout(watchCards, 420);
+    window.setTimeout(compactAllCards, 1200);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else boot();
 })();
