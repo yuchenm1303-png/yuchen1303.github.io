@@ -1,6 +1,6 @@
 import orchestrator from "./index-orchestrator.js";
 
-const DIAGNOSTICS_VERSION = "ai-ledger-orchestrator-diagnostics-v1";
+const DIAGNOSTICS_VERSION = "ai-ledger-orchestrator-diagnostics-v2";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
 export default {
@@ -8,22 +8,34 @@ export default {
     const requestForDelegate = request.clone();
     const requestForBody = request.clone();
 
-    const response = await orchestrator.fetch(requestForDelegate, env, ctx);
-
     if (request.method === "GET") {
+      const response = await orchestrator.fetch(requestForDelegate, env, ctx);
       return appendHealthInfo(response);
     }
 
-    if (request.method !== "POST") return response;
-
     let body = null;
+    if (request.method === "POST") {
+      try { body = await requestForBody.json(); } catch {}
+    }
+
+    const modelPreference = normalizeModelPreference(body?.modelPreference || body?.aiModelPreference || body?.modelMode);
+    const response = await raceWithTimeout(
+      orchestrator.fetch(requestForDelegate, env, ctx),
+      orchestratorTimeoutMs(modelPreference),
+      "orchestrator_timeout",
+    ).catch(async (error) => {
+      if (request.method !== "POST") throw error;
+      return timeoutDiagnosticResponse(env, body, modelPreference, error);
+    });
+
+    if (request.method !== "POST") return response;
+    if (!body) return response;
+
     let payload = null;
-    try { body = await requestForBody.json(); } catch { return response; }
     try { payload = await response.clone().json(); } catch { return response; }
 
     if (!shouldDiagnose(payload)) return response;
 
-    const modelPreference = normalizeModelPreference(body?.modelPreference || body?.aiModelPreference || body?.modelMode);
     const diagnosis = await diagnoseModelFailure(env, modelPreference);
     const diagnosisText = formatDiagnosis(diagnosis);
 
@@ -58,7 +70,7 @@ async function appendHealthInfo(response) {
       diagnosticsWrapper: {
         ok: true,
         version: DIAGNOSTICS_VERSION,
-        behavior: "Only runs extra provider probes when model selection fails.",
+        behavior: "Races provider calls and returns visible diagnostics before the phone-side request times out.",
       },
     }, response.status, response.headers);
   } catch {
@@ -71,7 +83,41 @@ function shouldDiagnose(payload) {
   const reply = String(payload?.reply || "");
   return source === "selected_model_failed"
     || source === "provider_pool_failed"
-    || /所选模型失败|模型.*没有成功返回|云端 AI 暂时不可用|配额不足|quota|rate limit/i.test(reply);
+    || source === "cloud_fetch_failed"
+    || /所选模型失败|模型.*没有成功返回|云端 AI 暂时不可用|配额不足|quota|rate limit|timeout|超时/i.test(reply);
+}
+
+async function timeoutDiagnosticResponse(env, body, modelPreference, error) {
+  const diagnosis = await diagnoseModelFailure(env, modelPreference);
+  const meta = selectedModelMeta(env, modelPreference);
+  const reply = [
+    modelPreference === "auto"
+      ? "自动模型池这次没有在限定时间内返回。"
+      : `你当前选择的是 ${meta.label || meta.model || modelPreference}，但这个模型这次没有在限定时间内返回。`,
+    "",
+    "模型诊断信息：",
+    formatDiagnosis(diagnosis),
+    "",
+    "提示：如果诊断里显示模型可用，但正式回答仍超时，通常是该模型冷启动慢、排队拥堵，或当前请求上下文偏长。",
+  ].join("\n");
+  return json({
+    reply,
+    action: "chat",
+    records: [],
+    mobileCommand: null,
+    source: "selected_model_timeout",
+    provider: meta.provider || "Model Picker",
+    model: meta.model || modelPreference,
+    modelLabel: meta.label || meta.model || modelPreference,
+    diagnostics: {
+      version: DIAGNOSTICS_VERSION,
+      modelPreference,
+      timeoutMs: orchestratorTimeoutMs(modelPreference),
+      error: readableError(error),
+      results: diagnosis,
+    },
+    version: `${DIAGNOSTICS_VERSION} · ${meta.label || modelPreference}`,
+  }, 200, corsFromRequestLike(body));
 }
 
 async function diagnoseModelFailure(env, modelPreference = "auto") {
@@ -88,7 +134,7 @@ async function diagnoseModelFailure(env, modelPreference = "auto") {
         results.push({ ...target, ok: true, message: "诊断请求成功，说明 API Key 和模型基本可用；原请求失败可能是临时限流、上下文过长或内容被拒。" });
       } else if (target.kind === "nvidia") {
         await probeNvidia(env, target.model);
-        results.push({ ...target, ok: true, message: "诊断请求成功，说明 NVIDIA API Key、Base URL 和模型 ID 基本可用；原请求失败可能是临时限流或上下文问题。" });
+        results.push({ ...target, ok: true, message: "诊断请求成功，说明 NVIDIA API Key、Base URL 和模型 ID 基本可用；正式请求失败多半是模型排队、冷启动或上下文过长。" });
       } else if (target.kind === "workers_ai") {
         await probeWorkersAI(env, target.model);
         results.push({ ...target, ok: true, message: "诊断请求成功，Workers AI 绑定可用。" });
@@ -130,14 +176,14 @@ function diagnosticTargets(env, modelPreference) {
 
 async function probeGemini(env, model) {
   const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: "请只回复 OK" }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 8 },
     }),
-  });
+  }, 9000);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
   const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("\n").trim();
@@ -147,9 +193,9 @@ async function probeGemini(env, model) {
 
 async function probeNvidia(env, model) {
   const endpoint = `${nvidiaBaseUrl(env)}/chat/completions`;
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${env.NVIDIA_API_KEY}` },
+    headers: { "content-type": "application/json", authorization: `Bearer ${String(env.NVIDIA_API_KEY || "").trim()}` },
     body: JSON.stringify({
       model,
       messages: [
@@ -159,7 +205,7 @@ async function probeNvidia(env, model) {
       temperature: 0,
       max_tokens: 8,
     }),
-  });
+  }, 10000);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error?.message || data?.message || `NVIDIA HTTP ${res.status}`);
   const text = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
@@ -169,13 +215,13 @@ async function probeNvidia(env, model) {
 
 async function probeWorkersAI(env, model) {
   if (!env.AI) throw new Error("Workers AI binding is not available");
-  const result = await env.AI.run(model, {
+  const result = await raceWithTimeout(env.AI.run(model, {
     messages: [
       { role: "system", content: "Reply with OK only." },
       { role: "user", content: "OK?" },
     ],
     max_tokens: 8,
-  });
+  }), 9000, "workers_ai_probe_timeout");
   const text = String(result?.response || result?.text || "").trim();
   if (!text) throw new Error("Workers AI 返回为空。" );
   return text;
@@ -194,6 +240,7 @@ function readableError(error) {
     .replace(/Bearer\s+[A-Za-z0-9._\-]+/g, "Bearer ***")
     .replace(/key=[A-Za-z0-9._\-]+/g, "key=***")
     .slice(0, 500);
+  if (/timeout|abort/i.test(text)) return `${text}（通常是请求超时、模型冷启动或服务排队）`;
   if (/429|quota|rate limit|exceeded/i.test(text)) return `${text}（通常是额度不足或限流）`;
   if (/401|unauthorized|invalid api key/i.test(text)) return `${text}（通常是 API Key 无效或权限不足）`;
   if (/403|permission|forbidden/i.test(text)) return `${text}（通常是账号没有该模型权限）`;
@@ -256,6 +303,46 @@ function geminiModelLabel(model) {
   if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash";
   if (/1\.5.*flash/i.test(value)) return "Gemini 1.5 Flash";
   return value || "Gemini";
+}
+
+function selectedModelMeta(env, modelPreference) {
+  const pref = normalizeModelPreference(modelPreference);
+  if (pref === "kimi") return { provider: "NVIDIA NIM", model: nvidiaKimiModel(env), label: nvidiaModelLabel(nvidiaKimiModel(env)) };
+  if (pref === "mistral") return { provider: "NVIDIA NIM", model: nvidiaMistralModel(env), label: nvidiaModelLabel(nvidiaMistralModel(env)) };
+  if (pref === "gemini") return { provider: "Gemini", model: geminiModel(env), label: geminiModelLabel(geminiModel(env)) };
+  if (pref === "workers") return { provider: "Cloudflare Workers AI", model: String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), label: "Workers AI Llama 3.1 8B" };
+  return { provider: "Model Pool", model: "auto", label: "自动模型池" };
+}
+
+function orchestratorTimeoutMs(modelPreference) {
+  const pref = normalizeModelPreference(modelPreference);
+  if (pref === "kimi") return 21000;
+  if (pref === "mistral") return 21000;
+  if (pref === "gemini") return 18000;
+  if (pref === "workers") return 18000;
+  return 22000;
+}
+
+function raceWithTimeout(promise, timeoutMs, label = "timeout") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function corsFromRequestLike() {
+  return JSON_HEADERS;
 }
 
 function json(payload, status = 200, headers = {}) {
