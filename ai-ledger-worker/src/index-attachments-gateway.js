@@ -1,6 +1,6 @@
 import commandWorker from "./index.js";
 
-const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v7-model-picker-vision";
+const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v8-strict-model-picker-vision";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
@@ -19,7 +19,8 @@ export default {
       return json({
         ok: true,
         version: GATEWAY_VERSION,
-        mode: "attachment_gateway_model_picker_vision",
+        mode: "attachment_gateway_strict_model_picker_vision",
+        modelPickerRule: "auto allows fallback; manual selection is strict",
         commandWorker: base,
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasNvidiaKey: Boolean(env.NVIDIA_API_KEY),
@@ -58,70 +59,70 @@ function cloneRequestWithJson(originalRequest, body) {
 async function analyzeAttachmentsWithFallback(env, body, attachments) {
   const preference = normalizeModelPreference(body?.modelPreference || body?.aiModelPreference || body?.modelMode);
   const hasImage = hasImageAttachment(attachments);
-  const hasPdf = attachments.some((item) => item.mimeType === "application/pdf");
   const errors = [];
+  const steps = buildVisionSteps(preference);
 
-  const steps = buildVisionSteps(preference, { hasImage, hasPdf });
   for (const step of steps) {
     if (step === "nvidia") {
-      if (!env.NVIDIA_API_KEY || !hasImage) continue;
+      if (!env.NVIDIA_API_KEY) { errors.push("NVIDIA: missing NVIDIA_API_KEY"); continue; }
+      if (!hasImage) { errors.push("NVIDIA: 当前仅对图片启用多模态接口，PDF 建议切 Gemini 或自动"); continue; }
       try {
         const model = nvidiaVisionModel(env);
         const meta = modelMeta("NVIDIA NIM", model, nvidiaVisionLabel(model));
         const reply = await callNvidiaVision(env, body, attachments);
-        return responsePayload(reply, preference === "kimi" ? "nvidia_vision" : "nvidia_vision_fallback", meta);
+        return responsePayload(reply, "nvidia_vision", meta);
       } catch (error) {
-        errors.push(`NVIDIA: ${String(error?.message || error).slice(0, 140)}`);
+        errors.push(`NVIDIA: ${String(error?.message || error).slice(0, 160)}`);
       }
     }
 
     if (step === "gemini") {
-      if (!env.GEMINI_API_KEY) continue;
+      if (!env.GEMINI_API_KEY) { errors.push("Gemini: missing GEMINI_API_KEY"); continue; }
       try {
         const meta = modelMeta("Gemini", geminiModel(env), geminiModelLabel(geminiModel(env)));
         const reply = await callGeminiAttachment(env, body, attachments);
-        return responsePayload(reply, preference === "gemini" || preference === "auto" ? "gemini_vision" : "gemini_vision_fallback", meta);
+        return responsePayload(reply, "gemini_vision", meta);
       } catch (error) {
-        errors.push(`Gemini: ${String(error?.message || error).slice(0, 140)}`);
+        errors.push(`Gemini: ${String(error?.message || error).slice(0, 160)}`);
       }
     }
 
     if (step === "workers") {
-      if (!env.AI) continue;
+      if (!env.AI) { errors.push("Workers AI: binding unavailable"); continue; }
       try {
         const meta = modelMeta("Cloudflare Workers AI", "@cf/llava-hf/llava-1.5-7b-hf", "Workers AI LLaVA 1.5 7B");
         const reply = await callWorkersVisionFallback(env, body, attachments);
-        return responsePayload(reply, preference === "workers" ? "workers_ai_vision" : "workers_ai_vision_fallback", meta);
+        return responsePayload(reply, "workers_ai_vision", meta);
       } catch (error) {
-        errors.push(`WorkersAI: ${String(error?.message || error).slice(0, 140)}`);
+        errors.push(`WorkersAI: ${String(error?.message || error).slice(0, 160)}`);
       }
     }
   }
 
-  return responsePayload(`附件分析失败：${errors.join("；") || "所有视觉模型都不可用"}`, "vision_all_failed", modelMeta("Attachment Gateway", "all_failed", "附件识别失败"));
+  const strict = preference !== "auto";
+  const meta = strict ? selectedVisionMeta(env, preference) : modelMeta("Attachment Gateway", "all_failed", "附件识别失败");
+  const message = strict
+    ? `你当前选择的是 ${meta.modelLabel}，但这个模型没有成功完成附件识别。已按“手动选择严格模式”停止回退，避免出现你选 Kimi 但实际由 Gemini 回答的情况。可以切回“自动”，或稍后再试。\n\n错误信息：${errors.join("；") || "所选模型不可用"}`
+    : `附件分析失败：${errors.join("；") || "所有视觉模型都不可用"}`;
+  return responsePayload(message, strict ? "selected_model_failed" : "vision_all_failed", meta);
 }
 
-function buildVisionSteps(preference, context = {}) {
-  if (preference === "kimi") return ["nvidia", "gemini", "workers"];
-  if (preference === "gemini") return ["gemini", "nvidia", "workers"];
-  if (preference === "workers") return ["workers", "nvidia", "gemini"];
-  // PDF is still best handled by Gemini first. Images can use Gemini first in auto mode, then NVIDIA.
-  if (context.hasPdf) return ["gemini", "nvidia", "workers"];
+function buildVisionSteps(preference) {
+  if (preference === "kimi") return ["nvidia"];
+  if (preference === "gemini") return ["gemini"];
+  if (preference === "workers") return ["workers"];
   return ["gemini", "nvidia", "workers"];
 }
 
+function selectedVisionMeta(env, preference) {
+  if (preference === "kimi") return modelMeta("NVIDIA NIM", nvidiaVisionModel(env), nvidiaVisionLabel(nvidiaVisionModel(env)));
+  if (preference === "gemini") return modelMeta("Gemini", geminiModel(env), geminiModelLabel(geminiModel(env)));
+  if (preference === "workers") return modelMeta("Cloudflare Workers AI", "@cf/llava-hf/llava-1.5-7b-hf", "Workers AI LLaVA 1.5 7B");
+  return modelMeta("Attachment Gateway", "auto", "自动视觉模型池");
+}
+
 function responsePayload(reply, source, meta = {}) {
-  return {
-    reply,
-    action: "chat",
-    records: [],
-    mobileCommand: null,
-    source,
-    provider: meta.provider,
-    model: meta.model,
-    modelLabel: meta.modelLabel,
-    version: appendRunLabel(GATEWAY_VERSION, meta.modelLabel),
-  };
+  return { reply, action: "chat", records: [], mobileCommand: null, source, provider: meta.provider, model: meta.model, modelLabel: meta.modelLabel, version: appendRunLabel(GATEWAY_VERSION, meta.modelLabel) };
 }
 
 async function readBaseHealth(env, ctx, originalRequest) {
@@ -159,11 +160,8 @@ async function callGeminiAttachment(env, body, attachments) {
   const userText = lastUserText(body?.messages, body?.text) || "请分析我上传的图片或文件，提取关键信息并给出简洁结论。";
   const parts = [{ text: buildPrompt(userText, attachments) }];
   for (const attachment of attachments) {
-    if (TEXT_MIME_RE.test(attachment.mimeType) && !INLINE_MIME_TYPES.has(attachment.mimeType)) {
-      parts.push({ text: `\n\n【文本文件：${attachment.name}】\n${decodeText(attachment.data).slice(0, 12000)}` });
-    } else {
-      parts.push({ inline_data: { mime_type: attachment.mimeType, data: attachment.data } });
-    }
+    if (TEXT_MIME_RE.test(attachment.mimeType) && !INLINE_MIME_TYPES.has(attachment.mimeType)) parts.push({ text: `\n\n【文本文件：${attachment.name}】\n${decodeText(attachment.data).slice(0, 12000)}` });
+    else parts.push({ inline_data: { mime_type: attachment.mimeType, data: attachment.data } });
   }
   const response = await fetch(endpoint, {
     method: "POST",
@@ -186,11 +184,8 @@ async function callNvidiaVision(env, body, attachments) {
   const userText = lastUserText(body?.messages, body?.text) || "请分析我上传的图片，提取图中文字并说明关键内容。";
   const content = [{ type: "text", text: buildPrompt(userText, attachments) }];
   for (const attachment of attachments) {
-    if (attachment.mimeType.startsWith("image/")) {
-      content.push({ type: "image_url", image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` } });
-    } else if (TEXT_MIME_RE.test(attachment.mimeType)) {
-      content.push({ type: "text", text: `\n\n【文本文件：${attachment.name}】\n${decodeText(attachment.data).slice(0, 12000)}` });
-    }
+    if (attachment.mimeType.startsWith("image/")) content.push({ type: "image_url", image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` } });
+    else if (TEXT_MIME_RE.test(attachment.mimeType)) content.push({ type: "text", text: `\n\n【文本文件：${attachment.name}】\n${decodeText(attachment.data).slice(0, 12000)}` });
   }
   const response = await fetch(endpoint, {
     method: "POST",
