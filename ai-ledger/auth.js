@@ -25,7 +25,6 @@ const els = {
 };
 
 let authMode = "login";
-let hasAutoOpenedAuth = false;
 
 function setAuthMessage(message, tone = "normal") {
   if (!els.authMessage) return;
@@ -69,12 +68,6 @@ function closeAuth() {
   els.authOverlay?.setAttribute("aria-hidden", "true");
 }
 
-function maybeAutoOpenAuth(user) {
-  if (user || hasAutoOpenedAuth) return;
-  hasAutoOpenedAuth = true;
-  window.setTimeout(() => openAuth("login"), 180);
-}
-
 function setAuthState(user, message = "") {
   const loggedIn = Boolean(user);
   if (els.authStatusText) {
@@ -86,11 +79,10 @@ function setAuthState(user, message = "") {
   if (els.authHint) {
     els.authHint.textContent = loggedIn
       ? "账号已接通。账单会自动同步到云端。"
-      : message || "未登录时仍可继续本地使用；登录后会自动开启云同步。";
+      : message || "未登录时仍可继续本地使用；需要同步时可在设置中手动登录。";
   }
   if (els.openAuthBtn) els.openAuthBtn.hidden = loggedIn;
   if (els.logoutBtn) els.logoutBtn.hidden = !loggedIn;
-  maybeAutoOpenAuth(user);
 }
 
 async function refreshSession() {
@@ -168,9 +160,7 @@ async function logout() {
     if (window.showToast) window.showToast("退出失败，请重试");
     return;
   }
-  hasAutoOpenedAuth = false;
   if (window.showToast) window.showToast("已退出登录");
-  window.setTimeout(() => openAuth("login"), 180);
 }
 
 els.openAuthBtn?.addEventListener("click", () => openAuth("login"));
