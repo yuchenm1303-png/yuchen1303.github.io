@@ -1,9 +1,10 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'ui-density-polish-style';
 
   function installDensityPolish() {
-    const old = document.querySelector(`#${STYLE_ID}`);
-    if (old) old.remove();
+    if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -23,7 +24,8 @@
         padding: 18px 14px 102px !important;
       }
 
-      .view {
+      .view,
+      .settings-group-list {
         gap: 12px !important;
       }
 
@@ -121,7 +123,15 @@
       .settings-actions,
       .record-list,
       .appearance-plus-grid,
-      .appearance-toggle-row {
+      .appearance-toggle-row,
+      .summary-grid,
+      .mini-grid,
+      .metric-grid,
+      .form-grid,
+      .tools-grid,
+      .chat-summary-strip,
+      .chat-messages,
+      .chat-composer {
         gap: 9px !important;
       }
 
@@ -152,13 +162,6 @@
         height: 10px !important;
       }
 
-      .summary-grid,
-      .mini-grid,
-      .metric-grid,
-      .form-grid {
-        gap: 10px !important;
-      }
-
       .summary-grid {
         margin-top: 13px !important;
       }
@@ -170,7 +173,8 @@
 
       .summary-box span,
       .mini-stat span,
-      .metric-card span {
+      .metric-card span,
+      .summary-chip span {
         margin-bottom: 6px !important;
         font-size: 12px !important;
       }
@@ -247,10 +251,6 @@
         right: 18px !important;
       }
 
-      .settings-group-list {
-        gap: 12px !important;
-      }
-
       .settings-group-card,
       .settings-group-card:hover,
       .settings-group-card:active,
@@ -262,7 +262,8 @@
         grid-template-columns: 40px 1fr 20px !important;
       }
 
-      .settings-group-icon {
+      .settings-group-icon,
+      .tool-icon {
         width: 40px !important;
         height: 40px !important;
         border-radius: 15px !important;
@@ -298,7 +299,9 @@
       }
 
       .settings-group-head h2,
-      .appearance-detail-head h2 {
+      .appearance-detail-head h2,
+      .auth-head h2,
+      .sheet-head h2 {
         font-size: 20px !important;
         letter-spacing: -.3px !important;
       }
@@ -317,12 +320,9 @@
         font-size: 22px !important;
       }
 
-      .appearance-plus-card {
-        gap: 12px !important;
-      }
-
+      .appearance-plus-card,
       .appearance-plus-field {
-        gap: 6px !important;
+        gap: 12px !important;
       }
 
       .appearance-plus-field span {
@@ -363,10 +363,6 @@
         font-size: 13px !important;
       }
 
-      .tools-grid {
-        gap: 10px !important;
-      }
-
       .tool-card {
         min-height: 118px !important;
         padding: 14px !important;
@@ -382,32 +378,13 @@
         line-height: 1.42 !important;
       }
 
-      .tool-icon {
-        width: 38px !important;
-        height: 38px !important;
-        border-radius: 14px !important;
-        font-size: 18px !important;
-      }
-
-      .chat-summary-strip {
-        gap: 10px !important;
-      }
-
       .summary-chip {
         padding: 12px 13px !important;
         border-radius: 18px !important;
       }
 
-      .summary-chip span {
-        font-size: 12px !important;
-      }
-
       .summary-chip strong {
         font-size: 18px !important;
-      }
-
-      .chat-messages {
-        gap: 9px !important;
       }
 
       .chat-bubble {
@@ -417,21 +394,12 @@
         line-height: 1.48 !important;
       }
 
-      .chat-composer {
-        gap: 8px !important;
-      }
-
       .send-btn {
         width: 44px !important;
         height: 44px !important;
         min-width: 44px !important;
         border-radius: 16px !important;
         font-size: 18px !important;
-      }
-
-      .auth-head h2,
-      .sheet-head h2 {
-        font-size: 20px !important;
       }
 
       .auth-form,
@@ -484,9 +452,9 @@
     document.head.appendChild(style);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installDensityPolish);
-  else installDensityPolish();
-
-  window.setTimeout(installDensityPolish, 250);
-  window.setTimeout(installDensityPolish, 1200);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installDensityPolish, { once: true });
+  } else {
+    installDensityPolish();
+  }
 })();
