@@ -1,6 +1,6 @@
 import commandWorker from "./index.js";
 
-const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v3-weatherfix";
+const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v4-tavily";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
@@ -26,12 +26,13 @@ export default {
       return json({
         ok: true,
         version: GATEWAY_VERSION,
-        mode: "attachment_gateway_preserve_command_protocol_weather_first",
+        mode: "attachment_gateway_preserve_command_protocol_weather_tavily_first",
         commandWorker: base,
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasWorkersAI: Boolean(env.AI),
+        hasTavilyKey: Boolean(env.TAVILY_API_KEY),
         model: env.GEMINI_MODEL || "gemini-2.5-flash",
-        tools: ["attachments.image", "attachments.pdf", "attachments.text", "weather", "rss_web_search", "command_protocol"],
+        tools: ["attachments.image", "attachments.pdf", "attachments.text", "weather", "tavily_web_search", "rss_web_search", "command_protocol"],
       }, 200, corsHeaders);
     }
 
@@ -54,7 +55,7 @@ export default {
     }
 
     if (!attachments.length && isForcedWebSearch(body)) {
-      const search = await searchPublicNews(userText);
+      const search = await searchPublicWeb(env, userText);
       if (search.ok) return json(search, 200, corsHeaders);
       return json(createMissingSearchResponse(search.error), 200, corsHeaders);
     }
@@ -97,9 +98,9 @@ export default {
             source: "workers_ai_vision_fallback",
             version: GATEWAY_VERSION,
           }, 200, corsHeaders);
-        } catch (fallbackError) {
+        } catch {
           return json({
-            reply: `Gemini 识图配额已用完，Workers AI 兜底也暂时失败。你可以稍后再试，或换一个新的 Gemini Key/开启 billing。`,
+            reply: "Gemini 识图配额已用完，Workers AI 兜底也暂时失败。你可以稍后再试，或换一个新的 Gemini Key/开启 billing。",
             action: "chat",
             records: [],
             mobileCommand: null,
@@ -324,6 +325,63 @@ function weatherText(code) {
   return ({ 0: "晴", 1: "大致晴朗", 2: "局部多云", 3: "阴天", 45: "有雾", 51: "小毛毛雨", 61: "小雨", 63: "中雨", 65: "大雨", 71: "小雪", 80: "阵雨", 95: "雷暴" })[Number(code)] || "天气状况未知";
 }
 
+async function searchPublicWeb(env, rawQuery) {
+  const query = cleanSearchQuery(rawQuery) || "科技 新闻";
+  if (env.TAVILY_API_KEY) {
+    const tavily = await searchTavily(env, query);
+    if (tavily.ok) return tavily;
+    const fallback = await searchPublicNews(query);
+    if (fallback.ok) {
+      fallback.reply += "\n\n注：Tavily 搜索暂时失败，本次已自动切换到公开新闻源兜底。";
+      fallback.source = "rss_web_search_fallback_after_tavily";
+      return fallback;
+    }
+    return { ok: false, error: `${tavily.error}; ${fallback.error}` };
+  }
+  return searchPublicNews(query);
+}
+
+async function searchTavily(env, query) {
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${env.TAVILY_API_KEY}`,
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: "advanced",
+        topic: "general",
+        max_results: 6,
+        include_answer: true,
+        include_raw_content: false,
+        include_images: false,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || data?.message || `Tavily HTTP ${res.status}`);
+    const results = Array.isArray(data?.results) ? data.results.slice(0, 6) : [];
+    if (!results.length && !data?.answer) throw new Error("Tavily empty");
+    const lines = results.map((item, index) => `${index + 1}. ${item.title || item.url}${item.content ? `：${trimText(item.content, 96)}` : ""}`);
+    return {
+      ok: true,
+      reply: `${data?.answer ? `${data.answer}\n\n` : ""}已通过 Tavily 联网搜索“${query}”。${lines.length ? `\n${lines.join("\n")}` : ""}`,
+      action: "chat",
+      records: [],
+      mobileCommand: null,
+      webSearchUsed: true,
+      webSearchMode: "force",
+      sources: results.map((item) => ({ title: item.title || item.url, url: item.url, score: item.score, content: item.content })),
+      citations: results.map((item) => item.url).filter(Boolean),
+      source: "tavily_web_search",
+      version: GATEWAY_VERSION,
+    };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+}
+
 async function searchPublicNews(rawQuery) {
   const query = cleanSearchQuery(rawQuery) || "科技 新闻";
   const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
@@ -376,8 +434,8 @@ function createMissingSearchResponse(error) {
   const isRateLimited = /429|503|rate|limit|quota|blocked/i.test(errorText);
   return {
     reply: isRateLimited
-      ? "当前强制联网已经触发，但免费的公开 RSS/新闻索引暂时被限流或不可用。要做稳定的通用搜索，建议后续接入 TAVILY_API_KEY、BRAVE_SEARCH_API_KEY 或 SERPER_API_KEY。"
-      : "当前强制联网已经触发，但公开 RSS/新闻索引暂时请求失败。要做稳定的通用搜索，建议后续接入 TAVILY_API_KEY、BRAVE_SEARCH_API_KEY 或 SERPER_API_KEY。",
+      ? "当前强制联网已经触发，但搜索源暂时被限流或不可用。Tavily 已配置时通常会更稳定；如果仍失败，请检查 TAVILY_API_KEY 是否有效或稍后再试。"
+      : "当前强制联网已经触发，但搜索源暂时请求失败。请检查 TAVILY_API_KEY 是否有效，或稍后再试。",
     action: "chat",
     records: [],
     mobileCommand: null,
@@ -423,6 +481,11 @@ function cleanSearchQuery(text) {
     .replace(/搜索一下|搜一下|查一下|联网|今天的|今天|新闻|最新/gu, " ")
     .replace(/\s+/g, " ")
     .trim() || "科技 新闻";
+}
+
+function trimText(text, max = 120) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
 function formatDateText(value) {
