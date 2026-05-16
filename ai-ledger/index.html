@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="./auth.css?v=20260514-6" />
   <link rel="stylesheet" href="./liquid-plus.css?v=20260514-6" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260514-6" />
-  <link rel="stylesheet" href="./backgrounds.css?v=20260516-9" />
+  <link rel="stylesheet" href="./backgrounds.css?v=20260514-6" />
   <style>
     html[data-entry="quick-ai"],
     html[data-entry="quick-ai"] body {
@@ -171,8 +171,15 @@
       </header>
 
       <section class="glass-card chat-shell reveal delay-1">
-        <div class="chat-summary-strip model-picker-hero-strip">
-          <button id="chatModelPickerBtn" class="model-picker-btn hero-model-picker-btn" type="button" aria-label="选择云端模型">自动</button>
+        <div class="chat-summary-strip">
+          <article class="summary-chip">
+            <span>今日支出</span>
+            <strong id="aiTodayExpense">¥0.00</strong>
+          </article>
+          <article class="summary-chip">
+            <span>本月结余</span>
+            <strong id="aiMonthBalance">¥0.00</strong>
+          </article>
         </div>
 
         <div id="chatMessages" class="chat-messages"></div>
@@ -251,180 +258,86 @@
         <button class="range-chip" data-range="year">本年</button>
       </section>
 
-      <section class="glass-card summary-card reveal delay-2">
-        <div class="summary-top">
-          <div>
-            <p class="card-kicker">✦ 周期总览</p>
-            <div id="summaryBalance" class="big-money">¥0.00</div>
-            <p class="subtext light">当前结余</p>
-          </div>
-          <div class="budget-pill">预算 <span id="budgetBadge">¥0.00</span></div>
-        </div>
-
-        <div class="progress-wrap">
-          <div class="progress-track"><div id="budgetProgress" class="progress-fill"></div></div>
-          <div id="budgetText" class="progress-text">预算已使用 0%</div>
-        </div>
-
-        <div class="summary-grid">
-          <article class="summary-box">
-            <span>收入</span>
-            <strong id="summaryIncome">+¥0.00</strong>
-          </article>
-          <article class="summary-box">
-            <span>支出</span>
-            <strong id="summaryExpense">-¥0.00</strong>
-          </article>
-        </div>
+      <section class="stats-grid reveal delay-2">
+        <article class="glass-card stat-card income"><span>收入</span><strong id="monthIncome">¥0.00</strong></article>
+        <article class="glass-card stat-card expense"><span>支出</span><strong id="monthExpense">¥0.00</strong></article>
+        <article class="glass-card stat-card balance"><span>结余</span><strong id="monthBalance">¥0.00</strong></article>
+        <article class="glass-card stat-card"><span>今日支出</span><strong id="todaySpend">¥0.00</strong></article>
       </section>
 
-      <section class="metric-grid reveal delay-3">
-        <article class="glass-card metric-card income-card">
-          <span>↗ 本期收入</span>
-          <strong id="metricIncome">¥0.00</strong>
-        </article>
-        <article class="glass-card metric-card expense-card">
-          <span>↘ 本期支出</span>
-          <strong id="metricExpense">¥0.00</strong>
-        </article>
+      <section class="chart-card glass-card reveal delay-3">
+        <div class="section-head"><h2>趋势</h2><span>近 7 天</span></div>
+        <canvas id="trendChart" height="150"></canvas>
       </section>
 
-      <section class="glass-card chart-card reveal delay-4">
-        <div class="section-head">
-          <h2>近 7 天趋势</h2>
-          <span class="soft-label">收入 / 支出</span>
-        </div>
-        <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
-      </section>
-
-      <section class="glass-card chart-card reveal delay-5">
-        <div class="section-head">
-          <h2>支出分类</h2>
-          <span class="soft-label">结构占比</span>
-        </div>
-        <div class="chart-wrap donut-wrap"><canvas id="categoryChart"></canvas></div>
+      <section class="chart-card glass-card reveal delay-4">
+        <div class="section-head"><h2>分类占比</h2><span>按支出</span></div>
+        <canvas id="categoryChart" height="150"></canvas>
       </section>
     </section>
 
     <section id="view-list" class="view">
       <button class="tools-back" type="button" data-open-view="tools">← 功能中心</button>
       <header class="page-header reveal">
-        <p class="eyebrow">账单中心</p>
-        <h1>全部记录</h1>
-        <p class="subtext">查看和管理最近的收入、支出明细。</p>
+        <p class="eyebrow">账单明细</p>
+        <h1>记录列表</h1>
+        <p id="recordCount" class="subtext">0 条</p>
       </header>
 
-      <section class="glass-card reveal delay-1">
-        <div class="section-head">
-          <h2>账单列表</h2>
-          <span id="recordCount" class="soft-label">0 条</span>
-        </div>
-        <div id="recordList" class="record-list"></div>
-      </section>
+      <section id="recordList" class="record-list reveal delay-1"></section>
     </section>
 
     <section id="view-settings" class="view">
       <header class="page-header reveal">
-        <p class="eyebrow">设置中心</p>
-        <h1>应用设置</h1>
-        <p class="subtext">接入登录和云端同步</p>
+        <p class="eyebrow">设置</p>
+        <h1>偏好与同步</h1>
+        <p class="subtext">数据存储、云端接口、预算与显示。</p>
       </header>
 
-      <section class="glass-card reveal delay-1">
-        <div class="section-head"><h2>账号与同步</h2></div>
-        <div class="account-panel">
-          <div class="account-row">
-            <div class="account-main">
-              <p class="account-label">当前账号</p>
-              <p id="authStatusText" class="account-value">未登录</p>
-            </div>
-            <span id="authStatusPill" class="account-pill">本地模式</span>
+      <section class="settings-list reveal delay-1">
+        <div class="setting-card glass-card">
+          <div><strong>预算提醒</strong><span>本月支出超过预算时提示</span></div>
+          <input id="budgetInput" type="number" min="0" placeholder="例如 2000" />
+        </div>
+        <div class="setting-card glass-card ai-endpoint-card">
+          <div><strong>云端 AI 接口</strong><span>可粘贴 Cloudflare Worker 地址</span></div>
+          <input id="aiEndpointInput" type="url" placeholder="https://...workers.dev" />
+          <div class="setting-actions">
+            <button id="saveAiEndpointBtn" class="secondary-btn" type="button">保存接口</button>
+            <button id="testAiEndpointBtn" class="secondary-btn" type="button">测试连接</button>
+            <button id="resetAiEndpointBtn" class="ghost-btn" type="button">恢复默认</button>
           </div>
-          <p id="authHint" class="helper-text">未登录时仍可继续本地使用；登录后下一步可以开启云同步。</p>
-          <p id="syncStatusText" class="helper-text">登录后自动开启云同步。</p>
-          <div class="settings-actions inline-actions">
-            <button id="openAuthBtn" class="ghost-btn" type="button">登录 / 注册</button>
-            <button id="logoutBtn" class="ghost-btn" type="button" hidden>退出登录</button>
-          </div>
-          <button id="syncNowBtn" class="ghost-btn" type="button">立即同步</button>
+          <p id="aiEndpointStatus" class="helper-text">未配置云端 AI，当前使用本地识别。</p>
         </div>
-      </section>
-
-      <section class="glass-card reveal delay-2">
-        <div class="section-head"><h2>外观设置</h2></div>
-        <div id="backgroundPicker" class="background-picker">
-          <p class="helper-text">选择内置背景</p>
-          <div class="background-options">
-            <button class="bg-option active" type="button" data-bg="aurora" aria-label="选择天气星空背景">
-              <span class="bg-preview"></span>
-              <span>天气星空</span>
-            </button>
-            <button class="bg-option" type="button" data-bg="jade" aria-label="选择翡翠海雾背景">
-              <span class="bg-preview"></span>
-              <span>翡翠海雾</span>
-            </button>
-            <button class="bg-option" type="button" data-bg="sunset" aria-label="选择暮色流金背景">
-              <span class="bg-preview"></span>
-              <span>暮色流金</span>
-            </button>
-            <button class="bg-option" type="button" data-bg="dawn" aria-label="选择晨光珍珠背景">
-              <span class="bg-preview"></span>
-              <span>晨光珍珠</span>
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section class="glass-card reveal delay-3">
-        <div class="section-head"><h2>预算设置</h2></div>
-        <label class="field-label" for="budgetInput">本月预算</label>
-        <input id="budgetInput" type="number" min="0" />
-      </section>
-
-      <section class="glass-card reveal delay-4">
-        <div class="section-head"><h2>AI 设置</h2></div>
-        <label class="field-label" for="aiEndpointInput">接口</label>
-        <input id="aiEndpointInput" placeholder="https://你的-worker.workers.dev" />
-        <p id="aiEndpointStatus" class="helper-text">未配置</p>
-        <div class="settings-actions inline-actions">
-          <button id="saveAiEndpointBtn" class="ghost-btn">保存接口</button>
-          <button id="testAiEndpointBtn" class="ghost-btn">测试连接</button>
-        </div>
-      </section>
-
-      <section class="glass-card reveal delay-5">
-        <div class="section-head"><h2>数据工具</h2></div>
-        <div class="settings-actions">
-          <button id="clearChatBtn" class="ghost-btn">清空聊天记录</button>
-          <button id="exportBtn" class="ghost-btn">导出账单 JSON</button>
-          <button id="resetBtn" class="danger-btn">清空全部数据</button>
-        </div>
+        <div class="setting-card glass-card"><div><strong>数据存储</strong><span>当前保存在浏览器本地，可导出备份。</span></div><button id="exportBtn" class="secondary-btn" type="button">导出 JSON</button></div>
+        <div class="setting-card glass-card"><div><strong>清空聊天</strong><span>不会删除账单记录。</span></div><button id="clearChatBtn" class="ghost-btn danger" type="button">清空</button></div>
+        <div class="setting-card glass-card"><div><strong>主题</strong><span>液态玻璃 + 夜光渐变。</span></div><span class="pill">Aurora</span></div>
       </section>
     </section>
-  </main>
 
-  <nav class="bottom-nav" aria-label="主导航">
-    <button class="nav-btn active" data-view="ai"><span>✦</span><em>AI助手</em></button>
-    <button class="nav-btn" data-view="tools"><span>▦</span><em>功能</em></button>
-    <button class="nav-btn" data-view="settings"><span>⚙</span><em>设置</em></button>
-  </nav>
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-btn active" data-view="ai"><span>✦</span><strong>AI助手</strong></button>
+      <button class="nav-btn" data-view="tools"><span>▦</span><strong>功能</strong></button>
+      <button class="nav-btn" data-view="settings"><span>⚙</span><strong>设置</strong></button>
+    </nav>
 
-  <div id="authOverlay" class="auth-overlay" aria-hidden="true">
-    <section class="auth-sheet" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-      <div class="auth-head">
-        <div>
-          <h2 id="authTitle">账号登录</h2>
-          <p>同步到云端。</p>
-        </div>
-        <button id="closeAuthBtn" class="icon-btn" type="button" aria-label="关闭">×</button>
+    <button id="addManualBtn" class="fab" type="button" aria-label="手动记账">＋</button>
+
+    <section id="addSheet" class="sheet" aria-hidden="true">
+      <div class="sheet-panel glass-card">
+        <div class="section-head"><h2>手动记账</h2><button id="closeSheetBtn" class="icon-btn" type="button">×</button></div>
+        <label>标题<input id="manualTitle" type="text" placeholder="例如 午饭" /></label>
+        <label>金额<input id="manualAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+        <label>类型<select id="manualType"><option value="expense">支出</option><option value="income">收入</option></select></label>
+        <label>分类<select id="manualCategory"><option>餐饮</option><option>交通</option><option>购物</option><option>居住</option><option>饮品</option><option>工资</option><option>礼物</option><option>其他</option></select></label>
+        <button id="saveManualBtn" class="primary-btn" type="button">保存</button>
       </div>
+    </section>
 
-      <div class="auth-tabs">
-        <button class="auth-tab active" type="button" data-auth-mode="login">登录</button>
-        <button class="auth-tab" type="button" data-auth-mode="register">注册</button>
-      </div>
-
-      <form id="authForm" class="auth-form">
+    <section id="authOverlay" class="auth-overlay" aria-hidden="true">
+      <form id="authForm" class="auth-card glass-card">
+        <div class="section-head"><h2 id="authTitle">账号登录</h2><button id="authCloseBtn" class="icon-btn" type="button">×</button></div>
+        <p class="helper-text">登录后可以同步账单和偏好。</p>
         <label>
           邮箱
           <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" required />
@@ -440,7 +353,7 @@
         </div>
       </form>
     </section>
-  </div>
+  </main>
 
   <div id="toast" class="toast"></div>
   <script src="./config.js?v=20260516-4"></script>
@@ -448,11 +361,12 @@
   <script src="./assistant-profile.js?v=20260516-1"></script>
   <script src="./navigation-preferences.js?v=20260516-1"></script>
   <script src="./chat-attachments.js?v=20260516-5"></script>
-  <script src="./chat-source-badges.js?v=20260516-8"></script>
+  <script src="./chat-source-badges.js?v=20260516-9"></script>
   <script src="./tools-center.js?v=20260516-1"></script>
   <script src="./ai-command-router-v2.js?v=20260516-4"></script>
   <script src="./cloud-command-bridge.js?v=20260516-4"></script>
   <script src="./app-v3.js?v=20260516-6"></script>
+  <script src="./chat-badge-hardening.js?v=20260516-1"></script>
   <script>
     (() => {
       'use strict';
