@@ -3,6 +3,7 @@
 
   const STYLE_ID = 'settings-detail-polish-style';
   const DETAIL_ID = 'settingsGroupDetail';
+  const PERF_SCRIPT_ID = 'settings-performance-polish-loader';
   let bodyObserver = null;
   let detailObserver = null;
   let syncFrame = 0;
@@ -15,6 +16,17 @@
   function syncOpenState() {
     const isOpen = !!document.querySelector(`#${DETAIL_ID}.open`);
     document.body?.classList.toggle('settings-group-open', isOpen);
+  }
+
+  function loadPerformancePolish() {
+    if (document.getElementById(PERF_SCRIPT_ID) || window.__settingsPerformancePolishLoaded) return;
+    window.__settingsPerformancePolishLoaded = true;
+    const script = document.createElement('script');
+    script.id = PERF_SCRIPT_ID;
+    script.src = './settings-performance-polish.js?v=20260516-1';
+    script.defer = true;
+    script.onerror = () => console.warn('[settings-detail-polish] settings-performance-polish.js failed to load');
+    document.head.appendChild(script);
   }
 
   function installStyle() {
@@ -170,6 +182,7 @@
   function boot() {
     document.documentElement.dataset.settingsDetailPolishReady = 'true';
     installStyle();
+    loadPerformancePolish();
     observeBodyUntilDetailExists();
     scheduleSyncOpenState();
   }
