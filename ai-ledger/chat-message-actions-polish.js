@@ -15,7 +15,7 @@
       .chat-row.assistant > .chat-bubble,.chat-row.assistant > .chat-response{max-width:92%!important;}
       .chat-row.user > .chat-bubble,.chat-row.user > .chat-response{max-width:86%!important;}
       .chat-message-actions{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;margin:7px 0 2px 8px!important;min-height:28px!important;width:auto!important;max-width:92%!important;position:relative!important;z-index:14!important;}
-      .chat-row.user .chat-message-actions{justify-content:flex-end!important;margin-left:0!important;margin-right:8px!important;}
+      .chat-row.user .chat-message-actions{justify-content:flex-end!important;margin-left:auto!important;margin-right:8px!important;max-width:86%!important;}
       .chat-action-btn{appearance:none!important;border:1px solid rgba(255,255,255,.26)!important;border-radius:999px!important;background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(255,255,255,.065))!important;min-width:48px!important;min-height:29px!important;padding:0 12px!important;font-size:11px!important;font-weight:900!important;line-height:1!important;letter-spacing:.02em!important;backdrop-filter:blur(14px) saturate(155%)!important;-webkit-backdrop-filter:blur(14px) saturate(155%)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 8px 18px rgba(0,0,0,.12)!important;}
       .chat-action-btn.retry{color:#d8caff!important;border-color:rgba(174,150,255,.36)!important;background:linear-gradient(135deg,rgba(126,87,255,.22),rgba(255,255,255,.07))!important;}
       .chat-action-btn.copy{color:#9ff8d4!important;border-color:rgba(42,218,150,.34)!important;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(255,255,255,.07))!important;}
@@ -104,7 +104,6 @@
       await copyText(text);
       flashButton(button, '已复制');
     } catch {
-      // 兜底：把内容放回输入框，至少不让用户丢内容。
       const input = document.querySelector('#aiInput');
       if (input) {
         input.value = text;
@@ -117,6 +116,25 @@
     }
   }
 
+  function ensureUserCopyActions() {
+    const messages = readMessages();
+    const byId = new Map(messages.map((message) => [String(message.id), message]));
+    let changed = false;
+    document.querySelectorAll('.chat-row.user[data-message-id]').forEach((row) => {
+      const id = row.dataset.messageId;
+      const message = byId.get(String(id));
+      if (!message || !String(message.content || '').trim()) return;
+      const existing = row.querySelector(':scope .chat-message-actions[data-user-copy="1"]');
+      if (existing) return;
+      row.querySelectorAll(':scope .chat-message-actions').forEach((node) => node.remove());
+      const bubble = row.querySelector('.chat-response,.chat-bubble');
+      if (!bubble) return;
+      bubble.insertAdjacentHTML('afterend', `<div class="chat-message-actions" data-user-copy="1" data-for-message="${String(id).replaceAll('"', '&quot;')}"><button class="chat-action-btn copy" type="button" data-chat-action="copy" data-message-id="${String(id).replaceAll('"', '&quot;')}">复制</button></div>`);
+      changed = true;
+    });
+    if (changed) window.ChatScrollStability?.pinBottom?.('user-copy-actions');
+  }
+
   function installCopyCapture() {
     if (document.body.dataset.chatCopyPolishBound === '1') return;
     document.body.dataset.chatCopyPolishBound = '1';
@@ -127,9 +145,23 @@
     }, true);
   }
 
+  function installObserver() {
+    const host = document.querySelector('#chatMessages');
+    if (!host || host.dataset.userCopyObserver === '1') return;
+    host.dataset.userCopyObserver = '1';
+    const observer = new MutationObserver(() => {
+      ensureUserCopyActions();
+      requestAnimationFrame(ensureUserCopyActions);
+    });
+    observer.observe(host, { childList: true, subtree: true });
+    ensureUserCopyActions();
+    setInterval(ensureUserCopyActions, 700);
+  }
+
   function boot() {
     installStyle();
     installCopyCapture();
+    installObserver();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
