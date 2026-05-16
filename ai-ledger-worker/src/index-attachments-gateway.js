@@ -1,4 +1,5 @@
 import commandWorker from "./index.js";
+import { modelMeta, appendRunLabel, normalizeModelPreference } from "./shared/model-meta.js";
 
 const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v9-nvidia-model-split-vision";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -226,16 +227,6 @@ function buildPrompt(userText, attachments) {
   return [`用户问题：${userText}`, `上传附件：\n${list}`, "请基于附件内容回答。若是截图，重点看界面文字、错误提示和下一步操作；若是图片，描述主体和可见文字；若是文件，总结结构和重点。"].join("\n\n");
 }
 
-function normalizeModelPreference(value) {
-  const v = String(value || "auto").toLowerCase().trim();
-  if (["auto", "gemini", "kimi", "mistral", "nvidia", "workers", "workers_ai"].includes(v)) {
-    if (v === "nvidia") return "kimi";
-    if (v === "workers_ai") return "workers";
-    return v;
-  }
-  return "auto";
-}
-
 function hasImageAttachment(attachments) { return attachments.some((item) => item.mimeType.startsWith("image/")); }
 function geminiModel(env) { return String(env.GEMINI_VISION_MODEL || env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, ""); }
 function geminiModelLabel(model) { const value = String(model || ""); if (/2\.5.*flash/i.test(value)) return "Gemini 2.5 Flash"; if (/2\.5.*pro/i.test(value)) return "Gemini 2.5 Pro"; if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash"; return value || "Gemini"; }
@@ -246,8 +237,6 @@ function nvidiaVisionModel(env, preference = "kimi") {
   return pickNvidiaEnvModel(env.NVIDIA_KIMI_VISION_MODEL, env.NVIDIA_KIMI_MODEL, env.NVIDIA_VISION_MODEL && String(env.NVIDIA_VISION_MODEL).toLowerCase().includes("kimi") ? env.NVIDIA_VISION_MODEL : "", "moonshotai/kimi-k2.6");
 }
 function nvidiaVisionLabel(model) { const value = String(model || ""); if (/kimi/i.test(value)) return `${value} · via NVIDIA NIM`; if (/qwen/i.test(value)) return `${value} · via NVIDIA NIM`; if (/mistral/i.test(value)) return `${value} · via NVIDIA NIM`; return `${value || "多模态模型"} · via NVIDIA NIM`; }
-function modelMeta(provider, model, label) { return { provider: String(provider || ""), model: String(model || ""), modelLabel: String(label || model || provider || "Cloud Model") }; }
-function appendRunLabel(version, label) { const clean = String(label || "").trim(); return clean && !String(version || "").includes(clean) ? `${version} · ${clean}` : version; }
 function lastUserText(messages, fallback) { if (Array.isArray(messages)) { const last = [...messages].reverse().find((item) => item?.role === "user" && String(item?.content || "").trim()); if (last) return String(last.content).trim(); } return String(fallback || "").trim(); }
 function decodeText(base64) { try { const binary = atob(base64); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return new TextDecoder("utf-8", { fatal: false }).decode(bytes); } catch { return "[文本文件解码失败]"; } }
 function base64ToNumberArray(base64) { const binary = atob(base64); const bytes = new Array(binary.length); for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i); return bytes; }
