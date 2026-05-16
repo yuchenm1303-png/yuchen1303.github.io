@@ -1,7 +1,17 @@
 (() => {
   'use strict';
 
+  /*
+   * Ownership target:
+   * This file should only normalize Android navigation params and patch native navigation plugins.
+   *
+   * Refactor note:
+   * The model picker style/sheet code below is legacy UI injection from earlier visual experiments.
+   * Keep it for now to preserve the stable baseline, then move it to chat/model-picker code in a later tested step.
+   */
+
   const PATCH_FLAG = '__navigationExecutionCompatPatched';
+  // legacy: model picker polish belongs in chat/model-picker UI code, not navigation compatibility.
   const MODEL_POLISH_STYLE_ID = 'model-picker-hero-polish-style';
 
   function normalizeMode(value) {
@@ -60,11 +70,14 @@
     patchPlugin(plugins.MobileTools, 'MobileTools');
   }
 
+  // legacy: visual rollback cleanup. Keep until old injected styles are fully removed from the baseline.
   function removeUnstableVisualLayer() {
     document.getElementById('visual-design-director-style')?.remove();
     document.body?.classList.remove('visual-design-v1');
   }
 
+  // legacy UI injection block starts here: model picker helpers and injected style.
+  // Target home: chat-source-badges.js or a future model-picker.js.
   function escapeHtml(value) {
     return String(value ?? '')
       .replaceAll('&', '&amp;')
@@ -316,6 +329,8 @@
     }, true);
   }
 
+  // legacy boot path: navigation file currently starts model picker UI to preserve the stable baseline.
+  // Later cleanup should move this boot path to chat-source-badges.js/model-picker.js and leave only patchAll() here.
   function bootModelPolish() {
     installModelHero();
     installModelButtonFallback();
