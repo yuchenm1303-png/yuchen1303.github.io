@@ -5,7 +5,44 @@
   if (!shared) return;
 
   const STYLE_ID = 'chat-source-badges-core-style';
-  const { SOURCE_LABELS, readMessages, escapeHtml, pinChatBottom } = shared;
+  const { SOURCE_LABELS, readMessages, readModelPreference, escapeHtml, pinChatBottom } = shared;
+
+  function windowMessages() {
+    return Array.isArray(window.chatMessages) ? window.chatMessages : [];
+  }
+
+  function mergedMessages() {
+    const map = new Map();
+    [...readMessages(), ...windowMessages()].filter(Boolean).forEach((message) => {
+      if (message?.id) map.set(String(message.id), message);
+    });
+    return map;
+  }
+
+  function selectedFallbackMessage(row) {
+    const pref = String(readModelPreference?.() || 'auto').toLowerCase();
+    const map = {
+      kimi: { source: 'nvidia_chat', provider: 'NVIDIA NIM', model: 'moonshotai/kimi-k2.6', modelLabel: 'moonshotai/kimi-k2.6 · via NVIDIA NIM' },
+      mistral: { source: 'nvidia_chat', provider: 'NVIDIA NIM', model: 'mistralai/mistral-medium-3.5-128b', modelLabel: 'Mistral Medium 3.5 128B · via NVIDIA NIM' },
+      gemini: { source: 'gemini_chat', provider: 'Gemini', model: 'gemini-2.5-flash', modelLabel: 'Gemini 2.5 Flash' },
+      workers: { source: 'workers_ai', provider: 'Cloudflare Workers AI', model: '@cf/meta/llama-3.1-8b-instruct', modelLabel: 'Workers AI' },
+      auto: { source: 'cloud_ai', provider: 'Auto', model: 'auto', modelLabel: '自动模型池' },
+    };
+    const fallback = map[pref] || map.auto;
+    return {
+      id: row?.dataset?.messageId || '',
+      role: row?.classList?.contains('user') ? 'user' : 'assistant',
+      ...fallback,
+      version: '',
+      __fallbackBadge: true,
+    };
+  }
+
+  function getMessage(row, byId) {
+    const id = row?.dataset?.messageId;
+    if (id && byId.has(String(id))) return byId.get(String(id));
+    return selectedFallbackMessage(row);
+  }
 
   function inferSource(message) {
     if (!message || message.role !== 'assistant') return null;
@@ -79,15 +116,16 @@
   }
 
   function installStyle() {
-    if (document.getElementById(STYLE_ID)) return;
+    const old = document.getElementById(STYLE_ID);
+    if (old) old.remove();
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #chatMessages{scroll-padding-bottom:28px!important;padding-bottom:12px!important;}
+      #chatMessages{scroll-padding-bottom:38px!important;padding-bottom:18px!important;}
       .chat-row,.chat-response,.chat-bubble{overflow:visible!important;}
-      .chat-source-badge-row{display:flex;justify-content:flex-start;margin:8px 0 2px 4px;gap:6px;flex-wrap:wrap;min-height:22px;position:relative;z-index:3;}
-      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 2px 0;}
-      .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;line-height:1.12;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;word-break:break-word;box-sizing:border-box;}
+      .chat-source-badge-row{display:flex!important;justify-content:flex-start;margin:8px 0 3px 4px;gap:6px;flex-wrap:wrap;min-height:24px;position:relative;z-index:9;opacity:1!important;visibility:visible!important;}
+      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 3px 0;}
+      .chat-source-badge{display:inline-flex!important;align-items:center;gap:5px;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;line-height:1.12;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;white-space:normal;word-break:break-word;box-sizing:border-box;opacity:1!important;visibility:visible!important;}
       .chat-source-badge::before{content:"";width:6px;height:6px;min-width:6px;border-radius:999px;background:currentColor;opacity:.85;}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
@@ -107,50 +145,51 @@
     document.head.appendChild(style);
   }
 
-  function removeDuplicateBadges(row) {
-    const badges = row.querySelectorAll(':scope .chat-source-badge-row');
-    badges.forEach((badge, index) => { if (index > 0) badge.remove(); });
+  function badgeHtml(message) {
+    if (message.role === 'user') {
+      const att = attachmentMeta(message);
+      if (!att) return '';
+      const detail = att.detail ? ` · ${escapeHtml(att.detail)}` : '';
+      return `<div class="chat-source-badge-row" data-chat-source-badge="1" data-badge-key="user-attachment"><span class="chat-source-badge attachment">${escapeHtml(att.label)}${detail}</span></div>`;
+    }
+    const source = inferSource(message);
+    const meta = sourceMeta(source, message);
+    const detail = modelText(message);
+    const detailText = detail ? ` · ${escapeHtml(detail)}` : '';
+    const key = `${source || 'cloud_ai'}|${message.modelLabel || message.model || ''}|${message.version || ''}|${message.__fallbackBadge ? 'fallback' : 'real'}`;
+    return `<div class="chat-source-badge-row" data-chat-source-badge="1" data-badge-key="${escapeHtml(key)}"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`;
+  }
+
+  function ensureBadge(row, byId) {
+    if (!row || row.id === 'typingRow') return false;
+    const response = row.querySelector('.chat-response,.chat-bubble');
+    if (!response) return false;
+    const message = getMessage(row, byId);
+    const html = badgeHtml(message);
+    const existing = row.querySelector(':scope .chat-source-badge-row');
+    if (!html) {
+      if (existing) existing.remove();
+      return false;
+    }
+    const keyMatch = html.match(/data-badge-key="([^"]*)"/);
+    const nextKey = keyMatch ? keyMatch[1] : '';
+    const currentKey = existing?.dataset?.badgeKey || '';
+    const shouldReplaceFallback = existing?.dataset?.badgeKey?.includes('fallback') && !message.__fallbackBadge;
+    if (existing && currentKey === nextKey) return false;
+    if (existing && !shouldReplaceFallback && currentKey && nextKey && currentKey !== nextKey && message.__fallbackBadge) return false;
+    row.querySelectorAll(':scope .chat-source-badge-row').forEach((node) => node.remove());
+    response.insertAdjacentHTML('beforeend', html);
+    row.dataset.sourceBadgeReady = 'ready';
+    return true;
   }
 
   function addBadges() {
-    let inserted = false;
-    const messages = readMessages();
-    const byId = new Map(messages.map((message) => [String(message.id), message]));
-    document.querySelectorAll('.chat-row[data-message-id]').forEach((row) => {
-      const id = row.dataset.messageId;
-      if (!id) return;
-      removeDuplicateBadges(row);
-      if (row.querySelector(':scope .chat-source-badge-row')) {
-        row.dataset.sourceBadgeReady = 'ready';
-        return;
-      }
-      const message = byId.get(String(id));
-      if (!message) return;
-      const response = row.querySelector('.chat-response,.chat-bubble');
-      if (!response) return;
-
-      if (message.role === 'user') {
-        const att = attachmentMeta(message);
-        if (att) {
-          const detail = att.detail ? ` · ${escapeHtml(att.detail)}` : '';
-          response.insertAdjacentHTML('beforeend', `<div class="chat-source-badge-row"><span class="chat-source-badge attachment">${escapeHtml(att.label)}${detail}</span></div>`);
-          inserted = true;
-        }
-        row.dataset.sourceBadgeReady = 'ready';
-        return;
-      }
-
-      if (message.role === 'assistant') {
-        const source = inferSource(message);
-        const meta = sourceMeta(source, message);
-        const detail = modelText(message);
-        const detailText = detail ? ` · ${escapeHtml(detail)}` : '';
-        response.insertAdjacentHTML('beforeend', `<div class="chat-source-badge-row"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`);
-        row.dataset.sourceBadgeReady = 'ready';
-        inserted = true;
-      }
+    const byId = mergedMessages();
+    let changed = false;
+    document.querySelectorAll('.chat-row').forEach((row) => {
+      if (ensureBadge(row, byId)) changed = true;
     });
-    if (inserted) pinChatBottom('badge-insert');
+    if (changed) pinChatBottom('badge-insert');
   }
 
   function installObserver() {
@@ -158,17 +197,19 @@
     if (!target || target.dataset.sourceBadgeObserver === 'ready') return;
     target.dataset.sourceBadgeObserver = 'ready';
     const observer = new MutationObserver(() => {
-      addBadges();
-      pinChatBottom('badge-mutation');
+      requestAnimationFrame(addBadges);
+      setTimeout(addBadges, 80);
+      setTimeout(addBadges, 260);
     });
-    observer.observe(target, { childList: true, subtree: true });
+    observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-message-id'] });
     addBadges();
   }
 
   function boot() {
     installStyle();
     installObserver();
-    window.setInterval(addBadges, 900);
+    window.setInterval(addBadges, 450);
+    window.addEventListener('ai-ledger-model-change', addBadges);
   }
 
   window.ChatSourceBadges = { refresh: addBadges, labels: SOURCE_LABELS, pinBottom: pinChatBottom };
