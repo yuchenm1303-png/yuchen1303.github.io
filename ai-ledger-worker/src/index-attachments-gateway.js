@@ -1,6 +1,6 @@
 import commandWorker from "./index.js";
 
-const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v8-strict-model-picker-vision";
+const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v9-nvidia-model-split-vision";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
@@ -19,15 +19,15 @@ export default {
       return json({
         ok: true,
         version: GATEWAY_VERSION,
-        mode: "attachment_gateway_strict_model_picker_vision",
-        modelPickerRule: "auto allows fallback; manual selection is strict",
+        mode: "attachment_gateway_strict_model_picker_split_nvidia_models_vision",
+        modelPickerRule: "auto allows fallback; manual selection is strict; Kimi and Mistral are separate entries",
         commandWorker: base,
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasNvidiaKey: Boolean(env.NVIDIA_API_KEY),
         hasWorkersAI: Boolean(env.AI),
         geminiVisionModel: geminiModel(env),
-        nvidiaVisionModel: nvidiaVisionModel(env),
-        nvidiaVisionLabel: nvidiaVisionLabel(nvidiaVisionModel(env)),
+        nvidiaKimiVisionModel: nvidiaVisionModel(env, "kimi"),
+        nvidiaMistralVisionModel: nvidiaVisionModel(env, "mistral"),
         tools: ["attachments.image", "attachments.pdf", "attachments.text", "nvidia_vision", "gemini_vision", "workers_ai_vision"],
       }, 200, corsHeaders);
     }
@@ -63,16 +63,16 @@ async function analyzeAttachmentsWithFallback(env, body, attachments) {
   const steps = buildVisionSteps(preference);
 
   for (const step of steps) {
-    if (step === "nvidia") {
+    if (step === "kimi" || step === "mistral") {
       if (!env.NVIDIA_API_KEY) { errors.push("NVIDIA: missing NVIDIA_API_KEY"); continue; }
       if (!hasImage) { errors.push("NVIDIA: 当前仅对图片启用多模态接口，PDF 建议切 Gemini 或自动"); continue; }
       try {
-        const model = nvidiaVisionModel(env);
+        const model = nvidiaVisionModel(env, step);
         const meta = modelMeta("NVIDIA NIM", model, nvidiaVisionLabel(model));
-        const reply = await callNvidiaVision(env, body, attachments);
+        const reply = await callNvidiaVision(env, body, attachments, model);
         return responsePayload(reply, "nvidia_vision", meta);
       } catch (error) {
-        errors.push(`NVIDIA: ${String(error?.message || error).slice(0, 160)}`);
+        errors.push(`NVIDIA ${step}: ${String(error?.message || error).slice(0, 160)}`);
       }
     }
 
@@ -102,20 +102,21 @@ async function analyzeAttachmentsWithFallback(env, body, attachments) {
   const strict = preference !== "auto";
   const meta = strict ? selectedVisionMeta(env, preference) : modelMeta("Attachment Gateway", "all_failed", "附件识别失败");
   const message = strict
-    ? `你当前选择的是 ${meta.modelLabel}，但这个模型没有成功完成附件识别。已按“手动选择严格模式”停止回退，避免出现你选 Kimi 但实际由 Gemini 回答的情况。可以切回“自动”，或稍后再试。\n\n错误信息：${errors.join("；") || "所选模型不可用"}`
+    ? `你当前选择的是 ${meta.modelLabel}，但这个模型没有成功完成附件识别。已按“手动选择严格模式”停止回退，避免出现你选 Kimi/Mistral 但实际由 Gemini 回答的情况。可以切回“自动”，或稍后再试。\n\n错误信息：${errors.join("；") || "所选模型不可用"}`
     : `附件分析失败：${errors.join("；") || "所有视觉模型都不可用"}`;
   return responsePayload(message, strict ? "selected_model_failed" : "vision_all_failed", meta);
 }
 
 function buildVisionSteps(preference) {
-  if (preference === "kimi") return ["nvidia"];
+  if (preference === "kimi") return ["kimi"];
+  if (preference === "mistral") return ["mistral"];
   if (preference === "gemini") return ["gemini"];
   if (preference === "workers") return ["workers"];
-  return ["gemini", "nvidia", "workers"];
+  return ["gemini", "kimi", "mistral", "workers"];
 }
 
 function selectedVisionMeta(env, preference) {
-  if (preference === "kimi") return modelMeta("NVIDIA NIM", nvidiaVisionModel(env), nvidiaVisionLabel(nvidiaVisionModel(env)));
+  if (preference === "kimi" || preference === "mistral") return modelMeta("NVIDIA NIM", nvidiaVisionModel(env, preference), nvidiaVisionLabel(nvidiaVisionModel(env, preference)));
   if (preference === "gemini") return modelMeta("Gemini", geminiModel(env), geminiModelLabel(geminiModel(env)));
   if (preference === "workers") return modelMeta("Cloudflare Workers AI", "@cf/llava-hf/llava-1.5-7b-hf", "Workers AI LLaVA 1.5 7B");
   return modelMeta("Attachment Gateway", "auto", "自动视觉模型池");
@@ -178,8 +179,7 @@ async function callGeminiAttachment(env, body, attachments) {
   return text || "我看到了附件，但没有提取到明确内容。你可以补一句想让我重点看什么。";
 }
 
-async function callNvidiaVision(env, body, attachments) {
-  const model = nvidiaVisionModel(env);
+async function callNvidiaVision(env, body, attachments, model) {
   const endpoint = `${nvidiaBaseUrl(env)}/chat/completions`;
   const userText = lastUserText(body?.messages, body?.text) || "请分析我上传的图片，提取图中文字并说明关键内容。";
   const content = [{ type: "text", text: buildPrompt(userText, attachments) }];
@@ -228,7 +228,11 @@ function buildPrompt(userText, attachments) {
 
 function normalizeModelPreference(value) {
   const v = String(value || "auto").toLowerCase().trim();
-  if (["auto", "gemini", "kimi", "nvidia", "workers", "workers_ai"].includes(v)) return v === "nvidia" ? "kimi" : v === "workers_ai" ? "workers" : v;
+  if (["auto", "gemini", "kimi", "mistral", "nvidia", "workers", "workers_ai"].includes(v)) {
+    if (v === "nvidia") return "kimi";
+    if (v === "workers_ai") return "workers";
+    return v;
+  }
   return "auto";
 }
 
@@ -236,7 +240,11 @@ function hasImageAttachment(attachments) { return attachments.some((item) => ite
 function geminiModel(env) { return String(env.GEMINI_VISION_MODEL || env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, ""); }
 function geminiModelLabel(model) { const value = String(model || ""); if (/2\.5.*flash/i.test(value)) return "Gemini 2.5 Flash"; if (/2\.5.*pro/i.test(value)) return "Gemini 2.5 Pro"; if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash"; return value || "Gemini"; }
 function nvidiaBaseUrl(env) { return String(env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/+$/g, ""); }
-function nvidiaVisionModel(env) { return String(env.NVIDIA_VISION_MODEL || env.NVIDIA_MULTIMODAL_MODEL || env.NVIDIA_CHAT_MODEL || env.NVIDIA_MODEL || "moonshotai/kimi-k2.6"); }
+function pickNvidiaEnvModel(...values) { return values.map((v) => String(v || "").trim()).find(Boolean) || ""; }
+function nvidiaVisionModel(env, preference = "kimi") {
+  if (preference === "mistral") return pickNvidiaEnvModel(env.NVIDIA_MISTRAL_VISION_MODEL, env.NVIDIA_MISTRAL_MODEL, "mistralai/mistral-medium-3.5-128b");
+  return pickNvidiaEnvModel(env.NVIDIA_KIMI_VISION_MODEL, env.NVIDIA_KIMI_MODEL, env.NVIDIA_VISION_MODEL && String(env.NVIDIA_VISION_MODEL).toLowerCase().includes("kimi") ? env.NVIDIA_VISION_MODEL : "", "moonshotai/kimi-k2.6");
+}
 function nvidiaVisionLabel(model) { const value = String(model || ""); if (/kimi/i.test(value)) return `${value} · via NVIDIA NIM`; if (/qwen/i.test(value)) return `${value} · via NVIDIA NIM`; if (/mistral/i.test(value)) return `${value} · via NVIDIA NIM`; return `${value || "多模态模型"} · via NVIDIA NIM`; }
 function modelMeta(provider, model, label) { return { provider: String(provider || ""), model: String(model || ""), modelLabel: String(label || model || provider || "Cloud Model") }; }
 function appendRunLabel(version, label) { const clean = String(label || "").trim(); return clean && !String(version || "").includes(clean) ? `${version} · ${clean}` : version; }
