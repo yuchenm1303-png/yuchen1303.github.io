@@ -1,12 +1,14 @@
 (() => {
+  'use strict';
+
   const STYLE_ID = 'settings-groups-style';
   const DETAIL_ID = 'settingsGroupDetail';
   let returnAnchor = null;
   let movedNodes = [];
+  let settingsObserver = null;
 
   function installStyle() {
-    const old = document.querySelector(`#${STYLE_ID}`);
-    if (old) old.remove();
+    if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -177,7 +179,7 @@
   }
 
   function ensureDetail() {
-    let detail = document.querySelector(`#${DETAIL_ID}`);
+    let detail = document.getElementById(DETAIL_ID);
     if (detail) return detail;
     detail = document.createElement('div');
     detail.id = DETAIL_ID;
@@ -196,7 +198,7 @@
       if (event.target === detail || event.target.closest('.settings-group-close')) closeDetail();
     });
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') closeDetail();
+      if (event.key === 'Escape' && detail.classList.contains('open')) closeDetail();
     });
     return detail;
   }
@@ -213,12 +215,12 @@
   }
 
   function closeDetail() {
-    const detail = document.querySelector(`#${DETAIL_ID}`);
+    const detail = document.getElementById(DETAIL_ID);
     if (detail) detail.classList.remove('open', 'preparing', 'ready');
     document.body.classList.remove('detail-open', 'settings-group-open', 'settings-group-opening');
     restoreMovedNodes();
-    const content = document.querySelector('#settingsGroupContent');
-    if (content) content.innerHTML = '';
+    const content = document.getElementById('settingsGroupContent');
+    if (content) content.textContent = '';
   }
 
   const GROUPS = {
@@ -234,88 +236,121 @@
     const group = GROUPS[id];
     const nodes = [...document.querySelectorAll(`#view-settings > section[data-settings-group-target="${id}"]`)];
     if (!group || !nodes.length) return;
+
     const detail = ensureDetail();
-    const content = document.querySelector('#settingsGroupContent');
+    const content = document.getElementById('settingsGroupContent');
+    const title = document.getElementById('settingsGroupTitle');
+    const desc = document.getElementById('settingsGroupDesc');
+    if (!content || !title || !desc) return;
+
     document.body.classList.add('settings-group-opening');
     detail.classList.add('open', 'preparing');
-    document.querySelector('#settingsGroupTitle').textContent = group.title;
-    document.querySelector('#settingsGroupDesc').textContent = group.desc;
-    content.innerHTML = '';
+    title.textContent = group.title;
+    desc.textContent = group.desc;
+    content.textContent = '';
 
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        returnAnchor = document.createElement('span');
-        returnAnchor.hidden = true;
-        returnAnchor.dataset.settingsReturnAnchor = id;
-        nodes[0].before(returnAnchor);
-        movedNodes = nodes;
+      returnAnchor = document.createElement('span');
+      returnAnchor.hidden = true;
+      returnAnchor.dataset.settingsReturnAnchor = id;
+      nodes[0].before(returnAnchor);
+      movedNodes = nodes;
 
-        nodes.forEach((node) => {
-          node.classList.remove('settings-group-hidden');
-          content.appendChild(node);
-        });
-
-        detail.classList.remove('preparing');
-        detail.classList.add('ready');
-        document.body.classList.remove('settings-group-opening');
-        document.body.classList.add('detail-open', 'settings-group-open');
+      const fragment = document.createDocumentFragment();
+      nodes.forEach((node) => {
+        node.classList.remove('settings-group-hidden');
+        fragment.appendChild(node);
       });
+      content.appendChild(fragment);
+
+      detail.classList.remove('preparing');
+      detail.classList.add('ready');
+      document.body.classList.remove('settings-group-opening');
+      document.body.classList.add('detail-open', 'settings-group-open');
     });
+  }
+
+  function tagSection(section) {
+    if (!section || section.dataset.settingsGroupTarget || section.classList.contains('settings-group-card')) return false;
+    const title = section.querySelector('.section-head h2')?.textContent?.trim() || '';
+    let target = '';
+    if (section.id === 'appearancePlusPanel' || title.includes('显示') || title.includes('语言')) target = 'display';
+    else if (title.includes('账号') || title.includes('同步')) target = 'account';
+    else if (section.id === 'assistantPreferencePanel' || title.includes('手机偏好')) target = 'phone';
+    else if (section.querySelector('#budgetInput') || title.includes('预算') || title.includes('数据工具')) target = 'data';
+    else if (section.querySelector('#backgroundPicker') || title.includes('外观')) target = 'appearance';
+    if (!target) return false;
+    section.dataset.settingsGroupTarget = target;
+    section.classList.add('settings-group-hidden');
+    return true;
   }
 
   function tagOriginalSections(settingsView) {
     if (!settingsView) return;
-    const sections = [...settingsView.querySelectorAll(':scope > section')].filter((s) => !s.classList.contains('settings-group-card'));
-    sections.forEach((section) => {
-      const title = section.querySelector('.section-head h2')?.textContent?.trim() || '';
-      if (section.id === 'appearancePlusPanel' || title.includes('显示') || title.includes('语言')) section.dataset.settingsGroupTarget = 'display';
-      else if (title.includes('账号') || title.includes('同步')) section.dataset.settingsGroupTarget = 'account';
-      else if (section.id === 'assistantPreferencePanel' || title.includes('手机偏好')) section.dataset.settingsGroupTarget = 'phone';
-      else if (section.querySelector('#budgetInput') || title.includes('预算') || title.includes('数据工具')) section.dataset.settingsGroupTarget = 'data';
-      else if (section.querySelector('#backgroundPicker') || title.includes('外观')) section.dataset.settingsGroupTarget = 'appearance';
-      else return;
-      section.classList.add('settings-group-hidden');
-    });
+    [...settingsView.querySelectorAll(':scope > section')].forEach(tagSection);
   }
 
   function installGroups() {
-    const settingsView = document.querySelector('#view-settings');
-    if (!settingsView) return;
+    const settingsView = document.getElementById('view-settings');
+    if (!settingsView) return false;
+
     tagOriginalSections(settingsView);
-    if (document.querySelector('#settingsGroupList')) return;
-    const header = settingsView.querySelector('.page-header');
-    const list = document.createElement('div');
-    list.id = 'settingsGroupList';
-    list.className = 'settings-group-list';
-    list.append(
-      makeEntry({ id: 'account', icon: '☁', title: '账号与同步', desc: '登录、注册、本地模式和云同步。' }),
-      makeEntry({ id: 'display', icon: 'Aa', title: '显示与语言', desc: '语言、字体、玻璃透明度、模糊强度和动效。' }),
-      makeEntry({ id: 'phone', icon: '⌖', title: '手机偏好', desc: '家庭地址、默认地图等手机任务偏好。' }),
-      makeEntry({ id: 'appearance', icon: '✦', title: '背景外观', desc: '切换内置背景风格。' }),
-      makeEntry({ id: 'data', icon: '▤', title: '数据与预算', desc: '预算、导出、清空记录等数据工具。' })
-    );
-    header?.after(list);
-    list.addEventListener('click', (event) => {
-      const card = event.target.closest('[data-settings-group]');
-      if (card) openGroup(card.dataset.settingsGroup);
-    });
-    list.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      const card = event.target.closest('[data-settings-group]');
-      if (!card) return;
-      event.preventDefault();
-      openGroup(card.dataset.settingsGroup);
-    });
+    if (!document.getElementById('settingsGroupList')) {
+      const header = settingsView.querySelector('.page-header');
+      const list = document.createElement('div');
+      list.id = 'settingsGroupList';
+      list.className = 'settings-group-list';
+      list.append(
+        makeEntry({ id: 'account', icon: '☁', title: '账号与同步', desc: '登录、注册、本地模式和云同步。' }),
+        makeEntry({ id: 'display', icon: 'Aa', title: '显示与语言', desc: '语言、字体、玻璃透明度、模糊强度和动效。' }),
+        makeEntry({ id: 'phone', icon: '⌖', title: '手机偏好', desc: '家庭地址、默认地图等手机任务偏好。' }),
+        makeEntry({ id: 'appearance', icon: '✦', title: '背景外观', desc: '切换内置背景风格。' }),
+        makeEntry({ id: 'data', icon: '▤', title: '数据与预算', desc: '预算、导出、清空记录等数据工具。' })
+      );
+      header?.after(list);
+      list.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-settings-group]');
+        if (card) openGroup(card.dataset.settingsGroup);
+      });
+      list.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const card = event.target.closest('[data-settings-group]');
+        if (!card) return;
+        event.preventDefault();
+        openGroup(card.dataset.settingsGroup);
+      });
+    }
+
+    if (!settingsObserver) {
+      settingsObserver = new MutationObserver((mutations) => {
+        let shouldRetag = false;
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            if (node.matches?.('section') || node.querySelector?.('section')) shouldRetag = true;
+          });
+        });
+        if (shouldRetag) requestAnimationFrame(() => tagOriginalSections(settingsView));
+      });
+      settingsObserver.observe(settingsView, { childList: true });
+    }
+
+    return true;
   }
 
   function boot() {
+    if (document.documentElement.dataset.settingsGroupsReady === 'true') return;
+    document.documentElement.dataset.settingsGroupsReady = 'true';
     installStyle();
     ensureDetail();
-    setTimeout(installGroups, 80);
-    setTimeout(installGroups, 500);
-    setTimeout(installGroups, 1200);
+    if (!installGroups()) {
+      const waitForSettings = new MutationObserver(() => {
+        if (installGroups()) waitForSettings.disconnect();
+      });
+      waitForSettings.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
 })();
