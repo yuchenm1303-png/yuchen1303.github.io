@@ -3,30 +3,53 @@
 
   const STYLE_ID = 'glass-stability-style';
   const PERF_KEY = 'ai-assistant-performance-mode-v1';
+  const VALID_MODES = ['auto', 'lite', 'balanced', 'full'];
   let motionTimer = 0;
 
   function getSavedMode() {
-    try { return localStorage.getItem(PERF_KEY) || 'auto'; }
-    catch { return 'auto'; }
+    try {
+      const mode = localStorage.getItem(PERF_KEY) || 'auto';
+      return VALID_MODES.includes(mode) ? mode : 'auto';
+    } catch {
+      return 'auto';
+    }
   }
 
-  function detectLowPowerDevice() {
+  function getDeviceInfo() {
     const ua = navigator.userAgent || '';
     const isAndroid = /Android/i.test(ua);
     const memory = Number(navigator.deviceMemory || 0);
     const cores = Number(navigator.hardwareConcurrency || 0);
-    const narrow = Math.min(window.innerWidth || 999, window.innerHeight || 999) <= 390;
-    return isAndroid && ((memory && memory <= 4) || (cores && cores <= 4) || narrow);
+    const minWidth = Math.min(window.innerWidth || 999, window.innerHeight || 999);
+    const narrow = minWidth <= 390;
+    const touch = matchMedia?.('(pointer: coarse)')?.matches || false;
+    return { isAndroid, memory, cores, minWidth, narrow, touch };
+  }
+
+  function detectLowPowerDevice() {
+    const info = getDeviceInfo();
+    return info.isAndroid && ((info.memory && info.memory <= 4) || (info.cores && info.cores <= 4) || info.narrow);
+  }
+
+  function resolvePerformanceMode(mode = getSavedMode()) {
+    if (mode === 'lite' || mode === 'balanced' || mode === 'full') return mode;
+    return detectLowPowerDevice() ? 'lite' : 'balanced';
   }
 
   function applyPerformanceMode() {
-    const mode = getSavedMode();
-    const lowPower = mode === 'lite' || (mode === 'auto' && detectLowPowerDevice());
-    const balanced = mode !== 'full';
+    const selected = getSavedMode();
+    const resolved = resolvePerformanceMode(selected);
+    const lowPower = resolved === 'lite';
+    const balanced = resolved === 'balanced';
+    const full = resolved === 'full';
     document.body?.classList.toggle('assistant-lite-motion', lowPower);
-    document.body?.classList.toggle('assistant-balanced-performance', balanced && !lowPower);
-    document.body?.classList.toggle('assistant-full-glass', mode === 'full');
-    document.documentElement.dataset.performanceMode = lowPower ? 'lite' : (balanced ? 'balanced' : 'full');
+    document.body?.classList.toggle('assistant-balanced-performance', balanced);
+    document.body?.classList.toggle('assistant-full-glass', full);
+    document.documentElement.dataset.performanceMode = resolved;
+    document.documentElement.dataset.performanceModeSelected = selected;
+    window.dispatchEvent(new CustomEvent('assistant-performance-change', {
+      detail: { selected, resolved, device: getDeviceInfo() },
+    }));
   }
 
   function markInteractiveMotion() {
@@ -152,13 +175,32 @@
         -webkit-backdrop-filter: blur(12px) saturate(120%) brightness(1.04) !important;
       }
 
+      body.assistant-full-glass .glass-card,
+      body.assistant-full-glass .chat-shell,
+      body.assistant-full-glass .summary-card,
+      body.assistant-full-glass .metric-card,
+      body.assistant-full-glass .chart-card,
+      body.assistant-full-glass .tool-card,
+      body.assistant-full-glass .auth-sheet,
+      body.assistant-full-glass .mobile-command-card,
+      body.assistant-full-glass .tools-panel-card,
+      body.assistant-full-glass .account-row,
+      body.assistant-full-glass .appearance-detail-panel,
+      body.assistant-full-glass .settings-group-sheet {
+        backdrop-filter: blur(var(--assistant-glass-panel-blur, 16px)) saturate(128%) brightness(1.055) !important;
+        -webkit-backdrop-filter: blur(var(--assistant-glass-panel-blur, 16px)) saturate(128%) brightness(1.055) !important;
+      }
+
       body.assistant-balanced-performance.keyboard-open .glass-card,
       body.assistant-balanced-performance.keyboard-open .chat-shell,
       body.assistant-balanced-performance.settings-group-open .glass-card,
       body.assistant-balanced-performance.settings-group-open .settings-group-sheet,
       body.assistant-balanced-performance.viewport-resizing .glass-card,
       body.assistant-balanced-performance.assistant-interacting .mobile-command-card,
-      body.assistant-balanced-performance.assistant-interacting .settings-group-card {
+      body.assistant-balanced-performance.assistant-interacting .settings-group-card,
+      body.assistant-full-glass.keyboard-open .glass-card,
+      body.assistant-full-glass.viewport-resizing .glass-card,
+      body.assistant-full-glass.assistant-interacting .settings-group-card {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
       }
@@ -272,9 +314,14 @@
     document.addEventListener('pointerdown', markInteractiveMotion, { passive: true, capture: true });
     document.addEventListener('touchstart', markInteractiveMotion, { passive: true, capture: true });
     window.AssistantPerformance = {
+      key: PERF_KEY,
+      modes: VALID_MODES,
       getMode: getSavedMode,
+      getSelectedMode: getSavedMode,
+      getResolvedMode: () => resolvePerformanceMode(getSavedMode()),
+      getDeviceInfo,
       setMode(mode = 'auto') {
-        const next = ['auto', 'lite', 'full'].includes(mode) ? mode : 'auto';
+        const next = VALID_MODES.includes(mode) ? mode : 'auto';
         localStorage.setItem(PERF_KEY, next);
         applyPerformanceMode();
       },
