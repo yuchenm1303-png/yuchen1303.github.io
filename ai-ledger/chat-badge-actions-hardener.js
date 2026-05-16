@@ -128,15 +128,15 @@
       @keyframes chatBubbleInUser{0%{opacity:0;transform:translate(10px,12px) scale(.965);filter:blur(4px)}68%{opacity:1;transform:translate(-1px,-1px) scale(1.006);filter:blur(0)}100%{opacity:1;transform:translate(0,0) scale(1);filter:blur(0)}}
       @keyframes chatBadgeIn{0%{opacity:0;transform:translateY(-4px) scale(.94)}100%{opacity:1;transform:translateY(0) scale(1)}}
       @keyframes chatActionsIn{0%{opacity:0;transform:translateY(-3px) scale(.96)}100%{opacity:1;transform:translateY(0) scale(1)}}
-      .chat-hard-badge{display:inline-flex!important;align-items:center!important;gap:6px!important;width:fit-content!important;max-width:min(92%,620px)!important;box-sizing:border-box!important;margin:9px 0 2px 8px!important;padding:7px 12px!important;border-radius:999px!important;font-size:11px!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.01em!important;white-space:normal!important;word-break:break-word!important;opacity:1!important;visibility:visible!important;position:relative!important;z-index:30!important;pointer-events:none!important;color:rgba(238,250,255,.84)!important;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,.075))!important;border:1px solid rgba(255,255,255,.30)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.30),0 10px 22px rgba(0,0,0,.11)!important;backdrop-filter:blur(14px) saturate(150%)!important;-webkit-backdrop-filter:blur(14px) saturate(150%)!important;}
-      .chat-row.user .chat-hard-badge{margin-left:auto!important;margin-right:8px!important;}
+      .chat-hard-badge{display:inline-flex!important;align-items:center!important;gap:6px!important;width:fit-content!important;max-width:100%!important;box-sizing:border-box!important;margin:14px 0 0 0!important;padding:7px 12px!important;border-radius:999px!important;font-size:11px!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.01em!important;white-space:normal!important;word-break:break-word!important;opacity:1!important;visibility:visible!important;position:relative!important;z-index:30!important;pointer-events:none!important;color:rgba(238,250,255,.84)!important;background:linear-gradient(135deg,rgba(255,255,255,.20),rgba(255,255,255,.075))!important;border:1px solid rgba(255,255,255,.25)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 8px 18px rgba(0,0,0,.10)!important;backdrop-filter:blur(14px) saturate(150%)!important;-webkit-backdrop-filter:blur(14px) saturate(150%)!important;}
+      .chat-row.user .chat-hard-badge{margin-left:auto!important;}
       .chat-hard-badge::before{content:'';display:inline-block;width:8px;height:8px;border-radius:999px;background:currentColor;opacity:.92;box-shadow:0 0 12px currentColor;flex:0 0 auto;}
-      .chat-hard-badge[data-tone="cloud"]{color:#8cf7ff!important;border-color:rgba(132,221,255,.38)!important;background:linear-gradient(135deg,rgba(33,197,255,.22),rgba(88,130,255,.10))!important;}
-      .chat-hard-badge[data-tone="gemini"]{color:#d6c8ff!important;border-color:rgba(173,145,255,.42)!important;background:linear-gradient(135deg,rgba(126,87,255,.24),rgba(236,72,153,.10))!important;}
-      .chat-hard-badge[data-tone="vision"]{color:#ffd1fb!important;border-color:rgba(236,72,153,.38)!important;background:linear-gradient(135deg,rgba(236,72,153,.20),rgba(126,87,255,.10))!important;}
-      .chat-hard-badge[data-tone="online"]{color:#9af8cc!important;border-color:rgba(22,190,121,.38)!important;background:linear-gradient(135deg,rgba(22,190,121,.20),rgba(33,197,255,.08))!important;}
-      .chat-hard-badge[data-tone="attachment"]{color:#e7edff!important;border-color:rgba(181,190,255,.38)!important;background:linear-gradient(135deg,rgba(148,163,255,.22),rgba(255,255,255,.08))!important;}
-      .chat-hard-badge[data-tone="error"]{color:#ffc1c1!important;border-color:rgba(255,91,91,.38)!important;background:linear-gradient(135deg,rgba(255,91,91,.22),rgba(236,72,153,.08))!important;}
+      .chat-hard-badge[data-tone="cloud"]{color:#8cf7ff!important;border-color:rgba(132,221,255,.38)!important;background:linear-gradient(135deg,rgba(33,197,255,.20),rgba(88,130,255,.10))!important;}
+      .chat-hard-badge[data-tone="gemini"]{color:#d6c8ff!important;border-color:rgba(173,145,255,.42)!important;background:linear-gradient(135deg,rgba(126,87,255,.22),rgba(236,72,153,.10))!important;}
+      .chat-hard-badge[data-tone="vision"]{color:#ffd1fb!important;border-color:rgba(236,72,153,.38)!important;background:linear-gradient(135deg,rgba(236,72,153,.18),rgba(126,87,255,.10))!important;}
+      .chat-hard-badge[data-tone="online"]{color:#9af8cc!important;border-color:rgba(22,190,121,.38)!important;background:linear-gradient(135deg,rgba(22,190,121,.18),rgba(33,197,255,.08))!important;}
+      .chat-hard-badge[data-tone="attachment"]{color:#e7edff!important;border-color:rgba(181,190,255,.38)!important;background:linear-gradient(135deg,rgba(148,163,255,.20),rgba(255,255,255,.08))!important;}
+      .chat-hard-badge[data-tone="error"]{color:#ffc1c1!important;border-color:rgba(255,91,91,.38)!important;background:linear-gradient(135deg,rgba(255,91,91,.20),rgba(236,72,153,.08))!important;}
       .chat-source-badge-row,.chat-message-actions:not(.chat-hard-actions){display:none!important;}
       .chat-bubble[data-badge-text]::before,.chat-response[data-badge-text]::before,.chat-bubble[data-badge-text]::after,.chat-response[data-badge-text]::after{display:none!important;content:none!important;}
       .chat-hard-actions{display:flex!important;align-items:center!important;gap:8px!important;min-height:30px!important;margin:8px 0 3px 8px!important;position:relative!important;z-index:31!important;}
@@ -180,12 +180,13 @@
 
     let changed = false;
     const badge = badgeFor(row, message);
-    const existingBadge = Array.from(row.children).find((child) => child.classList?.contains('chat-hard-badge'));
+    const existingBadge = bubble.querySelector(':scope > .chat-hard-badge');
+    row.querySelectorAll(':scope > .chat-hard-badge').forEach((node) => node.remove());
     if (badge?.text) {
       const key = `${badge.tone}|${badge.text}`;
       if (!existingBadge || existingBadge.dataset.key !== key) {
         existingBadge?.remove();
-        bubble.insertAdjacentHTML('afterend', `<div class="chat-hard-badge" data-tone="${escapeHtml(badge.tone)}" data-key="${escapeHtml(key)}">${escapeHtml(badge.text)}</div>`);
+        bubble.insertAdjacentHTML('beforeend', `<div class="chat-hard-badge" data-tone="${escapeHtml(badge.tone)}" data-key="${escapeHtml(key)}">${escapeHtml(badge.text)}</div>`);
         changed = true;
       }
     } else if (existingBadge) {
@@ -198,8 +199,7 @@
     if (shouldHaveActions) {
       if (!existingActions || existingActions.dataset.forMessage !== id) {
         existingActions?.remove();
-        const anchor = Array.from(row.children).find((child) => child.classList?.contains('chat-hard-badge')) || bubble;
-        anchor.insertAdjacentHTML('afterend', `<div class="chat-hard-actions" data-for-message="${escapeHtml(id)}"><button class="chat-action-btn retry" type="button" data-chat-action="retry" data-message-id="${escapeHtml(id)}">重试</button><button class="chat-action-btn copy" type="button" data-chat-action="copy" data-message-id="${escapeHtml(id)}">复制</button></div>`);
+        bubble.insertAdjacentHTML('afterend', `<div class="chat-hard-actions" data-for-message="${escapeHtml(id)}"><button class="chat-action-btn retry" type="button" data-chat-action="retry" data-message-id="${escapeHtml(id)}">重试</button><button class="chat-action-btn copy" type="button" data-chat-action="copy" data-message-id="${escapeHtml(id)}">复制</button></div>`);
         changed = true;
       }
     } else if (existingActions) {
@@ -214,11 +214,99 @@
     const host = document.querySelector('#chatMessages');
     if (!host) return;
     const byId = messageMap();
-    let changed = false;
-    host.querySelectorAll('.chat-row[data-message-id]').forEach((row) => {
-      if (ensureRow(row, byId)) changed = true;
-    });
-    if (changed) window.ChatScrollStability?.pinBottom?.('hard-badge-actions');
+    host.querySelectorAll('.chat-row[data-message-id]').forEach((row) => ensureRow(row, byId));
+  }
+
+  function flashButton(button, label) {
+    if (!button) return;
+    const old = button.textContent;
+    button.textContent = label;
+    button.disabled = true;
+    window.setTimeout(() => { button.textContent = old; button.disabled = false; }, 1100);
+  }
+
+  function findMessageIndex(id) {
+    const list = readMessages();
+    const index = list.findIndex((message) => String(message.id) === String(id));
+    return { list, index };
+  }
+
+  async function copyText(text) {
+    const value = String(text || '').trim();
+    if (!value) throw new Error('empty text');
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext !== false) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+    } catch {}
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    area.style.top = '0';
+    document.body.appendChild(area);
+    area.focus({ preventScroll: true });
+    area.select();
+    area.setSelectionRange(0, value.length);
+    const ok = document.execCommand('copy');
+    area.remove();
+    if (!ok) throw new Error('copy failed');
+  }
+
+  async function handleCopy(event, button) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    const { list, index } = findMessageIndex(button.dataset.messageId);
+    const message = index >= 0 ? list[index] : null;
+    const text = String(message?.content || '').trim();
+    if (!text) return flashButton(button, '无内容');
+    try {
+      await copyText(text);
+      flashButton(button, '已复制');
+    } catch {
+      const input = document.querySelector('#aiInput');
+      if (input) {
+        input.value = text;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus?.({ preventScroll: true });
+        flashButton(button, '已填入');
+      } else {
+        flashButton(button, '复制失败');
+      }
+    }
+  }
+
+  function handleRetry(event, button) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    const { list, index } = findMessageIndex(button.dataset.messageId);
+    if (index < 0) return flashButton(button, '未找到');
+    const prevUser = list.slice(0, index).reverse().find((message) => message.role === 'user' && String(message.content || '').trim());
+    if (!prevUser) return flashButton(button, '无上文');
+    const input = document.querySelector('#aiInput');
+    const form = document.querySelector('#chatForm');
+    if (!input || !form) return flashButton(button, '不可重试');
+    input.value = prevUser.content;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flashButton(button, '重试中');
+    window.ChatScrollStability?.pinBottom?.('retry-submit');
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  }
+
+  function installActionEvents() {
+    if (document.body.dataset.chatHardActionBound === '1') return;
+    document.body.dataset.chatHardActionBound = '1';
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-chat-action]');
+      if (!button) return;
+      if (button.dataset.chatAction === 'copy') handleCopy(event, button);
+      if (button.dataset.chatAction === 'retry') handleRetry(event, button);
+    }, true);
   }
 
   function installObserver() {
@@ -235,15 +323,16 @@
 
   function boot() {
     installStyle();
+    installActionEvents();
     installObserver();
     refresh();
-    setInterval(refresh, 700);
+    setInterval(refresh, 900);
     window.addEventListener('ai-ledger-model-change', refresh);
     window.addEventListener('focus', refresh);
   }
 
   const oldRefresh = window.ChatSourceBadges?.refresh;
-  window.ChatBadgeActionsHardener = { refresh, version: '20260516-hardener-2' };
+  window.ChatBadgeActionsHardener = { refresh, version: '20260516-hardener-3' };
   if (window.ChatSourceBadges) {
     window.ChatSourceBadges.refresh = () => {
       try { oldRefresh?.(); } catch {}
