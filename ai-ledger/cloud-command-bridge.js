@@ -26,16 +26,30 @@
   }
 
   function normalizeProvider(value) {
-    return value === 'amap' ? 'amap' : 'baidu';
+    const text = String(value || '').toLowerCase();
+    if (text === 'amap' || /高德|gaode|amap/.test(String(value || ''))) return 'amap';
+    return 'baidu';
   }
 
-  function normalizeMode(value) {
-    const text = String(value || '').toLowerCase();
-    if (['driving', 'drive', 'car'].includes(text) || /驾车|开车|自驾|打车/.test(value)) return 'driving';
-    if (['walking', 'walk'].includes(text) || /步行|走路/.test(value)) return 'walking';
-    if (['riding', 'bike', 'bicycle'].includes(text) || /骑行|骑车|单车/.test(value)) return 'riding';
-    if (['transit', 'bus', 'subway', 'metro'].includes(text) || /公交|地铁|公共交通|轻轨/.test(value)) return 'transit';
-    return 'driving';
+  function normalizeMode(value, fallback = 'driving') {
+    const raw = String(value || '').trim();
+    const text = raw.toLowerCase();
+    if (['transit', 'bus', 'subway', 'metro', 'public_transport', 'public-transport'].includes(text) || /公交|地铁|公共交通|轻轨|轨道|巴士|乘车|坐车/.test(raw)) return 'transit';
+    if (['walking', 'walk', 'foot'].includes(text) || /步行|走路|步走/.test(raw)) return 'walking';
+    if (['riding', 'bike', 'bicycle', 'cycling', 'ride'].includes(text) || /骑行|骑车|自行车|单车|电动车/.test(raw)) return 'riding';
+    if (['driving', 'drive', 'car', 'taxi'].includes(text) || /驾车|开车|自驾|打车|出租车|网约车/.test(raw)) return 'driving';
+    return fallback || 'driving';
+  }
+
+  function addModeAliases(params = {}) {
+    const mode = normalizeMode(params.mode || params.travelMode || params.navigationMode || params.transportMode);
+    return {
+      ...params,
+      mode,
+      travelMode: mode,
+      navigationMode: mode,
+      transportMode: mode,
+    };
   }
 
   function readNavPrefs() {
@@ -146,7 +160,7 @@
     const base = baseCommand ? clone(baseCommand) : null;
     const params = payload.params || payload.updates || payload;
     const mapProvider = normalizeProvider(params.mapProvider || base?.params?.mapProvider || prefs.mapProvider);
-    const mode = normalizeMode(params.mode || base?.params?.mode || prefs.defaultMode);
+    const mode = normalizeMode(params.mode || params.travelMode || params.navigationMode || params.transportMode || base?.params?.mode || prefs.defaultMode);
     const destinationAlias = cleanText(
       params.destinationAlias || params.destination || params.to || base?.params?.destinationAlias || base?.params?.destination || '',
       120
@@ -163,7 +177,7 @@
       type: 'navigate',
       title: `${MAP_LABELS[mapProvider]}导航`,
       summary: resolved.placeAddressMissing ? `${resolved.destinationAlias}（未填写地址）` : `到 ${resolved.destination}`,
-      params: {
+      params: addModeAliases({
         appName: MAP_LABELS[mapProvider],
         mapProvider,
         mode,
@@ -174,7 +188,7 @@
         matchedPlaceLabel: resolved.matchedPlaceLabel,
         placeAddressMissing: resolved.placeAddressMissing,
         homeAddressMissing: resolved.matchedPlaceKey === 'home' && resolved.placeAddressMissing,
-      },
+      }),
     };
   }
 
@@ -229,15 +243,24 @@
     return Boolean(body && Array.isArray(body.messages) && ('ledgerContext' in body || 'clientTools' in body || 'pendingDraft' in body));
   }
 
-  function getBridgePayload() {
+  function getWebSearchPayload() {
     return {
-      version: 'cloud-command-bridge-20260515-1',
+      forceWebSearch,
+      webSearchMode: forceWebSearch ? 'force' : 'auto',
+      searchMode: forceWebSearch ? 'force' : 'auto',
       webSearch: {
         mode: forceWebSearch ? 'force' : 'auto',
         force: forceWebSearch,
         keepAutoSearchWhenOff: true,
         requireCitationsWhenForced: true,
       },
+    };
+  }
+
+  function getBridgePayload() {
+    return {
+      version: 'cloud-command-bridge-20260516-2',
+      webSearch: getWebSearchPayload().webSearch,
       commandProtocol: {
         enabled: true,
         requireStructuredCommandWhenActionable: true,
@@ -283,10 +306,7 @@
             const bridge = getBridgePayload();
             const patchedBody = {
               ...body,
-              forceWebSearch: bridge.webSearch.force,
-              webSearchMode: bridge.webSearch.mode,
-              searchMode: bridge.webSearch.mode,
-              webSearch: bridge.webSearch,
+              ...getWebSearchPayload(),
               commandProtocol: bridge.commandProtocol,
               navigationContext: bridge.navigationContext,
               clientTools: [...(Array.isArray(body.clientTools) ? body.clientTools : []), {
@@ -328,7 +348,7 @@
       .web-search-toggle{
         display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.34);
         border-radius:999px;padding:8px 11px;background:rgba(255,255,255,.16);color:rgba(244,250,255,.88);
-        font-size:13px;font-weight:800;box-shadow:inset 0 1px 0 rgba(255,255,255,.24);backdrop-filter:blur(14px);
+        font-size:13px;font-weight:800;box-shadow:inset 0 1px 0 rgba(255,255,255,.24);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
         transition:transform .18s ease, background .18s ease, border-color .18s ease, color .18s ease;
       }
       .web-search-toggle:active{transform:scale(.96)}
@@ -378,8 +398,9 @@
 
   function installDebugApi() {
     window.CloudCommandBridge = {
-      version: '20260515-1',
+      version: '20260516-2',
       isForceWebSearch: () => forceWebSearch,
+      getWebSearchPayload,
       setForceWebSearch(value) {
         forceWebSearch = Boolean(value);
         localStorage.setItem(FORCE_SEARCH_KEY, String(forceWebSearch));
@@ -388,6 +409,7 @@
       normalizeCloudResponse,
       materializeCloudCommand,
       getBridgePayload,
+      normalizeMode,
     };
   }
 
@@ -396,8 +418,8 @@
     installToggle();
     installDebugApi();
     patchFetch();
-    window.setTimeout(() => { installToggle(); patchFetch(); }, 400);
-    window.setTimeout(() => { installToggle(); patchFetch(); }, 1200);
+    window.setTimeout(() => { installToggle(); patchFetch(); installDebugApi(); }, 400);
+    window.setTimeout(() => { installToggle(); patchFetch(); installDebugApi(); }, 1200);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
