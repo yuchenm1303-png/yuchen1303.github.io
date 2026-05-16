@@ -1,7 +1,7 @@
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
-const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v3-memory";
+const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v4-model-tags";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const ACTION_INTENTS = new Set([
   "navigation.start",
@@ -25,10 +25,11 @@ export default {
       return json({
         ok: true,
         version: ORCHESTRATOR_VERSION,
-        mode: "cloud_brain_local_executor_orchestrator_memory",
+        mode: "cloud_brain_local_executor_orchestrator_memory_model_tags",
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasTavilyKey: Boolean(env.TAVILY_API_KEY),
         hasWorkersAI: Boolean(env.AI),
+        defaultGeminiModel: geminiModel(env),
         commandWorker: commandHealth,
         attachmentGateway: attachmentHealth,
         intents: [
@@ -103,7 +104,7 @@ export default {
 
     // Local actions and ledger drafts are delegated to the command protocol worker.
     // The cloud only returns structured JSON; the local app still verifies and executes after confirmation.
-    return commandWorker.fetch(cloneRequestWithJson(request, {
+    return delegateCommandWorker(request, env, ctx, {
       ...body,
       memoryContext: memory,
       orchestrator: {
@@ -113,9 +114,23 @@ export default {
         toolInput: intent.toolInput || {},
         instruction: "For actionable local tasks, return structured command JSON. For normal chat, return action=chat.",
       },
-    }), env, ctx);
+    });
   },
 };
+
+async function delegateCommandWorker(originalRequest, env, ctx, body) {
+  const response = await commandWorker.fetch(cloneRequestWithJson(originalRequest, body), env, ctx);
+  const text = await response.clone().text().catch(() => "");
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch {}
+  if (!data || typeof data !== "object") return response;
+  const meta = modelMeta("Gemini", geminiModel(env), "Command Planner");
+  return json({
+    ...data,
+    ...meta,
+    version: appendRunLabel(data.version || ORCHESTRATOR_VERSION, meta.modelLabel),
+  }, response.status, response.headers);
+}
 
 async function safeHealth(worker, originalRequest, env, ctx) {
   try {
@@ -147,7 +162,7 @@ async function classifyIntent(env, body, text, memory = {}) {
   if (!env.GEMINI_API_KEY) return fallback;
 
   try {
-    const model = String(env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, "");
+    const model = geminiModel(env);
     const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
     const messages = Array.isArray(body?.messages) ? body.messages.slice(-10) : [];
     const prompt = [
@@ -239,18 +254,18 @@ function previousAssistantText(body) {
 async function weather(locationOrText, memory = {}) {
   const location = cleanWeatherLocation(extractWeatherLocation(locationOrText)) || cleanWeatherLocation(memory.currentCity || memory.currentLocation);
   if (!location) {
-    return baseResponse("你想查哪个城市的天气？比如可以说：重庆今天会下雨吗。", "weather_need_location");
+    return baseResponse("你想查哪个城市的天气？比如可以说：重庆今天会下雨吗。", "weather_need_location", modelMeta("Open-Meteo", "weather-forecast", "Open-Meteo"));
   }
   try {
     const place = await geocode(location);
-    if (!place) return baseResponse(`我没有找到“${location}”的天气位置。可以换成更明确的城市名，比如“重庆市天气”。`, "weather_tool");
+    if (!place) return baseResponse(`我没有找到“${location}”的天气位置。可以换成更明确的城市名，比如“重庆市天气”。`, "weather_tool", modelMeta("Open-Meteo", "geocoding+forecast", "Open-Meteo"));
     const f = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=3&timezone=auto`);
     const c = f.current || {};
     const d = f.daily || {};
     const rain = d.precipitation_probability_max?.[0];
-    return baseResponse(`${place.name}${place.admin1 ? `（${place.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, memory.currentCity ? "weather_tool_memory" : "weather_tool");
+    return baseResponse(`${place.name}${place.admin1 ? `（${place.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, memory.currentCity ? "weather_tool_memory" : "weather_tool", modelMeta("Open-Meteo", "forecast-v1", "Open-Meteo"));
   } catch {
-    return baseResponse("天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。", "weather_error");
+    return baseResponse("天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。", "weather_error", modelMeta("Open-Meteo", "forecast-v1", "Open-Meteo"));
   }
 }
 
@@ -268,6 +283,7 @@ async function searchWeb(env, rawQuery) {
       const results = Array.isArray(data?.results) ? data.results.slice(0, 6) : [];
       if (!results.length && !data?.answer) throw new Error("Tavily empty");
       const lines = results.map((r, i) => `${i + 1}. ${r.title || r.url}${r.content ? `：${trim(r.content, 96)}` : ""}`);
+      const meta = modelMeta("Tavily", "tavily-search", "Tavily Search");
       return {
         ok: true,
         reply: `${data?.answer ? `${data.answer}\n\n` : ""}已通过 Tavily 联网搜索“${query}”。${lines.length ? `\n${lines.join("\n")}` : ""}`,
@@ -279,7 +295,8 @@ async function searchWeb(env, rawQuery) {
         sources: results.map((r) => ({ title: r.title || r.url, url: r.url, score: r.score, content: r.content })),
         citations: results.map((r) => r.url).filter(Boolean),
         source: "tavily_web_search",
-        version: ORCHESTRATOR_VERSION,
+        ...meta,
+        version: versionWithMeta(meta.modelLabel),
       };
     } catch (error) {
       return { ok: false, error: String(error?.message || error) };
@@ -289,11 +306,12 @@ async function searchWeb(env, rawQuery) {
 }
 
 async function chatWithGemini(env, body, text, memory = {}) {
+  const model = geminiModel(env);
+  const meta = modelMeta("Gemini", model, geminiModelLabel(model));
   if (!env.GEMINI_API_KEY) {
-    return baseResponse("云端 AI 暂时不可用：Worker 没有配置 GEMINI_API_KEY，所以普通聊天和知识问答无法调用 Gemini。", "gemini_missing_key");
+    return baseResponse("云端 AI 暂时不可用：Worker 没有配置 GEMINI_API_KEY，所以普通聊天和知识问答无法调用 Gemini。", "gemini_missing_key", meta);
   }
   try {
-    const model = String(env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, "");
     const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
     const messages = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
     const conversation = messages.map((m) => `${m?.role === "assistant" ? "助手" : "用户"}：${String(m?.content || "").slice(0, 1200)}`).join("\n");
@@ -320,9 +338,9 @@ async function chatWithGemini(env, body, text, memory = {}) {
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
     const reply = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("\n").trim();
-    return baseResponse(reply || "Gemini 没有返回可读内容。", "gemini_chat");
+    return baseResponse(reply || "Gemini 没有返回可读内容。", "gemini_chat", meta);
   } catch (error) {
-    return baseResponse(friendlyGeminiError(String(error?.message || error)), "gemini_chat_error");
+    return baseResponse(friendlyGeminiError(String(error?.message || error)), "gemini_chat_error", meta);
   }
 }
 
@@ -335,6 +353,7 @@ function friendlyGeminiError(message) {
 }
 
 function searchError(error) {
+  const meta = modelMeta("Tavily", "tavily-search", "Tavily Search");
   return {
     reply: String(error || "").includes("missing_tavily_key")
       ? "当前还没有配置 TAVILY_API_KEY，所以无法进行稳定联网搜索。"
@@ -344,12 +363,21 @@ function searchError(error) {
     mobileCommand: null,
     webSearchUsed: false,
     source: "web_search_error",
-    version: ORCHESTRATOR_VERSION,
+    ...meta,
+    version: versionWithMeta(meta.modelLabel),
   };
 }
 
-function baseResponse(reply, source) {
-  return { reply, action: "chat", records: [], mobileCommand: null, source, version: ORCHESTRATOR_VERSION };
+function baseResponse(reply, source, meta = {}) {
+  return {
+    reply,
+    action: "chat",
+    records: [],
+    mobileCommand: null,
+    source,
+    ...meta,
+    version: versionWithMeta(meta.modelLabel),
+  };
 }
 
 async function geocode(location) {
@@ -452,6 +480,42 @@ function isWeatherLocationFollowup(body, text) {
 function isForcedWebSearch(body) {
   const mode = String(body?.webSearchMode || body?.searchMode || body?.webSearch?.mode || "").toLowerCase();
   return body?.forceWebSearch === true || body?.webSearch?.force === true || mode === "force";
+}
+
+function geminiModel(env) {
+  return String(env.GEMINI_CHAT_MODEL || env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, "");
+}
+
+function geminiModelLabel(model) {
+  const value = String(model || "");
+  if (/2\.5.*flash/i.test(value)) return "Gemini 2.5 Flash";
+  if (/2\.5.*pro/i.test(value)) return "Gemini 2.5 Pro";
+  if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash";
+  if (/1\.5.*flash/i.test(value)) return "Gemini 1.5 Flash";
+  if (/1\.5.*pro/i.test(value)) return "Gemini 1.5 Pro";
+  return value || "Gemini";
+}
+
+function modelMeta(provider, model, label) {
+  const cleanProvider = String(provider || "").trim();
+  const cleanModel = String(model || "").trim();
+  const cleanLabel = String(label || cleanModel || cleanProvider || "Cloud Model").trim();
+  return {
+    provider: cleanProvider,
+    model: cleanModel,
+    modelLabel: cleanLabel,
+  };
+}
+
+function versionWithMeta(label) {
+  return appendRunLabel(ORCHESTRATOR_VERSION, label);
+}
+
+function appendRunLabel(version, label) {
+  const cleanLabel = String(label || "").trim();
+  if (!cleanLabel) return version;
+  if (String(version || "").includes(cleanLabel)) return version;
+  return `${version} · ${cleanLabel}`;
 }
 
 function trim(text, max = 120) {
