@@ -66,13 +66,16 @@
   }
 
   function installModelPickerPolishStyle() {
-    if (document.getElementById(MODEL_POLISH_STYLE_ID)) return;
+    const old = document.getElementById(MODEL_POLISH_STYLE_ID);
+    if (old) old.remove();
     const style = document.createElement('style');
     style.id = MODEL_POLISH_STYLE_ID;
     style.textContent = `
       .chat-summary-strip.model-picker-hero-strip {
+        display: grid !important;
         grid-template-columns: minmax(0, 1fr) !important;
         gap: 0 !important;
+        margin-bottom: 2px !important;
       }
 
       .chat-summary-strip.model-picker-hero-strip .summary-chip {
@@ -82,106 +85,106 @@
       .model-picker-btn.hero-model-picker-btn {
         width: 100% !important;
         min-width: 0 !important;
-        height: 96px !important;
-        min-height: 96px !important;
-        padding: 15px 18px !important;
+        height: 62px !important;
+        min-height: 62px !important;
+        padding: 10px 12px !important;
         display: grid !important;
-        grid-template-columns: 54px minmax(0, 1fr) auto !important;
+        grid-template-columns: 38px minmax(0, 1fr) auto !important;
         grid-template-rows: 1fr !important;
         align-items: center !important;
-        gap: 14px !important;
-        border-radius: 28px !important;
+        gap: 10px !important;
+        border-radius: 22px !important;
         text-align: left !important;
-        font-size: 28px !important;
+        font-size: 22px !important;
         line-height: 1 !important;
-        letter-spacing: -.045em !important;
-        font-weight: 950 !important;
-        color: rgba(248, 252, 255, .98) !important;
+        letter-spacing: -.035em !important;
+        font-weight: 900 !important;
+        color: rgba(246, 250, 255, .95) !important;
         background:
-          radial-gradient(ellipse at 16% 0%, rgba(139, 247, 255, .25), transparent 36%),
-          radial-gradient(ellipse at 92% 100%, rgba(151, 110, 255, .22), transparent 42%),
-          linear-gradient(145deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, .060) 58%, rgba(255, 255, 255, .030)),
-          rgba(126, 146, 205, .20) !important;
-        border: 1px solid rgba(238, 246, 255, .32) !important;
+          radial-gradient(ellipse at 14% 0%, rgba(139, 247, 255, .14), transparent 34%),
+          radial-gradient(ellipse at 98% 100%, rgba(151, 110, 255, .13), transparent 42%),
+          linear-gradient(145deg, rgba(255, 255, 255, .115), rgba(255, 255, 255, .038) 58%, rgba(255, 255, 255, .022)),
+          rgba(126, 146, 205, .115) !important;
+        border: 1px solid rgba(238, 246, 255, .24) !important;
         box-shadow:
-          0 18px 38px rgba(0, 0, 0, .16),
-          inset 0 1px 0 rgba(255, 255, 255, .42),
-          inset 0 -1px 0 rgba(4, 8, 22, .10) !important;
-        backdrop-filter: blur(22px) saturate(148%) contrast(1.03) brightness(1.06) !important;
-        -webkit-backdrop-filter: blur(22px) saturate(148%) contrast(1.03) brightness(1.06) !important;
+          0 10px 22px rgba(0, 0, 0, .10),
+          inset 0 .8px 0 rgba(255, 255, 255, .30),
+          inset 0 -.8px 0 rgba(4, 8, 22, .08) !important;
+        backdrop-filter: blur(18px) saturate(136%) contrast(1.02) brightness(1.04) !important;
+        -webkit-backdrop-filter: blur(18px) saturate(136%) contrast(1.02) brightness(1.04) !important;
         overflow: hidden !important;
         isolation: isolate;
-        transition: transform .20s cubic-bezier(.18,.86,.2,1), filter .18s ease, box-shadow .18s ease !important;
+        transition: transform .18s cubic-bezier(.18,.86,.2,1), filter .18s ease, box-shadow .18s ease !important;
       }
 
       .model-picker-btn.hero-model-picker-btn::before {
         content: 'AI' !important;
-        width: 54px !important;
-        height: 54px !important;
+        width: 38px !important;
+        height: 38px !important;
         display: grid !important;
         place-items: center !important;
         margin: 0 !important;
-        border-radius: 20px !important;
-        font-size: 18px !important;
-        letter-spacing: -.04em !important;
+        border-radius: 15px !important;
+        font-size: 14px !important;
+        letter-spacing: -.035em !important;
         font-weight: 950 !important;
-        color: rgba(255, 255, 255, .98) !important;
+        color: rgba(255, 255, 255, .96) !important;
         background:
-          radial-gradient(circle at 28% 18%, rgba(255,255,255,.56), transparent 44%),
-          linear-gradient(135deg, rgba(121,235,255,.62), rgba(142,105,255,.54)) !important;
-        box-shadow: inset 0 .8px 0 rgba(255,255,255,.40), 0 10px 22px rgba(0,0,0,.16) !important;
+          radial-gradient(circle at 28% 18%, rgba(255,255,255,.44), transparent 44%),
+          linear-gradient(135deg, rgba(121,235,255,.42), rgba(142,105,255,.44)) !important;
+        box-shadow: inset 0 .8px 0 rgba(255,255,255,.28), 0 7px 14px rgba(0,0,0,.10) !important;
         opacity: 1 !important;
       }
 
       .model-picker-btn.hero-model-picker-btn::after {
-        content: '点击切换' !important;
+        content: '模型' !important;
         justify-self: end !important;
-        padding: 8px 12px !important;
+        padding: 7px 10px !important;
         border-radius: 999px !important;
-        font-size: 12px !important;
+        font-size: 11px !important;
         line-height: 1 !important;
-        letter-spacing: .02em !important;
+        letter-spacing: .04em !important;
         font-weight: 900 !important;
-        color: rgba(230, 247, 255, .88) !important;
-        background: rgba(255, 255, 255, .12) !important;
-        border: 1px solid rgba(255, 255, 255, .18) !important;
+        color: rgba(224, 242, 255, .72) !important;
+        background: rgba(255, 255, 255, .075) !important;
+        border: 1px solid rgba(255, 255, 255, .13) !important;
       }
 
       .model-picker-btn.hero-model-picker-btn:active,
       .model-picker-btn.hero-model-picker-btn.liquid-pressed {
-        transform: scale(.988) !important;
-        filter: brightness(1.04) saturate(1.04) !important;
+        transform: scale(.992) !important;
+        filter: brightness(1.035) saturate(1.025) !important;
       }
 
       .model-picker-sheet-mask.open {
         display: grid !important;
         place-items: end center !important;
-        background: rgba(4, 8, 20, .40) !important;
-        backdrop-filter: blur(18px) saturate(118%) !important;
-        -webkit-backdrop-filter: blur(18px) saturate(118%) !important;
-        animation: modelMaskFadeIn .18s ease both !important;
+        background: rgba(4, 8, 20, .36) !important;
+        backdrop-filter: blur(14px) saturate(112%) !important;
+        -webkit-backdrop-filter: blur(14px) saturate(112%) !important;
+        animation: modelMaskFadeIn .16s ease both !important;
       }
 
       .model-picker-sheet {
         width: min(94vw, 500px) !important;
         margin: 0 0 max(14px, env(safe-area-inset-bottom)) !important;
         padding: 15px !important;
-        border-radius: 32px !important;
+        border-radius: 30px !important;
         color: rgba(248, 252, 255, .98) !important;
         background:
-          radial-gradient(ellipse at 18% 0%, rgba(139, 247, 255, .20), transparent 34%),
-          radial-gradient(ellipse at 90% 96%, rgba(154, 126, 255, .24), transparent 40%),
-          linear-gradient(145deg, rgba(255,255,255,.22), rgba(255,255,255,.082) 58%, rgba(255,255,255,.052)),
+          radial-gradient(ellipse at 18% 0%, rgba(139, 247, 255, .16), transparent 34%),
+          radial-gradient(ellipse at 90% 96%, rgba(154, 126, 255, .20), transparent 40%),
+          linear-gradient(145deg, rgba(255,255,255,.20), rgba(255,255,255,.075) 58%, rgba(255,255,255,.048)),
           rgba(40, 48, 84, .68) !important;
-        border: 1px solid rgba(255,255,255,.30) !important;
-        box-shadow: 0 30px 88px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.36) !important;
-        backdrop-filter: blur(28px) saturate(170%) contrast(1.04) !important;
-        -webkit-backdrop-filter: blur(28px) saturate(170%) contrast(1.04) !important;
-        animation: modelSheetPopIn .28s cubic-bezier(.18,1.08,.24,1) both !important;
+        border: 1px solid rgba(255,255,255,.28) !important;
+        box-shadow: 0 28px 78px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.34) !important;
+        backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
+        -webkit-backdrop-filter: blur(26px) saturate(160%) contrast(1.03) !important;
+        animation: modelSheetPopIn .25s cubic-bezier(.18,1.04,.24,1) both !important;
       }
 
       .model-picker-head strong {
-        font-size: 20px !important;
+        font-size: 19px !important;
         letter-spacing: -.04em !important;
       }
 
@@ -191,54 +194,54 @@
       }
 
       .model-picker-list {
-        gap: 10px !important;
+        gap: 9px !important;
       }
 
       .model-choice {
-        min-height: 68px !important;
-        padding: 13px !important;
-        border-radius: 22px !important;
-        background: rgba(255,255,255,.090) !important;
-        border: 1px solid rgba(255,255,255,.18) !important;
-        box-shadow: inset 0 .7px 0 rgba(255,255,255,.18) !important;
+        min-height: 64px !important;
+        padding: 12px !important;
+        border-radius: 20px !important;
+        background: rgba(255,255,255,.085) !important;
+        border: 1px solid rgba(255,255,255,.16) !important;
+        box-shadow: inset 0 .7px 0 rgba(255,255,255,.16) !important;
         transition: transform .18s cubic-bezier(.18,.86,.2,1), background .18s ease, border-color .18s ease, box-shadow .18s ease !important;
       }
 
       .model-choice.active {
         background:
-          radial-gradient(ellipse at 18% 0%, rgba(139, 247, 255, .25), transparent 38%),
-          linear-gradient(135deg, rgba(99,226,255,.24), rgba(145,106,255,.22)) !important;
-        border-color: rgba(139, 247, 255, .46) !important;
-        box-shadow: inset 0 .8px 0 rgba(255,255,255,.32), 0 12px 28px rgba(65, 88, 188, .16) !important;
+          radial-gradient(ellipse at 18% 0%, rgba(139, 247, 255, .20), transparent 38%),
+          linear-gradient(135deg, rgba(99,226,255,.20), rgba(145,106,255,.18)) !important;
+        border-color: rgba(139, 247, 255, .38) !important;
+        box-shadow: inset 0 .8px 0 rgba(255,255,255,.28), 0 10px 22px rgba(65, 88, 188, .13) !important;
       }
 
       .model-choice.is-selecting {
-        animation: modelChoiceSelect .28s cubic-bezier(.18,1.10,.2,1) both !important;
+        animation: modelChoiceSelect .24s cubic-bezier(.18,1.06,.2,1) both !important;
       }
 
       .model-choice-dot {
-        width: 13px !important;
-        height: 13px !important;
+        width: 12px !important;
+        height: 12px !important;
         border-width: 2px !important;
         transition: transform .18s ease, background .18s ease, box-shadow .18s ease !important;
       }
 
       .model-choice.active .model-choice-dot,
       .model-choice.is-selecting .model-choice-dot {
-        transform: scale(1.18) !important;
+        transform: scale(1.14) !important;
         background: #8bf7ff !important;
         border-color: #8bf7ff !important;
-        box-shadow: 0 0 0 5px rgba(139,247,255,.14), 0 0 24px rgba(139,247,255,.62) !important;
+        box-shadow: 0 0 0 4px rgba(139,247,255,.12), 0 0 20px rgba(139,247,255,.54) !important;
       }
 
       @keyframes modelMaskFadeIn { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes modelSheetPopIn { from { transform: translateY(24px) scale(.975); opacity: .36; } to { transform: none; opacity: 1; } }
-      @keyframes modelChoiceSelect { 0% { transform: scale(.985); } 55% { transform: scale(1.018); } 100% { transform: scale(1); } }
+      @keyframes modelSheetPopIn { from { transform: translateY(20px) scale(.98); opacity: .38; } to { transform: none; opacity: 1; } }
+      @keyframes modelChoiceSelect { 0% { transform: scale(.988); } 55% { transform: scale(1.012); } 100% { transform: scale(1); } }
 
       @media (pointer: coarse), (max-width: 768px) {
         .model-picker-btn.hero-model-picker-btn {
-          backdrop-filter: blur(18px) saturate(138%) contrast(1.02) brightness(1.04) !important;
-          -webkit-backdrop-filter: blur(18px) saturate(138%) contrast(1.02) brightness(1.04) !important;
+          backdrop-filter: blur(15px) saturate(130%) contrast(1.02) brightness(1.03) !important;
+          -webkit-backdrop-filter: blur(15px) saturate(130%) contrast(1.02) brightness(1.03) !important;
         }
       }
     `;
@@ -284,7 +287,7 @@
       window.setTimeout(() => {
         syncModelHeroLabel();
         mask?.classList.remove('open');
-      }, 240);
+      }, 220);
     }, true);
   }
 
@@ -294,7 +297,7 @@
   }
 
   window.NavigationExecutionCompat = {
-    version: '2026-05-16-5-model-picker-polish',
+    version: '2026-05-16-6-subtle-model-bar',
     normalizeMode,
     normalizeNavigateParams,
     patchAll,
