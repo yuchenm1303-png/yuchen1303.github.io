@@ -8,12 +8,16 @@
     workers_ai_text_fallback: { label: "Workers AI 兜底", tone: "cloud-fallback" },
     workers_ai_vision: { label: "Workers AI 识图", tone: "vision" },
     workers_ai_vision_fallback: { label: "Workers AI 识图兜底", tone: "vision" },
+    nvidia_vision: { label: "多模态识图", tone: "vision" },
+    nvidia_vision_fallback: { label: "多模态识图兜底", tone: "vision" },
+    nvidia_chat_fallback: { label: "NVIDIA 兜底", tone: "cloud-fallback" },
     gemini_ai: { label: "Gemini AI", tone: "gemini" },
     gemini_chat: { label: "Gemini 对话", tone: "gemini" },
     gemini_chat_error: { label: "Gemini 错误", tone: "error" },
     gemini_missing_key: { label: "Gemini 未配置", tone: "error" },
     gemini_vision: { label: "Gemini 识图", tone: "vision" },
     gemini_vision_error: { label: "识图错误", tone: "error" },
+    vision_all_failed: { label: "识图失败", tone: "error" },
     vision_quota_exceeded: { label: "识图配额不足", tone: "error" },
     attachment_ai_missing_key: { label: "识图未配置", tone: "error" },
     gemini_text_fallback: { label: "Gemini 兜底", tone: "cloud-fallback" },
@@ -47,12 +51,7 @@
   };
 
   function escapeHtml(value) {
-    return String(value || "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+    return String(value || "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
   }
 
   function readMessages() {
@@ -80,7 +79,9 @@
 
   function sourceMeta(source) {
     if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
+    if (/nvidia|nim|kimi|qwen|mistral|deepseek/i.test(source || "")) return { label: "云端模型", tone: "cloud" };
     if (/gemini/i.test(source || "")) return { label: "Gemini AI", tone: "gemini" };
+    if (/vision|image|attachment/i.test(source || "")) return { label: "识图", tone: "vision" };
     if (/tavily|search/i.test(source || "")) return { label: "联网搜索", tone: "online" };
     if (/weather/i.test(source || "")) return { label: "实时天气", tone: "online" };
     if (/worker/i.test(source || "")) return { label: "Workers AI", tone: "cloud" };
@@ -102,10 +103,23 @@
     if (message?.modelLabel) parts.push(message.modelLabel);
     else if (message?.model) parts.push(message.model);
     else if (message?.provider && message?.model) parts.push(`${message.provider} ${message.model}`);
-
     const version = compactVersion(message?.version);
     if (version && !parts.some((part) => version.includes(part))) parts.push(version);
     return parts.filter(Boolean).join(" · ");
+  }
+
+  function attachmentMeta(message) {
+    const list = Array.isArray(message?.attachments) ? message.attachments : [];
+    if (!list.length) return null;
+    const imageCount = list.filter((item) => String(item.mimeType || "").startsWith("image/")).length;
+    const pdfCount = list.filter((item) => /pdf/i.test(String(item.mimeType || ""))).length;
+    const fileCount = list.length - imageCount - pdfCount;
+    const labels = [];
+    if (imageCount) labels.push(imageCount === 1 ? "本图" : `${imageCount}张图片`);
+    if (pdfCount) labels.push(pdfCount === 1 ? "PDF" : `${pdfCount}个PDF`);
+    if (fileCount) labels.push(fileCount === 1 ? "文件" : `${fileCount}个文件`);
+    const names = list.map((item) => item.name).filter(Boolean).slice(0, 2).join("、");
+    return { label: `已附带 ${labels.join("+") || "附件"}`, detail: names };
   }
 
   function installStyle() {
@@ -115,11 +129,13 @@
     style.id = STYLE_ID;
     style.textContent = `
       .chat-source-badge-row{display:flex;justify-content:flex-start;margin:7px 0 0 4px;gap:6px;flex-wrap:wrap}
+      .chat-row.user .chat-source-badge-row{justify-content:flex-end;margin:7px 4px 0 0}
       .chat-source-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;line-height:1;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);color:rgba(238,250,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);max-width:100%;word-break:break-word}
       .chat-source-badge::before{content:"";width:6px;height:6px;min-width:6px;border-radius:999px;background:currentColor;opacity:.85}
       .chat-source-badge.cloud{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28)}
       .chat-source-badge.gemini{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35)}
       .chat-source-badge.vision{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34)}
+      .chat-source-badge.attachment{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34)}
       .chat-source-badge.online{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34)}
       .chat-source-badge.utility{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32)}
       .chat-source-badge.cloud-fallback{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32)}
@@ -137,25 +153,39 @@
 
   function clearOldBadges() {
     document.querySelectorAll(".chat-source-badge-row").forEach((el) => el.remove());
-    document.querySelectorAll(".chat-row.assistant[data-message-id]").forEach((row) => delete row.dataset.sourceBadgeReady);
+    document.querySelectorAll(".chat-row[data-message-id]").forEach((row) => delete row.dataset.sourceBadgeReady);
   }
 
   function addBadges() {
     const messages = readMessages();
     const byId = new Map(messages.map((message) => [String(message.id), message]));
-    document.querySelectorAll(".chat-row.assistant[data-message-id]").forEach((row) => {
+
+    document.querySelectorAll(".chat-row[data-message-id]").forEach((row) => {
       const id = row.dataset.messageId;
       if (!id || row.dataset.sourceBadgeReady === "ready") return;
       const message = byId.get(String(id));
       if (!message) return;
-      const source = inferSource(message);
-      const meta = sourceMeta(source);
       const response = row.querySelector(".chat-response");
       if (!response) return;
-      const detail = modelText(message);
-      const detailText = detail ? ` · ${escapeHtml(detail)}` : "";
-      response.insertAdjacentHTML("beforeend", `<div class="chat-source-badge-row"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`);
-      row.dataset.sourceBadgeReady = "ready";
+
+      if (message.role === "user") {
+        const att = attachmentMeta(message);
+        if (att) {
+          const detail = att.detail ? ` · ${escapeHtml(att.detail)}` : "";
+          response.insertAdjacentHTML("beforeend", `<div class="chat-source-badge-row"><span class="chat-source-badge attachment">${escapeHtml(att.label)}${detail}</span></div>`);
+        }
+        row.dataset.sourceBadgeReady = "ready";
+        return;
+      }
+
+      if (message.role === "assistant") {
+        const source = inferSource(message);
+        const meta = sourceMeta(source);
+        const detail = modelText(message);
+        const detailText = detail ? ` · ${escapeHtml(detail)}` : "";
+        response.insertAdjacentHTML("beforeend", `<div class="chat-source-badge-row"><span class="chat-source-badge ${escapeHtml(meta.tone)}">${escapeHtml(meta.label)}${detailText}</span></div>`);
+        row.dataset.sourceBadgeReady = "ready";
+      }
     });
   }
 
@@ -170,7 +200,6 @@
   }
 
   window.ChatSourceBadges = { refresh: () => { clearOldBadges(); addBadges(); }, labels: SOURCE_LABELS };
-
   window.addEventListener("DOMContentLoaded", () => {
     installStyle();
     window.setTimeout(installObserver, 0);
