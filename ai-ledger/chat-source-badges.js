@@ -13,7 +13,7 @@
     }
   })();
 
-  const MODULE_VERSION = '20260516-10';
+  const MODULE_VERSION = '20260516-11';
 
   const MODELS = [
     { id: 'auto', label: '自动', short: '自动', hint: '按额度和可用性自动切换' },
@@ -146,6 +146,7 @@
       'chat-typing-indicator.js',
       'chat-model-picker.js',
       'chat-source-badges-core.js',
+      'chat-message-actions-polish.js',
     ];
     for (const module of modules) {
       try { await loadScript(module); }
