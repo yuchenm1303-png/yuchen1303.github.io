@@ -18,7 +18,8 @@
   }
 
   function installStyle() {
-    if (document.getElementById(STYLE_ID)) return;
+    const old = document.getElementById(STYLE_ID);
+    if (old) old.remove();
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -30,83 +31,37 @@
 
       #settingsGroupList .settings-group-card::before,
       #settingsGroupList .settings-group-card::after {
-        pointer-events: none !important;
-        z-index: 0 !important;
+        display: none !important;
+        content: none !important;
       }
 
-      #settingsGroupList .settings-group-entry {
-        position: relative !important;
-        z-index: 3 !important;
-        background: transparent !important;
-        color: rgba(248,250,255,.96) !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-      }
-
-      #settingsGroupList .settings-group-entry > *,
+      #settingsGroupList .settings-group-card > *,
       #settingsGroupList .settings-group-icon,
       #settingsGroupList .settings-group-title,
       #settingsGroupList .settings-group-desc,
       #settingsGroupList .settings-group-arrow {
         position: relative !important;
-        z-index: 4 !important;
+        z-index: 3 !important;
         opacity: 1 !important;
         visibility: visible !important;
         -webkit-text-fill-color: currentColor !important;
       }
 
-      #settingsGroupList .settings-group-title {
-        color: rgba(248,250,255,.98) !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,.18);
-      }
-
-      #settingsGroupList .settings-group-desc {
-        color: rgba(220,230,250,.76) !important;
-      }
-
-      #settingsGroupList .settings-group-icon {
-        background: rgba(255,255,255,.072) !important;
-      }
-
       #settingsGroupDetail {
-        background: rgba(4, 8, 20, .86) !important;
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
         contain: layout paint style !important;
-      }
-
-      #settingsGroupDetail.open {
-        display: grid !important;
-        place-items: end center !important;
-        pointer-events: auto !important;
-      }
-
-      body.settings-group-open #settingsGroupDetail.open {
-        animation: settingsOverlayStaticFade 90ms ease-out both !important;
       }
 
       #settingsGroupDetail .settings-group-sheet {
         position: relative !important;
         z-index: 96 !important;
-        background:
-          linear-gradient(145deg, rgba(255,255,255,.108), rgba(255,255,255,.040) 45%, rgba(0,0,0,.040)),
-          rgba(17,28,54,.96) !important;
-        border-color: rgba(255,255,255,.22) !important;
-        box-shadow:
-          0 18px 38px rgba(0,0,0,.34),
-          inset 0 1px 0 rgba(255,255,255,.22),
-          inset 0 -1px 0 rgba(0,0,0,.12) !important;
-        opacity: 1 !important;
+        opacity: 1;
         visibility: visible !important;
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
         contain: layout paint style !important;
-        transform: translate3d(0,0,0);
         backface-visibility: hidden;
-      }
-
-      body.settings-group-open #settingsGroupDetail.open .settings-group-sheet {
-        animation: settingsSheetStableSlide 200ms cubic-bezier(.18,.72,.26,1) both !important;
       }
 
       #settingsGroupDetail .settings-group-content {
@@ -114,14 +69,11 @@
       }
 
       #settingsGroupDetail .settings-group-content > .glass-card,
-      #settingsGroupDetail .settings-group-content .glass-card,
-      #settingsGroupDetail .account-row,
-      #settingsGroupDetail input,
-      #settingsGroupDetail select,
-      #settingsGroupDetail textarea,
-      #settingsGroupDetail button {
+      #settingsGroupDetail .settings-group-content .glass-card {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
+        animation: none !important;
+        transform: none !important;
       }
 
       #settingsGroupDetail .settings-group-content > .glass-card {
@@ -130,8 +82,16 @@
           rgba(255,255,255,.040) !important;
         box-shadow:
           inset 0 1px 0 rgba(255,255,255,.18),
-          0 10px 22px rgba(0,0,0,.14) !important;
-        animation: none !important;
+          0 8px 18px rgba(0,0,0,.12) !important;
+      }
+
+      #settingsGroupDetail .settings-group-content input,
+      #settingsGroupDetail .settings-group-content select,
+      #settingsGroupDetail .settings-group-content textarea,
+      #settingsGroupDetail .settings-group-content button,
+      #settingsGroupDetail .settings-group-content .account-row {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
       }
 
       #settingsGroupDetail .settings-group-sheet *,
@@ -141,13 +101,7 @@
 
       body.settings-group-opening .app-shell,
       body.settings-group-open .app-shell {
-        opacity: 0 !important;
-        visibility: hidden !important;
-        filter: none !important;
         pointer-events: none !important;
-        transform: none !important;
-        transition: none !important;
-        animation: none !important;
       }
 
       body.settings-group-opening .bottom-nav,
@@ -157,17 +111,7 @@
         opacity: 0 !important;
         visibility: hidden !important;
         pointer-events: none !important;
-        transform: translateX(-50%) !important;
-        transition: none !important;
-        animation: none !important;
-      }
-
-      body.settings-group-opening .app-shell *,
-      body.settings-group-open .app-shell * {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        animation: none !important;
-        transition: none !important;
+        transition: opacity 80ms ease !important;
       }
 
       body.settings-group-open .settings-group-detail,
@@ -182,27 +126,16 @@
         visibility: visible !important;
       }
 
-      @keyframes settingsOverlayStaticFade {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-
-      @keyframes settingsSheetStableSlide {
-        0% { opacity: .98; transform: translate3d(0, 6px, 0) scale(.997); }
-        100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-      }
-
       @media (pointer: coarse), (max-width: 760px) {
         #settingsGroupDetail {
-          background: rgba(4,8,20,.88) !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
         }
 
         #settingsGroupDetail .settings-group-sheet {
-          max-height: 84vh !important;
+          max-height: 82vh !important;
           background:
-            linear-gradient(145deg, rgba(255,255,255,.096), rgba(255,255,255,.036) 45%, rgba(0,0,0,.044)),
+            linear-gradient(145deg, rgba(255,255,255,.090), rgba(255,255,255,.034) 45%, rgba(0,0,0,.042)),
             rgba(17,28,54,.97) !important;
           backdrop-filter: none !important;
           -webkit-backdrop-filter: none !important;
@@ -235,7 +168,6 @@
   }
 
   function boot() {
-    if (document.documentElement.dataset.settingsDetailPolishReady === 'true') return;
     document.documentElement.dataset.settingsDetailPolishReady = 'true';
     installStyle();
     observeBodyUntilDetailExists();
