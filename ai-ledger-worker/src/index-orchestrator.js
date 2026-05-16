@@ -1,7 +1,7 @@
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
-const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v2";
+const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v3-memory";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const ACTION_INTENTS = new Set([
   "navigation.start",
@@ -25,7 +25,7 @@ export default {
       return json({
         ok: true,
         version: ORCHESTRATOR_VERSION,
-        mode: "cloud_brain_local_executor_orchestrator",
+        mode: "cloud_brain_local_executor_orchestrator_memory",
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasTavilyKey: Boolean(env.TAVILY_API_KEY),
         hasWorkersAI: Boolean(env.AI),
@@ -58,18 +58,36 @@ export default {
     }
 
     const text = lastUserText(body?.messages, body?.text);
+    const memory = normalizeMemoryContext(body?.memoryContext);
     const hasAttachments = Array.isArray(body?.attachments) && body.attachments.length > 0;
 
     if (hasAttachments) {
-      return attachmentGateway.fetch(cloneRequestWithJson(request, body), env, ctx);
+      return attachmentGateway.fetch(cloneRequestWithJson(request, { ...body, memoryContext: memory }), env, ctx);
     }
 
-    const intent = await classifyIntent(env, body, text);
     const forceSearch = isForcedWebSearch(body);
+    const explicitSearch = isExplicitSearchQuery(text) && !isWeatherLikeText(text);
+
+    // Hard guard: explicit search/news requests must not be mistaken as weather locations.
+    if (explicitSearch) {
+      const search = await searchWeb(env, text);
+      if (search.ok) return json(search, 200, corsHeaders);
+      return json(searchError(search.error), 200, corsHeaders);
+    }
+
+    let intent = await classifyIntent(env, body, text, memory);
+
+    // Guard against Gemini accidentally classifying concept questions as weather.
+    if (intent.intent === "weather.query" && !isWeatherLikeText(text) && !isWeatherLocationFollowup(body, text)) {
+      intent = { intent: "chat", confidence: 0.72, toolInput: {}, reason: "weather_false_positive_guard" };
+    }
 
     if (intent.intent === "weather.query") {
-      const weatherInput = cleanWeatherLocation(intent.toolInput?.location) || text;
-      return json(await weather(weatherInput), 200, corsHeaders);
+      const weatherInput = cleanWeatherLocation(intent.toolInput?.location)
+        || memory.currentCity
+        || memory.currentLocation
+        || text;
+      return json(await weather(weatherInput, memory), 200, corsHeaders);
     }
 
     if (intent.intent === "web.search" || intent.intent === "news.query" || (forceSearch && !ACTION_INTENTS.has(intent.intent))) {
@@ -80,13 +98,14 @@ export default {
     }
 
     if (intent.intent === "chat") {
-      return json(await chatWithGemini(env, body, text), 200, corsHeaders);
+      return json(await chatWithGemini(env, body, text, memory), 200, corsHeaders);
     }
 
     // Local actions and ledger drafts are delegated to the command protocol worker.
     // The cloud only returns structured JSON; the local app still verifies and executes after confirmation.
     return commandWorker.fetch(cloneRequestWithJson(request, {
       ...body,
+      memoryContext: memory,
       orchestrator: {
         version: ORCHESTRATOR_VERSION,
         intent: intent.intent,
@@ -119,7 +138,7 @@ function cloneRequestWithJson(originalRequest, body) {
   });
 }
 
-async function classifyIntent(env, body, text) {
+async function classifyIntent(env, body, text, memory = {}) {
   const fallback = heuristicIntent(body, text);
 
   // Keep ultra-high-confidence local actions deterministic to avoid latency and accidental tool calls.
@@ -135,15 +154,18 @@ async function classifyIntent(env, body, text) {
       "你是 AI 助手的意图编排器。只判断最后一句用户话应该归到哪一层，不要回答正文。",
       "必须只返回 JSON object，不要 markdown。",
       "允许 intent：attachment.analyze, weather.query, web.search, news.query, navigation.start, navigation.modify, navigation.preference.set, alarm.set, app.open, ledger.create, chat。",
-      "规则：",
-      "1. 天气、气温、下雨、穿衣建议 → weather.query。toolInput.location 有城市就填，没有则空；不要把“这里/本地/当前位置”当城市。",
-      "2. 新闻、最新、搜索、查资料、近期事件、价格、政策、官网 → web.search 或 news.query。toolInput.query 写搜索词。",
-      "3. 导航、修改导航、保存家/学校/公司/宿舍地址、默认地图/默认出行方式 → 对应 navigation intent。",
-      "4. 设置提醒/闹钟 → alarm.set。打开 App → app.open。真实收支 → ledger.create。",
-      "5. 如果上一条助手问城市天气，用户只回“重庆吧/北京/温州”，也判为 weather.query，并把 location 写成这个城市。",
-      "6. 普通解释、聊天、学习问题 → chat。",
+      "硬规则：",
+      "1. 用户明确说“搜一下/搜索/查一下/联网查/上网查”，且没有天气、气温、下雨等天气词 → web.search 或 news.query，不能判成 weather.query。",
+      "2. 用户说新闻、大新闻、热点、今日新闻、最新消息 → news.query。不要把“新闻”当作城市。",
+      "3. 天气、气温、下雨、穿衣建议 → weather.query。toolInput.location 有城市就填，没有则空；不要把“这里/本地/当前位置/新闻/定义/生命”等当城市。",
+      "4. 如果上一条助手问城市天气，用户只回“重庆吧/北京/温州”，才判为 weather.query，并把 location 写成这个城市。",
+      "5. 导航、修改导航、保存家/学校/公司/宿舍地址、默认地图/默认出行方式 → 对应 navigation intent。",
+      "6. 设置提醒/闹钟 → alarm.set。打开 App → app.open。真实收支 → ledger.create。",
+      "7. 普通解释、定义、学习问题，例如“生命的定义是什么/人工智能是什么” → chat。",
       "返回格式：",
       JSON.stringify({ intent: "chat", confidence: 0.8, toolInput: {}, reason: "short" }),
+      "本地记忆：",
+      JSON.stringify(memory || {}),
       "对话历史：",
       JSON.stringify(messages),
       "最后一句：",
@@ -185,7 +207,10 @@ function heuristicIntent(body, text) {
   const clean = raw.replace(/[？?。！!\s]/g, "");
   const prevAssistant = previousAssistantText(body);
 
-  if (/(天气|下雨|气温|温度|风速|降雨|穿什么|预报)/u.test(raw)) {
+  if (isExplicitSearchQuery(raw) && !isWeatherLikeText(raw)) {
+    return { intent: /新闻|热点|消息/u.test(raw) ? "news.query" : "web.search", confidence: 0.9, toolInput: { query: cleanSearchQuery(raw) }, reason: "explicit search" };
+  }
+  if (isWeatherLikeText(raw)) {
     return { intent: "weather.query", confidence: 0.82, toolInput: { location: extractWeatherLocation(raw) }, reason: "weather keywords" };
   }
   if (/哪个城市.*天气|想查.*天气|城市.*天气/u.test(prevAssistant) && /^[\u4e00-\u9fa5A-Za-z .·-]{2,16}(吧|呗|呀|呢)?$/u.test(clean)) {
@@ -211,8 +236,8 @@ function previousAssistantText(body) {
   return String(msg?.content || "");
 }
 
-async function weather(locationOrText) {
-  const location = cleanWeatherLocation(extractWeatherLocation(locationOrText));
+async function weather(locationOrText, memory = {}) {
+  const location = cleanWeatherLocation(extractWeatherLocation(locationOrText)) || cleanWeatherLocation(memory.currentCity || memory.currentLocation);
   if (!location) {
     return baseResponse("你想查哪个城市的天气？比如可以说：重庆今天会下雨吗。", "weather_need_location");
   }
@@ -223,7 +248,7 @@ async function weather(locationOrText) {
     const c = f.current || {};
     const d = f.daily || {};
     const rain = d.precipitation_probability_max?.[0];
-    return baseResponse(`${place.name}${place.admin1 ? `（${place.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, "weather_tool");
+    return baseResponse(`${place.name}${place.admin1 ? `（${place.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`, memory.currentCity ? "weather_tool_memory" : "weather_tool");
   } catch {
     return baseResponse("天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。", "weather_error");
   }
@@ -263,7 +288,7 @@ async function searchWeb(env, rawQuery) {
   return { ok: false, error: "missing_tavily_key" };
 }
 
-async function chatWithGemini(env, body, text) {
+async function chatWithGemini(env, body, text, memory = {}) {
   if (!env.GEMINI_API_KEY) {
     return baseResponse("云端 AI 暂时不可用：Worker 没有配置 GEMINI_API_KEY，所以普通聊天和知识问答无法调用 Gemini。", "gemini_missing_key");
   }
@@ -275,8 +300,11 @@ async function chatWithGemini(env, body, text) {
     const prompt = [
       "你是手机端 AI 助手的普通聊天层。",
       "只回答普通聊天、学习解释、概念说明和非本地执行类问题。",
+      "可以参考本地记忆理解上下文，但不要无故复述隐私记忆。",
       "不要生成 command/mobileCommand，不要声称已经执行手机动作。",
       "回答用中文，简洁自然；必要时分点，但不要太啰嗦。",
+      "本地记忆：",
+      JSON.stringify(memory || {}),
       "对话历史：",
       conversation || `用户：${text}`,
     ].join("\n");
@@ -368,7 +396,7 @@ function cleanWeatherLocation(value) {
     .replace(/[，。！？?、,.!！\s]/g, "")
     .trim()
     .slice(0, 32);
-  if (/^(这里|这边|本地|当地|当前位置|当前城市|所在城市|我这里|我这边|附近)$/u.test(cleaned)) return "";
+  if (/^(这里|这边|本地|当地|当前位置|当前城市|所在城市|我这里|我这边|附近|新闻|定义|生命|人工智能)$/u.test(cleaned)) return "";
   return cleaned;
 }
 
@@ -390,6 +418,35 @@ function cleanSearchQuery(text) {
     .replace(/搜索一下|搜一下|查一下|查查|联网|上网查|联网查|今天的|今天|今日|有什么|吗|呢|吧|大新闻|新闻|热点|最新|最近/gu, " ")
     .replace(/\s+/g, " ")
     .trim() || "今日新闻";
+}
+
+function normalizeMemoryContext(input = {}) {
+  if (!input || typeof input !== "object") return {};
+  return {
+    version: String(input.version || "").slice(0, 40),
+    currentCity: cleanWeatherLocation(input.currentCity || ""),
+    currentLocation: cleanWeatherLocation(input.currentLocation || ""),
+    name: String(input.name || "").slice(0, 40),
+    hometown: String(input.hometown || "").slice(0, 40),
+    identity: String(input.identity || "").slice(0, 100),
+    preferences: input.preferences && typeof input.preferences === "object" ? input.preferences : {},
+    facts: Array.isArray(input.facts) ? input.facts.slice(-18).map((x) => ({ key: String(x?.key || "").slice(0, 40), value: String(x?.value || "").slice(0, 180) })).filter((x) => x.value) : [],
+  };
+}
+
+function isExplicitSearchQuery(text) {
+  return /(搜一下|搜索|查一下|查查|联网查|上网查|帮我查|看一下.*最新|今天.*新闻|今日.*新闻|大新闻|热点|最新消息|新闻)/u.test(String(text || ""));
+}
+
+function isWeatherLikeText(text) {
+  return /(天气|下雨|气温|温度|风速|降雨|穿什么|预报|几度|带伞)/u.test(String(text || ""));
+}
+
+function isWeatherLocationFollowup(body, text) {
+  const cleaned = cleanWeatherLocation(text);
+  if (!cleaned || cleaned.length > 12 || /(新闻|最新|搜索|查|导航|记账|提醒|定义|什么|怎么|如何)/u.test(String(text || ""))) return false;
+  const prevAssistant = previousAssistantText(body);
+  return /哪个城市.*天气|想查.*天气|城市.*天气/u.test(prevAssistant);
 }
 
 function isForcedWebSearch(body) {
