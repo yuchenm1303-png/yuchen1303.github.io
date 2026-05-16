@@ -25,7 +25,7 @@ const els = {
   typingIndicator: document.querySelector("#typingIndicator"),
   chatForm: document.querySelector("#chatForm"),
   aiInput: document.querySelector("#aiInput"),
-  sendBtn: document.querySelector("#sendBtn"),
+  sendBtn: document.querySelector("#aiAddBtn") || document.querySelector("#sendBtn"),
   sampleBtns: document.querySelectorAll(".sample-btn"),
   todaySpend: document.querySelector("#todaySpend"),
   monthIncome: document.querySelector("#monthIncome"),
@@ -88,7 +88,7 @@ function todayISO() { return new Date().toISOString().slice(0, 10); }
 function currentMonthPrefix() { return todayISO().slice(0, 7); }
 function formatCurrency(value) { return `¥${Number(value || 0).toFixed(2)}`; }
 function showToast(message) { if (!els.toast) return; els.toast.textContent = message; els.toast.classList.add("show"); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2200); }
-function setAiLoading(isLoading) { if (!els.sendBtn || !els.aiInput) return; els.sendBtn.disabled = isLoading; els.aiInput.disabled = isLoading; }
+function setAiLoading(isLoading) { if (els.sendBtn) els.sendBtn.disabled = isLoading; if (els.aiInput) els.aiInput.disabled = isLoading; }
 function renderTyping() { if (!els.chatMessages) return; els.chatMessages.insertAdjacentHTML("beforeend", `<div class="chat-row assistant" id="typingRow"><div class="chat-bubble"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>`); els.chatMessages.scrollTop = els.chatMessages.scrollHeight; }
 function removeTyping() { document.querySelector("#typingRow")?.remove(); }
 function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
