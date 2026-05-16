@@ -12,6 +12,10 @@
         overflow-x: hidden !important;
       }
 
+      body {
+        padding-bottom: calc(146px + env(safe-area-inset-bottom)) !important;
+      }
+
       .app-shell,
       .view,
       .glass-card,
@@ -20,6 +24,10 @@
       .tools-home,
       .settings-group-sheet {
         box-sizing: border-box !important;
+      }
+
+      .app-shell {
+        padding-bottom: calc(164px + env(safe-area-inset-bottom)) !important;
       }
 
       .view {
@@ -36,16 +44,19 @@
       }
 
       .chat-shell {
-        grid-template-rows: auto minmax(300px, 1fr) auto auto auto !important;
+        display: grid !important;
+        grid-template-rows: auto minmax(260px, 1fr) auto auto auto !important;
         min-height: min(640px, calc(100vh - 168px)) !important;
-        overflow: hidden !important;
+        overflow: visible !important;
+        padding-bottom: 18px !important;
       }
 
       .chat-messages {
-        min-height: 300px !important;
+        min-height: 260px !important;
         max-height: none !important;
         overflow-y: auto !important;
         overscroll-behavior: contain !important;
+        padding-bottom: 10px !important;
       }
 
       .chat-composer {
@@ -55,14 +66,15 @@
         width: 100% !important;
         min-width: 0 !important;
         padding: 8px !important;
-        border: 1px solid rgba(255,255,255,.28) !important;
+        border: 1px solid rgba(255,255,255,.30) !important;
         border-radius: 26px !important;
         background:
-          linear-gradient(145deg, rgba(255,255,255,.080), rgba(255,255,255,.026) 48%, rgba(0,0,0,.018)),
-          rgba(255,255,255,.052) !important;
+          linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.04) 48%, rgba(0,0,0,.018)),
+          rgba(255,255,255,.06) !important;
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.20),
+          inset 0 1px 0 rgba(255,255,255,.22),
           0 10px 22px rgba(0,0,0,.10) !important;
+        z-index: 6 !important;
       }
 
       .chat-composer textarea,
@@ -117,12 +129,48 @@
         place-self: center !important;
       }
 
+      .attachment-tray {
+        grid-row: auto !important;
+        margin: 10px 0 10px !important;
+      }
+
+      body.has-chat-attachments .chat-shell {
+        padding-bottom: 24px !important;
+      }
+
       .chat-tags,
       .quick-tags {
         display: flex !important;
         flex-wrap: wrap !important;
         align-items: center !important;
         gap: 9px !important;
+      }
+
+      .bottom-nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        width: min(90vw, 470px) !important;
+        z-index: 80 !important;
+        bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+        background: rgba(255,255,255,.16) !important;
+        border-color: rgba(255,255,255,.26) !important;
+        box-shadow: 0 18px 40px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.22) !important;
+      }
+
+      .bottom-nav .nav-btn {
+        min-width: 0 !important;
+        color: rgba(235,241,255,.64) !important;
+      }
+
+      .bottom-nav .nav-btn.active {
+        color: #ffffff !important;
+        background: linear-gradient(135deg, rgba(170,205,255,.38), rgba(132,95,255,.32)) !important;
+        border: 1px solid rgba(255,255,255,.26) !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.30), 0 10px 24px rgba(75,90,180,.18) !important;
+      }
+
+      .bottom-nav .nav-btn span,
+      .bottom-nav .nav-btn em {
+        opacity: 1 !important;
       }
 
       .tag-btn,
@@ -183,7 +231,7 @@
         }
 
         .chat-messages {
-          min-height: 275px !important;
+          min-height: 245px !important;
         }
 
         .tools-grid {
