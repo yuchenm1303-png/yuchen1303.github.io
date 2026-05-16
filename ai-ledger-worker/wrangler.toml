@@ -8,4 +8,8 @@ binding = "AI"
 [vars]
 AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 GEMINI_MODEL = "gemini-2.5-flash"
+PLANNER_PROVIDER = "nvidia"
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_PLANNER_MODEL = "mistralai/mistral-medium-3.5-128b"
+NVIDIA_CHAT_FALLBACK = "true"
 ALLOWED_ORIGINS = "https://yuchenm1303-png.github.io,https://localhost"
