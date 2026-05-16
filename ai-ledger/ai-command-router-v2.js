@@ -1,6 +1,15 @@
 (() => {
   'use strict';
 
+  // AI command router v2/v3 compatibility layer
+  // 负责：高置信本地动作识别，尤其是导航偏好、导航开始、导航修改。
+  //
+  // 维护边界：
+  // - 本文件只适合放“能确定要生成本地动作卡片”的规则。
+  // - 不要在这里继续堆天气、新闻、联网搜索、百科问答、闲聊等开放式语义。
+  // - 低置信或复杂语义应返回 pass/cloud_fallback，让云端 Orchestrator 判断。
+  // - 本文件不直接执行手机动作，只生成 mobileCommand，仍需用户确认。
+
   const NAV_PREF_KEY = 'ai-assistant-navigation-preferences-v2';
   const HOME_ADDRESS_KEY = 'ai-assistant-home-address-v1';
   const MAP_PROVIDER_KEY = 'ai-assistant-map-provider-v1';
@@ -37,6 +46,10 @@
   let patchRetryFrame = 0;
   let settingsSyncFrame = 0;
 
+  // ---------------------------------------------------------------------------
+  // Basic helpers
+  // ---------------------------------------------------------------------------
+
   function createId(prefix = 'cmd') {
     if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
     return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -53,6 +66,10 @@
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
+
+  // ---------------------------------------------------------------------------
+  // Navigation preference storage
+  // ---------------------------------------------------------------------------
 
   function normalizeProvider(value) {
     return value === 'amap' ? 'amap' : 'baidu';
@@ -114,6 +131,10 @@
     window.dispatchEvent(new CustomEvent('assistant-preferences-changed', { detail: prefs }));
     return prefs;
   }
+
+  // ---------------------------------------------------------------------------
+  // Navigation text inference helpers
+  // ---------------------------------------------------------------------------
 
   function normalizePlaceKey(alias) {
     const text = cleanText(alias, 24).replace(/^(我的|我|去|到|回|导航到|导航去)/u, '');
@@ -263,6 +284,10 @@
       .trim();
   }
 
+  // ---------------------------------------------------------------------------
+  // High-confidence local parsers
+  // ---------------------------------------------------------------------------
+
   function parseNavigationPreference(text) {
     const raw = cleanText(text, 180);
     const hasIntent = /(默认|以后|偏好|习惯|地址|位置|设为|设置为|保存为|改成|定为|记住|就是|我家|家里|少步行|避开高速|少收费|地铁优先)/u.test(raw);
@@ -374,6 +399,10 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Last navigation context and edit parser
+  // ---------------------------------------------------------------------------
+
   function loadChatMessages() {
     if (Array.isArray(window.chatMessages)) return window.chatMessages;
     try {
@@ -469,6 +498,10 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Public routing result
+  // ---------------------------------------------------------------------------
+
   function routeText(text) {
     const raw = cleanText(text, 220);
     if (!raw) return { kind: 'empty', confidence: 1, source: 'router' };
@@ -510,6 +543,10 @@
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Settings panel integration
+  // ---------------------------------------------------------------------------
+
   function isUserEditingPreferencePanel() {
     const active = document.activeElement;
     return Boolean(active?.closest?.('#assistantPreferencePanel')) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
@@ -543,6 +580,10 @@
     setChecked('#assistantPreferLessWalkInput', Boolean(prefs.routeOptions.preferLessWalk));
     setChecked('#assistantRealtimeTrafficInput', Boolean(prefs.routeOptions.useRealtimeTraffic));
   }
+
+  // ---------------------------------------------------------------------------
+  // Compatibility patches for older local APIs
+  // ---------------------------------------------------------------------------
 
   function patchAssistantPreferencesApi() {
     const api = window.AssistantPreferences;
@@ -607,6 +648,10 @@
     };
     return true;
   }
+
+  // ---------------------------------------------------------------------------
+  // Public debug API and boot
+  // ---------------------------------------------------------------------------
 
   function installDebugApi() {
     window.AICommandRouter = {
