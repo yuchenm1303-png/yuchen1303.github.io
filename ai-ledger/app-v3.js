@@ -7,6 +7,9 @@
   const DEFAULT_AI_CONFIG = window.AI_LEDGER_CONFIG || {};
   const DEFAULT_AI_ENDPOINT = DEFAULT_AI_CONFIG.aiEndpoint || '';
   const DEFAULT_AI_TIMEOUT_MS = Number(DEFAULT_AI_CONFIG.aiTimeoutMs) || 12000;
+  const CHAT_RENDER_LIMIT = 60;
+  const CHAT_RENDER_STEP = 40;
+  const CHAT_KEYBOARD_GAP = 110;
 
   const categories = ['餐饮', '交通', '购物', '居住', '饮品', '工资', '礼物', '其他'];
   const typeMap = { expense: '支出', income: '收入' };
@@ -69,6 +72,11 @@
   let currentView = 'ai';
   let aiEndpoint = loadAiConfig().endpoint;
   let aiBusy = false;
+  let visibleChatLimit = CHAT_RENDER_LIMIT;
+  let lastChatRenderKey = '';
+  let viewportFrame = 0;
+  let resizeSettleTimer = 0;
+  let stableVisualHeight = Math.round(window.visualViewport?.height || window.innerHeight || 0);
 
   function loadRecords() {
     try {
@@ -177,10 +185,17 @@
     if (els.aiInput) els.aiInput.disabled = isLoading;
   }
 
+  function scrollChatToBottom(smooth = false) {
+    if (!els.chatMessages) return;
+    const host = els.chatMessages;
+    const behavior = smooth && !document.body.classList.contains('keyboard-open') ? 'smooth' : 'auto';
+    requestAnimationFrame(() => host.scrollTo({ top: host.scrollHeight, behavior }));
+  }
+
   function renderTyping() {
     if (!els.chatMessages || document.querySelector('#typingRow')) return;
     els.chatMessages.insertAdjacentHTML('beforeend', '<div class="chat-row assistant" id="typingRow"><div class="chat-bubble"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div></div>');
-    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    scrollChatToBottom(false);
   }
 
   function removeTyping() {
@@ -278,17 +293,66 @@
     return window.MobileCommandActions?.renderCard?.(command) || '';
   }
 
-  function renderChat() {
-    if (!els.chatMessages) return;
-    const html = chatMessages.map((message) => {
-      const isUser = message.role === 'user';
-      const source = message.source ? ` data-source="${escapeHtml(message.source)}"` : '';
-      const draft = message.action === 'draft' && message.records?.length ? buildRecordCard(message.records) : '';
-      const mobile = message.action === 'mobile_command' && message.mobileCommand ? renderMobileCommandCard(message.mobileCommand) : '';
-      return `<div class="chat-row ${isUser ? 'user' : 'assistant'}" data-message-id="${escapeHtml(message.id)}"${source}><div class="chat-bubble chat-response">${escapeHtml(message.content).replace(/\n/g, '<br>')}${draft}${mobile}</div></div>`;
-    }).join('');
-    els.chatMessages.innerHTML = html;
-    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+  function buildChatRow(message) {
+    const isUser = message.role === 'user';
+    const source = message.source ? ` data-source="${escapeHtml(message.source)}"` : '';
+    const draft = message.action === 'draft' && message.records?.length ? buildRecordCard(message.records) : '';
+    const mobile = message.action === 'mobile_command' && message.mobileCommand ? renderMobileCommandCard(message.mobileCommand) : '';
+    return `<div class="chat-row ${isUser ? 'user' : 'assistant'}" data-message-id="${escapeHtml(message.id)}"${source}><div class="chat-bubble chat-response">${escapeHtml(message.content).replace(/\n/g, '<br>')}${draft}${mobile}</div></div>`;
+  }
+
+  function getChatRenderKey(start, visible) {
+    return `${start}:${chatMessages.length}:${visibleChatLimit}:` + visible
+      .map((message) => `${message.id}|${message.action || ''}|${message.draftState || ''}|${message.mobileCommand?.id || ''}|${message.records?.length || 0}`)
+      .join('~');
+  }
+
+  function renderChat({ force = false, preserveScroll = false } = {}) {
+    const host = els.chatMessages;
+    if (!host) return;
+
+    visibleChatLimit = Math.max(CHAT_RENDER_LIMIT, Math.min(visibleChatLimit, Math.max(chatMessages.length, CHAT_RENDER_LIMIT)));
+    const total = chatMessages.length;
+    const start = Math.max(0, total - visibleChatLimit);
+    const visible = chatMessages.slice(start);
+    const key = getChatRenderKey(start, visible);
+    const hasTyping = Boolean(document.querySelector('#typingRow'));
+    if (!force && !hasTyping && key === lastChatRenderKey) return;
+
+    const previousBottom = host.scrollHeight - host.scrollTop - host.clientHeight;
+    const wasNearBottom = previousBottom < 96;
+    const olderCount = start;
+    const olderButton = olderCount > 0
+      ? `<div class="chat-history-gate"><button type="button" data-action="load-older-chat">查看更早 ${olderCount} 条消息</button></div>`
+      : '';
+
+    host.innerHTML = olderButton + visible.map(buildChatRow).join('');
+    lastChatRenderKey = key;
+
+    if (preserveScroll && !wasNearBottom) {
+      requestAnimationFrame(() => {
+        host.scrollTop = Math.max(0, host.scrollHeight - host.clientHeight - previousBottom);
+      });
+    } else {
+      scrollChatToBottom(false);
+    }
+  }
+
+  function resetChatWindowToBottom() {
+    visibleChatLimit = CHAT_RENDER_LIMIT;
+    lastChatRenderKey = '';
+  }
+
+  function loadOlderChat() {
+    const host = els.chatMessages;
+    const previousHeight = host?.scrollHeight || 0;
+    const previousTop = host?.scrollTop || 0;
+    visibleChatLimit = Math.min(chatMessages.length, visibleChatLimit + CHAT_RENDER_STEP);
+    renderChat({ force: true, preserveScroll: true });
+    requestAnimationFrame(() => {
+      if (!host) return;
+      host.scrollTop = previousTop + Math.max(0, host.scrollHeight - previousHeight);
+    });
   }
 
   function renderStats() {
@@ -481,9 +545,10 @@
     const clean = String(text || '').trim();
     if (!clean) return showToast('先说一句吧');
 
+    resetChatWindowToBottom();
     chatMessages.push({ id: createId('user'), role: 'user', content: clean });
     saveChatMessages();
-    renderChat();
+    renderChat({ force: true });
 
     const instant = immediateLocalResult(clean);
     if (instant) {
@@ -518,6 +583,7 @@
     message.draftState = 'confirmed';
     saveRecords(records);
     saveChatMessages();
+    lastChatRenderKey = '';
     if (announce) showToast(`已保存 ${message.records.length} 条账单`);
     if (shouldRender) renderAll();
   }
@@ -527,14 +593,17 @@
     if (!message || message.draftState !== 'pending') return;
     message.draftState = 'cancelled';
     saveChatMessages();
-    renderChat();
+    lastChatRenderKey = '';
+    renderChat({ force: true });
     showToast('已取消这次记账');
   }
 
   function clearChat() {
     chatMessages = [...initialChat];
+    window.chatMessages = chatMessages;
     saveChatMessages();
-    renderChat();
+    resetChatWindowToBottom();
+    renderChat({ force: true });
     showToast('已清空聊天记录');
   }
 
@@ -563,7 +632,8 @@
       date: todayISO(),
     }, ...records];
     saveRecords(records);
-    renderAll();
+    renderStats();
+    renderList();
     closeSheet();
     showToast('已添加一条账单');
   }
@@ -602,12 +672,68 @@
     }
   }
 
+  function syncViewportMetrics() {
+    const viewport = window.visualViewport;
+    const visualHeight = Math.round(viewport?.height || window.innerHeight || 0);
+    const layoutHeight = Math.round(window.innerHeight || visualHeight);
+    const offsetTop = Math.round(viewport?.offsetTop || 0);
+    if (!visualHeight) return;
+
+    stableVisualHeight = Math.max(stableVisualHeight || visualHeight, visualHeight);
+    const keyboardGap = Math.max(0, stableVisualHeight - visualHeight - offsetTop);
+    const keyboardOpen = document.activeElement === els.aiInput && keyboardGap > CHAT_KEYBOARD_GAP;
+
+    document.documentElement.style.setProperty('--app-visual-vh', `${visualHeight}px`);
+    document.documentElement.style.setProperty('--app-stable-vh', `${stableVisualHeight}px`);
+    document.documentElement.style.setProperty('--keyboard-gap', `${keyboardOpen ? keyboardGap : 0}px`);
+    document.body.classList.toggle('keyboard-open', keyboardOpen);
+    document.body.classList.toggle('chat-input-focused', document.activeElement === els.aiInput);
+
+    if (keyboardOpen) scrollChatToBottom(false);
+    clearTimeout(resizeSettleTimer);
+    resizeSettleTimer = setTimeout(() => {
+      document.body.classList.remove('viewport-resizing');
+      if (document.activeElement === els.aiInput) scrollChatToBottom(false);
+    }, 180);
+  }
+
+  function scheduleViewportSync() {
+    document.body.classList.add('viewport-resizing');
+    cancelAnimationFrame(viewportFrame);
+    viewportFrame = requestAnimationFrame(syncViewportMetrics);
+  }
+
+  function installViewportStability() {
+    syncViewportMetrics();
+    window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
+    window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
+    window.addEventListener('resize', scheduleViewportSync, { passive: true });
+    window.addEventListener('orientationchange', () => {
+      stableVisualHeight = 0;
+      setTimeout(scheduleViewportSync, 240);
+    }, { passive: true });
+    els.aiInput?.addEventListener('focus', () => {
+      document.body.classList.add('chat-input-focused');
+      scheduleViewportSync();
+      setTimeout(() => scrollChatToBottom(false), 120);
+    });
+    els.aiInput?.addEventListener('blur', () => {
+      setTimeout(() => {
+        document.body.classList.remove('keyboard-open', 'chat-input-focused', 'viewport-resizing');
+        document.documentElement.style.setProperty('--keyboard-gap', '0px');
+        scheduleViewportSync();
+      }, 180);
+    });
+  }
+
   function bindEvents() {
     els.navBtns.forEach((button) => button.addEventListener('click', () => switchView(button.dataset.view)));
 
     document.addEventListener('click', (event) => {
       const viewBtn = event.target.closest('[data-open-view]');
       if (viewBtn) return switchView(viewBtn.dataset.openView);
+      const olderBtn = event.target.closest('[data-action="load-older-chat"]');
+      if (olderBtn) return loadOlderChat();
       const confirmBtn = event.target.closest('[data-action="confirm-draft"]');
       if (confirmBtn) return confirmDraft(confirmBtn.closest('.chat-row')?.dataset.messageId);
       const cancelBtn = event.target.closest('[data-action="cancel-draft"]');
@@ -616,7 +742,8 @@
       if (remove) {
         records = records.filter((r) => r.id !== remove.dataset.remove);
         saveRecords(records);
-        renderAll();
+        renderStats();
+        renderList();
       }
     });
 
@@ -624,6 +751,7 @@
       if (!els.aiInput) return;
       els.aiInput.value = button.dataset.sample || '';
       els.aiInput.focus();
+      scheduleViewportSync();
     }));
 
     els.chatForm?.addEventListener('submit', async (event) => {
@@ -638,7 +766,8 @@
 
     els.aiInput?.addEventListener('input', () => {
       els.aiInput.style.height = 'auto';
-      els.aiInput.style.height = `${Math.min(160, els.aiInput.scrollHeight)}px`;
+      els.aiInput.style.height = `${Math.min(140, els.aiInput.scrollHeight)}px`;
+      scheduleViewportSync();
     });
 
     els.addManualBtn?.addEventListener('click', openSheet);
@@ -666,6 +795,7 @@
     window.createId = createId;
     window.saveChatMessages = saveChatMessages;
     window.renderAll = renderAll;
+    window.renderChat = () => renderChat({ force: true });
     window.getPendingMessage = getPendingMessage;
     window.localMobileCommandResult = (text) => {
       const command = normalizeMobileCommand(window.MobileCommandActions?.parse?.(text));
@@ -673,17 +803,22 @@
     };
     window.AiAssistantViews = { open: switchView, current: () => currentView };
     window.AiAssistantRuntime = {
-      version: '20260516-4',
+      version: '20260516-5',
       ask: askAssistant,
       immediateLocalResult,
       localFallbackResult,
       getLedgerContext,
       isBusy: () => aiBusy,
       getEndpoint: () => aiEndpoint,
+      setChatWindowLimit(limit = CHAT_RENDER_LIMIT) {
+        visibleChatLimit = Math.max(CHAT_RENDER_LIMIT, Number(limit) || CHAT_RENDER_LIMIT);
+        renderChat({ force: true });
+      },
     };
   }
 
   bindEvents();
+  installViewportStability();
   exposeDebugApi();
   renderAll();
 })();
