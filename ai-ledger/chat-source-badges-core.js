@@ -123,38 +123,38 @@
     style.textContent = `
       #chatMessages{scroll-padding-bottom:44px!important;padding-bottom:24px!important;}
       .chat-row,.chat-response,.chat-bubble{overflow:visible!important;}
-      .chat-row[data-badge-text]{position:relative!important;padding-bottom:32px!important;}
-      .chat-row[data-badge-text]::after{content:attr(data-badge-text);position:absolute;left:40px;bottom:2px;display:inline-flex;max-width:calc(100% - 72px);box-sizing:border-box;border-radius:999px;padding:6px 10px 6px 22px;font-size:11px;font-weight:850;line-height:1.12;white-space:normal;word-break:break-word;z-index:12;opacity:1!important;visibility:visible!important;color:rgba(238,250,255,.78);background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.10);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
-      .chat-row[data-badge-text]::before{content:'';position:absolute;left:52px;bottom:12px;width:6px;height:6px;border-radius:999px;z-index:13;background:currentColor;opacity:.88;color:rgba(238,250,255,.78);}
-      .chat-row.user[data-badge-text]::after{left:auto;right:12px;max-width:calc(100% - 72px);}
-      .chat-row.user[data-badge-text]::before{left:auto;right:calc(12px + 12px);}
-      .chat-row[data-badge-tone="cloud"]::after{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
-      .chat-row[data-badge-tone="cloud"]::before{color:#83f7ff;}
-      .chat-row[data-badge-tone="gemini"]::after{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
-      .chat-row[data-badge-tone="gemini"]::before{color:#c7b7ff;}
-      .chat-row[data-badge-tone="vision"]::after{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34);}
-      .chat-row[data-badge-tone="vision"]::before{color:#ffd1fb;}
-      .chat-row[data-badge-tone="attachment"]::after{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34);}
-      .chat-row[data-badge-tone="attachment"]::before{color:#e5edff;}
-      .chat-row[data-badge-tone="online"]::after{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34);}
-      .chat-row[data-badge-tone="online"]::before{color:#8ff7c4;}
-      .chat-row[data-badge-tone="utility"]::after{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32);}
-      .chat-row[data-badge-tone="utility"]::before{color:#ffe38f;}
-      .chat-row[data-badge-tone="cloud-fallback"]::after{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32);}
-      .chat-row[data-badge-tone="cloud-fallback"]::before{color:#ffd28a;}
-      .chat-row[data-badge-tone="cloud-rule"]::after{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);}
-      .chat-row[data-badge-tone="cloud-rule"]::before{color:#a7f3d0;}
-      .chat-row[data-badge-tone="builtin"]::after{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30);}
-      .chat-row[data-badge-tone="builtin"]::before{color:#e7ddff;}
-      .chat-row[data-badge-tone="local"]::after{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28);}
-      .chat-row[data-badge-tone="local"]::before{color:#cbd5e1;}
-      .chat-row[data-badge-tone="mobile"]::after{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32);}
-      .chat-row[data-badge-tone="mobile"]::before{color:#86ece2;}
-      .chat-row[data-badge-tone="error"]::after{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30);}
-      .chat-row[data-badge-tone="error"]::before{color:#ffb4b4;}
+      .chat-bubble[data-badge-text]{position:relative!important;padding-bottom:48px!important;}
+      .chat-bubble[data-badge-text]::after{content:attr(data-badge-text);position:absolute;left:28px;right:auto;bottom:12px;display:inline-flex;max-width:calc(100% - 46px);box-sizing:border-box;border-radius:999px;padding:6px 10px 6px 22px;font-size:11px;font-weight:850;line-height:1.12;white-space:normal;word-break:break-word;z-index:12;opacity:1!important;visibility:visible!important;color:rgba(238,250,255,.78);background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.28);box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 8px 20px rgba(0,0,0,.10);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+      .chat-bubble[data-badge-text]::before{content:'';position:absolute;left:39px;bottom:22px;width:6px;height:6px;border-radius:999px;z-index:13;background:currentColor;opacity:.88;color:rgba(238,250,255,.78);}
+      .chat-row.user .chat-bubble[data-badge-text]::after{left:auto;right:28px;}
+      .chat-row.user .chat-bubble[data-badge-text]::before{left:auto;right:40px;}
+      .chat-bubble[data-badge-tone="cloud"]::after{color:#83f7ff;background:rgba(33,197,255,.14);border-color:rgba(33,197,255,.28);}
+      .chat-bubble[data-badge-tone="cloud"]::before{color:#83f7ff;}
+      .chat-bubble[data-badge-tone="gemini"]::after{color:#c7b7ff;background:rgba(126,87,255,.18);border-color:rgba(126,87,255,.35);}
+      .chat-bubble[data-badge-tone="gemini"]::before{color:#c7b7ff;}
+      .chat-bubble[data-badge-tone="vision"]::after{color:#ffd1fb;background:rgba(236,72,153,.16);border-color:rgba(236,72,153,.34);}
+      .chat-bubble[data-badge-tone="vision"]::before{color:#ffd1fb;}
+      .chat-bubble[data-badge-tone="attachment"]::after{color:#e5edff;background:rgba(148,163,255,.18);border-color:rgba(181,190,255,.34);}
+      .chat-bubble[data-badge-tone="attachment"]::before{color:#e5edff;}
+      .chat-bubble[data-badge-tone="online"]::after{color:#8ff7c4;background:rgba(22,190,121,.16);border-color:rgba(22,190,121,.34);}
+      .chat-bubble[data-badge-tone="online"]::before{color:#8ff7c4;}
+      .chat-bubble[data-badge-tone="utility"]::after{color:#ffe38f;background:rgba(240,180,50,.16);border-color:rgba(240,180,50,.32);}
+      .chat-bubble[data-badge-tone="utility"]::before{color:#ffe38f;}
+      .chat-bubble[data-badge-tone="cloud-fallback"]::after{color:#ffd28a;background:rgba(255,189,91,.14);border-color:rgba(255,189,91,.32);}
+      .chat-bubble[data-badge-tone="cloud-fallback"]::before{color:#ffd28a;}
+      .chat-bubble[data-badge-tone="cloud-rule"]::after{color:#a7f3d0;background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.28);}
+      .chat-bubble[data-badge-tone="cloud-rule"]::before{color:#a7f3d0;}
+      .chat-bubble[data-badge-tone="builtin"]::after{color:#e7ddff;background:rgba(161,117,255,.16);border-color:rgba(161,117,255,.30);}
+      .chat-bubble[data-badge-tone="builtin"]::before{color:#e7ddff;}
+      .chat-bubble[data-badge-tone="local"]::after{color:#cbd5e1;background:rgba(148,163,184,.16);border-color:rgba(148,163,184,.28);}
+      .chat-bubble[data-badge-tone="local"]::before{color:#cbd5e1;}
+      .chat-bubble[data-badge-tone="mobile"]::after{color:#86ece2;background:rgba(11,143,139,.18);border-color:rgba(11,143,139,.32);}
+      .chat-bubble[data-badge-tone="mobile"]::before{color:#86ece2;}
+      .chat-bubble[data-badge-tone="error"]::after{color:#ffb4b4;background:rgba(255,91,91,.15);border-color:rgba(255,91,91,.30);}
+      .chat-bubble[data-badge-tone="error"]::before{color:#ffb4b4;}
       .chat-source-badge-row{display:none!important;}
-      body.assistant-compact .chat-row[data-badge-text]{padding-bottom:28px!important;}
-      body.assistant-compact .chat-row[data-badge-text]::after{font-size:10px;padding:5px 9px 5px 20px;}
+      body.assistant-compact .chat-bubble[data-badge-text]{padding-bottom:42px!important;}
+      body.assistant-compact .chat-bubble[data-badge-text]::after{font-size:10px;padding:5px 9px 5px 20px;}
     `;
     document.head.appendChild(style);
   }
@@ -174,26 +174,36 @@
     return { text: `${meta.label}${detailText}`, tone: meta.tone, key };
   }
 
+  function clearRowAttrs(row) {
+    row.removeAttribute('data-badge-text');
+    row.removeAttribute('data-badge-tone');
+    row.removeAttribute('data-badge-key');
+    row.style.paddingBottom = '';
+  }
+
   function ensureBadge(row, byId) {
     if (!row || row.id === 'typingRow') return false;
+    clearRowAttrs(row);
+    row.querySelectorAll(':scope .chat-source-badge-row').forEach((node) => node.remove());
+    const bubble = row.querySelector('.chat-response,.chat-bubble');
+    if (!bubble) return false;
     const message = getMessage(row, byId);
     const parts = badgeParts(message);
-    row.querySelectorAll(':scope .chat-source-badge-row').forEach((node) => node.remove());
     if (!parts?.text) {
-      const had = row.hasAttribute('data-badge-text');
-      row.removeAttribute('data-badge-text');
-      row.removeAttribute('data-badge-tone');
-      row.removeAttribute('data-badge-key');
+      const had = bubble.hasAttribute('data-badge-text');
+      bubble.removeAttribute('data-badge-text');
+      bubble.removeAttribute('data-badge-tone');
+      bubble.removeAttribute('data-badge-key');
       return had;
     }
-    const currentKey = row.dataset.badgeKey || '';
+    const currentKey = bubble.dataset.badgeKey || '';
     const shouldKeepReal = currentKey && !currentKey.includes('fallback') && parts.key.includes('fallback');
     if (shouldKeepReal) return false;
-    const changed = row.dataset.badgeText !== parts.text || row.dataset.badgeTone !== parts.tone || row.dataset.badgeKey !== parts.key;
+    const changed = bubble.dataset.badgeText !== parts.text || bubble.dataset.badgeTone !== parts.tone || bubble.dataset.badgeKey !== parts.key;
     if (!changed) return false;
-    row.dataset.badgeText = parts.text;
-    row.dataset.badgeTone = parts.tone || 'cloud';
-    row.dataset.badgeKey = parts.key;
+    bubble.dataset.badgeText = parts.text;
+    bubble.dataset.badgeTone = parts.tone || 'cloud';
+    bubble.dataset.badgeKey = parts.key;
     row.dataset.sourceBadgeReady = 'ready';
     return true;
   }
@@ -204,7 +214,7 @@
     document.querySelectorAll('.chat-row').forEach((row) => {
       if (ensureBadge(row, byId)) changed = true;
     });
-    if (changed) pinChatBottom('badge-attrs');
+    if (changed) pinChatBottom('badge-bubble');
   }
 
   function installObserver() {
