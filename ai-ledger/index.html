@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="./auth.css?v=20260514-6" />
   <link rel="stylesheet" href="./liquid-plus.css?v=20260514-6" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260514-6" />
-  <link rel="stylesheet" href="./backgrounds.css?v=20260516-10" />
+  <link rel="stylesheet" href="./backgrounds.css?v=20260516-11" />
   <script>
     (() => {
       try {
@@ -69,38 +69,13 @@
           <h1>工具与能力</h1>
           <p class="subtext">账单、统计、提醒、应用控制和手机任务都在这里。</p>
         </header>
-
         <section class="tools-grid reveal delay-1" aria-label="功能中心">
-          <button class="glass-card tool-card" type="button" data-tool="ledger">
-            <div class="tool-icon">▤</div>
-            <h3>账单中心</h3>
-            <p>查看记录、管理分类、导出账单数据。</p>
-          </button>
-          <button class="glass-card tool-card" type="button" data-tool="stats">
-            <div class="tool-icon">▣</div>
-            <h3>数据统计</h3>
-            <p>查看收支总览、趋势图、分类占比和预算。</p>
-          </button>
-          <button class="glass-card tool-card" type="button" data-tool="alarm">
-            <div class="tool-icon">⏰</div>
-            <h3>提醒闹钟</h3>
-            <p>通过对话生成提醒和系统闹钟动作。</p>
-          </button>
-          <button class="glass-card tool-card" type="button" data-tool="apps">
-            <div class="tool-icon">◎</div>
-            <h3>应用控制</h3>
-            <p>打开微信、支付宝等常用手机 App。</p>
-          </button>
-          <button class="glass-card tool-card" type="button" data-tool="shortcuts">
-            <div class="tool-icon">⌁</div>
-            <h3>快捷指令</h3>
-            <p>沉淀常用任务，一句话复用。</p>
-          </button>
-          <button class="glass-card tool-card" type="button" data-tool="tasks">
-            <div class="tool-icon">✓</div>
-            <h3>任务记录</h3>
-            <p>查看手机动作卡片和执行历史。</p>
-          </button>
+          <button class="glass-card tool-card" type="button" data-tool="ledger"><div class="tool-icon">▤</div><h3>账单中心</h3><p>查看记录、管理分类、导出账单数据。</p></button>
+          <button class="glass-card tool-card" type="button" data-tool="stats"><div class="tool-icon">▣</div><h3>数据统计</h3><p>查看收支总览、趋势图、分类占比和预算。</p></button>
+          <button class="glass-card tool-card" type="button" data-tool="alarm"><div class="tool-icon">⏰</div><h3>提醒闹钟</h3><p>通过对话生成提醒和系统闹钟动作。</p></button>
+          <button class="glass-card tool-card" type="button" data-tool="apps"><div class="tool-icon">◎</div><h3>应用控制</h3><p>打开微信、支付宝等常用手机 App。</p></button>
+          <button class="glass-card tool-card" type="button" data-tool="shortcuts"><div class="tool-icon">⌁</div><h3>快捷指令</h3><p>沉淀常用任务，一句话复用。</p></button>
+          <button class="glass-card tool-card" type="button" data-tool="tasks"><div class="tool-icon">✓</div><h3>任务记录</h3><p>查看手机动作卡片和执行历史。</p></button>
         </section>
       </div>
       <section id="toolsPanel" class="tools-panel" aria-live="polite"></section>
@@ -108,83 +83,95 @@
 
     <section id="view-stats" class="view">
       <button class="tools-back" type="button" data-open-view="tools">← 功能中心</button>
-      <header class="page-header reveal">
-        <p class="eyebrow">数据统计</p>
-        <h1>收支总览</h1>
-        <p id="rangeText" class="subtext">—</p>
-      </header>
-
+      <header class="page-header reveal"><p class="eyebrow">数据统计</p><h1>收支总览</h1><p id="rangeText" class="subtext">—</p></header>
       <section class="chip-row reveal delay-1">
         <button class="range-chip active" data-range="month">本月</button>
         <button class="range-chip" data-range="lastMonth">上月</button>
         <button class="range-chip" data-range="30days">近30天</button>
         <button class="range-chip" data-range="year">本年</button>
       </section>
-
       <section class="stats-grid reveal delay-2">
         <article class="glass-card stat-card income"><span>收入</span><strong id="monthIncome">¥0.00</strong></article>
         <article class="glass-card stat-card expense"><span>支出</span><strong id="monthExpense">¥0.00</strong></article>
         <article class="glass-card stat-card balance"><span>结余</span><strong id="monthBalance">¥0.00</strong></article>
         <article class="glass-card stat-card"><span>今日支出</span><strong id="todaySpend">¥0.00</strong></article>
       </section>
-
-      <section class="chart-card glass-card reveal delay-3">
-        <div class="section-head"><h2>趋势</h2><span>近 7 天</span></div>
-        <canvas id="trendChart" height="150"></canvas>
-      </section>
-
-      <section class="chart-card glass-card reveal delay-4">
-        <div class="section-head"><h2>分类占比</h2><span>按支出</span></div>
-        <canvas id="categoryChart" height="150"></canvas>
-      </section>
+      <section class="chart-card glass-card reveal delay-3"><div class="section-head"><h2>趋势</h2><span>近 7 天</span></div><canvas id="trendChart" height="150"></canvas></section>
+      <section class="chart-card glass-card reveal delay-4"><div class="section-head"><h2>分类占比</h2><span>按支出</span></div><canvas id="categoryChart" height="150"></canvas></section>
     </section>
 
     <section id="view-list" class="view">
       <button class="tools-back" type="button" data-open-view="tools">← 功能中心</button>
-      <header class="page-header reveal">
-        <p class="eyebrow">账单明细</p>
-        <h1>记录列表</h1>
-        <p id="recordCount" class="subtext">0 条</p>
-      </header>
+      <header class="page-header reveal"><p class="eyebrow">账单明细</p><h1>记录列表</h1><p id="recordCount" class="subtext">0 条</p></header>
       <section id="recordList" class="record-list reveal delay-1"></section>
     </section>
 
     <section id="view-settings" class="view">
       <header class="page-header reveal">
-        <p class="eyebrow">设置</p>
-        <h1>偏好与同步</h1>
-        <p class="subtext">数据存储、云端接口、预算与显示。</p>
+        <p class="eyebrow">设置中心</p>
+        <h1>应用设置</h1>
+        <p class="subtext">接入登录、云端同步与个性化外观</p>
       </header>
 
-      <section class="settings-list reveal delay-1">
-        <div class="setting-card glass-card">
-          <div><strong>预算提醒</strong><span>本月支出超过预算时提示</span></div>
-          <input id="budgetInput" type="number" min="0" placeholder="例如 2000" />
-        </div>
-        <div class="setting-card glass-card ai-endpoint-card">
-          <div><strong>云端 AI 接口</strong><span>可粘贴 Cloudflare Worker 地址</span></div>
-          <input id="aiEndpointInput" type="url" placeholder="https://...workers.dev" />
-          <div class="setting-actions">
-            <button id="saveAiEndpointBtn" class="secondary-btn" type="button">保存接口</button>
-            <button id="testAiEndpointBtn" class="secondary-btn" type="button">测试连接</button>
-            <button id="resetAiEndpointBtn" class="ghost-btn" type="button">恢复默认</button>
-          </div>
-          <p id="aiEndpointStatus" class="helper-text">未配置云端 AI，当前使用本地识别。</p>
-        </div>
-        <div class="setting-card glass-card">
-          <div><strong>账号与同步</strong><span id="authHint">未登录时仍可继续本地使用。</span></div>
-          <div class="account-row">
-            <span id="authStatusText">未登录</span>
-            <span id="authStatusPill">本地模式</span>
-          </div>
+      <section class="glass-card" data-settings-group-target="account">
+        <div class="section-head"><h2>账号与同步</h2></div>
+        <div class="account-panel">
+          <div class="account-row"><span id="authStatusText">未登录</span><span id="authStatusPill">本地模式</span></div>
+          <p id="authHint" class="helper-text">未登录时仍可继续本地使用；需要同步时可手动登录。</p>
           <div class="setting-actions">
             <button id="openAuthBtn" class="secondary-btn" type="button">登录 / 注册</button>
             <button id="logoutBtn" class="ghost-btn" type="button" hidden>退出登录</button>
           </div>
         </div>
-        <div class="setting-card glass-card"><div><strong>数据存储</strong><span>当前保存在浏览器本地，可导出备份。</span></div><button id="exportBtn" class="secondary-btn" type="button">导出 JSON</button></div>
-        <div class="setting-card glass-card"><div><strong>清空聊天</strong><span>不会删除账单记录。</span></div><button id="clearChatBtn" class="ghost-btn danger" type="button">清空</button></div>
-        <div class="setting-card glass-card"><div><strong>主题</strong><span>液态玻璃 + 夜光渐变。</span></div><span class="pill">Aurora</span></div>
+      </section>
+
+      <section class="glass-card ai-endpoint-card" data-settings-group-target="account">
+        <div class="section-head"><h2>AI 设置</h2></div>
+        <label class="field-label" for="aiEndpointInput">云端 AI 接口</label>
+        <input id="aiEndpointInput" type="url" placeholder="https://...workers.dev" />
+        <p id="aiEndpointStatus" class="helper-text">未配置云端 AI，当前使用本地识别。</p>
+        <div class="setting-actions">
+          <button id="saveAiEndpointBtn" class="secondary-btn" type="button">保存接口</button>
+          <button id="testAiEndpointBtn" class="secondary-btn" type="button">测试连接</button>
+          <button id="resetAiEndpointBtn" class="ghost-btn" type="button">恢复默认</button>
+        </div>
+      </section>
+
+      <section class="glass-card" data-settings-group-target="display">
+        <div class="section-head"><h2>显示与语言</h2></div>
+        <p class="helper-text">语言、字体大小、玻璃透明度、模糊强度和动画效果会在这里集中设置。</p>
+      </section>
+
+      <section class="glass-card" data-settings-group-target="phone">
+        <div class="section-head"><h2>手机偏好</h2></div>
+        <p class="helper-text">家庭地址、默认地图、默认出行方式等手机任务偏好。</p>
+      </section>
+
+      <section class="glass-card" data-settings-group-target="appearance">
+        <div class="section-head"><h2>背景外观</h2></div>
+        <div id="backgroundPicker" class="background-picker">
+          <p class="helper-text">选择内置背景</p>
+          <div class="background-options">
+            <button class="bg-option active" type="button" data-bg="aurora" aria-label="选择天气星空背景"><span class="bg-preview"></span><span>天气星空</span></button>
+            <button class="bg-option" type="button" data-bg="jade" aria-label="选择翡翠海雾背景"><span class="bg-preview"></span><span>翡翠海雾</span></button>
+            <button class="bg-option" type="button" data-bg="sunset" aria-label="选择暮色流金背景"><span class="bg-preview"></span><span>暮色流金</span></button>
+            <button class="bg-option" type="button" data-bg="dawn" aria-label="选择晨光珍珠背景"><span class="bg-preview"></span><span>晨光珍珠</span></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass-card" data-settings-group-target="data">
+        <div class="section-head"><h2>预算设置</h2></div>
+        <label class="field-label" for="budgetInput">本月预算</label>
+        <input id="budgetInput" type="number" min="0" placeholder="例如 2000" />
+      </section>
+
+      <section class="glass-card" data-settings-group-target="data">
+        <div class="section-head"><h2>数据工具</h2></div>
+        <div class="setting-actions">
+          <button id="exportBtn" class="secondary-btn" type="button">导出 JSON</button>
+          <button id="clearChatBtn" class="ghost-btn danger" type="button">清空聊天</button>
+        </div>
       </section>
     </section>
 
@@ -198,17 +185,11 @@
   <section id="authOverlay" class="auth-overlay" aria-hidden="true">
     <form id="authForm" class="auth-card glass-card">
       <div class="section-head"><h2 id="authTitle">账号登录</h2><button id="closeAuthBtn" class="icon-btn" type="button">×</button></div>
-      <div class="auth-tabs">
-        <button class="auth-tab active" type="button" data-auth-mode="login">登录</button>
-        <button class="auth-tab" type="button" data-auth-mode="register">注册</button>
-      </div>
+      <div class="auth-tabs"><button class="auth-tab active" type="button" data-auth-mode="login">登录</button><button class="auth-tab" type="button" data-auth-mode="register">注册</button></div>
       <label>邮箱<input id="authEmail" type="email" autocomplete="email" placeholder="name@example.com" required /></label>
       <label>密码<input id="authPassword" type="password" autocomplete="current-password" placeholder="至少 6 位" minlength="6" required /></label>
       <p id="authMessage" class="auth-message">邮箱和密码登录。</p>
-      <div class="auth-foot">
-        <button id="authSubmitBtn" class="primary-btn" type="submit">登录</button>
-        <button class="text-btn" type="button" onclick="document.querySelector('#authOverlay')?.classList.remove('open')">先继续本地使用</button>
-      </div>
+      <div class="auth-foot"><button id="authSubmitBtn" class="primary-btn" type="submit">登录</button><button class="text-btn" type="button" onclick="document.querySelector('#authOverlay')?.classList.remove('open')">先继续本地使用</button></div>
     </form>
   </section>
 
@@ -218,17 +199,17 @@
   <script src="./assistant-profile.js?v=20260516-1"></script>
   <script src="./navigation-preferences.js?v=20260516-1"></script>
   <script src="./chat-attachments.js?v=20260516-5"></script>
-  <script src="./chat-source-badges.js?v=20260516-9"></script>
+  <script src="./chat-source-badges.js?v=20260516-10"></script>
   <script src="./tools-center.js?v=20260516-1"></script>
   <script src="./ai-command-router-v2.js?v=20260516-4"></script>
   <script src="./cloud-command-bridge.js?v=20260516-4"></script>
-  <script src="./app-v3.js?v=20260516-7"></script>
+  <script src="./app-v3.js?v=20260516-8"></script>
   <script src="./chat-badge-hardening.js?v=20260516-1"></script>
   <script src="./ui-motion.js?v=20260515-7"></script>
-  <script src="./background-picker.js?v=20260510-17"></script>
+  <script src="./background-picker.js?v=20260510-18"></script>
   <script src="./settings-appearance-plus.js?v=20260516-1"></script>
   <script src="./settings-preferences.js?v=20260515-5"></script>
-  <script src="./settings-groups.js?v=20260516-2"></script>
+  <script src="./settings-groups.js?v=20260516-3"></script>
   <script src="./glass-stability.js?v=20260516-1"></script>
   <script src="./settings-detail-polish.js?v=20260516-2"></script>
   <script src="./ui-density-polish.js?v=20260516-1"></script>
