@@ -46,6 +46,7 @@ export default {
         plannerProvider: plannerProvider(env),
         defaultGeminiModel: geminiModel(env),
         nvidiaPlannerModel: nvidiaPlannerModel(env),
+        nvidiaPlannerLabel: nvidiaModelLabel(nvidiaPlannerModel(env)),
         nvidiaBaseUrl: nvidiaBaseUrl(env),
         commandWorker: commandHealth,
         attachmentGateway: attachmentHealth,
@@ -408,7 +409,7 @@ function plannerProvider(env) { const value = String(env.PLANNER_PROVIDER || env
 function nvidiaBaseUrl(env) { return String(env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/+$/g, ""); }
 function nvidiaPlannerModel(env) { return String(env.NVIDIA_PLANNER_MODEL || env.NVIDIA_MODEL || "mistralai/mistral-medium-3.5-128b"); }
 function nvidiaChatModel(env) { return String(env.NVIDIA_CHAT_MODEL || env.NVIDIA_PLANNER_MODEL || env.NVIDIA_MODEL || "mistralai/mistral-medium-3.5-128b"); }
-function nvidiaModelLabel(model) { const value = String(model || ""); if (/mistral-medium-3\.5-128b/i.test(value)) return "NVIDIA NIM · Mistral Medium 3.5 128B"; if (/kimi/i.test(value)) return `NVIDIA NIM · ${value}`; if (/deepseek/i.test(value)) return `NVIDIA NIM · ${value}`; if (/qwen/i.test(value)) return `NVIDIA NIM · ${value}`; return `NVIDIA NIM · ${value || "model"}`; }
+function nvidiaModelLabel(model) { const value = String(model || ""); if (/mistral-medium-3\.5-128b/i.test(value)) return "Mistral Medium 3.5 128B · via NVIDIA NIM"; if (/kimi/i.test(value)) return `${value} · via NVIDIA NIM`; if (/deepseek/i.test(value)) return `${value} · via NVIDIA NIM`; if (/qwen/i.test(value)) return `${value} · via NVIDIA NIM`; if (/nemotron/i.test(value)) return `${value} · via NVIDIA NIM`; return `${value || "Model"} · via NVIDIA NIM`; }
 function geminiModel(env) { return String(env.GEMINI_CHAT_MODEL || env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, ""); }
 function geminiModelLabel(model) { const value = String(model || ""); if (/2\.5.*flash/i.test(value)) return "Gemini 2.5 Flash"; if (/2\.5.*pro/i.test(value)) return "Gemini 2.5 Pro"; if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash"; if (/1\.5.*flash/i.test(value)) return "Gemini 1.5 Flash"; if (/1\.5.*pro/i.test(value)) return "Gemini 1.5 Pro"; return value || "Gemini"; }
 function modelMeta(provider, model, label) { const cleanProvider = String(provider || "").trim(); const cleanModel = String(model || "").trim(); const cleanLabel = String(label || cleanModel || cleanProvider || "Cloud Model").trim(); return { provider: cleanProvider, model: cleanModel, modelLabel: cleanLabel }; }
