@@ -1,9 +1,10 @@
 (() => {
-  const CHAT_KEY = 'ai-ledger-chat-v2';
+  'use strict';
+
   const NAV_PREF_KEY = 'ai-assistant-navigation-preferences-v2';
   const HOME_ADDRESS_KEY = 'ai-assistant-home-address-v1';
   const MAP_PROVIDER_KEY = 'ai-assistant-map-provider-v1';
-  const ROUTER_FLAG = '__aiCommandRouterV2Installed';
+  const ROUTER_FLAG = '__aiCommandRouterV3Installed';
 
   const MAP_LABELS = { baidu: '百度地图', amap: '高德地图' };
   const MODE_LABELS = { driving: '驾车', walking: '步行', riding: '骑行', transit: '公交/地铁' };
@@ -16,8 +17,8 @@
     useRealtimeTraffic: '参考实时路况',
   };
 
-  const DEFAULT_NAV_PREFS = {
-    version: 2,
+  const DEFAULT_NAV_PREFS = Object.freeze({
+    version: 3,
     places: { home: '', school: '', work: '', dorm: '' },
     customPlaces: [],
     mapProvider: 'baidu',
@@ -30,7 +31,11 @@
       useRealtimeTraffic: true,
     },
     lastUpdated: '',
-  };
+  });
+
+  let cachedPrefs = null;
+  let patchRetryFrame = 0;
+  let settingsSyncFrame = 0;
 
   function createId(prefix = 'cmd') {
     if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
@@ -53,8 +58,8 @@
     return value === 'amap' ? 'amap' : 'baidu';
   }
 
-  function normalizeMode(value) {
-    return ['driving', 'walking', 'riding', 'transit'].includes(value) ? value : 'driving';
+  function normalizeMode(value, fallback = 'driving') {
+    return ['driving', 'walking', 'riding', 'transit'].includes(value) ? value : fallback;
   }
 
   function normalizeCustomPlaces(list) {
@@ -82,23 +87,26 @@
     prefs.places.dorm = cleanText(input.places?.dorm, 120);
     prefs.customPlaces = normalizeCustomPlaces(input.customPlaces);
     prefs.mapProvider = normalizeProvider(input.mapProvider || legacyMap);
-    prefs.defaultMode = normalizeMode(input.defaultMode);
+    prefs.defaultMode = normalizeMode(input.defaultMode, 'driving');
     prefs.routeOptions = { ...prefs.routeOptions, ...(input.routeOptions || {}) };
     Object.keys(prefs.routeOptions).forEach((key) => { prefs.routeOptions[key] = Boolean(prefs.routeOptions[key]); });
     prefs.lastUpdated = input.lastUpdated || '';
     return prefs;
   }
 
-  function readNavPrefs() {
+  function readNavPrefs({ fresh = false } = {}) {
+    if (cachedPrefs && !fresh) return cachedPrefs;
     try {
-      return normalizeNavPrefs(JSON.parse(localStorage.getItem(NAV_PREF_KEY) || '{}'));
+      cachedPrefs = normalizeNavPrefs(JSON.parse(localStorage.getItem(NAV_PREF_KEY) || '{}'));
     } catch {
-      return normalizeNavPrefs({});
+      cachedPrefs = normalizeNavPrefs({});
     }
+    return cachedPrefs;
   }
 
   function writeNavPrefs(nextPrefs) {
     const prefs = normalizeNavPrefs({ ...nextPrefs, lastUpdated: new Date().toISOString() });
+    cachedPrefs = prefs;
     localStorage.setItem(NAV_PREF_KEY, JSON.stringify(prefs));
     if (prefs.places.home) localStorage.setItem(HOME_ADDRESS_KEY, prefs.places.home);
     else localStorage.removeItem(HOME_ADDRESS_KEY);
@@ -176,14 +184,14 @@
   }
 
   function applyNavigationPreferenceUpdate(updates = {}) {
-    const prefs = readNavPrefs();
+    const prefs = clone(readNavPrefs());
     let count = 0;
     if (updates.mapProvider) {
       prefs.mapProvider = normalizeProvider(updates.mapProvider);
       count += 1;
     }
     if (updates.defaultMode) {
-      prefs.defaultMode = normalizeMode(updates.defaultMode);
+      prefs.defaultMode = normalizeMode(updates.defaultMode, prefs.defaultMode);
       count += 1;
     }
     if (updates.places && typeof updates.places === 'object') {
@@ -199,9 +207,9 @@
         }
       });
     }
-    if (Array.isArray(updates.customPlaces)) {
+    if (Array.isArray(updates.customPlaces) && updates.customPlaces.length) {
       prefs.customPlaces = mergeCustomPlaces(prefs.customPlaces, updates.customPlaces);
-      if (updates.customPlaces.length) count += 1;
+      count += 1;
     }
     if (updates.routeOptions && typeof updates.routeOptions === 'object') {
       Object.entries(updates.routeOptions).forEach(([key, value]) => {
@@ -310,7 +318,7 @@
     if (!cleanAlias || /^(打开|启动)?(百度地图|高德地图|地图)$/u.test(cleanAlias)) return null;
 
     const provider = normalizeProvider(overrides.mapProvider || inferProvider(rawText) || prefs.mapProvider);
-    const mode = normalizeMode(overrides.mode || inferMode(rawText, prefs.defaultMode));
+    const mode = normalizeMode(overrides.mode || inferMode(rawText, prefs.defaultMode), prefs.defaultMode);
     const routeOptions = { ...prefs.routeOptions, ...inferRouteOptions(rawText), ...(overrides.routeOptions || {}) };
     const resolved = resolveDestination(cleanAlias, prefs);
     const appName = MAP_LABELS[provider] || '地图';
@@ -324,6 +332,9 @@
         appName,
         mapProvider: provider,
         mode,
+        travelMode: mode,
+        navigationMode: mode,
+        transportMode: mode,
         routeOptions,
         destination: resolved.destination,
         destinationAlias: resolved.alias,
@@ -339,7 +350,7 @@
     const raw = cleanText(text, 180);
     const directNavIntent = /(导航|带我去|打开地图去|路线到|回家|到家|去学校|去公司|去宿舍|去寝室|去家里)/u.test(raw);
     const routeQueryIntent = /(怎么去|怎么走|附近|最近|查|搜索|搜一下|路况|堵不堵|多久|多远)/u.test(raw);
-    if (!directNavIntent || routeQueryIntent && !/导航|带我去|打开地图去|回家|到家/u.test(raw)) return null;
+    if (!directNavIntent || (routeQueryIntent && !/导航|带我去|打开地图去|回家|到家/u.test(raw))) return null;
 
     const destinationMatch = raw.match(/(?:导航(?:到|去)?|路线到|带我去|打开地图去)\s*([^，。；;\n]+)/u)
       || raw.match(/去\s*([^，。；;\n]+?)(?:导航|路线)?$/u)
@@ -366,7 +377,7 @@
   function loadChatMessages() {
     if (Array.isArray(window.chatMessages)) return window.chatMessages;
     try {
-      const parsed = JSON.parse(localStorage.getItem(CHAT_KEY) || '[]');
+      const parsed = JSON.parse(localStorage.getItem('ai-ledger-chat-v2') || '[]');
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
@@ -403,7 +414,12 @@
     }
 
     const mode = inferMode(raw);
-    if (mode) next.params.mode = mode;
+    if (mode) {
+      next.params.mode = normalizeMode(mode, next.params.mode);
+      next.params.travelMode = next.params.mode;
+      next.params.navigationMode = next.params.mode;
+      next.params.transportMode = next.params.mode;
+    }
 
     const routeOptions = inferRouteOptions(raw);
     next.params.routeOptions = { ...(next.params.routeOptions || {}), ...routeOptions };
@@ -425,7 +441,6 @@
       if (rebuilt) return rebuilt;
     }
 
-    next.params.mode = normalizeMode(next.params.mode);
     next.params.mapProvider = normalizeProvider(next.params.mapProvider);
     next.params.appName = MAP_LABELS[next.params.mapProvider];
     next.title = `${next.params.appName}导航`;
@@ -456,7 +471,7 @@
 
   function routeText(text) {
     const raw = cleanText(text, 220);
-    if (!raw) return { kind: 'empty', confidence: 1 };
+    if (!raw) return { kind: 'empty', confidence: 1, source: 'router' };
     const local = parseNavigationPreference(raw) || parseNavigationEdit(raw) || parseNavigationStart(raw);
     if (local) return local;
     if (/(导航|路线|地图|附近|怎么去|怎么走|路况)/u.test(raw)) {
@@ -466,7 +481,7 @@
   }
 
   function replyForDecision(decision) {
-    const command = decision.command;
+    const command = decision?.command;
     if (!command) return '';
     if (isPreferenceCommand(command)) {
       return `我整理好了导航偏好：${command.summary || '更新导航习惯'}。确认后我会保存到手机偏好里。`;
@@ -482,32 +497,17 @@
     return `我理解为要用${map}${mode}导航到“${command.params.destination}”，确认后我再执行。`;
   }
 
-  function persistChatMessages(messages) {
-    if (Array.isArray(window.chatMessages) && window.chatMessages !== messages) {
-      window.chatMessages.length = 0;
-      messages.forEach((item) => window.chatMessages.push(item));
-      window.saveChatMessages?.();
-    } else {
-      localStorage.setItem(CHAT_KEY, JSON.stringify(messages));
-    }
-    window.renderAll?.();
-  }
-
-  function appendRouterCommand(text, decision) {
-    const messages = loadChatMessages();
-    messages.push({ id: createId('user'), role: 'user', content: text });
-    messages.push({
-      id: createId('assistant'),
-      role: 'assistant',
-      content: replyForDecision(decision),
+  function toAssistantResult(text) {
+    const decision = routeText(text);
+    if (decision.kind !== 'local_command' && decision.kind !== 'need_user_info') return null;
+    return {
+      reply: replyForDecision(decision),
       action: 'mobile_command',
       records: [],
-      draftState: 'none',
       mobileCommand: decision.command,
-      source: 'ai_command_router_v2',
+      source: 'ai_command_router_v3',
       router: { intent: decision.intent, confidence: decision.confidence, source: decision.source },
-    });
-    persistChatMessages(messages);
+    };
   }
 
   function isUserEditingPreferencePanel() {
@@ -519,12 +519,17 @@
     return normalizeCustomPlaces(list).map((item) => `${item.name}：${item.address}`).join('\n');
   }
 
+  function scheduleSettingsPanelUpdate(force = false) {
+    cancelAnimationFrame(settingsSyncFrame);
+    settingsSyncFrame = requestAnimationFrame(() => updateSettingsPanel({ force }));
+  }
+
   function updateSettingsPanel({ force = false } = {}) {
     const panel = document.querySelector('#assistantPreferencePanel');
     if (!panel || (!force && isUserEditingPreferencePanel())) return;
     const prefs = readNavPrefs();
-    const setValue = (selector, value) => { const el = document.querySelector(selector); if (el) el.value = value; };
-    const setChecked = (selector, checked) => { const el = document.querySelector(selector); if (el) el.checked = checked; };
+    const setValue = (selector, value) => { const el = document.querySelector(selector); if (el && el.value !== value) el.value = value; };
+    const setChecked = (selector, checked) => { const el = document.querySelector(selector); if (el && el.checked !== checked) el.checked = checked; };
     setValue('#assistantHomeAddressInput', prefs.places.home || '');
     setValue('#assistantSchoolAddressInput', prefs.places.school || '');
     setValue('#assistantWorkAddressInput', prefs.places.work || '');
@@ -541,8 +546,8 @@
 
   function patchAssistantPreferencesApi() {
     const api = window.AssistantPreferences;
-    if (!api || api.__commandRouterV2Patched) return;
-    api.__commandRouterV2Patched = true;
+    if (!api || api.__commandRouterV3Patched) return Boolean(api);
+    api.__commandRouterV3Patched = true;
     api.getPreferences = readNavPrefs;
     api.getHomeAddress = () => readNavPrefs().places.home || '';
     api.getMapProvider = () => readNavPrefs().mapProvider;
@@ -551,7 +556,7 @@
     api.normalizePlaceKey = normalizePlaceKey;
     api.applyPreferenceUpdate = (updates = {}) => {
       const result = applyNavigationPreferenceUpdate(updates);
-      window.setTimeout(() => updateSettingsPanel({ force: true }), 0);
+      scheduleSettingsPanelUpdate(true);
       return result;
     };
     api.resolveDestination = (destination) => {
@@ -569,12 +574,15 @@
       const provider = normalizeProvider(params.mapProvider || inferProvider(sourceText) || prefs.mapProvider);
       const alias = cleanText(params.destinationAlias || params.destination || '', 120);
       const resolved = resolveDestination(alias, prefs);
-      const mode = normalizeMode(params.mode || inferMode(sourceText, prefs.defaultMode));
+      const mode = normalizeMode(params.mode || inferMode(sourceText, prefs.defaultMode), prefs.defaultMode);
       return {
         ...params,
         appName: MAP_LABELS[provider],
         mapProvider: provider,
         mode,
+        travelMode: mode,
+        navigationMode: mode,
+        transportMode: mode,
         routeOptions: { ...prefs.routeOptions, ...(params.routeOptions || {}) },
         destination: resolved.destination,
         destinationAlias: resolved.alias,
@@ -584,65 +592,76 @@
         homeAddressMissing: resolved.matchedPlaceKey === 'home' && resolved.placeAddressMissing,
       };
     };
+    return true;
   }
 
   function patchMobileActions() {
     const actions = window.MobileCommandActions;
-    if (!actions || actions.__commandRouterV2Patched) return;
-    actions.__commandRouterV2Patched = true;
+    if (!actions || actions.__commandRouterV3Patched) return Boolean(actions);
+    actions.__commandRouterV3Patched = true;
     const baseParse = actions.parse;
     actions.parse = (text) => {
       const decision = routeText(text);
       if (decision.kind === 'local_command' || decision.kind === 'need_user_info') return decision.command;
       return baseParse?.(text) || null;
     };
-  }
-
-  function installSubmitRouter() {
-    const form = document.querySelector('#chatForm');
-    const input = document.querySelector('#aiInput');
-    if (!form || !input || form.dataset.commandRouterV2Installed === 'true') return;
-    form.dataset.commandRouterV2Installed = 'true';
-    form.addEventListener('submit', (event) => {
-      const text = input.value.trim();
-      const decision = routeText(text);
-      if (decision.kind !== 'local_command' && decision.kind !== 'need_user_info') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      input.value = '';
-      input.style.height = 'auto';
-      appendRouterCommand(text, decision);
-    }, true);
+    return true;
   }
 
   function installDebugApi() {
     window.AICommandRouter = {
-      version: '20260515-2',
+      version: '20260516-3',
       route: routeText,
+      toAssistantResult,
+      replyForDecision,
       readNavigationPreferences: readNavPrefs,
       writeNavigationPreferences: writeNavPrefs,
       applyNavigationPreferenceUpdate,
       getLastNavigationCommand,
+      resolveDestination,
+      buildNavigationCommand,
+      normalizeMode,
+      normalizeProvider,
     };
+  }
+
+  function patchDependenciesWithLightRetry() {
+    cancelAnimationFrame(patchRetryFrame);
+    patchRetryFrame = requestAnimationFrame(() => {
+      const prefsReady = patchAssistantPreferencesApi();
+      const actionsReady = patchMobileActions();
+      if (!prefsReady || !actionsReady) {
+        window.setTimeout(() => {
+          patchAssistantPreferencesApi();
+          patchMobileActions();
+          installDebugApi();
+          scheduleSettingsPanelUpdate(false);
+        }, 360);
+      }
+    });
   }
 
   function boot() {
     if (window[ROUTER_FLAG]) return;
     window[ROUTER_FLAG] = true;
-    patchAssistantPreferencesApi();
-    patchMobileActions();
-    installSubmitRouter();
+    readNavPrefs({ fresh: true });
     installDebugApi();
-    window.addEventListener('assistant-preferences-changed', () => updateSettingsPanel({ force: true }));
+    patchDependenciesWithLightRetry();
+    window.addEventListener('assistant-preferences-changed', () => scheduleSettingsPanelUpdate(true));
+    window.addEventListener('storage', (event) => {
+      if ([NAV_PREF_KEY, HOME_ADDRESS_KEY, MAP_PROVIDER_KEY].includes(event.key)) {
+        cachedPrefs = null;
+        scheduleSettingsPanelUpdate(true);
+      }
+    });
     document.addEventListener('click', (event) => {
       if (event.target.closest?.('[data-settings-group="phone"], .nav-btn[data-view="settings"]')) {
-        window.setTimeout(() => updateSettingsPanel({ force: false }), 180);
+        window.setTimeout(() => scheduleSettingsPanelUpdate(false), 120);
       }
     }, true);
-    window.setTimeout(() => { patchAssistantPreferencesApi(); patchMobileActions(); installSubmitRouter(); updateSettingsPanel(); }, 300);
-    window.setTimeout(() => { patchAssistantPreferencesApi(); patchMobileActions(); installSubmitRouter(); updateSettingsPanel(); }, 1200);
+    scheduleSettingsPanelUpdate(false);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();
 })();
