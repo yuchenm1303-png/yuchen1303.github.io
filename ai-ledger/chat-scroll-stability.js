@@ -21,31 +21,29 @@
   function rawPin() {
     const host = document.querySelector('#chatMessages');
     if (!host) return;
-    try {
-      host.scrollTop = host.scrollHeight + 160;
-    } catch {}
+    try { host.scrollTop = host.scrollHeight + 120; } catch {}
   }
 
   function pinBottom(reason = '') {
     lastPinnedAt = Date.now();
-    lockUntil = Date.now() + 1200;
+    lockUntil = Date.now() + 700;
     document.body.classList.add('chat-render-lock');
     rawPin();
     requestAnimationFrame(rawPin);
-    [0, 16, 32, 64, 120, 220, 420, 760, 1100].forEach((delay) => window.setTimeout(rawPin, delay));
+    [0, 16, 48, 120, 260, 520].forEach((delay) => window.setTimeout(rawPin, delay));
     window.setTimeout(() => {
       if (Date.now() > lockUntil) document.body.classList.remove('chat-render-lock');
-    }, 1300);
+    }, 760);
+  }
+
+  function isMessageRowMutation(node) {
+    if (!(node instanceof HTMLElement)) return false;
+    return node.classList?.contains('chat-row') || Boolean(node.querySelector?.(':scope > .chat-row'));
   }
 
   function shouldPinAfterMutation(mutations) {
-    return mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some((node) => {
-      if (!(node instanceof HTMLElement)) return false;
-      return node.id === 'typingRow'
-        || node.classList?.contains('chat-row')
-        || node.classList?.contains('chat-source-badge-row')
-        || node.querySelector?.('.chat-row,.chat-source-badge-row');
-    }));
+    // 只在真正新增/移除整条消息时贴底。生成中 typing、标签、复制/重试按钮变化不再反复强制下拉。
+    return mutations.some((mutation) => [...mutation.addedNodes, ...mutation.removedNodes].some(isMessageRowMutation));
   }
 
   function installObserver() {
@@ -54,10 +52,9 @@
     host.dataset.scrollStabilityObserver = '1';
     const observer = new MutationObserver((mutations) => {
       if (!shouldPinAfterMutation(mutations)) return;
-      rawPin();
-      pinBottom('mutation');
+      pinBottom('message-row');
     });
-    observer.observe(host, { childList: true, subtree: true });
+    observer.observe(host, { childList: true, subtree: false });
     pinBottom('boot');
   }
 
@@ -65,15 +62,13 @@
     const host = document.querySelector('#chatMessages');
     if (!host) return;
     const bottomGap = host.scrollHeight - host.clientHeight - host.scrollTop;
-    if (document.querySelector('#typingRow') || Date.now() < lockUntil || (Date.now() - lastPinnedAt < 2200 && bottomGap > 4)) {
-      rawPin();
-    }
+    if (Date.now() < lockUntil || (Date.now() - lastPinnedAt < 900 && bottomGap > 4)) rawPin();
   }
 
   function boot() {
     installStyle();
     installObserver();
-    window.setInterval(watchdog, 180);
+    window.setInterval(watchdog, 240);
   }
 
   window.ChatScrollStability = { pinBottom, installObserver, rawPin };
