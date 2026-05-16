@@ -1,7 +1,7 @@
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
-const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v8-strict-model-picker";
+const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v9-nvidia-model-split";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const ACTION_INTENTS = new Set(["navigation.start", "navigation.modify", "navigation.preference.set", "alarm.set", "app.open", "ledger.create"]);
 const ALLOWED_INTENTS = new Set(["attachment.analyze", "weather.query", "web.search", "news.query", "navigation.start", "navigation.modify", "navigation.preference.set", "alarm.set", "app.open", "ledger.create", "chat"]);
@@ -19,8 +19,8 @@ export default {
       return json({
         ok: true,
         version: ORCHESTRATOR_VERSION,
-        mode: "cloud_brain_local_executor_strict_model_picker",
-        modelPickerRule: "auto allows fallback; manual selection is strict",
+        mode: "cloud_brain_local_executor_strict_model_picker_split_nvidia_models",
+        modelPickerRule: "auto allows fallback; manual selection is strict; Kimi and Mistral are separate entries",
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasNvidiaKey: Boolean(env.NVIDIA_API_KEY),
         hasTavilyKey: Boolean(env.TAVILY_API_KEY),
@@ -29,8 +29,9 @@ export default {
         providerPool: providerPool(env).map(({ id, provider, model, label, tasks }) => ({ id, provider, model, label, tasks })),
         selectableModels: selectableModels(env),
         defaultGeminiModel: geminiModel(env),
+        nvidiaKimiModel: nvidiaKimiModel(env),
+        nvidiaMistralModel: nvidiaMistralModel(env),
         nvidiaPlannerModel: nvidiaPlannerModel(env),
-        nvidiaChatModel: nvidiaChatModel(env),
         nvidiaBaseUrl: nvidiaBaseUrl(env),
         commandWorker: commandHealth,
         attachmentGateway: attachmentHealth,
@@ -310,8 +311,8 @@ async function chatWithProviderPool(env, body, text, memory = {}, modelPreferenc
   const strict = normalizeModelPreference(modelPreference) !== "auto";
   const meta = strict ? selectedModelMeta(env, modelPreference) : modelMeta("Provider Pool", "all_failed", "多云端 AI 均不可用");
   const msg = strict
-    ? `你当前选择的是 ${meta.modelLabel}，但这个模型这次没有成功返回。已按“手动选择严格模式”停止回退，避免出现你选 Kimi 但实际由 Gemini 回答的情况。可以切回“自动”，或稍后再试。`
-    : "云端 AI 暂时不可用：Kimi、Gemini 和 Workers AI 都没有成功返回。";
+    ? `你当前选择的是 ${meta.modelLabel}，但这个模型这次没有成功返回。已按“手动选择严格模式”停止回退，避免出现你选 Kimi 但实际由 Gemini 或 Mistral 回答的情况。可以切回“自动”，或稍后再试。`
+    : "云端 AI 暂时不可用：Kimi、Mistral、Gemini 和 Workers AI 都没有成功返回。";
   return baseResponse(msg, strict ? "selected_model_failed" : "provider_pool_failed", meta);
 }
 
@@ -335,7 +336,12 @@ async function callTextProviderPool(env, prompt, options = {}) {
 
 function providerPool(env) {
   const pool = [];
-  if (env.NVIDIA_API_KEY) pool.push({ id: "kimi", kind: "nvidia", provider: "NVIDIA NIM", model: nvidiaChatModel(env), label: nvidiaModelLabel(nvidiaChatModel(env)), source: "nvidia_chat", tasks: ["chat", "search_summary"] });
+  if (env.NVIDIA_API_KEY) {
+    const kimi = nvidiaKimiModel(env);
+    const mistral = nvidiaMistralModel(env);
+    if (kimi) pool.push({ id: "kimi", kind: "nvidia", provider: "NVIDIA NIM", model: kimi, label: nvidiaModelLabel(kimi), source: "nvidia_chat", tasks: ["chat", "search_summary"] });
+    if (mistral && mistral !== kimi) pool.push({ id: "mistral", kind: "nvidia", provider: "NVIDIA NIM", model: mistral, label: nvidiaModelLabel(mistral), source: "nvidia_chat", tasks: ["chat", "search_summary"] });
+  }
   if (env.GEMINI_API_KEY) pool.push({ id: "gemini", kind: "gemini", provider: "Gemini", model: geminiModel(env), label: geminiModelLabel(geminiModel(env)), source: "gemini_chat", tasks: ["chat", "search_summary"] });
   if (env.AI) pool.push({ id: "workers", kind: "workers_ai", provider: "Cloudflare Workers AI", model: String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), label: "Workers AI Llama 3.1 8B", source: "workers_ai_text_fallback", tasks: ["chat", "search_summary"] });
   return pool;
@@ -353,7 +359,11 @@ function candidateProviders(pool, preferred = "auto") {
 
 function normalizeModelPreference(value) {
   const v = String(value || "auto").toLowerCase().trim();
-  if (["auto", "gemini", "kimi", "nvidia", "workers", "workers_ai"].includes(v)) return v === "nvidia" ? "kimi" : v === "workers_ai" ? "workers" : v;
+  if (["auto", "gemini", "kimi", "mistral", "nvidia", "workers", "workers_ai"].includes(v)) {
+    if (v === "nvidia") return "kimi";
+    if (v === "workers_ai") return "workers";
+    return v;
+  }
   return "auto";
 }
 
@@ -423,8 +433,11 @@ function isWeatherLocationFollowup(body, text) { const cleaned = cleanWeatherLoc
 function isForcedWebSearch(body) { const mode = String(body?.webSearchMode || body?.searchMode || body?.webSearch?.mode || "").toLowerCase(); return body?.forceWebSearch === true || body?.webSearch?.force === true || mode === "force"; }
 function plannerProvider(env) { const value = String(env.PLANNER_PROVIDER || env.AI_PLANNER_PROVIDER || "").toLowerCase(); if (value === "nvidia" || value === "nvidia_nim") return "nvidia"; if (value === "gemini") return "gemini"; if (env.NVIDIA_API_KEY && env.NVIDIA_PLANNER_MODEL) return "nvidia"; return "gemini"; }
 function nvidiaBaseUrl(env) { return String(env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/+$/g, ""); }
-function nvidiaPlannerModel(env) { return String(env.NVIDIA_PLANNER_MODEL || env.NVIDIA_MODEL || "mistralai/mistral-medium-3.5-128b"); }
-function nvidiaChatModel(env) { return String(env.NVIDIA_CHAT_MODEL || env.NVIDIA_PLANNER_MODEL || env.NVIDIA_MODEL || "mistralai/mistral-medium-3.5-128b"); }
+function pickNvidiaEnvModel(...values) { return values.map((v) => String(v || "").trim()).find(Boolean) || ""; }
+function nvidiaPlannerModel(env) { return pickNvidiaEnvModel(env.NVIDIA_PLANNER_MODEL, env.NVIDIA_MISTRAL_MODEL, "mistralai/mistral-medium-3.5-128b"); }
+function nvidiaKimiModel(env) { return pickNvidiaEnvModel(env.NVIDIA_KIMI_MODEL, String(env.NVIDIA_CHAT_MODEL || "").toLowerCase().includes("kimi") ? env.NVIDIA_CHAT_MODEL : "", env.NVIDIA_VISION_MODEL && String(env.NVIDIA_VISION_MODEL).toLowerCase().includes("kimi") ? env.NVIDIA_VISION_MODEL : "", "moonshotai/kimi-k2.6"); }
+function nvidiaMistralModel(env) { return pickNvidiaEnvModel(env.NVIDIA_MISTRAL_MODEL, String(env.NVIDIA_PLANNER_MODEL || "").toLowerCase().includes("mistral") ? env.NVIDIA_PLANNER_MODEL : "", String(env.NVIDIA_CHAT_MODEL || "").toLowerCase().includes("mistral") ? env.NVIDIA_CHAT_MODEL : "", "mistralai/mistral-medium-3.5-128b"); }
+function nvidiaChatModel(env) { return nvidiaKimiModel(env); }
 function nvidiaModelLabel(model) { const value = String(model || ""); if (/mistral-medium-3\.5-128b/i.test(value)) return "Mistral Medium 3.5 128B · via NVIDIA NIM"; if (/kimi/i.test(value)) return `${value} · via NVIDIA NIM`; if (/deepseek/i.test(value)) return `${value} · via NVIDIA NIM`; if (/qwen/i.test(value)) return `${value} · via NVIDIA NIM`; if (/nemotron/i.test(value)) return `${value} · via NVIDIA NIM`; return `${value || "Model"} · via NVIDIA NIM`; }
 function geminiModel(env) { return String(env.GEMINI_CHAT_MODEL || env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, ""); }
 function geminiModelLabel(model) { const value = String(model || ""); if (/2\.5.*flash/i.test(value)) return "Gemini 2.5 Flash"; if (/2\.5.*pro/i.test(value)) return "Gemini 2.5 Pro"; if (/2\.0.*flash/i.test(value)) return "Gemini 2.0 Flash"; if (/1\.5.*flash/i.test(value)) return "Gemini 1.5 Flash"; if (/1\.5.*pro/i.test(value)) return "Gemini 1.5 Pro"; return value || "Gemini"; }
