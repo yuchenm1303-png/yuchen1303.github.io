@@ -1,5 +1,5 @@
 name = "ai-ledger-parser"
-main = "src/index-orchestrator.js"
+main = "src/index-orchestrator-diagnostics.js"
 compatibility_date = "2026-05-10"
 
 [ai]
