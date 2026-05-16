@@ -4,6 +4,8 @@
   const STYLE_ID = 'settings-performance-polish-style';
   const PERF_CLASS = 'settings-perf-mode';
   const DETAIL_ID = 'settingsGroupDetail';
+  let detailObserver = null;
+  let waitObserver = null;
 
   function installStyle() {
     document.getElementById(STYLE_ID)?.remove();
@@ -165,43 +167,44 @@
 
   function setPerfMode(open) {
     document.body.classList.toggle(PERF_CLASS, open);
-    if (open && isLowEndAndroidWebView()) {
-      document.body.classList.add('settings-perf-low-glass');
-    } else if (!open) {
-      window.setTimeout(() => document.body.classList.remove('settings-perf-low-glass'), 160);
-    }
+    if (open && isLowEndAndroidWebView()) document.body.classList.add('settings-perf-low-glass');
+    else if (!open) window.setTimeout(() => document.body.classList.remove('settings-perf-low-glass'), 160);
   }
 
-  function installOpenCloseObserver() {
-    const observer = new MutationObserver(() => {
-      const detail = document.getElementById(DETAIL_ID);
-      setPerfMode(Boolean(detail?.classList.contains('open')));
-    });
-    observer.observe(document.documentElement, { childList:true, subtree:true, attributes:true, attributeFilter:['class'] });
-    window.setTimeout(() => {
-      const detail = document.getElementById(DETAIL_ID);
-      if (detail) setPerfMode(detail.classList.contains('open'));
-    }, 300);
+  function syncFromDetail(detail = document.getElementById(DETAIL_ID)) {
+    setPerfMode(Boolean(detail?.classList.contains('open')));
   }
 
-  function patchDetailOpenTiming() {
-    const detail = document.getElementById(DETAIL_ID);
-    if (!detail || detail.__settingsPerfPatched) return;
+  function observeDetail(detail) {
+    if (!detail || detail.__settingsPerfPatched) return false;
     detail.__settingsPerfPatched = true;
+    detailObserver?.disconnect();
+    detailObserver = new MutationObserver(() => syncFromDetail(detail));
+    detailObserver.observe(detail, { attributes:true, attributeFilter:['class'] });
+    detail.addEventListener('transitionstart', () => syncFromDetail(detail), true);
+    detail.addEventListener('animationstart', () => syncFromDetail(detail), true);
+    detail.addEventListener('transitionend', () => syncFromDetail(detail), true);
+    syncFromDetail(detail);
+    return true;
+  }
 
-    detail.addEventListener('transitionstart', () => setPerfMode(detail.classList.contains('open')), true);
-    detail.addEventListener('animationstart', () => setPerfMode(detail.classList.contains('open')), true);
-    detail.addEventListener('transitionend', () => {
-      if (!detail.classList.contains('open')) setPerfMode(false);
-    }, true);
+  function installObserver() {
+    if (observeDetail(document.getElementById(DETAIL_ID))) return;
+    waitObserver?.disconnect();
+    waitObserver = new MutationObserver(() => {
+      if (observeDetail(document.getElementById(DETAIL_ID))) {
+        waitObserver.disconnect();
+        waitObserver = null;
+      }
+    });
+    waitObserver.observe(document.body, { childList:true, subtree:false });
+    window.setTimeout(() => observeDetail(document.getElementById(DETAIL_ID)), 500);
+    window.setTimeout(() => observeDetail(document.getElementById(DETAIL_ID)), 1500);
   }
 
   function boot() {
     installStyle();
-    installOpenCloseObserver();
-    patchDetailOpenTiming();
-    window.setTimeout(patchDetailOpenTiming, 500);
-    window.setTimeout(patchDetailOpenTiming, 1500);
+    installObserver();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true });
