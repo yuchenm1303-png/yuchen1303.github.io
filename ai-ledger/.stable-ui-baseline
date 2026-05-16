@@ -1,0 +1,2 @@
+Stable UI baseline restored from commit 565c42c9bed6093621730d4bad031420320e690f.
+This marker commit is intentionally UI-neutral and is used to trigger a fresh Android APK build.
