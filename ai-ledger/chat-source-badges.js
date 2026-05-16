@@ -13,7 +13,7 @@
     }
   })();
 
-  const MODULE_VERSION = '20260516-11';
+  const MODULE_VERSION = '20260516-12';
 
   const MODELS = [
     { id: 'auto', label: '自动', short: '自动', hint: '按额度和可用性自动切换' },
@@ -34,6 +34,7 @@
     nvidia_vision: { label: 'NVIDIA 识图', tone: 'vision' },
     nvidia_vision_fallback: { label: 'NVIDIA 识图兜底', tone: 'vision' },
     selected_model_failed: { label: '所选模型失败', tone: 'error' },
+    selected_model_timeout: { label: '所选模型超时', tone: 'error' },
     nvidia_chat_fallback: { label: 'NVIDIA 兜底', tone: 'cloud-fallback' },
     gemini_ai: { label: 'Gemini AI', tone: 'gemini' },
     gemini_chat: { label: 'Gemini 对话', tone: 'gemini' },
@@ -147,6 +148,7 @@
       'chat-model-picker.js',
       'chat-source-badges-core.js',
       'chat-message-actions-polish.js',
+      'chat-badge-actions-hardener.js',
     ];
     for (const module of modules) {
       try { await loadScript(module); }
