@@ -1,7 +1,8 @@
 import orchestrator from "./index-orchestrator.js";
+import { modelMeta, normalizeModelPreference } from "./shared/model-meta.js";
+import { json, JSON_HEADERS } from "./shared/response.js";
 
 const DIAGNOSTICS_VERSION = "ai-ledger-orchestrator-diagnostics-v2";
-const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
 export default {
   async fetch(request, env, ctx) {
@@ -157,17 +158,17 @@ function diagnosticTargets(env, modelPreference) {
   if (env.NVIDIA_API_KEY) {
     const kimi = nvidiaKimiModel(env);
     const mistral = nvidiaMistralModel(env);
-    if (kimi) all.push({ id: "kimi", kind: "nvidia", provider: "NVIDIA NIM", model: kimi, label: nvidiaModelLabel(kimi) });
-    if (mistral && mistral !== kimi) all.push({ id: "mistral", kind: "nvidia", provider: "NVIDIA NIM", model: mistral, label: nvidiaModelLabel(mistral) });
+    if (kimi) all.push({ id: "kimi", kind: "nvidia", ...modelChoiceMeta("NVIDIA NIM", kimi, nvidiaModelLabel(kimi)) });
+    if (mistral && mistral !== kimi) all.push({ id: "mistral", kind: "nvidia", ...modelChoiceMeta("NVIDIA NIM", mistral, nvidiaModelLabel(mistral)) });
   }
 
   if (env.GEMINI_API_KEY) {
     const model = geminiModel(env);
-    all.push({ id: "gemini", kind: "gemini", provider: "Gemini", model, label: geminiModelLabel(model) });
+    all.push({ id: "gemini", kind: "gemini", ...modelChoiceMeta("Gemini", model, geminiModelLabel(model)) });
   }
 
   if (env.AI) {
-    all.push({ id: "workers", kind: "workers_ai", provider: "Cloudflare Workers AI", model: String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), label: "Workers AI Llama 3.1 8B" });
+    all.push({ id: "workers", kind: "workers_ai", ...modelChoiceMeta("Cloudflare Workers AI", String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), "Workers AI Llama 3.1 8B") });
   }
 
   if (pref === "auto") return all;
@@ -229,7 +230,7 @@ async function probeWorkersAI(env, model) {
 
 function formatDiagnosis(results) {
   return results.map((item) => {
-    const head = `- ${item.label || item.model || item.id}：`;
+    const head = `- ${item.label || item.modelLabel || item.model || item.id}：`;
     if (item.ok) return `${head}可用。${item.message || "诊断请求成功。"}`;
     return `${head}不可用。${item.error || "未知错误"}`;
   }).join("\n");
@@ -247,16 +248,6 @@ function readableError(error) {
   if (/404|not found|model/i.test(text)) return `${text}（通常是模型 ID 错误，或该模型不是可调用 endpoint）`;
   if (/400|bad request/i.test(text)) return `${text}（通常是请求格式、模型参数或 endpoint 不兼容）`;
   return text;
-}
-
-function normalizeModelPreference(value) {
-  const v = String(value || "auto").toLowerCase().trim();
-  if (["auto", "gemini", "kimi", "mistral", "nvidia", "workers", "workers_ai"].includes(v)) {
-    if (v === "nvidia") return "kimi";
-    if (v === "workers_ai") return "workers";
-    return v;
-  }
-  return "auto";
 }
 
 function pickNvidiaEnvModel(...values) {
@@ -305,13 +296,18 @@ function geminiModelLabel(model) {
   return value || "Gemini";
 }
 
+function modelChoiceMeta(provider, model, label) {
+  const meta = modelMeta(provider, model, label);
+  return { ...meta, label: meta.modelLabel };
+}
+
 function selectedModelMeta(env, modelPreference) {
   const pref = normalizeModelPreference(modelPreference);
-  if (pref === "kimi") return { provider: "NVIDIA NIM", model: nvidiaKimiModel(env), label: nvidiaModelLabel(nvidiaKimiModel(env)) };
-  if (pref === "mistral") return { provider: "NVIDIA NIM", model: nvidiaMistralModel(env), label: nvidiaModelLabel(nvidiaMistralModel(env)) };
-  if (pref === "gemini") return { provider: "Gemini", model: geminiModel(env), label: geminiModelLabel(geminiModel(env)) };
-  if (pref === "workers") return { provider: "Cloudflare Workers AI", model: String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), label: "Workers AI Llama 3.1 8B" };
-  return { provider: "Model Pool", model: "auto", label: "自动模型池" };
+  if (pref === "kimi") return modelChoiceMeta("NVIDIA NIM", nvidiaKimiModel(env), nvidiaModelLabel(nvidiaKimiModel(env)));
+  if (pref === "mistral") return modelChoiceMeta("NVIDIA NIM", nvidiaMistralModel(env), nvidiaModelLabel(nvidiaMistralModel(env)));
+  if (pref === "gemini") return modelChoiceMeta("Gemini", geminiModel(env), geminiModelLabel(geminiModel(env)));
+  if (pref === "workers") return modelChoiceMeta("Cloudflare Workers AI", String(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct"), "Workers AI Llama 3.1 8B");
+  return modelChoiceMeta("Model Pool", "auto", "自动模型池");
 }
 
 function orchestratorTimeoutMs(modelPreference) {
@@ -343,11 +339,4 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
 
 function corsFromRequestLike() {
   return JSON_HEADERS;
-}
-
-function json(payload, status = 200, headers = {}) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { ...JSON_HEADERS, ...Object.fromEntries(new Headers(headers)) },
-  });
 }
