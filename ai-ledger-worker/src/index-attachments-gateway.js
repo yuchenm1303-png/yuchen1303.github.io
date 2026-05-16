@@ -1,6 +1,6 @@
 import commandWorker from "./index.js";
 
-const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v2";
+const GATEWAY_VERSION = "ai-ledger-attachment-gateway-v3-weatherfix";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 const MAX_ATTACHMENTS = 3;
 const MAX_BASE64_CHARS = 6_000_000;
@@ -26,12 +26,12 @@ export default {
       return json({
         ok: true,
         version: GATEWAY_VERSION,
-        mode: "attachment_gateway_preserve_command_protocol",
+        mode: "attachment_gateway_preserve_command_protocol_weather_first",
         commandWorker: base,
         hasGeminiKey: Boolean(env.GEMINI_API_KEY),
         hasWorkersAI: Boolean(env.AI),
         model: env.GEMINI_MODEL || "gemini-2.5-flash",
-        tools: ["attachments.image", "attachments.pdf", "attachments.text", "rss_web_search", "command_protocol"],
+        tools: ["attachments.image", "attachments.pdf", "attachments.text", "weather", "rss_web_search", "command_protocol"],
       }, 200, corsHeaders);
     }
 
@@ -45,9 +45,16 @@ export default {
       return commandWorker.fetch(delegateRequest, env, ctx);
     }
 
+    const userText = lastUserText(body?.messages, body?.text);
     const attachments = sanitizeAttachments(body?.attachments);
+
+    if (!attachments.length && isWeatherQuery(userText)) {
+      const weatherReply = await weather(userText);
+      return json(weatherReply, 200, corsHeaders);
+    }
+
     if (!attachments.length && isForcedWebSearch(body)) {
-      const search = await searchPublicNews(lastUserText(body?.messages, body?.text));
+      const search = await searchPublicNews(userText);
       if (search.ok) return json(search, 200, corsHeaders);
       return json(createMissingSearchResponse(search.error), 200, corsHeaders);
     }
@@ -92,7 +99,7 @@ export default {
           }, 200, corsHeaders);
         } catch (fallbackError) {
           return json({
-            reply: `Gemini 识图配额已用完，Workers AI 兜底也暂时失败：${String(fallbackError?.message || fallbackError).slice(0, 160)}。可以稍后再试，或换一个新的 Gemini Key/开启 billing。`,
+            reply: `Gemini 识图配额已用完，Workers AI 兜底也暂时失败。你可以稍后再试，或换一个新的 Gemini Key/开启 billing。`,
             action: "chat",
             records: [],
             mobileCommand: null,
@@ -102,7 +109,7 @@ export default {
         }
       }
       return json({
-        reply: `附件分析失败：${message.slice(0, 180)}`,
+        reply: `附件分析失败：${friendlyGeminiError(message)}`,
         action: "chat",
         records: [],
         mobileCommand: null,
@@ -201,6 +208,122 @@ function buildPrompt(userText, attachments) {
   ].join("\n\n");
 }
 
+function isWeatherQuery(text) {
+  return /(天气|下雨|气温|温度|风速|降雨|穿什么|预报)/u.test(String(text || ""));
+}
+
+async function weather(text) {
+  const candidates = weatherLocationCandidates(text);
+  if (!candidates.length) {
+    return {
+      reply: "你想查哪个城市的天气？比如可以说：重庆今天会下雨吗。",
+      action: "chat",
+      records: [],
+      mobileCommand: null,
+      source: "weather_need_location",
+      version: GATEWAY_VERSION,
+    };
+  }
+  try {
+    const found = await geocodeWeatherLocation(candidates);
+    if (!found) {
+      return {
+        reply: `我没有找到“${candidates[0]}”的天气位置。你可以换成更明确的城市名，比如“重庆市天气”或“北京海淀天气”。`,
+        action: "chat",
+        records: [],
+        mobileCommand: null,
+        source: "weather_tool",
+        version: GATEWAY_VERSION,
+      };
+    }
+    const p = found.place;
+    const f = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=3&timezone=auto`);
+    const c = f.current || {};
+    const d = f.daily || {};
+    const rain = d.precipitation_probability_max?.[0];
+    return {
+      reply: `${p.name}${p.admin1 ? `（${p.admin1}）` : ""}当前约 ${round(c.temperature_2m)}℃，体感 ${round(c.apparent_temperature)}℃，${weatherText(c.weather_code)}，风速约 ${round(c.wind_speed_10m)} km/h。今天气温约 ${round(d.temperature_2m_min?.[0])}–${round(d.temperature_2m_max?.[0])}℃，最高降水概率约 ${rain ?? "未知"}%。${Number(rain) >= 50 || Number(c.precipitation) > 0 ? "建议带伞。" : "降雨风险不算高。"}`,
+      action: "chat",
+      records: [],
+      mobileCommand: null,
+      source: "weather_tool",
+      version: GATEWAY_VERSION,
+    };
+  } catch {
+    return {
+      reply: "天气接口暂时请求失败。你可以稍后再试，或换一个更明确的城市名。",
+      action: "chat",
+      records: [],
+      mobileCommand: null,
+      source: "weather_error",
+      version: GATEWAY_VERSION,
+    };
+  }
+}
+
+function weatherLocationCandidates(text) {
+  const raw = String(text || "").trim();
+  if (/^(今天|今日|现在|当前)?(天气|气温|温度|下雨|会下雨吗|天气如何|天气怎么样)$/u.test(raw.replace(/[？?。！!\s]/g, ""))) return [];
+  const patterns = [
+    /(?:查一下|查询|看看|帮我查|帮我看看|请问)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:今天|今日|现在|当前|明天|后天)?(?:的)?(?:天气|气温|温度|预报)/u,
+    /(?:查一下|查询|看看|帮我查|帮我看看|请问)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:今天|今日|明天|后天)?(?:会不会|会)?(?:下雨|降雨)/u,
+    /(?:今天|今日|现在|当前|明天|后天)?\s*([\u4e00-\u9fa5A-Za-z .·-]{2,32}?)(?:会不会|会)?(?:下雨|降雨|天气|气温|温度)/u,
+  ];
+  let loc = "";
+  for (const pattern of patterns) {
+    const m = raw.match(pattern);
+    if (m?.[1]) { loc = m[1]; break; }
+  }
+  const base = cleanWeatherLocation(loc || raw);
+  if (!base) return [];
+  const items = [base];
+  if (base.endsWith("市") || base.endsWith("区") || base.endsWith("县")) items.push(base.slice(0, -1));
+  else if (/^[\u4e00-\u9fa5]{2,6}$/u.test(base)) items.push(`${base}市`);
+  const aliases = { 重庆: ["重庆市", "Chongqing"], 北京: ["北京市", "Beijing"], 上海: ["上海市", "Shanghai"], 天津: ["天津市", "Tianjin"], 广州: ["广州市", "Guangzhou"], 深圳: ["深圳市", "Shenzhen"], 成都: ["成都市", "Chengdu"] };
+  if (aliases[base]) items.push(...aliases[base]);
+  return [...new Set(items.filter(Boolean))].slice(0, 7);
+}
+
+function cleanWeatherLocation(value) {
+  return String(value || "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/请问|请|帮我|帮忙|给我|麻烦|上网|联网|搜索|搜一下|查一下|查询|看看|看一下|一下|今天|今日|现在|当前|明天|后天|天气|气温|温度|预报|下雨|降雨|会不会|会|不会|怎么样|如何|多少|几度|穿什么|适合|出门|带伞|的|吗|呢|啊|呀/gu, "")
+    .replace(/[，。！？?、,.!！\s]/g, "")
+    .trim()
+    .slice(0, 32);
+}
+
+async function geocodeWeatherLocation(candidates) {
+  for (const name of candidates) {
+    const geo = await fetchJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=5&language=zh&format=json`);
+    const results = Array.isArray(geo?.results) ? geo.results : [];
+    const china = results.find((x) => x.country_code === "CN") || results[0];
+    if (china?.latitude && china?.longitude) return { query: name, place: china };
+  }
+  return null;
+}
+
+async function fetchJson(url, options = {}, timeout = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function round(value) {
+  return Number.isFinite(Number(value)) ? Math.round(Number(value)) : "未知";
+}
+
+function weatherText(code) {
+  return ({ 0: "晴", 1: "大致晴朗", 2: "局部多云", 3: "阴天", 45: "有雾", 51: "小毛毛雨", 61: "小雨", 63: "中雨", 65: "大雨", 71: "小雪", 80: "阵雨", 95: "雷暴" })[Number(code)] || "天气状况未知";
+}
+
 async function searchPublicNews(rawQuery) {
   const query = cleanSearchQuery(rawQuery) || "科技 新闻";
   const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
@@ -249,8 +372,12 @@ function buildSearchResponse(query, items, source) {
 }
 
 function createMissingSearchResponse(error) {
+  const errorText = String(error || "");
+  const isRateLimited = /429|503|rate|limit|quota|blocked/i.test(errorText);
   return {
-    reply: `当前强制联网已经触发，但公开 RSS/新闻索引也暂时请求失败：${String(error || "unknown").slice(0, 160)}。如果要更稳定的通用搜索，建议后续接入 TAVILY_API_KEY、BRAVE_SEARCH_API_KEY 或 SERPER_API_KEY。`,
+    reply: isRateLimited
+      ? "当前强制联网已经触发，但免费的公开 RSS/新闻索引暂时被限流或不可用。要做稳定的通用搜索，建议后续接入 TAVILY_API_KEY、BRAVE_SEARCH_API_KEY 或 SERPER_API_KEY。"
+      : "当前强制联网已经触发，但公开 RSS/新闻索引暂时请求失败。要做稳定的通用搜索，建议后续接入 TAVILY_API_KEY、BRAVE_SEARCH_API_KEY 或 SERPER_API_KEY。",
     action: "chat",
     records: [],
     mobileCommand: null,
@@ -314,6 +441,12 @@ function isForcedWebSearch(body) {
 
 function isQuotaError(message) {
   return /quota|rate.?limit|billing|exceeded|429/i.test(String(message || ""));
+}
+
+function friendlyGeminiError(message) {
+  const text = String(message || "");
+  if (isQuotaError(text)) return "Gemini 当前配额不足，可以稍后再试，或换一个新的 Gemini Key/开启 billing。";
+  return text.slice(0, 180);
 }
 
 function lastUserText(messages, fallback) {
