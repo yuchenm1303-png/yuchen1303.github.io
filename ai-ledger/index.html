@@ -32,9 +32,16 @@
         radial-gradient(circle at 18% 8%, rgba(118, 153, 255, .28), transparent 34%),
         radial-gradient(circle at 82% 92%, rgba(117, 220, 207, .22), transparent 36%),
         rgba(5, 10, 28, .26);
-      backdrop-filter: blur(18px) saturate(136%);
-      -webkit-backdrop-filter: blur(18px) saturate(136%);
+      backdrop-filter: blur(12px) saturate(126%);
+      -webkit-backdrop-filter: blur(12px) saturate(126%);
       overscroll-behavior: none;
+    }
+
+    body.quick-ai-entry.assistant-lite-motion,
+    body.quick-ai-entry.assistant-balanced-performance.keyboard-open,
+    body.quick-ai-entry.assistant-balanced-performance.viewport-resizing {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
 
     body.quick-ai-entry .app-shell {
@@ -129,8 +136,14 @@
       font-size: 12px;
       font-weight: 850;
       box-shadow: inset 0 .7px 0 rgba(255,255,255,.35);
-      backdrop-filter: blur(12px) saturate(140%);
-      -webkit-backdrop-filter: blur(12px) saturate(140%);
+      backdrop-filter: blur(8px) saturate(126%);
+      -webkit-backdrop-filter: blur(8px) saturate(126%);
+    }
+
+    body.assistant-lite-motion .quick-ai-window-btn,
+    body.viewport-resizing .quick-ai-window-btn {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
     }
 
     .quick-ai-window-btn.close {
@@ -147,7 +160,6 @@
       } catch {}
     })();
   </script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body data-bg="aurora">
   <div class="scene-backdrop" aria-hidden="true"></div>
@@ -614,7 +626,7 @@
   <script src="./settings-appearance-plus.js?v=20260516-1"></script>
   <script src="./settings-preferences.js?v=20260515-5"></script>
   <script src="./settings-groups.js?v=20260516-2"></script>
-  <script src="./glass-stability.js?v=20260516-1"></script>
+  <script src="./glass-stability.js?v=20260516-2"></script>
   <script src="./settings-detail-polish.js?v=20260516-2"></script>
   <script src="./ui-density-polish.js?v=20260516-1"></script>
   <script src="./ios-glass-motion.js?v=20260516-1"></script>
