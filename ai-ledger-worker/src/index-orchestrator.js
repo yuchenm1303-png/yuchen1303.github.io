@@ -1,8 +1,16 @@
 import commandWorker from "./index.js";
 import attachmentGateway from "./index-attachments-gateway.js";
 
-const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v1";
+const ORCHESTRATOR_VERSION = "ai-ledger-orchestrator-v2";
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+const ACTION_INTENTS = new Set([
+  "navigation.start",
+  "navigation.modify",
+  "navigation.preference.set",
+  "alarm.set",
+  "app.open",
+  "ledger.create",
+]);
 
 export default {
   async fetch(request, env, ctx) {
@@ -57,20 +65,26 @@ export default {
     }
 
     const intent = await classifyIntent(env, body, text);
+    const forceSearch = isForcedWebSearch(body);
 
     if (intent.intent === "weather.query") {
-      return json(await weather(intent.toolInput?.location || text), 200, corsHeaders);
+      const weatherInput = cleanWeatherLocation(intent.toolInput?.location) || text;
+      return json(await weather(weatherInput), 200, corsHeaders);
     }
 
-    if (intent.intent === "web.search" || intent.intent === "news.query") {
+    if (intent.intent === "web.search" || intent.intent === "news.query" || (forceSearch && !ACTION_INTENTS.has(intent.intent))) {
       const query = intent.toolInput?.query || text;
       const search = await searchWeb(env, query);
       if (search.ok) return json(search, 200, corsHeaders);
       return json(searchError(search.error), 200, corsHeaders);
     }
 
-    // Local actions, ledger draft, and normal chat are delegated to the existing command protocol worker.
-    // That worker already enforces reply + action + mobileCommand/records JSON.
+    if (intent.intent === "chat") {
+      return json(await chatWithGemini(env, body, text), 200, corsHeaders);
+    }
+
+    // Local actions and ledger drafts are delegated to the command protocol worker.
+    // The cloud only returns structured JSON; the local app still verifies and executes after confirmation.
     return commandWorker.fetch(cloneRequestWithJson(request, {
       ...body,
       orchestrator: {
@@ -95,9 +109,12 @@ async function safeHealth(worker, originalRequest, env, ctx) {
 }
 
 function cloneRequestWithJson(originalRequest, body) {
+  const headers = new Headers(originalRequest.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
   return new Request(originalRequest.url, {
     method: "POST",
-    headers: originalRequest.headers,
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -106,14 +123,7 @@ async function classifyIntent(env, body, text) {
   const fallback = heuristicIntent(body, text);
 
   // Keep ultra-high-confidence local actions deterministic to avoid latency and accidental tool calls.
-  if (fallback.confidence >= 0.9 && [
-    "navigation.start",
-    "navigation.modify",
-    "navigation.preference.set",
-    "alarm.set",
-    "app.open",
-    "ledger.create",
-  ].includes(fallback.intent)) return fallback;
+  if (fallback.confidence >= 0.9 && ACTION_INTENTS.has(fallback.intent)) return fallback;
 
   if (!env.GEMINI_API_KEY) return fallback;
 
@@ -126,7 +136,7 @@ async function classifyIntent(env, body, text) {
       "必须只返回 JSON object，不要 markdown。",
       "允许 intent：attachment.analyze, weather.query, web.search, news.query, navigation.start, navigation.modify, navigation.preference.set, alarm.set, app.open, ledger.create, chat。",
       "规则：",
-      "1. 天气、气温、下雨、穿衣建议 → weather.query。toolInput.location 有城市就填，没有则空。",
+      "1. 天气、气温、下雨、穿衣建议 → weather.query。toolInput.location 有城市就填，没有则空；不要把“这里/本地/当前位置”当城市。",
       "2. 新闻、最新、搜索、查资料、近期事件、价格、政策、官网 → web.search 或 news.query。toolInput.query 写搜索词。",
       "3. 导航、修改导航、保存家/学校/公司/宿舍地址、默认地图/默认出行方式 → 对应 navigation intent。",
       "4. 设置提醒/闹钟 → alarm.set。打开 App → app.open。真实收支 → ledger.create。",
@@ -202,7 +212,7 @@ function previousAssistantText(body) {
 }
 
 async function weather(locationOrText) {
-  const location = extractWeatherLocation(locationOrText);
+  const location = cleanWeatherLocation(extractWeatherLocation(locationOrText));
   if (!location) {
     return baseResponse("你想查哪个城市的天气？比如可以说：重庆今天会下雨吗。", "weather_need_location");
   }
@@ -251,6 +261,49 @@ async function searchWeb(env, rawQuery) {
     }
   }
   return { ok: false, error: "missing_tavily_key" };
+}
+
+async function chatWithGemini(env, body, text) {
+  if (!env.GEMINI_API_KEY) {
+    return baseResponse("云端 AI 暂时不可用：Worker 没有配置 GEMINI_API_KEY，所以普通聊天和知识问答无法调用 Gemini。", "gemini_missing_key");
+  }
+  try {
+    const model = String(env.GEMINI_MODEL || "gemini-2.5-flash").replace(/^models\//, "");
+    const endpoint = `${env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta/models"}/${model}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+    const messages = Array.isArray(body?.messages) ? body.messages.slice(-12) : [];
+    const conversation = messages.map((m) => `${m?.role === "assistant" ? "助手" : "用户"}：${String(m?.content || "").slice(0, 1200)}`).join("\n");
+    const prompt = [
+      "你是手机端 AI 助手的普通聊天层。",
+      "只回答普通聊天、学习解释、概念说明和非本地执行类问题。",
+      "不要生成 command/mobileCommand，不要声称已经执行手机动作。",
+      "回答用中文，简洁自然；必要时分点，但不要太啰嗦。",
+      "对话历史：",
+      conversation || `用户：${text}`,
+    ].join("\n");
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.35, maxOutputTokens: 1200 },
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
+    const reply = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("\n").trim();
+    return baseResponse(reply || "Gemini 没有返回可读内容。", "gemini_chat");
+  } catch (error) {
+    return baseResponse(friendlyGeminiError(String(error?.message || error)), "gemini_chat_error");
+  }
+}
+
+function friendlyGeminiError(message) {
+  const raw = String(message || "");
+  if (/quota|rate.?limit|billing|exceeded|429/i.test(raw)) return "云端 AI 当前配额不足或被限流了。可以稍后再试，或更换/升级 Gemini Key。";
+  if (/GEMINI_API_KEY|api key|permission|unauthorized|403|401/i.test(raw)) return "云端 AI 暂时不可用：Gemini Key 可能缺失、无权限或配置错误。";
+  if (/abort|timeout|network|fetch|502|503|504|temporarily/i.test(raw)) return "云端 AI 请求超时或服务暂时不可用，请稍后再试。";
+  return `云端 AI 暂时不可用：${raw.slice(0, 180) || "未知错误"}`;
 }
 
 function searchError(error) {
@@ -309,12 +362,14 @@ function extractWeatherLocation(text) {
 }
 
 function cleanWeatherLocation(value) {
-  return String(value || "")
+  const cleaned = String(value || "")
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/请问|请|帮我|帮忙|给我|麻烦|上网|联网|搜索|搜一下|查一下|查询|看看|看一下|一下|今天|今日|现在|当前|明天|后天|天气|气温|温度|预报|下雨|降雨|会不会|会|不会|怎么样|如何|多少|几度|穿什么|适合|出门|带伞|的|吗|呢|啊|呀|吧|呗|哈|噻/gu, "")
     .replace(/[，。！？?、,.!！\s]/g, "")
     .trim()
     .slice(0, 32);
+  if (/^(这里|这边|本地|当地|当前位置|当前城市|所在城市|我这里|我这边|附近)$/u.test(cleaned)) return "";
+  return cleaned;
 }
 
 async function fetchJson(url, options = {}, timeout = 9000) {
@@ -335,6 +390,11 @@ function cleanSearchQuery(text) {
     .replace(/搜索一下|搜一下|查一下|查查|联网|上网查|联网查|今天的|今天|今日|有什么|吗|呢|吧|大新闻|新闻|热点|最新|最近/gu, " ")
     .replace(/\s+/g, " ")
     .trim() || "今日新闻";
+}
+
+function isForcedWebSearch(body) {
+  const mode = String(body?.webSearchMode || body?.searchMode || body?.webSearch?.mode || "").toLowerCase();
+  return body?.forceWebSearch === true || body?.webSearch?.force === true || mode === "force";
 }
 
 function trim(text, max = 120) {
