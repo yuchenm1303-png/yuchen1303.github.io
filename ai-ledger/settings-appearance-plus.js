@@ -1,4 +1,6 @@
 (() => {
+  'use strict';
+
   const SETTINGS_KEY = "ai-assistant-appearance-plus-v1";
   const STYLE_ID = "appearance-plus-style";
   const PANEL_ID = "appearancePlusPanel";
@@ -184,7 +186,7 @@
   }
 
   function installStyle() {
-    if (document.querySelector(`#${STYLE_ID}`)) return;
+    if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
@@ -364,7 +366,7 @@
 
   function installPanel() {
     const settingsView = document.querySelector("#view-settings");
-    if (!settingsView || document.querySelector(`#${PANEL_ID}`)) return;
+    if (!settingsView || document.querySelector(`#${PANEL_ID}`)) return Boolean(document.querySelector(`#${PANEL_ID}`));
     const appearanceSection = document.querySelector("#backgroundPicker")?.closest("section");
     const settings = readSettings();
     const panel = document.createElement("section");
@@ -387,19 +389,23 @@
     if (appearanceSection) settingsView.insertBefore(panel, appearanceSection);
     else settingsView.appendChild(panel);
     renderPanelValues(settings);
-    bindPanelEvents();
+    bindPanelEvents(panel);
+    return true;
   }
 
-  function bindPanelEvents() {
-    document.querySelector("#appearanceLanguageSelect")?.addEventListener("change", () => {
+  function bindPanelEvents(panel = document) {
+    if (panel.dataset?.appearanceEventsBound === 'true') return;
+    if (panel.dataset) panel.dataset.appearanceEventsBound = 'true';
+
+    panel.querySelector("#appearanceLanguageSelect")?.addEventListener("change", () => {
       const next = currentFormSettings();
       applySettings(next);
       refreshPanelText(next);
     });
-    document.querySelector("#appearanceFontSelect")?.addEventListener("change", () => applySettings(currentFormSettings()));
+    panel.querySelector("#appearanceFontSelect")?.addEventListener("change", () => applySettings(currentFormSettings()));
 
     ["appearanceGlassOpacity", "appearanceGlassBlur"].forEach((id) => {
-      const slider = document.querySelector(`#${id}`);
+      const slider = panel.querySelector(`#${id}`);
       if (!slider) return;
       const suffix = id === "appearanceGlassBlur" ? "px" : "";
       slider.addEventListener("input", (event) => {
@@ -413,29 +419,37 @@
       });
     });
 
-    document.querySelectorAll("[data-appearance-toggle]").forEach((button) => {
+    panel.querySelectorAll("[data-appearance-toggle]").forEach((button) => {
       button.addEventListener("click", () => {
         setToggleGroup(button.dataset.appearanceToggle, button.dataset.value);
         applySettings(currentFormSettings());
       });
     });
-    document.querySelector("#saveAppearancePlusBtn")?.addEventListener("click", () => {
+    panel.querySelector("#saveAppearancePlusBtn")?.addEventListener("click", () => {
       const saved = saveSettings(currentFormSettings());
       notify(t("saved", saved));
     });
-    document.querySelector("#resetAppearancePlusBtn")?.addEventListener("click", () => {
+    panel.querySelector("#resetAppearancePlusBtn")?.addEventListener("click", () => {
       const saved = saveSettings({ ...DEFAULTS });
       notify(t("resetDone", saved));
     });
   }
 
+  function bootPanelWhenReady() {
+    if (installPanel()) return;
+    const observer = new MutationObserver(() => {
+      if (installPanel()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   window.AppearancePlusSettings = { read: readSettings, save: saveSettings, apply: applySettings, getText: t, defaults: DEFAULTS };
   installStyle();
   applySettings(readSettings());
-  window.addEventListener("DOMContentLoaded", () => {
-    installStyle();
-    applySettings(readSettings());
-    window.setTimeout(installPanel, 0);
-    window.setTimeout(() => { installPanel(); applySettings(readSettings()); }, 300);
-  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener("DOMContentLoaded", bootPanelWhenReady, { once: true });
+  } else {
+    bootPanelWhenReady();
+  }
 })();
