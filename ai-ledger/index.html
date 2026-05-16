@@ -14,6 +14,139 @@
   <link rel="stylesheet" href="./liquid-plus.css?v=20260514-6" />
   <link rel="stylesheet" href="./modal-fix.css?v=20260514-6" />
   <link rel="stylesheet" href="./backgrounds.css?v=20260514-6" />
+  <style>
+    html[data-entry="quick-ai"],
+    html[data-entry="quick-ai"] body {
+      width: 100%;
+      min-height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    body.quick-ai-entry {
+      display: grid;
+      min-height: 100vh;
+      min-height: 100dvh;
+      padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+      background:
+        radial-gradient(circle at 18% 8%, rgba(118, 153, 255, .28), transparent 34%),
+        radial-gradient(circle at 82% 92%, rgba(117, 220, 207, .22), transparent 36%),
+        rgba(5, 10, 28, .26);
+      backdrop-filter: blur(18px) saturate(136%);
+      -webkit-backdrop-filter: blur(18px) saturate(136%);
+      overscroll-behavior: none;
+    }
+
+    body.quick-ai-entry .app-shell {
+      width: min(100%, 520px);
+      height: min(100%, 760px);
+      min-height: 0;
+      margin: auto;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    body.quick-ai-entry .bottom-nav,
+    body.quick-ai-entry #view-tools,
+    body.quick-ai-entry #view-stats,
+    body.quick-ai-entry #view-list,
+    body.quick-ai-entry #view-settings,
+    body.quick-ai-entry .chat-summary-strip,
+    body.quick-ai-entry #clearChatInlineBtn,
+    body.quick-ai-entry #aiModeHint {
+      display: none !important;
+    }
+
+    body.quick-ai-entry #view-ai {
+      display: grid !important;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100%;
+      min-height: 0;
+      gap: 10px;
+      padding: 0;
+      opacity: 1;
+      transform: none;
+    }
+
+    body.quick-ai-entry .page-header.chat-header {
+      margin: 0;
+      padding: 13px 14px 0;
+    }
+
+    body.quick-ai-entry .page-header h1 {
+      font-size: 22px;
+      letter-spacing: -0.04em;
+    }
+
+    body.quick-ai-entry .chat-shell {
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      min-height: 0;
+      max-height: none;
+      height: 100%;
+      padding: 12px;
+      border-radius: 30px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.14), rgba(255,255,255,.052) 56%, rgba(255,255,255,.035)),
+        rgba(245,250,255,.075);
+      box-shadow: 0 24px 64px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.35);
+    }
+
+    body.quick-ai-entry .chat-messages {
+      min-height: 0;
+      padding: 2px 1px 6px;
+    }
+
+    body.quick-ai-entry .quick-tags.chat-tags {
+      display: flex;
+      overflow-x: auto;
+      padding-bottom: 1px;
+      scrollbar-width: none;
+    }
+
+    body.quick-ai-entry .quick-tags.chat-tags::-webkit-scrollbar {
+      display: none;
+    }
+
+    body.quick-ai-entry .chat-composer {
+      border-radius: 22px;
+      transform: translateZ(0);
+    }
+
+    .quick-ai-window-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .quick-ai-window-btn {
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid rgba(255,255,255,.32);
+      border-radius: 999px;
+      color: var(--ink);
+      background: rgba(255,255,255,.12);
+      font-size: 12px;
+      font-weight: 850;
+      box-shadow: inset 0 .7px 0 rgba(255,255,255,.35);
+      backdrop-filter: blur(12px) saturate(140%);
+      -webkit-backdrop-filter: blur(12px) saturate(140%);
+    }
+
+    .quick-ai-window-btn.close {
+      background: rgba(255,255,255,.20);
+    }
+  </style>
+  <script>
+    (() => {
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        if (params.get('mode') === 'quick_ai' || params.get('quick') === 'ai' || location.hash === '#ai-chat' || location.hash === '#quick-ai') {
+          document.documentElement.dataset.entry = 'quick-ai';
+        }
+      } catch {}
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 </head>
 <body data-bg="aurora">
@@ -327,6 +460,162 @@
   <script src="./ai-command-router-v2.js?v=20260516-4"></script>
   <script src="./cloud-command-bridge.js?v=20260516-4"></script>
   <script src="./app-v3.js?v=20260516-6"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      function isQuickAiEntry() {
+        try {
+          const params = new URLSearchParams(window.location.search || '');
+          return params.get('mode') === 'quick_ai'
+            || params.get('quick') === 'ai'
+            || window.location.hash === '#ai-chat'
+            || window.location.hash === '#quick-ai';
+        } catch {
+          return false;
+        }
+      }
+
+      if (!isQuickAiEntry()) return;
+
+      const params = new URLSearchParams(window.location.search || '');
+      const bridgeNames = ['AndroidQuickAi', 'AiLedgerAndroid', 'QuickAiBridge'];
+
+      function getBridge() {
+        return bridgeNames.map((name) => window[name]).find(Boolean) || null;
+      }
+
+      function notifyNative(type, payload = {}) {
+        const bridge = getBridge();
+        if (!bridge) return false;
+        const message = JSON.stringify({ type, payload, at: Date.now() });
+        try {
+          if (typeof bridge.postMessage === 'function') {
+            bridge.postMessage(message);
+            return true;
+          }
+          if (type === 'close' && typeof bridge.closeQuickAi === 'function') {
+            bridge.closeQuickAi();
+            return true;
+          }
+          if (type === 'expand' && typeof bridge.openFullApp === 'function') {
+            bridge.openFullApp();
+            return true;
+          }
+        } catch (error) {
+          console.warn('[quick-ai] native bridge failed:', error);
+        }
+        return false;
+      }
+
+      function closeQuickAi() {
+        if (notifyNative('close')) return;
+        if (window.history.length > 1) window.history.back();
+        else window.close();
+      }
+
+      function openFullApp() {
+        if (notifyNative('expand')) return;
+        window.location.href = './index.html';
+      }
+
+      function focusComposer(delay = 180) {
+        window.setTimeout(() => {
+          const input = document.querySelector('#aiInput');
+          if (!input) return;
+          input.focus({ preventScroll: true });
+          input.scrollIntoView({ block: 'nearest' });
+        }, delay);
+      }
+
+      function applyHeaderCopy() {
+        const eyebrow = document.querySelector('#view-ai .eyebrow');
+        const title = document.querySelector('#view-ai h1');
+        const subtext = document.querySelector('#view-ai .subtext');
+        const input = document.querySelector('#aiInput');
+        const hint = document.querySelector('#aiModeHint');
+
+        if (eyebrow) eyebrow.textContent = '通知中心快捷入口';
+        if (title) title.textContent = 'AI 小窗';
+        if (subtext) subtext.textContent = '下滑通知栏，一点即聊';
+        if (input) input.placeholder = '直接说：设闹钟、导航、记账、查一下…';
+        if (hint) hint.textContent = '这是快速对话模式，适合从安卓快捷设置磁贴唤起。';
+      }
+
+      function installWindowActions() {
+        const actions = document.querySelector('.chat-header-actions');
+        if (!actions || document.querySelector('#quickAiWindowActions')) return;
+
+        const group = document.createElement('div');
+        group.id = 'quickAiWindowActions';
+        group.className = 'quick-ai-window-actions';
+        group.innerHTML = [
+          '<button class="quick-ai-window-btn" type="button" data-quick-ai-action="expand">完整应用</button>',
+          '<button class="quick-ai-window-btn close" type="button" data-quick-ai-action="close" aria-label="关闭 AI 小窗">关闭</button>',
+        ].join('');
+        actions.appendChild(group);
+      }
+
+      function lockToAiView() {
+        document.body.classList.add('quick-ai-entry');
+        window.AiAssistantViews?.open?.('ai');
+        document.querySelectorAll('#view-tools, #view-stats, #view-list, #view-settings').forEach((view) => {
+          view.setAttribute('aria-hidden', 'true');
+        });
+      }
+
+      async function handlePrefill() {
+        const text = params.get('q') || params.get('text') || '';
+        if (!text) return;
+        const input = document.querySelector('#aiInput');
+        if (input) {
+          input.value = text;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (params.get('autosend') === '1' && window.AiAssistantRuntime?.ask) {
+          if (input) input.value = '';
+          await window.AiAssistantRuntime.ask(text);
+        }
+      }
+
+      function bindQuickActions() {
+        document.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-quick-ai-action]');
+          if (!button) return;
+          const action = button.dataset.quickAiAction;
+          if (action === 'close') closeQuickAi();
+          if (action === 'expand') openFullApp();
+        });
+
+        window.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeQuickAi();
+        });
+      }
+
+      function boot() {
+        lockToAiView();
+        applyHeaderCopy();
+        installWindowActions();
+        bindQuickActions();
+        handlePrefill();
+        focusComposer();
+        window.dispatchEvent(new CustomEvent('quick-ai-entry-ready'));
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot, { once: true });
+      } else {
+        boot();
+      }
+
+      window.AiLedgerQuickEntry = {
+        active: true,
+        close: closeQuickAi,
+        openFullApp,
+        focus: focusComposer,
+      };
+    })();
+  </script>
   <script src="./ui-motion.js?v=20260515-7"></script>
   <script src="./background-picker.js?v=20260510-17"></script>
   <script src="./settings-appearance-plus.js?v=20260516-1"></script>
