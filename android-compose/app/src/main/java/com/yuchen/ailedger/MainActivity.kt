@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -136,7 +137,7 @@ private fun AiLedgerComposeApp() {
 
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets(0.dp),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
                 GlassBottomBar(
                     currentTab = currentTab,
@@ -566,7 +567,7 @@ private fun GlassBottomBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) 
 }
 
 @Composable
-private fun AmbientCircle(modifier: Modifier, size: androidx.compose.ui.unit.Dp, color: Color) {
+private fun AmbientCircle(modifier: Modifier, size: Dp, color: Color) {
     Box(
         modifier = modifier
             .size(size)
