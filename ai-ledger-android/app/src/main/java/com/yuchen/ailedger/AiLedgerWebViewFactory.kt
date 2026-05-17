@@ -90,20 +90,25 @@ object AiLedgerWebViewFactory {
               }
 
               const notify = () => window.AiLedgerNativeBridge?.notifyReady?.();
-              if (window.AiLedgerNativeBridge) {
-                notify();
-                return;
-              }
 
-              const scriptId = 'ai-ledger-native-bridge-loader';
-              if (!document.getElementById(scriptId)) {
+              function loadScriptOnce(id, src, onload) {
+                const old = document.getElementById(id);
+                if (old) {
+                  onload?.();
+                  return;
+                }
                 const script = document.createElement('script');
-                script.id = scriptId;
-                script.src = './native-bridge.js?v=20260517-1';
-                script.onload = notify;
-                script.onerror = () => console.warn('[native-shell] native-bridge.js load failed');
+                script.id = id;
+                script.src = src;
+                script.onload = () => onload?.();
+                script.onerror = () => console.warn('[native-shell] script load failed:', src);
                 document.head.appendChild(script);
               }
+
+              loadScriptOnce('ai-ledger-native-bridge-loader', './native-bridge.js?v=20260517-1', () => {
+                notify();
+                loadScriptOnce('ai-ledger-native-command-executor-loader', './native-command-executor.js?v=20260517-1');
+              });
             })();
             """.trimIndent(),
             null,
