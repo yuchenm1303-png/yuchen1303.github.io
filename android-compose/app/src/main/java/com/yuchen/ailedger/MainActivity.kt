@@ -15,17 +15,27 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 class MainActivity : ComponentActivity() {
@@ -39,8 +49,46 @@ class MainActivity : ComponentActivity() {
                     surface = Color(0xFF050815)
                 )
             ) {
-                LegacyWebAppScreen(activity = this)
+                AppModeSwitcher(activity = this)
             }
+        }
+    }
+}
+
+@Composable
+private fun AppModeSwitcher(activity: MainActivity) {
+    var nativePreview by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
+        if (nativePreview) {
+            NativeMigrationPreviewScreen()
+        } else {
+            LegacyWebAppScreen(activity = activity)
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 46.dp, end = 12.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF9DEEFF).copy(alpha = 0.88f),
+                            Color(0xFFB8A8FF).copy(alpha = 0.78f)
+                        )
+                    )
+                )
+                .clickable { nativePreview = !nativePreview }
+                .padding(horizontal = 13.dp, vertical = 9.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (nativePreview) "旧版" else "原生",
+                color = Color(0xFF061428),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black
+            )
         }
     }
 }
