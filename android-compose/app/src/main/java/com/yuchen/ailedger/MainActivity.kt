@@ -20,6 +20,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -510,7 +511,7 @@ private fun OriginalChatShell(modifier: Modifier = Modifier, content: @Composabl
 }
 
 @Composable
-private fun OriginalGlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, padding: PaddingValues = PaddingValues(16.dp), fill: Color = LiquidFill, content: @Composable Box.() -> Unit) {
+private fun OriginalGlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, padding: PaddingValues = PaddingValues(16.dp), fill: Color = LiquidFill, content: @Composable BoxScope.() -> Unit) {
     val shape = RoundedCornerShape(corner)
     Box(
         modifier = modifier
