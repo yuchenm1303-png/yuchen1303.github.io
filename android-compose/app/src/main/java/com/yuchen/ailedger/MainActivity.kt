@@ -106,7 +106,7 @@ private fun AiLedgerApp() {
     var tabName by rememberSaveable { mutableStateOf(AppTab.Chat.name) }
     val currentTab = AppTab.valueOf(tabName)
     Box(Modifier.fillMaxSize()) {
-        OriginalLiquidBackdrop()
+        OriginalThemeBackdrop()
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -149,20 +149,12 @@ private fun ChatScreen() {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().imePadding(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    Column(Modifier.fillMaxSize().imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         TopControls {
             messages.clear()
             messages += ChatMessage(nextId++, MessageRole.Assistant, "对话已清空。", "compose_native")
         }
-        GlassPanel(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            corner = 32.dp,
-            padding = PaddingValues(14.dp),
-            fill = LiquidFill
-        ) {
+        GlassPanel(modifier = Modifier.weight(1f).fillMaxWidth(), corner = 32.dp, padding = PaddingValues(14.dp), fill = LiquidFill) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModelStatusStrip()
                 LazyColumn(
@@ -218,12 +210,8 @@ private fun ChatScreen() {
 
 @Composable
 private fun ToolsScreen() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 10.dp)
-    ) {
-        item { PageHeader("功能中心", "工具与能力", "这一版先重点看底部导航玻璃岛质感。") }
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 10.dp)) {
+        item { PageHeader("功能中心", "工具与能力", "这版先把旧版主题背景迁进 Compose。") }
         item { FeatureHeroCard() }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -242,11 +230,7 @@ private fun ToolsScreen() {
 
 @Composable
 private fun SettingsScreen() {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 10.dp)
-    ) {
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 10.dp)) {
         item { PageHeader("设置中心", "应用设置", "账号、显示、手机偏好、背景外观和数据预算。") }
         item { InfoCard("账号与云同步", "Worker 连接、模型选择、云端状态将在这里迁入。", "☁") }
         item { InfoCard("显示与语言", "语言 · 字体大小 · 玻璃透明度 · 动画效果 · 紧凑模式", "Aa") }
@@ -276,10 +260,9 @@ private fun ModelStatusStrip() {
     Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         GlassPanel(Modifier.weight(1f), corner = 28.dp, padding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), fill = LiquidFillStrong) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    modifier = Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(Color(0xFF9DEEFF), Color(0xFF8F7DFF)))),
-                    contentAlignment = Alignment.Center
-                ) { Text("AI", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(Brush.linearGradient(listOf(Color(0xFF9DEEFF), Color(0xFF8F7DFF)))), contentAlignment = Alignment.Center) {
+                    Text("AI", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                }
                 Text("Mistral", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
             }
         }
@@ -311,8 +294,8 @@ private fun MessageBubble(message: ChatMessage, onExecuteCommand: (AssistantComm
                 if (message.actionHint.contains("云端")) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MiniButton("重试", onRetry)
-                        MiniButton("复制", onCopy)
+                        MiniButton(text = "重试", onClick = onRetry)
+                        MiniButton(text = "复制", onClick = onCopy)
                     }
                 }
             }
@@ -322,13 +305,9 @@ private fun MessageBubble(message: ChatMessage, onExecuteCommand: (AssistantComm
 
 @Composable
 private fun UserBubble(text: String) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF4C6CFF).copy(alpha = .88f), Color(0xFF7A4CE1).copy(alpha = .86f))))
-            .border(1.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-    ) { Text(text, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp) }
+    Box(Modifier.clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF4C6CFF).copy(alpha = .88f), Color(0xFF7A4CE1).copy(alpha = .86f)))).border(1.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(text, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp)
+    }
 }
 
 @Composable
@@ -408,10 +387,10 @@ private fun AttachmentPanel(onPick: (String) -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("快捷添加", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Black)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniButton("拍照") { onPick("拍照") }
-                MiniButton("语音") { onPick("语音") }
-                MiniButton("账单") { onPick("账单") }
-                MiniButton("文件") { onPick("文件") }
+                MiniButton(text = "拍照", onClick = { onPick("拍照") })
+                MiniButton(text = "语音", onClick = { onPick("语音") })
+                MiniButton(text = "账单", onClick = { onPick("账单") })
+                MiniButton(text = "文件", onClick = { onPick("文件") })
             }
         }
     }
@@ -455,24 +434,16 @@ private fun InfoCard(title: String, desc: String, icon: String) {
 @Composable
 private fun Tag(text: String, onClick: () -> Unit) {
     Pressable(onClick) { pressed ->
-        Box(
-            modifier = Modifier
-                .graphicsLayer { scaleX = if (pressed) .97f else 1f; scaleY = if (pressed) .97f else 1f }
-                .clip(RoundedCornerShape(999.dp))
-                .background(LiquidFillSoft)
-                .border(1.dp, LiquidLine, RoundedCornerShape(999.dp))
-                .padding(horizontal = 18.dp, vertical = 11.dp),
-            contentAlignment = Alignment.Center
-        ) { Text(text, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Black) }
+        Box(Modifier.graphicsLayer { scaleX = if (pressed) .97f else 1f; scaleY = if (pressed) .97f else 1f }.clip(RoundedCornerShape(999.dp)).background(LiquidFillSoft).border(1.dp, LiquidLine, RoundedCornerShape(999.dp)).padding(horizontal = 18.dp, vertical = 11.dp), contentAlignment = Alignment.Center) {
+            Text(text, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
 @Composable
 private fun GlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, padding: PaddingValues = PaddingValues(16.dp), fill: Color = LiquidFill, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(corner)
-    Box(
-        modifier = modifier.shadow(18.dp, shape, clip = false).clip(shape).background(fill).border(1.dp, LiquidLine, shape)
-    ) {
+    Box(modifier.shadow(18.dp, shape, clip = false).clip(shape).background(fill).border(1.dp, LiquidLine, shape)) {
         Box(Modifier.matchParentSize().background(Brush.radialGradient(listOf(Color.White.copy(alpha = .22f), Color.Transparent), center = Offset(90f, 0f), radius = 300f)))
         Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color.White.copy(alpha = .12f), Color.Transparent, Color(0xFFBCA8FF).copy(alpha = .06f)))))
         Box(Modifier.padding(padding)) { content() }
@@ -480,23 +451,23 @@ private fun GlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, paddin
 }
 
 @Composable
-private fun SmallPill(text: String, onClick: () -> Unit) { MiniButton(text, onClick, horizontal = 18.dp, vertical = 12.dp, fontSize = 15) }
+private fun SmallPill(text: String, onClick: () -> Unit) {
+    MiniButton(text = text, onClick = onClick, horizontal = 18.dp, vertical = 12.dp, fontSize = 15)
+}
 
 @Composable
 private fun StatusPill(text: String) {
-    Box(
-        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFFF728A).copy(alpha = .12f)).border(1.dp, Color(0xFFFF728A).copy(alpha = .45f), RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center
-    ) { Text("●  $text", color = Color(0xFFFFC1CA), fontSize = 13.sp, fontWeight = FontWeight.Black) }
+    Box(Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFFF728A).copy(alpha = .12f)).border(1.dp, Color(0xFFFF728A).copy(alpha = .45f), RoundedCornerShape(999.dp)).padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Text("●  $text", color = Color(0xFFFFC1CA), fontSize = 13.sp, fontWeight = FontWeight.Black)
+    }
 }
 
 @Composable
 private fun MiniButton(text: String, onClick: () -> Unit, horizontal: Dp = 15.dp, vertical: Dp = 9.dp, fontSize: Int = 13) {
     Pressable(onClick) { pressed ->
-        Box(
-            modifier = Modifier.graphicsLayer { scaleX = if (pressed) .96f else 1f; scaleY = if (pressed) .96f else 1f }.clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = .060f)).border(1.dp, Color.White.copy(alpha = .20f), RoundedCornerShape(999.dp)).padding(horizontal = horizontal, vertical = vertical),
-            contentAlignment = Alignment.Center
-        ) { Text(text, color = Ink, fontSize = fontSize.sp, fontWeight = FontWeight.Black) }
+        Box(Modifier.graphicsLayer { scaleX = if (pressed) .96f else 1f; scaleY = if (pressed) .96f else 1f }.clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = .060f)).border(1.dp, Color.White.copy(alpha = .20f), RoundedCornerShape(999.dp)).padding(horizontal = horizontal, vertical = vertical), contentAlignment = Alignment.Center) {
+            Text(text, color = Ink, fontSize = fontSize.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
@@ -510,29 +481,26 @@ private fun AccentButton(text: String, onClick: () -> Unit) {
 @Composable
 private fun RoundButton(text: String, size: Dp, onClick: () -> Unit) {
     Pressable(onClick) { pressed ->
-        Box(
-            modifier = Modifier.size(size).graphicsLayer { scaleX = if (pressed) .94f else 1f; scaleY = if (pressed) .94f else 1f }.clip(CircleShape).background(LiquidFillStrong).border(1.dp, LiquidLineStrong, CircleShape),
-            contentAlignment = Alignment.Center
-        ) { Text(text, color = Ink, fontSize = 26.sp, fontWeight = FontWeight.Black) }
+        Box(Modifier.size(size).graphicsLayer { scaleX = if (pressed) .94f else 1f; scaleY = if (pressed) .94f else 1f }.clip(CircleShape).background(LiquidFillStrong).border(1.dp, LiquidLineStrong, CircleShape), contentAlignment = Alignment.Center) {
+            Text(text, color = Ink, fontSize = 26.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
 @Composable
 private fun SendButton(onClick: () -> Unit) {
     Pressable(onClick) { pressed ->
-        Box(
-            modifier = Modifier.size(54.dp).graphicsLayer { scaleX = if (pressed) .94f else 1f; scaleY = if (pressed) .94f else 1f }.clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFE9F8FF).copy(alpha = .70f), Color(0xFFBCA8FF).copy(alpha = .36f)))).border(1.dp, Color.White.copy(alpha = .34f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) { Text("➤", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black) }
+        Box(Modifier.size(54.dp).graphicsLayer { scaleX = if (pressed) .94f else 1f; scaleY = if (pressed) .94f else 1f }.clip(CircleShape).background(Brush.linearGradient(listOf(Color(0xFFE9F8FF).copy(alpha = .70f), Color(0xFFBCA8FF).copy(alpha = .36f)))).border(1.dp, Color.White.copy(alpha = .34f), CircleShape), contentAlignment = Alignment.Center) {
+            Text("➤", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
 @Composable
 private fun IconBox(icon: String) {
-    Box(
-        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(17.dp)).background(LiquidFillSoft).border(1.dp, LiquidLine, RoundedCornerShape(17.dp)),
-        contentAlignment = Alignment.Center
-    ) { Text(icon, fontSize = 19.sp, fontWeight = FontWeight.Black, color = Ink) }
+    Box(Modifier.size(46.dp).clip(RoundedCornerShape(17.dp)).background(LiquidFillSoft).border(1.dp, LiquidLine, RoundedCornerShape(17.dp)), contentAlignment = Alignment.Center) {
+        Text(icon, fontSize = 19.sp, fontWeight = FontWeight.Black, color = Ink)
+    }
 }
 
 @Composable
@@ -543,24 +511,41 @@ private fun Pressable(onClick: () -> Unit, content: @Composable (pressed: Boolea
 }
 
 @Composable
-private fun OriginalLiquidBackdrop() {
-    val transition = rememberInfiniteTransition(label = "original-web-liquid-backdrop")
-    val driftA by transition.animateFloat(-12f, 18f, infiniteRepeatable(tween(26000), RepeatMode.Reverse), label = "glass-backdrop")
-    val driftB by transition.animateFloat(14f, -18f, infiniteRepeatable(tween(32000), RepeatMode.Reverse), label = "aurora-flow")
+private fun OriginalThemeBackdrop() {
+    val transition = rememberInfiniteTransition(label = "theme-backdrop")
+    val driftA by transition.animateFloat(-18f, 24f, infiniteRepeatable(tween(26000), RepeatMode.Reverse), label = "nebula-a")
+    val driftB by transition.animateFloat(18f, -24f, infiniteRepeatable(tween(32000), RepeatMode.Reverse), label = "nebula-b")
+    val shimmer by transition.animateFloat(0.55f, 0.95f, infiniteRepeatable(tween(9000), RepeatMode.Reverse), label = "star-shimmer")
+
     Box(Modifier.fillMaxSize().background(OriginalBackgroundBrush)) {
-        LiquidOrb(Modifier.align(Alignment.TopStart).offset(x = (-40 + driftA).dp, y = 88.dp), 190.dp, Color(0xFF84B4FF).copy(alpha = .18f))
-        LiquidOrb(Modifier.align(Alignment.TopEnd).offset(x = 54.dp, y = (70 + driftB).dp), 220.dp, Color(0xFFAE78FF).copy(alpha = .16f))
-        LiquidOrb(Modifier.align(Alignment.BottomEnd).offset(x = 22.dp, y = (-130 + driftA).dp), 250.dp, Color(0xFF4CE8FF).copy(alpha = .12f))
-        LiquidOrb(Modifier.align(Alignment.BottomStart).offset(x = (-76).dp, y = (-20 + driftB).dp), 240.dp, Color(0xFFCF67FF).copy(alpha = .10f))
+        ThemeOrb(Modifier.align(Alignment.TopStart).offset(x = (-80 + driftA).dp, y = 76.dp), 270.dp, Color(0xFF55D8FF).copy(alpha = .16f))
+        ThemeOrb(Modifier.align(Alignment.TopEnd).offset(x = 54.dp, y = (34 + driftB).dp), 310.dp, Color(0xFF8F78FF).copy(alpha = .17f))
+        ThemeOrb(Modifier.align(Alignment.CenterEnd).offset(x = 80.dp, y = (-20 + driftA).dp), 280.dp, Color(0xFF2F72FF).copy(alpha = .12f))
+        ThemeOrb(Modifier.align(Alignment.BottomStart).offset(x = (-90).dp, y = (-80 + driftB).dp), 320.dp, Color(0xFFFF6FD8).copy(alpha = .10f))
+        ThemeOrb(Modifier.align(Alignment.BottomEnd).offset(x = 30.dp, y = (-135 + driftA).dp), 260.dp, Color(0xFF4CE8FF).copy(alpha = .10f))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .045f), Color.Transparent, Color(0xFF2B1648).copy(alpha = .16f)))))
+        repeat(42) { index ->
+            val x = ((index * 47) % 360).dp
+            val y = ((index * 83) % 760).dp
+            val s = if (index % 5 == 0) 2.dp else 1.dp
+            Box(
+                Modifier
+                    .offset(x = x, y = y)
+                    .size(s)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = if (index % 5 == 0) .34f * shimmer else .18f * shimmer))
+            )
+        }
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color.Transparent, Color(0xFF0A1024).copy(alpha = .22f)), start = Offset(0f, 0f), end = Offset(0f, 1400f))))
     }
 }
 
 @Composable
-private fun LiquidOrb(modifier: Modifier, size: Dp, color: Color) {
-    Box(modifier.size(size).clip(CircleShape).background(Brush.radialGradient(listOf(color, color.copy(alpha = color.alpha * .38f), Color.Transparent))))
+private fun ThemeOrb(modifier: Modifier, size: Dp, color: Color) {
+    Box(modifier.size(size).clip(CircleShape).background(Brush.radialGradient(listOf(color, color.copy(alpha = color.alpha * .45f), Color.Transparent))))
 }
 
-private val DeepNavy = Color(0xFF070A18)
+private val DeepNavy = Color(0xFF050815)
 private val Ink = Color(0xF5F8FAFF)
 private val InkDark = Color(0xFF061428)
 private val Muted = Color(0xA6D6E0F6)
@@ -571,4 +556,12 @@ private val LiquidFillSoft = Color.White.copy(alpha = .035f)
 private val LiquidFillStrong = Color.White.copy(alpha = .090f)
 private val LiquidLine = Color.White.copy(alpha = .24f)
 private val LiquidLineStrong = Color.White.copy(alpha = .34f)
-private val OriginalBackgroundBrush = Brush.linearGradient(listOf(Color(0xFF070A18), Color(0xFF0D1434), Color(0xFF17113A), Color(0xFF271E45)))
+private val OriginalBackgroundBrush = Brush.linearGradient(
+    listOf(
+        Color(0xFF050815),
+        Color(0xFF08132D),
+        Color(0xFF11284C),
+        Color(0xFF211B4A),
+        Color(0xFF3A1F55)
+    )
+)
