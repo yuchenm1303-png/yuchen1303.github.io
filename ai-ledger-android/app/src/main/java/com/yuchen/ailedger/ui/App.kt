@@ -53,7 +53,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     }
                 }
 
-                LiquidBottomBar(
+                CompactLiquidBottomBar(
                     currentTab = state.currentTab,
                     quality = state.quality,
                     glassIntensity = state.glassIntensity,
