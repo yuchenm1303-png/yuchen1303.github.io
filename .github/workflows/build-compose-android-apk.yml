@@ -1,0 +1,40 @@
+name: Build Compose Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - "ai-ledger-android/app/**"
+      - "ai-ledger-android/build.gradle"
+      - "ai-ledger-android/settings.gradle"
+      - "ai-ledger-android/gradle.properties"
+      - "ai-ledger-android/package.json"
+      - ".github/workflows/build-compose-android-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build Compose debug APK
+        working-directory: ai-ledger-android
+        run: |
+          chmod +x android/gradlew
+          ./android/gradlew -p . :app:assembleDebug
+
+      - name: Upload Compose APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-assistant-compose-debug-apk
+          path: ai-ledger-android/app/build/outputs/apk/debug/app-debug.apk

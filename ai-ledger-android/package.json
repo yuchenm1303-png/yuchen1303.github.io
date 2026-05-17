@@ -11,7 +11,8 @@
     "android:install-plugin": "node scripts/install-mobile-assistant-plugin.js && node scripts/patch-navigation-provider.js && npm run android:install-icon",
     "android:open": "npx cap open android",
     "android:build:debug": "cd android && gradlew.bat assembleDebug",
-    "android:build:release": "cd android && gradlew.bat assembleRelease"
+    "android:build:release": "cd android && gradlew.bat assembleRelease",
+    "android:build:compose": "android\\gradlew.bat -p . :app:assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "6.2.1",

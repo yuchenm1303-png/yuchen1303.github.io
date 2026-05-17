@@ -9,9 +9,10 @@
         android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
-        android:label="AI 助手"
+        android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AiLedger.NativeShell">
+        android:theme="@style/Theme.AiLedger.NativeShell"
+        android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
