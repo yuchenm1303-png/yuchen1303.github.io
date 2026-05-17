@@ -17,10 +17,18 @@ import kotlinx.coroutines.launch
 
 class AssistantViewModel(
     application: Application,
-    private val repository: AssistantRepository = PreviewAssistantRepository(),
-    private val preferencesStore: AssistantPreferencesStore = AssistantPreferencesStore(application),
-    private val aiWorkerClient: AiWorkerClient = AiWorkerClient()
+    private val repository: AssistantRepository,
+    private val preferencesStore: AssistantPreferencesStore,
+    private val aiWorkerClient: AiWorkerClient
 ) : AndroidViewModel(application) {
+
+    constructor(application: Application) : this(
+        application = application,
+        repository = PreviewAssistantRepository(),
+        preferencesStore = AssistantPreferencesStore(application),
+        aiWorkerClient = AiWorkerClient()
+    )
+
     var uiState by mutableStateOf(repository.initialState())
         private set
 
