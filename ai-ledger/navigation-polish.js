@@ -126,7 +126,9 @@
         will-change: auto !important;
       }
 
-      body.assistant-lite-motion :where(.ambient,.scene-backdrop::before,.scene-backdrop::after) {
+      body.assistant-lite-motion .ambient,
+      body.assistant-lite-motion .scene-backdrop::before,
+      body.assistant-lite-motion .scene-backdrop::after {
         animation: none !important;
         filter: none !important;
       }
