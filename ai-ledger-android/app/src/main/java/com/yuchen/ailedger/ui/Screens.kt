@@ -57,7 +57,7 @@ fun AssistantScreen(state: AssistantUiState) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 54.dp, bottom = 104.dp),
+            .padding(top = 40.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -204,11 +204,56 @@ private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Mod
 fun ToolsScreen(state: AssistantUiState) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 22.dp, bottom = 116.dp),
+        contentPadding = PaddingValues(top = 22.dp, bottom = 150.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { Text("功能中心", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black) }
-        items(state.tools, key = { it.title }) { tool -> ToolCard(tool, state) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("功能中心", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, lineHeight = 40.sp)
+                Text("账单、提醒、应用控制和快捷任务", color = Color.White.copy(alpha = 0.56f), fontSize = 15.sp)
+            }
+        }
+        item { ToolsOverviewCard(state) }
+        items(state.tools.chunked(2), key = { row -> row.joinToString { it.title } }) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { tool -> ToolTile(tool, state, Modifier.weight(1f)) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolsOverviewCard(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth().height(118.dp), GlassRole.Shell) {
+        Row(Modifier.fillMaxSize().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 22, Modifier.size(62.dp), GlassRole.Floating) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("✦", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("AI 手机动作", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("把原 Web 端工具逐步迁到原生 Compose", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp)
+            }
+            Text("›", color = Color.White.copy(alpha = 0.72f), fontSize = 36.sp, fontWeight = FontWeight.Light)
+        }
+    }
+}
+
+@Composable
+private fun ToolTile(tool: ToolEntry, state: AssistantUiState, modifier: Modifier = Modifier) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 26, modifier.height(154.dp), GlassRole.Card) {
+        Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 18, Modifier.size(48.dp), GlassRole.Chip) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(tool.icon, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                }
+            }
+            Text(tool.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(tool.subtitle, color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -225,7 +270,7 @@ fun SettingsScreen(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 24.dp, bottom = 124.dp),
+        contentPadding = PaddingValues(top = 24.dp, bottom = 170.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item { SettingsHero() }
@@ -383,13 +428,13 @@ fun LiquidBottomBar(
     onTabChange: (AppTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassPanel(quality, glassIntensity, motionIntensity, 30, modifier.fillMaxWidth().height(82.dp), GlassRole.Nav) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(7.dp)) {
+    GlassPanel(quality, glassIntensity, motionIntensity, 30, modifier.fillMaxWidth().height(72.dp), GlassRole.Nav) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(6.dp)) {
             val slot = maxWidth / AppTab.entries.size
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
             val indicatorX by animateDpAsState(slot * target.toFloat(), animationSpec = tween(420, easing = FastOutSlowInEasing), label = "nav-indicator-x")
             val indicatorW by animateDpAsState(slot - 8.dp, animationSpec = tween(420, easing = FastOutSlowInEasing), label = "nav-indicator-w")
-            GlassPanel(quality, glassIntensity * 1.10f, motionIntensity, 24, Modifier.offset(x = indicatorX + 4.dp, y = 1.dp).width(indicatorW).height(66.dp), GlassRole.Floating) {}
+            GlassPanel(quality, glassIntensity * 1.18f, motionIntensity, 22, Modifier.offset(x = indicatorX + 4.dp, y = 1.dp).width(indicatorW).height(58.dp), GlassRole.Floating) {}
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AppTab.entries.forEach { tab ->
                     val selected = tab == currentTab
@@ -397,13 +442,13 @@ fun LiquidBottomBar(
                     val pressed by interaction.collectIsPressedAsState()
                     val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "tab-press")
                     Column(
-                        modifier = Modifier.weight(1f).height(68.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape(26.dp)).clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
+                        modifier = Modifier.weight(1f).height(60.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(RoundedCornerShape(24.dp)).clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(navIcon(tab), color = Color.White.copy(alpha = if (selected) 0.98f else 0.55f), fontSize = 21.sp, maxLines = 1)
-                        Spacer(Modifier.height(2.dp))
-                        Text(tab.title, color = Color.White.copy(alpha = if (selected) 0.96f else 0.54f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(navIcon(tab), color = Color.White.copy(alpha = if (selected) 0.98f else 0.55f), fontSize = 19.sp, maxLines = 1)
+                        Spacer(Modifier.height(1.dp))
+                        Text(tab.title, color = Color.White.copy(alpha = if (selected) 0.96f else 0.54f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
