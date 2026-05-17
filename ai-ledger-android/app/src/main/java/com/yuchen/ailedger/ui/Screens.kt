@@ -66,32 +66,105 @@ fun AssistantScreen(state: AssistantUiState) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
+            CloudStatusPill(state)
+        }
+        item {
+            AssistantGlassShell(state)
+        }
+    }
+}
+
+@Composable
+private fun AssistantGlassShell(state: AssistantUiState) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                HeaderChip("AI", "Workers", state, Modifier.weight(1f))
+                HeaderChip("✦", "轻量待命", state, Modifier.weight(1f))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 state.stats.take(2).forEach { stat ->
                     StatGlassCard(stat, state, Modifier.weight(1f))
                 }
             }
-        }
-        if (state.showPreviewConversation) {
-            items(state.messages, key = { it.id }) { message ->
-                MessageRow(message = message, state = state)
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (state.showPreviewConversation) {
+                state.messages.forEach { message ->
+                    MessageRow(message = message, state = state)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     listOf("设提醒", "导航回家", "记一笔").forEach { action ->
                         SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
                     }
                 }
+            } else {
+                PreviewHiddenCard(state)
             }
-        } else {
-            item { PreviewHiddenCard(state) }
-        }
-        item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ComposerInputGlass(state = state, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(12.dp))
                 CircleGlassButton("➤", state)
             }
+            Text(
+                text = "已连接云端 AI。本地动作会优先快速识别，复杂问题再交给云端。",
+                color = Color.White.copy(alpha = 0.54f),
+                fontSize = 15.sp,
+                lineHeight = 22.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun CloudStatusPill(state: AssistantUiState) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = Modifier.width(160.dp).height(54.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("◎", color = Color(0xFF8DF9EA), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("强制联网", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xFF66F5DC))
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeaderChip(icon: String, text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = modifier.height(58.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(icon, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            Text(text, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
@@ -137,24 +210,17 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(
-                                        if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f)
-                                    )
+                                    .background(if (selected) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.055f))
                                     .border(
                                         width = 1.dp,
-                                        color = Color.White.copy(alpha = if (selected) 0.34f else 0.16f),
+                                        color = Color.White.copy(alpha = if (selected) 0.34f else 0.14f),
                                         shape = RoundedCornerShape(18.dp)
                                     )
                                     .clickable { onGlassPresetChange(preset) }
                                     .padding(vertical = 11.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = preset.label,
-                                    color = Color.White.copy(alpha = if (selected) 0.98f else 0.76f),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text(preset.label, color = Color.White.copy(alpha = if (selected) 0.98f else 0.76f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -166,12 +232,7 @@ fun SettingsScreen(
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("画质与性能", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     RenderQuality.entries.forEach { item ->
-                        QualityRow(
-                            item = item,
-                            selected = item == state.quality,
-                            state = state,
-                            onClick = { onQualityChange(item) }
-                        )
+                        QualityRow(item = item, selected = item == state.quality, state = state, onClick = { onQualityChange(item) })
                     }
                 }
             }
@@ -190,19 +251,11 @@ fun SettingsScreen(
         }
         item {
             GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("聊天预览", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = "保留示例对话和快捷指令，关闭后只显示更接近真实聊天入口的空白态。",
-                            color = Color.White.copy(alpha = 0.62f),
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp
-                        )
+                        Text("保留示例对话和快捷指令，关闭后只显示更接近真实聊天入口的空白态。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp)
                     }
                     Spacer(Modifier.width(12.dp))
                     Switch(checked = state.showPreviewConversation, onCheckedChange = onPreviewConversationChange)
@@ -214,12 +267,7 @@ fun SettingsScreen(
                 Column(Modifier.padding(20.dp)) {
                     Text("账号与同步", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        "当前是 Compose 迁移预览版，后续会接入原来的云同步和 AI 解析服务。",
-                        color = Color.White.copy(alpha = 0.66f),
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp
-                    )
+                    Text("当前是 Compose 迁移预览版，后续会接入原来的云同步和 AI 解析服务。", color = Color.White.copy(alpha = 0.66f), fontSize = 16.sp, lineHeight = 24.sp)
                     Spacer(Modifier.height(12.dp))
                     Text(text = aiEndpoint, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, lineHeight = 17.sp)
                 }
@@ -237,29 +285,19 @@ private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Mod
         animationSpec = infiniteRepeatable(tween(4400, easing = LinearEasing), RepeatMode.Restart),
         label = "composer-sheen-value"
     )
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 30,
-        modifier = modifier
-    ) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.08f + 0.08f * sweep),
-                            Color.Transparent
-                        )
+                        colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.035f + 0.035f * sweep), Color.Transparent)
                     )
                 )
         ) {
             Text(
                 text = if (state.showPreviewConversation) "和我说点什么" else "输入会接到后续原生 AI 会话",
-                color = Color.White.copy(alpha = 0.55f),
+                color = Color.White.copy(alpha = 0.58f),
                 fontSize = 19.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
             )
@@ -273,12 +311,7 @@ private fun PreviewHiddenCard(state: AssistantUiState) {
         Column(Modifier.padding(22.dp)) {
             Text("预览对话已隐藏", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text(
-                "现在展示的是更接近真实聊天入口的空白态，方便下一步直接接 AI Worker。",
-                color = Color.White.copy(alpha = 0.62f),
-                fontSize = 15.sp,
-                lineHeight = 22.sp
-            )
+            Text("现在展示的是更接近真实聊天入口的空白态，方便下一步直接接 AI Worker。", color = Color.White.copy(alpha = 0.62f), fontSize = 15.sp, lineHeight = 22.sp)
         }
     }
 }
@@ -297,18 +330,12 @@ private fun MessageRow(message: ChatMessage, state: AssistantUiState) {
         if (message.role == MessageRole.User) {
             ActionPill(message.text, state)
         } else {
-            GlassPanel(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
-                motionIntensity = state.motionIntensity,
-                radius = 26,
-                modifier = Modifier.fillMaxWidth(0.84f)
-            ) {
+            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 24, Modifier.fillMaxWidth(0.88f)) {
                 Text(
                     text = message.text,
-                    color = Color.White,
+                    color = Color.White.copy(alpha = 0.92f),
                     fontSize = 20.sp,
-                    lineHeight = 32.sp,
+                    lineHeight = 31.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(22.dp)
                 )
@@ -344,15 +371,10 @@ private fun QualityRow(item: RenderQuality, selected: Boolean, state: AssistantU
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(22.dp))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .background(
-                color = if (selected) Color(0x334DA6FF) else Color.White.copy(alpha = state.quality.glassAlpha * 0.32f),
-                shape = RoundedCornerShape(22.dp)
-            )
+            .background(color = if (selected) Color(0x224DA6FF) else Color.White.copy(alpha = state.quality.glassAlpha * 0.16f), shape = RoundedCornerShape(22.dp))
             .border(
                 width = 1.dp,
-                brush = Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = if (selected) 0.48f else 0.20f), Color.White.copy(alpha = 0.06f))
-                ),
+                brush = Brush.linearGradient(listOf(Color.White.copy(alpha = if (selected) 0.40f else 0.16f), Color.White.copy(alpha = 0.05f))),
                 shape = RoundedCornerShape(22.dp)
             )
             .padding(16.dp),
@@ -369,41 +391,29 @@ private fun QualityRow(item: RenderQuality, selected: Boolean, state: AssistantU
 
 @Composable
 private fun StatGlassCard(stat: StatSummary, state: AssistantUiState, modifier: Modifier = Modifier) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 26, modifier) {
-        Column(Modifier.padding(20.dp)) {
-            Text(stat.title, color = Color.White.copy(alpha = 0.62f), fontSize = 16.sp)
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 24, modifier.height(104.dp)) {
+        Column(Modifier.padding(18.dp)) {
+            Text(stat.title, color = Color.White.copy(alpha = 0.62f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text(stat.value, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Text(stat.value, color = Color.White.copy(alpha = 0.94f), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
 
 @Composable
 private fun ActionPill(text: String, state: AssistantUiState) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 24,
-        modifier = Modifier.width(154.dp).height(64.dp)
-    ) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 24, Modifier.width(154.dp).height(58.dp)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun SmallGlassButton(text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 24,
-        modifier = modifier.height(56.dp)
-    ) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 24, modifier.height(56.dp)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -412,12 +422,9 @@ private fun SmallGlassButton(text: String, state: AssistantUiState, modifier: Mo
 private fun CircleGlassButton(text: String, state: AssistantUiState) {
     val transition = rememberInfiniteTransition(label = "send-btn-pulse")
     val pulse by transition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = if (state.motionIntensity > 0f) 1.06f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1700, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = 0.97f,
+        targetValue = if (state.motionIntensity > 0f) 1.03f else 1f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1700, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
         label = "send-btn-pulse-value"
     )
     PressableGlass(
@@ -425,12 +432,7 @@ private fun CircleGlassButton(text: String, state: AssistantUiState) {
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 999,
-        modifier = Modifier
-            .size(66.dp)
-            .graphicsLayer {
-                scaleX = pulse
-                scaleY = pulse
-            }
+        modifier = Modifier.size(66.dp).graphicsLayer { scaleX = pulse; scaleY = pulse }
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
@@ -463,18 +465,10 @@ fun LiquidBottomBar(
                     .clip(RoundedCornerShape(24.dp))
                     .background(
                         brush = Brush.linearGradient(
-                            listOf(
-                                Color.White.copy(alpha = 0.26f * glassIntensity),
-                                Color(0xFFB3CCFF).copy(alpha = 0.18f * glassIntensity),
-                                Color.White.copy(alpha = 0.12f * glassIntensity)
-                            )
+                            listOf(Color.White.copy(alpha = 0.18f * glassIntensity), Color(0xFFB3CCFF).copy(alpha = 0.12f * glassIntensity), Color.White.copy(alpha = 0.07f * glassIntensity))
                         )
                     )
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.30f * glassIntensity),
-                        shape = RoundedCornerShape(24.dp)
-                    )
+                    .border(width = 1.dp, color = Color.White.copy(alpha = 0.28f * glassIntensity), shape = RoundedCornerShape(24.dp))
             )
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

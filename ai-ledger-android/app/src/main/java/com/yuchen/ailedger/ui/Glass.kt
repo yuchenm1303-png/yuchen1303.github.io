@@ -19,11 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -108,21 +106,15 @@ fun Modifier.glassSkin(
 ): Modifier {
     val shape = RoundedCornerShape(radius.dp)
     val baseAlpha = (quality.glassAlpha * glassIntensity).coerceIn(0.08f, 0.42f)
-    val blurRadius = when (quality) {
-        RenderQuality.Smooth -> 1.5.dp
-        RenderQuality.Balanced -> 2.5.dp
-        RenderQuality.Experimental -> 3.2.dp
-    }
 
     return this
-        .blur(blurRadius)
         .background(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = baseAlpha + 0.13f),
-                    Color.White.copy(alpha = baseAlpha * 0.70f + 0.03f),
-                    Color(0xFFC5D6FF).copy(alpha = baseAlpha * 0.34f),
-                    Color(0xFF7BA7FF).copy(alpha = baseAlpha * 0.24f)
+                    Color.White.copy(alpha = baseAlpha * 0.64f + 0.020f),
+                    Color(0xFFDCEBFF).copy(alpha = baseAlpha * 0.30f + 0.012f),
+                    Color(0xFF9FB8E8).copy(alpha = baseAlpha * 0.22f),
+                    Color(0xFF111B36).copy(alpha = 0.08f)
                 ),
                 start = Offset.Zero,
                 end = Offset(1200f, 1200f)
@@ -133,12 +125,12 @@ fun Modifier.glassSkin(
             val w = size.width
             val h = size.height
             val sheenX = (0.12f + 0.76f * shimmer) * w
-            val ridgeY = h * 0.14f
+            val ridgeY = h * 0.06f
 
             val topSheen = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.30f),
-                    Color.White.copy(alpha = 0.09f),
+                    Color.White.copy(alpha = 0.18f * glassIntensity),
+                    Color.White.copy(alpha = 0.060f * glassIntensity),
                     Color.Transparent
                 ),
                 start = Offset(0f, 0f),
@@ -147,7 +139,7 @@ fun Modifier.glassSkin(
 
             val leftRefraction = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.22f),
+                    Color.White.copy(alpha = 0.14f * glassIntensity),
                     Color.Transparent
                 ),
                 center = Offset(w * 0.08f, h * 0.24f),
@@ -156,7 +148,7 @@ fun Modifier.glassSkin(
 
             val rightGlow = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF9BC1FF).copy(alpha = 0.20f),
+                    Color(0xFF9BC1FF).copy(alpha = 0.11f * glassIntensity),
                     Color.Transparent
                 ),
                 center = Offset(w * 0.90f, h * 0.88f),
@@ -165,56 +157,30 @@ fun Modifier.glassSkin(
 
             val movingSheen = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = if (quality.enableMotion) 0.21f else 0.10f),
+                    Color.White.copy(alpha = if (quality.enableMotion) 0.11f * glassIntensity else 0.05f),
                     Color.Transparent
                 ),
                 center = Offset(sheenX, ridgeY),
-                radius = w * 0.52f
-            )
-
-            val rimLight = Brush.linearGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.52f),
-                    Color.White.copy(alpha = 0.16f),
-                    Color.White.copy(alpha = 0.30f)
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
+                radius = w * 0.46f
             )
 
             onDrawWithContent {
-                drawContent()
                 drawRect(topSheen, blendMode = BlendMode.Plus)
                 drawRect(leftRefraction, blendMode = BlendMode.Screen)
                 drawRect(rightGlow, blendMode = BlendMode.Plus)
                 drawRect(movingSheen, blendMode = BlendMode.Screen)
+                drawContent()
             }
         }
         .border(
             width = 1.dp,
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.50f),
-                    Color.White.copy(alpha = 0.14f),
-                    Color.White.copy(alpha = 0.24f)
+                    Color.White.copy(alpha = 0.38f * glassIntensity),
+                    Color.White.copy(alpha = 0.10f * glassIntensity),
+                    Color.White.copy(alpha = 0.24f * glassIntensity)
                 )
             ),
             shape = shape
         )
-        .drawWithCache {
-            val shadowPaint = Brush.radialGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.18f), Color.Transparent),
-                center = Offset(size.width * 0.50f, size.height * 1.15f),
-                radius = size.width * 0.92f
-            )
-            onDrawWithContent {
-                drawContent()
-                drawRect(
-                    brush = shadowPaint,
-                    topLeft = Offset(0f, size.height * 0.66f),
-                    size = Size(size.width, size.height * 0.64f),
-                    blendMode = BlendMode.Multiply
-                )
-            }
-        }
 }
