@@ -46,10 +46,10 @@ fun CompactLiquidBottomBar(
 ) {
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity * 0.92f,
+        glassIntensity = glassIntensity * 0.88f,
         motionIntensity = motionIntensity,
-        radius = 28,
-        modifier = modifier.fillMaxWidth().height(60.dp),
+        radius = 26,
+        modifier = modifier.fillMaxWidth().height(54.dp),
         role = GlassRole.Nav
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(5.dp)) {
@@ -68,13 +68,13 @@ fun CompactLiquidBottomBar(
 
             GlassPanel(
                 quality = quality,
-                glassIntensity = glassIntensity * 1.08f,
+                glassIntensity = glassIntensity * 1.04f,
                 motionIntensity = motionIntensity,
-                radius = 22,
+                radius = 21,
                 modifier = Modifier
                     .offset(x = indicatorX + 4.dp, y = 1.dp)
                     .width(indicatorW)
-                    .height(48.dp),
+                    .height(42.dp),
                 role = GlassRole.Floating
             ) {}
 
@@ -87,24 +87,24 @@ fun CompactLiquidBottomBar(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(44.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(22.dp))
+                            .clip(RoundedCornerShape(21.dp))
                             .clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             compactNavIcon(tab),
-                            color = Color.White.copy(alpha = if (selected) 0.98f else 0.50f),
-                            fontSize = 17.sp,
+                            color = Color.White.copy(alpha = if (selected) 0.96f else 0.48f),
+                            fontSize = 15.sp,
                             maxLines = 1
                         )
                         Spacer(Modifier.height(0.dp))
                         Text(
                             tab.title,
-                            color = Color.White.copy(alpha = if (selected) 0.94f else 0.48f),
-                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = if (selected) 0.92f else 0.46f),
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
