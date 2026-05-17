@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -57,7 +56,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.model.ToolEntry
 import kotlin.math.roundToInt
 
-private enum class SettingsDetail { Display, Phone, Background, Data }
+private enum class SettingsDetail { Account, Display, Phone, Background, Data }
 
 @Composable
 fun AssistantScreen(state: AssistantUiState) {
@@ -167,7 +166,7 @@ private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Mod
 
 @Composable
 fun ToolsScreen(state: AssistantUiState) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 22.dp, bottom = 150.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 22.dp, bottom = 190.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("功能中心", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, lineHeight = 40.sp); Text("账单、提醒、应用控制和快捷任务", color = Color.White.copy(alpha = 0.56f), fontSize = 15.sp) } }
         item { ToolsOverviewCard(state) }
         items(state.tools.chunked(2), key = { row -> row.joinToString { it.title } }) { row -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) { row.forEach { tool -> ToolTile(tool, state, Modifier.weight(1f)) }; if (row.size == 1) Spacer(Modifier.weight(1f)) } }
@@ -210,9 +209,9 @@ fun SettingsScreen(
 ) {
     var detail by remember { mutableStateOf<SettingsDetail?>(null) }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 24.dp, bottom = 170.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 24.dp, bottom = 220.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item { SettingsHero() }
-            item { GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 32, Modifier.fillMaxWidth().height(92.dp), GlassRole.Shell) {} }
+            item { SettingsListCard("☁", "账号与同步", "登录状态、云端 AI、Worker 连接和同步状态。", state) { detail = SettingsDetail.Account } }
             item { SettingsListCard("Aa", "显示与语言", "语言、字体、玻璃透明度、模糊强度和动效。", state) { detail = SettingsDetail.Display } }
             item { SettingsListCard("⌖", "手机偏好", "家庭地址、默认地图等手机任务偏好。", state) { detail = SettingsDetail.Phone } }
             item { SettingsListCard("✦", "背景外观", "切换内置背景风格。", state) { detail = SettingsDetail.Background } }
@@ -220,46 +219,36 @@ fun SettingsScreen(
             item { SettingsListCard("▤", "数据与预算", "预算、导出、清空记录等数据工具。", state) { detail = SettingsDetail.Data } }
             item { GlassPerformanceCard(state, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange) }
             item { PreviewSwitchCard(state, onPreviewConversationChange) }
-            item { SyncCard(state, aiEndpoint) }
         }
         AnimatedVisibility(visible = detail != null, enter = fadeIn(tween(180)), exit = fadeOut(tween(160))) {
-            detail?.let { SettingsDetailOverlay(it, state, onDismiss = { detail = null }, onBackgroundThemeChange = onBackgroundThemeChange, onGlassPresetChange = onGlassPresetChange) }
+            detail?.let { SettingsDetailOverlay(it, state, aiEndpoint, onDismiss = { detail = null }, onBackgroundThemeChange = onBackgroundThemeChange, onGlassPresetChange = onGlassPresetChange) }
         }
     }
 }
 
 @Composable
-private fun SettingsDetailOverlay(detail: SettingsDetail, state: AssistantUiState, onDismiss: () -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit) {
+private fun SettingsDetailOverlay(detail: SettingsDetail, state: AssistantUiState, aiEndpoint: String, onDismiss: () -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit) {
     Box(Modifier.fillMaxSize().background(Color(0x99030A18)).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onDismiss() }, contentAlignment = Alignment.BottomCenter) {
         GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 32, Modifier.fillMaxWidth().padding(bottom = 92.dp), GlassRole.Shell) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(detailTitle(detail), color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
-                        Text(detailSubtitle(detail), color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp)
-                    }
+                    Column(Modifier.weight(1f)) { Text(detailTitle(detail), color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black); Text(detailSubtitle(detail), color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp) }
                     PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.size(42.dp), GlassRole.Chip, onClick = onDismiss) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("×", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) } }
                 }
                 when (detail) {
+                    SettingsDetail.Account -> DetailRows(state, listOf("登录状态：本地预览", "云端 AI：Worker 待连接", "当前端点：$aiEndpoint", "同步策略：稍后接入"))
                     SettingsDetail.Display -> DetailRows(state, listOf("语言：简体中文", "字体大小：标准", "玻璃透明度：跟随当前强度", "动画效果：跟随性能模式"))
                     SettingsDetail.Phone -> DetailRows(state, listOf("家庭地址：未设置", "默认地图：系统默认", "打开应用：等待接入无障碍动作", "本地指令：优先识别"))
                     SettingsDetail.Data -> DetailRows(state, listOf("预算：稍后接入", "导出记录：稍后接入", "清空记录：稍后接入", "本地缓存：DataStore"))
-                    SettingsDetail.Background -> {
-                        BackgroundThemeSelector(state, onBackgroundThemeChange)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            GlassPreset.entries.forEach { preset ->
-                                PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 18, Modifier.weight(1f).height(52.dp), if (state.glassPreset == preset) GlassRole.Floating else GlassRole.Chip, onClick = { onGlassPresetChange(preset) }) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(preset.label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) } }
-                            }
-                        }
-                    }
+                    SettingsDetail.Background -> { BackgroundThemeSelector(state, onBackgroundThemeChange); Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { GlassPreset.entries.forEach { preset -> PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 18, Modifier.weight(1f).height(52.dp), if (state.glassPreset == preset) GlassRole.Floating else GlassRole.Chip, onClick = { onGlassPresetChange(preset) }) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(preset.label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold) } } } } }
                 }
             }
         }
     }
 }
 
-private fun detailTitle(detail: SettingsDetail) = when (detail) { SettingsDetail.Display -> "显示与语言"; SettingsDetail.Phone -> "手机偏好"; SettingsDetail.Background -> "背景外观"; SettingsDetail.Data -> "数据与预算" }
-private fun detailSubtitle(detail: SettingsDetail) = when (detail) { SettingsDetail.Display -> "语言、字体、透明度和动效的原生入口。"; SettingsDetail.Phone -> "为导航、打开应用和本地动作提供默认参数。"; SettingsDetail.Background -> "切换 Web 版四套背景和玻璃预设。"; SettingsDetail.Data -> "预算、导出、清理记录等数据工具。" }
+private fun detailTitle(detail: SettingsDetail) = when (detail) { SettingsDetail.Account -> "账号与同步"; SettingsDetail.Display -> "显示与语言"; SettingsDetail.Phone -> "手机偏好"; SettingsDetail.Background -> "背景外观"; SettingsDetail.Data -> "数据与预算" }
+private fun detailSubtitle(detail: SettingsDetail) = when (detail) { SettingsDetail.Account -> "登录、云端 AI、Worker 连接和同步状态。"; SettingsDetail.Display -> "语言、字体、透明度和动效的原生入口。"; SettingsDetail.Phone -> "为导航、打开应用和本地动作提供默认参数。"; SettingsDetail.Background -> "切换 Web 版四套背景和玻璃预设。"; SettingsDetail.Data -> "预算、导出、清理记录等数据工具。" }
 
 @Composable
 private fun DetailRows(state: AssistantUiState, rows: List<String>) { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { rows.forEach { text -> GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 20, Modifier.fillMaxWidth().height(48.dp), GlassRole.Card) { Box(Modifier.fillMaxSize().padding(horizontal = 15.dp), contentAlignment = Alignment.CenterStart) { Text(text, color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis) } } } } }
@@ -287,12 +276,7 @@ private fun GlassPerformanceCard(state: AssistantUiState, onGlassPresetChange: (
 
 @Composable
 private fun PreviewSwitchCard(state: AssistantUiState, onPreviewConversationChange: (Boolean) -> Unit) { GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) { Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("聊天预览", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold); Text("保留示例对话和快捷指令。", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp) }; Switch(checked = state.showPreviewConversation, onCheckedChange = onPreviewConversationChange) } } }
-
-@Composable
-private fun SyncCard(state: AssistantUiState, aiEndpoint: String) { GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) { Column(Modifier.padding(18.dp)) { Text("账号与同步", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(10.dp)); Text("当前是 Compose 迁移预览版，后续会接入原来的云同步和 AI 解析服务。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 21.sp); Spacer(Modifier.height(12.dp)); Text(text = aiEndpoint, color = Color.White.copy(alpha = 0.36f), fontSize = 12.sp, lineHeight = 17.sp) } } }
-
-@Composable
-private fun PreviewHiddenCard(state: AssistantUiState) { GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Card) { Column(Modifier.padding(18.dp)) { Text("预览对话已隐藏", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(8.dp)); Text("现在展示的是更接近真实聊天入口的空白态。", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 21.sp) } } }
+@Composable private fun PreviewHiddenCard(state: AssistantUiState) { GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Card) { Column(Modifier.padding(18.dp)) { Text("预览对话已隐藏", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(8.dp)); Text("现在展示的是更接近真实聊天入口的空白态。", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 21.sp) } } }
 @Composable private fun SmallGlassButton(text: String, state: AssistantUiState, modifier: Modifier = Modifier) { PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(42.dp), GlassRole.Chip) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1) } } }
 @Composable private fun CircleGlassButton(text: String, state: AssistantUiState) { PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.size(50.dp), GlassRole.Floating) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold) } } }
 
