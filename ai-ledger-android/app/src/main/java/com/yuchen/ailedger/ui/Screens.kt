@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.MessageRole
@@ -294,6 +295,7 @@ fun SettingsScreen(
     onQualityChange: (RenderQuality) -> Unit,
     onPreviewConversationChange: (Boolean) -> Unit,
     onGlassPresetChange: (GlassPreset) -> Unit,
+    onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit
 ) {
@@ -307,6 +309,7 @@ fun SettingsScreen(
         item { SettingsListCard("Aa", "显示与语言", "语言、字体、玻璃透明度、模糊强度和动效。", state) }
         item { SettingsListCard("⌖", "手机偏好", "家庭地址、默认地图等手机任务偏好。", state) }
         item { SettingsListCard("✦", "背景外观", "切换内置背景风格。", state) }
+        item { BackgroundThemeSelector(state, onBackgroundThemeChange) }
         item { SettingsListCard("▤", "数据与预算", "预算、导出、清空记录等数据工具。", state) }
         item {
             GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -405,6 +408,33 @@ private fun GlassPresetSelector(state: AssistantUiState, onGlassPresetChange: (G
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(preset.label, color = Color.White.copy(alpha = if (selected) 1f else 0.72f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundThemeSelector(state: AssistantUiState, onBackgroundThemeChange: (BackgroundTheme) -> Unit) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("背景主题", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                BackgroundTheme.entries.forEach { theme ->
+                    val selected = state.backgroundTheme == theme
+                    PressableGlass(
+                        quality = state.quality,
+                        glassIntensity = state.glassIntensity,
+                        motionIntensity = state.motionIntensity,
+                        radius = 18,
+                        modifier = Modifier.weight(1f).height(64.dp),
+                        role = if (selected) GlassRole.Floating else GlassRole.Chip,
+                        onClick = { onBackgroundThemeChange(theme) }
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(theme.label, color = Color.White.copy(alpha = if (selected) 1f else 0.70f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, lineHeight = 15.sp)
+                        }
+                    }
                 }
             }
         }
