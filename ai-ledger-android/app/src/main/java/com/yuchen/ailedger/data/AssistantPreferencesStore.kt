@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.IOException
@@ -24,6 +25,7 @@ data class AssistantPreferences(
     val quality: RenderQuality = RenderQuality.Balanced,
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f
 )
@@ -35,6 +37,7 @@ class AssistantPreferencesStore(
         val renderQuality = stringPreferencesKey("render_quality")
         val showPreviewConversation = booleanPreferencesKey("show_preview_conversation")
         val glassPreset = stringPreferencesKey("glass_preset")
+        val backgroundTheme = stringPreferencesKey("background_theme")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
     }
@@ -51,6 +54,8 @@ class AssistantPreferencesStore(
                     showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
                     glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage)
                         ?: GlassPreset.Liquid,
+                    backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
+                        ?: BackgroundTheme.Aurora,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                     motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
                 )
@@ -66,6 +71,10 @@ class AssistantPreferencesStore(
 
     suspend fun setGlassPreset(glassPreset: GlassPreset) {
         context.assistantPreferencesDataStore.edit { it[Keys.glassPreset] = glassPreset.storageValue }
+    }
+
+    suspend fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
+        context.assistantPreferencesDataStore.edit { it[Keys.backgroundTheme] = backgroundTheme.storageValue }
     }
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
