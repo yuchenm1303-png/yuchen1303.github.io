@@ -60,6 +60,7 @@ fun AiLedgerNativeShell(
     onPromptSubmit: (String) -> Unit,
 ) {
     var selectedView by remember { mutableStateOf("ai") }
+    var detailId by remember { mutableStateOf<String?>(null) }
     var glassMode by remember { mutableStateOf(GlassMode.Safe) }
 
     Box(
@@ -85,19 +86,28 @@ fun AiLedgerNativeShell(
                 .padding(bottom = if (selectedView == "ai") 156.dp else 84.dp),
         )
 
-        when (selectedView) {
-            "ai" -> NativeChatPanel(
-                messages = nativeMessages,
+        val currentDetailId = detailId
+        if (currentDetailId != null) {
+            NativeDetailPanel(
+                detailId = currentDetailId,
+                onBack = { detailId = null },
                 modifier = Modifier.fillMaxSize(),
             )
-            "tools" -> NativeToolsPanel(
-                onAction = { action -> onNavSelected(action) },
-                modifier = Modifier.fillMaxSize(),
-            )
-            "settings" -> NativeSettingsPanel(
-                onAction = { action -> onNavSelected(action) },
-                modifier = Modifier.fillMaxSize(),
-            )
+        } else {
+            when (selectedView) {
+                "ai" -> NativeChatPanel(
+                    messages = nativeMessages,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                "tools" -> NativeToolsPanel(
+                    onAction = { action -> detailId = action },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                "settings" -> NativeSettingsPanel(
+                    onAction = { action -> detailId = action },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         NativeTopBadge(
@@ -109,7 +119,7 @@ fun AiLedgerNativeShell(
         )
 
         AnimatedVisibility(
-            visible = selectedView == "ai",
+            visible = selectedView == "ai" && detailId == null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(WindowInsets.navigationBars.asPaddingValues())
@@ -127,6 +137,7 @@ fun AiLedgerNativeShell(
             glassMode = glassMode,
             onSelected = { item ->
                 selectedView = item.view
+                detailId = null
                 onHaptic("tick")
                 onNavSelected(item.view)
             },
