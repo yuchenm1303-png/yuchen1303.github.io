@@ -20,6 +20,7 @@ object AiLedgerWebViewFactory {
         onGlassMode: (GlassMode) -> Unit,
         onHaptic: (String) -> Unit,
         onOpenView: (String) -> Unit,
+        onWebPageReady: () -> Unit,
     ): WebView {
         return WebView(activity).apply {
             onWebViewReady(this)
@@ -64,6 +65,8 @@ object AiLedgerWebViewFactory {
                     super.onPageFinished(view, url)
                     injectNativeShellBootstrap(view)
                     onOpenView("ai")
+                    view.postDelayed({ onWebPageReady() }, 260)
+                    view.postDelayed({ onWebPageReady() }, 900)
                 }
             }
             webChromeClient = WebChromeClient()
