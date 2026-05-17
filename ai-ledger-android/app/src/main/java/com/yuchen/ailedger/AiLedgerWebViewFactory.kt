@@ -28,6 +28,8 @@ object AiLedgerWebViewFactory {
                 ViewGroup.LayoutParams.MATCH_PARENT,
             )
             setBackgroundColor(Color.TRANSPARENT)
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
             overScrollMode = View.OVER_SCROLL_NEVER
             isVerticalScrollBarEnabled = false
             isHorizontalScrollBarEnabled = false
@@ -42,6 +44,7 @@ object AiLedgerWebViewFactory {
             settings.allowContentAccess = true
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
+            settings.offscreenPreRaster = true
 
             val bridge = AiLedgerNativeBridge(
                 activity = activity,
@@ -73,18 +76,102 @@ object AiLedgerWebViewFactory {
             """
             (() => {
               document.documentElement.classList.add('native-shell');
-              document.body?.classList.add('native-shell');
+              document.documentElement.dataset.nativeGlassMode = 'safe';
+              document.body?.classList.add('native-shell', 'native-shell-webview', 'assistant-lite-motion', 'assistant-balanced-performance');
               const styleId = 'ai-ledger-native-shell-css';
               if (!document.getElementById(styleId)) {
                 const style = document.createElement('style');
                 style.id = styleId;
                 style.textContent = `
-                  .native-shell .bottom-nav { display: none !important; }
-                  .native-shell body { background: transparent !important; }
-                  .native-shell .app-shell { padding-bottom: 18px !important; }
-                  .native-shell .view { padding-bottom: 18px !important; }
-                  .native-shell .scene-backdrop,
-                  .native-shell .ambient { pointer-events: none !important; }
+                  html.native-shell,
+                  html.native-shell body,
+                  body.native-shell {
+                    background: transparent !important;
+                    overflow-x: hidden !important;
+                  }
+
+                  body.native-shell {
+                    padding-bottom: 0 !important;
+                    overscroll-behavior: none !important;
+                  }
+
+                  html.native-shell .bottom-nav,
+                  body.native-shell .bottom-nav {
+                    display: none !important;
+                  }
+
+                  html.native-shell .scene-backdrop,
+                  html.native-shell .ambient,
+                  body.native-shell .scene-backdrop,
+                  body.native-shell .ambient {
+                    display: none !important;
+                    visibility: hidden !important;
+                    animation: none !important;
+                    transform: none !important;
+                    opacity: 0 !important;
+                    pointer-events: none !important;
+                  }
+
+                  html.native-shell .app-shell,
+                  body.native-shell .app-shell {
+                    padding-bottom: 18px !important;
+                    contain: layout paint style !important;
+                  }
+
+                  html.native-shell .view,
+                  body.native-shell .view {
+                    padding-bottom: 18px !important;
+                    animation: none !important;
+                  }
+
+                  html.native-shell .reveal,
+                  html.native-shell [class*="delay-"],
+                  body.native-shell .reveal,
+                  body.native-shell [class*="delay-"] {
+                    opacity: 1 !important;
+                    transform: none !important;
+                    animation: none !important;
+                    transition-duration: 120ms !important;
+                  }
+
+                  html.native-shell .glass-card,
+                  html.native-shell .chat-shell,
+                  html.native-shell .chat-composer,
+                  html.native-shell .tag-btn,
+                  html.native-shell .ghost-btn,
+                  html.native-shell .mini-ghost-btn,
+                  html.native-shell .model-picker-btn,
+                  html.native-shell .mobile-command-card,
+                  body.native-shell .glass-card,
+                  body.native-shell .chat-shell,
+                  body.native-shell .chat-composer,
+                  body.native-shell .tag-btn,
+                  body.native-shell .ghost-btn,
+                  body.native-shell .mini-ghost-btn,
+                  body.native-shell .model-picker-btn,
+                  body.native-shell .mobile-command-card {
+                    backdrop-filter: none !important;
+                    -webkit-backdrop-filter: none !important;
+                    will-change: auto !important;
+                  }
+
+                  html.native-shell .glass-card,
+                  html.native-shell .chat-shell,
+                  body.native-shell .glass-card,
+                  body.native-shell .chat-shell {
+                    background:
+                      linear-gradient(145deg, rgba(255,255,255,.118), rgba(255,255,255,.040) 58%, rgba(255,255,255,.026)),
+                      rgba(12, 22, 42, .46) !important;
+                    box-shadow: 0 10px 26px rgba(0,0,0,.12), inset 0 .7px 0 rgba(255,255,255,.20) !important;
+                  }
+
+                  html.native-shell *::before,
+                  html.native-shell *::after,
+                  body.native-shell *::before,
+                  body.native-shell *::after {
+                    animation-duration: 1ms !important;
+                    animation-iteration-count: 1 !important;
+                  }
                 `;
                 document.head.appendChild(style);
               }
