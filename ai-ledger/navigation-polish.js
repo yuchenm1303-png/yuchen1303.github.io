@@ -2,9 +2,12 @@
   'use strict';
 
   const STYLE_ID = 'navigation-polish-style';
+  const PERF_STYLE_ID = 'navigation-performance-style';
   const NAV_SYNC_EVENT = 'assistant-nav-polished';
   let navObserver = null;
   let syncFrame = 0;
+  let resizeTimer = 0;
+  let interactionTimer = 0;
 
   function installStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -92,6 +95,60 @@
     document.head.appendChild(style);
   }
 
+  function installPerformanceStyle() {
+    if (document.getElementById(PERF_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = PERF_STYLE_ID;
+    style.textContent = `
+      .chat-messages,
+      .record-list,
+      .tools-grid,
+      .tools-panel,
+      .settings-group-content {
+        contain: layout paint style;
+      }
+
+      :where(.chat-row,.record-item,.draft-card,.draft-item,.tool-card,.settings-group-card,.tools-panel-card,.appearance-plus-card) {
+        content-visibility: auto;
+        contain-intrinsic-size: 180px;
+        backface-visibility: hidden;
+        transform-style: flat;
+      }
+
+      body.nav-performance-interacting :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.tools-back,.chat-row.assistant .chat-bubble),
+      body.nav-performance-resizing :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.tools-back,.chat-row.assistant .chat-bubble) {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      body.nav-performance-interacting :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.settings-group-card,.bottom-nav),
+      body.nav-performance-resizing :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.settings-group-card,.bottom-nav) {
+        will-change: auto !important;
+      }
+
+      body.assistant-lite-motion :where(.ambient,.scene-backdrop::before,.scene-backdrop::after) {
+        animation: none !important;
+        filter: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function markInteracting() {
+    document.body?.classList.add('nav-performance-interacting');
+    clearTimeout(interactionTimer);
+    interactionTimer = setTimeout(() => document.body?.classList.remove('nav-performance-interacting'), 180);
+  }
+
+  function markResizing() {
+    document.body?.classList.add('nav-performance-resizing');
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      document.body?.classList.remove('nav-performance-resizing');
+      scheduleSyncNavState();
+    }, 220);
+  }
+
   function getNav() {
     return document.querySelector('.bottom-nav');
   }
@@ -142,10 +199,20 @@
     return true;
   }
 
+  function bindPerformanceEvents() {
+    const pressEvent = window.PointerEvent ? 'pointerdown' : 'touchstart';
+    document.addEventListener(pressEvent, markInteracting, { passive: true, capture: true });
+    window.addEventListener('resize', markResizing, { passive: true });
+    window.visualViewport?.addEventListener('resize', markResizing, { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(markResizing, 160), { passive: true });
+  }
+
   function boot() {
     if (document.documentElement.dataset.navigationPolishReady === 'true') return;
     document.documentElement.dataset.navigationPolishReady = 'true';
     installStyle();
+    installPerformanceStyle();
+    bindPerformanceEvents();
     if (!watchNav()) {
       requestAnimationFrame(watchNav);
     }
