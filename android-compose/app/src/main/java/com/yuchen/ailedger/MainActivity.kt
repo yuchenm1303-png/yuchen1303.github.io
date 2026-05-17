@@ -20,7 +20,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -337,7 +336,9 @@ private fun ModelStatusStrip() {
             padding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
             fill = LiquidFillSoft
         ) {
-            Text("✦  轻量待命", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterEnd))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                Text("✦  轻量待命", color = Muted, fontSize = 14.sp, fontWeight = FontWeight.Black)
+            }
         }
     }
 }
@@ -511,7 +512,7 @@ private fun OriginalChatShell(modifier: Modifier = Modifier, content: @Composabl
 }
 
 @Composable
-private fun OriginalGlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, padding: PaddingValues = PaddingValues(16.dp), fill: Color = LiquidFill, content: @Composable BoxScope.() -> Unit) {
+private fun OriginalGlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp, padding: PaddingValues = PaddingValues(16.dp), fill: Color = LiquidFill, content: @Composable () -> Unit) {
     val shape = RoundedCornerShape(corner)
     Box(
         modifier = modifier
@@ -522,7 +523,9 @@ private fun OriginalGlassPanel(modifier: Modifier = Modifier, corner: Dp = 28.dp
     ) {
         Box(modifier = Modifier.matchParentSize().background(Brush.radialGradient(listOf(Color.White.copy(alpha = .22f), Color.Transparent), center = Offset(90f, 0f), radius = 300f)))
         Box(modifier = Modifier.matchParentSize().background(Brush.linearGradient(listOf(Color.White.copy(alpha = .12f), Color.Transparent, Color(0xFFBCA8FF).copy(alpha = .06f)))))
-        Box(modifier = Modifier.padding(padding), content = content)
+        Box(modifier = Modifier.padding(padding)) {
+            content()
+        }
     }
 }
 
