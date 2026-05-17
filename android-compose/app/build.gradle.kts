@@ -13,7 +13,13 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0-native-router"
+        versionName = "0.3.0-legacy-full-ui-baseline"
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir("../../ai-ledger")
+        }
     }
 
     buildFeatures {
