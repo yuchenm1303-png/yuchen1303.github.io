@@ -8,6 +8,7 @@ import android.view.Window
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private var webView: WebView? = null
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onNavSelected = { view -> openWebView(view) },
                 onHaptic = { style -> NativeHaptics.perform(this, style) },
+                onPromptSubmit = { text -> submitPromptToWeb(text) },
             )
         }
     }
@@ -59,6 +61,33 @@ class MainActivity : ComponentActivity() {
               window.AiAssistantViews?.open?.(view);
               const button = document.querySelector('.nav-btn[data-view="' + view + '"]');
               if (button) button.click();
+            })();
+            """.trimIndent(),
+            null,
+        )
+    }
+
+    private fun submitPromptToWeb(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        val encoded = JSONObject.quote(clean)
+        webView?.evaluateJavascript(
+            """
+            (() => {
+              const text = $encoded;
+              if (window.AiAssistantRuntime?.ask) {
+                window.AiAssistantRuntime.ask(text);
+                return true;
+              }
+              const input = document.querySelector('#aiInput');
+              const form = document.querySelector('#chatForm');
+              if (input && form) {
+                input.value = text;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                form.requestSubmit?.();
+                return true;
+              }
+              return false;
             })();
             """.trimIndent(),
             null,
