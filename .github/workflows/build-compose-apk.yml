@@ -27,10 +27,16 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Generate Gradle wrapper
+        working-directory: android-compose
+        run: gradle wrapper --gradle-version 8.10.2 --distribution-type bin --no-daemon
 
       - name: Build debug APK
         working-directory: android-compose
-        run: gradle :app:assembleDebug --no-daemon
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
