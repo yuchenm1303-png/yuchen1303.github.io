@@ -1,7 +1,7 @@
 package com.yuchen.ailedger
 
 import android.webkit.WebView
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -161,18 +163,19 @@ private fun NativeGlassBottomNav(
         NativeNavItem("tools", "▦", "功能"),
         NativeNavItem("settings", "⚙", "设置"),
     )
+    val selectedIndex = items.indexOfFirst { it.view == selectedView }.coerceAtLeast(0)
     val navShape = RoundedCornerShape(26.dp)
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .height(68.dp)
-            .shadow(14.dp, navShape, clip = false),
+            .shadow(12.dp, navShape, clip = false),
         shape = navShape,
         color = Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.16f else 0.20f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
     ) {
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
@@ -183,19 +186,51 @@ private fun NativeGlassBottomNav(
                             Color(0x1A6AD7FF),
                         ),
                     ),
-                )
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+                ),
         ) {
-            items.forEach { item ->
-                NativeGlassNavButton(
-                    item = item,
-                    selected = selectedView == item.view,
-                    glassMode = glassMode,
-                    onClick = { onSelected(item) },
-                    modifier = Modifier.weight(1f),
-                )
+            val innerWidth = maxWidth - 16.dp
+            val itemWidth = innerWidth / items.size.toFloat()
+            val indicatorWidth = itemWidth - 6.dp
+            val indicatorOffsetX by animateDpAsState(
+                targetValue = 8.dp + itemWidth * selectedIndex.toFloat() + 3.dp,
+                animationSpec = tween(durationMillis = 170),
+                label = "nativeLiquidIndicatorX",
+            )
+
+            Box(
+                modifier = Modifier
+                    .offset(x = indicatorOffsetX, y = 8.dp)
+                    .width(indicatorWidth)
+                    .height(52.dp)
+                    .shadow(8.dp, RoundedCornerShape(21.dp), clip = false)
+                    .clip(RoundedCornerShape(21.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.24f else 0.33f),
+                                Color(0x556AD7FF),
+                                Color.White.copy(alpha = 0.13f),
+                            ),
+                        ),
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.26f), RoundedCornerShape(21.dp)),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEach { item ->
+                    NativeGlassNavButton(
+                        item = item,
+                        selected = selectedView == item.view,
+                        onClick = { onSelected(item) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -205,28 +240,18 @@ private fun NativeGlassBottomNav(
 private fun NativeGlassNavButton(
     item: NativeNavItem,
     selected: Boolean,
-    glassMode: GlassMode,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.025f else 0.985f,
-        animationSpec = tween(durationMillis = 140),
+        targetValue = if (selected) 1.02f else 0.985f,
+        animationSpec = tween(durationMillis = 130),
         label = "navScale",
     )
     val alpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0.72f,
-        animationSpec = tween(durationMillis = 120),
+        animationSpec = tween(durationMillis = 110),
         label = "navAlpha",
-    )
-    val bgColor by animateColorAsState(
-        targetValue = if (selected) {
-            Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.22f else 0.29f)
-        } else {
-            Color.Transparent
-        },
-        animationSpec = tween(durationMillis = 140),
-        label = "navBg",
     )
 
     Box(
@@ -239,18 +264,6 @@ private fun NativeGlassNavButton(
                 this.alpha = alpha
             }
             .clip(RoundedCornerShape(21.dp))
-            .background(bgColor)
-            .then(
-                if (selected) {
-                    Modifier.border(
-                        1.dp,
-                        Color.White.copy(alpha = 0.26f),
-                        RoundedCornerShape(21.dp),
-                    )
-                } else {
-                    Modifier
-                },
-            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
