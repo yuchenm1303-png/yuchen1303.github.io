@@ -24,7 +24,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()) {
-                WeatherNightBackground(state.quality, state.motionIntensity)
+                WeatherNightBackground(
+                    quality = state.quality,
+                    motionIntensity = state.motionIntensity,
+                    theme = state.backgroundTheme
+                )
 
                 Column(
                     modifier = Modifier
@@ -42,6 +46,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             onQualityChange = viewModel::selectQuality,
                             onPreviewConversationChange = viewModel::setShowPreviewConversation,
                             onGlassPresetChange = viewModel::setGlassPreset,
+                            onBackgroundThemeChange = viewModel::setBackgroundTheme,
                             onGlassIntensityChange = viewModel::setGlassIntensity,
                             onMotionIntensityChange = viewModel::setMotionIntensity
                         )
