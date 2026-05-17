@@ -2,9 +2,8 @@ package com.yuchen.ailedger
 
 import android.webkit.WebView
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,7 +49,7 @@ fun AiLedgerNativeShell(
     onHaptic: (String) -> Unit,
 ) {
     var selectedView by remember { mutableStateOf("ai") }
-    var glassMode by remember { mutableStateOf(GlassMode.Basic) }
+    var glassMode by remember { mutableStateOf(GlassMode.Safe) }
 
     Box(
         modifier = Modifier
@@ -59,19 +58,19 @@ fun AiLedgerNativeShell(
                 Brush.verticalGradient(
                     colors = listOf(
                         Color(0xFF07142E),
-                        Color(0xFF11294C),
+                        Color(0xFF102545),
                         Color(0xFF07101F),
                     ),
                 ),
             ),
     ) {
-        LiquidAmbientBackground(glassMode = glassMode)
+        AmbientBackground()
 
         AndroidView(
             factory = { createWebView { mode -> glassMode = mode } },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 88.dp),
+                .padding(bottom = 84.dp),
         )
 
         NativeTopBadge(
@@ -99,23 +98,18 @@ fun AiLedgerNativeShell(
 }
 
 @Composable
-private fun LiquidAmbientBackground(glassMode: GlassMode) {
-    val alpha by animateFloatAsState(
-        targetValue = if (glassMode == GlassMode.Safe) 0.32f else 0.58f,
-        animationSpec = spring(stiffness = 90f, dampingRatio = 0.82f),
-        label = "ambientAlpha",
-    )
+private fun AmbientBackground() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer { alpha = 0.42f }
             .background(
                 Brush.radialGradient(
                     colors = listOf(
-                        Color(0x886AD7FF),
+                        Color(0x666AD7FF),
                         Color.Transparent,
                     ),
-                    radius = 820f,
+                    radius = 760f,
                 ),
             ),
     )
@@ -134,15 +128,15 @@ private fun NativeTopBadge(
     }
 
     Surface(
-        modifier = modifier.shadow(12.dp, CircleShape, clip = false),
+        modifier = modifier.shadow(6.dp, CircleShape, clip = false),
         shape = CircleShape,
-        color = Color.White.copy(alpha = 0.13f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
+        color = Color.White.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-            color = Color.White.copy(alpha = 0.92f),
+            color = Color.White.copy(alpha = 0.88f),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
         )
@@ -167,20 +161,16 @@ private fun NativeGlassBottomNav(
         NativeNavItem("tools", "▦", "功能"),
         NativeNavItem("settings", "⚙", "设置"),
     )
-    val corner by animateDpAsState(
-        targetValue = if (glassMode == GlassMode.Liquid) 32.dp else 26.dp,
-        animationSpec = spring(stiffness = 140f, dampingRatio = 0.78f),
-        label = "navCorner",
-    )
+    val navShape = RoundedCornerShape(26.dp)
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(70.dp)
-            .shadow(30.dp, RoundedCornerShape(corner), clip = false),
-        shape = RoundedCornerShape(corner),
-        color = Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.15f else 0.20f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.34f)),
+            .height(68.dp)
+            .shadow(14.dp, navShape, clip = false),
+        shape = navShape,
+        color = Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.16f else 0.20f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
     ) {
         Row(
             modifier = Modifier
@@ -188,9 +178,9 @@ private fun NativeGlassBottomNav(
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.22f),
-                            Color.White.copy(alpha = 0.07f),
-                            Color(0x226AD7FF),
+                            Color.White.copy(alpha = 0.18f),
+                            Color.White.copy(alpha = 0.06f),
+                            Color(0x1A6AD7FF),
                         ),
                     ),
                 )
@@ -220,42 +210,42 @@ private fun NativeGlassNavButton(
     modifier: Modifier = Modifier,
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.04f else 0.96f,
-        animationSpec = spring(stiffness = 210f, dampingRatio = 0.72f),
+        targetValue = if (selected) 1.025f else 0.985f,
+        animationSpec = tween(durationMillis = 140),
         label = "navScale",
     )
     val alpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0.72f,
-        animationSpec = spring(stiffness = 180f, dampingRatio = 0.84f),
+        animationSpec = tween(durationMillis = 120),
         label = "navAlpha",
     )
     val bgColor by animateColorAsState(
         targetValue = if (selected) {
-            Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.24f else 0.31f)
+            Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.22f else 0.29f)
         } else {
             Color.Transparent
         },
-        animationSpec = spring(stiffness = 170f, dampingRatio = 0.78f),
+        animationSpec = tween(durationMillis = 140),
         label = "navBg",
     )
 
     Box(
         modifier = modifier
             .padding(horizontal = 3.dp)
-            .height(54.dp)
+            .height(52.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
                 this.alpha = alpha
             }
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(21.dp))
             .background(bgColor)
             .then(
                 if (selected) {
                     Modifier.border(
                         1.dp,
-                        Color.White.copy(alpha = 0.30f),
-                        RoundedCornerShape(22.dp),
+                        Color.White.copy(alpha = 0.26f),
+                        RoundedCornerShape(21.dp),
                     )
                 } else {
                     Modifier
