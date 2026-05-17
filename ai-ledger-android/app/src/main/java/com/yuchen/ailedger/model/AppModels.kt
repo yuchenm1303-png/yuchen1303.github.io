@@ -44,6 +44,19 @@ enum class GlassPreset(val label: String, val glassIntensity: Float, val motionI
     }
 }
 
+enum class BackgroundTheme(val label: String, val storageValue: String) {
+    Aurora("极光", "aurora"),
+    Jade("翡翠海雾", "jade"),
+    Sunset("暮色流光", "sunset"),
+    Dawn("晨曦珍珠", "dawn");
+
+    companion object {
+        fun fromStorage(value: String): BackgroundTheme {
+            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Aurora
+        }
+    }
+}
+
 enum class MessageRole {
     Assistant,
     User
@@ -71,6 +84,7 @@ data class AssistantUiState(
     val quality: RenderQuality = RenderQuality.Balanced,
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
     val stats: List<StatSummary> = emptyList(),
