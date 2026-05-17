@@ -9,10 +9,12 @@ import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private var webView: WebView? = null
+    private val nativeMessagesState = mutableStateOf(initialNativeChatMessages())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,8 +29,10 @@ class MainActivity : ComponentActivity() {
                         onGlassMode = onGlassMode,
                         onHaptic = { style -> NativeHaptics.perform(this, style) },
                         onOpenView = { view -> openWebView(view) },
+                        onWebPageReady = { syncNativeChatFromWeb() },
                     )
                 },
+                nativeMessages = nativeMessagesState.value,
                 onNavSelected = { view -> openWebView(view) },
                 onHaptic = { style -> NativeHaptics.perform(this, style) },
                 onPromptSubmit = { text -> submitPromptToWeb(text) },
@@ -72,6 +76,11 @@ class MainActivity : ComponentActivity() {
     private fun submitPromptToWeb(text: String) {
         val clean = text.trim()
         if (clean.isBlank()) return
+        nativeMessagesState.value = nativeMessagesState.value + NativeChatMessage(
+            id = "native-user-${System.currentTimeMillis()}",
+            role = "user",
+            content = clean,
+        )
         val encoded = JSONObject.quote(clean)
         webView?.evaluateJavascript(
             """
@@ -94,6 +103,15 @@ class MainActivity : ComponentActivity() {
             """.trimIndent(),
             null,
         )
+        window.decorView.postDelayed({ syncNativeChatFromWeb() }, 260)
+        window.decorView.postDelayed({ syncNativeChatFromWeb() }, 900)
+    }
+
+    private fun syncNativeChatFromWeb() {
+        webView?.evaluateJavascript("localStorage.getItem('ai-ledger-chat-v2')") { raw ->
+            val parsed = parseNativeChatMessages(raw)
+            nativeMessagesState.value = parsed
+        }
     }
 
     override fun onBackPressed() {
