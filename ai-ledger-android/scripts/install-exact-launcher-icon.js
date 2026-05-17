@@ -3,28 +3,36 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const RES = path.join(ROOT, 'android', 'app', 'src', 'main', 'res');
+const ASSETS = path.join(ROOT, 'assets');
 const DENSITIES = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
-const PREFERRED_ICON = path.join(ROOT, 'assets', 'launcher-icon.png');
+const PREFERRED_ICON = path.join(ASSETS, 'launcher-icon.png');
 
 function rm(file) {
   try { fs.rmSync(file, { force: true }); } catch {}
 }
 
+function pngFilesIn(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => name.toLowerCase().endsWith('.png'))
+    .map((name) => path.join(dir, name))
+    .filter((file) => fs.statSync(file).isFile());
+}
+
 function findUploadedPng() {
   if (fs.existsSync(PREFERRED_ICON)) return PREFERRED_ICON;
 
-  const candidates = fs.readdirSync(ROOT)
-    .filter((name) => name.toLowerCase().endsWith('.png'))
-    .map((name) => path.join(ROOT, name))
-    .filter((file) => fs.statSync(file).isFile())
-    .sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+  const candidates = [
+    ...pngFilesIn(ASSETS),
+    ...pngFilesIn(ROOT),
+  ].sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
 
   if (candidates.length) return candidates[0];
 
   throw new Error([
     '[launcher-icon] Missing launcher icon image.',
     'Please upload the original PNG to ai-ledger-android/assets/launcher-icon.png',
-    'or place a PNG directly under ai-ledger-android/.',
+    'or put a PNG in ai-ledger-android/assets/.',
   ].join(' '));
 }
 
