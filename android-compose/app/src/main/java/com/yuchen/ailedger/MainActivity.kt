@@ -1,6 +1,7 @@
 package com.yuchen.ailedger
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
@@ -90,18 +91,9 @@ private fun AiLedgerApp() {
                     .statusBarsPadding()
                     .padding(horizontal = 14.dp)
             ) {
-                AnimatedVisibility(
-                    visible = currentTab == AppTab.Chat,
-                    enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)
-                ) { ChatScreen() }
-                AnimatedVisibility(
-                    visible = currentTab == AppTab.Tools,
-                    enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)
-                ) { ToolsScreen() }
-                AnimatedVisibility(
-                    visible = currentTab == AppTab.Settings,
-                    enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)
-                ) { SettingsScreen() }
+                AnimatedVisibility(currentTab == AppTab.Chat, enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)) { ChatScreen() }
+                AnimatedVisibility(currentTab == AppTab.Tools, enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)) { ToolsScreen() }
+                AnimatedVisibility(currentTab == AppTab.Settings, enter = fadeIn(tween(160)) + scaleIn(initialScale = 0.992f)) { SettingsScreen() }
             }
         }
     }
@@ -111,6 +103,7 @@ private fun AiLedgerApp() {
 private fun ChatScreen() {
     val context = LocalContext.current
     var nextId by remember { mutableLongStateOf(2L) }
+    var plusOpen by rememberSaveable { mutableStateOf(false) }
     val messages = remember {
         mutableStateListOf(
             ChatMessage(
@@ -158,17 +151,31 @@ private fun ChatScreen() {
                     contentPadding = PaddingValues(top = 10.dp, bottom = 6.dp)
                 ) {
                     items(messages, key = { it.id }) { message ->
-                        MessageBubble(message) { command -> AndroidActionExecutor.execute(context, command) }
+                        MessageBubble(
+                            message = message,
+                            onExecuteCommand = { command -> AndroidActionExecutor.execute(context, command) },
+                            onRetry = { input = "重新连接云端 AI" },
+                            onCopy = { Toast.makeText(context, "已复制到剪贴板样式占位", Toast.LENGTH_SHORT).show() }
+                        )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    OriginalTag("设提醒") { input = "明天早上8点叫我起床" }
-                    OriginalTag("导航回家") { input = "导航回家" }
-                    OriginalTag("记一笔") { input = "今天午饭28" }
+                OriginalQuickTags(
+                    onAlarm = { input = "明天早上8点叫我起床" },
+                    onNav = { input = "导航回家" },
+                    onLedger = { input = "今天午饭28" }
+                )
+                AnimatedVisibility(plusOpen) {
+                    AttachmentPanel(
+                        onPick = { label ->
+                            plusOpen = false
+                            Toast.makeText(context, "$label 功能稍后接入", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 }
                 OriginalComposer(
                     value = input,
                     onValueChange = { input = it },
+                    onPlus = { plusOpen = !plusOpen },
                     onSend = {
                         val clean = input.trim()
                         if (clean.isEmpty()) return@OriginalComposer
@@ -192,15 +199,35 @@ private fun ChatScreen() {
 
 @Composable
 private fun ToolsScreen() {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        PageHeader("功能中心", "工具与能力", "账单、统计、提醒、应用控制和手机任务都在这里。")
-        OriginalGlassPanel(padding = PaddingValues(14.dp), corner = 30.dp) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ToolRow("▤", "账单中心", "查看记录、管理分类、导出账单数据。")
-                ToolRow("▣", "数据统计", "查看收支总览、趋势图、分类占比和预算。")
-                ToolRow("⏰", "提醒闹钟", "通过对话生成提醒和系统闹钟动作。")
-                ToolRow("◎", "应用控制", "打开微信、支付宝等常用手机 App。")
-                ToolRow("⌁", "快捷指令", "沉淀常用任务，一句话复用。")
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 10.dp)
+    ) {
+        item { PageHeader("功能中心", "工具与能力", "把旧版功能页卡片迁成 Compose 原生玻璃网格。") }
+        item { FeatureHeroCard() }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ToolTile("▤", "账单中心", "记录 / 分类", Modifier.weight(1f))
+                    ToolTile("▣", "数据统计", "趋势 / 占比", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ToolTile("⏰", "提醒闹钟", "系统 Intent", Modifier.weight(1f))
+                    ToolTile("◎", "应用控制", "微信 / 支付宝", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ToolTile("⌁", "快捷指令", "常用任务", Modifier.weight(1f))
+                    ToolTile("⇪", "导出数据", "JSON / 备份", Modifier.weight(1f))
+                }
+            }
+        }
+        item {
+            OriginalGlassPanel(padding = PaddingValues(14.dp), corner = 30.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ToolRow("✦", "旧版 WebView 备用入口", "后续只作为调试/兼容入口，主界面继续走 Compose 原生渲染。")
+                    ToolRow("⚙", "性能模式", "玻璃效果用透明高光模拟，不启用高成本 backdrop-filter。")
+                }
             }
         }
     }
@@ -208,23 +235,26 @@ private fun ToolsScreen() {
 
 @Composable
 private fun SettingsScreen() {
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        PageHeader("设置中心", "应用设置", "账号、显示、手机偏好、背景外观和数据预算。")
-        SettingGroup("☁", "账号与同步", "登录、注册、AI 接口和云同步。")
-        SettingGroup("Aa", "显示与语言", "语言、字体大小、玻璃透明度、动画效果。")
-        SettingGroup("⌖", "手机偏好", "家庭地址、默认地图、常用应用。")
-        SettingGroup("✦", "背景外观", "选择天气星空、翡翠海雾等内置背景。")
-        SettingGroup("▤", "数据与预算", "预算、聊天记录、账单导出、清空数据。")
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 10.dp)
+    ) {
+        item { PageHeader("设置中心", "应用设置", "账号、显示、手机偏好、背景外观和数据预算。") }
+        item { AccountSyncCard() }
+        item { AppearancePreviewCard() }
+        item { BudgetSnapshotCard() }
+        item { SettingGroup("☁", "账号与同步", "登录、注册、AI 接口和云同步。") }
+        item { SettingGroup("Aa", "显示与语言", "语言、字体大小、玻璃透明度、动画效果。") }
+        item { SettingGroup("⌖", "手机偏好", "家庭地址、默认地图、常用应用。") }
+        item { SettingGroup("✦", "背景外观", "选择天气星空、翡翠海雾等内置背景。") }
+        item { SettingGroup("▤", "数据与预算", "预算、聊天记录、账单导出、清空数据。") }
     }
 }
 
 @Composable
 private fun OriginalTopControls(onClear: () -> Unit) {
-    Column(
-        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
-        horizontalAlignment = Alignment.Start
-    ) {
+    Column(Modifier.padding(top = 4.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(9.dp), horizontalAlignment = Alignment.Start) {
         OriginalSmallPill("清空对话", onClear)
         OriginalSmallPill("🌐  自动联网  ●") {}
     }
@@ -263,7 +293,12 @@ private fun ModelStatusStrip() {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, onExecuteCommand: (AssistantCommand) -> Unit) {
+private fun MessageBubble(
+    message: ChatMessage,
+    onExecuteCommand: (AssistantCommand) -> Unit,
+    onRetry: () -> Unit,
+    onCopy: () -> Unit
+) {
     val isUser = message.role == MessageRole.User
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         Column(Modifier.fillMaxWidth(if (isUser) 0.74f else 0.90f), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
@@ -284,9 +319,20 @@ private fun MessageBubble(message: ChatMessage, onExecuteCommand: (AssistantComm
                 Spacer(Modifier.height(8.dp))
                 CommandCard(command) { onExecuteCommand(command) }
             }
+            message.ledgerDraft?.let {
+                Spacer(Modifier.height(8.dp))
+                LedgerDraftCard(it.title, it.amount, it.category)
+            }
             if (!message.actionHint.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 OriginalStatusPill(message.actionHint)
+                if (message.actionHint.contains("云端")) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OriginalMiniButton("重试", onRetry)
+                        OriginalMiniButton("复制", onCopy)
+                    }
+                }
             }
         }
     }
@@ -303,12 +349,26 @@ private fun CommandCard(command: AssistantCommand, onExecute: () -> Unit) {
     }
 }
 
+@Composable
+private fun LedgerDraftCard(title: String, amount: Double, category: String) {
+    OriginalGlassPanel(Modifier.fillMaxWidth(), corner = 22.dp, padding = PaddingValues(12.dp), fill = LiquidFillStrong) {
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("记账草稿", color = LiquidBlue, fontSize = 12.sp, fontWeight = FontWeight.Black)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Text("¥${"%.2f".format(amount)}", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            }
+            Text("分类：$category · 等待确认保存", color = Muted, fontSize = 12.sp)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun OriginalComposer(value: String, onValueChange: (String) -> Unit, onSend: () -> Unit) {
+private fun OriginalComposer(value: String, onValueChange: (String) -> Unit, onPlus: () -> Unit, onSend: () -> Unit) {
     OriginalGlassPanel(corner = 32.dp, padding = PaddingValues(8.dp), fill = LiquidFillSoft) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OriginalRoundButton("+", 52.dp) {}
+            OriginalRoundButton("+", 52.dp, onPlus)
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -330,6 +390,101 @@ private fun OriginalComposer(value: String, onValueChange: (String) -> Unit, onS
                 keyboardActions = KeyboardActions(onSend = { onSend() })
             )
             OriginalSendButton(onSend)
+        }
+    }
+}
+
+@Composable
+private fun OriginalQuickTags(onAlarm: () -> Unit, onNav: () -> Unit, onLedger: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        OriginalTag("设提醒", onAlarm)
+        OriginalTag("导航回家", onNav)
+        OriginalTag("记一笔", onLedger)
+    }
+}
+
+@Composable
+private fun AttachmentPanel(onPick: (String) -> Unit) {
+    OriginalGlassPanel(corner = 26.dp, padding = PaddingValues(12.dp), fill = LiquidFillSoft) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("快捷添加", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Black)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OriginalMiniButton("拍照", { onPick("拍照") })
+                OriginalMiniButton("语音", { onPick("语音") })
+                OriginalMiniButton("账单", { onPick("账单") })
+                OriginalMiniButton("文件", { onPick("文件") })
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeatureHeroCard() {
+    OriginalGlassPanel(corner = 32.dp, padding = PaddingValues(16.dp), fill = LiquidFill) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("AI 原生能力面板", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Black)
+            Text("这里开始承接原网页功能页：账单、统计、闹钟、导航、打开 App、导出数据。", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OriginalStatusPill("本地命令路由")
+                OriginalStatusPill("Intent 执行框架")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolTile(icon: String, title: String, desc: String, modifier: Modifier = Modifier) {
+    OriginalGlassPanel(modifier = modifier, corner = 28.dp, padding = PaddingValues(14.dp), fill = LiquidFillSoft) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LiquidIconBox(icon)
+            Text(title, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Black)
+            Text(desc, color = Muted, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun AccountSyncCard() {
+    OriginalGlassPanel(corner = 32.dp, padding = PaddingValues(16.dp), fill = LiquidFill) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LiquidIconBox("☁")
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("账号与云同步", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Text("Worker 连接、模型选择、云端状态将在这里迁入。", color = Muted, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+            OriginalMiniButton("测试") {}
+        }
+    }
+}
+
+@Composable
+private fun AppearancePreviewCard() {
+    OriginalGlassPanel(corner = 32.dp, padding = PaddingValues(16.dp), fill = LiquidFillSoft) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("显示与语言", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text("语言 · 字体大小 · 玻璃透明度 · 动画效果 · 紧凑模式", color = Muted, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OriginalMiniButton("中文") {}
+                OriginalMiniButton("中等字体") {}
+                OriginalMiniButton("流畅动画") {}
+            }
+        }
+    }
+}
+
+@Composable
+private fun BudgetSnapshotCard() {
+    OriginalGlassPanel(corner = 32.dp, padding = PaddingValues(16.dp), fill = LiquidFillSoft) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("数据与预算", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("本月支出", color = Muted, fontSize = 13.sp)
+                Text("¥ 0.00", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            }
+            Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(99.dp)).background(LiquidFillStrong)) {
+                Box(Modifier.fillMaxWidth(0.32f).height(8.dp).clip(RoundedCornerShape(99.dp)).background(Brush.linearGradient(listOf(LiquidBlue, Color(0xFFBCA8FF)))))
+            }
         }
     }
 }
@@ -385,9 +540,7 @@ private fun OriginalBottomNav(currentTab: AppTab, onTabSelected: (AppTab) -> Uni
         fill = Color.White.copy(alpha = .070f)
     ) {
         Row(Modifier.fillMaxWidth().height(82.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppTab.entries.forEach { tab ->
-                OriginalNavItem(Modifier.weight(1f), tab, currentTab == tab) { onTabSelected(tab) }
-            }
+            AppTab.entries.forEach { tab -> OriginalNavItem(Modifier.weight(1f), tab, currentTab == tab) { onTabSelected(tab) } }
         }
     }
 }
@@ -460,6 +613,21 @@ private fun OriginalStatusPill(text: String) {
             .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) { Text("●  $text", color = Color(0xFFFFC1CA), fontSize = 13.sp, fontWeight = FontWeight.Black) }
+}
+
+@Composable
+private fun OriginalMiniButton(text: String, onClick: () -> Unit) {
+    LiquidPressable(onClick) { pressed ->
+        Box(
+            modifier = Modifier
+                .graphicsLayer { scaleX = if (pressed) .96f else 1f; scaleY = if (pressed) .96f else 1f }
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = .060f))
+                .border(1.dp, Color.White.copy(alpha = .20f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 15.dp, vertical = 9.dp),
+            contentAlignment = Alignment.Center
+        ) { Text(text, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+    }
 }
 
 @Composable
