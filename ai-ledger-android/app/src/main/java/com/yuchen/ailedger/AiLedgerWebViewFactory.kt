@@ -77,7 +77,7 @@ object AiLedgerWebViewFactory {
             (() => {
               document.documentElement.classList.add('native-shell');
               document.documentElement.dataset.nativeGlassMode = 'safe';
-              document.body?.classList.add('native-shell', 'native-shell-webview', 'assistant-lite-motion', 'assistant-balanced-performance');
+              document.body?.classList.add('native-shell', 'native-shell-webview', 'native-composer-active', 'assistant-lite-motion', 'assistant-balanced-performance');
               const styleId = 'ai-ledger-native-shell-css';
               if (!document.getElementById(styleId)) {
                 const style = document.createElement('style');
@@ -96,7 +96,10 @@ object AiLedgerWebViewFactory {
                   }
 
                   html.native-shell .bottom-nav,
-                  body.native-shell .bottom-nav {
+                  body.native-shell .bottom-nav,
+                  body.native-shell.native-composer-active .chat-composer,
+                  body.native-shell.native-composer-active #aiModeHint,
+                  body.native-shell.native-composer-active .quick-tags.chat-tags {
                     display: none !important;
                   }
 
@@ -122,6 +125,17 @@ object AiLedgerWebViewFactory {
                   body.native-shell .view {
                     padding-bottom: 18px !important;
                     animation: none !important;
+                  }
+
+                  body.native-shell.native-composer-active .chat-shell {
+                    grid-template-rows: auto minmax(260px, 1fr) !important;
+                    min-height: min(620px, calc(100vh - 146px)) !important;
+                    padding-bottom: 14px !important;
+                  }
+
+                  body.native-shell.native-composer-active .chat-messages {
+                    min-height: 280px !important;
+                    padding-bottom: 16px !important;
                   }
 
                   html.native-shell .reveal,
