@@ -3,75 +3,76 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const RES = path.join(ROOT, 'android', 'app', 'src', 'main', 'res');
-const ASSETS = path.join(ROOT, 'assets');
-const DENSITIES = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi'];
-const PREFERRED_ICON = path.join(ASSETS, 'launcher-icon.png');
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function write(relativePath, content) {
+  const file = path.join(RES, relativePath);
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, content.trimStart(), 'utf8');
+}
 
 function rm(file) {
   try { fs.rmSync(file, { force: true }); } catch {}
 }
 
-function isValidPng(file) {
-  try {
-    const stat = fs.statSync(file);
-    if (!stat.isFile() || stat.size < 1024) return false;
-    const fd = fs.openSync(file, 'r');
-    const header = Buffer.alloc(PNG_SIGNATURE.length);
-    fs.readSync(fd, header, 0, PNG_SIGNATURE.length, 0);
-    fs.closeSync(fd);
-    return header.equals(PNG_SIGNATURE);
-  } catch {
-    return false;
-  }
-}
+const foreground = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
 
-function pngFilesIn(dir) {
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
-    .filter((name) => name.toLowerCase().endsWith('.png'))
-    .map((name) => path.join(dir, name))
-    .filter((file) => fs.statSync(file).isFile());
-}
+    <path android:fillColor="#061332" android:pathData="M20,12 L88,12 Q96,12 96,20 L96,88 Q96,96 88,96 L20,96 Q12,96 12,88 L12,20 Q12,12 20,12 Z" />
+    <path android:fillColor="#2B8CFF" android:fillAlpha="0.28" android:pathData="M9,24 Q16,8 36,10 Q20,20 16,42 Z" />
+    <path android:fillColor="#FF9B6B" android:fillAlpha="0.30" android:pathData="M81,50 Q104,55 102,84 Q88,67 70,70 Z" />
 
-function findUploadedPng() {
-  if (fs.existsSync(PREFERRED_ICON) && isValidPng(PREFERRED_ICON)) return PREFERRED_ICON;
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.92" android:pathData="M25,24 m-0.7,0 a0.7,0.7 0,1 0,1.4 0 a0.7,0.7 0,1 0,-1.4 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M38,18 m-0.6,0 a0.6,0.6 0,1 0,1.2 0 a0.6,0.6 0,1 0,-1.2 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M54,27 m-0.7,0 a0.7,0.7 0,1 0,1.4 0 a0.7,0.7 0,1 0,-1.4 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M71,22 m-0.6,0 a0.6,0.6 0,1 0,1.2 0 a0.6,0.6 0,1 0,-1.2 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M85,33 m-0.7,0 a0.7,0.7 0,1 0,1.4 0 a0.7,0.7 0,1 0,-1.4 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M30,45 m-0.6,0 a0.6,0.6 0,1 0,1.2 0 a0.6,0.6 0,1 0,-1.2 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M48,43 m-0.6,0 a0.6,0.6 0,1 0,1.2 0 a0.6,0.6 0,1 0,-1.2 0" />
+    <path android:fillColor="#FFFFFF" android:fillAlpha="0.88" android:pathData="M73,45 m-0.6,0 a0.6,0.6 0,1 0,1.2 0 a0.6,0.6 0,1 0,-1.2 0" />
 
-  const candidates = [
-    ...pngFilesIn(ASSETS),
-    ...pngFilesIn(ROOT),
-  ]
-    .filter(isValidPng)
-    .sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
+    <path android:strokeColor="#FFFFFF" android:strokeAlpha="0.95" android:strokeWidth="1.5" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M45,27 L45,35 M41,31 L49,31" />
+    <path android:strokeColor="#FFFFFF" android:strokeAlpha="0.92" android:strokeWidth="1.3" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M28,49 L28,56 M24.5,52.5 L31.5,52.5" />
 
-  if (candidates.length) return candidates[0];
+    <path android:fillColor="#356EF5" android:pathData="M6,63 C22,56 33,55 45,58 C59,61 68,70 82,69 C91,68 98,63 104,61 L104,79 L6,79 Z" />
+    <path android:fillColor="#FF9C76" android:fillAlpha="0.70" android:pathData="M54,63 C66,70 77,73 91,68 C97,66 101,62 104,61 L104,79 L62,79 C58,73 55,68 54,63 Z" />
+    <path android:strokeColor="#FFE1B0" android:strokeAlpha="0.82" android:strokeWidth="1.5" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M6,63 C22,56 33,55 45,58 C59,61 68,70 82,69 C91,68 98,63 104,61" />
+    <path android:fillColor="#031451" android:pathData="M6,78 C21,70 35,69 48,74 C62,80 70,88 87,84 C96,82 101,78 104,76 L104,104 L6,104 Z" />
+    <path android:fillColor="#77445F" android:fillAlpha="0.65" android:pathData="M82,84 C95,81 101,77 104,76 L104,104 L72,104 C73,94 76,88 82,84 Z" />
+</vector>`;
 
-  throw new Error([
-    '[launcher-icon] No valid PNG launcher image found.',
-    'Upload the finished icon image as ai-ledger-android/assets/launcher-icon.png.',
-    'The file must be a real PNG image, not an empty placeholder or failed upload.',
-  ].join(' '));
-}
+const background = `<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#061332" />
+</shape>`;
 
-const sourceIcon = findUploadedPng();
-const iconBytes = fs.readFileSync(sourceIcon);
+const adaptive = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>`;
 
-for (const dir of DENSITIES) {
+write('drawable/ic_launcher_foreground.xml', foreground);
+write('drawable/ic_launcher_background.xml', background);
+write('mipmap-anydpi-v26/ic_launcher.xml', adaptive);
+write('mipmap-anydpi-v26/ic_launcher_round.xml', adaptive);
+
+for (const dir of ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']) {
   const full = path.join(RES, dir);
-  fs.mkdirSync(full, { recursive: true });
-
-  rm(path.join(full, 'ic_launcher.xml'));
-  rm(path.join(full, 'ic_launcher_round.xml'));
+  ensureDir(full);
+  rm(path.join(full, 'ic_launcher.png'));
+  rm(path.join(full, 'ic_launcher_round.png'));
   rm(path.join(full, 'ic_launcher.jpg'));
   rm(path.join(full, 'ic_launcher_round.jpg'));
   rm(path.join(full, 'ic_launcher.webp'));
   rm(path.join(full, 'ic_launcher_round.webp'));
-
-  fs.writeFileSync(path.join(full, 'ic_launcher.png'), iconBytes);
-  fs.writeFileSync(path.join(full, 'ic_launcher_round.png'), iconBytes);
 }
 
-rm(path.join(RES, 'mipmap-anydpi-v26', 'ic_launcher.xml'));
-rm(path.join(RES, 'mipmap-anydpi-v26', 'ic_launcher_round.xml'));
-
-console.log(`[launcher-icon] Installed launcher icon from ${path.relative(ROOT, sourceIcon)}`);
+console.log('[launcher-icon] Installed crisp no-black-frame adaptive launcher icon.');
