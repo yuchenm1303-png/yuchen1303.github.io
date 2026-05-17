@@ -31,7 +31,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
-                        .padding(horizontal = 18.dp)
+                        .padding(horizontal = 14.dp)
                 ) {
                     when (state.currentTab) {
                         AppTab.Assistant -> AssistantScreen(state)
@@ -57,7 +57,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
         }
