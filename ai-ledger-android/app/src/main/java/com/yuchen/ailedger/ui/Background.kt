@@ -23,136 +23,180 @@ import kotlin.math.sin
 @Composable
 fun WeatherNightBackground(quality: RenderQuality, motionIntensity: Float = 1f) {
     val motionScale = motionIntensity.coerceIn(0f, 1.4f)
-    val transition = rememberInfiniteTransition(label = "liquid-bg")
-    val drift by transition.animateFloat(
+    val transition = rememberInfiniteTransition(label = "web-liquid-bg")
+    val breathe by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = if (quality.enableMotion && motionScale > 0f) {
-                    (30000 / motionScale.coerceAtLeast(0.35f)).toInt()
-                } else {
-                    68000
-                },
+                    (56000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else 90000,
                 easing = FastOutSlowInEasing
             ),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "liquid-bg-drift"
+        label = "weatherSkyBreathe"
     )
-    val pulse by transition.animateFloat(
+    val mist by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = if (quality.enableMotion && motionScale > 0f) {
-                    (21000 / motionScale.coerceAtLeast(0.35f)).toInt()
-                } else {
-                    56000
-                },
+                    (118000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else 160000,
                 easing = LinearEasing
             ),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "liquid-bg-pulse"
+        label = "weatherMistDrift"
+    )
+    val twinkle by transition.animateFloat(
+        initialValue = 0.36f,
+        targetValue = 0.68f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (quality.enableMotion && motionScale > 0f) {
+                    (19000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else 42000,
+                easing = FastOutSlowInEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "weatherStarsTwinkle"
     )
 
     Canvas(Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val scaleDrift = (breathe - 0.5f) * motionScale
+        val mistDrift = (mist - 0.5f) * motionScale
+
         drawRect(
-            brush = Brush.verticalGradient(
-                listOf(
-                    Color(0xFF030A1B),
-                    Color(0xFF071D3D),
-                    Color(0xFF162D55),
-                    Color(0xFF2B2752),
-                    Color(0xFF432C59)
-                )
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF071326),
+                    Color(0xFF14213F),
+                    Color(0xFF473E60)
+                ),
+                start = Offset(w * 0.06f, 0f),
+                end = Offset(w * 0.92f, h)
             )
         )
 
-        val ambientA = Offset(
-            x = size.width * (0.20f + drift * (0.12f * motionScale)),
-            y = size.height * (0.12f + pulse * (0.08f * motionScale))
-        )
-        val ambientB = Offset(
-            x = size.width * (0.82f - drift * (0.10f * motionScale)),
-            y = size.height * (0.20f + drift * (0.05f * motionScale))
-        )
-        val ambientC = Offset(
-            x = size.width * (0.48f + pulse * (0.07f * motionScale)),
-            y = size.height * (0.80f - drift * (0.04f * motionScale))
-        )
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color(0x4A52A8FF), Color.Transparent),
-                center = ambientA,
-                radius = size.minDimension * 0.70f
-            ),
-            center = ambientA,
-            radius = size.minDimension * 0.70f,
-            blendMode = BlendMode.Plus
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color(0x3C5EE0FF), Color.Transparent),
-                center = ambientB,
-                radius = size.minDimension * 0.64f
-            ),
-            center = ambientB,
-            radius = size.minDimension * 0.64f,
-            blendMode = BlendMode.Screen
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color(0x34B788FF), Color.Transparent),
-                center = ambientC,
-                radius = size.minDimension * 0.78f
-            ),
-            center = ambientC,
-            radius = size.minDimension * 0.78f,
-            blendMode = BlendMode.Lighten
-        )
-
-        repeat(quality.starCount) { index ->
-            val xSeed = ((index * 37) % 100) / 100f
-            val ySeed = ((index * 61) % 100) / 100f
-            val twinkle = if (quality.enableMotion && motionScale > 0f) {
-                0.38f + 0.30f * sin((drift * 6.28f) + index).toFloat()
-            } else {
-                0.50f
-            }
-            drawCircle(
-                color = Color.White.copy(alpha = twinkle.coerceIn(0.20f, 0.68f)),
-                radius = if (index % 13 == 0) 1.9f else 1.0f,
-                center = Offset(size.width * xSeed, size.height * (0.04f + ySeed * 0.74f))
+        fun sceneEllipse(
+            cx: Float,
+            cy: Float,
+            rw: Float,
+            rh: Float,
+            color: Color,
+            mode: BlendMode = BlendMode.Screen
+        ) {
+            drawOval(
+                brush = Brush.radialGradient(
+                    colors = listOf(color, color.copy(alpha = color.alpha * 0.42f), Color.Transparent),
+                    center = Offset(w * cx, h * cy),
+                    radius = w * rw
+                ),
+                topLeft = Offset(w * (cx - rw), h * (cy - rh)),
+                size = Size(w * rw * 2f, h * rh * 2f),
+                blendMode = mode
             )
         }
 
-        repeat(quality.mistCount + 1) { index ->
-            val y = size.height * (0.26f + index * 0.18f)
-            val x = size.width * (-0.30f + drift * (0.35f * motionScale.coerceAtLeast(0.1f)) + index * 0.10f)
-            drawOval(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x169AB7FF), Color.Transparent),
-                    center = Offset(x + size.width * 0.46f, y),
-                    radius = size.width * 0.70f
+        sceneEllipse(0.72f - scaleDrift * 0.012f, 0.10f - scaleDrift * 0.010f, 0.28f, 0.18f, Color(0x387AA8FF), BlendMode.Plus)
+        sceneEllipse(0.35f + scaleDrift * 0.018f, 0.44f + scaleDrift * 0.012f, 0.40f, 0.28f, Color(0x475274B8), BlendMode.Screen)
+        sceneEllipse(0.58f - scaleDrift * 0.010f, 0.78f, 0.38f, 0.24f, Color(0x38675091), BlendMode.Lighten)
+        sceneEllipse(0.20f + scaleDrift * 0.014f, 0.92f, 0.36f, 0.24f, Color(0x2E4A659B), BlendMode.Screen)
+
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x2BC4D5FF), Color.Transparent),
+                center = Offset(w * (0.18f + mistDrift * 0.04f), h * 0.20f),
+                radius = w * 0.52f
+            ),
+            topLeft = Offset(w * (-0.25f + mistDrift * 0.05f), h * 0.02f),
+            size = Size(w * 0.88f, h * 0.36f),
+            blendMode = BlendMode.Screen
+        )
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x2188A7E8), Color.Transparent),
+                center = Offset(w * (0.75f - mistDrift * 0.05f), h * 0.18f),
+                radius = w * 0.46f
+            ),
+            topLeft = Offset(w * (0.34f - mistDrift * 0.04f), h * 0.02f),
+            size = Size(w * 0.88f, h * 0.34f),
+            blendMode = BlendMode.Screen
+        )
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x1FA486BC), Color.Transparent),
+                center = Offset(w * (0.30f + mistDrift * 0.05f), h * 0.72f),
+                radius = w * 0.62f
+            ),
+            topLeft = Offset(w * (-0.16f + mistDrift * 0.04f), h * 0.51f),
+            size = Size(w * 1.0f, h * 0.42f),
+            blendMode = BlendMode.Lighten
+        )
+        drawOval(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x1CC479AE), Color.Transparent),
+                center = Offset(w * (0.84f - mistDrift * 0.04f), h * 0.76f),
+                radius = w * 0.56f
+            ),
+            topLeft = Offset(w * (0.36f - mistDrift * 0.04f), h * 0.55f),
+            size = Size(w * 0.96f, h * 0.40f),
+            blendMode = BlendMode.Lighten
+        )
+
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0x09E8EFFF),
+                    Color.Transparent,
+                    Color(0x08D3C2EE),
+                    Color.Transparent
                 ),
-                topLeft = Offset(x, y - size.height * 0.075f),
-                size = Size(size.width * 1.10f, size.height * 0.20f),
-                blendMode = BlendMode.Screen
+                start = Offset(w * (-0.08f + mistDrift * 0.03f), h * 0.05f),
+                end = Offset(w * 1.08f, h * 0.82f)
+            ),
+            blendMode = BlendMode.Screen
+        )
+
+        repeat(quality.starCount.coerceAtLeast(30)) { index ->
+            val xSeed = ((index * 37 + 6) % 100) / 100f
+            val ySeed = ((index * 61 + 8) % 100) / 100f
+            val alphaWave = if (quality.enableMotion && motionScale > 0f) {
+                twinkle + 0.10f * sin((breathe * 6.28f) + index * 0.83f).toFloat()
+            } else 0.50f
+            val alpha = alphaWave.coerceIn(0.24f, 0.70f)
+            val radius = when {
+                index % 11 == 0 -> 1.9f
+                index % 5 == 0 -> 1.45f
+                else -> 0.9f
+            }
+            drawCircle(
+                color = Color.White.copy(alpha = alpha),
+                radius = radius,
+                center = Offset(
+                    w * (xSeed - mistDrift * 0.010f),
+                    h * (0.035f + ySeed * 0.88f + mistDrift * 0.012f)
+                )
             )
         }
 
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.Transparent,
-                    Color(0x22030614),
-                    Color(0x55030614)
+                    Color(0x1A070F1E),
+                    Color(0x080D1427),
+                    Color(0x524A3B5C)
                 ),
-                startY = size.height * 0.58f,
-                endY = size.height
+                startY = 0f,
+                endY = h
             ),
             blendMode = BlendMode.Multiply
         )
