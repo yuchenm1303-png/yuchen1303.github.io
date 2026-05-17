@@ -54,6 +54,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 fun AiLedgerNativeShell(
     createWebView: ((GlassMode) -> Unit) -> WebView,
+    nativeMessages: List<NativeChatMessage>,
     onNavSelected: (String) -> Unit,
     onHaptic: (String) -> Unit,
     onPromptSubmit: (String) -> Unit,
@@ -80,8 +81,16 @@ fun AiLedgerNativeShell(
             factory = { createWebView { mode -> glassMode = mode } },
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = if (selectedView == "ai") 0.001f else 1f }
                 .padding(bottom = if (selectedView == "ai") 156.dp else 84.dp),
         )
+
+        if (selectedView == "ai") {
+            NativeChatPanel(
+                messages = nativeMessages,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         NativeTopBadge(
             glassMode = glassMode,
