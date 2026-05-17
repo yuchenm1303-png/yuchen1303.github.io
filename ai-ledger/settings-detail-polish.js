@@ -23,7 +23,7 @@
     window.__settingsPerformancePolishLoaded = true;
     const script = document.createElement('script');
     script.id = PERF_SCRIPT_ID;
-    script.src = './settings-performance-polish.js?v=20260516-1';
+    script.src = './settings-performance-polish.js?v=20260517-1';
     script.defer = true;
     script.onerror = () => console.warn('[settings-detail-polish] settings-performance-polish.js failed to load');
     document.head.appendChild(script);

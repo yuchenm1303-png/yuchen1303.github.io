@@ -79,7 +79,7 @@
         position: relative !important;
         transform: translate3d(0,0,0) scale(1);
         transform-origin: center center !important;
-        transition: transform var(--liquid-motion-mid) var(--liquid-ease-spring), filter 140ms ease !important;
+        transition: transform var(--liquid-motion-mid) var(--liquid-ease-spring), opacity 140ms ease !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         backface-visibility: hidden;
@@ -98,7 +98,6 @@
       .liquid-motion-target.liquid-pressed {
         transition-duration: 78ms !important;
         transition-timing-function: cubic-bezier(.2,0,.2,1) !important;
-        filter: brightness(1.035) saturate(1.018);
       }
 
       .tool-card.liquid-pressed,
@@ -130,9 +129,9 @@
 
       .liquid-motion-target.liquid-pressed::before {
         background:
-          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.26), transparent 30%),
-          linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,0) 42%, rgba(185,220,255,.075)) !important;
-        opacity: .66 !important;
+          radial-gradient(circle at var(--liquid-touch-x,50%) var(--liquid-touch-y,50%), rgba(255,255,255,.20), transparent 32%),
+          linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 46%, rgba(210,230,255,.045)) !important;
+        opacity: .50 !important;
       }
 
       .liquid-release { animation: liquidRelease 320ms var(--liquid-ease-spring) both; }
@@ -165,22 +164,22 @@
         height: var(--nav-indicator-h, 0px);
         border-radius: 22px;
         pointer-events: none;
-        opacity: .88;
+        opacity: .58;
         transform: translate3d(var(--nav-indicator-x, 0px), var(--nav-indicator-y, 0px), 0) scale(var(--nav-indicator-scale, 1));
         background:
-          radial-gradient(circle at 24% 14%, rgba(255,255,255,.50), rgba(255,255,255,.15) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(255,255,255,.17), rgba(255,255,255,.038) 46%, rgba(126,189,255,.09));
+          radial-gradient(circle at 24% 14%, rgba(255,255,255,.24), rgba(255,255,255,.072) 35%, transparent 68%),
+          linear-gradient(135deg, rgba(255,255,255,.078), rgba(255,255,255,.016) 50%, rgba(220,236,255,.024));
         box-shadow:
-          inset 0 .8px 0 rgba(255,255,255,.46),
-          inset 0 -.8px 0 rgba(0,0,0,.08),
-          0 10px 22px rgba(0,0,0,.13);
+          inset 0 .8px 0 rgba(255,255,255,.22),
+          inset 0 -.8px 0 rgba(0,0,0,.07),
+          0 8px 18px rgba(0,0,0,.10);
         transition: transform 420ms var(--liquid-ease-nav), width 420ms var(--liquid-ease-nav), height 420ms var(--liquid-ease-nav), opacity 140ms ease;
         backface-visibility: hidden;
       }
 
       .bottom-nav.liquid-nav-moving .liquid-nav-indicator {
         --nav-indicator-scale: 1.018;
-        opacity: .96;
+        opacity: .72;
         will-change: transform;
       }
 
@@ -209,7 +208,6 @@
       @media (hover:hover) and (pointer:fine) {
         .liquid-motion-target:hover {
           transform: translate3d(0,-1.2px,0) scale(1.003);
-          filter: brightness(1.025);
         }
         .nav-btn.liquid-motion-target:hover {
           transform: translate3d(0,-.5px,0) scale(1.008);
@@ -218,7 +216,7 @@
 
       @media (pointer: coarse), (max-width: 760px) {
         .bottom-nav { contain: layout paint; }
-        body.assistant-lite-motion .liquid-motion-target.liquid-pressed { filter: none !important; }
+        body.assistant-lite-motion .liquid-motion-target.liquid-pressed { opacity: .98; }
       }
 
       body.assistant-motion-off .liquid-motion-target,
@@ -252,10 +250,12 @@
     const isAndroid = /Android/i.test(ua);
     const memory = Number(navigator.deviceMemory || 4);
     const cores = Number(navigator.hardwareConcurrency || 4);
+    const lowPower = isAndroid && (memory <= 4 || cores <= 4);
     document.body.classList.add('assistant-liquid-motion');
     document.body.classList.toggle('assistant-ios-glass', isIOS);
     document.body.classList.toggle('assistant-android-glass', isAndroid);
-    document.body.classList.toggle('assistant-lite-motion', isAndroid && (memory <= 4 || cores <= 4));
+    document.body.classList.toggle('assistant-low-power-device', lowPower);
+    window.AssistantPerformance?.refresh?.();
   }
 
   function cleanupOldStates() {
@@ -392,6 +392,7 @@
 
   function handlePointerDown(event) {
     if (event.button !== undefined && event.button > 0) return;
+    if (document.body.classList.contains('assistant-scrolling') || document.body.classList.contains('viewport-resizing')) return;
     const target = targetFrom(event.target);
     if (!target) return;
     beginPress(target, event);

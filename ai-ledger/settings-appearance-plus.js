@@ -4,20 +4,20 @@
   const SETTINGS_KEY = "ai-assistant-appearance-plus-v1";
   const STYLE_ID = "appearance-plus-style";
   const PANEL_ID = "appearancePlusPanel";
-  const SETTINGS_VERSION = 4;
+  const SETTINGS_VERSION = 5;
 
   const DEFAULTS = {
     version: SETTINGS_VERSION,
     language: "zh-CN",
     fontScale: "normal",
     glassOpacity: 0,
-    glassBlur: 12,
+    glassBlur: 18,
     motion: "on",
     compact: "off",
   };
 
   const FONT_SCALE = { small: 0.92, normal: 1, large: 1.1, xlarge: 1.2 };
-  const BASE_GLASS = { panel: 0.034, control: 0.042, nav: 0.032, selected: 0.052, preview: 0.042 };
+  const BASE_GLASS = { panel: 0.016, control: 0.024, nav: 0.028, selected: 0.048, preview: 0.030 };
 
   const TEXT = {
     "zh-CN": {
@@ -192,14 +192,14 @@
     style.textContent = `
       :root{
         --assistant-font-scale:1;
-        --assistant-glass-panel-alpha:.034;
-        --assistant-glass-control-alpha:.042;
-        --assistant-glass-nav-alpha:.032;
-        --assistant-glass-selected-alpha:.052;
-        --assistant-glass-preview-alpha:.042;
-        --assistant-glass-panel-blur:12px;
-        --assistant-glass-control-blur:7px;
-        --assistant-glass-nav-blur:9px;
+        --assistant-glass-panel-alpha:.016;
+        --assistant-glass-control-alpha:.024;
+        --assistant-glass-nav-alpha:.028;
+        --assistant-glass-selected-alpha:.048;
+        --assistant-glass-preview-alpha:.030;
+        --assistant-glass-panel-blur:18px;
+        --assistant-glass-control-blur:11px;
+        --assistant-glass-nav-blur:14px;
       }
       body{font-size:calc(16px * var(--assistant-font-scale));}
       .glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card{

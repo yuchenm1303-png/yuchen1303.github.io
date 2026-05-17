@@ -4,9 +4,11 @@
   const STYLE_ID = 'glass-stability-style';
   const PERF_KEY = 'ai-assistant-performance-mode-v1';
   const VALID_MODES = ['auto', 'lite', 'balanced', 'full'];
-  let motionTimer = 0;
+  let interactionTimer = 0;
+  let scrollTimer = 0;
+  let resizeTimer = 0;
 
-  function getSavedMode() {
+  function readSavedMode() {
     try {
       const mode = localStorage.getItem(PERF_KEY) || 'auto';
       return VALID_MODES.includes(mode) ? mode : 'auto';
@@ -15,279 +17,201 @@
     }
   }
 
-  function getDeviceInfo() {
+  function deviceInfo() {
     const ua = navigator.userAgent || '';
     const isAndroid = /Android/i.test(ua);
+    const isIOS = /iPad|iPhone|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
     const memory = Number(navigator.deviceMemory || 0);
     const cores = Number(navigator.hardwareConcurrency || 0);
     const minWidth = Math.min(window.innerWidth || 999, window.innerHeight || 999);
-    const narrow = minWidth <= 390;
-    const touch = matchMedia?.('(pointer: coarse)')?.matches || false;
-    return { isAndroid, memory, cores, minWidth, narrow, touch };
+    const touch = window.matchMedia?.('(pointer: coarse)')?.matches || false;
+    const webView = isAndroid && /; wv\)|Version\/\d+\.\d+ Chrome\//i.test(ua);
+    return { ua, isAndroid, isIOS, webView, memory, cores, minWidth, touch };
   }
 
-  function detectLowPowerDevice() {
-    const info = getDeviceInfo();
-    return info.isAndroid && ((info.memory && info.memory <= 4) || (info.cores && info.cores <= 4) || info.narrow);
+  function lowPowerDevice(info = deviceInfo()) {
+    return info.isAndroid && (
+      info.webView ||
+      (info.memory && info.memory <= 4) ||
+      (info.cores && info.cores <= 4) ||
+      info.minWidth <= 390
+    );
   }
 
-  function resolvePerformanceMode(mode = getSavedMode()) {
-    if (mode === 'lite' || mode === 'balanced' || mode === 'full') return mode;
-    return detectLowPowerDevice() ? 'lite' : 'balanced';
+  function resolveMode(selected = readSavedMode()) {
+    if (selected === 'lite' || selected === 'balanced' || selected === 'full') return selected;
+    return lowPowerDevice() ? 'balanced' : 'full';
   }
 
-  function applyPerformanceMode() {
-    const selected = getSavedMode();
-    const resolved = resolvePerformanceMode(selected);
-    const lowPower = resolved === 'lite';
-    const balanced = resolved === 'balanced';
-    const full = resolved === 'full';
-    document.body?.classList.toggle('assistant-lite-motion', lowPower);
-    document.body?.classList.toggle('assistant-balanced-performance', balanced);
-    document.body?.classList.toggle('assistant-full-glass', full);
-    document.documentElement.dataset.performanceMode = resolved;
-    document.documentElement.dataset.performanceModeSelected = selected;
-    window.dispatchEvent(new CustomEvent('assistant-performance-change', {
-      detail: { selected, resolved, device: getDeviceInfo() },
-    }));
-  }
-
-  function markInteractiveMotion() {
-    document.body?.classList.add('assistant-interacting');
-    clearTimeout(motionTimer);
-    motionTimer = setTimeout(() => document.body?.classList.remove('assistant-interacting'), 180);
-  }
-
-  function installStableGlassStyle() {
-    const old = document.getElementById(STYLE_ID);
-    if (old) old.remove();
-
+  function installStyle() {
+    document.getElementById(STYLE_ID)?.remove();
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      html,
-      body {
-        background-attachment: scroll !important;
+      :root {
+        --assistant-glass-panel-alpha: .016;
+        --assistant-glass-control-alpha: .024;
+        --assistant-glass-nav-alpha: .028;
+        --assistant-glass-selected-alpha: .048;
+        --assistant-glass-preview-alpha: .030;
+        --assistant-glass-panel-blur: 18px;
+        --assistant-glass-control-blur: 8px;
+        --assistant-glass-nav-blur: 16px;
+        --assistant-glass-edge: rgba(255,255,255,.18);
+        --assistant-glass-edge-strong: rgba(255,255,255,.34);
+        --assistant-glass-edge-cool: rgba(170,216,255,.10);
+        --assistant-glass-shadow: 0 18px 42px rgba(0,0,0,.18), inset 0 .55px 0 rgba(255,255,255,.28), inset 0 -.7px 0 rgba(0,0,0,.10);
       }
 
-      .stable-glass-rendering .view .reveal,
-      .stable-glass-rendering .view.active .reveal,
-      .stable-glass-rendering .appearance-plus-card {
+      body.stable-glass-rendering {
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body.stable-glass-rendering .reveal {
         opacity: 1 !important;
-        transform: none !important;
-        animation: none !important;
         visibility: visible !important;
+        animation-duration: 260ms !important;
       }
 
-      .stable-glass-rendering .view {
+      body.stable-glass-rendering :where(.chat-row,.record-item,.draft-card,.draft-item,.tool-card,.settings-group-card,.tools-panel-card,.appearance-plus-card,.summary-card,.metric-card,.chart-card) {
         content-visibility: visible !important;
+        contain-intrinsic-size: auto !important;
+        backface-visibility: hidden;
       }
 
-      .stable-glass-rendering .chat-messages,
-      .stable-glass-rendering .record-list,
-      .stable-glass-rendering .tools-panel,
-      .stable-glass-rendering .tools-grid,
-      .stable-glass-rendering .settings-group-list {
-        contain: layout paint;
+      body.stable-glass-rendering :where(.chat-messages,.record-list,.tools-panel,.settings-group-content) {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
       }
 
-      .stable-glass-rendering .chart-wrap,
-      .stable-glass-rendering canvas {
-        contain: layout paint size;
-      }
-
-      .stable-glass-rendering .ambient,
-      .stable-glass-rendering body::before,
-      .stable-glass-rendering body::after {
-        will-change: auto !important;
-      }
-
-      @media (pointer: coarse), (max-width: 760px) {
-        body::before,
-        body::after,
-        .scene-backdrop::before,
-        .scene-backdrop::after,
-        .ambient {
-          animation: none !important;
-        }
-
-        .glass-card,
-        .chat-shell,
-        .summary-card,
-        .metric-card,
-        .chart-card,
-        .tool-card,
-        .auth-sheet,
-        .mobile-command-card,
-        .tools-panel-card,
-        .account-row,
-        .appearance-detail-panel,
-        .settings-group-sheet,
-        .settings-group-card,
-        .bottom-nav {
-          will-change: auto !important;
-          isolation: isolate;
-        }
-
-        .summary-chip,
-        .record-item,
-        .draft-card,
-        .draft-item,
-        textarea,
-        input,
-        select,
-        .tag-btn,
-        .range-chip,
-        .ghost-btn,
-        .mini-ghost-btn,
-        .summary-box,
-        .budget-pill,
-        .auth-tab,
-        .icon-btn,
-        .delete-btn,
-        .chat-row.assistant .chat-bubble,
-        .tools-back,
-        .account-pill,
-        .appearance-preview {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-        }
-      }
-
-      body.assistant-balanced-performance .glass-card,
-      body.assistant-balanced-performance .chat-shell,
-      body.assistant-balanced-performance .summary-card,
-      body.assistant-balanced-performance .metric-card,
-      body.assistant-balanced-performance .chart-card,
-      body.assistant-balanced-performance .tool-card,
-      body.assistant-balanced-performance .auth-sheet,
-      body.assistant-balanced-performance .mobile-command-card,
-      body.assistant-balanced-performance .tools-panel-card,
-      body.assistant-balanced-performance .account-row,
-      body.assistant-balanced-performance .appearance-detail-panel,
-      body.assistant-balanced-performance .settings-group-sheet {
-        backdrop-filter: blur(10px) saturate(118%) brightness(1.035) !important;
-        -webkit-backdrop-filter: blur(10px) saturate(118%) brightness(1.035) !important;
-      }
-
-      body.assistant-balanced-performance .bottom-nav {
-        backdrop-filter: blur(12px) saturate(120%) brightness(1.04) !important;
-        -webkit-backdrop-filter: blur(12px) saturate(120%) brightness(1.04) !important;
-      }
-
-      body.assistant-full-glass .glass-card,
-      body.assistant-full-glass .chat-shell,
-      body.assistant-full-glass .summary-card,
-      body.assistant-full-glass .metric-card,
-      body.assistant-full-glass .chart-card,
-      body.assistant-full-glass .tool-card,
-      body.assistant-full-glass .auth-sheet,
-      body.assistant-full-glass .mobile-command-card,
-      body.assistant-full-glass .tools-panel-card,
-      body.assistant-full-glass .account-row,
-      body.assistant-full-glass .appearance-detail-panel,
-      body.assistant-full-glass .settings-group-sheet {
-        backdrop-filter: blur(var(--assistant-glass-panel-blur, 16px)) saturate(128%) brightness(1.055) !important;
-        -webkit-backdrop-filter: blur(var(--assistant-glass-panel-blur, 16px)) saturate(128%) brightness(1.055) !important;
-      }
-
-      body.assistant-balanced-performance.keyboard-open .glass-card,
-      body.assistant-balanced-performance.keyboard-open .chat-shell,
-      body.assistant-balanced-performance.settings-group-open .glass-card,
-      body.assistant-balanced-performance.settings-group-open .settings-group-sheet,
-      body.assistant-balanced-performance.viewport-resizing .glass-card,
-      body.assistant-balanced-performance.assistant-interacting .mobile-command-card,
-      body.assistant-balanced-performance.assistant-interacting .settings-group-card,
-      body.assistant-full-glass.keyboard-open .glass-card,
-      body.assistant-full-glass.viewport-resizing .glass-card,
-      body.assistant-full-glass.assistant-interacting .settings-group-card {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
-
-      body.assistant-android-glass .glass-card,
-      body.assistant-android-glass .chat-shell,
-      body.assistant-android-glass .summary-card,
-      body.assistant-android-glass .metric-card,
-      body.assistant-android-glass .chart-card,
-      body.assistant-android-glass .tool-card,
-      body.assistant-android-glass .auth-sheet,
-      body.assistant-android-glass .mobile-command-card,
-      body.assistant-android-glass .tools-panel-card,
-      body.assistant-android-glass .account-row,
-      body.assistant-android-glass .appearance-detail-panel,
-      body.assistant-android-glass .settings-group-sheet {
-        transform: translateZ(0);
-      }
-
-      body.assistant-lite-motion .glass-card,
-      body.assistant-lite-motion .chat-shell,
-      body.assistant-lite-motion .summary-card,
-      body.assistant-lite-motion .metric-card,
-      body.assistant-lite-motion .chart-card,
-      body.assistant-lite-motion .tool-card,
-      body.assistant-lite-motion .auth-sheet,
-      body.assistant-lite-motion .mobile-command-card,
-      body.assistant-lite-motion .tools-panel-card,
-      body.assistant-lite-motion .account-row,
-      body.assistant-lite-motion .appearance-detail-panel,
-      body.assistant-lite-motion .settings-group-sheet,
-      body.assistant-lite-motion .settings-group-card,
-      body.assistant-lite-motion .bottom-nav {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
+      body.stable-glass-rendering :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.appearance-detail-panel,.settings-group-sheet,.settings-group-card) {
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        border: 1px solid var(--assistant-glass-edge) !important;
         background:
-          linear-gradient(145deg, rgba(255,255,255,.090), rgba(255,255,255,.020) 52%, rgba(0,0,0,.018)),
-          rgba(255,255,255,var(--assistant-glass-panel-alpha,.050)) !important;
+          linear-gradient(145deg, rgba(255,255,255,.040), rgba(255,255,255,.004) 46%, rgba(0,0,0,.014)),
+          rgba(255,255,255,var(--assistant-glass-panel-alpha)) !important;
+        box-shadow: var(--assistant-glass-shadow) !important;
+        backdrop-filter: blur(var(--assistant-glass-panel-blur)) saturate(132%) brightness(1.055) contrast(1.025) !important;
+        -webkit-backdrop-filter: blur(var(--assistant-glass-panel-blur)) saturate(132%) brightness(1.055) contrast(1.025) !important;
       }
 
-      body.assistant-lite-motion .ambient,
-      body.assistant-lite-motion .scene-backdrop::before,
-      body.assistant-lite-motion .scene-backdrop::after {
-        display: none !important;
+      body.stable-glass-rendering :where(.summary-chip,.record-item,.draft-card,.draft-item,.chat-composer,textarea,input,select,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.budget-pill,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back,.account-pill,.appearance-preview,.performance-mode-option) {
+        position: relative;
+        overflow: hidden;
+        border-color: rgba(255,255,255,.15) !important;
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.052), rgba(255,255,255,.007) 52%, rgba(0,0,0,.010)),
+          rgba(255,255,255,var(--assistant-glass-control-alpha)) !important;
+        box-shadow: inset 0 .55px 0 rgba(255,255,255,.22), inset 0 -.55px 0 rgba(0,0,0,.075) !important;
+        backdrop-filter: blur(var(--assistant-glass-control-blur)) saturate(116%) brightness(1.04) !important;
+        -webkit-backdrop-filter: blur(var(--assistant-glass-control-blur)) saturate(116%) brightness(1.04) !important;
       }
 
-      body.assistant-lite-motion .glass-card::before,
-      body.assistant-lite-motion .glass-card::after,
-      body.assistant-lite-motion .bottom-nav::before,
-      body.assistant-lite-motion .bottom-nav::after,
-      body.assistant-lite-motion .summary-chip::before,
-      body.assistant-lite-motion .summary-chip::after,
-      body.assistant-lite-motion .record-item::before,
-      body.assistant-lite-motion .record-item::after,
-      body.assistant-lite-motion .draft-card::before,
-      body.assistant-lite-motion .draft-card::after,
-      body.assistant-lite-motion .draft-item::before,
-      body.assistant-lite-motion .draft-item::after,
-      body.assistant-lite-motion .tag-btn::before,
-      body.assistant-lite-motion .tag-btn::after,
-      body.assistant-lite-motion .range-chip::before,
-      body.assistant-lite-motion .range-chip::after,
-      body.assistant-lite-motion .ghost-btn::before,
-      body.assistant-lite-motion .ghost-btn::after,
-      body.assistant-lite-motion .mini-ghost-btn::before,
-      body.assistant-lite-motion .mini-ghost-btn::after,
-      body.assistant-lite-motion .summary-box::before,
-      body.assistant-lite-motion .summary-box::after,
-      body.assistant-lite-motion .auth-tab::before,
-      body.assistant-lite-motion .auth-tab::after,
-      body.assistant-lite-motion .icon-btn::before,
-      body.assistant-lite-motion .icon-btn::after,
-      body.assistant-lite-motion .delete-btn::before,
-      body.assistant-lite-motion .delete-btn::after,
-      body.assistant-lite-motion .tools-panel-card::before,
-      body.assistant-lite-motion .tools-panel-card::after,
-      body.assistant-lite-motion .tools-back::before,
-      body.assistant-lite-motion .tools-back::after {
+      body.stable-glass-rendering .bottom-nav {
+        border: 1px solid rgba(255,255,255,.18) !important;
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.058), rgba(255,255,255,.010) 50%, rgba(0,0,0,.026)),
+          rgba(255,255,255,var(--assistant-glass-nav-alpha)) !important;
+        box-shadow: 0 16px 36px rgba(0,0,0,.20), inset 0 .6px 0 rgba(255,255,255,.30), inset 0 -.7px 0 rgba(0,0,0,.10) !important;
+        backdrop-filter: blur(var(--assistant-glass-nav-blur)) saturate(126%) brightness(1.052) contrast(1.02) !important;
+        -webkit-backdrop-filter: blur(var(--assistant-glass-nav-blur)) saturate(126%) brightness(1.052) contrast(1.02) !important;
+      }
+
+      body.stable-glass-rendering :where(.primary-btn,.send-btn,.confirm-btn,.range-chip.active,.auth-tab.active) {
+        border: 1px solid rgba(255,255,255,.17) !important;
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.070), rgba(255,255,255,.012) 54%, rgba(220,234,255,.028)),
+          rgba(255,255,255,var(--assistant-glass-selected-alpha)) !important;
+        box-shadow: inset 0 .65px 0 rgba(255,255,255,.25), inset 0 -.55px 0 rgba(0,0,0,.08), 0 10px 22px rgba(0,0,0,.12) !important;
+        backdrop-filter: blur(var(--assistant-glass-control-blur)) saturate(116%) brightness(1.045) !important;
+        -webkit-backdrop-filter: blur(var(--assistant-glass-control-blur)) saturate(116%) brightness(1.045) !important;
+      }
+
+      body.stable-glass-rendering .bottom-nav .nav-btn.active {
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+      }
+
+      body.stable-glass-rendering .auth-overlay {
+        background: rgba(4,8,20,.22) !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        transition: opacity 140ms ease, visibility 140ms ease !important;
+      }
+
+      body.stable-glass-rendering .auth-overlay .auth-sheet {
+        transform: translate3d(0,14px,0) scale(.992) !important;
+        opacity: .001 !important;
+        transition: transform 170ms cubic-bezier(.18,.86,.22,1), opacity 120ms ease !important;
+        will-change: transform, opacity;
+      }
+
+      body.stable-glass-rendering .auth-overlay.open .auth-sheet {
+        transform: translate3d(0,0,0) scale(1) !important;
+        opacity: 1 !important;
+      }
+
+      body.stable-glass-rendering :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav)::before {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.13), transparent 34%),
+          linear-gradient(90deg, rgba(255,255,255,.055), transparent 18%, transparent 82%, rgba(190,222,255,.050)),
+          radial-gradient(ellipse at 16% -8%, rgba(255,255,255,.14), transparent 38%),
+          radial-gradient(ellipse at 92% 108%, rgba(150,202,255,.045), transparent 34%) !important;
+        opacity: .34 !important;
+      }
+
+      body.stable-glass-rendering :where(.glass-card,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav)::after {
+        inset: .75px !important;
+        border: 1px solid rgba(255,255,255,.045) !important;
+        box-shadow: inset 0 .45px 0 rgba(255,255,255,.13), inset 0 -.5px 0 rgba(0,0,0,.07), inset .45px 0 0 var(--assistant-glass-edge-cool) !important;
+      }
+
+      body.assistant-full-glass :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card) {
+        backdrop-filter: blur(calc(var(--assistant-glass-panel-blur) + 4px)) saturate(138%) brightness(1.065) contrast(1.03) !important;
+        -webkit-backdrop-filter: blur(calc(var(--assistant-glass-panel-blur) + 4px)) saturate(138%) brightness(1.065) contrast(1.03) !important;
+      }
+
+      body.assistant-lite-motion :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav),
+      body.assistant-scrolling :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back),
+      body.assistant-interacting :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back),
+      body.keyboard-open :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card),
+      body.viewport-resizing :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card) {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      body.assistant-lite-motion :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav) {
+        background:
+          linear-gradient(145deg, rgba(255,255,255,.072), rgba(255,255,255,.014) 52%, rgba(0,0,0,.016)),
+          rgba(255,255,255,.044) !important;
+      }
+
+      body.assistant-scrolling .scene-backdrop,
+      body.assistant-scrolling .scene-backdrop::before,
+      body.assistant-scrolling .scene-backdrop::after,
+      body.assistant-interacting .scene-backdrop,
+      body.assistant-interacting .scene-backdrop::before,
+      body.assistant-interacting .scene-backdrop::after,
+      body.viewport-resizing .scene-backdrop,
+      body.viewport-resizing .scene-backdrop::before,
+      body.viewport-resizing .scene-backdrop::after {
+        animation-play-state: paused !important;
+      }
+
+      body.assistant-scrolling :where(.liquid-motion-target.liquid-pressed,.liquid-motion-target.liquid-release,.is-pressed,.is-releasing) {
         animation: none !important;
-        filter: none !important;
-        opacity: .16 !important;
+        transform: translate3d(0,0,0) scale(1) !important;
+        transition-duration: .001ms !important;
       }
 
-      body.detail-open .app-shell,
-      body.detail-open .bottom-nav,
-      body.detail-open .fab {
-        opacity: .96 !important;
+      body.assistant-lite-motion .scene-backdrop::before,
+      body.assistant-lite-motion .scene-backdrop::after,
+      body.assistant-lite-motion .ambient {
+        display: none !important;
       }
 
       body.assistant-motion-off *,
@@ -298,41 +222,108 @@
         transition-duration: .001ms !important;
         scroll-behavior: auto !important;
       }
+
+      @media (pointer: coarse), (max-width: 760px) {
+        body.stable-glass-rendering :where(.summary-chip,.record-item,.draft-card,.draft-item,textarea,input,select,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.budget-pill,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back,.account-pill,.appearance-preview,.performance-mode-option) {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+
+        body.assistant-balanced-performance :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav) {
+          backdrop-filter: blur(14px) saturate(120%) brightness(1.045) !important;
+          -webkit-backdrop-filter: blur(14px) saturate(120%) brightness(1.045) !important;
+        }
+      }
     `;
     document.head.appendChild(style);
     document.body?.classList.add('stable-glass-rendering');
   }
 
-  function boot() {
-    document.documentElement.dataset.glassStabilityReady = 'true';
-    installStableGlassStyle();
-    applyPerformanceMode();
+  function applyPerformanceMode() {
+    const selected = readSavedMode();
+    const resolved = resolveMode(selected);
+    const info = deviceInfo();
+    document.body?.classList.toggle('assistant-lite-motion', resolved === 'lite');
+    document.body?.classList.toggle('assistant-balanced-performance', resolved === 'balanced');
+    document.body?.classList.toggle('assistant-full-glass', resolved === 'full');
+    document.body?.classList.toggle('assistant-android-glass', info.isAndroid);
+    document.body?.classList.toggle('assistant-ios-glass', info.isIOS);
+    document.body?.classList.toggle('assistant-low-power-device', lowPowerDevice(info));
+    document.documentElement.dataset.performanceMode = resolved;
+    document.documentElement.dataset.performanceModeSelected = selected;
+    window.dispatchEvent(new CustomEvent('assistant-performance-change', {
+      detail: { selected, resolved, device: info },
+    }));
+  }
+
+  function markTimed(className, timeout, timerRef) {
+    document.body?.classList.add(className);
+    clearTimeout(timerRef.value);
+    timerRef.value = setTimeout(() => document.body?.classList.remove(className), timeout);
+  }
+
+  function markInteraction() {
+    markTimed('assistant-interacting', 180, { get value() { return interactionTimer; }, set value(v) { interactionTimer = v; } });
+  }
+
+  function markScroll() {
+    markTimed('assistant-scrolling', 180, { get value() { return scrollTimer; }, set value(v) { scrollTimer = v; } });
+  }
+
+  function markResize() {
+    document.body?.classList.add('viewport-resizing');
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      document.body?.classList.remove('viewport-resizing');
+      applyPerformanceMode();
+    }, 260);
+  }
+
+  function syncKeyboardState() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const keyboardOpen = viewport.height < window.innerHeight * 0.78;
+    document.body?.classList.toggle('keyboard-open', keyboardOpen);
+  }
+
+  function bindEvents() {
     window.addEventListener('storage', (event) => {
       if (event.key === PERF_KEY) applyPerformanceMode();
     });
-    window.addEventListener('resize', applyPerformanceMode, { passive: true });
-    document.addEventListener('pointerdown', markInteractiveMotion, { passive: true, capture: true });
-    document.addEventListener('touchstart', markInteractiveMotion, { passive: true, capture: true });
+    window.addEventListener('resize', markResize, { passive: true });
+    window.addEventListener('orientationchange', markResize, { passive: true });
+    window.visualViewport?.addEventListener('resize', () => {
+      syncKeyboardState();
+      markResize();
+    }, { passive: true });
+    document.addEventListener('pointerdown', markInteraction, { passive: true, capture: true });
+    document.addEventListener('pointermove', markInteraction, { passive: true, capture: true });
+    document.addEventListener('scroll', markScroll, { passive: true, capture: true });
+  }
+
+  function boot() {
+    document.documentElement.dataset.glassStabilityReady = 'true';
+    installStyle();
+    applyPerformanceMode();
+    syncKeyboardState();
+    bindEvents();
     window.AssistantPerformance = {
       key: PERF_KEY,
       modes: VALID_MODES,
-      getMode: getSavedMode,
-      getSelectedMode: getSavedMode,
-      getResolvedMode: () => resolvePerformanceMode(getSavedMode()),
-      getDeviceInfo,
+      getMode: readSavedMode,
+      getSelectedMode: readSavedMode,
+      getResolvedMode: () => resolveMode(readSavedMode()),
+      getDeviceInfo: deviceInfo,
+      isLowPower: lowPowerDevice,
+      refresh: applyPerformanceMode,
       setMode(mode = 'auto') {
         const next = VALID_MODES.includes(mode) ? mode : 'auto';
-        localStorage.setItem(PERF_KEY, next);
+        try { localStorage.setItem(PERF_KEY, next); } catch {}
         applyPerformanceMode();
       },
-      isLowPower: detectLowPowerDevice,
-      refresh: applyPerformanceMode,
     };
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot, { once: true });
-  } else {
-    boot();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else boot();
 })();

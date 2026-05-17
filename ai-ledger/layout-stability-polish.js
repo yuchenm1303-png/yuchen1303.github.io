@@ -66,14 +66,7 @@
         width: 100% !important;
         min-width: 0 !important;
         padding: 8px !important;
-        border: 1px solid rgba(255,255,255,.30) !important;
         border-radius: 26px !important;
-        background:
-          linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.04) 48%, rgba(0,0,0,.018)),
-          rgba(255,255,255,.06) !important;
-        box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.22),
-          0 10px 22px rgba(0,0,0,.10) !important;
         z-index: 6 !important;
       }
 
@@ -151,9 +144,6 @@
         width: min(90vw, 470px) !important;
         z-index: 80 !important;
         bottom: calc(12px + env(safe-area-inset-bottom)) !important;
-        background: rgba(255,255,255,.16) !important;
-        border-color: rgba(255,255,255,.26) !important;
-        box-shadow: 0 18px 40px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.22) !important;
       }
 
       .bottom-nav .nav-btn {
@@ -163,9 +153,6 @@
 
       .bottom-nav .nav-btn.active {
         color: #ffffff !important;
-        background: linear-gradient(135deg, rgba(170,205,255,.38), rgba(132,95,255,.32)) !important;
-        border: 1px solid rgba(255,255,255,.26) !important;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.30), 0 10px 24px rgba(75,90,180,.18) !important;
       }
 
       .bottom-nav .nav-btn span,

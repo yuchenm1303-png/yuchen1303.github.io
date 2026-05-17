@@ -28,9 +28,9 @@
         border-radius: inherit;
         pointer-events: none;
         background:
-          linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.038) 52%, rgba(0,0,0,.025)),
-          radial-gradient(circle at 50% -20%, rgba(255,255,255,.22), transparent 54%);
-        opacity: .62;
+          linear-gradient(180deg, rgba(255,255,255,.145), rgba(255,255,255,.022) 52%, rgba(0,0,0,.020)),
+          radial-gradient(circle at 50% -20%, rgba(255,255,255,.13), transparent 54%);
+        opacity: .46;
       }
 
       .bottom-nav .nav-btn {
@@ -69,17 +69,17 @@
       .bottom-nav .liquid-nav-indicator {
         border-radius: 18px !important;
         background:
-          radial-gradient(circle at 26% 14%, rgba(255,255,255,.48), rgba(255,255,255,.15) 34%, transparent 68%),
-          linear-gradient(135deg, rgba(92,164,196,.38), rgba(98,128,190,.26) 52%, rgba(255,255,255,.10)) !important;
+          radial-gradient(circle at 26% 14%, rgba(255,255,255,.24), rgba(255,255,255,.070) 35%, transparent 68%),
+          linear-gradient(135deg, rgba(255,255,255,.072), rgba(255,255,255,.016) 52%, rgba(255,255,255,.046)) !important;
         box-shadow:
-          inset 0 1px 0 rgba(255,255,255,.44),
-          inset 0 -1px 0 rgba(0,0,0,.08),
-          0 8px 18px rgba(14,101,128,.13) !important;
+          inset 0 1px 0 rgba(255,255,255,.22),
+          inset 0 -1px 0 rgba(0,0,0,.07),
+          0 8px 18px rgba(0,0,0,.10) !important;
       }
 
       @media (hover:hover) {
         .bottom-nav .nav-btn:not(.active):hover {
-          background: rgba(255,255,255,.10) !important;
+          background: rgba(255,255,255,.035) !important;
         }
       }
 
@@ -109,8 +109,8 @@
       }
 
       :where(.chat-row,.record-item,.draft-card,.draft-item,.tool-card,.settings-group-card,.tools-panel-card,.appearance-plus-card) {
-        content-visibility: auto;
-        contain-intrinsic-size: 180px;
+        content-visibility: visible;
+        contain-intrinsic-size: auto;
         backface-visibility: hidden;
         transform-style: flat;
       }

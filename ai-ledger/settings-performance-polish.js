@@ -20,8 +20,8 @@
       }
 
       #view-settings{
-        content-visibility:auto;
-        contain-intrinsic-size: 900px;
+        content-visibility:visible;
+        contain-intrinsic-size:auto;
       }
 
       .settings-group-list{
@@ -32,7 +32,7 @@
       .settings-group-card{
         transform:translate3d(0,0,0);
         backface-visibility:hidden;
-        will-change:transform;
+        will-change:auto;
         contain:layout paint style;
       }
 
@@ -43,9 +43,9 @@
 
       .settings-group-detail{
         isolation:isolate;
-        touch-action:none;
-        contain:strict;
-        will-change:opacity;
+        touch-action:pan-y;
+        contain:layout paint style;
+        will-change:auto;
       }
 
       .settings-group-detail.open{
@@ -59,10 +59,10 @@
       .settings-group-sheet{
         transform:translate3d(0,18px,0) scale(.985)!important;
         opacity:.001!important;
-        will-change:transform,opacity;
+        will-change:auto;
         contain:layout paint style;
-        content-visibility:auto;
-        contain-intrinsic-size: 620px;
+        content-visibility:visible;
+        contain-intrinsic-size:auto;
         transform-origin:50% 100%;
         overscroll-behavior:contain;
       }
@@ -71,6 +71,7 @@
       .settings-group-detail.open.content-ready .settings-group-sheet{
         transform:translate3d(0,0,0) scale(1)!important;
         opacity:1!important;
+        will-change:transform,opacity;
         transition:transform var(--settings-open-duration) var(--settings-ease-out), opacity 115ms ease!important;
       }
 
