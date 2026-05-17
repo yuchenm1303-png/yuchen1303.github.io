@@ -2,7 +2,42 @@
 
 目标：把当前 `ai-ledger/` 里的 WebView 主界面逐步迁到 Android 原生 Compose，让 WebView 从“主渲染层”退回到“备用/网页内容展示层”。
 
-## 为什么现在卡顿变化不明显
+## 当前状态
+
+Compose 原生界面已经跑通，并开始迁入真实原生逻辑。
+
+已经完成：
+
+```text
+android-compose/app/src/main/java/com/yuchen/ailedger/MainActivity.kt
+原生主界面、聊天页、输入框、底部导航、功能页、设置页入口。
+
+android-compose/app/src/main/java/com/yuchen/ailedger/model/AppTab.kt
+底部导航模型。
+
+android-compose/app/src/main/java/com/yuchen/ailedger/model/AssistantModels.kt
+聊天消息、动作卡片、记账草稿模型。
+
+android-compose/app/src/main/java/com/yuchen/ailedger/logic/CommandRouter.kt
+从网页 JS 迁来的第一版 Kotlin 本地命令识别。
+
+android-compose/app/src/main/java/com/yuchen/ailedger/android/AndroidActionExecutor.kt
+设置闹钟、导航、打开 App 的 Android Intent 执行框架。
+```
+
+现在可以测试的原生输入：
+
+```text
+明天早上8点叫我起床
+导航回家
+打开微信
+打开支付宝
+今天午饭28
+今天奶茶12
+工资到账300
+```
+
+## 为什么之前卡顿变化不明显
 
 当前网页版本的性能瓶颈主要来自：
 
@@ -19,7 +54,7 @@ MutationObserver 反复扫描新增节点
 
 ## 阶段 1：原生主框架
 
-状态：已开始。
+状态：基本完成，后续需要拆分文件和进一步打磨 UI。
 
 对应文件：
 
@@ -27,7 +62,7 @@ MutationObserver 反复扫描新增节点
 android-compose/app/src/main/java/com/yuchen/ailedger/MainActivity.kt
 ```
 
-目标：
+已完成：
 
 ```text
 原生底部导航
@@ -48,6 +83,8 @@ android-compose/app/src/main/java/com/yuchen/ailedger/MainActivity.kt
 
 ## 阶段 2：聊天逻辑迁移
 
+状态：第一版本地命令路由已完成。
+
 网页来源：
 
 ```text
@@ -66,17 +103,26 @@ CommandRouter
 AssistantRepository
 ```
 
-迁移顺序：
+当前已迁：
 
 ```text
-1. 消息列表状态
-2. 本地意图识别
-3. 记账草稿卡片
-4. 云端 AI 请求
-5. 手机动作卡片
+1. 消息列表状态：已在 Compose 中实现，下一步移入 ChatViewModel
+2. 本地意图识别：已迁到 CommandRouter.kt
+3. 手机动作卡片：已在 Compose 聊天气泡下展示
+4. 执行动作按钮：已接 AndroidActionExecutor.kt
+```
+
+下一步：
+
+```text
+1. 把消息状态从 MainActivity.kt 移到 ChatViewModel
+2. 把云端 AI 请求迁到 Kotlin AssistantRepository
+3. 把聊天记录持久化到 DataStore 或 Room
 ```
 
 ## 阶段 3：手机能力迁移
+
+状态：第一版 Intent 框架已完成。
 
 网页来源：
 
@@ -95,16 +141,26 @@ OpenAppIntentHandler
 PhonePreferenceStore
 ```
 
-优先级：
+当前已迁：
 
 ```text
-1. 设置闹钟 / 提醒
-2. 导航回家
-3. 打开微信、支付宝等常用 App
-4. 后续再做更高权限的系统控制
+1. 设置闹钟 / 提醒：已接 AlarmClock.ACTION_SET_ALARM
+2. 导航回家：已接 geo Intent，后续接家庭地址偏好
+3. 打开微信、支付宝等常用 App：已接包名映射和启动 Intent
+```
+
+下一步：
+
+```text
+1. 设置页添加家庭地址
+2. 设置页添加默认地图
+3. 支持更多常用 App 包名
+4. 增加失败提示和权限引导
 ```
 
 ## 阶段 4：账单与数据
+
+状态：下一批重点。
 
 网页来源：
 
@@ -134,6 +190,8 @@ LedgerViewModel
 ```
 
 ## 阶段 5：设置页迁移
+
+状态：已有静态入口，未接真实数据。
 
 网页来源：
 
@@ -170,7 +228,7 @@ WebView 不再承担主界面渲染。
 
 ## 建议的文件拆分
 
-当前为了便于快速启动，代码先集中在 `MainActivity.kt`。后续稳定后建议拆成：
+当前为了便于快速启动，UI 还集中在 `MainActivity.kt`。后续稳定后建议拆成：
 
 ```text
 ui/
@@ -196,10 +254,10 @@ android/
 ## 近期最优先任务
 
 ```text
-1. 确认 android-compose 工程可运行
-2. 拆出 ChatScreen
+1. 重新跑 GitHub Actions 生成 0.2.0-native-router APK
+2. 手机实测：闹钟、导航、打开微信、记账草稿
 3. 加 ChatViewModel
-4. 把本地命令识别从 JS 迁到 Kotlin
-5. 加旧 WebView 备用入口
-6. 接第一个真实手机动作：设置闹钟
+4. 加 Room 数据库
+5. 把记账草稿的“确认记账”接入本地保存
+6. 接云端 AI 接口
 ```
