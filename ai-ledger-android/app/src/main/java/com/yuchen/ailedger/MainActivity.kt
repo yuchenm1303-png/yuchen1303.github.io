@@ -29,7 +29,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -39,7 +38,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -47,7 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +55,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -125,24 +121,14 @@ class MainActivity : ComponentActivity() {
             settings.builtInZoomControls = false
             settings.displayZoomControls = false
 
-            addJavascriptInterface(
-                AiLedgerNativeBridge(
-                    activity = activity,
-                    onGlassMode = onGlassMode,
-                    onHaptic = ::performNativeHaptic,
-                    onOpenView = ::openWebView,
-                ),
-                "AiLedgerNative",
+            val bridge = AiLedgerNativeBridge(
+                activity = activity,
+                onGlassMode = onGlassMode,
+                onHaptic = ::performNativeHaptic,
+                onOpenView = ::openWebView,
             )
-            addJavascriptInterface(
-                AiLedgerNativeBridge(
-                    activity = activity,
-                    onGlassMode = onGlassMode,
-                    onHaptic = ::performNativeHaptic,
-                    onOpenView = ::openWebView,
-                ),
-                "AiLedgerAndroid",
-            )
+            addJavascriptInterface(bridge, "AiLedgerNative")
+            addJavascriptInterface(bridge, "AiLedgerAndroid")
 
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -151,7 +137,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageFinished(view: WebView, url: String) {
                     super.onPageFinished(view, url)
-                    injectNativeShellCss(view)
+                    injectNativeShellBootstrap(view)
                     openWebView("ai")
                 }
             }
@@ -160,7 +146,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun injectNativeShellCss(view: WebView) {
+    private fun injectNativeShellBootstrap(view: WebView) {
         view.evaluateJavascript(
             """
             (() => {
@@ -175,10 +161,27 @@ class MainActivity : ComponentActivity() {
                   .native-shell body { background: transparent !important; }
                   .native-shell .app-shell { padding-bottom: 18px !important; }
                   .native-shell .view { padding-bottom: 18px !important; }
+                  .native-shell .scene-backdrop,
+                  .native-shell .ambient { pointer-events: none !important; }
                 `;
                 document.head.appendChild(style);
               }
-              window.AiLedgerNativeBridge?.notifyReady?.();
+
+              const notify = () => window.AiLedgerNativeBridge?.notifyReady?.();
+              if (window.AiLedgerNativeBridge) {
+                notify();
+                return;
+              }
+
+              const scriptId = 'ai-ledger-native-bridge-loader';
+              if (!document.getElementById(scriptId)) {
+                const script = document.createElement('script');
+                script.id = scriptId;
+                script.src = './native-bridge.js?v=20260517-1';
+                script.onload = notify;
+                script.onerror = () => console.warn('[native-shell] native-bridge.js load failed');
+                document.head.appendChild(script);
+              }
             })();
             """.trimIndent(),
             null,
