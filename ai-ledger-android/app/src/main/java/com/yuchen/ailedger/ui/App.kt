@@ -62,7 +62,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
                 )
             }
         }
