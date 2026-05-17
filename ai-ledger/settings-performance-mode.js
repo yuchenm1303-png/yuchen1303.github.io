@@ -4,11 +4,14 @@
   const STYLE_ID = 'settings-performance-mode-style';
   const PANEL_ID = 'glassPerformancePanel';
   const PERF_KEY = 'ai-assistant-performance-mode-v1';
+  const PERF_VERSION_KEY = 'ai-assistant-performance-mode-version-v1';
+  const PERF_VERSION = '2';
   const MODES = [
-    { id: 'auto', label: '自动', desc: '根据安卓 WebView、内存、CPU 核心数、屏幕宽度和交互状态自动选择。' },
-    { id: 'lite', label: '流畅', desc: '关闭大部分实时模糊和背景动效，优先解决卡顿、闪烁和黑块。' },
-    { id: 'balanced', label: '平衡', desc: '保留主要玻璃质感，输入法、弹窗、点击瞬间自动降级。' },
-    { id: 'full', label: '画质', desc: '尽量保留更强液态玻璃效果，适合性能较好的手机。' },
+    { id: 'auto', label: '自动推荐', desc: '优先流畅：安卓 WebView 默认偏保守，性能足够时再保留玻璃。' },
+    { id: 'lite', label: '极速', desc: '关闭实时模糊、导航高光和背景动效，优先解决明显卡顿。' },
+    { id: 'balanced', label: '流畅玻璃', desc: '保留轻量玻璃和清晰文字，滚动时自动降级，推荐日常使用。' },
+    { id: 'quality', label: '精致玻璃', desc: '比流畅档更透明、更细腻，但控制动画和模糊强度。' },
+    { id: 'full', label: '高画质 beta', desc: '保留最强液态玻璃和动态效果，适合作为测试档。' },
   ];
 
   function getPerformance() {
@@ -17,8 +20,15 @@
 
   function readMode() {
     try {
-      const mode = localStorage.getItem(PERF_KEY) || 'auto';
-      return MODES.some((item) => item.id === mode) ? mode : 'auto';
+      const savedVersion = localStorage.getItem(PERF_VERSION_KEY);
+      let mode = localStorage.getItem(PERF_KEY) || 'auto';
+      mode = MODES.some((item) => item.id === mode) ? mode : 'auto';
+      if (savedVersion !== PERF_VERSION) {
+        if (mode === 'full') mode = 'balanced';
+        localStorage.setItem(PERF_KEY, mode);
+        localStorage.setItem(PERF_VERSION_KEY, PERF_VERSION);
+      }
+      return mode;
     } catch {
       return 'auto';
     }
@@ -32,7 +42,7 @@
     const cores = info.cores ? `${info.cores} 核` : 'CPU 核心未知';
     const platform = info.isAndroid ? '安卓 WebView' : '当前浏览器';
     const width = info.minWidth ? `窄边 ${info.minWidth}px` : '宽度未知';
-    const names = { lite: '流畅', balanced: '平衡', full: '画质' };
+    const names = { lite: '极速', balanced: '流畅玻璃', quality: '精致玻璃', full: '高画质 beta' };
     return `${platform} · ${memory} · ${cores} · ${width} · 当前生效：${names[resolved] || resolved}`;
   }
 
@@ -93,6 +103,20 @@
         box-shadow: 0 8px 18px rgba(0,0,0,.12), inset 0 .7px 0 rgba(255,255,255,.30);
       }
 
+      .performance-mode-option[data-performance-mode="full"] strong::after {
+        content: "测试";
+        display: inline-flex;
+        margin-left: 6px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.16);
+        color: rgba(255,255,255,.76);
+        background: rgba(255,255,255,.06);
+        font-size: 10px;
+        line-height: 1;
+        vertical-align: middle;
+      }
+
       .performance-device-hint {
         padding: 10px 12px;
         border-radius: 16px;
@@ -122,7 +146,10 @@
     const perf = getPerformance();
     if (perf?.setMode) perf.setMode(mode);
     else {
-      try { localStorage.setItem(PERF_KEY, mode); } catch {}
+      try {
+        localStorage.setItem(PERF_KEY, mode);
+        localStorage.setItem(PERF_VERSION_KEY, PERF_VERSION);
+      } catch {}
       document.documentElement.dataset.performanceModeSelected = mode;
     }
     setActive(mode);
@@ -140,7 +167,7 @@
     const html = `
       <section id="${PANEL_ID}" class="glass-card appearance-plus-card" data-settings-group-target="display">
         <div class="section-head"><h2>玻璃性能模式</h2></div>
-        <p class="performance-mode-desc">默认建议用“自动”。它会根据安卓 WebView、内存、CPU 核心数、屏幕尺寸和当前交互状态自动切换性能策略；也可以手动锁定某一档。</p>
+        <p class="performance-mode-desc">默认建议用“自动推荐”或“流畅玻璃”。高画质 beta 保留最强视觉效果，主要用来测试，不建议作为卡顿设备的日常档位。</p>
         <div class="performance-mode-grid">
           ${MODES.map((item) => `
             <button class="performance-mode-option" type="button" data-performance-mode="${item.id}">

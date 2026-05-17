@@ -3,15 +3,24 @@
 
   const STYLE_ID = 'glass-stability-style';
   const PERF_KEY = 'ai-assistant-performance-mode-v1';
-  const VALID_MODES = ['auto', 'lite', 'balanced', 'full'];
+  const PERF_VERSION_KEY = 'ai-assistant-performance-mode-version-v1';
+  const PERF_VERSION = '2';
+  const VALID_MODES = ['auto', 'lite', 'balanced', 'quality', 'full'];
   let interactionTimer = 0;
   let scrollTimer = 0;
   let resizeTimer = 0;
 
   function readSavedMode() {
     try {
-      const mode = localStorage.getItem(PERF_KEY) || 'auto';
-      return VALID_MODES.includes(mode) ? mode : 'auto';
+      const savedVersion = localStorage.getItem(PERF_VERSION_KEY);
+      let mode = localStorage.getItem(PERF_KEY) || 'auto';
+      mode = VALID_MODES.includes(mode) ? mode : 'auto';
+      if (savedVersion !== PERF_VERSION) {
+        if (mode === 'full') mode = 'balanced';
+        localStorage.setItem(PERF_KEY, mode);
+        localStorage.setItem(PERF_VERSION_KEY, PERF_VERSION);
+      }
+      return mode;
     } catch {
       return 'auto';
     }
@@ -34,13 +43,14 @@
       info.webView ||
       (info.memory && info.memory <= 4) ||
       (info.cores && info.cores <= 4) ||
-      info.minWidth <= 390
+      info.minWidth <= 480 ||
+      info.touch
     );
   }
 
   function resolveMode(selected = readSavedMode()) {
-    if (selected === 'lite' || selected === 'balanced' || selected === 'full') return selected;
-    return lowPowerDevice() ? 'balanced' : 'full';
+    if (selected === 'lite' || selected === 'balanced' || selected === 'quality' || selected === 'full') return selected;
+    return lowPowerDevice() ? 'lite' : 'balanced';
   }
 
   function installStyle() {
@@ -54,9 +64,9 @@
         --assistant-glass-nav-alpha: .028;
         --assistant-glass-selected-alpha: .048;
         --assistant-glass-preview-alpha: .030;
-        --assistant-glass-panel-blur: 18px;
-        --assistant-glass-control-blur: 8px;
-        --assistant-glass-nav-blur: 16px;
+        --assistant-glass-panel-blur: 12px;
+        --assistant-glass-control-blur: 0px;
+        --assistant-glass-nav-blur: 10px;
         --assistant-glass-edge: rgba(255,255,255,.18);
         --assistant-glass-edge-strong: rgba(255,255,255,.34);
         --assistant-glass-edge-cool: rgba(170,216,255,.10);
@@ -170,12 +180,45 @@
         box-shadow: inset 0 .45px 0 rgba(255,255,255,.13), inset 0 -.5px 0 rgba(0,0,0,.07), inset .45px 0 0 var(--assistant-glass-edge-cool) !important;
       }
 
+      body.assistant-balanced-performance :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card) {
+        backdrop-filter: blur(8px) saturate(112%) brightness(1.035) !important;
+        -webkit-backdrop-filter: blur(8px) saturate(112%) brightness(1.035) !important;
+      }
+
+      body.assistant-balanced-performance .bottom-nav {
+        backdrop-filter: blur(8px) saturate(112%) brightness(1.035) !important;
+        -webkit-backdrop-filter: blur(8px) saturate(112%) brightness(1.035) !important;
+      }
+
+      body.assistant-balanced-performance :where(.summary-chip,.record-item,.draft-card,.draft-item,.chat-composer,textarea,input,select,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.budget-pill,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back,.account-pill,.appearance-preview,.performance-mode-option),
+      body.assistant-quality-performance :where(.summary-chip,.record-item,.draft-card,.draft-item,.chat-composer,textarea,input,select,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.budget-pill,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back,.account-pill,.appearance-preview,.performance-mode-option) {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      body.assistant-balanced-performance .scene-backdrop,
+      body.assistant-balanced-performance .scene-backdrop::before,
+      body.assistant-balanced-performance .scene-backdrop::after {
+        animation: none !important;
+      }
+
+      body.assistant-quality-performance :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card) {
+        backdrop-filter: blur(12px) saturate(122%) brightness(1.045) contrast(1.012) !important;
+        -webkit-backdrop-filter: blur(12px) saturate(122%) brightness(1.045) contrast(1.012) !important;
+      }
+
+      body.assistant-quality-performance .bottom-nav {
+        backdrop-filter: blur(10px) saturate(120%) brightness(1.045) !important;
+        -webkit-backdrop-filter: blur(10px) saturate(120%) brightness(1.045) !important;
+      }
+
       body.assistant-full-glass :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card) {
         backdrop-filter: blur(calc(var(--assistant-glass-panel-blur) + 4px)) saturate(138%) brightness(1.065) contrast(1.03) !important;
         -webkit-backdrop-filter: blur(calc(var(--assistant-glass-panel-blur) + 4px)) saturate(138%) brightness(1.065) contrast(1.03) !important;
       }
 
       body.assistant-lite-motion :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav),
+      body.assistant-scrolling:not(.assistant-full-glass) :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav),
       body.assistant-scrolling :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back),
       body.assistant-interacting :where(.summary-chip,.record-item,.draft-card,.draft-item,.tag-btn,.range-chip,.ghost-btn,.mini-ghost-btn,.summary-box,.auth-tab,.icon-btn,.delete-btn,.chat-row.assistant .chat-bubble,.tools-back),
       body.keyboard-open :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card),
@@ -210,7 +253,8 @@
 
       body.assistant-lite-motion .scene-backdrop::before,
       body.assistant-lite-motion .scene-backdrop::after,
-      body.assistant-lite-motion .ambient {
+      body.assistant-lite-motion .ambient,
+      body.assistant-lite-motion .liquid-nav-indicator {
         display: none !important;
       }
 
@@ -230,8 +274,13 @@
         }
 
         body.assistant-balanced-performance :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav) {
-          backdrop-filter: blur(14px) saturate(120%) brightness(1.045) !important;
-          -webkit-backdrop-filter: blur(14px) saturate(120%) brightness(1.045) !important;
+          backdrop-filter: blur(7px) saturate(110%) brightness(1.035) !important;
+          -webkit-backdrop-filter: blur(7px) saturate(110%) brightness(1.035) !important;
+        }
+
+        body.assistant-quality-performance :where(.glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card,.tools-panel-card,.account-row,.settings-group-sheet,.settings-group-card,.bottom-nav) {
+          backdrop-filter: blur(10px) saturate(116%) brightness(1.04) !important;
+          -webkit-backdrop-filter: blur(10px) saturate(116%) brightness(1.04) !important;
         }
       }
     `;
@@ -245,6 +294,7 @@
     const info = deviceInfo();
     document.body?.classList.toggle('assistant-lite-motion', resolved === 'lite');
     document.body?.classList.toggle('assistant-balanced-performance', resolved === 'balanced');
+    document.body?.classList.toggle('assistant-quality-performance', resolved === 'quality');
     document.body?.classList.toggle('assistant-full-glass', resolved === 'full');
     document.body?.classList.toggle('assistant-android-glass', info.isAndroid);
     document.body?.classList.toggle('assistant-ios-glass', info.isIOS);
@@ -318,7 +368,10 @@
       refresh: applyPerformanceMode,
       setMode(mode = 'auto') {
         const next = VALID_MODES.includes(mode) ? mode : 'auto';
-        try { localStorage.setItem(PERF_KEY, next); } catch {}
+        try {
+          localStorage.setItem(PERF_KEY, next);
+          localStorage.setItem(PERF_VERSION_KEY, PERF_VERSION);
+        } catch {}
         applyPerformanceMode();
       },
     };

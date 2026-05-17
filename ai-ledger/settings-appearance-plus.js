@@ -4,14 +4,14 @@
   const SETTINGS_KEY = "ai-assistant-appearance-plus-v1";
   const STYLE_ID = "appearance-plus-style";
   const PANEL_ID = "appearancePlusPanel";
-  const SETTINGS_VERSION = 5;
+  const SETTINGS_VERSION = 6;
 
   const DEFAULTS = {
     version: SETTINGS_VERSION,
     language: "zh-CN",
     fontScale: "normal",
     glassOpacity: 0,
-    glassBlur: 18,
+    glassBlur: 12,
     motion: "on",
     compact: "off",
   };
@@ -197,9 +197,9 @@
         --assistant-glass-nav-alpha:.028;
         --assistant-glass-selected-alpha:.048;
         --assistant-glass-preview-alpha:.030;
-        --assistant-glass-panel-blur:18px;
-        --assistant-glass-control-blur:11px;
-        --assistant-glass-nav-blur:14px;
+        --assistant-glass-panel-blur:12px;
+        --assistant-glass-control-blur:7px;
+        --assistant-glass-nav-blur:9px;
       }
       body{font-size:calc(16px * var(--assistant-font-scale));}
       .glass-card,.chat-shell,.summary-card,.metric-card,.chart-card,.tool-card,.auth-sheet,.mobile-command-card{
