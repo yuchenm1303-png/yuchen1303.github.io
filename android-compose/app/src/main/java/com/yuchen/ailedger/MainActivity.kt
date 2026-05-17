@@ -4,12 +4,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -35,13 +44,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -60,8 +64,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -91,10 +98,10 @@ class MainActivity : ComponentActivity() {
 private fun AiLedgerTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            background = Color(0xFF071326),
-            surface = Color(0x141E2A44),
-            primary = Color(0xFF8FD8FF),
-            onPrimary = Color(0xFF071326),
+            background = DeepNavy,
+            surface = GlassSurface,
+            primary = LiquidBlue,
+            onPrimary = InkDark,
             onBackground = Color(0xFFF7FAFF),
             onSurface = Color(0xFFF7FAFF)
         ),
@@ -107,31 +114,14 @@ private fun AiLedgerComposeApp() {
     var currentTabName by rememberSaveable { mutableStateOf(AppTab.Chat.name) }
     val currentTab = AppTab.valueOf(currentTabName)
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackgroundBrush)
-    ) {
-        AmbientCircle(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 54.dp, end = 24.dp),
-            size = 190.dp,
-            color = Color(0x557BCFFF)
-        )
-        AmbientCircle(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, bottom = 130.dp),
-            size = 220.dp,
-            color = Color(0x4466E6D0)
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        LiquidBackdrop()
 
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                GlassBottomBar(
+                LiquidBottomBar(
                     currentTab = currentTab,
                     onTabSelected = { currentTabName = it.name }
                 )
@@ -146,20 +136,20 @@ private fun AiLedgerComposeApp() {
             ) {
                 AnimatedVisibility(
                     visible = currentTab == AppTab.Chat,
-                    enter = fadeIn() + scaleIn(initialScale = 0.98f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.98f)
+                    enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.985f),
+                    exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.985f)
                 ) { ChatScreen() }
 
                 AnimatedVisibility(
                     visible = currentTab == AppTab.Tools,
-                    enter = fadeIn() + scaleIn(initialScale = 0.98f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.98f)
+                    enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.985f),
+                    exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.985f)
                 ) { ToolsScreen() }
 
                 AnimatedVisibility(
                     visible = currentTab == AppTab.Settings,
-                    enter = fadeIn() + scaleIn(initialScale = 0.98f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.98f)
+                    enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.985f),
+                    exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.985f)
                 ) { SettingsScreen() }
             }
         }
@@ -175,8 +165,8 @@ private fun ChatScreen() {
             ChatMessage(
                 id = 1L,
                 role = MessageRole.Assistant,
-                content = "你好，我是原生 Compose 版 AI 助手。现在聊天、输入框、底部导航已经从 WebView 迁出来了。你可以试试：明天八点叫我起床、导航回家、打开微信、今天午饭28。",
-                actionHint = "compose_native"
+                content = "你好，我是原生 Compose 版 AI 助手。现在界面正在迁成液态玻璃风格，聊天、输入框、底部导航和动作卡片都已经脱离 WebView。",
+                actionHint = "compose_liquid_glass"
             )
         )
     }
@@ -184,9 +174,7 @@ private fun ChatScreen() {
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
-        }
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
     Column(
@@ -198,14 +186,16 @@ private fun ChatScreen() {
         PageHeader(
             eyebrow = "AI多功能助手",
             title = "对话",
-            subtitle = "原生 Compose 聊天页 · Kotlin 命令路由"
+            subtitle = "原生 Compose · 液态玻璃界面"
         )
 
-        GlassCard(
+        LiquidGlassCard(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            padding = PaddingValues(12.dp)
+            corner = 34.dp,
+            padding = PaddingValues(12.dp),
+            tint = Color(0xFFBFD8FF).copy(alpha = 0.055f)
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -226,9 +216,9 @@ private fun ChatScreen() {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            QuickChip("设提醒") { input = "明天早上8点叫我起床" }
-            QuickChip("导航回家") { input = "导航回家" }
-            QuickChip("记一笔") { input = "今天午饭28" }
+            LiquidChip("设提醒") { input = "明天早上8点叫我起床" }
+            LiquidChip("导航回家") { input = "导航回家" }
+            LiquidChip("记一笔") { input = "今天午饭28" }
         }
 
         ChatComposer(
@@ -265,7 +255,7 @@ private fun ToolsScreen() {
             subtitle = "原生功能入口，逐步替代网页工具页"
         )
 
-        GlassCard(padding = PaddingValues(14.dp)) {
+        LiquidGlassCard(padding = PaddingValues(14.dp), corner = 30.dp) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToolRow("▤", "账单中心", "下一步接 Room 数据库，迁移记录列表、分类和导出 JSON。")
                 ToolRow("▣", "数据统计", "后续用 Compose Canvas 或图表库替代网页 canvas。")
@@ -275,9 +265,9 @@ private fun ToolsScreen() {
             }
         }
 
-        GlassCard(padding = PaddingValues(14.dp)) {
+        LiquidGlassCard(padding = PaddingValues(14.dp), corner = 28.dp, tint = Color(0xFF7DE8D4).copy(alpha = 0.05f)) {
             Text(
-                text = "迁移原则：先把高频路径原生化，低频设置页可以慢慢搬。WebView 后续只保留为旧版备用入口。",
+                text = "迁移原则：原生主界面负责高频交互，旧 WebView 后续只保留为调试/兼容入口。液态玻璃使用轻量渐变模拟，不再走 WebView 的重度 backdrop-filter。",
                 color = SoftText,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
@@ -314,15 +304,15 @@ private fun PageHeader(eyebrow: String, title: String, subtitle: String) {
     ) {
         Text(
             text = eyebrow,
-            color = Color(0xFF8FD8FF),
+            color = LiquidBlue,
             fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             letterSpacing = 1.sp
         )
         Text(
             text = title,
             color = Color.White,
-            fontSize = 34.sp,
+            fontSize = 36.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -332,36 +322,6 @@ private fun PageHeader(eyebrow: String, title: String, subtitle: String) {
             color = SoftText,
             fontSize = 14.sp
         )
-    }
-}
-
-@Composable
-private fun GlassCard(
-    modifier: Modifier = Modifier,
-    padding: PaddingValues = PaddingValues(16.dp),
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.10f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.13f),
-                            Color.White.copy(alpha = 0.04f),
-                            Color.Black.copy(alpha = 0.04f)
-                        )
-                    )
-                )
-                .padding(padding)
-        ) {
-            content()
-        }
     }
 }
 
@@ -379,22 +339,39 @@ private fun MessageBubble(
             modifier = Modifier.fillMaxWidth(if (isUser) 0.82f else 0.88f),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
-            Surface(
-                color = if (isUser) Color(0xFF8FD8FF) else Color.White.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(
-                    topStart = 22.dp,
-                    topEnd = 22.dp,
-                    bottomStart = if (isUser) 22.dp else 8.dp,
-                    bottomEnd = if (isUser) 8.dp else 22.dp
-                )
-            ) {
-                Text(
-                    text = message.content,
-                    color = if (isUser) Color(0xFF061428) else Color.White,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp
-                )
+            if (isUser) {
+                Surface(
+                    color = LiquidBlue,
+                    shape = RoundedCornerShape(
+                        topStart = 22.dp,
+                        topEnd = 22.dp,
+                        bottomStart = 22.dp,
+                        bottomEnd = 8.dp
+                    ),
+                    shadowElevation = 2.dp
+                ) {
+                    Text(
+                        text = message.content,
+                        color = InkDark,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 22.sp
+                    )
+                }
+            } else {
+                LiquidGlassCard(
+                    corner = 24.dp,
+                    padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    tint = Color.White.copy(alpha = 0.04f)
+                ) {
+                    Text(
+                        text = message.content,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        lineHeight = 23.sp
+                    )
+                }
             }
 
             message.command?.let { command ->
@@ -403,10 +380,10 @@ private fun MessageBubble(
             }
 
             if (!message.actionHint.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     text = "来源：${message.actionHint}",
-                    color = SoftText.copy(alpha = 0.72f),
+                    color = SoftText.copy(alpha = 0.66f),
                     fontSize = 11.sp,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
@@ -417,23 +394,16 @@ private fun MessageBubble(
 
 @Composable
 private fun CommandCard(command: AssistantCommand, onExecute: () -> Unit) {
-    GlassCard(
+    LiquidGlassCard(
         modifier = Modifier.fillMaxWidth(),
-        padding = PaddingValues(12.dp)
+        padding = PaddingValues(12.dp),
+        corner = 24.dp,
+        tint = Color(0xFF8FD8FF).copy(alpha = 0.07f)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(command.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
             Text(command.description, color = SoftText, fontSize = 13.sp, lineHeight = 19.sp)
-            Button(
-                onClick = onExecute,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF8FD8FF),
-                    contentColor = Color(0xFF061428)
-                )
-            ) {
-                Text(command.primaryActionLabel, fontWeight = FontWeight.Black)
-            }
+            LiquidActionButton(text = command.primaryActionLabel, onClick = onExecute)
         }
     }
 }
@@ -445,7 +415,7 @@ private fun ChatComposer(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    GlassCard(padding = PaddingValues(8.dp)) {
+    LiquidGlassCard(padding = PaddingValues(8.dp), corner = 30.dp, tint = Color.White.copy(alpha = 0.045f)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -455,10 +425,10 @@ private fun ChatComposer(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("和我说点什么", color = SoftText) },
+                placeholder = { Text("和我说点什么", color = SoftText.copy(alpha = 0.72f)) },
                 minLines = 1,
                 maxLines = 4,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
@@ -466,43 +436,41 @@ private fun ChatComposer(
                     unfocusedBorderColor = Color.Transparent,
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
-                    cursorColor = Color(0xFF8FD8FF)
+                    cursorColor = LiquidBlue
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() })
             )
-            Button(
-                onClick = onSend,
-                modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(18.dp),
-                contentPadding = PaddingValues(0.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF8FD8FF),
-                    contentColor = Color(0xFF061428)
-                )
-            ) {
-                Text("➤", fontSize = 19.sp, fontWeight = FontWeight.Black)
-            }
+            LiquidSendButton(onClick = onSend)
         }
     }
 }
 
 @Composable
-private fun QuickChip(text: String, onClick: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick),
-        color = Color.White.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(999.dp)
-    ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)
-        )
+private fun LiquidChip(text: String, onClick: () -> Unit) {
+    LiquidPressable(onClick = onClick) { pressed ->
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = if (pressed) 0.965f else 1f
+                    scaleY = if (pressed) 0.965f else 1f
+                }
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.18f),
+                            Color.White.copy(alpha = 0.08f),
+                            Color(0xFF7DE8D4).copy(alpha = 0.08f)
+                        )
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 15.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
@@ -512,15 +480,7 @@ private fun ToolRow(icon: String, title: String, desc: String) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(icon, fontSize = 21.sp)
-        }
+        LiquidIconBox(icon)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
@@ -531,88 +491,317 @@ private fun ToolRow(icon: String, title: String, desc: String) {
 
 @Composable
 private fun SettingGroup(icon: String, title: String, desc: String) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        padding = PaddingValues(14.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(icon, fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color.White)
+    LiquidPressable(onClick = {}) { pressed ->
+        LiquidGlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = if (pressed) 0.992f else 1f
+                    scaleY = if (pressed) 0.992f else 1f
+                },
+            padding = PaddingValues(14.dp),
+            corner = 27.dp,
+            tint = Color.White.copy(alpha = 0.045f)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LiquidIconBox(icon)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text(desc, color = SoftText, fontSize = 13.sp, lineHeight = 18.sp)
+                }
+                Text("›", color = SoftText, fontSize = 30.sp)
             }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                Text(desc, color = SoftText, fontSize = 13.sp, lineHeight = 18.sp)
-            }
-            Text("›", color = SoftText, fontSize = 30.sp)
         }
     }
 }
 
 @Composable
-private fun GlassBottomBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
-    NavigationBar(
+private fun LiquidBottomBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
+    LiquidGlassCard(
         modifier = Modifier
             .navigationBarsPadding()
             .padding(horizontal = 18.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(30.dp)),
-        containerColor = Color.White.copy(alpha = 0.13f),
-        tonalElevation = 0.dp
+            .fillMaxWidth(),
+        corner = 34.dp,
+        padding = PaddingValues(8.dp),
+        tint = Color.White.copy(alpha = 0.065f)
     ) {
-        AppTab.entries.forEach { tab ->
-            NavigationBarItem(
-                selected = currentTab == tab,
-                onClick = { onTabSelected(tab) },
-                icon = {
-                    Text(
-                        text = tab.icon,
-                        color = if (currentTab == tab) Color(0xFF061428) else Color.White.copy(alpha = 0.70f),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                },
-                label = {
-                    Text(
-                        text = tab.label,
-                        maxLines = 1,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFF061428),
-                    selectedTextColor = Color(0xFF061428),
-                    unselectedIconColor = Color.White.copy(alpha = 0.70f),
-                    unselectedTextColor = Color.White.copy(alpha = 0.70f),
-                    indicatorColor = Color(0xFF8FD8FF)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppTab.entries.forEach { tab ->
+                LiquidNavItem(
+                    modifier = Modifier.weight(1f),
+                    tab = tab,
+                    selected = currentTab == tab,
+                    onClick = { onTabSelected(tab) }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiquidNavItem(
+    modifier: Modifier,
+    tab: AppTab,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    LiquidPressable(onClick = onClick) { pressed ->
+        val shape = RoundedCornerShape(25.dp)
+        Column(
+            modifier = modifier
+                .height(58.dp)
+                .graphicsLayer {
+                    scaleX = if (pressed) 0.965f else 1f
+                    scaleY = if (pressed) 0.965f else 1f
+                }
+                .clip(shape)
+                .background(
+                    if (selected) {
+                        Brush.linearGradient(
+                            listOf(
+                                LiquidBlue.copy(alpha = 0.96f),
+                                Color(0xFFB7ECFF).copy(alpha = 0.88f)
+                            )
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            listOf(Color.Transparent, Color.Transparent)
+                        )
+                    }
+                )
+                .padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = tab.icon,
+                color = if (selected) InkDark else Color.White.copy(alpha = 0.74f),
+                fontSize = 21.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = tab.label,
+                color = if (selected) InkDark else Color.White.copy(alpha = 0.72f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
             )
         }
     }
 }
 
 @Composable
-private fun AmbientCircle(modifier: Modifier, size: Dp, color: Color) {
+private fun LiquidActionButton(text: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = LiquidBlue,
+            contentColor = InkDark
+        ),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Text(text, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun LiquidSendButton(onClick: () -> Unit) {
+    LiquidPressable(onClick = onClick) { pressed ->
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .graphicsLayer {
+                    scaleX = if (pressed) 0.94f else 1f
+                    scaleY = if (pressed) 0.94f else 1f
+                }
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF99E1FF), Color(0xFF75CFFF))
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.34f), RoundedCornerShape(20.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("➤", color = InkDark, fontSize = 21.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun LiquidIconBox(icon: String) {
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(17.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.17f),
+                        Color.White.copy(alpha = 0.06f),
+                        Color(0xFF8FD8FF).copy(alpha = 0.08f)
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(17.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(icon, fontSize = 19.sp, fontWeight = FontWeight.Black, color = Color.White)
+    }
+}
+
+@Composable
+private fun LiquidGlassCard(
+    modifier: Modifier = Modifier,
+    corner: Dp = 28.dp,
+    padding: PaddingValues = PaddingValues(16.dp),
+    tint: Color = Color.White.copy(alpha = 0.05f),
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(corner)
+    Box(
+        modifier = modifier
+            .shadow(18.dp, shape, clip = false)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.15f),
+                        tint,
+                        Color(0xFF0C142A).copy(alpha = 0.18f)
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.16f), shape)
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.18f),
+                            Color.Transparent
+                        ),
+                        center = Offset(120f, 18f),
+                        radius = 360f
+                    )
+                )
+        )
+        Box(modifier = Modifier.padding(padding)) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun LiquidPressable(
+    onClick: () -> Unit,
+    content: @Composable (pressed: Boolean) -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    Box(
+        modifier = Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick
+        )
+    ) {
+        content(pressed)
+    }
+}
+
+@Composable
+private fun LiquidBackdrop() {
+    val transition = rememberInfiniteTransition(label = "liquid-backdrop")
+    val driftA by transition.animateFloat(
+        initialValue = -12f,
+        targetValue = 18f,
+        animationSpec = infiniteRepeatable(tween(8200), RepeatMode.Reverse),
+        label = "orb-a"
+    )
+    val driftB by transition.animateFloat(
+        initialValue = 16f,
+        targetValue = -20f,
+        animationSpec = infiniteRepeatable(tween(9600), RepeatMode.Reverse),
+        label = "orb-b"
+    )
+    val glow by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 0.78f,
+        animationSpec = infiniteRepeatable(tween(7200), RepeatMode.Reverse),
+        label = "glow"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackgroundBrush)
+    ) {
+        LiquidOrb(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = driftA.dp, y = 82.dp),
+            size = 220.dp,
+            color = Color(0xFF6DBDFF).copy(alpha = 0.20f * glow)
+        )
+        LiquidOrb(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-34).dp, y = driftB.dp),
+            size = 250.dp,
+            color = Color(0xFF6EF0D1).copy(alpha = 0.16f * glow)
+        )
+        LiquidOrb(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(x = 118.dp, y = (-22).dp),
+            size = 160.dp,
+            color = Color(0xFFB18CFF).copy(alpha = 0.09f)
+        )
+    }
+}
+
+@Composable
+private fun LiquidOrb(modifier: Modifier, size: Dp, color: Color) {
     Box(
         modifier = modifier
             .size(size)
+            .graphicsLayer { alpha = 0.92f }
             .clip(CircleShape)
-            .background(color)
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        color.copy(alpha = color.alpha * 1.25f),
+                        color.copy(alpha = color.alpha * 0.38f),
+                        Color.Transparent
+                    )
+                )
+            )
     )
 }
 
+private val DeepNavy = Color(0xFF071326)
+private val GlassSurface = Color(0x241E2A44)
+private val LiquidBlue = Color(0xFF8FD8FF)
+private val InkDark = Color(0xFF061428)
 private val SoftText = Color(0xBFE4ECFF)
 
 private val AppBackgroundBrush = Brush.linearGradient(
     colors = listOf(
-        Color(0xFF071326),
-        Color(0xFF152442),
-        Color(0xFF473E60)
+        Color(0xFF061225),
+        Color(0xFF10203F),
+        Color(0xFF2F335C),
+        Color(0xFF4B405E)
     )
 )
