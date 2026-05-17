@@ -24,7 +24,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()) {
-                WeatherNightBackground(state.quality)
+                WeatherNightBackground(state.quality, state.motionIntensity)
 
                 Column(
                     modifier = Modifier
@@ -39,7 +39,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         AppTab.Settings -> SettingsScreen(
                             state = state,
                             aiEndpoint = viewModel.aiEndpoint,
-                            onQualityChange = viewModel::selectQuality
+                            onQualityChange = viewModel::selectQuality,
+                            onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                            onGlassPresetChange = viewModel::setGlassPreset,
+                            onGlassIntensityChange = viewModel::setGlassIntensity,
+                            onMotionIntensityChange = viewModel::setMotionIntensity
                         )
                     }
                 }
@@ -47,6 +51,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LiquidBottomBar(
                     currentTab = state.currentTab,
                     quality = state.quality,
+                    glassIntensity = state.glassIntensity,
+                    motionIntensity = state.motionIntensity,
                     onTabChange = viewModel::selectTab,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)

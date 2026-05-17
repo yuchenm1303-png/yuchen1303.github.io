@@ -1,7 +1,12 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,7 +19,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -24,14 +34,17 @@ import com.yuchen.ailedger.model.RenderQuality
 @Composable
 fun GlassPanel(
     quality: RenderQuality,
+    glassIntensity: Float = 1f,
+    motionIntensity: Float = 1f,
     radius: Int,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
-            .glassSkin(quality, radius)
+            .glassSkin(quality = quality, radius = radius, shimmer = shimmer, glassIntensity = glassIntensity)
     ) {
         content()
     }
@@ -40,6 +53,8 @@ fun GlassPanel(
 @Composable
 fun PressableGlass(
     quality: RenderQuality,
+    glassIntensity: Float = 1f,
+    motionIntensity: Float = 1f,
     radius: Int,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
@@ -48,10 +63,12 @@ fun PressableGlass(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.955f else 1f,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "press-scale"
+        targetValue = if (pressed) 0.965f else 1f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "glass-press-scale"
     )
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -60,34 +77,144 @@ fun PressableGlass(
             }
             .clip(RoundedCornerShape(radius.dp))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .glassSkin(quality, radius)
+            .glassSkin(quality = quality, radius = radius, shimmer = shimmer, glassIntensity = glassIntensity)
     ) {
         content()
     }
 }
 
-fun Modifier.glassSkin(quality: RenderQuality, radius: Int): Modifier {
+@Composable
+private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float {
+    if (!quality.enableMotion) return 0.36f
+    if (motionIntensity <= 0.02f) return 0.36f
+    val transition = rememberInfiniteTransition(label = "glass-shimmer")
+    val shimmer by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = (9200 / motionIntensity.coerceAtLeast(0.35f)).toInt(), easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "glass-shimmer-value"
+    )
+    return shimmer
+}
+
+fun Modifier.glassSkin(
+    quality: RenderQuality,
+    radius: Int,
+    shimmer: Float = 0f,
+    glassIntensity: Float = 1f
+): Modifier {
     val shape = RoundedCornerShape(radius.dp)
+    val baseAlpha = (quality.glassAlpha * glassIntensity).coerceIn(0.08f, 0.42f)
+    val blurRadius = when (quality) {
+        RenderQuality.Smooth -> 1.5.dp
+        RenderQuality.Balanced -> 2.5.dp
+        RenderQuality.Experimental -> 3.2.dp
+    }
+
     return this
+        .blur(blurRadius)
         .background(
             brush = Brush.linearGradient(
-                listOf(
-                    Color.White.copy(alpha = quality.glassAlpha + 0.06f),
-                    Color.White.copy(alpha = quality.glassAlpha * 0.52f),
-                    Color(0xFF7BA7FF).copy(alpha = quality.glassAlpha * 0.28f)
-                )
+                colors = listOf(
+                    Color.White.copy(alpha = baseAlpha + 0.13f),
+                    Color.White.copy(alpha = baseAlpha * 0.70f + 0.03f),
+                    Color(0xFFC5D6FF).copy(alpha = baseAlpha * 0.34f),
+                    Color(0xFF7BA7FF).copy(alpha = baseAlpha * 0.24f)
+                ),
+                start = Offset.Zero,
+                end = Offset(1200f, 1200f)
             ),
             shape = shape
         )
+        .drawWithCache {
+            val w = size.width
+            val h = size.height
+            val sheenX = (0.12f + 0.76f * shimmer) * w
+            val ridgeY = h * 0.14f
+
+            val topSheen = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.30f),
+                    Color.White.copy(alpha = 0.09f),
+                    Color.Transparent
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(0f, h * 0.46f)
+            )
+
+            val leftRefraction = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.22f),
+                    Color.Transparent
+                ),
+                center = Offset(w * 0.08f, h * 0.24f),
+                radius = w * 0.58f
+            )
+
+            val rightGlow = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF9BC1FF).copy(alpha = 0.20f),
+                    Color.Transparent
+                ),
+                center = Offset(w * 0.90f, h * 0.88f),
+                radius = w * 0.72f
+            )
+
+            val movingSheen = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = if (quality.enableMotion) 0.21f else 0.10f),
+                    Color.Transparent
+                ),
+                center = Offset(sheenX, ridgeY),
+                radius = w * 0.52f
+            )
+
+            val rimLight = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.52f),
+                    Color.White.copy(alpha = 0.16f),
+                    Color.White.copy(alpha = 0.30f)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
+            )
+
+            onDrawWithContent {
+                drawContent()
+                drawRect(topSheen, blendMode = BlendMode.Plus)
+                drawRect(leftRefraction, blendMode = BlendMode.Screen)
+                drawRect(rightGlow, blendMode = BlendMode.Plus)
+                drawRect(movingSheen, blendMode = BlendMode.Screen)
+            }
+        }
         .border(
             width = 1.dp,
             brush = Brush.linearGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.42f),
-                    Color.White.copy(alpha = 0.12f),
+                colors = listOf(
+                    Color.White.copy(alpha = 0.50f),
+                    Color.White.copy(alpha = 0.14f),
                     Color.White.copy(alpha = 0.24f)
                 )
             ),
             shape = shape
         )
+        .drawWithCache {
+            val shadowPaint = Brush.radialGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.18f), Color.Transparent),
+                center = Offset(size.width * 0.50f, size.height * 1.15f),
+                radius = size.width * 0.92f
+            )
+            onDrawWithContent {
+                drawContent()
+                drawRect(
+                    brush = shadowPaint,
+                    topLeft = Offset(0f, size.height * 0.66f),
+                    size = Size(size.width, size.height * 0.64f),
+                    blendMode = BlendMode.Multiply
+                )
+            }
+        }
 }

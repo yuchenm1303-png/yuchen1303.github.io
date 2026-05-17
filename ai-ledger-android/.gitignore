@@ -3,3 +3,6 @@ www/
 android/.gradle/
 android/build/
 android/app/build/
+.gradle/
+build/
+app/build/

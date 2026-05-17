@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -13,25 +14,47 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.sin
 
 @Composable
-fun WeatherNightBackground(quality: RenderQuality) {
-    val transition = rememberInfiniteTransition(label = "night-sky")
+fun WeatherNightBackground(quality: RenderQuality, motionIntensity: Float = 1f) {
+    val motionScale = motionIntensity.coerceIn(0f, 1.4f)
+    val transition = rememberInfiniteTransition(label = "liquid-bg")
     val drift by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (quality.enableMotion) 24000 else 60000,
+                durationMillis = if (quality.enableMotion && motionScale > 0f) {
+                    (26000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else {
+                    65000
+                },
                 easing = FastOutSlowInEasing
             ),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "mist-drift"
+        label = "liquid-bg-drift"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (quality.enableMotion && motionScale > 0f) {
+                    (18000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else {
+                    52000
+                },
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "liquid-bg-pulse"
     )
 
     Canvas(Modifier.fillMaxSize()) {
@@ -40,28 +63,60 @@ fun WeatherNightBackground(quality: RenderQuality) {
                 listOf(
                     Color(0xFF07142E),
                     Color(0xFF10244A),
-                    Color(0xFF2C315F),
-                    Color(0xFF4B335D)
+                    Color(0xFF312F5D),
+                    Color(0xFF4C345D)
                 )
             )
         )
 
-        val glowCenter = Offset(size.width * 0.74f, size.height * 0.16f)
-        val glowRadius = size.minDimension * 0.62f
+        val ambientA = Offset(
+            x = size.width * (0.18f + drift * (0.14f * motionScale)),
+            y = size.height * (0.14f + pulse * (0.10f * motionScale))
+        )
+        val ambientB = Offset(
+            x = size.width * (0.84f - drift * (0.12f * motionScale)),
+            y = size.height * (0.18f + drift * (0.06f * motionScale))
+        )
+        val ambientC = Offset(
+            x = size.width * (0.52f + pulse * (0.08f * motionScale)),
+            y = size.height * (0.78f - drift * (0.05f * motionScale))
+        )
+
         drawCircle(
             brush = Brush.radialGradient(
-                colors = listOf(Color(0x664E9BFF), Color.Transparent),
-                center = glowCenter,
-                radius = glowRadius
+                colors = listOf(Color(0x6652A8FF), Color.Transparent),
+                center = ambientA,
+                radius = size.minDimension * 0.66f
             ),
-            radius = glowRadius,
-            center = glowCenter
+            center = ambientA,
+            radius = size.minDimension * 0.66f,
+            blendMode = BlendMode.Plus
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x555EE0FF), Color.Transparent),
+                center = ambientB,
+                radius = size.minDimension * 0.58f
+            ),
+            center = ambientB,
+            radius = size.minDimension * 0.58f,
+            blendMode = BlendMode.Screen
+        )
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x44B788FF), Color.Transparent),
+                center = ambientC,
+                radius = size.minDimension * 0.72f
+            ),
+            center = ambientC,
+            radius = size.minDimension * 0.72f,
+            blendMode = BlendMode.Lighten
         )
 
         repeat(quality.starCount) { index ->
             val xSeed = ((index * 37) % 100) / 100f
             val ySeed = ((index * 61) % 100) / 100f
-            val twinkle = if (quality.enableMotion) {
+            val twinkle = if (quality.enableMotion && motionScale > 0f) {
                 0.45f + 0.35f * sin((drift * 6.28f) + index).toFloat()
             } else {
                 0.58f
@@ -73,17 +128,18 @@ fun WeatherNightBackground(quality: RenderQuality) {
             )
         }
 
-        repeat(quality.mistCount) { index ->
-            val y = size.height * (0.28f + index * 0.18f)
-            val x = size.width * (-0.2f + drift * 0.36f + index * 0.11f)
+        repeat(quality.mistCount + 1) { index ->
+            val y = size.height * (0.24f + index * 0.18f)
+            val x = size.width * (-0.26f + drift * (0.42f * motionScale.coerceAtLeast(0.1f)) + index * 0.10f)
             drawOval(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0x2E9AB7FF), Color.Transparent),
-                    center = Offset(x + size.width * 0.42f, y),
-                    radius = size.width * 0.62f
+                    colors = listOf(Color(0x309AB7FF), Color.Transparent),
+                    center = Offset(x + size.width * 0.46f, y),
+                    radius = size.width * 0.68f
                 ),
-                topLeft = Offset(x, y - size.height * 0.08f),
-                size = Size(size.width * 1.08f, size.height * 0.23f)
+                topLeft = Offset(x, y - size.height * 0.09f),
+                size = Size(size.width * 1.18f, size.height * 0.26f),
+                blendMode = BlendMode.Screen
             )
         }
     }
