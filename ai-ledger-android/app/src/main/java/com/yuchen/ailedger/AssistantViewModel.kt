@@ -10,6 +10,7 @@ import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.data.AssistantRepository
 import com.yuchen.ailedger.data.PreviewAssistantRepository
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
@@ -39,6 +40,7 @@ class AssistantViewModel(
                     quality = preferences.quality,
                     showPreviewConversation = preferences.showPreviewConversation,
                     glassPreset = preferences.glassPreset,
+                    backgroundTheme = preferences.backgroundTheme,
                     glassIntensity = preferences.glassIntensity,
                     motionIntensity = preferences.motionIntensity
                 )
@@ -61,6 +63,11 @@ class AssistantViewModel(
     fun setShowPreviewConversation(showPreviewConversation: Boolean) {
         uiState = uiState.copy(showPreviewConversation = showPreviewConversation)
         viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) }
+    }
+
+    fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
+        uiState = uiState.copy(backgroundTheme = backgroundTheme)
+        viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme) }
     }
 
     fun setGlassIntensity(value: Float) {
