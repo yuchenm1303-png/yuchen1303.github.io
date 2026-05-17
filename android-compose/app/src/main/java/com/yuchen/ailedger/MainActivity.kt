@@ -61,7 +61,7 @@ private fun AppModeSwitcher(activity: MainActivity) {
 
     Box(Modifier.fillMaxSize()) {
         if (nativePreview) {
-            NativeMigrationPreviewScreen()
+            NativeLiquidPreviewScreen()
         } else {
             LegacyWebAppScreen(activity = activity)
         }
