@@ -62,12 +62,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.android.AndroidActionExecutor
+import com.yuchen.ailedger.logic.CommandRouter
+import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.AssistantCommand
+import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.MessageRole
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,21 +86,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-private enum class AppTab(val label: String, val icon: String) {
-    Chat("AI助手", "✦"),
-    Tools("功能", "▦"),
-    Settings("设置", "⚙")
-}
-
-private enum class MessageRole { User, Assistant }
-
-private data class ChatMessage(
-    val id: Long,
-    val role: MessageRole,
-    val content: String,
-    val actionHint: String? = null
-)
 
 @Composable
 private fun AiLedgerTheme(content: @Composable () -> Unit) {
@@ -176,13 +168,14 @@ private fun AiLedgerComposeApp() {
 
 @Composable
 private fun ChatScreen() {
+    val context = LocalContext.current
     var nextId by remember { mutableLongStateOf(2L) }
     val messages = remember {
         mutableStateListOf(
             ChatMessage(
                 id = 1L,
                 role = MessageRole.Assistant,
-                content = "你好，我是原生 Compose 版 AI 助手。现在先把聊天、输入框、底部导航从 WebView 迁出来，后面再逐步接入手机动作和云端 AI。",
+                content = "你好，我是原生 Compose 版 AI 助手。现在聊天、输入框、底部导航已经从 WebView 迁出来了。你可以试试：明天八点叫我起床、导航回家、打开微信、今天午饭28。",
                 actionHint = "compose_native"
             )
         )
@@ -205,7 +198,7 @@ private fun ChatScreen() {
         PageHeader(
             eyebrow = "AI多功能助手",
             title = "对话",
-            subtitle = "这是第一版原生 Compose 聊天页"
+            subtitle = "原生 Compose 聊天页 · Kotlin 命令路由"
         )
 
         GlassCard(
@@ -221,7 +214,10 @@ private fun ChatScreen() {
                 contentPadding = PaddingValues(vertical = 6.dp)
             ) {
                 items(messages, key = { it.id }) { message ->
-                    MessageBubble(message)
+                    MessageBubble(
+                        message = message,
+                        onExecuteCommand = { command -> AndroidActionExecutor.execute(context, command) }
+                    )
                 }
             }
         }
@@ -241,12 +237,15 @@ private fun ChatScreen() {
             onSend = {
                 val clean = input.trim()
                 if (clean.isEmpty()) return@ChatComposer
+                val result = CommandRouter.route(clean)
                 messages += ChatMessage(nextId++, MessageRole.User, clean)
                 messages += ChatMessage(
                     id = nextId++,
                     role = MessageRole.Assistant,
-                    content = localAssistantReply(clean),
-                    actionHint = inferActionHint(clean)
+                    content = result.reply,
+                    actionHint = result.source,
+                    command = result.command,
+                    ledgerDraft = result.ledgerDraft
                 )
                 input = ""
             }
@@ -263,22 +262,22 @@ private fun ToolsScreen() {
         PageHeader(
             eyebrow = "功能中心",
             title = "工具与能力",
-            subtitle = "先用原生卡片替代网页功能入口"
+            subtitle = "原生功能入口，逐步替代网页工具页"
         )
 
         GlassCard(padding = PaddingValues(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ToolRow("▤", "账单中心", "下一步迁移记录列表、分类、导出 JSON。")
+                ToolRow("▤", "账单中心", "下一步接 Room 数据库，迁移记录列表、分类和导出 JSON。")
                 ToolRow("▣", "数据统计", "后续用 Compose Canvas 或图表库替代网页 canvas。")
-                ToolRow("⏰", "提醒闹钟", "接 Android AlarmClock Intent 或原生提醒能力。")
-                ToolRow("◎", "应用控制", "通过包名、Intent、辅助服务逐步接入手机动作。")
+                ToolRow("⏰", "提醒闹钟", "当前已接 Android AlarmClock Intent 框架。")
+                ToolRow("◎", "应用控制", "当前已接常用 App 包名映射和 Intent 启动框架。")
                 ToolRow("⌁", "快捷指令", "把常用任务沉淀成原生本地模板。")
             }
         }
 
         GlassCard(padding = PaddingValues(14.dp)) {
             Text(
-                text = "迁移原则：先把高频路径原生化，低频设置页可以慢慢搬。WebView 先保留成旧版入口，不要一刀切删除。",
+                text = "迁移原则：先把高频路径原生化，低频设置页可以慢慢搬。WebView 后续只保留为旧版备用入口。",
                 color = SoftText,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
@@ -296,7 +295,7 @@ private fun SettingsScreen() {
         PageHeader(
             eyebrow = "设置中心",
             title = "应用设置",
-            subtitle = "先搭原生分组结构，后面逐项接真实数据"
+            subtitle = "原生分组结构，后续逐项接真实数据"
         )
 
         SettingGroup("☁", "账号与同步", "登录、注册、AI 接口和云同步。")
@@ -367,7 +366,10 @@ private fun GlassCard(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(
+    message: ChatMessage,
+    onExecuteCommand: (AssistantCommand) -> Unit
+) {
     val isUser = message.role == MessageRole.User
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -394,6 +396,12 @@ private fun MessageBubble(message: ChatMessage) {
                     lineHeight = 22.sp
                 )
             }
+
+            message.command?.let { command ->
+                Spacer(Modifier.height(8.dp))
+                CommandCard(command = command, onExecute = { onExecuteCommand(command) })
+            }
+
             if (!message.actionHint.isNullOrBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -402,6 +410,29 @@ private fun MessageBubble(message: ChatMessage) {
                     fontSize = 11.sp,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommandCard(command: AssistantCommand, onExecute: () -> Unit) {
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        padding = PaddingValues(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(command.title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            Text(command.description, color = SoftText, fontSize = 13.sp, lineHeight = 19.sp)
+            Button(
+                onClick = onExecute,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF8FD8FF),
+                    contentColor = Color(0xFF061428)
+                )
+            ) {
+                Text(command.primaryActionLabel, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -574,31 +605,6 @@ private fun AmbientCircle(modifier: Modifier, size: Dp, color: Color) {
             .clip(CircleShape)
             .background(color)
     )
-}
-
-private fun localAssistantReply(text: String): String {
-    return when {
-        text.contains("闹钟") || text.contains("叫我") || text.contains("提醒") ->
-            "我识别到了提醒/闹钟意图。下一步会把这里接到 Android 原生 AlarmClock Intent 或通知提醒。"
-        text.contains("导航") || text.contains("回家") ->
-            "我识别到了导航意图。下一步会读取手机偏好里的家庭地址，再调用地图 Intent。"
-        text.contains("打开") || text.contains("微信") || text.contains("支付宝") ->
-            "我识别到了打开应用意图。后续会用包名映射和 Intent 启动常用 App。"
-        text.contains("元") || text.contains("午饭") || text.contains("花") || text.contains("买") ->
-            "我识别到了记账意图。下一步会接 Room 数据库，把账单存在本地，再做云同步。"
-        else ->
-            "收到。现在这是 Compose 原生壳里的本地回复，后面会接入你原来的云端 AI 接口和手机动作桥。"
-    }
-}
-
-private fun inferActionHint(text: String): String {
-    return when {
-        text.contains("闹钟") || text.contains("叫我") || text.contains("提醒") -> "local_alarm_intent"
-        text.contains("导航") || text.contains("回家") -> "local_navigation_intent"
-        text.contains("打开") || text.contains("微信") || text.contains("支付宝") -> "local_open_app"
-        text.contains("元") || text.contains("午饭") || text.contains("花") || text.contains("买") -> "local_ledger_draft"
-        else -> "compose_local"
-    }
 }
 
 private val SoftText = Color(0xBFE4ECFF)
