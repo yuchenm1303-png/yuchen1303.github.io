@@ -7,7 +7,8 @@
     "copy:web": "node scripts/copy-web.js",
     "android:init": "npm install && npm run copy:web && npx cap add android && npm run android:install-plugin",
     "android:sync": "npm run copy:web && npx cap sync android && npm run android:install-plugin",
-    "android:install-plugin": "node scripts/install-mobile-assistant-plugin.js && node scripts/patch-navigation-provider.js",
+    "android:install-icon": "node scripts/install-exact-launcher-icon.js",
+    "android:install-plugin": "node scripts/install-mobile-assistant-plugin.js && node scripts/patch-navigation-provider.js && npm run android:install-icon",
     "android:open": "npx cap open android",
     "android:build:debug": "cd android && gradlew.bat assembleDebug",
     "android:build:release": "cd android && gradlew.bat assembleRelease"
