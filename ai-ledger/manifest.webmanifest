@@ -1,23 +1,13 @@
 {
   "name": "AI 多功能助手",
   "short_name": "AI助手",
-  "start_url": "./",
+  "id": "./",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#12203b",
-  "theme_color": "#0A84FF",
+  "background_color": "#061332",
+  "theme_color": "#0B1738",
   "icons": [
-    {
-      "src": "./icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
     {
       "src": "./icon.svg",
       "sizes": "any",
