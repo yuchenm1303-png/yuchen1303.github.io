@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -44,11 +43,11 @@ fun SampledWeatherGlassBackdrop(
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
-    blurRadiusDp: Int = 18,
+    blurRadiusDp: Int = 24,
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = liftAlpha.coerceIn(0.12f, 1.10f)
+    val alpha = liftAlpha.coerceIn(0.45f, 1.55f)
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
@@ -62,10 +61,10 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.060f * alpha),
-                    Color.White.copy(alpha = 0.030f * alpha),
-                    Color.White.copy(alpha = 0.014f * alpha),
-                    Color.Black.copy(alpha = 0.010f * alpha)
+                    Color.White.copy(alpha = 0.155f * alpha),
+                    Color(0xFFEAF1F8).copy(alpha = 0.082f * alpha),
+                    Color.White.copy(alpha = 0.038f * alpha),
+                    Color.Black.copy(alpha = 0.018f * alpha)
                 )
             ),
             blendMode = BlendMode.Screen
@@ -84,84 +83,56 @@ fun SampledWeatherEdgeRefraction(
     strength: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = strength.coerceIn(0f, 1.35f)
+    val alpha = strength.coerceIn(0f, 1.15f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
         val h = size.height
         val rootW = if (view.width > 0) view.width.toFloat() else w
         val rootH = if (view.height > 0) view.height.toFloat() else h
         val corner = radius.dp.toPx()
-        val ringOuterInset = 0.7.dp.toPx()
-        val ringInnerInset = 11.5.dp.toPx()
-        val microOuterInset = 1.2.dp.toPx()
-        val microInnerInset = 4.0.dp.toPx()
-        val band = 18.dp.toPx()
-        val topShift = 5.5.dp.toPx()
-        val leftShift = 5.0.dp.toPx()
-        val rightShift = -5.0.dp.toPx()
-        val bottomShift = -4.2.dp.toPx()
-        val microShift = 7.0.dp.toPx()
-        val topStrokeInset = 0.9.dp.toPx()
-        val topStrokeInset2 = topStrokeInset * 2f
-        val topStrokeWidth = 0.52.dp.toPx()
-        val bottomStrokeInset = 2.6.dp.toPx()
-        val bottomStrokeInset2 = bottomStrokeInset * 2f
-        val bottomStrokeWidth = 0.48.dp.toPx()
-        val ring = edgeRingPath(
-            outerInset = ringOuterInset,
-            innerInset = ringInnerInset,
+        val wideRing = edgeRingPath(
+            outerInset = 0.8.dp.toPx(),
+            innerInset = 9.5.dp.toPx(),
             radiusPx = corner
         )
-        val microRing = edgeRingPath(
-            outerInset = microOuterInset,
-            innerInset = microInnerInset,
+        val softInnerRing = edgeRingPath(
+            outerInset = 4.2.dp.toPx(),
+            innerInset = 14.5.dp.toPx(),
             radiusPx = corner
         )
-        val cornerRadius = CornerRadius(corner, corner)
+        val outerShiftX = 2.8.dp.toPx()
+        val outerShiftY = 3.6.dp.toPx()
+        val innerShiftX = -2.2.dp.toPx()
+        val innerShiftY = -1.8.dp.toPx()
+        val strokeInset = 1.0.dp.toPx()
+        val strokeSize = Size(w - strokeInset * 2f, h - strokeInset * 2f)
+        val strokeRadius = CornerRadius(corner, corner)
 
-        clipPath(ring) {
-            clipRect(left = 0f, top = 0f, right = w, bottom = band) {
-                withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + topShift) }) {
-                    drawLauncherLikeBackground(rootW, rootH, 0.34f * alpha)
-                }
-            }
-            clipRect(left = 0f, top = 0f, right = band, bottom = h) {
-                withTransform({ translate(left = -globalOffset.x + leftShift, top = -globalOffset.y) }) {
-                    drawLauncherLikeBackground(rootW, rootH, 0.28f * alpha)
-                }
-            }
-            clipRect(left = w - band, top = 0f, right = w, bottom = h) {
-                withTransform({ translate(left = -globalOffset.x + rightShift, top = -globalOffset.y) }) {
-                    drawLauncherLikeBackground(rootW, rootH, 0.24f * alpha)
-                }
-            }
-            clipRect(left = 0f, top = h - band, right = w, bottom = h) {
-                withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + bottomShift) }) {
-                    drawLauncherLikeBackground(rootW, rootH, 0.24f * alpha)
-                }
+        clipPath(wideRing) {
+            withTransform({ translate(left = -globalOffset.x + outerShiftX, top = -globalOffset.y + outerShiftY) }) {
+                drawLauncherLikeBackground(rootW, rootH, 0.20f * alpha)
             }
         }
-
-        clipPath(microRing) {
-            withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + microShift) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.13f * alpha)
+        clipPath(softInnerRing) {
+            withTransform({ translate(left = -globalOffset.x + innerShiftX, top = -globalOffset.y + innerShiftY) }) {
+                drawLauncherLikeBackground(rootW, rootH, 0.11f * alpha)
             }
         }
 
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.085f * alpha),
+                    Color.White.copy(alpha = 0.080f * alpha),
                     Color.White.copy(alpha = 0.020f * alpha),
                     Color.Transparent
                 ),
                 startY = 0f,
-                endY = h * 0.22f
+                endY = h * 0.20f
             ),
-            topLeft = Offset(topStrokeInset, topStrokeInset),
-            size = Size(w - topStrokeInset2, h - topStrokeInset2),
-            cornerRadius = cornerRadius,
-            style = Stroke(width = topStrokeWidth),
+            topLeft = Offset(strokeInset, strokeInset),
+            size = strokeSize,
+            cornerRadius = strokeRadius,
+            style = Stroke(width = 0.48.dp.toPx()),
             blendMode = BlendMode.Screen
         )
         drawRoundRect(
@@ -169,15 +140,15 @@ fun SampledWeatherEdgeRefraction(
                 colors = listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.034f * alpha)
+                    Color.Black.copy(alpha = 0.030f * alpha)
                 ),
-                startY = h * 0.54f,
+                startY = h * 0.58f,
                 endY = h
             ),
-            topLeft = Offset(bottomStrokeInset, bottomStrokeInset),
-            size = Size(w - bottomStrokeInset2, h - bottomStrokeInset2),
-            cornerRadius = cornerRadius,
-            style = Stroke(width = bottomStrokeWidth),
+            topLeft = Offset(strokeInset * 2.5f, strokeInset * 2.5f),
+            size = Size(w - strokeInset * 5f, h - strokeInset * 5f),
+            cornerRadius = strokeRadius,
+            style = Stroke(width = 0.42.dp.toPx()),
             blendMode = BlendMode.Multiply
         )
     }
