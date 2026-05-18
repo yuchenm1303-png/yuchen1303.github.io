@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>AI Ledger Glass Blur Preview</title>
+  <style>
+    :root {
+      --blur: 38px;
+      --scale: 1.10;
+      --backdrop-alpha: .96;
+      --scrim-alpha: .12;
+      --milk-alpha: .055;
+      --edge-alpha: .34;
+      --text-alpha: .98;
+      --card-radius: 34px;
+      --card-height: 126px;
+      --card-gap: 14px;
+      --bg-dark: #061426;
+      --bg-mid: #0b2947;
+      --bg-glow: #164166;
+      --bg-bottom: #07111f;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0b1220;
+      color: #f8fbff;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", sans-serif;
+      display: grid;
+      grid-template-columns: minmax(360px, 430px) minmax(320px, 420px);
+      gap: 22px;
+      align-items: start;
+      justify-content: center;
+      padding: 22px;
+    }
+
+    .phone {
+      position: relative;
+      width: min(100%, 420px);
+      aspect-ratio: 9 / 19.5;
+      overflow: hidden;
+      border-radius: 34px;
+      border: 1px solid rgba(255,255,255,.13);
+      box-shadow: 0 24px 70px rgba(0,0,0,.42);
+      background: #07132d;
+      isolation: isolate;
+    }
+
+    .wallpaper, .blurred-wallpaper {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 74% 34%, rgba(47,114,173,.34), transparent 38%),
+        radial-gradient(circle at 20% 62%, rgba(35,106,168,.22), transparent 30%),
+        linear-gradient(135deg, var(--bg-dark), var(--bg-mid) 38%, var(--bg-glow) 68%, var(--bg-bottom));
+      overflow: hidden;
+    }
+
+    .blurred-wallpaper {
+      filter: blur(var(--blur)) saturate(.92) contrast(.92) brightness(1.04);
+      transform: scale(var(--scale));
+      transform-origin: center;
+      opacity: var(--backdrop-alpha);
+      pointer-events: none;
+    }
+
+    .icon {
+      position: absolute;
+      width: 62px;
+      height: 62px;
+      border-radius: 18px;
+      background: var(--c);
+      left: var(--x);
+      top: var(--y);
+      box-shadow: inset 0 12px 20px rgba(255,255,255,.22), 0 12px 22px rgba(0,0,0,.08);
+    }
+    .wide { width: 168px; height: 96px; border-radius: 24px; }
+
+    .status {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      right: 18px;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: 18px;
+      opacity: .96;
+      z-index: 3;
+      text-shadow: 0 1px 10px rgba(0,0,0,.35);
+    }
+
+    .title {
+      position: absolute;
+      left: 18px;
+      top: 72px;
+      z-index: 3;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 52px;
+      line-height: 1;
+      letter-spacing: -3px;
+    }
+    .title p {
+      margin: 10px 0 0;
+      font-size: 19px;
+      color: rgba(242,248,255,.68);
+      font-weight: 600;
+    }
+
+    .cards {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 170px;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      gap: var(--card-gap);
+    }
+
+    .glass-card {
+      position: relative;
+      height: var(--card-height);
+      border-radius: var(--card-radius);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,var(--edge-alpha));
+      box-shadow:
+        inset 0 1px 1px rgba(255,255,255,.42),
+        inset 0 -1px 0 rgba(0,0,0,.12),
+        0 16px 28px rgba(0,0,0,.11);
+      background: rgba(255,255,255,.04);
+    }
+
+    .glass-card::before {
+      content: "";
+      position: absolute;
+      inset: -80px;
+      background: inherit;
+      background-image: inherit;
+      pointer-events: none;
+    }
+
+    .glass-card .card-blur {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border-radius: inherit;
+    }
+
+    .glass-card .card-blur .blurred-wallpaper {
+      position: absolute;
+      width: 420px;
+      height: calc(420px * 19.5 / 9);
+      left: calc(-1 * var(--card-x, 16px));
+      top: calc(-1 * var(--card-y, 170px));
+      inset: auto;
+      border-radius: 0;
+    }
+
+    .glass-card .material {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 34% 8%, rgba(255,255,255,var(--milk-alpha)), transparent 60%),
+        linear-gradient(180deg,
+          rgba(234,243,252, calc(var(--milk-alpha) * .8)),
+          rgba(151,171,190, var(--scrim-alpha)) 52%,
+          rgba(35,49,66, calc(var(--scrim-alpha) * .7)) 100%);
+      mix-blend-mode: normal;
+    }
+
+    .glass-card .edge {
+      position: absolute;
+      inset: 1px;
+      border-radius: calc(var(--card-radius) - 1px);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,calc(var(--edge-alpha) * .58)),
+        inset 0 14px 24px rgba(255,255,255,calc(var(--edge-alpha) * .18)),
+        inset 0 -12px 18px rgba(0,0,0,.10);
+      pointer-events: none;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      height: 100%;
+      padding: 22px 24px;
+      display: grid;
+      grid-template-columns: 54px 1fr 24px;
+      align-items: center;
+      gap: 18px;
+      color: rgba(255,255,255,var(--text-alpha));
+      text-shadow: 0 1px 12px rgba(0,0,0,.16);
+    }
+    .glyph {
+      width: 54px;
+      height: 54px;
+      border-radius: 17px;
+      background: rgba(28,38,56,.30);
+      display: grid;
+      place-items: center;
+      font-size: 26px;
+      box-shadow: inset 0 10px 20px rgba(255,255,255,.12), inset 0 -8px 14px rgba(0,0,0,.12);
+    }
+    .text h2 { margin: 0; font-size: 28px; line-height: 1.06; letter-spacing: -1px; }
+    .text p { margin: 6px 0 0; font-size: 17px; color: rgba(242,248,255,.68); font-weight: 600; }
+    .arrow { font-size: 36px; font-weight: 300; opacity: .9; }
+
+    .panel {
+      width: min(100%, 420px);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25);
+      backdrop-filter: blur(20px);
+    }
+    .panel h2 { margin: 0 0 8px; font-size: 22px; }
+    .panel p { margin: 0 0 16px; color: rgba(255,255,255,.68); line-height: 1.5; }
+    .control { margin: 14px 0; }
+    .control label { display: flex; justify-content: space-between; font-size: 14px; color: rgba(255,255,255,.84); margin-bottom: 8px; }
+    input[type="range"] { width: 100%; accent-color: #9ecbff; }
+    .buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+    button {
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.10);
+      color: #fff;
+      border-radius: 12px;
+      padding: 9px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-all;
+      background: rgba(0,0,0,.28);
+      border-radius: 14px;
+      padding: 12px;
+      color: #dcecff;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 820px) {
+      body { grid-template-columns: 1fr; padding: 12px; }
+      .phone, .panel { margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone" id="phone">
+    <div class="wallpaper">
+      <div class="icon" style="--x: 34px; --y: 80px; --c:#18afff"></div>
+      <div class="icon" style="--x: 130px; --y: 80px; --c:#ffb51b"></div>
+      <div class="icon" style="--x: 226px; --y: 80px; --c:#565765"></div>
+      <div class="icon" style="--x: 322px; --y: 80px; --c:#f5f7fb"></div>
+      <div class="icon wide" style="--x: 226px; --y: 196px; --c:#b9c3cd"></div>
+      <div class="icon" style="--x: 34px; --y: 314px; --c:#18202f"></div>
+      <div class="icon" style="--x: 130px; --y: 314px; --c:#f3f7fb"></div>
+      <div class="icon" style="--x: 226px; --y: 314px; --c:#ff5058"></div>
+      <div class="icon" style="--x: 322px; --y: 314px; --c:#ff941d"></div>
+      <div class="icon" style="--x: 34px; --y: 430px; --c:#b9c3cd"></div>
+      <div class="icon" style="--x: 130px; --y: 430px; --c:#1078f8"></div>
+      <div class="icon" style="--x: 226px; --y: 430px; --c:#28bffa"></div>
+      <div class="icon" style="--x: 322px; --y: 430px; --c:#ffbe32"></div>
+      <div class="icon" style="--x: 34px; --y: 546px; --c:#181a28"></div>
+      <div class="icon" style="--x: 130px; --y: 546px; --c:#f7fbff"></div>
+      <div class="icon" style="--x: 322px; --y: 546px; --c:#ff5058"></div>
+      <div class="icon" style="--x: 130px; --y: 742px; --c:#e7eaf0"></div>
+      <div class="icon" style="--x: 226px; --y: 742px; --c:#e0525e"></div>
+      <div class="icon" style="--x: 322px; --y: 742px; --c:#c7802d"></div>
+    </div>
+
+    <div class="status"><span>中国移动<br>中国电信</span><span>12:49</span></div>
+    <div class="title"><h1>功能</h1><p>把可执行能力集中管理，后续一项项接入</p></div>
+
+    <section class="cards">
+      <article class="glass-card" style="--card-y:170px"><div class="card-blur"><div class="blurred-wallpaper"></div></div><div class="material"></div><div class="edge"></div><div class="content"><div class="glyph">▦</div><div class="text"><h2>先保留入口，再逐步接入旧版功能</h2><p>这里集中放手机任务、账本工具和 Web 版迁移能力。</p></div><div class="arrow">›</div></div></article>
+      <article class="glass-card" style="--card-y:310px; --card-height:96px"><div class="card-blur"><div class="blurred-wallpaper"></div></div><div class="material"></div><div class="edge"></div><div class="content"><div class="glyph">✦</div><div class="text"><h2>账单中心</h2><p>查看和管理收入支出</p></div><div class="arrow">›</div></div></article>
+      <article class="glass-card" style="--card-y:420px; --card-height:96px"><div class="card-blur"><div class="blurred-wallpaper"></div></div><div class="material"></div><div class="edge"></div><div class="content"><div class="glyph">✦</div><div class="text"><h2>数据统计</h2><p>按周、月、年查看趋势</p></div><div class="arrow">›</div></div></article>
+      <article class="glass-card" style="--card-y:530px; --card-height:96px"><div class="card-blur"><div class="blurred-wallpaper"></div></div><div class="material"></div><div class="edge"></div><div class="content"><div class="glyph">✦</div><div class="text"><h2>提醒闹钟</h2><p>创建提醒和闹钟</p></div><div class="arrow">›</div></div></article>
+      <article class="glass-card" style="--card-y:640px; --card-height:96px"><div class="card-blur"><div class="blurred-wallpaper"></div></div><div class="material"></div><div class="edge"></div><div class="content"><div class="glyph">✦</div><div class="text"><h2>应用控制</h2><p>打开微信、支付宝等应用</p></div><div class="arrow">›</div></div></article>
+    </section>
+  </main>
+
+  <aside class="panel">
+    <h2>玻璃模糊参数预览</h2>
+    <p>先在这里把“模糊背景层”调到接近 iOS，再把数值换回 Compose。建议先只调 Blur / Backdrop / Material 三个。</p>
+
+    <div class="control"><label>Blur 半径 <span id="blurVal"></span></label><input id="blur" type="range" min="8" max="80" value="38"></div>
+    <div class="control"><label>背景放大 Scale <span id="scaleVal"></span></label><input id="scale" type="range" min="100" max="125" value="110"></div>
+    <div class="control"><label>模糊背景不透明度 <span id="backdropVal"></span></label><input id="backdrop" type="range" min="40" max="100" value="96"></div>
+    <div class="control"><label>灰蓝材质膜 <span id="scrimVal"></span></label><input id="scrim" type="range" min="0" max="45" value="12"></div>
+    <div class="control"><label>乳白高光 <span id="milkVal"></span></label><input id="milk" type="range" min="0" max="25" value="6"></div>
+    <div class="control"><label>边缘高光 <span id="edgeVal"></span></label><input id="edge" type="range" min="8" max="70" value="34"></div>
+
+    <div class="buttons">
+      <button onclick="preset('ios')">iOS 通知参考</button>
+      <button onclick="preset('clear')">清透一点</button>
+      <button onclick="preset('heavy')">更厚毛玻璃</button>
+      <button onclick="copyParams()">复制参数</button>
+    </div>
+
+    <h2 style="margin-top:18px">当前参数</h2>
+    <pre id="params"></pre>
+  </aside>
+
+  <script>
+    const controls = {
+      blur: document.getElementById('blur'),
+      scale: document.getElementById('scale'),
+      backdrop: document.getElementById('backdrop'),
+      scrim: document.getElementById('scrim'),
+      milk: document.getElementById('milk'),
+      edge: document.getElementById('edge')
+    };
+    const labels = {
+      blurVal: document.getElementById('blurVal'),
+      scaleVal: document.getElementById('scaleVal'),
+      backdropVal: document.getElementById('backdropVal'),
+      scrimVal: document.getElementById('scrimVal'),
+      milkVal: document.getElementById('milkVal'),
+      edgeVal: document.getElementById('edgeVal')
+    };
+
+    function update() {
+      const blur = Number(controls.blur.value);
+      const scale = Number(controls.scale.value) / 100;
+      const backdrop = Number(controls.backdrop.value) / 100;
+      const scrim = Number(controls.scrim.value) / 100;
+      const milk = Number(controls.milk.value) / 100;
+      const edge = Number(controls.edge.value) / 100;
+      document.documentElement.style.setProperty('--blur', blur + 'px');
+      document.documentElement.style.setProperty('--scale', scale);
+      document.documentElement.style.setProperty('--backdrop-alpha', backdrop);
+      document.documentElement.style.setProperty('--scrim-alpha', scrim);
+      document.documentElement.style.setProperty('--milk-alpha', milk);
+      document.documentElement.style.setProperty('--edge-alpha', edge);
+      labels.blurVal.textContent = blur + 'px';
+      labels.scaleVal.textContent = scale.toFixed(2);
+      labels.backdropVal.textContent = backdrop.toFixed(2);
+      labels.scrimVal.textContent = scrim.toFixed(2);
+      labels.milkVal.textContent = milk.toFixed(2);
+      labels.edgeVal.textContent = edge.toFixed(2);
+      const text = `CSS preview\nblur=${blur}px\nscale=${scale.toFixed(2)}\nbackdropAlpha=${backdrop.toFixed(2)}\nscrimAlpha=${scrim.toFixed(2)}\nmilkAlpha=${milk.toFixed(2)}\nedgeAlpha=${edge.toFixed(2)}\n\nCompose mapping idea\nBlurredBackdrop.kt: scale ≈ ${(scale * 0.21).toFixed(3)} / radius depends on blur\nGlassBackdrop.kt: backdropAlpha ≈ ${backdrop.toFixed(2)}; baseScrimAlpha ≈ ${scrim.toFixed(2)}; milkAlpha ≈ ${milk.toFixed(2)}`;
+      document.getElementById('params').textContent = text;
+    }
+
+    Object.values(controls).forEach(input => input.addEventListener('input', update));
+
+    function preset(name) {
+      const p = {
+        ios:   { blur: 34, scale: 110, backdrop: 96, scrim: 12, milk: 6, edge: 34 },
+        clear: { blur: 26, scale: 106, backdrop: 92, scrim: 7,  milk: 4, edge: 28 },
+        heavy: { blur: 48, scale: 114, backdrop: 100, scrim: 18, milk: 9, edge: 40 }
+      }[name];
+      Object.entries(p).forEach(([k, v]) => controls[k].value = v);
+      update();
+    }
+
+    async function copyParams() {
+      const text = document.getElementById('params').textContent;
+      try { await navigator.clipboard.writeText(text); alert('已复制参数'); }
+      catch { alert(text); }
+    }
+
+    update();
+  </script>
+</body>
+</html>
