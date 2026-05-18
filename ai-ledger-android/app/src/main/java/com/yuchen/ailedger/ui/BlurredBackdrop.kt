@@ -57,26 +57,26 @@ private fun buildBlurredBackdropBitmap(
     quality: RenderQuality
 ): BlurredBackdropBitmap {
     val scale = when (quality) {
-        RenderQuality.Smooth -> 0.115f
-        RenderQuality.Balanced -> 0.145f
-        RenderQuality.Experimental -> 0.180f
+        RenderQuality.Smooth -> 0.185f
+        RenderQuality.Balanced -> 0.230f
+        RenderQuality.Experimental -> 0.275f
     }
-    val smallWidth = (fullWidth * scale).roundToInt().coerceAtLeast(96)
-    val smallHeight = (fullHeight * scale).roundToInt().coerceAtLeast(160)
+    val smallWidth = (fullWidth * scale).roundToInt().coerceAtLeast(128)
+    val smallHeight = (fullHeight * scale).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
     drawAndroidBackdropSource(source, theme)
 
     val radius = when (quality) {
-        RenderQuality.Smooth -> 10
-        RenderQuality.Balanced -> 14
-        RenderQuality.Experimental -> 18
+        RenderQuality.Smooth -> 9
+        RenderQuality.Balanced -> 12
+        RenderQuality.Experimental -> 15
     }
     val iterations = when (quality) {
         RenderQuality.Smooth -> 2
-        RenderQuality.Balanced -> 3
-        RenderQuality.Experimental -> 3
+        RenderQuality.Balanced -> 2
+        RenderQuality.Experimental -> 2
     }
     val blurred = boxBlur(source, radius, iterations)
 
@@ -184,11 +184,11 @@ private fun drawSoftBlock(
     aspect: Float = 1f
 ) {
     val layers = arrayOf(
-        3.6f to 0.10f,
-        2.7f to 0.16f,
-        1.9f to 0.25f,
-        1.25f to 0.35f,
-        0.82f to 0.50f
+        2.6f to 0.08f,
+        1.95f to 0.14f,
+        1.45f to 0.23f,
+        1.05f to 0.34f,
+        0.78f to 0.50f
     )
     layers.forEach { (scale, weight) ->
         val blockW = base * scale * aspect
