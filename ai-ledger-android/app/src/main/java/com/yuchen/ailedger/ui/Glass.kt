@@ -85,6 +85,14 @@ fun GlassPanel(
                 theme = backdrop.theme,
                 blurRadiusDp = if (role == GlassRole.Chip) 18 else 26
             )
+            SampledWeatherEdgeRefraction(
+                modifier = Modifier.matchParentSize(),
+                radius = radius,
+                globalOffset = globalOffset,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme
+            )
         }
         content()
     }
@@ -146,6 +154,14 @@ fun PressableGlass(
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
                 blurRadiusDp = if (role == GlassRole.Chip) 16 else 24
+            )
+            SampledWeatherEdgeRefraction(
+                modifier = Modifier.matchParentSize(),
+                radius = radius,
+                globalOffset = globalOffset,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme
             )
         }
         content()
