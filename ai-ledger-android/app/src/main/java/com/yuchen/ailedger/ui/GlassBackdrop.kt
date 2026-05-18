@@ -9,17 +9,12 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -82,99 +77,123 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
-    val view = LocalView.current
     val alpha = strength.coerceIn(0f, 1.15f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
         val h = size.height
-        val rootW = if (view.width > 0) view.width.toFloat() else w
-        val rootH = if (view.height > 0) view.height.toFloat() else h
         val corner = radius.dp.toPx()
-        val wideRing = edgeRingPath(
-            outerInset = 0.8.dp.toPx(),
-            innerInset = 9.5.dp.toPx(),
-            radiusPx = corner
-        )
-        val softInnerRing = edgeRingPath(
-            outerInset = 4.2.dp.toPx(),
-            innerInset = 14.5.dp.toPx(),
-            radiusPx = corner
-        )
-        val outerShiftX = 2.8.dp.toPx()
-        val outerShiftY = 3.6.dp.toPx()
-        val innerShiftX = -2.2.dp.toPx()
-        val innerShiftY = -1.8.dp.toPx()
-        val strokeInset = 1.0.dp.toPx()
-        val strokeSize = Size(w - strokeInset * 2f, h - strokeInset * 2f)
-        val strokeRadius = CornerRadius(corner, corner)
+        val outerInset = 0.75.dp.toPx()
+        val midInset = 3.6.dp.toPx()
+        val innerInset = 8.5.dp.toPx()
+        val outerSize = Size(w - outerInset * 2f, h - outerInset * 2f)
+        val midSize = Size(w - midInset * 2f, h - midInset * 2f)
+        val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
+        val cornerRadius = CornerRadius(corner, corner)
 
-        clipPath(wideRing) {
-            withTransform({ translate(left = -globalOffset.x + outerShiftX, top = -globalOffset.y + outerShiftY) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.20f * alpha)
-            }
-        }
-        clipPath(softInnerRing) {
-            withTransform({ translate(left = -globalOffset.x + innerShiftX, top = -globalOffset.y + innerShiftY) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.11f * alpha)
-            }
-        }
+        val broadLens = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.110f * alpha),
+                Color.White.copy(alpha = 0.026f * alpha),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.024f * alpha),
+                Color.White.copy(alpha = 0.025f * alpha)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        )
+        val topPrism = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.155f * alpha),
+                Color(0xFFDCEEFF).copy(alpha = 0.040f * alpha),
+                Color.Transparent
+            ),
+            startY = 0f,
+            endY = h * 0.26f
+        )
+        val sideCompression = Brush.horizontalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.070f * alpha),
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.024f * alpha),
+                Color.White.copy(alpha = 0.030f * alpha)
+            )
+        )
+        val innerDarkBend = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.012f * alpha),
+                Color.Black.copy(alpha = 0.042f * alpha)
+            ),
+            startY = h * 0.45f,
+            endY = h
+        )
+        val leftCornerCaustic = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.080f * alpha),
+                Color.White.copy(alpha = 0.018f * alpha),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.055f, h * 0.035f),
+            radius = w * 0.34f
+        )
+        val rightCornerMute = Brush.radialGradient(
+            colors = listOf(
+                Color.Black.copy(alpha = 0.030f * alpha),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.96f, h * 0.90f),
+            radius = w * 0.38f
+        )
 
         drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.080f * alpha),
-                    Color.White.copy(alpha = 0.020f * alpha),
-                    Color.Transparent
-                ),
-                startY = 0f,
-                endY = h * 0.20f
-            ),
-            topLeft = Offset(strokeInset, strokeInset),
-            size = strokeSize,
-            cornerRadius = strokeRadius,
-            style = Stroke(width = 0.48.dp.toPx()),
+            brush = broadLens,
+            topLeft = Offset(outerInset, outerInset),
+            size = outerSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 7.5.dp.toPx()),
             blendMode = BlendMode.Screen
         )
         drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.Transparent,
-                    Color.Black.copy(alpha = 0.030f * alpha)
-                ),
-                startY = h * 0.58f,
-                endY = h
-            ),
-            topLeft = Offset(strokeInset * 2.5f, strokeInset * 2.5f),
-            size = Size(w - strokeInset * 5f, h - strokeInset * 5f),
-            cornerRadius = strokeRadius,
-            style = Stroke(width = 0.42.dp.toPx()),
+            brush = topPrism,
+            topLeft = Offset(midInset, midInset),
+            size = midSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 5.2.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = sideCompression,
+            topLeft = Offset(midInset, midInset),
+            size = midSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 4.6.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = innerDarkBend,
+            topLeft = Offset(innerInset, innerInset),
+            size = innerSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 2.6.dp.toPx()),
             blendMode = BlendMode.Multiply
         )
-    }
-}
-
-private fun DrawScope.edgeRingPath(
-    outerInset: Float,
-    innerInset: Float,
-    radiusPx: Float
-): Path {
-    val w = size.width
-    val h = size.height
-    val outerCorner = (radiusPx - outerInset).coerceAtLeast(0f)
-    val innerCorner = (radiusPx - innerInset).coerceAtLeast(0f)
-    val outer = RoundRect(
-        rect = Rect(outerInset, outerInset, w - outerInset, h - outerInset),
-        cornerRadius = CornerRadius(outerCorner, outerCorner)
-    )
-    val inner = RoundRect(
-        rect = Rect(innerInset, innerInset, w - innerInset, h - innerInset),
-        cornerRadius = CornerRadius(innerCorner, innerCorner)
-    )
-    return Path().apply {
-        fillType = PathFillType.EvenOdd
-        addRoundRect(outer)
-        addRoundRect(inner)
+        drawRoundRect(
+            brush = leftCornerCaustic,
+            topLeft = Offset(outerInset, outerInset),
+            size = outerSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 3.2.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = rightCornerMute,
+            topLeft = Offset(midInset, midInset),
+            size = midSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 3.0.dp.toPx()),
+            blendMode = BlendMode.Multiply
+        )
     }
 }
 
