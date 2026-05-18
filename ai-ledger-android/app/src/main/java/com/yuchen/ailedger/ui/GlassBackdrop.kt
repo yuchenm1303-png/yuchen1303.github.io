@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -55,8 +56,17 @@ fun SampledWeatherGlassBackdrop(
         RenderQuality.Balanced -> 0.050f
         RenderQuality.Experimental -> 0.062f
     } * alpha
+    val actualBlur = when (quality) {
+        RenderQuality.Smooth -> blurRadiusDp * 0.32f
+        RenderQuality.Balanced -> blurRadiusDp * 0.42f
+        RenderQuality.Experimental -> blurRadiusDp * 0.52f
+    }.coerceIn(18f, 64f)
 
-    Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
+    Canvas(
+        modifier = modifier
+            .clip(RoundedCornerShape(radius.dp))
+            .blur(actualBlur.dp)
+    ) {
         val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
         val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
 
