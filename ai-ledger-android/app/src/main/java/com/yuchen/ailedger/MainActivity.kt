@@ -8,14 +8,14 @@ import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.yuchen.ailedger.redesign.RedesignedAiAssistantApp
+import com.yuchen.ailedger.ui.AiAssistantNativeApp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prepareWindow(window)
         setContent {
-            RedesignedAiAssistantApp()
+            AiAssistantNativeApp()
         }
     }
 
