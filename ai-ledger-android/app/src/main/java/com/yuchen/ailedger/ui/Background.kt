@@ -94,6 +94,9 @@ fun WeatherNightBackground(
         val mistDrift = (mist - 0.5f) * motionScale
         val starDx = -0.012f * starDrift * motionScale
         val starDy = 0.014f * starDrift * motionScale
+        val sceneLimit = if (quality.enableMotion) palette.scene.size else palette.scene.size.coerceAtMost(2)
+        val mistLimit = quality.mistCount.coerceIn(1, palette.webMist.size)
+        val ribbonAlpha = if (quality.enableMotion) 1f else 0.48f
 
         drawRect(
             brush = Brush.linearGradient(
@@ -108,7 +111,7 @@ fun WeatherNightBackground(
             blendMode = if (theme == BackgroundTheme.Dawn) BlendMode.Screen else BlendMode.Multiply
         )
 
-        palette.scene.forEachIndexed { index, spec ->
+        palette.scene.take(sceneLimit).forEachIndexed { index, spec ->
             val dx = if (index % 2 == 0) -breatheDrift * 0.020f else breatheDrift * 0.018f
             val dy = if (index < 2) breatheDrift * 0.012f else -breatheDrift * 0.006f
             drawSceneEllipse(
@@ -123,7 +126,7 @@ fun WeatherNightBackground(
             )
         }
 
-        palette.webMist.forEachIndexed { index, spec ->
+        palette.webMist.take(mistLimit).forEachIndexed { index, spec ->
             val dx = if (index % 2 == 0) mistDrift * 0.050f else -mistDrift * 0.044f
             val dy = if (index % 3 == 0) -mistDrift * 0.018f else mistDrift * 0.012f
             drawOval(
@@ -144,7 +147,7 @@ fun WeatherNightBackground(
 
         drawRect(
             brush = Brush.linearGradient(
-                colors = palette.ribbon,
+                colors = palette.ribbon.map { it.copy(alpha = it.alpha * ribbonAlpha) },
                 start = Offset(w * (-0.08f + mistDrift * 0.035f), h * 0.06f),
                 end = Offset(w * (1.08f + mistDrift * 0.020f), h * 0.82f)
             ),
@@ -153,7 +156,7 @@ fun WeatherNightBackground(
 
         drawRect(
             brush = Brush.linearGradient(
-                colors = palette.secondRibbon,
+                colors = palette.secondRibbon.map { it.copy(alpha = it.alpha * ribbonAlpha) },
                 start = Offset(w * (0.06f - mistDrift * 0.020f), h * 0.02f),
                 end = Offset(w * (0.92f + mistDrift * 0.018f), h * 0.95f)
             ),

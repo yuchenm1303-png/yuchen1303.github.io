@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.RenderQuality
 
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
@@ -67,6 +68,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     }
 
                     BottomDockSeparationMist(
+                        quality = state.quality,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
@@ -90,19 +92,22 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 }
 
 @Composable
-private fun BottomDockSeparationMist(modifier: Modifier = Modifier) {
+private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
+    val blur = if (quality.enableMotion) 14.dp else 0.dp
+    val height = if (quality.enableMotion) 112.dp else 76.dp
+    val bottomAlpha = if (quality.enableMotion) 0x88 else 0x5C
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(128.dp)
-            .blur(22.dp)
+            .height(height)
+            .blur(blur)
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0x2408142C),
-                        Color(0x7208142C),
-                        Color(0xAA030817)
+                        Color(0x1A08142C),
+                        Color(0x5208142C),
+                        Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
                     )
                 )
             )

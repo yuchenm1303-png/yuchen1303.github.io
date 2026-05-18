@@ -389,11 +389,18 @@ private fun ComposerBar(state: AssistantUiState) {
 
 @Composable
 private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Modifier) {
+    val sheenEnabled = state.quality.enableMotion && state.motionIntensity > 0.02f
     val transition = rememberInfiniteTransition(label = "composer-sheen")
     val sweep by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(4800, easing = LinearEasing), RepeatMode.Restart),
+        targetValue = if (sheenEnabled) 1f else 0f,
+        animationSpec = infiniteRepeatable(
+            tween(
+                durationMillis = if (sheenEnabled) (5200 / state.motionIntensity.coerceAtLeast(0.35f)).toInt() else 90000,
+                easing = LinearEasing
+            ),
+            RepeatMode.Restart
+        ),
         label = "composer-sheen-value"
     )
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.height(58.dp), GlassRole.Card) {
@@ -471,6 +478,7 @@ fun SettingsScreen(
         item { SettingsListCard("Aa", "显示与语言", "语言、字体大小、紧凑模式和页面显示习惯。", state) }
         item { SettingsListCard("⌖", "手机偏好", "家庭地址、默认地图、提醒、闹钟等手机任务偏好。", state) }
         item { SettingsListCard("✦", "背景外观", "背景主题、玻璃风格、透明度和模糊强度。", state) }
+        item { BackgroundThemeSelector(state, onBackgroundThemeChange) }
         item { SettingsListCard("▤", "数据与预算", "预算、账单、导出、清空记录等数据工具。", state) }
         item {
             GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -482,6 +490,7 @@ fun SettingsScreen(
                         fontSize = 15.sp,
                         lineHeight = 23.sp
                     )
+                    QualityModeSelector(state, onQualityChange)
                     GlassPresetSelector(state, onGlassPresetChange)
                     Text("液态玻璃强度 ${state.glassIntensity.format2x()}x", color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp)
                     Slider(value = state.glassIntensity, onValueChange = onGlassIntensityChange, valueRange = 0.6f..1.4f)
@@ -575,6 +584,70 @@ private fun GlassPresetSelector(state: AssistantUiState, onGlassPresetChange: (G
 }
 
 @Composable
+private fun QualityModeSelector(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RenderQuality.entries.forEach { quality ->
+            val selected = state.quality == quality
+            PressableGlass(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity * if (selected) 1.02f else 0.80f,
+                motionIntensity = state.motionIntensity,
+                radius = 18,
+                modifier = Modifier.weight(1f).height(52.dp),
+                role = if (selected) GlassRole.Floating else GlassRole.Chip,
+                onClick = { onQualityChange(quality) }
+            ) {
+                Box(Modifier.fillMaxSize().padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        quality.title,
+                        color = Color.White.copy(alpha = if (selected) 0.98f else 0.64f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundThemeSelector(state: AssistantUiState, onBackgroundThemeChange: (BackgroundTheme) -> Unit) {
+    GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Shell) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("背景色场", color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                BackgroundTheme.entries.forEach { theme ->
+                    val selected = state.backgroundTheme == theme
+                    PressableGlass(
+                        quality = state.quality,
+                        glassIntensity = state.glassIntensity * if (selected) 1.04f else 0.82f,
+                        motionIntensity = state.motionIntensity,
+                        radius = 18,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        role = if (selected) GlassRole.Floating else GlassRole.Chip,
+                        onClick = { onBackgroundThemeChange(theme) }
+                    ) {
+                        Box(Modifier.fillMaxSize().padding(horizontal = 4.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                theme.label,
+                                color = Color.White.copy(alpha = if (selected) 0.98f else 0.62f),
+                                fontSize = 11.sp,
+                                lineHeight = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PreviewHiddenCard(state: AssistantUiState) {
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(20.dp)) {
@@ -604,7 +677,7 @@ private fun CircleGlassButton(text: String, state: AssistantUiState) {
     val transition = rememberInfiniteTransition(label = "send-btn-pulse")
     val pulse by transition.animateFloat(
         initialValue = 0.98f,
-        targetValue = if (state.motionIntensity > 0f) 1.025f else 1f,
+        targetValue = if (state.quality.enableMotion && state.motionIntensity > 0.02f) 1.018f else 1f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1900, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
         label = "send-btn-pulse-value"
     )
