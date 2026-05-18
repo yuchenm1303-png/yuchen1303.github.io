@@ -76,17 +76,17 @@ fun GlassPanel(
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
                 blurRadiusDp = when (role) {
-                    GlassRole.Shell -> 22
-                    GlassRole.Card -> 18
-                    GlassRole.Nav -> 16
-                    GlassRole.Floating -> 18
+                    GlassRole.Shell -> 34
+                    GlassRole.Card -> 30
+                    GlassRole.Nav -> 24
+                    GlassRole.Floating -> 30
                     GlassRole.Chip -> 0
                 },
                 liftAlpha = when (role) {
-                    GlassRole.Shell -> 0.46f
-                    GlassRole.Card -> 0.38f
-                    GlassRole.Nav -> 0.34f
-                    GlassRole.Floating -> 0.42f
+                    GlassRole.Shell -> 1.28f
+                    GlassRole.Card -> 1.08f
+                    GlassRole.Nav -> 0.98f
+                    GlassRole.Floating -> 1.14f
                     GlassRole.Chip -> 0f
                 } * glassIntensity.coerceIn(0.65f, 1.25f)
             )
@@ -98,10 +98,10 @@ fun GlassPanel(
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
                 strength = when (role) {
-                    GlassRole.Shell -> 1.00f
-                    GlassRole.Card -> 0.90f
-                    GlassRole.Nav -> 1.06f
-                    GlassRole.Floating -> 0.96f
+                    GlassRole.Shell -> 0.78f
+                    GlassRole.Card -> 0.64f
+                    GlassRole.Nav -> 0.76f
+                    GlassRole.Floating -> 0.70f
                     GlassRole.Chip -> 0f
                 }
             )
@@ -172,8 +172,8 @@ fun PressableGlass(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                blurRadiusDp = if (role == GlassRole.Nav) 16 else 18,
-                liftAlpha = (if (pressed) 0.48f else 0.38f) * pressedIntensity.coerceIn(0.65f, 1.25f)
+                blurRadiusDp = if (role == GlassRole.Nav) 24 else 28,
+                liftAlpha = (if (pressed) 1.18f else 1.02f) * pressedIntensity.coerceIn(0.65f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),
@@ -182,7 +182,7 @@ fun PressableGlass(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                strength = if (pressed) 1.04f else 0.88f
+                strength = if (pressed) 0.78f else 0.62f
             )
         }
         Box(
@@ -445,16 +445,16 @@ private data class GlassMaterial(
 private fun glassMaterial(role: GlassRole, intensity: Float): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
     val base = when (role) {
-        GlassRole.Shell -> GlassMaterial(0.068f, 0.175f, 0.064f, 0.070f, 0.018f, 0.032f, 0.090f, 0.024f)
-        GlassRole.Card -> GlassMaterial(0.052f, 0.150f, 0.052f, 0.058f, 0.014f, 0.028f, 0.070f, 0.018f)
-        GlassRole.Chip -> GlassMaterial(0.024f, 0.075f, 0.024f, 0.022f, 0.006f, 0.012f, 0.030f, 0.006f)
-        GlassRole.Nav -> GlassMaterial(0.060f, 0.185f, 0.062f, 0.068f, 0.016f, 0.030f, 0.080f, 0.022f)
-        GlassRole.Floating -> GlassMaterial(0.062f, 0.180f, 0.060f, 0.066f, 0.016f, 0.030f, 0.076f, 0.020f)
+        GlassRole.Shell -> GlassMaterial(0.100f, 0.175f, 0.070f, 0.070f, 0.018f, 0.032f, 0.090f, 0.024f)
+        GlassRole.Card -> GlassMaterial(0.082f, 0.150f, 0.058f, 0.058f, 0.014f, 0.028f, 0.070f, 0.018f)
+        GlassRole.Chip -> GlassMaterial(0.034f, 0.075f, 0.026f, 0.022f, 0.006f, 0.012f, 0.030f, 0.006f)
+        GlassRole.Nav -> GlassMaterial(0.092f, 0.185f, 0.068f, 0.068f, 0.016f, 0.030f, 0.080f, 0.022f)
+        GlassRole.Floating -> GlassMaterial(0.090f, 0.180f, 0.066f, 0.066f, 0.016f, 0.030f, 0.076f, 0.020f)
     }
     return GlassMaterial(
-        frost = (base.frost * safeIntensity).coerceIn(0.010f, 0.110f),
+        frost = (base.frost * safeIntensity).coerceIn(0.018f, 0.145f),
         rim = (base.rim * safeIntensity * role.rimScale).coerceIn(0.025f, 0.290f),
-        topHighlight = (base.topHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.100f),
+        topHighlight = (base.topHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.110f),
         cornerHighlight = (base.cornerHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.110f),
         motionGlint = (base.motionGlint * safeIntensity * role.glowScale).coerceIn(0.002f, 0.035f),
         depthShadow = (base.depthShadow * safeIntensity * role.rimScale).coerceIn(0.003f, 0.058f),
