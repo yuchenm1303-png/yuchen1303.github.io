@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.RenderQuality
@@ -37,21 +39,45 @@ fun SampledWeatherGlassBackdrop(
     blurRadiusDp: Int = 112,
     liftAlpha: Float = 1f
 ) {
-    val alpha = liftAlpha.coerceIn(0.04f, 0.38f)
+    val view = LocalView.current
+    val alpha = liftAlpha.coerceIn(0.08f, 0.72f)
+    val scrimAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.055f
+        RenderQuality.Balanced -> 0.070f
+        RenderQuality.Experimental -> 0.086f
+    } * alpha
+    val highlightAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.018f
+        RenderQuality.Balanced -> 0.026f
+        RenderQuality.Experimental -> 0.034f
+    } * alpha
+
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
             .blur(blurRadiusDp.dp)
     ) {
-        // Keep the glass body optically transparent. Do not draw the old fake launcher
-        // background here, otherwise colored blocks are baked into every glass card.
+        val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
+        val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
+
+        withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y) }) {
+            drawWeatherNightBackground(
+                w = rootW,
+                h = rootH,
+                theme = theme,
+                alphaScale = 1f
+            )
+        }
+
+        // A very light material scrim keeps text readable while preserving the
+        // transparent, background-driven glass body.
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.012f * alpha),
-                    Color.White.copy(alpha = 0.006f * alpha),
+                    Color.White.copy(alpha = highlightAlpha * 0.74f),
+                    Color.White.copy(alpha = highlightAlpha * 0.24f),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.010f * alpha)
+                    Color.Black.copy(alpha = scrimAlpha * 1.35f)
                 )
             ),
             blendMode = BlendMode.SrcOver
@@ -59,11 +85,11 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.010f * alpha),
+                    Color.White.copy(alpha = highlightAlpha * 0.52f),
                     Color.Transparent
                 ),
-                center = Offset(size.width * 0.58f, size.height * 0.16f),
-                radius = size.width * 0.76f
+                center = Offset(size.width * 0.52f, size.height * 0.08f),
+                radius = size.width * 0.88f
             ),
             blendMode = BlendMode.Screen
         )
@@ -95,7 +121,7 @@ fun SampledWeatherEdgeRefraction(
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.060f * alpha),
+                Color.White.copy(alpha = 0.062f * alpha),
                 Color.White.copy(alpha = 0.014f * alpha),
                 Color.Transparent,
                 Color.Black.copy(alpha = 0.010f * alpha),
@@ -106,7 +132,7 @@ fun SampledWeatherEdgeRefraction(
         )
         val topPrism = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.070f * alpha),
+                Color.White.copy(alpha = 0.074f * alpha),
                 Color.White.copy(alpha = 0.016f * alpha),
                 Color.Transparent
             ),
@@ -115,7 +141,7 @@ fun SampledWeatherEdgeRefraction(
         )
         val sideCompression = Brush.horizontalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.026f * alpha),
+                Color.White.copy(alpha = 0.028f * alpha),
                 Color.Transparent,
                 Color.Transparent,
                 Color.Black.copy(alpha = 0.008f * alpha),
