@@ -17,9 +17,12 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.RenderQuality
+import kotlin.math.roundToInt
 
 data class GlassBackdropSpec(
     val quality: RenderQuality,
@@ -41,23 +44,24 @@ fun SampledWeatherGlassBackdrop(
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
+    val cachedBackdrop = LocalBlurredBackdrop.current
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.36f
-        RenderQuality.Balanced -> 0.44f
-        RenderQuality.Experimental -> 0.50f
+        RenderQuality.Smooth -> 0.28f
+        RenderQuality.Balanced -> 0.34f
+        RenderQuality.Experimental -> 0.40f
     } * alpha
     val milkAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.145f
-        RenderQuality.Balanced -> 0.185f
-        RenderQuality.Experimental -> 0.220f
+        RenderQuality.Smooth -> 0.105f
+        RenderQuality.Balanced -> 0.135f
+        RenderQuality.Experimental -> 0.160f
     } * alpha
     val highlightAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.060f
-        RenderQuality.Balanced -> 0.082f
-        RenderQuality.Experimental -> 0.100f
+        RenderQuality.Smooth -> 0.055f
+        RenderQuality.Balanced -> 0.074f
+        RenderQuality.Experimental -> 0.092f
     } * alpha
-    val actualBlur = when (quality) {
+    val fallbackBlur = when (quality) {
         RenderQuality.Smooth -> blurRadiusDp * 0.34f
         RenderQuality.Balanced -> blurRadiusDp * 0.44f
         RenderQuality.Experimental -> blurRadiusDp * 0.56f
@@ -71,39 +75,54 @@ fun SampledWeatherGlassBackdrop(
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
-            .blur(actualBlur.dp)
+            .then(if (cachedBackdrop == null) Modifier.blur(fallbackBlur.dp) else Modifier)
     ) {
-        val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
-        val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
+        if (cachedBackdrop != null) {
+            drawImage(
+                image = cachedBackdrop.image,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(cachedBackdrop.image.width, cachedBackdrop.image.height),
+                dstOffset = IntOffset(
+                    x = -globalOffset.x.roundToInt(),
+                    y = -globalOffset.y.roundToInt()
+                ),
+                dstSize = IntSize(cachedBackdrop.fullWidthPx, cachedBackdrop.fullHeightPx),
+                alpha = 1f,
+                blendMode = BlendMode.SrcOver
+            )
+        } else {
+            val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
+            val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
+            drawSpreadBackdropSamples(
+                rootW = rootW,
+                rootH = rootH,
+                theme = theme,
+                globalOffset = globalOffset,
+                spreadPx = spreadPx
+            )
+        }
 
-        drawSpreadBackdropSamples(
-            rootW = rootW,
-            rootH = rootH,
-            theme = theme,
-            globalOffset = globalOffset,
-            spreadPx = spreadPx
-        )
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color(0xFFDCE9F5).copy(alpha = milkAlpha * 0.88f),
-                    Color(0xFF8FA7BC).copy(alpha = baseScrimAlpha * 0.72f),
-                    Color(0xFF31475D).copy(alpha = baseScrimAlpha * 0.66f)
+                    Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.95f),
+                    Color(0xFF9AADBF).copy(alpha = baseScrimAlpha * 0.70f),
+                    Color(0xFF40576D).copy(alpha = baseScrimAlpha * 0.66f)
                 )
             ),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
-            color = Color(0xFF5F748B).copy(alpha = baseScrimAlpha),
+            color = Color(0xFF72859A).copy(alpha = baseScrimAlpha * 0.70f),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = milkAlpha * 1.18f),
-                    Color(0xFFD9E3EF).copy(alpha = milkAlpha * 0.76f),
-                    Color(0xFF8EA1B7).copy(alpha = milkAlpha * 0.34f),
-                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.46f)
+                    Color.White.copy(alpha = milkAlpha * 0.92f),
+                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.54f),
+                    Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.26f),
+                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.34f)
                 )
             ),
             blendMode = BlendMode.SrcOver
@@ -111,7 +130,7 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = highlightAlpha * 0.86f),
+                    Color.White.copy(alpha = highlightAlpha * 0.88f),
                     Color.White.copy(alpha = highlightAlpha * 0.18f),
                     Color.Transparent
                 ),
