@@ -184,11 +184,17 @@ private fun drawSoftBlock(
     aspect: Float = 1f
 ) {
     val layers = arrayOf(
-        2.6f to 0.08f,
-        1.95f to 0.14f,
-        1.45f to 0.23f,
-        1.05f to 0.34f,
-        0.78f to 0.50f
+        3.15f to 0.030f,
+        2.78f to 0.045f,
+        2.45f to 0.060f,
+        2.14f to 0.080f,
+        1.86f to 0.105f,
+        1.60f to 0.135f,
+        1.36f to 0.170f,
+        1.14f to 0.215f,
+        0.96f to 0.270f,
+        0.82f to 0.340f,
+        0.68f to 0.430f
     )
     layers.forEach { (scale, weight) ->
         val blockW = base * scale * aspect
