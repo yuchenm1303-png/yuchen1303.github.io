@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -90,53 +91,77 @@ fun SampledWeatherEdgeRefraction(
         val rootW = if (view.width > 0) view.width.toFloat() else w
         val rootH = if (view.height > 0) view.height.toFloat() else h
         val corner = radius.dp.toPx()
-        val outerRadius = CornerRadius(corner, corner)
-        val outerRing = edgeRingPath(
-            outerInset = 0.7.dp.toPx(),
-            innerInset = 8.5.dp.toPx(),
-            radiusPx = corner
-        )
-        val innerRing = edgeRingPath(
-            outerInset = 5.2.dp.toPx(),
-            innerInset = 13.0.dp.toPx(),
+        val ringOuterInset = 0.7.dp.toPx()
+        val ringInnerInset = 11.5.dp.toPx()
+        val microOuterInset = 1.2.dp.toPx()
+        val microInnerInset = 4.0.dp.toPx()
+        val band = 18.dp.toPx()
+        val topShift = 5.5.dp.toPx()
+        val leftShift = 5.0.dp.toPx()
+        val rightShift = -5.0.dp.toPx()
+        val bottomShift = -4.2.dp.toPx()
+        val microShift = 7.0.dp.toPx()
+        val topStrokeInset = 0.9.dp.toPx()
+        val topStrokeInset2 = topStrokeInset * 2f
+        val topStrokeWidth = 0.52.dp.toPx()
+        val bottomStrokeInset = 2.6.dp.toPx()
+        val bottomStrokeInset2 = bottomStrokeInset * 2f
+        val bottomStrokeWidth = 0.48.dp.toPx()
+        val ring = edgeRingPath(
+            outerInset = ringOuterInset,
+            innerInset = ringInnerInset,
             radiusPx = corner
         )
         val microRing = edgeRingPath(
-            outerInset = 1.4.dp.toPx(),
-            innerInset = 4.2.dp.toPx(),
+            outerInset = microOuterInset,
+            innerInset = microInnerInset,
             radiusPx = corner
         )
+        val cornerRadius = CornerRadius(corner, corner)
 
-        clipPath(outerRing) {
-            withTransform({ translate(left = -globalOffset.x + 5.5.dp.toPx(), top = -globalOffset.y + 4.5.dp.toPx()) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.36f * alpha)
+        clipPath(ring) {
+            clipRect(left = 0f, top = 0f, right = w, bottom = band) {
+                withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + topShift) }) {
+                    drawLauncherLikeBackground(rootW, rootH, 0.34f * alpha)
+                }
+            }
+            clipRect(left = 0f, top = 0f, right = band, bottom = h) {
+                withTransform({ translate(left = -globalOffset.x + leftShift, top = -globalOffset.y) }) {
+                    drawLauncherLikeBackground(rootW, rootH, 0.28f * alpha)
+                }
+            }
+            clipRect(left = w - band, top = 0f, right = w, bottom = h) {
+                withTransform({ translate(left = -globalOffset.x + rightShift, top = -globalOffset.y) }) {
+                    drawLauncherLikeBackground(rootW, rootH, 0.24f * alpha)
+                }
+            }
+            clipRect(left = 0f, top = h - band, right = w, bottom = h) {
+                withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + bottomShift) }) {
+                    drawLauncherLikeBackground(rootW, rootH, 0.24f * alpha)
+                }
             }
         }
-        clipPath(innerRing) {
-            withTransform({ translate(left = -globalOffset.x - 4.0.dp.toPx(), top = -globalOffset.y - 2.5.dp.toPx()) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.22f * alpha)
-            }
-        }
+
         clipPath(microRing) {
-            withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + 7.0.dp.toPx()) }) {
-                drawLauncherLikeBackground(rootW, rootH, 0.18f * alpha)
+            withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + microShift) }) {
+                drawLauncherLikeBackground(rootW, rootH, 0.13f * alpha)
             }
         }
 
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.120f * alpha),
-                    Color.White.copy(alpha = 0.030f * alpha),
+                    Color.White.copy(alpha = 0.085f * alpha),
+                    Color.White.copy(alpha = 0.020f * alpha),
                     Color.Transparent
                 ),
                 startY = 0f,
-                endY = h * 0.24f
+                endY = h * 0.22f
             ),
-            topLeft = Offset(0.9.dp.toPx(), 0.9.dp.toPx()),
-            size = Size(w - 1.8.dp.toPx(), h - 1.8.dp.toPx()),
-            cornerRadius = outerRadius,
-            style = Stroke(width = 0.72.dp.toPx()),
+            topLeft = Offset(topStrokeInset, topStrokeInset),
+            size = Size(w - topStrokeInset2, h - topStrokeInset2),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = topStrokeWidth),
             blendMode = BlendMode.Screen
         )
         drawRoundRect(
@@ -144,15 +169,15 @@ fun SampledWeatherEdgeRefraction(
                 colors = listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.045f * alpha)
+                    Color.Black.copy(alpha = 0.034f * alpha)
                 ),
-                startY = h * 0.52f,
+                startY = h * 0.54f,
                 endY = h
             ),
-            topLeft = Offset(2.6.dp.toPx(), 2.6.dp.toPx()),
-            size = Size(w - 5.2.dp.toPx(), h - 5.2.dp.toPx()),
-            cornerRadius = outerRadius,
-            style = Stroke(width = 0.55.dp.toPx()),
+            topLeft = Offset(bottomStrokeInset, bottomStrokeInset),
+            size = Size(w - bottomStrokeInset2, h - bottomStrokeInset2),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = bottomStrokeWidth),
             blendMode = BlendMode.Multiply
         )
     }
@@ -165,13 +190,15 @@ private fun DrawScope.edgeRingPath(
 ): Path {
     val w = size.width
     val h = size.height
+    val outerCorner = (radiusPx - outerInset).coerceAtLeast(0f)
+    val innerCorner = (radiusPx - innerInset).coerceAtLeast(0f)
     val outer = RoundRect(
         rect = Rect(outerInset, outerInset, w - outerInset, h - outerInset),
-        cornerRadius = CornerRadius((radiusPx - outerInset).coerceAtLeast(0f), (radiusPx - outerInset).coerceAtLeast(0f))
+        cornerRadius = CornerRadius(outerCorner, outerCorner)
     )
     val inner = RoundRect(
         rect = Rect(innerInset, innerInset, w - innerInset, h - innerInset),
-        cornerRadius = CornerRadius((radiusPx - innerInset).coerceAtLeast(0f), (radiusPx - innerInset).coerceAtLeast(0f))
+        cornerRadius = CornerRadius(innerCorner, innerCorner)
     )
     return Path().apply {
         fillType = PathFillType.EvenOdd
