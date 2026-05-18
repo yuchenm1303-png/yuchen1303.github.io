@@ -47,9 +47,16 @@ enum class GlassRole(
     Floating(0f, 1.00f, 1.00f, 14)
 }
 
-private const val UNIFIED_GLASS_BLUR_DP = 42
+private const val STRONG_GLASS_BLUR_DP = 72
+private const val MEDIUM_GLASS_BLUR_DP = 44
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 1.42f
 private const val UNIFIED_EDGE_STRENGTH = 0.34f
+
+private fun blurForRole(role: GlassRole): Int = when (role) {
+    GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
+    GlassRole.Nav -> 56
+    GlassRole.Chip -> MEDIUM_GLASS_BLUR_DP
+}
 
 @Composable
 fun GlassPanel(
@@ -79,7 +86,7 @@ fun GlassPanel(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                blurRadiusDp = UNIFIED_GLASS_BLUR_DP,
+                blurRadiusDp = blurForRole(role),
                 liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
@@ -157,7 +164,7 @@ fun PressableGlass(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                blurRadiusDp = UNIFIED_GLASS_BLUR_DP,
+                blurRadiusDp = blurForRole(role),
                 liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
