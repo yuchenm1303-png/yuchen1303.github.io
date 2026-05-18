@@ -61,12 +61,37 @@ fun GlassPanel(
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     var globalOffset by remember { mutableStateOf(Offset.Zero) }
+    val backdrop = LocalGlassBackdrop.current
 
     Box(
         modifier = modifier
             .onGloballyPositioned { globalOffset = it.localToWindow(Offset.Zero) }
             .glassOuterFrame(radius = radius, role = role, glassIntensity = glassIntensity)
     ) {
+        if (backdrop != null && role != GlassRole.Chip) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = radius,
+                globalOffset = globalOffset,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = when (role) {
+                    GlassRole.Shell -> 22
+                    GlassRole.Card -> 18
+                    GlassRole.Nav -> 16
+                    GlassRole.Floating -> 18
+                    GlassRole.Chip -> 0
+                },
+                liftAlpha = when (role) {
+                    GlassRole.Shell -> 1.05f
+                    GlassRole.Card -> 0.92f
+                    GlassRole.Nav -> 0.96f
+                    GlassRole.Floating -> 0.98f
+                    GlassRole.Chip -> 0f
+                }
+            )
+        }
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -110,6 +135,7 @@ fun PressableGlass(
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     var globalOffset by remember { mutableStateOf(Offset.Zero) }
+    val backdrop = LocalGlassBackdrop.current
     val pressedIntensity = if (pressed) glassIntensity * 1.08f else glassIntensity
 
     Box(
@@ -124,6 +150,18 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = radius, role = role, glassIntensity = pressedIntensity)
     ) {
+        if (backdrop != null && role != GlassRole.Chip) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = radius,
+                globalOffset = globalOffset,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = if (role == GlassRole.Nav) 16 else 18,
+                liftAlpha = if (pressed) 1.06f else 0.94f
+            )
+        }
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -214,7 +252,6 @@ fun Modifier.glassSkin(
         val w = size.width
         val h = size.height
         val drift = safeShimmer - 0.5f
-        val phase = safeShimmer * 6.28318f
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
 
         val outerGlowStroke = when (role) {
@@ -252,14 +289,24 @@ fun Modifier.glassSkin(
         val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
         val hairSize = Size(w - hairInset * 2f, h - hairInset * 2f)
 
-        val topLens = Brush.verticalGradient(
+        val frostedNeutralVeil = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.topHighlight * pulse),
-                Color.White.copy(alpha = material.topHighlight * 0.20f),
+                Color.White.copy(alpha = material.frost * pulse),
+                Color(0xFFE8EDF3).copy(alpha = material.frost * 0.70f),
+                Color(0xFFC7D0DC).copy(alpha = material.frost * 0.28f),
                 Color.Transparent
             ),
             startY = 0f,
-            endY = h * 0.28f
+            endY = h
+        )
+        val topLens = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = material.topHighlight * pulse),
+                Color.White.copy(alpha = material.topHighlight * 0.22f),
+                Color.Transparent
+            ),
+            startY = 0f,
+            endY = h * 0.30f
         )
         val lowerShade = Brush.verticalGradient(
             colors = listOf(
@@ -354,6 +401,7 @@ fun Modifier.glassSkin(
         )
 
         onDrawWithContent {
+            drawRect(frostedNeutralVeil, blendMode = BlendMode.Screen)
             drawRect(topLens, blendMode = BlendMode.Screen)
             drawRect(sideCatch, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
@@ -377,6 +425,7 @@ fun Modifier.glassSkin(
 }
 
 private data class GlassMaterial(
+    val frost: Float,
     val rim: Float,
     val topHighlight: Float,
     val sideHighlight: Float,
@@ -390,19 +439,20 @@ private data class GlassMaterial(
 private fun glassMaterial(role: GlassRole, intensity: Float): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
     val base = when (role) {
-        GlassRole.Shell -> GlassMaterial(0.180f, 0.050f, 0.020f, 0.052f, 0.018f, 0.026f, 0.090f, 0.022f)
-        GlassRole.Card -> GlassMaterial(0.150f, 0.038f, 0.016f, 0.042f, 0.014f, 0.022f, 0.072f, 0.018f)
-        GlassRole.Chip -> GlassMaterial(0.082f, 0.018f, 0.006f, 0.018f, 0.006f, 0.010f, 0.030f, 0.006f)
-        GlassRole.Nav -> GlassMaterial(0.198f, 0.048f, 0.020f, 0.050f, 0.016f, 0.024f, 0.080f, 0.020f)
-        GlassRole.Floating -> GlassMaterial(0.190f, 0.046f, 0.018f, 0.050f, 0.016f, 0.024f, 0.076f, 0.018f)
+        GlassRole.Shell -> GlassMaterial(0.075f, 0.190f, 0.062f, 0.024f, 0.058f, 0.020f, 0.030f, 0.090f, 0.022f)
+        GlassRole.Card -> GlassMaterial(0.058f, 0.158f, 0.048f, 0.018f, 0.046f, 0.016f, 0.026f, 0.072f, 0.018f)
+        GlassRole.Chip -> GlassMaterial(0.026f, 0.082f, 0.022f, 0.008f, 0.020f, 0.006f, 0.012f, 0.030f, 0.006f)
+        GlassRole.Nav -> GlassMaterial(0.066f, 0.205f, 0.058f, 0.022f, 0.056f, 0.018f, 0.028f, 0.080f, 0.020f)
+        GlassRole.Floating -> GlassMaterial(0.068f, 0.198f, 0.056f, 0.022f, 0.056f, 0.018f, 0.028f, 0.076f, 0.018f)
     }
     return GlassMaterial(
-        rim = (base.rim * safeIntensity * role.rimScale).coerceIn(0.030f, 0.300f),
-        topHighlight = (base.topHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.085f),
-        sideHighlight = (base.sideHighlight * safeIntensity * role.glowScale).coerceIn(0.002f, 0.040f),
-        cornerHighlight = (base.cornerHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.085f),
-        motionGlint = (base.motionGlint * safeIntensity * role.glowScale).coerceIn(0.002f, 0.038f),
-        depthShadow = (base.depthShadow * safeIntensity * role.rimScale).coerceIn(0.003f, 0.050f),
+        frost = (base.frost * safeIntensity).coerceIn(0.010f, 0.120f),
+        rim = (base.rim * safeIntensity * role.rimScale).coerceIn(0.030f, 0.320f),
+        topHighlight = (base.topHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.100f),
+        sideHighlight = (base.sideHighlight * safeIntensity * role.glowScale).coerceIn(0.002f, 0.050f),
+        cornerHighlight = (base.cornerHighlight * safeIntensity * role.glowScale).coerceIn(0.004f, 0.100f),
+        motionGlint = (base.motionGlint * safeIntensity * role.glowScale).coerceIn(0.002f, 0.042f),
+        depthShadow = (base.depthShadow * safeIntensity * role.rimScale).coerceIn(0.003f, 0.060f),
         shadowAmbient = (base.shadowAmbient * safeIntensity).coerceIn(0.012f, 0.120f),
         shadowSpot = (base.shadowSpot * safeIntensity).coerceIn(0.002f, 0.032f)
     )
