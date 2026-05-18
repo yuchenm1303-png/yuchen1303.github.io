@@ -50,45 +50,93 @@ fun rememberBlurredBackdropBitmap(
     }
 }
 
+private data class BackdropTuning(
+    val scale: Float,
+    val radius: Int,
+    val iterations: Int,
+    val spread: Float,
+    val iconAlpha: Float,
+    val brightness: Float,
+    val contrast: Float,
+    val saturation: Float
+)
+
+private fun tuningFor(quality: RenderQuality): BackdropTuning {
+    return when (quality) {
+        RenderQuality.Smooth -> BackdropTuning(
+            scale = 0.420f,
+            radius = 4,
+            iterations = 4,
+            spread = 1.02f,
+            iconAlpha = 1.02f,
+            brightness = 1.08f,
+            contrast = 1.06f,
+            saturation = 1.06f
+        )
+        RenderQuality.Balanced -> BackdropTuning(
+            scale = 0.600f,
+            radius = 4,
+            iterations = 5,
+            spread = 1.03f,
+            iconAlpha = 1.10f,
+            brightness = 1.12f,
+            contrast = 1.11f,
+            saturation = 1.12f
+        )
+        RenderQuality.Experimental -> BackdropTuning(
+            scale = 0.600f,
+            radius = 5,
+            iterations = 5,
+            spread = 1.06f,
+            iconAlpha = 1.12f,
+            brightness = 1.13f,
+            contrast = 1.12f,
+            saturation = 1.13f
+        )
+    }
+}
+
 private fun buildBlurredBackdropBitmap(
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme,
     quality: RenderQuality
 ): BlurredBackdropBitmap {
-    val scale = when (quality) {
-        RenderQuality.Smooth -> 0.185f
-        RenderQuality.Balanced -> 0.230f
-        RenderQuality.Experimental -> 0.275f
-    }
-    val smallWidth = (fullWidth * scale).roundToInt().coerceAtLeast(128)
-    val smallHeight = (fullHeight * scale).roundToInt().coerceAtLeast(216)
+    val tuning = tuningFor(quality)
+    val smallWidth = (fullWidth * tuning.scale).roundToInt().coerceAtLeast(128)
+    val smallHeight = (fullHeight * tuning.scale).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    drawAndroidBackdropSource(source, theme)
+    drawAndroidBackdropSource(
+        bitmap = source,
+        theme = theme,
+        spread = tuning.spread,
+        iconAlpha = tuning.iconAlpha
+    )
 
-    val radius = when (quality) {
-        RenderQuality.Smooth -> 9
-        RenderQuality.Balanced -> 12
-        RenderQuality.Experimental -> 15
-    }
-    val iterations = when (quality) {
-        RenderQuality.Smooth -> 2
-        RenderQuality.Balanced -> 2
-        RenderQuality.Experimental -> 2
-    }
-    val blurred = boxBlur(source, radius, iterations)
+    val blurred = boxBlur(source, tuning.radius, tuning.iterations)
+    val tuned = tuneBitmapTone(
+        input = blurred,
+        brightness = tuning.brightness,
+        contrast = tuning.contrast,
+        saturation = tuning.saturation
+    )
 
     return BlurredBackdropBitmap(
-        image = blurred.asImageBitmap(),
+        image = tuned.asImageBitmap(),
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
         scale = effectiveScale
     )
 }
 
-private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
+private fun drawAndroidBackdropSource(
+    bitmap: Bitmap,
+    theme: BackgroundTheme,
+    spread: Float,
+    iconAlpha: Float
+) {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
     val h = bitmap.height.toFloat()
@@ -142,7 +190,8 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
                     cx = w * x,
                     cy = h * y,
                     base = icon,
-                    alpha = 0.92f
+                    alpha = 0.92f * iconAlpha,
+                    spread = spread
                 )
                 index++
             }
@@ -156,8 +205,9 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
         cx = w * 0.73f,
         cy = h * 0.295f,
         base = min(w * 0.40f, h * 0.17f),
-        alpha = 0.72f,
-        aspect = 2.35f
+        alpha = 0.72f * iconAlpha,
+        aspect = 2.35f,
+        spread = spread
     )
 
     repeat(5) { i ->
@@ -168,7 +218,8 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
             cx = w * (0.14f + i * 0.18f),
             cy = h * 0.932f,
             base = icon * 0.80f,
-            alpha = 0.74f
+            alpha = 0.74f * iconAlpha,
+            spread = spread
         )
     }
 }
@@ -181,7 +232,8 @@ private fun drawSoftBlock(
     cy: Float,
     base: Float,
     alpha: Float,
-    aspect: Float = 1f
+    aspect: Float = 1f,
+    spread: Float = 1f
 ) {
     val layers = arrayOf(
         3.15f to 0.030f,
@@ -197,8 +249,8 @@ private fun drawSoftBlock(
         0.68f to 0.430f
     )
     layers.forEach { (scale, weight) ->
-        val blockW = base * scale * aspect
-        val blockH = base * scale
+        val blockW = base * scale * spread * aspect
+        val blockH = base * scale * spread
         paint.color = withAlpha(color, alpha * weight)
         paint.shader = null
         canvas.drawRoundRect(
@@ -285,6 +337,36 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
             g += ((add shr 8) and 0xFF) - ((remove shr 8) and 0xFF)
             b += (add and 0xFF) - (remove and 0xFF)
         }
+    }
+
+    return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
+}
+
+private fun tuneBitmapTone(
+    input: Bitmap,
+    brightness: Float,
+    contrast: Float,
+    saturation: Float
+): Bitmap {
+    val width = input.width
+    val height = input.height
+    val pixels = IntArray(width * height)
+    val output = IntArray(width * height)
+    input.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    pixels.forEachIndexed { index, color ->
+        val a = color ushr 24
+        val r0 = ((color shr 16) and 0xFF).toFloat()
+        val g0 = ((color shr 8) and 0xFF).toFloat()
+        val b0 = (color and 0xFF).toFloat()
+        val gray = r0 * 0.2126f + g0 * 0.7152f + b0 * 0.0722f
+        val sr = gray + (r0 - gray) * saturation
+        val sg = gray + (g0 - gray) * saturation
+        val sb = gray + (b0 - gray) * saturation
+        val r = (((sr - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
+        val g = (((sg - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
+        val b = (((sb - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
+        output[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
 
     return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
