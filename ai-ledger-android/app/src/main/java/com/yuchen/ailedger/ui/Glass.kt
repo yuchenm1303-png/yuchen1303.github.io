@@ -47,14 +47,14 @@ enum class GlassRole(
     Floating(0f, 1.00f, 1.00f, 14)
 }
 
-private const val STRONG_GLASS_BLUR_DP = 72
-private const val MEDIUM_GLASS_BLUR_DP = 44
-private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.30f
-private const val UNIFIED_EDGE_STRENGTH = 0.22f
+private const val STRONG_GLASS_BLUR_DP = 132
+private const val MEDIUM_GLASS_BLUR_DP = 96
+private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.82f
+private const val UNIFIED_EDGE_STRENGTH = 0.26f
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
-    GlassRole.Nav -> 56
+    GlassRole.Nav -> 118
     GlassRole.Chip -> MEDIUM_GLASS_BLUR_DP
 }
 
