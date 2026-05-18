@@ -81,7 +81,8 @@ fun SampledWeatherEdgeRefraction(
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val rootW = if (view.width > 0) view.width.toFloat() else size.width
         val rootH = if (view.height > 0) view.height.toFloat() else size.height
-        withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + 3.dp.toPx()) }) {
+        val edgeShiftPx = 3.dp.toPx()
+        withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y + edgeShiftPx) }) {
             drawLauncherLikeBackground(rootW, rootH, alpha * 0.34f)
         }
         drawRect(
