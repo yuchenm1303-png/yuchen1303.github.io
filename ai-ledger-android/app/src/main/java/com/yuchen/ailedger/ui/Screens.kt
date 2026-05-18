@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -268,8 +269,24 @@ fun SettingsScreen(
     onMotionIntensityChange: (Float) -> Unit
 ) {
     var detail by remember { mutableStateOf<SettingsDetail?>(null) }
+    val sheetOpen = detail != null
+    val backgroundBlur by animateFloatAsState(if (sheetOpen) 14f else 0f, tween(220, easing = FastOutSlowInEasing), label = "settings-sheet-blur")
+    val backgroundAlpha by animateFloatAsState(if (sheetOpen) 0.34f else 1f, tween(220, easing = FastOutSlowInEasing), label = "settings-sheet-alpha")
+    val backgroundScale by animateFloatAsState(if (sheetOpen) 0.972f else 1f, tween(220, easing = FastOutSlowInEasing), label = "settings-sheet-scale")
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 20.dp, bottom = 220.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = backgroundAlpha
+                    scaleX = backgroundScale
+                    scaleY = backgroundScale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.12f)
+                }
+                .blur(backgroundBlur.dp),
+            contentPadding = PaddingValues(top = 20.dp, bottom = 220.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             item { ScreenHero(kicker = "设置中心", title = "设置", subtitle = "账号、显示、手机动作与数据") }
             item { SettingsSection("账号", state) { SettingsCompactRow("☁", "账号与同步", "登录、云端 AI、Worker 连接", state) { detail = SettingsDetail.Account } } }
             item { SettingsSection("体验", state) {
@@ -372,8 +389,8 @@ private fun CompactGlassPerformanceCard(state: AssistantUiState, onGlassPresetCh
 
 @Composable
 private fun SettingsDetailOverlay(detail: SettingsDetail, state: AssistantUiState, aiEndpoint: String, onDismiss: () -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit) {
-    Box(Modifier.fillMaxSize().background(Color(0x99030A18)).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onDismiss() }, contentAlignment = Alignment.BottomCenter) {
-        GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 26, Modifier.fillMaxWidth().padding(bottom = 92.dp), GlassRole.Shell) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xB6020614), Color(0xD0040818)))).clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onDismiss() }, contentAlignment = Alignment.BottomCenter) {
+        GlassPanel(state.quality, state.glassIntensity * 1.18f, state.motionIntensity, 26, Modifier.fillMaxWidth().padding(bottom = 92.dp), GlassRole.Floating) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(detailTitle(detail), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black); Text(detailSubtitle(detail), color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, lineHeight = 17.sp) }
