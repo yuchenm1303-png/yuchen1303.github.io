@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -116,6 +117,117 @@ fun SampledWeatherGlassBackdrop(
             ),
             blendMode = BlendMode.Screen
         )
+    }
+}
+
+@Composable
+fun SampledWeatherEdgeRefraction(
+    modifier: Modifier = Modifier,
+    radius: Int,
+    globalOffset: Offset,
+    quality: RenderQuality,
+    motionIntensity: Float,
+    theme: BackgroundTheme
+) {
+    val view = LocalView.current
+    val motionScale = motionIntensity.coerceIn(0f, 1.4f)
+    val transition = rememberInfiniteTransition(label = "sampled-edge-refraction")
+    val breathe by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (quality.enableMotion) (56000 / motionScale.coerceAtLeast(0.35f)).toInt() else 90000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "edge-bg-breathe"
+    )
+    val drift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (quality.enableMotion) (118000 / motionScale.coerceAtLeast(0.35f)).toInt() else 160000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "edge-bg-drift"
+    )
+    val twinkle by transition.animateFloat(
+        initialValue = 0.36f,
+        targetValue = 0.68f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (quality.enableMotion) (19000 / motionScale.coerceAtLeast(0.35f)).toInt() else 42000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "edge-bg-twinkle"
+    )
+
+    Canvas(
+        modifier = modifier.clip(RoundedCornerShape(radius.dp))
+    ) {
+        val rootW = if (view.width > 0) view.width.toFloat() else size.width
+        val rootH = if (view.height > 0) view.height.toFloat() else size.height
+        val topBand = (size.height * 0.16f).coerceIn(10f, 34.dp.toPx())
+        val sideBand = (size.width * 0.060f).coerceIn(8f, 24.dp.toPx())
+        val bottomBand = (size.height * 0.13f).coerceIn(8f, 30.dp.toPx())
+
+        fun sampledShiftedBackground(dx: Float, dy: Float) {
+            withTransform({ translate(left = -globalOffset.x + dx, top = -globalOffset.y + dy) }) {
+                drawSampledWeatherSky(
+                    width = rootW,
+                    height = rootH,
+                    theme = theme,
+                    quality = quality,
+                    breathe = breathe,
+                    drift = drift,
+                    twinkle = twinkle,
+                    motionScale = motionScale
+                )
+            }
+        }
+
+        clipRect(left = 0f, top = 0f, right = size.width, bottom = topBand) {
+            sampledShiftedBackground(dx = 0f, dy = 5.dp.toPx())
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.090f), Color.White.copy(alpha = 0.018f), Color.Transparent),
+                    startY = 0f,
+                    endY = topBand
+                ),
+                blendMode = BlendMode.Screen
+            )
+        }
+        clipRect(left = 0f, top = 0f, right = sideBand, bottom = size.height) {
+            sampledShiftedBackground(dx = 4.dp.toPx(), dy = 0f)
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(Color.White.copy(alpha = 0.052f), Color.Transparent),
+                    startX = 0f,
+                    endX = sideBand
+                ),
+                blendMode = BlendMode.Screen
+            )
+        }
+        clipRect(left = size.width - sideBand, top = 0f, right = size.width, bottom = size.height) {
+            sampledShiftedBackground(dx = -4.dp.toPx(), dy = 0f)
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    listOf(Color.Transparent, Color.White.copy(alpha = 0.030f)),
+                    startX = size.width - sideBand,
+                    endX = size.width
+                ),
+                blendMode = BlendMode.Screen
+            )
+        }
+        clipRect(left = 0f, top = size.height - bottomBand, right = size.width, bottom = size.height) {
+            sampledShiftedBackground(dx = 0f, dy = -5.dp.toPx())
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.032f)),
+                    startY = size.height - bottomBand,
+                    endY = size.height
+                ),
+                blendMode = BlendMode.Multiply
+            )
+        }
     }
 }
 
