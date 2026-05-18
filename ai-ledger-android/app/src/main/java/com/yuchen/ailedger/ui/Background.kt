@@ -28,7 +28,7 @@ fun WeatherNightBackground(
     theme: BackgroundTheme = BackgroundTheme.Aurora
 ) {
     val motionScale = motionIntensity.coerceIn(0f, 1.4f)
-    val transition = rememberInfiniteTransition(label = "web-liquid-bg")
+    val transition = rememberInfiniteTransition(label = "web-weather-sky")
     val breathe by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -57,6 +57,20 @@ fun WeatherNightBackground(
         ),
         label = "weatherMistDrift"
     )
+    val starDrift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (quality.enableMotion && motionScale > 0f) {
+                    (150000 / motionScale.coerceAtLeast(0.35f)).toInt()
+                } else 200000,
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "weatherStarsDrift"
+    )
     val twinkle by transition.animateFloat(
         initialValue = 0.36f,
         targetValue = 0.68f,
@@ -76,8 +90,10 @@ fun WeatherNightBackground(
     Canvas(Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        val scaleDrift = (breathe - 0.5f) * motionScale
+        val breatheDrift = (breathe - 0.5f) * motionScale
         val mistDrift = (mist - 0.5f) * motionScale
+        val starDx = -0.012f * starDrift * motionScale
+        val starDy = 0.014f * starDrift * motionScale
 
         drawRect(
             brush = Brush.linearGradient(
@@ -87,34 +103,40 @@ fun WeatherNightBackground(
             )
         )
 
-        fun sceneEllipse(cx: Float, cy: Float, rw: Float, rh: Float, color: Color, mode: BlendMode = BlendMode.Screen) {
-            drawOval(
-                brush = Brush.radialGradient(
-                    colors = listOf(color, color.copy(alpha = color.alpha * 0.42f), Color.Transparent),
-                    center = Offset(w * cx, h * cy),
-                    radius = w * rw
-                ),
-                topLeft = Offset(w * (cx - rw), h * (cy - rh)),
-                size = Size(w * rw * 2f, h * rh * 2f),
-                blendMode = mode
+        drawRect(
+            brush = Brush.verticalGradient(palette.baseOverlay, startY = 0f, endY = h),
+            blendMode = if (theme == BackgroundTheme.Dawn) BlendMode.Screen else BlendMode.Multiply
+        )
+
+        palette.scene.forEachIndexed { index, spec ->
+            val dx = if (index % 2 == 0) -breatheDrift * 0.020f else breatheDrift * 0.018f
+            val dy = if (index < 2) breatheDrift * 0.012f else -breatheDrift * 0.006f
+            drawSceneEllipse(
+                cx = spec.cx + dx,
+                cy = spec.cy + dy,
+                rw = spec.rw,
+                rh = spec.rh,
+                color = spec.color,
+                mode = spec.mode,
+                width = w,
+                height = h
             )
         }
 
-        palette.scene.forEachIndexed { index, spec ->
-            val dx = if (index % 2 == 0) -scaleDrift * 0.014f else scaleDrift * 0.018f
-            val dy = if (index < 2) scaleDrift * 0.012f else 0f
-            sceneEllipse(spec.cx + dx, spec.cy + dy, spec.rw, spec.rh, spec.color, spec.mode)
-        }
-
-        palette.mist.forEachIndexed { index, spec ->
-            val drift = if (index % 2 == 0) mistDrift * 0.05f else -mistDrift * 0.05f
+        palette.webMist.forEachIndexed { index, spec ->
+            val dx = if (index % 2 == 0) mistDrift * 0.050f else -mistDrift * 0.044f
+            val dy = if (index % 3 == 0) -mistDrift * 0.018f else mistDrift * 0.012f
             drawOval(
                 brush = Brush.radialGradient(
-                    colors = listOf(spec.color, Color.Transparent),
-                    center = Offset(w * (spec.cx + drift), h * spec.cy),
+                    colors = listOf(
+                        spec.color,
+                        spec.color.copy(alpha = spec.color.alpha * 0.38f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * (spec.cx + dx), h * (spec.cy + dy)),
                     radius = w * spec.radius
                 ),
-                topLeft = Offset(w * (spec.left + drift), h * spec.top),
+                topLeft = Offset(w * (spec.left + dx), h * (spec.top + dy)),
                 size = Size(w * spec.width, h * spec.height),
                 blendMode = spec.mode
             )
@@ -123,29 +145,39 @@ fun WeatherNightBackground(
         drawRect(
             brush = Brush.linearGradient(
                 colors = palette.ribbon,
-                start = Offset(w * (-0.08f + mistDrift * 0.03f), h * 0.05f),
-                end = Offset(w * 1.08f, h * 0.82f)
+                start = Offset(w * (-0.08f + mistDrift * 0.035f), h * 0.06f),
+                end = Offset(w * (1.08f + mistDrift * 0.020f), h * 0.82f)
             ),
             blendMode = BlendMode.Screen
         )
 
-        repeat(quality.starCount.coerceAtLeast(palette.minStars)) { index ->
-            val xSeed = ((index * 37 + 6) % 100) / 100f
-            val ySeed = ((index * 61 + 8) % 100) / 100f
-            val alphaWave = if (quality.enableMotion && motionScale > 0f) {
-                twinkle + 0.10f * sin((breathe * 6.28f) + index * 0.83f).toFloat()
-            } else 0.50f
-            val alpha = (alphaWave * palette.starAlpha).coerceIn(0.12f, 0.72f)
-            val radius = when {
-                index % 11 == 0 -> 1.9f
-                index % 5 == 0 -> 1.45f
-                else -> 0.9f
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = palette.secondRibbon,
+                start = Offset(w * (0.06f - mistDrift * 0.020f), h * 0.02f),
+                end = Offset(w * (0.92f + mistDrift * 0.018f), h * 0.95f)
+            ),
+            blendMode = BlendMode.Screen
+        )
+
+        if (palette.starAlpha > 0f) {
+            val stars = cssLikeStars
+            val visibleCount = quality.starCount.coerceAtLeast(palette.minStars).coerceAtMost(stars.size)
+            repeat(visibleCount) { index ->
+                val star = stars[index]
+                val alphaWave = if (quality.enableMotion && motionScale > 0f) {
+                    twinkle + 0.12f * sin((breathe * 6.28318f) + index * 0.83f).toFloat()
+                } else 0.50f
+                val alpha = (alphaWave * palette.starAlpha * star.alpha).coerceIn(0.08f, 0.72f)
+                drawCircle(
+                    color = Color.White.copy(alpha = alpha),
+                    radius = star.radius,
+                    center = Offset(
+                        w * (star.x + starDx + mistDrift * star.dx),
+                        h * (star.y + starDy + mistDrift * star.dy)
+                    )
+                )
             }
-            drawCircle(
-                color = Color.White.copy(alpha = alpha),
-                radius = radius,
-                center = Offset(w * (xSeed - mistDrift * 0.010f), h * (0.035f + ySeed * 0.88f + mistDrift * 0.012f))
-            )
         }
 
         drawRect(
@@ -155,69 +187,134 @@ fun WeatherNightBackground(
     }
 }
 
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSceneEllipse(
+    cx: Float,
+    cy: Float,
+    rw: Float,
+    rh: Float,
+    color: Color,
+    mode: BlendMode,
+    width: Float,
+    height: Float
+) {
+    drawOval(
+        brush = Brush.radialGradient(
+            colors = listOf(color, color.copy(alpha = color.alpha * 0.42f), Color.Transparent),
+            center = Offset(width * cx, height * cy),
+            radius = width * rw
+        ),
+        topLeft = Offset(width * (cx - rw), height * (cy - rh)),
+        size = Size(width * rw * 2f, height * rh * 2f),
+        blendMode = mode
+    )
+}
+
 private data class BgPalette(
     val base: List<Color>,
+    val baseOverlay: List<Color>,
     val scene: List<EllipseSpec>,
-    val mist: List<MistSpec>,
+    val webMist: List<MistSpec>,
     val ribbon: List<Color>,
+    val secondRibbon: List<Color>,
     val overlay: List<Color>,
     val starAlpha: Float,
     val minStars: Int
 )
 
-private data class EllipseSpec(val cx: Float, val cy: Float, val rw: Float, val rh: Float, val color: Color, val mode: BlendMode)
-private data class MistSpec(val cx: Float, val cy: Float, val left: Float, val top: Float, val width: Float, val height: Float, val radius: Float, val color: Color, val mode: BlendMode)
+private data class EllipseSpec(
+    val cx: Float,
+    val cy: Float,
+    val rw: Float,
+    val rh: Float,
+    val color: Color,
+    val mode: BlendMode
+)
+
+private data class MistSpec(
+    val cx: Float,
+    val cy: Float,
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val radius: Float,
+    val color: Color,
+    val mode: BlendMode
+)
+
+private data class StarSpec(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val alpha: Float,
+    val dx: Float,
+    val dy: Float
+)
 
 private fun BackgroundTheme.palette(): BgPalette {
     return when (this) {
         BackgroundTheme.Aurora -> BgPalette(
-            base = listOf(Color(0xFF08162A), Color(0xFF152442), Color(0xFF4B405E)),
+            base = listOf(Color(0xFF071326), Color(0xFF14213F), Color(0xFF473E60)),
+            baseOverlay = listOf(Color(0x1A07101F), Color(0x080D1427), Color(0x52744F5C)),
             scene = listOf(
-                EllipseSpec(0.76f, 0.12f, 0.27f, 0.17f, Color(0x3380B0FF), BlendMode.Plus),
-                EllipseSpec(0.40f, 0.58f, 0.39f, 0.27f, Color(0x4D536AA9), BlendMode.Screen),
-                EllipseSpec(0.58f, 0.88f, 0.34f, 0.22f, Color(0x33694D88), BlendMode.Lighten)
+                EllipseSpec(0.72f, 0.10f, 0.28f, 0.18f, Color(0x387AA8FF), BlendMode.Screen),
+                EllipseSpec(0.35f, 0.44f, 0.40f, 0.28f, Color(0x475274B8), BlendMode.Screen),
+                EllipseSpec(0.58f, 0.78f, 0.38f, 0.25f, Color(0x38675091), BlendMode.Lighten),
+                EllipseSpec(0.20f, 0.92f, 0.36f, 0.22f, Color(0x2E4A659B), BlendMode.Lighten)
             ),
-            mist = defaultMist(Color(0x2BC4D5FF), Color(0x2188A7E8), Color(0x1FA486BC), Color(0x1CC479AE)),
+            webMist = defaultWebMist(
+                Color(0x2BC4D5FF),
+                Color(0x2188A7E8),
+                Color(0x1FA486BC),
+                Color(0x1CC479AE)
+            ),
             ribbon = listOf(Color.Transparent, Color(0x09E8EFFF), Color.Transparent, Color(0x08D3C2EE), Color.Transparent),
-            overlay = listOf(Color(0x29081224), Color(0x0A0F1629), Color(0x4D483A58)),
+            secondRibbon = listOf(Color.Transparent, Color(0x07FFFFFF), Color.Transparent, Color(0x06B4C6FF), Color.Transparent),
+            overlay = listOf(Color(0x1A07101E), Color(0x080D1427), Color(0x52744F5C)),
             starAlpha = 1f,
-            minStars = 34
+            minStars = 30
         )
         BackgroundTheme.Jade -> BgPalette(
             base = listOf(Color(0xFF04141A), Color(0xFF062D36), Color(0xFF063C43), Color(0xFF04151C)),
+            baseOverlay = listOf(Color(0x12020F14), Color(0x08020F14), Color(0x24020F14)),
             scene = listOf(
                 EllipseSpec(0.21f, 0.17f, 0.46f, 0.25f, Color(0x8A2EF2D0), BlendMode.Plus),
                 EllipseSpec(0.82f, 0.32f, 0.50f, 0.28f, Color(0x6670F6FF), BlendMode.Screen),
                 EllipseSpec(0.64f, 0.76f, 0.54f, 0.32f, Color(0x7522D8B8), BlendMode.Lighten)
             ),
-            mist = defaultMist(Color(0x33A8FFF0), Color(0x236CF6FF), Color(0x2877F8E2), Color(0x1FB1FCFF)),
+            webMist = defaultWebMist(Color(0x33A8FFF0), Color(0x236CF6FF), Color(0x2877F8E2), Color(0x1FB1FCFF)),
             ribbon = listOf(Color.Transparent, Color(0x24A8FFF0), Color.Transparent, Color(0x1C6CF6FF), Color.Transparent),
+            secondRibbon = listOf(Color.Transparent, Color(0x18FFFFFF), Color.Transparent, Color(0x126CF6FF), Color.Transparent),
             overlay = listOf(Color(0x1A020F14), Color(0x12020F14), Color(0x28020F14)),
             starAlpha = 0.82f,
             minStars = 24
         )
         BackgroundTheme.Sunset -> BgPalette(
             base = listOf(Color(0xFF170A18), Color(0xFF341127), Color(0xFF351827), Color(0xFF120A16)),
+            baseOverlay = listOf(Color(0x14100612), Color(0x0A100612), Color(0x2E100612)),
             scene = listOf(
                 EllipseSpec(0.22f, 0.17f, 0.50f, 0.25f, Color(0xA3FF8C6B), BlendMode.Plus),
                 EllipseSpec(0.80f, 0.28f, 0.52f, 0.28f, Color(0x7AFF5E9E), BlendMode.Screen),
                 EllipseSpec(0.66f, 0.75f, 0.55f, 0.32f, Color(0x70FFC56A), BlendMode.Lighten)
             ),
-            mist = defaultMist(Color(0x32FFD6CB), Color(0x24FF9BBE), Color(0x24FFB39F), Color(0x20FFD58A)),
+            webMist = defaultWebMist(Color(0x32FFD6CB), Color(0x24FF9BBE), Color(0x24FFB39F), Color(0x20FFD58A)),
             ribbon = listOf(Color.Transparent, Color(0x22FFD6CB), Color.Transparent, Color(0x1CFFD58A), Color.Transparent),
+            secondRibbon = listOf(Color.Transparent, Color(0x18FFFFFF), Color.Transparent, Color(0x12FFD58A), Color.Transparent),
             overlay = listOf(Color(0x1A100612), Color(0x14100612), Color(0x2E100612)),
             starAlpha = 0.72f,
             minStars = 18
         )
         BackgroundTheme.Dawn -> BgPalette(
             base = listOf(Color(0xFFF7EAF7), Color(0xFFE9F7FF), Color(0xFFD8F5F1), Color(0xFFF8F1FF)),
+            baseOverlay = listOf(Color(0x10FFFFFF), Color(0x08FFFFFF), Color(0x18FFFFFF)),
             scene = listOf(
                 EllipseSpec(0.22f, 0.17f, 0.50f, 0.25f, Color(0xD1FFB7D7), BlendMode.Screen),
                 EllipseSpec(0.80f, 0.28f, 0.50f, 0.27f, Color(0xC2A7D8FF), BlendMode.Screen),
                 EllipseSpec(0.68f, 0.74f, 0.54f, 0.31f, Color(0xB8A7F7E6), BlendMode.Screen)
             ),
-            mist = defaultMist(Color(0x55FFFFFF), Color(0x35CFF4FF), Color(0x35FFD8EC), Color(0x32D7FFF5)),
+            webMist = defaultWebMist(Color(0x55FFFFFF), Color(0x35CFF4FF), Color(0x35FFD8EC), Color(0x32D7FFF5)),
             ribbon = listOf(Color.Transparent, Color(0x40FFFFFF), Color.Transparent, Color(0x2AD7FFF5), Color.Transparent),
+            secondRibbon = listOf(Color.Transparent, Color(0x2AFFFFFF), Color.Transparent, Color(0x1AD7FFF5), Color.Transparent),
             overlay = listOf(Color(0x14FFFFFF), Color(0x0FFFFFFF), Color(0x22FFFFFF)),
             starAlpha = 0.0f,
             minStars = 0
@@ -225,11 +322,48 @@ private fun BackgroundTheme.palette(): BgPalette {
     }
 }
 
-private fun defaultMist(a: Color, b: Color, c: Color, d: Color): List<MistSpec> {
+private fun defaultWebMist(a: Color, b: Color, c: Color, d: Color): List<MistSpec> {
     return listOf(
-        MistSpec(0.18f, 0.20f, -0.25f, 0.02f, 0.88f, 0.36f, 0.52f, a, BlendMode.Screen),
-        MistSpec(0.75f, 0.18f, 0.34f, 0.02f, 0.88f, 0.34f, 0.46f, b, BlendMode.Screen),
-        MistSpec(0.30f, 0.72f, -0.16f, 0.51f, 1.00f, 0.42f, 0.62f, c, BlendMode.Lighten),
-        MistSpec(0.84f, 0.76f, 0.36f, 0.55f, 0.96f, 0.40f, 0.56f, d, BlendMode.Lighten)
+        MistSpec(0.18f, 0.20f, -0.20f, 0.02f, 0.78f, 0.34f, 0.48f, a, BlendMode.Screen),
+        MistSpec(0.75f, 0.18f, 0.40f, 0.02f, 0.76f, 0.32f, 0.42f, b, BlendMode.Screen),
+        MistSpec(0.30f, 0.72f, -0.14f, 0.50f, 0.94f, 0.40f, 0.58f, c, BlendMode.Lighten),
+        MistSpec(0.84f, 0.76f, 0.40f, 0.55f, 0.88f, 0.38f, 0.52f, d, BlendMode.Lighten)
     )
 }
+
+private val cssLikeStars = listOf(
+    StarSpec(0.06f, 0.08f, 0.8f, 0.36f, -0.012f, 0.010f),
+    StarSpec(0.09f, 0.16f, 1.1f, 0.70f, -0.010f, 0.012f),
+    StarSpec(0.17f, 0.09f, 0.8f, 0.30f, -0.014f, 0.008f),
+    StarSpec(0.22f, 0.08f, 1.0f, 0.42f, -0.010f, 0.014f),
+    StarSpec(0.29f, 0.18f, 0.9f, 0.32f, -0.012f, 0.010f),
+    StarSpec(0.35f, 0.27f, 1.1f, 0.52f, -0.012f, 0.012f),
+    StarSpec(0.43f, 0.07f, 0.8f, 0.28f, -0.010f, 0.010f),
+    StarSpec(0.52f, 0.12f, 1.2f, 0.62f, -0.014f, 0.012f),
+    StarSpec(0.58f, 0.24f, 0.9f, 0.30f, -0.012f, 0.010f),
+    StarSpec(0.66f, 0.30f, 1.0f, 0.38f, -0.014f, 0.014f),
+    StarSpec(0.78f, 0.10f, 1.1f, 0.68f, -0.010f, 0.012f),
+    StarSpec(0.83f, 0.18f, 0.8f, 0.28f, -0.012f, 0.010f),
+    StarSpec(0.90f, 0.25f, 1.0f, 0.48f, -0.010f, 0.012f),
+    StarSpec(0.16f, 0.45f, 1.0f, 0.42f, -0.014f, 0.010f),
+    StarSpec(0.28f, 0.40f, 0.8f, 0.28f, -0.010f, 0.014f),
+    StarSpec(0.34f, 0.58f, 0.8f, 0.26f, -0.014f, 0.012f),
+    StarSpec(0.42f, 0.53f, 0.9f, 0.36f, -0.010f, 0.010f),
+    StarSpec(0.53f, 0.42f, 0.8f, 0.28f, -0.012f, 0.014f),
+    StarSpec(0.62f, 0.47f, 1.1f, 0.46f, -0.010f, 0.012f),
+    StarSpec(0.72f, 0.60f, 0.8f, 0.28f, -0.014f, 0.010f),
+    StarSpec(0.86f, 0.56f, 0.9f, 0.34f, -0.010f, 0.014f),
+    StarSpec(0.96f, 0.46f, 0.8f, 0.28f, -0.012f, 0.012f),
+    StarSpec(0.10f, 0.70f, 0.9f, 0.32f, -0.014f, 0.010f),
+    StarSpec(0.20f, 0.86f, 0.8f, 0.26f, -0.010f, 0.014f),
+    StarSpec(0.30f, 0.76f, 0.9f, 0.34f, -0.012f, 0.012f),
+    StarSpec(0.46f, 0.84f, 0.8f, 0.28f, -0.010f, 0.010f),
+    StarSpec(0.56f, 0.70f, 0.8f, 0.26f, -0.014f, 0.012f),
+    StarSpec(0.70f, 0.78f, 1.0f, 0.40f, -0.010f, 0.014f),
+    StarSpec(0.82f, 0.92f, 0.8f, 0.26f, -0.012f, 0.010f),
+    StarSpec(0.92f, 0.82f, 0.9f, 0.34f, -0.014f, 0.012f),
+    StarSpec(0.04f, 0.34f, 0.7f, 0.22f, -0.010f, 0.010f),
+    StarSpec(0.74f, 0.34f, 0.7f, 0.26f, -0.012f, 0.012f),
+    StarSpec(0.88f, 0.68f, 0.7f, 0.24f, -0.010f, 0.014f),
+    StarSpec(0.38f, 0.68f, 0.7f, 0.22f, -0.014f, 0.010f)
+)
