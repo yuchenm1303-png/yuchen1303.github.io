@@ -27,6 +27,10 @@ import com.yuchen.ailedger.model.RenderQuality
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
+    val blurredBackdrop = rememberBlurredBackdropBitmap(
+        theme = state.backgroundTheme,
+        quality = state.quality
+    )
 
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
@@ -35,7 +39,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     quality = state.quality,
                     motionIntensity = state.motionIntensity,
                     theme = state.backgroundTheme
-                )
+                ),
+                LocalBlurredBackdrop provides blurredBackdrop
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
