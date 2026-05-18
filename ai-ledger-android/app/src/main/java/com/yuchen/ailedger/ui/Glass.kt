@@ -83,12 +83,12 @@ fun GlassPanel(
                     GlassRole.Chip -> 0
                 },
                 liftAlpha = when (role) {
-                    GlassRole.Shell -> 1.02f
-                    GlassRole.Card -> 0.88f
-                    GlassRole.Nav -> 0.92f
-                    GlassRole.Floating -> 0.94f
+                    GlassRole.Shell -> 0.46f
+                    GlassRole.Card -> 0.38f
+                    GlassRole.Nav -> 0.34f
+                    GlassRole.Floating -> 0.42f
                     GlassRole.Chip -> 0f
-                }
+                } * glassIntensity.coerceIn(0.65f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),
@@ -173,7 +173,7 @@ fun PressableGlass(
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
                 blurRadiusDp = if (role == GlassRole.Nav) 16 else 18,
-                liftAlpha = if (pressed) 1.02f else 0.90f
+                liftAlpha = (if (pressed) 0.48f else 0.38f) * pressedIntensity.coerceIn(0.65f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),

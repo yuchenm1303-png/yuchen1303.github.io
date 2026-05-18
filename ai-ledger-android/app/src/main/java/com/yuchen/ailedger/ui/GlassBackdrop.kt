@@ -48,7 +48,7 @@ fun SampledWeatherGlassBackdrop(
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = liftAlpha.coerceIn(0.35f, 1.40f)
+    val alpha = liftAlpha.coerceIn(0.12f, 1.10f)
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
@@ -62,10 +62,10 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.105f * alpha),
-                    Color.White.copy(alpha = 0.055f * alpha),
-                    Color.White.copy(alpha = 0.026f * alpha),
-                    Color.Black.copy(alpha = 0.018f * alpha)
+                    Color.White.copy(alpha = 0.060f * alpha),
+                    Color.White.copy(alpha = 0.030f * alpha),
+                    Color.White.copy(alpha = 0.014f * alpha),
+                    Color.Black.copy(alpha = 0.010f * alpha)
                 )
             ),
             blendMode = BlendMode.Screen
