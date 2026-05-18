@@ -45,10 +45,12 @@ fun SampledWeatherGlassBackdrop(
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
-    blurRadiusDp: Int = 24
+    blurRadiusDp: Int = 24,
+    liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
     val motionScale = motionIntensity.coerceIn(0f, 1.4f)
+    val alphaScale = liftAlpha.coerceIn(0.45f, 1.65f)
     val transition = rememberInfiniteTransition(label = "sampled-glass-backdrop")
     val breathe by transition.animateFloat(
         initialValue = 0f,
@@ -103,19 +105,44 @@ fun SampledWeatherGlassBackdrop(
                 breathe = breathe,
                 drift = drift,
                 twinkle = twinkle,
-                motionScale = motionScale
+                motionScale = motionScale,
+                alphaScale = alphaScale
             )
         }
         drawRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.040f),
-                    Color.White.copy(alpha = 0.018f),
-                    Color.White.copy(alpha = 0.006f),
+                    Color.White.copy(alpha = 0.070f * alphaScale),
+                    Color.White.copy(alpha = 0.030f * alphaScale),
+                    Color.White.copy(alpha = 0.010f * alphaScale),
                     Color.Transparent
                 )
             ),
             blendMode = BlendMode.Screen
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.040f * alphaScale),
+                    Color.White.copy(alpha = 0.012f * alphaScale),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.18f, size.height * 0.02f),
+                radius = size.width * 0.72f
+            ),
+            blendMode = BlendMode.Screen
+        )
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.026f * alphaScale)
+                ),
+                startY = size.height * 0.56f,
+                endY = size.height
+            ),
+            blendMode = BlendMode.Multiply
         )
     }
 }
@@ -127,10 +154,12 @@ fun SampledWeatherEdgeRefraction(
     globalOffset: Offset,
     quality: RenderQuality,
     motionIntensity: Float,
-    theme: BackgroundTheme
+    theme: BackgroundTheme,
+    strength: Float = 1f
 ) {
     val view = LocalView.current
     val motionScale = motionIntensity.coerceIn(0f, 1.4f)
+    val alphaScale = strength.coerceIn(0f, 1.75f)
     val transition = rememberInfiniteTransition(label = "sampled-edge-refraction")
     val breathe by transition.animateFloat(
         initialValue = 0f,
@@ -165,11 +194,12 @@ fun SampledWeatherEdgeRefraction(
     ) {
         val rootW = if (view.width > 0) view.width.toFloat() else size.width
         val rootH = if (view.height > 0) view.height.toFloat() else size.height
-        val topBand = (size.height * 0.16f).coerceIn(10f, 34.dp.toPx())
-        val sideBand = (size.width * 0.060f).coerceIn(8f, 24.dp.toPx())
-        val bottomBand = (size.height * 0.13f).coerceIn(8f, 30.dp.toPx())
+        val topBand = (size.height * 0.20f).coerceIn(14f, 46.dp.toPx())
+        val sideBand = (size.width * 0.080f).coerceIn(10f, 32.dp.toPx())
+        val bottomBand = (size.height * 0.17f).coerceIn(10f, 38.dp.toPx())
+        val shift = (5.dp.toPx() + 3.dp.toPx() * alphaScale).coerceAtMost(10.dp.toPx())
 
-        fun sampledShiftedBackground(dx: Float, dy: Float) {
+        fun sampledShiftedBackground(dx: Float, dy: Float, localAlpha: Float = alphaScale) {
             withTransform({ translate(left = -globalOffset.x + dx, top = -globalOffset.y + dy) }) {
                 drawSampledWeatherSky(
                     width = rootW,
@@ -179,16 +209,21 @@ fun SampledWeatherEdgeRefraction(
                     breathe = breathe,
                     drift = drift,
                     twinkle = twinkle,
-                    motionScale = motionScale
+                    motionScale = motionScale,
+                    alphaScale = localAlpha
                 )
             }
         }
 
         clipRect(left = 0f, top = 0f, right = size.width, bottom = topBand) {
-            sampledShiftedBackground(dx = 0f, dy = 5.dp.toPx())
+            sampledShiftedBackground(dx = 0f, dy = shift, localAlpha = alphaScale * 1.10f)
             drawRect(
                 brush = Brush.verticalGradient(
-                    listOf(Color.White.copy(alpha = 0.090f), Color.White.copy(alpha = 0.018f), Color.Transparent),
+                    listOf(
+                        Color.White.copy(alpha = 0.160f * alphaScale),
+                        Color.White.copy(alpha = 0.055f * alphaScale),
+                        Color.Transparent
+                    ),
                     startY = 0f,
                     endY = topBand
                 ),
@@ -196,10 +231,10 @@ fun SampledWeatherEdgeRefraction(
             )
         }
         clipRect(left = 0f, top = 0f, right = sideBand, bottom = size.height) {
-            sampledShiftedBackground(dx = 4.dp.toPx(), dy = 0f)
+            sampledShiftedBackground(dx = shift, dy = 0f)
             drawRect(
                 brush = Brush.horizontalGradient(
-                    listOf(Color.White.copy(alpha = 0.052f), Color.Transparent),
+                    listOf(Color.White.copy(alpha = 0.092f * alphaScale), Color.Transparent),
                     startX = 0f,
                     endX = sideBand
                 ),
@@ -207,10 +242,10 @@ fun SampledWeatherEdgeRefraction(
             )
         }
         clipRect(left = size.width - sideBand, top = 0f, right = size.width, bottom = size.height) {
-            sampledShiftedBackground(dx = -4.dp.toPx(), dy = 0f)
+            sampledShiftedBackground(dx = -shift, dy = 0f)
             drawRect(
                 brush = Brush.horizontalGradient(
-                    listOf(Color.Transparent, Color.White.copy(alpha = 0.030f)),
+                    listOf(Color.Transparent, Color.White.copy(alpha = 0.050f * alphaScale)),
                     startX = size.width - sideBand,
                     endX = size.width
                 ),
@@ -218,10 +253,14 @@ fun SampledWeatherEdgeRefraction(
             )
         }
         clipRect(left = 0f, top = size.height - bottomBand, right = size.width, bottom = size.height) {
-            sampledShiftedBackground(dx = 0f, dy = -5.dp.toPx())
+            sampledShiftedBackground(dx = 0f, dy = -shift, localAlpha = alphaScale * 0.95f)
             drawRect(
                 brush = Brush.verticalGradient(
-                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.032f)),
+                    listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.018f * alphaScale),
+                        Color.Black.copy(alpha = 0.070f * alphaScale)
+                    ),
                     startY = size.height - bottomBand,
                     endY = size.height
                 ),
@@ -239,11 +278,13 @@ private fun DrawScope.drawSampledWeatherSky(
     breathe: Float,
     drift: Float,
     twinkle: Float,
-    motionScale: Float
+    motionScale: Float,
+    alphaScale: Float = 1f
 ) {
     val palette = sampledPalette(theme)
     val breatheDrift = (breathe - 0.5f) * motionScale
     val mistDrift = (drift - 0.5f) * motionScale
+    val a = alphaScale.coerceIn(0f, 1.75f)
 
     drawRect(
         brush = Brush.linearGradient(
@@ -254,15 +295,16 @@ private fun DrawScope.drawSampledWeatherSky(
         size = Size(width, height)
     )
     drawRect(
-        brush = Brush.verticalGradient(palette.overlay),
+        brush = Brush.verticalGradient(palette.overlay.map { it.copy(alpha = (it.alpha * a).coerceIn(0f, 1f)) }),
         size = Size(width, height),
         blendMode = if (theme == BackgroundTheme.Dawn) BlendMode.Screen else BlendMode.Multiply
     )
 
     fun oval(cx: Float, cy: Float, rw: Float, rh: Float, color: Color, mode: BlendMode = BlendMode.Screen) {
+        val lifted = color.copy(alpha = (color.alpha * a).coerceIn(0f, 1f))
         drawOval(
             brush = Brush.radialGradient(
-                listOf(color, color.copy(alpha = color.alpha * 0.42f), Color.Transparent),
+                listOf(lifted, lifted.copy(alpha = lifted.alpha * 0.42f), Color.Transparent),
                 center = Offset(width * cx, height * cy),
                 radius = width * rw
             ),
@@ -284,7 +326,7 @@ private fun DrawScope.drawSampledWeatherSky(
 
     drawRect(
         brush = Brush.linearGradient(
-            colors = palette.ribbon,
+            colors = palette.ribbon.map { it.copy(alpha = (it.alpha * a).coerceIn(0f, 1f)) },
             start = Offset(width * (-0.08f + mistDrift * 0.035f), height * 0.06f),
             end = Offset(width * (1.08f + mistDrift * 0.020f), height * 0.82f)
         ),
@@ -298,7 +340,7 @@ private fun DrawScope.drawSampledWeatherSky(
             val x = ((index * 37 + 6) % 100) / 100f
             val y = ((index * 61 + 8) % 100) / 100f
             val wave = if (quality.enableMotion && motionScale > 0f) twinkle + 0.10f * sin(breathe * 6.28318f + index * 0.83f).toFloat() else 0.50f
-            val alpha = (wave * palette.starAlpha * (0.72f - (index % 5) * 0.08f)).coerceIn(0.08f, 0.70f)
+            val alpha = (wave * palette.starAlpha * a * (0.72f - (index % 5) * 0.08f)).coerceIn(0.06f, 0.78f)
             val r = when {
                 index % 11 == 0 -> 1.8f
                 index % 5 == 0 -> 1.35f
@@ -331,34 +373,34 @@ private data class SampledPalette(
 private fun sampledPalette(theme: BackgroundTheme): SampledPalette = when (theme) {
     BackgroundTheme.Aurora -> SampledPalette(
         base = listOf(Color(0xFF071326), Color(0xFF14213F), Color(0xFF473E60)),
-        overlay = listOf(Color(0x1A07101F), Color(0x080D1427), Color(0x52744F5C)),
-        sceneA = Color(0x387AA8FF), sceneB = Color(0x475274B8), sceneC = Color(0x38675091), sceneD = Color(0x2E4A659B),
-        mistA = Color(0x2BC4D5FF), mistB = Color(0x2188A7E8), mistC = Color(0x1FA486BC), mistD = Color(0x1CC479AE),
-        ribbon = listOf(Color.Transparent, Color(0x09E8EFFF), Color.Transparent, Color(0x08D3C2EE), Color.Transparent),
+        overlay = listOf(Color(0x1807101F), Color(0x060D1427), Color(0x47744F5C)),
+        sceneA = Color(0x4C7AA8FF), sceneB = Color(0x5A5274B8), sceneC = Color(0x46675091), sceneD = Color(0x384A659B),
+        mistA = Color(0x42C4D5FF), mistB = Color(0x3288A7E8), mistC = Color(0x30A486BC), mistD = Color(0x2CC479AE),
+        ribbon = listOf(Color.Transparent, Color(0x14E8EFFF), Color.Transparent, Color(0x12D3C2EE), Color.Transparent),
         starAlpha = 1f
     )
     BackgroundTheme.Jade -> SampledPalette(
         base = listOf(Color(0xFF04141A), Color(0xFF062D36), Color(0xFF063C43)),
-        overlay = listOf(Color(0x12020F14), Color(0x08020F14), Color(0x24020F14)),
-        sceneA = Color(0x8A2EF2D0), sceneB = Color(0x6670F6FF), sceneC = Color(0x7522D8B8), sceneD = Color(0x3340FFF0),
-        mistA = Color(0x33A8FFF0), mistB = Color(0x236CF6FF), mistC = Color(0x2877F8E2), mistD = Color(0x1FB1FCFF),
-        ribbon = listOf(Color.Transparent, Color(0x24A8FFF0), Color.Transparent, Color(0x1C6CF6FF), Color.Transparent),
+        overlay = listOf(Color(0x10020F14), Color(0x06020F14), Color(0x20020F14)),
+        sceneA = Color(0x962EF2D0), sceneB = Color(0x7470F6FF), sceneC = Color(0x8022D8B8), sceneD = Color(0x4440FFF0),
+        mistA = Color(0x48A8FFF0), mistB = Color(0x346CF6FF), mistC = Color(0x3A77F8E2), mistD = Color(0x32B1FCFF),
+        ribbon = listOf(Color.Transparent, Color(0x32A8FFF0), Color.Transparent, Color(0x286CF6FF), Color.Transparent),
         starAlpha = 0.82f
     )
     BackgroundTheme.Sunset -> SampledPalette(
         base = listOf(Color(0xFF170A18), Color(0xFF341127), Color(0xFF351827)),
-        overlay = listOf(Color(0x14100612), Color(0x0A100612), Color(0x2E100612)),
-        sceneA = Color(0xA3FF8C6B), sceneB = Color(0x7AFF5E9E), sceneC = Color(0x70FFC56A), sceneD = Color(0x30FFB080),
-        mistA = Color(0x32FFD6CB), mistB = Color(0x24FF9BBE), mistC = Color(0x24FFB39F), mistD = Color(0x20FFD58A),
-        ribbon = listOf(Color.Transparent, Color(0x22FFD6CB), Color.Transparent, Color(0x1CFFD58A), Color.Transparent),
+        overlay = listOf(Color(0x12100612), Color(0x08100612), Color(0x28100612)),
+        sceneA = Color(0xB0FF8C6B), sceneB = Color(0x8EFF5E9E), sceneC = Color(0x84FFC56A), sceneD = Color(0x42FFB080),
+        mistA = Color(0x48FFD6CB), mistB = Color(0x34FF9BBE), mistC = Color(0x34FFB39F), mistD = Color(0x30FFD58A),
+        ribbon = listOf(Color.Transparent, Color(0x32FFD6CB), Color.Transparent, Color(0x28FFD58A), Color.Transparent),
         starAlpha = 0.72f
     )
     BackgroundTheme.Dawn -> SampledPalette(
         base = listOf(Color(0xFFF7EAF7), Color(0xFFE9F7FF), Color(0xFFD8F5F1)),
-        overlay = listOf(Color(0x10FFFFFF), Color(0x08FFFFFF), Color(0x18FFFFFF)),
-        sceneA = Color(0xD1FFB7D7), sceneB = Color(0xC2A7D8FF), sceneC = Color(0xB8A7F7E6), sceneD = Color(0x50FFFFFF),
-        mistA = Color(0x55FFFFFF), mistB = Color(0x35CFF4FF), mistC = Color(0x35FFD8EC), mistD = Color(0x32D7FFF5),
-        ribbon = listOf(Color.Transparent, Color(0x40FFFFFF), Color.Transparent, Color(0x2AD7FFF5), Color.Transparent),
+        overlay = listOf(Color(0x12FFFFFF), Color(0x08FFFFFF), Color(0x20FFFFFF)),
+        sceneA = Color(0xD8FFB7D7), sceneB = Color(0xCBA7D8FF), sceneC = Color(0xC4A7F7E6), sceneD = Color(0x66FFFFFF),
+        mistA = Color(0x66FFFFFF), mistB = Color(0x4ACFF4FF), mistC = Color(0x4AFFD8EC), mistD = Color(0x46D7FFF5),
+        ribbon = listOf(Color.Transparent, Color(0x50FFFFFF), Color.Transparent, Color(0x38D7FFF5), Color.Transparent),
         starAlpha = 0f
     )
 }
