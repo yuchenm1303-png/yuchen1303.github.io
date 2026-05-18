@@ -40,22 +40,27 @@ fun SampledWeatherGlassBackdrop(
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = liftAlpha.coerceIn(0.08f, 0.72f)
-    val scrimAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.055f
-        RenderQuality.Balanced -> 0.070f
-        RenderQuality.Experimental -> 0.086f
+    val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
+    val baseScrimAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.18f
+        RenderQuality.Balanced -> 0.22f
+        RenderQuality.Experimental -> 0.25f
+    } * alpha
+    val milkAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.060f
+        RenderQuality.Balanced -> 0.075f
+        RenderQuality.Experimental -> 0.088f
     } * alpha
     val highlightAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.018f
-        RenderQuality.Balanced -> 0.026f
-        RenderQuality.Experimental -> 0.034f
+        RenderQuality.Smooth -> 0.038f
+        RenderQuality.Balanced -> 0.050f
+        RenderQuality.Experimental -> 0.062f
     } * alpha
 
     Canvas(
         modifier = modifier
-            .clip(RoundedCornerShape(radius.dp))
             .blur(blurRadiusDp.dp)
+            .clip(RoundedCornerShape(radius.dp))
     ) {
         val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
         val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
@@ -65,19 +70,23 @@ fun SampledWeatherGlassBackdrop(
                 w = rootW,
                 h = rootH,
                 theme = theme,
-                alphaScale = 1f
+                alphaScale = 0.34f
             )
         }
 
-        // A very light material scrim keeps text readable while preserving the
-        // transparent, background-driven glass body.
+        // Push the sampled colors into a soft glow instead of letting sharp app
+        // icon blocks appear as if they were painted inside the glass.
+        drawRect(
+            color = Color(0xFF5F748B).copy(alpha = baseScrimAlpha),
+            blendMode = BlendMode.SrcOver
+        )
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = highlightAlpha * 0.74f),
-                    Color.White.copy(alpha = highlightAlpha * 0.24f),
-                    Color.Transparent,
-                    Color.Black.copy(alpha = scrimAlpha * 1.35f)
+                    Color.White.copy(alpha = milkAlpha * 1.18f),
+                    Color(0xFFD9E3EF).copy(alpha = milkAlpha * 0.76f),
+                    Color(0xFF8EA1B7).copy(alpha = milkAlpha * 0.34f),
+                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.46f)
                 )
             ),
             blendMode = BlendMode.SrcOver
@@ -85,11 +94,23 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = highlightAlpha * 0.52f),
+                    Color.White.copy(alpha = highlightAlpha * 0.86f),
+                    Color.White.copy(alpha = highlightAlpha * 0.18f),
                     Color.Transparent
                 ),
-                center = Offset(size.width * 0.52f, size.height * 0.08f),
-                radius = size.width * 0.88f
+                center = Offset(size.width * 0.42f, size.height * 0.08f),
+                radius = size.width * 0.98f
+            ),
+            blendMode = BlendMode.Screen
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF7FB6FF).copy(alpha = highlightAlpha * 0.18f),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.12f, size.height * 0.82f),
+                radius = size.width * 0.84f
             ),
             blendMode = BlendMode.Screen
         )
@@ -106,7 +127,7 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
-    val alpha = strength.coerceIn(0f, 0.32f)
+    val alpha = strength.coerceIn(0f, 0.34f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
         val h = size.height
@@ -121,19 +142,19 @@ fun SampledWeatherEdgeRefraction(
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.062f * alpha),
-                Color.White.copy(alpha = 0.014f * alpha),
+                Color.White.copy(alpha = 0.072f * alpha),
+                Color.White.copy(alpha = 0.018f * alpha),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.010f * alpha),
-                Color.White.copy(alpha = 0.010f * alpha)
+                Color.Black.copy(alpha = 0.012f * alpha),
+                Color.White.copy(alpha = 0.012f * alpha)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
         val topPrism = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.074f * alpha),
-                Color.White.copy(alpha = 0.016f * alpha),
+                Color.White.copy(alpha = 0.082f * alpha),
+                Color.White.copy(alpha = 0.020f * alpha),
                 Color.Transparent
             ),
             startY = 0f,
@@ -141,18 +162,18 @@ fun SampledWeatherEdgeRefraction(
         )
         val sideCompression = Brush.horizontalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.028f * alpha),
+                Color.White.copy(alpha = 0.032f * alpha),
                 Color.Transparent,
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.008f * alpha),
-                Color.White.copy(alpha = 0.010f * alpha)
+                Color.Black.copy(alpha = 0.010f * alpha),
+                Color.White.copy(alpha = 0.012f * alpha)
             )
         )
         val innerDarkBend = Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
                 Color.Black.copy(alpha = 0.004f * alpha),
-                Color.Black.copy(alpha = 0.018f * alpha)
+                Color.Black.copy(alpha = 0.020f * alpha)
             ),
             startY = h * 0.45f,
             endY = h
