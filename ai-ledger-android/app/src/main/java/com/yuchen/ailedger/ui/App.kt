@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -28,53 +29,61 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize()) {
-                WeatherNightBackground(
+            CompositionLocalProvider(
+                LocalGlassBackdrop provides GlassBackdropSpec(
                     quality = state.quality,
                     motionIntensity = state.motionIntensity,
                     theme = state.backgroundTheme
                 )
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    WeatherNightBackground(
+                        quality = state.quality,
+                        motionIntensity = state.motionIntensity,
+                        theme = state.backgroundTheme
+                    )
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 14.dp)
-                ) {
-                    when (state.currentTab) {
-                        AppTab.Assistant -> AssistantScreen(state)
-                        AppTab.Tools -> ToolsScreen(state)
-                        AppTab.Settings -> SettingsScreen(
-                            state = state,
-                            aiEndpoint = viewModel.aiEndpoint,
-                            onQualityChange = viewModel::selectQuality,
-                            onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                            onGlassPresetChange = viewModel::setGlassPreset,
-                            onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                            onGlassIntensityChange = viewModel::setGlassIntensity,
-                            onMotionIntensityChange = viewModel::setMotionIntensity
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 14.dp)
+                    ) {
+                        when (state.currentTab) {
+                            AppTab.Assistant -> AssistantScreen(state)
+                            AppTab.Tools -> ToolsScreen(state)
+                            AppTab.Settings -> SettingsScreen(
+                                state = state,
+                                aiEndpoint = viewModel.aiEndpoint,
+                                onQualityChange = viewModel::selectQuality,
+                                onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                onGlassPresetChange = viewModel::setGlassPreset,
+                                onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                onGlassIntensityChange = viewModel::setGlassIntensity,
+                                onMotionIntensityChange = viewModel::setMotionIntensity
+                            )
+                        }
                     }
+
+                    BottomDockSeparationMist(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                    )
+
+                    CompactLiquidBottomBar(
+                        currentTab = state.currentTab,
+                        quality = state.quality,
+                        glassIntensity = state.glassIntensity,
+                        motionIntensity = state.motionIntensity,
+                        onTabChange = viewModel::selectTab,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
+                    )
                 }
-
-                BottomDockSeparationMist(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                )
-
-                CompactLiquidBottomBar(
-                    currentTab = state.currentTab,
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    onTabChange = viewModel::selectTab,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                )
             }
         }
     }
