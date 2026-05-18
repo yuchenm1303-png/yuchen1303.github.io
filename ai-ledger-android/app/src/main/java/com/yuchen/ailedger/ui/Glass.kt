@@ -202,7 +202,7 @@ fun Modifier.glassSkin(
     val shape = RoundedCornerShape(radius.dp)
     val fill = (0.010f * glassIntensity * role.fillScale).coerceIn(0.004f, 0.030f)
     val haze = (0.020f * glassIntensity * role.fillScale).coerceIn(0.008f, 0.044f)
-    val line = (0.155f * glassIntensity * role.rimScale).coerceIn(0.058f, 0.260f)
+    val line = (0.105f * glassIntensity * role.rimScale).coerceIn(0.040f, 0.170f)
     val glow = (glassIntensity * role.glowScale).coerceIn(0.34f, 1.08f)
     val depth = (glassIntensity * role.rimScale).coerceIn(0.48f, 1.18f)
     val pulse = 0.92f + breathe * 0.06f
@@ -305,16 +305,16 @@ fun Modifier.glassSkin(
                 radius = w * 0.42f
             )
 
-            val outerGlowStroke = 5.6.dp.toPx()
-            val thicknessStroke = 2.55.dp.toPx()
-            val outerStroke = 1.05.dp.toPx()
-            val innerStroke = 0.82.dp.toPx()
-            val hairStroke = 0.34.dp.toPx()
+            val outerGlowStroke = 3.6.dp.toPx()
+            val thicknessStroke = 1.45.dp.toPx()
+            val outerStroke = 0.72.dp.toPx()
+            val innerStroke = 0.54.dp.toPx()
+            val hairStroke = 0.26.dp.toPx()
             val outerGlowInset = outerGlowStroke / 2f
-            val thicknessInset = 1.40.dp.toPx()
+            val thicknessInset = 1.20.dp.toPx()
             val outerInset = outerStroke / 2f
-            val innerInset = 2.50.dp.toPx()
-            val hairInset = 4.60.dp.toPx()
+            val innerInset = 2.15.dp.toPx()
+            val hairInset = 3.90.dp.toPx()
             val outerGlowSize = Size(w - outerGlowStroke, h - outerGlowStroke)
             val thicknessSize = Size(w - thicknessInset * 2f, h - thicknessInset * 2f)
             val outerSize = Size(w - outerStroke, h - outerStroke)
@@ -323,8 +323,8 @@ fun Modifier.glassSkin(
 
             val featherRim = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.46f),
-                    Color.White.copy(alpha = line * 0.18f),
+                    Color.White.copy(alpha = line * 0.26f),
+                    Color.White.copy(alpha = line * 0.090f),
                     Color.Transparent,
                     Color.Transparent
                 ),
@@ -333,40 +333,40 @@ fun Modifier.glassSkin(
             )
             val thicknessRim = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.40f),
-                    Color.White.copy(alpha = line * 0.16f),
+                    Color.White.copy(alpha = line * 0.24f),
+                    Color.White.copy(alpha = line * 0.080f),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.020f * depth),
-                    Color.White.copy(alpha = line * 0.082f)
+                    Color.Black.copy(alpha = 0.012f * depth),
+                    Color.White.copy(alpha = line * 0.040f)
                 ),
                 start = Offset(w * 0.04f, 0f),
                 end = Offset(w * 0.96f, h)
             )
             val outerRim = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.90f),
-                    Color.White.copy(alpha = line * 0.30f),
+                    Color.White.copy(alpha = line * 0.52f),
+                    Color.White.copy(alpha = line * 0.14f),
                     Color.Transparent,
-                    Color.White.copy(alpha = line * 0.110f)
+                    Color.White.copy(alpha = line * 0.052f)
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(w, h)
             )
             val innerRefraction = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.24f),
+                    Color.White.copy(alpha = line * 0.12f),
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.026f * depth),
-                    Color.White.copy(alpha = line * 0.080f)
+                    Color.Black.copy(alpha = 0.014f * depth),
+                    Color.White.copy(alpha = line * 0.040f)
                 ),
                 start = Offset(w * 0.08f, 0f),
                 end = Offset(w * 0.94f, h)
             )
             val topHairline = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.66f),
-                    Color.White.copy(alpha = line * 0.16f),
+                    Color.White.copy(alpha = line * 0.36f),
+                    Color.White.copy(alpha = line * 0.070f),
                     Color.Transparent,
                     Color.Transparent
                 ),
@@ -377,8 +377,8 @@ fun Modifier.glassSkin(
                 colors = listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.016f * depth),
-                    Color.Black.copy(alpha = 0.046f * depth)
+                    Color.Black.copy(alpha = 0.010f * depth),
+                    Color.Black.copy(alpha = 0.030f * depth)
                 ),
                 startY = h * 0.58f,
                 endY = h
@@ -386,8 +386,8 @@ fun Modifier.glassSkin(
             val grazingGlint = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.044f * glow),
-                    Color.White.copy(alpha = 0.010f * glow),
+                    Color.White.copy(alpha = 0.022f * glow),
+                    Color.White.copy(alpha = 0.005f * glow),
                     Color.Transparent
                 ),
                 start = Offset(w * (safeShimmer - 0.34f), 0f),
@@ -395,12 +395,12 @@ fun Modifier.glassSkin(
             )
             val cornerCatchlight = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.22f),
-                    Color.White.copy(alpha = line * 0.055f),
+                    Color.White.copy(alpha = line * 0.10f),
+                    Color.White.copy(alpha = line * 0.025f),
                     Color.Transparent
                 ),
                 center = Offset(w * 0.03f, h * 0.02f),
-                radius = w * 0.34f
+                radius = w * 0.32f
             )
 
             onDrawWithContent {
@@ -439,8 +439,8 @@ fun Modifier.glassSkin(
                 drawRoundRect(brush = innerRefraction, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = innerStroke), blendMode = BlendMode.SrcOver)
                 drawRoundRect(brush = topHairline, topLeft = Offset(hairInset, hairInset), size = hairSize, cornerRadius = cornerRadius, style = Stroke(width = hairStroke), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = bottomHairShadow, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = innerStroke), blendMode = BlendMode.Multiply)
-                drawRoundRect(brush = grazingGlint, topLeft = Offset(outerInset, outerInset), size = outerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.48.dp.toPx()), blendMode = BlendMode.Plus)
-                drawRoundRect(brush = cornerCatchlight, topLeft = Offset(outerInset, outerInset), size = outerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.56.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = grazingGlint, topLeft = Offset(outerInset, outerInset), size = outerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.32.dp.toPx()), blendMode = BlendMode.Plus)
+                drawRoundRect(brush = cornerCatchlight, topLeft = Offset(outerInset, outerInset), size = outerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.36.dp.toPx()), blendMode = BlendMode.Screen)
             }
         }
 }
