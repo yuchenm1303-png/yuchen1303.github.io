@@ -39,11 +39,11 @@ enum class GlassRole(
     val glowScale: Float,
     val shadowDp: Int
 ) {
-    Shell(0.78f, 1.00f, 0.88f, 22),
-    Card(0.82f, 1.00f, 0.88f, 16),
-    Chip(0.90f, 1.06f, 0.94f, 10),
-    Nav(0.74f, 1.02f, 0.88f, 20),
-    Floating(0.94f, 1.12f, 1.02f, 24)
+    Shell(0.72f, 1.06f, 0.92f, 24),
+    Card(0.76f, 1.04f, 0.94f, 18),
+    Chip(0.84f, 1.12f, 1.00f, 12),
+    Nav(0.68f, 1.08f, 0.94f, 22),
+    Floating(0.88f, 1.18f, 1.08f, 28)
 }
 
 @Composable
@@ -124,7 +124,7 @@ private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float)
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween((9600 / motionIntensity.coerceAtLeast(0.35f)).toInt(), easing = LinearEasing),
+            animation = tween((9800 / motionIntensity.coerceAtLeast(0.35f)).toInt(), easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "glass-shimmer-value"
@@ -140,7 +140,7 @@ private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float):
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween((6200 / motionIntensity.coerceAtLeast(0.35f)).toInt(), easing = FastOutSlowInEasing),
+            animation = tween((6400 / motionIntensity.coerceAtLeast(0.35f)).toInt(), easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glass-breath-value"
@@ -157,10 +157,10 @@ fun Modifier.glassSkin(
     role: GlassRole = GlassRole.Card
 ): Modifier {
     val shape = RoundedCornerShape(radius.dp)
-    val fill = (0.040f * glassIntensity * role.fillScale).coerceIn(0.018f, 0.105f)
-    val mist = (0.020f * glassIntensity * role.fillScale).coerceIn(0.008f, 0.052f)
-    val line = (0.130f * glassIntensity * role.rimScale).coerceIn(0.055f, 0.30f)
-    val glow = (glassIntensity * role.glowScale).coerceIn(0.34f, 1.25f)
+    val fill = (0.030f * glassIntensity * role.fillScale).coerceIn(0.012f, 0.085f)
+    val mist = (0.014f * glassIntensity * role.fillScale).coerceIn(0.004f, 0.040f)
+    val line = (0.118f * glassIntensity * role.rimScale).coerceIn(0.048f, 0.28f)
+    val glow = (glassIntensity * role.glowScale).coerceIn(0.32f, 1.25f)
     val pulse = 0.88f + breathe * 0.10f
     val safeShimmer = shimmer - shimmer.toInt()
 
@@ -169,17 +169,17 @@ fun Modifier.glassSkin(
             elevation = role.shadowDp.dp,
             shape = shape,
             clip = false,
-            ambientColor = Color.Black.copy(alpha = 0.28f),
-            spotColor = Color.White.copy(alpha = 0.070f)
+            ambientColor = Color.Black.copy(alpha = 0.26f),
+            spotColor = Color.White.copy(alpha = 0.062f)
         )
         .clip(shape)
         .background(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = fill + mist * 0.48f),
-                    Color.White.copy(alpha = fill * 0.50f),
-                    Color.White.copy(alpha = fill * 0.18f),
-                    Color.Black.copy(alpha = 0.090f * glassIntensity)
+                    Color.White.copy(alpha = fill + mist * 0.36f),
+                    Color.White.copy(alpha = fill * 0.34f),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.058f * glassIntensity)
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(900f, 1300f)
@@ -192,135 +192,146 @@ fun Modifier.glassSkin(
             val drift = safeShimmer - 0.5f
             val shineX = (0.05f + 0.90f * safeShimmer) * w
             val shineY = h * (0.02f + 0.08f * sin(safeShimmer * 6.28318f).toFloat())
+            val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
 
-            val transparentCore = Brush.radialGradient(
+            val backgroundCompression = Brush.radialGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.030f * glassIntensity),
-                    Color.Black.copy(alpha = 0.105f * glassIntensity)
+                    Color.Black.copy(alpha = 0.022f * glassIntensity),
+                    Color.Black.copy(alpha = 0.072f * glassIntensity)
                 ),
-                center = Offset(w * 0.56f, h * 0.72f),
-                radius = w * 0.94f
+                center = Offset(w * 0.54f, h * 0.68f),
+                radius = w * 0.96f
             )
-            val frostedLift = Brush.verticalGradient(
+            val frostedNeutralLift = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.074f * glow * pulse),
-                    Color.White.copy(alpha = 0.024f * glow),
+                    Color.White.copy(alpha = 0.055f * glow * pulse),
+                    Color.White.copy(alpha = 0.016f * glow),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.044f * glassIntensity)
+                    Color.Black.copy(alpha = 0.030f * glassIntensity)
                 ),
                 startY = 0f,
                 endY = h
             )
-            val sideCompression = Brush.horizontalGradient(
+            val sideLens = Brush.horizontalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.048f * glow),
+                    Color.White.copy(alpha = 0.032f * glow),
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.040f * glassIntensity),
-                    Color.White.copy(alpha = 0.030f * glow)
+                    Color.Black.copy(alpha = 0.026f * glassIntensity),
+                    Color.White.copy(alpha = 0.020f * glow)
                 )
             )
-            val cornerBloom = Brush.radialGradient(
+            val upperLeftLens = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.062f * glow * pulse),
-                    Color.White.copy(alpha = 0.018f * glow),
+                    Color.White.copy(alpha = 0.052f * glow * pulse),
+                    Color.White.copy(alpha = 0.012f * glow),
                     Color.Transparent
                 ),
                 center = Offset(w * (0.08f + drift * 0.04f), -h * 0.04f),
-                radius = w * 0.50f
+                radius = w * 0.52f
             )
-            val lowerCompression = Brush.radialGradient(
+            val lowerRightLens = Brush.radialGradient(
                 colors = listOf(
-                    Color.Black.copy(alpha = 0.046f * glassIntensity),
+                    Color.Black.copy(alpha = 0.038f * glassIntensity),
                     Color.Transparent
                 ),
                 center = Offset(w * (0.82f - drift * 0.05f), h * 0.92f),
-                radius = w * 0.58f
+                radius = w * 0.60f
             )
-            val neutralRefractionBand = Brush.linearGradient(
+            val mainRefractionBand = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.025f * glow * pulse),
+                    Color.White.copy(alpha = 0.020f * glow * pulse),
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.014f * glow),
+                    Color.Black.copy(alpha = 0.012f * glassIntensity),
                     Color.Transparent
                 ),
-                start = Offset(-w * 0.14f, h * (0.08f + drift * 0.06f)),
-                end = Offset(w * 1.06f, h * (0.56f + drift * 0.08f))
+                start = Offset(-w * 0.16f, h * (0.05f + drift * 0.06f)),
+                end = Offset(w * 1.10f, h * (0.58f + drift * 0.08f))
             )
-            val movingNeutralHighlight = Brush.radialGradient(
+            val counterRefractionBand = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = if (quality.enableMotion) 0.030f * glow else 0.014f),
-                    Color.White.copy(alpha = if (quality.enableMotion) 0.010f * glow else 0.004f),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.014f * glassIntensity),
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.013f * glow),
+                    Color.Transparent
+                ),
+                start = Offset(w * 1.10f, h * 0.05f),
+                end = Offset(-w * 0.12f, h * 0.96f)
+            )
+            val movingNeutralCaustic = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = if (quality.enableMotion) 0.022f * glow else 0.010f),
+                    Color.White.copy(alpha = if (quality.enableMotion) 0.007f * glow else 0.003f),
                     Color.Transparent
                 ),
                 center = Offset(shineX, shineY),
-                radius = w * 0.40f
+                radius = w * 0.42f
             )
             val bottomThickness = Brush.verticalGradient(
                 colors = listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.006f * glow),
-                    Color.Black.copy(alpha = 0.105f * glassIntensity)
+                    Color.White.copy(alpha = 0.004f * glow),
+                    Color.Black.copy(alpha = 0.088f * glassIntensity)
                 ),
-                startY = h * 0.38f,
+                startY = h * 0.40f,
                 endY = h
             )
 
-            val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-            val softStroke = 4.0.dp.toPx()
-            val outerStroke = 1.0.dp.toPx()
-            val innerStroke = 0.54.dp.toPx()
-            val hairStroke = 0.30.dp.toPx()
+            val softStroke = 4.8.dp.toPx()
+            val outerStroke = 0.92.dp.toPx()
+            val innerStroke = 0.48.dp.toPx()
+            val hairStroke = 0.26.dp.toPx()
             val outerInset = outerStroke / 2f
-            val innerInset = 2.15.dp.toPx()
-            val hairInset = 3.65.dp.toPx()
+            val innerInset = 2.45.dp.toPx()
+            val hairInset = 4.10.dp.toPx()
             val outerSize = Size(w - outerStroke, h - outerStroke)
             val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
             val hairSize = Size(w - hairInset * 2f, h - hairInset * 2f)
 
             val softOuterMist = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.66f),
-                    Color.White.copy(alpha = line * 0.20f),
+                    Color.White.copy(alpha = line * 0.54f),
+                    Color.White.copy(alpha = line * 0.16f),
                     Color.Transparent,
                     Color.Transparent,
-                    Color.White.copy(alpha = line * 0.070f)
+                    Color.White.copy(alpha = line * 0.045f)
                 ),
                 startY = 0f,
                 endY = h
             )
             val outerRim = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.46f),
-                    Color.White.copy(alpha = line * 0.18f),
+                    Color.White.copy(alpha = line * 0.38f),
+                    Color.White.copy(alpha = line * 0.12f),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.050f * glassIntensity),
-                    Color.White.copy(alpha = line * 0.120f)
+                    Color.Black.copy(alpha = 0.034f * glassIntensity),
+                    Color.White.copy(alpha = line * 0.080f)
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(w, h)
             )
             val topRimBloom = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.72f),
-                    Color.White.copy(alpha = line * 0.18f),
+                    Color.White.copy(alpha = line * 0.62f),
+                    Color.White.copy(alpha = line * 0.15f),
                     Color.Transparent,
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.036f * glassIntensity)
+                    Color.Black.copy(alpha = 0.028f * glassIntensity)
                 ),
                 startY = 0f,
                 endY = h
             )
             val innerRefraction = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = line * 0.090f),
-                    Color.White.copy(alpha = line * 0.040f),
+                    Color.White.copy(alpha = line * 0.060f),
+                    Color.White.copy(alpha = line * 0.026f),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.038f * glassIntensity),
-                    Color.White.copy(alpha = line * 0.032f)
+                    Color.Black.copy(alpha = 0.026f * glassIntensity),
+                    Color.White.copy(alpha = line * 0.020f)
                 ),
                 start = Offset(w * 0.08f, 0f),
                 end = Offset(w * 0.92f, h)
@@ -328,8 +339,8 @@ fun Modifier.glassSkin(
             val grazingGlint = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.070f * glow),
-                    Color.White.copy(alpha = 0.016f * glow),
+                    Color.White.copy(alpha = 0.052f * glow),
+                    Color.White.copy(alpha = 0.010f * glow),
                     Color.Transparent
                 ),
                 start = Offset(w * (safeShimmer - 0.36f), 0f),
@@ -337,26 +348,38 @@ fun Modifier.glassSkin(
             )
 
             onDrawWithContent {
-                drawRect(transparentCore, blendMode = BlendMode.Multiply)
-                drawRect(frostedLift, blendMode = BlendMode.Screen)
-                drawRect(sideCompression, blendMode = BlendMode.Screen)
-                drawRect(cornerBloom, blendMode = BlendMode.Screen)
-                drawRect(lowerCompression, blendMode = BlendMode.Multiply)
-                drawRect(neutralRefractionBand, blendMode = BlendMode.Screen)
-                drawRect(movingNeutralHighlight, blendMode = BlendMode.Plus)
+                drawRect(backgroundCompression, blendMode = BlendMode.Multiply)
+                drawRect(frostedNeutralLift, blendMode = BlendMode.Screen)
+                drawRect(sideLens, blendMode = BlendMode.Screen)
+                drawRect(upperLeftLens, blendMode = BlendMode.Screen)
+                drawRect(lowerRightLens, blendMode = BlendMode.Multiply)
+                drawRect(mainRefractionBand, blendMode = BlendMode.Screen)
+                drawRect(counterRefractionBand, blendMode = BlendMode.Multiply)
+                drawRect(movingNeutralCaustic, blendMode = BlendMode.Plus)
 
-                val waveCount = if (quality.enableMotion) 3 else 1
-                repeat(waveCount) { index ->
-                    val y = h * (0.20f + index * 0.21f + 0.010f * sin(safeShimmer * 6.28318f + index * 1.2f).toFloat())
-                    val alpha = (0.0038f + index * 0.0008f) * glow
+                // Neutral pseudo-backdrop refraction: soft displaced bands that simulate a blurred
+                // background being compressed through a rounded glass lens. No blue/purple tint here.
+                val stripeCount = if (quality.enableMotion) 9 else 6
+                repeat(stripeCount) { index ->
+                    val phase = safeShimmer * 6.28318f + index * 0.63f
+                    val y = h * (0.08f + index * 0.105f + 0.010f * sin(phase).toFloat())
+                    val height = h * (0.042f + (index % 3) * 0.006f)
+                    val alpha = (0.0042f + (index % 4) * 0.0009f) * glow
+                    val xOffset = w * 0.040f * sin(phase * 0.7f).toFloat()
                     drawOval(
                         brush = Brush.linearGradient(
-                            colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha), Color.Transparent),
-                            start = Offset(0f, y),
-                            end = Offset(w, y + h * 0.06f)
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.White.copy(alpha = alpha),
+                                Color.Transparent,
+                                Color.Black.copy(alpha = alpha * 0.66f),
+                                Color.Transparent
+                            ),
+                            start = Offset(xOffset, y),
+                            end = Offset(w + xOffset, y + height)
                         ),
-                        topLeft = Offset(-w * 0.18f, y - h * 0.16f),
-                        size = Size(w * 1.36f, h * 0.16f),
+                        topLeft = Offset(-w * 0.24f + xOffset, y - height * 1.9f),
+                        size = Size(w * 1.52f, height * 4.0f),
                         blendMode = BlendMode.Screen
                     )
                 }
@@ -401,7 +424,7 @@ fun Modifier.glassSkin(
                     topLeft = Offset(outerInset, outerInset),
                     size = outerSize,
                     cornerRadius = cornerRadius,
-                    style = Stroke(width = 0.62.dp.toPx()),
+                    style = Stroke(width = 0.56.dp.toPx()),
                     blendMode = BlendMode.Plus
                 )
             }
