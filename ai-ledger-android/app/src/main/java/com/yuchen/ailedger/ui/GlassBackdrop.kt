@@ -38,11 +38,11 @@ fun SampledWeatherGlassBackdrop(
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
-    blurRadiusDp: Int = 42,
+    blurRadiusDp: Int = 112,
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = liftAlpha.coerceIn(0.75f, 1.80f)
+    val alpha = liftAlpha.coerceIn(0.60f, 1.35f)
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
@@ -51,16 +51,31 @@ fun SampledWeatherGlassBackdrop(
         val rootW = if (view.width > 0) view.width.toFloat() else size.width
         val rootH = if (view.height > 0) view.height.toFloat() else size.height
         withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y) }) {
-            drawLauncherLikeBackground(rootW, rootH, alpha)
+            drawLauncherLikeBackground(rootW, rootH, alpha * 0.68f)
         }
+        drawRect(
+            color = Color(0xFFE6EEF6).copy(alpha = 0.180f * alpha),
+            blendMode = BlendMode.SrcOver
+        )
         drawRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.230f * alpha),
-                    Color(0xFFEAF1F8).copy(alpha = 0.145f * alpha),
-                    Color(0xFFD8E2EC).copy(alpha = 0.075f * alpha),
-                    Color.Black.copy(alpha = 0.016f * alpha)
+                    Color.White.copy(alpha = 0.330f * alpha),
+                    Color(0xFFEAF1F8).copy(alpha = 0.235f * alpha),
+                    Color(0xFFD8E2EC).copy(alpha = 0.145f * alpha),
+                    Color(0xFFBFCAD6).copy(alpha = 0.070f * alpha)
                 )
+            ),
+            blendMode = BlendMode.Screen
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.120f * alpha),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.62f, size.height * 0.18f),
+                radius = size.width * 0.80f
             ),
             blendMode = BlendMode.Screen
         )
@@ -77,7 +92,7 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
-    val alpha = strength.coerceIn(0f, 0.72f)
+    val alpha = strength.coerceIn(0f, 0.55f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
         val h = size.height
@@ -92,19 +107,19 @@ fun SampledWeatherEdgeRefraction(
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.090f * alpha),
-                Color.White.copy(alpha = 0.022f * alpha),
+                Color.White.copy(alpha = 0.080f * alpha),
+                Color.White.copy(alpha = 0.018f * alpha),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.016f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha)
+                Color.Black.copy(alpha = 0.012f * alpha),
+                Color.White.copy(alpha = 0.014f * alpha)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
         val topPrism = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.120f * alpha),
-                Color(0xFFDCEEFF).copy(alpha = 0.030f * alpha),
+                Color.White.copy(alpha = 0.105f * alpha),
+                Color(0xFFDCEEFF).copy(alpha = 0.026f * alpha),
                 Color.Transparent
             ),
             startY = 0f,
@@ -112,38 +127,21 @@ fun SampledWeatherEdgeRefraction(
         )
         val sideCompression = Brush.horizontalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.045f * alpha),
+                Color.White.copy(alpha = 0.035f * alpha),
                 Color.Transparent,
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.014f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha)
+                Color.Black.copy(alpha = 0.010f * alpha),
+                Color.White.copy(alpha = 0.014f * alpha)
             )
         )
         val innerDarkBend = Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.008f * alpha),
-                Color.Black.copy(alpha = 0.030f * alpha)
+                Color.Black.copy(alpha = 0.006f * alpha),
+                Color.Black.copy(alpha = 0.024f * alpha)
             ),
             startY = h * 0.45f,
             endY = h
-        )
-        val leftCornerCaustic = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.055f * alpha),
-                Color.White.copy(alpha = 0.012f * alpha),
-                Color.Transparent
-            ),
-            center = Offset(w * 0.055f, h * 0.035f),
-            radius = w * 0.34f
-        )
-        val rightCornerMute = Brush.radialGradient(
-            colors = listOf(
-                Color.Black.copy(alpha = 0.020f * alpha),
-                Color.Transparent
-            ),
-            center = Offset(w * 0.96f, h * 0.90f),
-            radius = w * 0.38f
         )
 
         drawRoundRect(
@@ -178,27 +176,11 @@ fun SampledWeatherEdgeRefraction(
             style = Stroke(width = 2.6.dp.toPx()),
             blendMode = BlendMode.Multiply
         )
-        drawRoundRect(
-            brush = leftCornerCaustic,
-            topLeft = Offset(outerInset, outerInset),
-            size = outerSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 3.2.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = rightCornerMute,
-            topLeft = Offset(midInset, midInset),
-            size = midSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 3.0.dp.toPx()),
-            blendMode = BlendMode.Multiply
-        )
     }
 }
 
 fun DrawScope.drawLauncherLikeBackground(w: Float, h: Float, alphaScale: Float = 1f) {
-    val a = alphaScale.coerceIn(0f, 1.40f)
+    val a = alphaScale.coerceIn(0f, 0.95f)
     val icon = min(w * 0.145f, h * 0.068f)
     drawRect(
         brush = Brush.linearGradient(
@@ -214,7 +196,7 @@ fun DrawScope.drawLauncherLikeBackground(w: Float, h: Float, alphaScale: Float =
     )
     drawOval(
         brush = Brush.radialGradient(
-            listOf(Color(0x552F72AD).copy(alpha = 0.33f * a), Color.Transparent),
+            listOf(Color(0x552F72AD).copy(alpha = 0.24f * a), Color.Transparent),
             center = Offset(w * 0.74f, h * 0.34f),
             radius = w * 0.58f
         ),
@@ -224,7 +206,7 @@ fun DrawScope.drawLauncherLikeBackground(w: Float, h: Float, alphaScale: Float =
     )
     drawOval(
         brush = Brush.radialGradient(
-            listOf(Color(0x33236AA8).copy(alpha = 0.20f * a), Color.Transparent),
+            listOf(Color(0x33236AA8).copy(alpha = 0.15f * a), Color.Transparent),
             center = Offset(w * 0.20f, h * 0.62f),
             radius = w * 0.44f
         ),
@@ -244,13 +226,13 @@ fun DrawScope.drawLauncherLikeBackground(w: Float, h: Float, alphaScale: Float =
         xs.forEach { x ->
             if (!(y == 0.24f && x > 0.50f) && !(y == 0.76f && x == 0.62f)) {
                 drawRoundRect(
-                    color = colors[k % colors.size].copy(alpha = a),
+                    color = colors[k % colors.size].copy(alpha = 0.72f * a),
                     topLeft = Offset(w * x - icon / 2f, h * y - icon / 2f),
                     size = Size(icon, icon),
                     cornerRadius = CornerRadius(icon * 0.22f, icon * 0.22f)
                 )
                 drawRoundRect(
-                    brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.25f * a), Color.Transparent)),
+                    brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.16f * a), Color.Transparent)),
                     topLeft = Offset(w * x - icon / 2f, h * y - icon / 2f),
                     size = Size(icon, icon),
                     cornerRadius = CornerRadius(icon * 0.22f, icon * 0.22f),
@@ -261,20 +243,20 @@ fun DrawScope.drawLauncherLikeBackground(w: Float, h: Float, alphaScale: Float =
         }
     }
     drawRoundRect(
-        color = Color(0xFFB9C3CD).copy(alpha = 0.88f * a),
+        color = Color(0xFFB9C3CD).copy(alpha = 0.62f * a),
         topLeft = Offset(w * 0.53f, h * 0.21f),
         size = Size(w * 0.40f, h * 0.17f),
         cornerRadius = CornerRadius(w * 0.045f, w * 0.045f)
     )
     drawRoundRect(
-        color = Color(0xFF071A2B).copy(alpha = 0.52f * a),
+        color = Color(0xFF071A2B).copy(alpha = 0.42f * a),
         topLeft = Offset(w * 0.04f, h * 0.885f),
         size = Size(w * 0.92f, h * 0.095f),
         cornerRadius = CornerRadius(h * 0.030f, h * 0.030f)
     )
     repeat(5) { i ->
         drawRoundRect(
-            color = colors[(i + 2) % colors.size].copy(alpha = a),
+            color = colors[(i + 2) % colors.size].copy(alpha = 0.64f * a),
             topLeft = Offset(w * (0.14f + i * 0.18f) - icon * 0.40f, h * 0.932f - icon * 0.40f),
             size = Size(icon * 0.80f, icon * 0.80f),
             cornerRadius = CornerRadius(icon * 0.18f, icon * 0.18f)
