@@ -43,30 +43,30 @@ fun SampledWeatherGlassBackdrop(
     val view = LocalView.current
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.24f
-        RenderQuality.Balanced -> 0.30f
-        RenderQuality.Experimental -> 0.34f
+        RenderQuality.Smooth -> 0.36f
+        RenderQuality.Balanced -> 0.44f
+        RenderQuality.Experimental -> 0.50f
     } * alpha
     val milkAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.090f
-        RenderQuality.Balanced -> 0.112f
-        RenderQuality.Experimental -> 0.132f
+        RenderQuality.Smooth -> 0.145f
+        RenderQuality.Balanced -> 0.185f
+        RenderQuality.Experimental -> 0.220f
     } * alpha
     val highlightAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.048f
-        RenderQuality.Balanced -> 0.064f
-        RenderQuality.Experimental -> 0.078f
+        RenderQuality.Smooth -> 0.060f
+        RenderQuality.Balanced -> 0.082f
+        RenderQuality.Experimental -> 0.100f
     } * alpha
     val actualBlur = when (quality) {
-        RenderQuality.Smooth -> blurRadiusDp * 0.24f
-        RenderQuality.Balanced -> blurRadiusDp * 0.30f
-        RenderQuality.Experimental -> blurRadiusDp * 0.36f
-    }.coerceIn(14f, 46f)
+        RenderQuality.Smooth -> blurRadiusDp * 0.34f
+        RenderQuality.Balanced -> blurRadiusDp * 0.44f
+        RenderQuality.Experimental -> blurRadiusDp * 0.56f
+    }.coerceIn(22f, 72f)
     val spreadPx = when (quality) {
-        RenderQuality.Smooth -> blurRadiusDp * 0.46f
-        RenderQuality.Balanced -> blurRadiusDp * 0.58f
-        RenderQuality.Experimental -> blurRadiusDp * 0.70f
-    }.coerceIn(30f, 92f)
+        RenderQuality.Smooth -> blurRadiusDp * 0.78f
+        RenderQuality.Balanced -> blurRadiusDp * 0.98f
+        RenderQuality.Experimental -> blurRadiusDp * 1.18f
+    }.coerceIn(58f, 156f)
 
     Canvas(
         modifier = modifier
@@ -82,6 +82,16 @@ fun SampledWeatherGlassBackdrop(
             theme = theme,
             globalOffset = globalOffset,
             spreadPx = spreadPx
+        )
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFFDCE9F5).copy(alpha = milkAlpha * 0.88f),
+                    Color(0xFF8FA7BC).copy(alpha = baseScrimAlpha * 0.72f),
+                    Color(0xFF31475D).copy(alpha = baseScrimAlpha * 0.66f)
+                )
+            ),
+            blendMode = BlendMode.SrcOver
         )
         drawRect(
             color = Color(0xFF5F748B).copy(alpha = baseScrimAlpha),
@@ -132,19 +142,23 @@ private fun DrawScope.drawSpreadBackdropSamples(
     spreadPx: Float
 ) {
     val samples = listOf(
-        Offset(0f, 0f) to 0.22f,
-        Offset(-0.55f, 0f) to 0.095f,
-        Offset(0.55f, 0f) to 0.095f,
-        Offset(0f, -0.55f) to 0.095f,
-        Offset(0f, 0.55f) to 0.095f,
-        Offset(-0.78f, -0.78f) to 0.066f,
-        Offset(0.78f, -0.78f) to 0.066f,
-        Offset(-0.78f, 0.78f) to 0.066f,
-        Offset(0.78f, 0.78f) to 0.066f,
-        Offset(-1.18f, 0.36f) to 0.046f,
-        Offset(1.18f, -0.36f) to 0.046f,
-        Offset(-0.36f, -1.18f) to 0.046f,
-        Offset(0.36f, 1.18f) to 0.046f
+        Offset(0f, 0f) to 0.070f,
+        Offset(-0.42f, 0f) to 0.060f,
+        Offset(0.42f, 0f) to 0.060f,
+        Offset(0f, -0.42f) to 0.060f,
+        Offset(0f, 0.42f) to 0.060f,
+        Offset(-0.82f, -0.82f) to 0.056f,
+        Offset(0.82f, -0.82f) to 0.056f,
+        Offset(-0.82f, 0.82f) to 0.056f,
+        Offset(0.82f, 0.82f) to 0.056f,
+        Offset(-1.28f, 0.42f) to 0.050f,
+        Offset(1.28f, -0.42f) to 0.050f,
+        Offset(-0.42f, -1.28f) to 0.050f,
+        Offset(0.42f, 1.28f) to 0.050f,
+        Offset(-1.68f, -0.18f) to 0.040f,
+        Offset(1.68f, 0.18f) to 0.040f,
+        Offset(-0.18f, 1.68f) to 0.040f,
+        Offset(0.18f, -1.68f) to 0.040f
     )
 
     samples.forEach { (unitOffset, sampleAlpha) ->
@@ -167,7 +181,7 @@ private fun DrawScope.drawSpreadBackdropSamples(
             w = rootW,
             h = rootH,
             theme = theme,
-            alphaScale = 0.44f
+            alphaScale = 0.88f
         )
     }
 }

@@ -49,7 +49,7 @@ enum class GlassRole(
 
 private const val STRONG_GLASS_BLUR_DP = 132
 private const val MEDIUM_GLASS_BLUR_DP = 96
-private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.82f
+private const val UNIFIED_GLASS_BACKDROP_ALPHA = 1.00f
 private const val UNIFIED_EDGE_STRENGTH = 0.26f
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
@@ -433,9 +433,9 @@ private data class GlassMaterial(
 private fun glassMaterial(intensity: Float): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
     val base = GlassMaterial(
-        frost = 0.038f,
+        frost = 0.052f,
         rim = 0.130f,
-        topHighlight = 0.036f,
+        topHighlight = 0.046f,
         cornerHighlight = 0.030f,
         motionGlint = 0.006f,
         depthShadow = 0.020f,
