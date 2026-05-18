@@ -63,6 +63,7 @@ fun GlassPanel(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     var globalOffset by remember { mutableStateOf(Offset.Zero) }
     val backdrop = LocalGlassBackdrop.current
+    val useSampledBackdrop = backdrop != null && role != GlassRole.Chip
     Box(
         modifier = modifier
             .onGloballyPositioned { globalOffset = it.localToWindow(Offset.Zero) }
@@ -75,7 +76,7 @@ fun GlassPanel(
                 role = role
             )
     ) {
-        if (backdrop != null) {
+        if (useSampledBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = radius,
@@ -83,15 +84,12 @@ fun GlassPanel(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                blurRadiusDp = if (role == GlassRole.Chip) 18 else 26
-            )
-            SampledWeatherEdgeRefraction(
-                modifier = Modifier.matchParentSize(),
-                radius = radius,
-                globalOffset = globalOffset,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme
+                blurRadiusDp = when (role) {
+                    GlassRole.Shell, GlassRole.Floating -> 20
+                    GlassRole.Card -> 18
+                    GlassRole.Nav -> 14
+                    GlassRole.Chip -> 0
+                }
             )
         }
         content()
@@ -125,6 +123,7 @@ fun PressableGlass(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     var globalOffset by remember { mutableStateOf(Offset.Zero) }
     val backdrop = LocalGlassBackdrop.current
+    val useSampledBackdrop = backdrop != null && role == GlassRole.Nav
 
     Box(
         modifier = modifier
@@ -145,7 +144,7 @@ fun PressableGlass(
                 role = role
             )
     ) {
-        if (backdrop != null) {
+        if (useSampledBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = radius,
@@ -153,15 +152,7 @@ fun PressableGlass(
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
-                blurRadiusDp = if (role == GlassRole.Chip) 16 else 24
-            )
-            SampledWeatherEdgeRefraction(
-                modifier = Modifier.matchParentSize(),
-                radius = radius,
-                globalOffset = globalOffset,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme
+                blurRadiusDp = 14
             )
         }
         content()
