@@ -47,24 +47,24 @@ fun SampledWeatherGlassBackdrop(
     val cachedBackdrop = LocalBlurredBackdrop.current
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.16f
-        RenderQuality.Balanced -> 0.20f
-        RenderQuality.Experimental -> 0.24f
+        RenderQuality.Smooth -> 0.17f
+        RenderQuality.Balanced -> 0.21f
+        RenderQuality.Experimental -> 0.25f
     } * alpha
     val milkAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.045f
-        RenderQuality.Balanced -> 0.058f
-        RenderQuality.Experimental -> 0.072f
+        RenderQuality.Smooth -> 0.048f
+        RenderQuality.Balanced -> 0.062f
+        RenderQuality.Experimental -> 0.076f
     } * alpha
     val highlightAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.040f
-        RenderQuality.Balanced -> 0.052f
-        RenderQuality.Experimental -> 0.064f
+        RenderQuality.Smooth -> 0.044f
+        RenderQuality.Balanced -> 0.058f
+        RenderQuality.Experimental -> 0.070f
     } * alpha
     val backdropAlpha = when (quality) {
-        RenderQuality.Smooth -> 0.66f
-        RenderQuality.Balanced -> 0.72f
-        RenderQuality.Experimental -> 0.78f
+        RenderQuality.Smooth -> 0.92f
+        RenderQuality.Balanced -> 0.96f
+        RenderQuality.Experimental -> 1.00f
     }
     val fallbackBlur = when (quality) {
         RenderQuality.Smooth -> blurRadiusDp * 0.24f
@@ -110,24 +110,24 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.62f),
-                    Color(0xFF9AADBF).copy(alpha = baseScrimAlpha * 0.38f),
-                    Color(0xFF40576D).copy(alpha = baseScrimAlpha * 0.42f)
+                    Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.58f),
+                    Color(0xFF9AADBF).copy(alpha = baseScrimAlpha * 0.32f),
+                    Color(0xFF40576D).copy(alpha = baseScrimAlpha * 0.36f)
                 )
             ),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
-            color = Color(0xFF72859A).copy(alpha = baseScrimAlpha * 0.42f),
+            color = Color(0xFF72859A).copy(alpha = baseScrimAlpha * 0.34f),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = milkAlpha * 0.62f),
-                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.34f),
-                    Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.16f),
-                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.20f)
+                    Color.White.copy(alpha = milkAlpha * 0.58f),
+                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.30f),
+                    Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.14f),
+                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.18f)
                 )
             ),
             blendMode = BlendMode.SrcOver
@@ -135,8 +135,8 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = highlightAlpha * 0.58f),
-                    Color.White.copy(alpha = highlightAlpha * 0.12f),
+                    Color.White.copy(alpha = highlightAlpha * 0.54f),
+                    Color.White.copy(alpha = highlightAlpha * 0.11f),
                     Color.Transparent
                 ),
                 center = Offset(size.width * 0.42f, size.height * 0.08f),
@@ -147,7 +147,7 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF7FB6FF).copy(alpha = highlightAlpha * 0.12f),
+                    Color(0xFF7FB6FF).copy(alpha = highlightAlpha * 0.10f),
                     Color.Transparent
                 ),
                 center = Offset(size.width * 0.12f, size.height * 0.82f),
