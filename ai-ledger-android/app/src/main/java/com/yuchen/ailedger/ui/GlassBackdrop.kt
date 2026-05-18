@@ -38,11 +38,11 @@ fun SampledWeatherGlassBackdrop(
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
-    blurRadiusDp: Int = 24,
+    blurRadiusDp: Int = 42,
     liftAlpha: Float = 1f
 ) {
     val view = LocalView.current
-    val alpha = liftAlpha.coerceIn(0.45f, 1.55f)
+    val alpha = liftAlpha.coerceIn(0.75f, 1.80f)
     Canvas(
         modifier = modifier
             .clip(RoundedCornerShape(radius.dp))
@@ -56,10 +56,10 @@ fun SampledWeatherGlassBackdrop(
         drawRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.155f * alpha),
-                    Color(0xFFEAF1F8).copy(alpha = 0.082f * alpha),
-                    Color.White.copy(alpha = 0.038f * alpha),
-                    Color.Black.copy(alpha = 0.018f * alpha)
+                    Color.White.copy(alpha = 0.230f * alpha),
+                    Color(0xFFEAF1F8).copy(alpha = 0.145f * alpha),
+                    Color(0xFFD8E2EC).copy(alpha = 0.075f * alpha),
+                    Color.Black.copy(alpha = 0.016f * alpha)
                 )
             ),
             blendMode = BlendMode.Screen
@@ -77,7 +77,7 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
-    val alpha = strength.coerceIn(0f, 1.15f)
+    val alpha = strength.coerceIn(0f, 0.72f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
         val h = size.height
@@ -92,19 +92,19 @@ fun SampledWeatherEdgeRefraction(
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.110f * alpha),
-                Color.White.copy(alpha = 0.026f * alpha),
+                Color.White.copy(alpha = 0.090f * alpha),
+                Color.White.copy(alpha = 0.022f * alpha),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.024f * alpha),
-                Color.White.copy(alpha = 0.025f * alpha)
+                Color.Black.copy(alpha = 0.016f * alpha),
+                Color.White.copy(alpha = 0.018f * alpha)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
         val topPrism = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.155f * alpha),
-                Color(0xFFDCEEFF).copy(alpha = 0.040f * alpha),
+                Color.White.copy(alpha = 0.120f * alpha),
+                Color(0xFFDCEEFF).copy(alpha = 0.030f * alpha),
                 Color.Transparent
             ),
             startY = 0f,
@@ -112,26 +112,26 @@ fun SampledWeatherEdgeRefraction(
         )
         val sideCompression = Brush.horizontalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.070f * alpha),
+                Color.White.copy(alpha = 0.045f * alpha),
                 Color.Transparent,
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.024f * alpha),
-                Color.White.copy(alpha = 0.030f * alpha)
+                Color.Black.copy(alpha = 0.014f * alpha),
+                Color.White.copy(alpha = 0.018f * alpha)
             )
         )
         val innerDarkBend = Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.012f * alpha),
-                Color.Black.copy(alpha = 0.042f * alpha)
+                Color.Black.copy(alpha = 0.008f * alpha),
+                Color.Black.copy(alpha = 0.030f * alpha)
             ),
             startY = h * 0.45f,
             endY = h
         )
         val leftCornerCaustic = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.080f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha),
+                Color.White.copy(alpha = 0.055f * alpha),
+                Color.White.copy(alpha = 0.012f * alpha),
                 Color.Transparent
             ),
             center = Offset(w * 0.055f, h * 0.035f),
@@ -139,7 +139,7 @@ fun SampledWeatherEdgeRefraction(
         )
         val rightCornerMute = Brush.radialGradient(
             colors = listOf(
-                Color.Black.copy(alpha = 0.030f * alpha),
+                Color.Black.copy(alpha = 0.020f * alpha),
                 Color.Transparent
             ),
             center = Offset(w * 0.96f, h * 0.90f),
