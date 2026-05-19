@@ -109,6 +109,7 @@ data class AssistantUiState(
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
     val backdropParams: BackdropDebugParams = BackdropDebugParams(),
