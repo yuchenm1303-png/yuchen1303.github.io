@@ -125,5 +125,7 @@ data class AssistantUiState(
     val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
     val stats: List<StatSummary> = emptyList(),
     val messages: List<ChatMessage> = emptyList(),
-    val tools: List<ToolEntry> = emptyList()
+    val tools: List<ToolEntry> = emptyList(),
+    val composerText: String = "",
+    val selectedModelLabel: String = "Gemini 2.5 Flash"
 )
