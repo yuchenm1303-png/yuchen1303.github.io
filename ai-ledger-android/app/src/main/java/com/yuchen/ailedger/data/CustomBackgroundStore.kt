@@ -4,8 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
-import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
@@ -80,7 +80,7 @@ class CustomBackgroundStore(
 
     private fun calculateSampleSize(width: Int, height: Int, targetEdge: Int): Int {
         var sample = 1
-        var maxEdge = max(width, height)
+        val maxEdge = max(width, height)
         while (maxEdge / sample > targetEdge * 2) sample *= 2
         return sample.coerceAtLeast(1)
     }
