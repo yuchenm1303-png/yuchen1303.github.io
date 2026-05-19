@@ -146,16 +146,16 @@ private fun DrawScope.drawContinuousLens(
     val h = itemRect.height
     if (w <= 4f || h <= 4f) return
     val corner = radius.dp.toPx()
-    val edgeWidth = (border.ringWidthDp.dp.toPx() + border.edgeBlurDp.dp.toPx() * 0.44f).coerceIn(4.dp.toPx(), min(w, h) * 0.46f)
-    val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 0.80f)
-    val edgeAlpha = (border.edgeAlpha * (0.32f + strength * 0.30f) * border.edgeBrightness.coerceIn(0.72f, 1.25f)).coerceIn(0f, 0.56f)
+    val edgeWidth = (border.ringWidthDp.dp.toPx() + border.edgeBlurDp.dp.toPx() * 0.68f).coerceIn(6.dp.toPx(), min(w, h) * 0.58f)
+    val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 1.05f)
+    val edgeAlpha = (border.edgeAlpha * (0.56f + strength * 0.42f) * border.edgeBrightness.coerceIn(0.72f, 1.25f)).coerceIn(0f, 0.86f)
     if (edgeAlpha <= 0.01f || edgePull <= 0.5f) return
     val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
     clipPath(path) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (drawShaderLens(backdrop, itemRect, visibleRect, sampleOffset, corner, edgeWidth, edgePull, edgeAlpha, border)) return@clipPath
         }
-        drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.72f, edgeAlpha * 0.18f)
+        drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.86f, edgeAlpha * 0.48f)
     }
 }
 
@@ -183,8 +183,8 @@ private fun DrawScope.drawShaderLens(
             setFloatUniform("edgeWidth", edgeWidth)
             setFloatUniform("edgePull", edgePull)
             setFloatUniform("edgeAlpha", edgeAlpha)
-            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.85f))
-            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.10f))
+            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.95f))
+            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.25f))
             setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
         }
         val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
@@ -213,8 +213,8 @@ private fun DrawScope.drawFallbackLens(
 ) {
     val w = itemRect.width.coerceAtLeast(1f)
     val h = itemRect.height.coerceAtLeast(1f)
-    val insetX = sourceInset.coerceIn(0f, w * 0.34f)
-    val insetY = sourceInset.coerceIn(0f, h * 0.34f)
+    val insetX = sourceInset.coerceIn(0f, w * 0.42f)
+    val insetY = sourceInset.coerceIn(0f, h * 0.42f)
     val srcWLocal = (w - insetX * 2f).coerceAtLeast(1f)
     val srcHLocal = (h - insetY * 2f).coerceAtLeast(1f)
     val relX = visibleRect.left - itemRect.left
@@ -227,7 +227,7 @@ private fun DrawScope.drawFallbackLens(
     val srcY = ((sampleOffset.y + srcLocalY) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
     val srcW = (visibleRect.width * srcWLocal / w * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
     val srcH = (visibleRect.height * srcHLocal / h * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.20f), blendMode = BlendMode.Screen)
+    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.42f), blendMode = BlendMode.SrcOver)
 }
 
 private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: GlassBorderStyle) {
@@ -294,13 +294,18 @@ half4 main(float2 coord) {
     float2 center = itemSize * 0.5;
     float sd = roundedBoxSdf(local - center, itemSize * 0.5, radius);
     float inside = max(-sd, 0.0);
-    float nearEdge = exp(-inside / max(edgeWidth * 0.52, 1.0));
-    float softTail = exp(-inside / max(max(itemSize.x, itemSize.y) * 0.34, 1.0)) * 0.11;
-    float falloff = clamp(nearEdge + softTail, 0.0, 1.0);
+    float edgeCore = exp(-inside / max(edgeWidth * 0.32, 1.0));
+    float edgeShoulder = exp(-inside / max(edgeWidth * 1.18, 1.0)) * 0.46;
+    float softTail = exp(-inside / max(max(itemSize.x, itemSize.y) * 0.38, 1.0)) * 0.10;
+    float falloff = clamp(edgeCore + edgeShoulder + softTail, 0.0, 1.0);
     float2 toCenter = normalize(center - local + float2(0.001, 0.001));
-    float2 sampleCoord = (sampleOffset + local + toCenter * edgePull * falloff) * backdropScale;
+    float pull = edgePull * clamp(edgeCore * 1.06 + edgeShoulder * 0.72 + softTail * 0.32, 0.0, 1.12);
+    float2 sampleCoord = (sampleOffset + local + toCenter * pull) * backdropScale;
     half4 src = backdrop.eval(sampleCoord);
     float a = edgeAlpha * falloff;
-    return half4(adjustColor(float3(src.r, src.g, src.b)) * a, a);
+    float3 refracted = adjustColor(float3(src.r, src.g, src.b));
+    float rimGlow = edgeCore * 0.055 + edgeShoulder * 0.028;
+    refracted = clamp(refracted + float3(rimGlow, rimGlow, rimGlow), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+    return half4(refracted, a);
 }
 """
