@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.app.Activity
 import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -29,10 +30,12 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
+import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
 
@@ -41,6 +44,8 @@ import com.yuchen.ailedger.model.RenderQuality
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val rootView = LocalView.current
+    val context = LocalContext.current
+    val actionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
@@ -49,6 +54,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     ) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
     }
+    val assistantImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri -> viewModel.onImagePickedForAssistant(uri) }
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
@@ -107,7 +115,29 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             .padding(horizontal = 14.dp)
                     ) {
                         when (state.currentTab) {
-                            AppTab.Assistant -> AssistantScreen(state)
+                            AppTab.Assistant -> AssistantScreen(
+                                state = state,
+                                onComposerChange = viewModel::updateComposer,
+                                onSend = viewModel::submitComposer,
+                                onQuickCommand = viewModel::sendUserCommand,
+                                onDraftCommand = viewModel::insertCommandDraft,
+                                onModelClick = viewModel::cycleModel,
+                                onPickImage = {
+                                    assistantImagePicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                onNavigateHome = {
+                                    val ok = actionRouter?.startNavigation("家") == true
+                                    viewModel.appendAssistantNotice(if (ok) "已打开系统地图，开始导航到家。" else "没有可用的地图应用。")
+                                },
+                                onSetAlarm = {
+                                    val ok = actionRouter?.setAlarm(21, 30, "AI 助手提醒：晚上复盘") == true
+                                    viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
+                                }
+                            )
                             AppTab.Tools -> ToolsScreen(state)
                             AppTab.Settings -> SettingsScreen(
                                 state = state,
