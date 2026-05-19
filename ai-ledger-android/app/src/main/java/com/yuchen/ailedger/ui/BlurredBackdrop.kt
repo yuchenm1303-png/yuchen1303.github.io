@@ -1,11 +1,13 @@
 package com.yuchen.ailedger.ui
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import androidx.compose.runtime.Composable
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -44,7 +47,8 @@ val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 fun rememberBlurredBackdropBitmap(
     theme: BackgroundTheme,
     quality: RenderQuality,
-    params: BackdropDebugParams = BackdropDebugParams()
+    params: BackdropDebugParams = BackdropDebugParams(),
+    customBackgroundPath: String? = null
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
     val density = LocalDensity.current
@@ -54,12 +58,24 @@ fun rememberBlurredBackdropBitmap(
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
     val key = params.cacheKey()
-    var bitmap by remember(width, height, theme, quality) { mutableStateOf<BlurredBackdropBitmap?>(null) }
+    val customKey = customBackgroundPath?.let { path ->
+        val file = File(path)
+        if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$path"
+    } ?: "builtin"
+    var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
 
-    LaunchedEffect(width, height, theme, quality, key) {
+    LaunchedEffect(width, height, theme, quality, key, customKey) {
         if (bitmap != null) delay(120)
         val next = withContext(Dispatchers.Default) {
-            runCatching { buildBlurredBackdropBitmap(width, height, theme, params.quantized()) }.getOrNull()
+            runCatching {
+                buildBlurredBackdropBitmap(
+                    fullWidth = width,
+                    fullHeight = height,
+                    theme = theme,
+                    params = params.quantized(),
+                    customBackgroundPath = customBackgroundPath
+                )
+            }.getOrNull()
         }
         if (next != null) bitmap = next
     }
@@ -106,14 +122,16 @@ private fun buildBlurredBackdropBitmap(
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme,
-    params: BackdropDebugParams
+    params: BackdropDebugParams,
+    customBackgroundPath: String?
 ): BlurredBackdropBitmap {
     val smallWidth = (fullWidth * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(128)
     val smallHeight = (fullHeight * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    drawAndroidBackdropSource(source, theme, params)
+    val drewCustom = drawCustomImageBackdropSource(source, customBackgroundPath)
+    if (!drewCustom) drawAndroidBackdropSource(source, theme, params)
 
     val blurred = boxBlur(
         input = source,
@@ -133,6 +151,43 @@ private fun buildBlurredBackdropBitmap(
         fullHeightPx = fullHeight,
         scale = effectiveScale
     )
+}
+
+private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
+    val file = path?.let(::File) ?: return false
+    if (!file.exists()) return false
+    val source = BitmapFactory.decodeFile(file.absolutePath) ?: return false
+    val canvas = Canvas(target)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    val srcW = source.width
+    val srcH = source.height
+    val dstW = target.width
+    val dstH = target.height
+    val dstAspect = dstW.toFloat() / dstH.toFloat()
+    val srcAspect = srcW.toFloat() / srcH.toFloat()
+    val cropW: Int
+    val cropH: Int
+    val cropX: Int
+    val cropY: Int
+    if (srcAspect > dstAspect) {
+        cropH = srcH
+        cropW = (srcH * dstAspect).roundToInt().coerceIn(1, srcW)
+        cropX = ((srcW - cropW) / 2f).roundToInt().coerceAtLeast(0)
+        cropY = 0
+    } else {
+        cropW = srcW
+        cropH = (srcW / dstAspect).roundToInt().coerceIn(1, srcH)
+        cropX = 0
+        cropY = ((srcH - cropH) / 2f).roundToInt().coerceAtLeast(0)
+    }
+    canvas.drawBitmap(
+        source,
+        Rect(cropX, cropY, cropX + cropW, cropY + cropH),
+        RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
+        paint
+    )
+    source.recycle()
+    return true
 }
 
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
