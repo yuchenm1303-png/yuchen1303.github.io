@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -87,6 +88,25 @@ fun GlassDebugFloatingPanel(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val supportsAgsl = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                val renderPath = if (supportsAgsl) "AGSL RuntimeShader" else "Canvas fallback"
+                val renderHint = if (supportsAgsl) "当前设备支持 Android 13+ Shader 路径" else "当前设备低于 API 33，玻璃折射会走备用 Canvas 路径"
+
+                Text("设备渲染能力", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    text = "SDK_INT ${Build.VERSION.SDK_INT} / Android ${Build.VERSION.RELEASE} · $renderPath",
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${Build.MANUFACTURER} ${Build.MODEL}｜$renderHint",
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(6.dp))
                 Text("自定义背景", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     DebugActionButton("上传背景", Modifier.weight(1f), onUploadBackgroundClick)
