@@ -44,7 +44,7 @@ enum class GlassRole(
 
 private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
-private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.62f
+private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
