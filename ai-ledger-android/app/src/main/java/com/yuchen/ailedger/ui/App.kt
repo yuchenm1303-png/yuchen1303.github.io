@@ -1,8 +1,11 @@
 package com.yuchen.ailedger.ui
 
+import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
@@ -25,15 +29,18 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
+    val rootView = LocalView.current
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
@@ -49,6 +56,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         customBackgroundPath = state.customBackgroundPath
     )
 
+    DisposableEffect(rootView) {
+        val oldOverscrollMode = rootView.overScrollMode
+        rootView.overScrollMode = View.OVER_SCROLL_NEVER
+        onDispose { rootView.overScrollMode = oldOverscrollMode }
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             val frameTime = withFrameNanos { it }
@@ -59,6 +72,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
+                LocalOverscrollConfiguration provides null,
                 LocalGlassBackdrop provides GlassBackdropSpec(
                     quality = state.quality,
                     motionIntensity = state.motionIntensity,
