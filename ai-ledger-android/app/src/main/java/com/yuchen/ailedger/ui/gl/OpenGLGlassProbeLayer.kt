@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui.gl
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.EGLConfig
@@ -8,14 +9,17 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
+import android.opengl.GLUtils
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
+import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassItemRegistry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,11 +27,11 @@ import java.nio.FloatBuffer
 import kotlin.math.max
 
 /**
- * Stage 2 OpenGL glass probe.
+ * Stage 3 OpenGL glass probe.
  *
- * The layer now reads real glass item bounds from GlassItemRegistry and draws one GPU glass
- * rectangle for each registered card. The shader still uses a synthetic backdrop; real backdrop
- * texture sampling will come in the next stage.
+ * The layer reads real glass item bounds from GlassItemRegistry and samples the app's generated
+ * blurred/lens backdrop bitmaps as OpenGL textures. It still runs as a probe layer until the old
+ * Compose fallback is intentionally reduced or disabled.
  */
 @Composable
 fun OpenGLGlassProbeLayer(
@@ -36,10 +40,17 @@ fun OpenGLGlassProbeLayer(
 ) {
     if (!enabled) return
     val registry = LocalGlassItemRegistry.current
+    val backdrop = LocalBlurredBackdrop.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     ticker?.frameNanos
 
+    val textureSource = backdrop?.let {
+        GlBackdropTextureSource(
+            blurBitmap = it.image.asAndroidBitmap(),
+            lensBitmap = it.lensImage.asAndroidBitmap()
+        )
+    }
     val items = registry
         ?.snapshot()
         .orEmpty()
@@ -63,6 +74,7 @@ fun OpenGLGlassProbeLayer(
         modifier = modifier,
         factory = { context -> OpenGLGlassProbeTextureView(context) },
         update = { view ->
+            view.setBackdropTextures(textureSource)
             view.setGlassRects(items)
             view.requestRender()
         }
@@ -78,9 +90,15 @@ private data class GlGlassRect(
     val intensity: Float
 )
 
+private data class GlBackdropTextureSource(
+    val blurBitmap: Bitmap,
+    val lensBitmap: Bitmap
+)
+
 private class OpenGLGlassProbeTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: GlassEglRenderThread? = null
     private var latestRects: List<GlGlassRect> = emptyList()
+    private var latestTextureSource: GlBackdropTextureSource? = null
 
     init {
         isOpaque = false
@@ -96,6 +114,11 @@ private class OpenGLGlassProbeTextureView(context: Context) : TextureView(contex
         renderThread?.setGlassRects(rects)
     }
 
+    fun setBackdropTextures(source: GlBackdropTextureSource?) {
+        latestTextureSource = source
+        renderThread?.setBackdropTextures(source)
+    }
+
     fun requestRender() {
         renderThread?.requestRender()
     }
@@ -103,6 +126,7 @@ private class OpenGLGlassProbeTextureView(context: Context) : TextureView(contex
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         renderThread?.shutdown()
         renderThread = GlassEglRenderThread(Surface(surfaceTexture), width, height).also {
+            it.setBackdropTextures(latestTextureSource)
             it.setGlassRects(latestRects)
             it.start()
         }
@@ -141,6 +165,11 @@ private class GlassEglRenderThread(
 
     fun setGlassRects(rects: List<GlGlassRect>) {
         renderer.setGlassRects(rects)
+        requestRender()
+    }
+
+    fun setBackdropTextures(source: GlBackdropTextureSource?) {
+        renderer.setBackdropTextures(source)
         requestRender()
     }
 
@@ -186,6 +215,7 @@ private class GlassEglRenderThread(
                 EGL14.eglSwapBuffers(eglDisplay, eglSurface)
             }
         } finally {
+            runCatching { renderer.onRelease() }
             releaseEgl()
             surface.release()
         }
@@ -257,7 +287,15 @@ private class OpenGLGlassProbeRenderer {
         }
 
     private val rectLock = Any()
+    private val textureLock = Any()
     private var glassRects: List<GlGlassRect> = emptyList()
+    private var pendingTextureSource: GlBackdropTextureSource? = null
+    private var activeBlurBitmap: Bitmap? = null
+    private var activeLensBitmap: Bitmap? = null
+    private var blurTextureId = 0
+    private var lensTextureId = 0
+    private var texturesReady = false
+
     private var program = 0
     private var positionHandle = 0
     private var resolutionHandle = 0
@@ -265,6 +303,9 @@ private class OpenGLGlassProbeRenderer {
     private var rectHandle = 0
     private var radiusHandle = 0
     private var intensityHandle = 0
+    private var textureReadyHandle = 0
+    private var blurTextureHandle = 0
+    private var lensTextureHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
     private var startTimeNanos = System.nanoTime()
@@ -272,6 +313,12 @@ private class OpenGLGlassProbeRenderer {
     fun setGlassRects(rects: List<GlGlassRect>) {
         synchronized(rectLock) {
             glassRects = rects
+        }
+    }
+
+    fun setBackdropTextures(source: GlBackdropTextureSource?) {
+        synchronized(textureLock) {
+            pendingTextureSource = source
         }
     }
 
@@ -283,7 +330,17 @@ private class OpenGLGlassProbeRenderer {
         rectHandle = GLES20.glGetUniformLocation(program, "uRect")
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
         intensityHandle = GLES20.glGetUniformLocation(program, "uIntensity")
+        textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
+        blurTextureHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
+        lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         startTimeNanos = System.nanoTime()
+
+        val textures = IntArray(2)
+        GLES20.glGenTextures(2, textures, 0)
+        blurTextureId = textures[0]
+        lensTextureId = textures[1]
+        configureTexture(blurTextureId)
+        configureTexture(lensTextureId)
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnable(GLES20.GL_BLEND)
@@ -298,6 +355,7 @@ private class OpenGLGlassProbeRenderer {
     }
 
     fun onDrawFrame() {
+        uploadPendingTexturesIfNeeded()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
@@ -308,6 +366,14 @@ private class OpenGLGlassProbeRenderer {
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES20.glUniform1f(timeHandle, seconds)
+        GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTextureId)
+        GLES20.glUniform1i(blurTextureHandle, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lensTextureId)
+        GLES20.glUniform1i(lensTextureHandle, 1)
 
         quadVertices.position(0)
         GLES20.glEnableVertexAttribArray(positionHandle)
@@ -321,6 +387,45 @@ private class OpenGLGlassProbeRenderer {
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
         GLES20.glDisableVertexAttribArray(positionHandle)
+    }
+
+    fun onRelease() {
+        val textures = intArrayOf(blurTextureId, lensTextureId).filter { it != 0 }.toIntArray()
+        if (textures.isNotEmpty()) GLES20.glDeleteTextures(textures.size, textures, 0)
+        blurTextureId = 0
+        lensTextureId = 0
+        activeBlurBitmap = null
+        activeLensBitmap = null
+        texturesReady = false
+    }
+
+    private fun uploadPendingTexturesIfNeeded() {
+        val source = synchronized(textureLock) { pendingTextureSource } ?: run {
+            texturesReady = false
+            return
+        }
+        if (source.blurBitmap === activeBlurBitmap && source.lensBitmap === activeLensBitmap && texturesReady) return
+        uploadBitmapToTexture(blurTextureId, source.blurBitmap)
+        uploadBitmapToTexture(lensTextureId, source.lensBitmap)
+        activeBlurBitmap = source.blurBitmap
+        activeLensBitmap = source.lensBitmap
+        texturesReady = true
+    }
+
+    private fun configureTexture(textureId: Int) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+    }
+
+    private fun uploadBitmapToTexture(textureId: Int, bitmap: Bitmap) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
     }
 
     private fun buildProgram(vertexSource: String, fragmentSource: String): Int {
@@ -380,6 +485,9 @@ private class OpenGLGlassProbeRenderer {
             uniform vec4 uRect;
             uniform float uRadius;
             uniform float uIntensity;
+            uniform float uTextureReady;
+            uniform sampler2D uBlurTexture;
+            uniform sampler2D uLensTexture;
 
             float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
                 vec2 q = abs(p) - (halfSize - vec2(radius));
@@ -399,17 +507,33 @@ private class OpenGLGlassProbeRenderer {
                 return clamp(color, 0.0, 1.0);
             }
 
-            vec3 softSample(vec2 uv, vec2 n, vec2 t, float radiusPx) {
+            vec2 texUv(vec2 uv) {
+                return clamp(vec2(uv.x, 1.0 - uv.y), 0.0, 1.0);
+            }
+
+            vec3 blurBackdrop(vec2 uv) {
+                vec3 fallback = syntheticBackdrop(uv);
+                vec3 realColor = texture2D(uBlurTexture, texUv(uv)).rgb;
+                return mix(fallback, realColor, clamp(uTextureReady, 0.0, 1.0));
+            }
+
+            vec3 lensBackdrop(vec2 uv) {
+                vec3 fallback = syntheticBackdrop(uv);
+                vec3 realColor = texture2D(uLensTexture, texUv(uv)).rgb;
+                return mix(fallback, realColor, clamp(uTextureReady, 0.0, 1.0));
+            }
+
+            vec3 softLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx) {
                 vec2 r = vec2(radiusPx) / uResolution;
-                vec3 c = syntheticBackdrop(uv) * 0.28;
-                c += syntheticBackdrop(uv + n * r.x * 0.75) * 0.15;
-                c += syntheticBackdrop(uv - n * r.x * 0.75) * 0.15;
-                c += syntheticBackdrop(uv + t * r.x * 0.42) * 0.10;
-                c += syntheticBackdrop(uv - t * r.x * 0.42) * 0.10;
-                c += syntheticBackdrop(uv + (n + t * 0.45) * r.x) * 0.08;
-                c += syntheticBackdrop(uv + (n - t * 0.45) * r.x) * 0.08;
-                c += syntheticBackdrop(uv - (n + t * 0.45) * r.x) * 0.03;
-                c += syntheticBackdrop(uv - (n - t * 0.45) * r.x) * 0.03;
+                vec3 c = lensBackdrop(uv) * 0.28;
+                c += lensBackdrop(uv + n * r.x * 0.75) * 0.15;
+                c += lensBackdrop(uv - n * r.x * 0.75) * 0.15;
+                c += lensBackdrop(uv + t * r.x * 0.42) * 0.10;
+                c += lensBackdrop(uv - t * r.x * 0.42) * 0.10;
+                c += lensBackdrop(uv + (n + t * 0.45) * r.x) * 0.08;
+                c += lensBackdrop(uv + (n - t * 0.45) * r.x) * 0.08;
+                c += lensBackdrop(uv - (n + t * 0.45) * r.x) * 0.03;
+                c += lensBackdrop(uv - (n - t * 0.45) * r.x) * 0.03;
                 return c;
             }
 
@@ -449,18 +573,18 @@ private class OpenGLGlassProbeRenderer {
                 float tangentBend = sin((p.x + p.y) * 0.018) * edgeShoulder * 14.0;
                 vec2 refractUv = uv + (normal * pull + tangent * tangentBend) / uResolution;
 
-                vec3 base = syntheticBackdrop(uv);
-                vec3 refracted = softSample(refractUv, normal, tangent, mix(3.0, 9.0, corner));
-                vec3 color = mix(base, refracted, surfaceGate * 0.78);
-                vec3 compressed = clamp((color - 0.5) * 1.22 + 0.5, 0.0, 1.0);
-                color = mix(color, compressed, compressionBand * 0.22);
-                color += vec3(outerHighlight * 0.14);
-                color -= vec3(innerShadow * 0.08);
-                color += vec3(caustic * 0.14, caustic * 0.11, caustic * 0.075);
-                color = mix(color, vec3(1.0), 0.10);
+                vec3 base = blurBackdrop(uv);
+                vec3 refracted = softLensSample(refractUv, normal, tangent, mix(3.0, 9.0, corner));
+                vec3 color = mix(base, refracted, surfaceGate * 0.66);
+                vec3 compressed = clamp((color - 0.5) * 1.18 + 0.5, 0.0, 1.0);
+                color = mix(color, compressed, compressionBand * 0.18);
+                color += vec3(outerHighlight * 0.10);
+                color -= vec3(innerShadow * 0.055);
+                color += vec3(caustic * 0.10, caustic * 0.08, caustic * 0.055);
+                color = mix(color, vec3(1.0), 0.075);
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = mask * (0.22 + edgeCore * 0.20 + outerHighlight * 0.13 + caustic * 0.08) * clamp(uIntensity, 0.35, 1.35);
+                float alpha = mask * (0.18 + edgeCore * 0.17 + outerHighlight * 0.12 + caustic * 0.06) * clamp(uIntensity, 0.35, 1.35);
                 gl_FragColor = vec4(color, alpha);
             }
         """
