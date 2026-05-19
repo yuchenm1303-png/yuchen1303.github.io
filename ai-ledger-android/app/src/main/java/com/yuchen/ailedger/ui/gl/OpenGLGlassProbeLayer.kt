@@ -12,17 +12,22 @@ import android.view.Surface
 import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
+import com.yuchen.ailedger.ui.LocalGlassItemRegistry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.max
 
 /**
- * Stage 1 OpenGL glass probe.
+ * Stage 2 OpenGL glass probe.
  *
- * TextureView is used instead of GLSurfaceView so the GPU layer participates in normal View
- * composition and can stay transparent over the Compose scene on API 31 / HarmonyOS devices.
+ * The layer now reads real glass item bounds from GlassItemRegistry and draws one GPU glass
+ * rectangle for each registered card. The shader still uses a synthetic backdrop; real backdrop
+ * texture sampling will come in the next stage.
  */
 @Composable
 fun OpenGLGlassProbeLayer(
@@ -30,15 +35,52 @@ fun OpenGLGlassProbeLayer(
     enabled: Boolean = true
 ) {
     if (!enabled) return
+    val registry = LocalGlassItemRegistry.current
+    val ticker = LocalBackdropFrameTicker.current
+    val density = LocalDensity.current
+    ticker?.frameNanos
+
+    val items = registry
+        ?.snapshot()
+        .orEmpty()
+        .mapNotNull { item ->
+            if (!item.coordinates.isAttached()) return@mapNotNull null
+            val size = item.coordinates.itemSize()
+            if (size.width <= 1 || size.height <= 1) return@mapNotNull null
+            val topLeft = item.coordinates.rootOffset()
+            GlGlassRect(
+                left = topLeft.x,
+                top = topLeft.y,
+                width = size.width.toFloat(),
+                height = size.height.toFloat(),
+                radiusPx = with(density) { item.radius.dp.toPx() },
+                intensity = item.glassIntensity.coerceIn(0.35f, 1.35f)
+            )
+        }
+        .take(MAX_GLASS_ITEMS)
+
     AndroidView(
         modifier = modifier,
         factory = { context -> OpenGLGlassProbeTextureView(context) },
-        update = { view -> view.requestRender() }
+        update = { view ->
+            view.setGlassRects(items)
+            view.requestRender()
+        }
     )
 }
 
+private data class GlGlassRect(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val radiusPx: Float,
+    val intensity: Float
+)
+
 private class OpenGLGlassProbeTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: GlassEglRenderThread? = null
+    private var latestRects: List<GlGlassRect> = emptyList()
 
     init {
         isOpaque = false
@@ -49,13 +91,21 @@ private class OpenGLGlassProbeTextureView(context: Context) : TextureView(contex
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
+    fun setGlassRects(rects: List<GlGlassRect>) {
+        latestRects = rects
+        renderThread?.setGlassRects(rects)
+    }
+
     fun requestRender() {
         renderThread?.requestRender()
     }
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         renderThread?.shutdown()
-        renderThread = GlassEglRenderThread(Surface(surfaceTexture), width, height).also { it.start() }
+        renderThread = GlassEglRenderThread(Surface(surfaceTexture), width, height).also {
+            it.setGlassRects(latestRects)
+            it.start()
+        }
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
@@ -88,6 +138,11 @@ private class GlassEglRenderThread(
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+
+    fun setGlassRects(rects: List<GlGlassRect>) {
+        renderer.setGlassRects(rects)
+        requestRender()
+    }
 
     fun requestRender() {
         synchronized(renderLock) {
@@ -201,19 +256,33 @@ private class OpenGLGlassProbeRenderer {
             position(0)
         }
 
+    private val rectLock = Any()
+    private var glassRects: List<GlGlassRect> = emptyList()
     private var program = 0
     private var positionHandle = 0
     private var resolutionHandle = 0
     private var timeHandle = 0
+    private var rectHandle = 0
+    private var radiusHandle = 0
+    private var intensityHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
     private var startTimeNanos = System.nanoTime()
+
+    fun setGlassRects(rects: List<GlGlassRect>) {
+        synchronized(rectLock) {
+            glassRects = rects
+        }
+    }
 
     fun onSurfaceCreated() {
         program = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         resolutionHandle = GLES20.glGetUniformLocation(program, "uResolution")
         timeHandle = GLES20.glGetUniformLocation(program, "uTime")
+        rectHandle = GLES20.glGetUniformLocation(program, "uRect")
+        radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
+        intensityHandle = GLES20.glGetUniformLocation(program, "uIntensity")
         startTimeNanos = System.nanoTime()
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -232,6 +301,9 @@ private class OpenGLGlassProbeRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
+        val rects = synchronized(rectLock) { glassRects }
+        if (rects.isEmpty()) return
+
         val seconds = (System.nanoTime() - startTimeNanos) / 1_000_000_000f
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
@@ -240,7 +312,14 @@ private class OpenGLGlassProbeRenderer {
         quadVertices.position(0)
         GLES20.glEnableVertexAttribArray(positionHandle)
         GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, quadVertices)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        rects.forEach { rect ->
+            val safeWidth = rect.width.coerceAtLeast(1f)
+            val safeHeight = rect.height.coerceAtLeast(1f)
+            GLES20.glUniform4f(rectHandle, rect.left, rect.top, safeWidth, safeHeight)
+            GLES20.glUniform1f(radiusHandle, rect.radiusPx.coerceIn(2f, max(safeWidth, safeHeight)))
+            GLES20.glUniform1f(intensityHandle, rect.intensity)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
         GLES20.glDisableVertexAttribArray(positionHandle)
     }
 
@@ -298,6 +377,9 @@ private class OpenGLGlassProbeRenderer {
             precision mediump float;
             uniform vec2 uResolution;
             uniform float uTime;
+            uniform vec4 uRect;
+            uniform float uRadius;
+            uniform float uIntensity;
 
             float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
                 vec2 q = abs(p) - (halfSize - vec2(radius));
@@ -305,14 +387,15 @@ private class OpenGLGlassProbeRenderer {
             }
 
             vec3 syntheticBackdrop(vec2 uv) {
-                float blueBand = smoothstep(0.18, 0.48, uv.x) * (1.0 - smoothstep(0.56, 0.92, uv.x));
-                float redBand = smoothstep(0.42, 0.70, uv.x) * (1.0 - smoothstep(0.82, 1.05, uv.x));
-                float wave = 0.5 + 0.5 * sin((uv.x * 7.0 + uv.y * 3.0 + uTime * 0.15) * 3.14159);
-                vec3 sky = mix(vec3(0.22, 0.34, 0.72), vec3(0.88, 0.92, 1.0), uv.y);
+                float blueBand = smoothstep(0.16, 0.46, uv.x) * (1.0 - smoothstep(0.58, 0.94, uv.x));
+                float redBand = smoothstep(0.38, 0.66, uv.x) * (1.0 - smoothstep(0.82, 1.04, uv.x));
+                float horizon = smoothstep(0.18, 0.94, uv.y);
+                float wave = 0.5 + 0.5 * sin((uv.x * 7.0 + uv.y * 3.0 + uTime * 0.12) * 3.14159);
+                vec3 sky = mix(vec3(0.18, 0.30, 0.66), vec3(0.88, 0.57, 0.62), horizon);
                 vec3 color = sky;
-                color = mix(color, vec3(0.20, 0.46, 1.0), blueBand * 0.72);
-                color = mix(color, vec3(1.0, 0.22, 0.14), redBand * 0.76);
-                color += vec3(0.07, 0.05, 0.10) * wave;
+                color = mix(color, vec3(0.20, 0.46, 1.0), blueBand * 0.62);
+                color = mix(color, vec3(1.0, 0.24, 0.16), redBand * 0.70);
+                color += vec3(0.05, 0.04, 0.08) * wave;
                 return clamp(color, 0.0, 1.0);
             }
 
@@ -331,10 +414,11 @@ private class OpenGLGlassProbeRenderer {
             }
 
             void main() {
-                vec2 coord = gl_FragCoord.xy;
-                vec2 center = vec2(uResolution.x * 0.50, uResolution.y * 0.42);
-                vec2 rectSize = vec2(uResolution.x * 0.76, uResolution.y * 0.145);
-                float radius = min(rectSize.y * 0.48, 76.0);
+                vec2 coord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+                vec2 rectPos = uRect.xy;
+                vec2 rectSize = max(uRect.zw, vec2(1.0));
+                vec2 center = rectPos + rectSize * 0.5;
+                float radius = min(uRadius, min(rectSize.x, rectSize.y) * 0.5);
                 vec2 p = coord - center;
                 float sd = roundedBoxSdf(p, rectSize * 0.5, radius);
                 float mask = 1.0 - smoothstep(0.0, 2.0, sd);
@@ -351,7 +435,7 @@ private class OpenGLGlassProbeRenderer {
                 vec2 tangent = vec2(-normal.y, normal.x);
                 float corner = clamp(abs(normal.x * normal.y) * 2.2, 0.0, 1.0);
 
-                float edgeWidth = rectSize.y * 0.34;
+                float edgeWidth = min(rectSize.x, rectSize.y) * 0.32;
                 float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 1.42, 1.0), 0.0, 1.0);
                 float edgeCore = exp(-inside / max(edgeWidth * 0.12, 1.0));
                 float edgeShoulder = exp(-inside / max(edgeWidth * 0.45, 1.0)) * 0.38;
@@ -361,24 +445,26 @@ private class OpenGLGlassProbeRenderer {
                 float caustic = corner * exp(-inside / max(edgeWidth * 0.28, 1.0));
 
                 vec2 uv = coord / uResolution;
-                float pull = (edgeCore * 28.0 + edgeShoulder * 44.0 + caustic * 18.0) * surfaceGate;
-                float tangentBend = sin((p.x + p.y) * 0.018) * edgeShoulder * 16.0;
+                float pull = (edgeCore * 26.0 + edgeShoulder * 40.0 + caustic * 18.0) * surfaceGate;
+                float tangentBend = sin((p.x + p.y) * 0.018) * edgeShoulder * 14.0;
                 vec2 refractUv = uv + (normal * pull + tangent * tangentBend) / uResolution;
 
                 vec3 base = syntheticBackdrop(uv);
                 vec3 refracted = softSample(refractUv, normal, tangent, mix(3.0, 9.0, corner));
                 vec3 color = mix(base, refracted, surfaceGate * 0.78);
-                vec3 compressed = clamp((color - 0.5) * 1.24 + 0.5, 0.0, 1.0);
-                color = mix(color, compressed, compressionBand * 0.23);
-                color += vec3(outerHighlight * 0.16);
-                color -= vec3(innerShadow * 0.09);
-                color += vec3(caustic * 0.16, caustic * 0.13, caustic * 0.08);
-                color = mix(color, vec3(1.0), 0.12);
+                vec3 compressed = clamp((color - 0.5) * 1.22 + 0.5, 0.0, 1.0);
+                color = mix(color, compressed, compressionBand * 0.22);
+                color += vec3(outerHighlight * 0.14);
+                color -= vec3(innerShadow * 0.08);
+                color += vec3(caustic * 0.14, caustic * 0.11, caustic * 0.075);
+                color = mix(color, vec3(1.0), 0.10);
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = mask * (0.28 + edgeCore * 0.24 + outerHighlight * 0.16 + caustic * 0.10);
+                float alpha = mask * (0.22 + edgeCore * 0.20 + outerHighlight * 0.13 + caustic * 0.08) * clamp(uIntensity, 0.35, 1.35);
                 gl_FragColor = vec4(color, alpha);
             }
         """
     }
 }
+
+private const val MAX_GLASS_ITEMS = 36
