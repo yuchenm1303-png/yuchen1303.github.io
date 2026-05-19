@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>AI Ledger Glass Border Tuner</title>
+  <style>
+    :root {
+      --blur: 34px;
+      --body-alpha: .54;
+      --body-brightness: 1.08;
+      --body-saturation: 1.16;
+      --ring-width: 8px;
+      --top-refract: -10px;
+      --bottom-refract: 8px;
+      --side-refract: 6px;
+      --top-strip-alpha: .56;
+      --bottom-strip-alpha: .42;
+      --side-strip-alpha: .34;
+      --outer-line-alpha: .26;
+      --top-highlight-alpha: .18;
+      --inner-line-alpha: .10;
+      --corner-glint-alpha: .08;
+      --bottom-shadow-alpha: .16;
+      --radius: 36px;
+      --card-height: 118px;
+      --edge-boost: 1.06;
+      --edge-contrast: 1.10;
+      --edge-saturation: 1.18;
+      --mist-alpha: .18;
+      --font-alpha: .96;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #07111f; color: #f6f8ff; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", sans-serif;
+      display: grid;
+      grid-template-columns: minmax(350px, 430px) minmax(340px, 520px);
+      gap: 26px;
+      align-items: start;
+      justify-content: center;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+
+    .phone {
+      position: sticky;
+      top: 18px;
+      width: min(100%, 430px);
+      aspect-ratio: 9 / 19.5;
+      border-radius: 38px;
+      overflow: hidden;
+      isolation: isolate;
+      background: #07111f;
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 28px 70px rgba(0,0,0,.42);
+    }
+
+    .sky, .sky.blur-sample {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 76% 17%, rgba(255,255,255,.48), transparent 2.2%, transparent 100%),
+        radial-gradient(circle at 82% 18%, rgba(30,51,91,.68), transparent 3.6%, transparent 100%),
+        radial-gradient(ellipse at 28% 23%, rgba(118,145,210,.45), transparent 24%),
+        radial-gradient(ellipse at 72% 62%, rgba(255,156,136,.42), transparent 28%),
+        linear-gradient(180deg, #071225 0%, #182b50 32%, #5c6e99 64%, #c18b78 100%);
+    }
+
+    .sky::before, .sky.blur-sample::before {
+      content: "";
+      position: absolute;
+      inset: -8% -12%;
+      background:
+        radial-gradient(ellipse at 16% 18%, rgba(230,236,255,.38), transparent 15%),
+        radial-gradient(ellipse at 46% 19%, rgba(225,230,255,.32), transparent 17%),
+        radial-gradient(ellipse at 78% 20%, rgba(221,228,255,.34), transparent 18%),
+        radial-gradient(ellipse at 10% 44%, rgba(231,235,255,.30), transparent 18%),
+        radial-gradient(ellipse at 52% 48%, rgba(230,231,255,.28), transparent 19%),
+        radial-gradient(ellipse at 88% 48%, rgba(229,234,255,.28), transparent 18%),
+        radial-gradient(ellipse at 38% 72%, rgba(255,190,176,.34), transparent 23%),
+        radial-gradient(ellipse at 82% 76%, rgba(255,151,138,.35), transparent 22%);
+      filter: blur(4px);
+      opacity: .86;
+    }
+
+    .sky::after, .sky.blur-sample::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(92deg, transparent 0 8%, rgba(240,244,255,.14) 16%, transparent 30%, rgba(240,244,255,.12) 44%, transparent 60%, rgba(240,244,255,.12) 78%, transparent 100%),
+        linear-gradient(180deg, rgba(4,10,22,.46), transparent 18%, transparent 72%, rgba(4,5,10,.22));
+      opacity: .82;
+    }
+
+    .blur-sample {
+      filter: blur(var(--blur)) saturate(var(--body-saturation)) brightness(var(--body-brightness));
+      transform: scale(1.12);
+      transform-origin: center;
+      opacity: var(--body-alpha);
+      pointer-events: none;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+      padding: 34px 16px 100px;
+    }
+    .title { font-size: 46px; line-height: .95; font-weight: 900; letter-spacing: -2px; margin: 0 0 8px; }
+    .sub { font-size: 18px; color: rgba(255,255,255,.64); margin-bottom: 22px; font-weight: 650; }
+
+    .glass-card {
+      --x: 0px;
+      --y: 0px;
+      position: relative;
+      height: var(--card-height);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 16px 0;
+      isolation: isolate;
+      box-shadow: 0 12px 26px rgba(0,0,0,.14);
+    }
+
+    .glass-card.tall { height: 198px; }
+    .glass-card.small { height: 88px; }
+
+    .glass-card .body {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.055) 38%, rgba(30,44,74,.18)),
+        rgba(117,142,177,.18);
+      backdrop-filter: blur(calc(var(--blur) * .50)) saturate(1.15);
+      -webkit-backdrop-filter: blur(calc(var(--blur) * .50)) saturate(1.15);
+    }
+
+    .glass-card .edge-refract {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      overflow: hidden;
+      filter: saturate(var(--edge-saturation)) contrast(var(--edge-contrast)) brightness(var(--edge-boost));
+      opacity: 1;
+    }
+
+    .edge-refract span {
+      position: absolute;
+      background-image:
+        radial-gradient(circle at 76% 17%, rgba(255,255,255,.48), transparent 2.2%, transparent 100%),
+        radial-gradient(circle at 82% 18%, rgba(30,51,91,.68), transparent 3.6%, transparent 100%),
+        radial-gradient(ellipse at 28% 23%, rgba(118,145,210,.45), transparent 24%),
+        radial-gradient(ellipse at 72% 62%, rgba(255,156,136,.42), transparent 28%),
+        linear-gradient(180deg, #071225 0%, #182b50 32%, #5c6e99 64%, #c18b78 100%);
+      background-size: 430px 932px;
+      filter: blur(calc(var(--blur) * .74)) saturate(1.18) brightness(1.08);
+      transform: scale(1.08);
+      transform-origin: center;
+      mix-blend-mode: screen;
+    }
+
+    .edge-refract .top {
+      left: 0; right: 0; top: 0; height: var(--ring-width);
+      background-position: calc(var(--x) * -1) calc((var(--y) + var(--top-refract)) * -1);
+      opacity: var(--top-strip-alpha);
+    }
+    .edge-refract .bottom {
+      left: 0; right: 0; bottom: 0; height: var(--ring-width);
+      background-position: calc(var(--x) * -1) calc((var(--y) + var(--card-height) - var(--ring-width) + var(--bottom-refract)) * -1);
+      opacity: var(--bottom-strip-alpha);
+    }
+    .edge-refract .left {
+      left: 0; top: var(--ring-width); bottom: var(--ring-width); width: var(--ring-width);
+      background-position: calc((var(--x) + var(--side-refract) * -1) * -1) calc((var(--y) + var(--ring-width)) * -1);
+      opacity: var(--side-strip-alpha);
+    }
+    .edge-refract .right {
+      right: 0; top: var(--ring-width); bottom: var(--ring-width); width: var(--ring-width);
+      background-position: calc((var(--x) + var(--card-width, 398px) - var(--ring-width) + var(--side-refract)) * -1) calc((var(--y) + var(--ring-width)) * -1);
+      opacity: var(--side-strip-alpha);
+    }
+
+    .glass-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,var(--outer-line-alpha)),
+        inset 0 2px 1px rgba(255,255,255,var(--top-highlight-alpha)),
+        inset 0 -2px 4px rgba(2,8,20,var(--bottom-shadow-alpha)),
+        inset 0 0 0 calc(var(--ring-width) * .42) rgba(255,255,255,var(--inner-line-alpha));
+      opacity: .95;
+      z-index: 4;
+    }
+
+    .glass-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 12% 10%, rgba(255,255,255,var(--corner-glint-alpha)), transparent 26%),
+        linear-gradient(180deg, rgba(255,255,255,var(--mist-alpha)), transparent 36%, rgba(4,10,26,.06) 100%);
+      mix-blend-mode: screen;
+      z-index: 5;
+    }
+
+    .card-content {
+      position: relative;
+      z-index: 6;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      gap: 18px;
+      color: rgba(255,255,255,var(--font-alpha));
+      text-shadow: 0 1px 2px rgba(0,0,0,.10);
+    }
+    .icon {
+      width: 58px; height: 58px; border-radius: 20px;
+      display: grid; place-items: center;
+      font-size: 26px; font-weight: 900;
+      background: rgba(255,255,255,.13);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,.25), inset 0 -1px 2px rgba(0,0,0,.12);
+      flex: none;
+    }
+    .card-title { font-size: 28px; line-height: 1.05; font-weight: 900; letter-spacing: -1px; }
+    .card-sub { margin-top: 5px; font-size: 16px; color: rgba(255,255,255,.62); font-weight: 650; }
+    .arrow { margin-left: auto; font-size: 38px; color: rgba(255,255,255,.82); }
+    .pill-row { display: flex; gap: 14px; margin-top: 18px; }
+    .pill {
+      flex: 1; height: 70px; border-radius: 30px; position: relative; overflow: hidden;
+      background: rgba(28,45,82,.32);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), inset 0 1px 0 rgba(255,255,255,.22), inset 0 -2px 8px rgba(0,0,0,.16);
+      display: flex; align-items: center; justify-content: center; font-size: 23px; font-weight: 900;
+    }
+
+    .panel {
+      width: min(100%, 520px);
+      border-radius: 28px;
+      background: rgba(22,29,45,.86);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 20px 54px rgba(0,0,0,.32);
+      padding: 22px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .panel h1 { margin: 0 0 8px; font-size: 24px; }
+    .hint { color: rgba(255,255,255,.60); line-height: 1.55; font-size: 14px; margin-bottom: 18px; }
+    .section-title { margin: 18px 0 10px; font-weight: 900; color: rgba(255,255,255,.88); }
+    .control { margin: 13px 0; }
+    .label { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; color: rgba(255,255,255,.72); margin-bottom: 7px; }
+    .value { color: #d8e7ff; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; accent-color: #b9d6ff; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+    button {
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.10);
+      color: #fff;
+      padding: 10px 13px;
+      border-radius: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(255,255,255,.16); }
+    pre {
+      background: rgba(5,9,18,.76);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 14px;
+      color: #d9e6ff;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 880px) {
+      body { grid-template-columns: 1fr; padding: 14px; }
+      .phone { position: relative; top: 0; margin: 0 auto; max-height: 76vh; }
+      .panel { margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="phone" id="phone">
+    <div class="sky"></div>
+    <div class="sky blur-sample"></div>
+    <section class="content">
+      <h1 class="title">功能</h1>
+      <div class="sub">边缘折射调试 · 模拟 Compose 玻璃卡片</div>
+
+      <article class="glass-card tall" style="--x:16px;--y:142px;--card-width:398px;--card-height:198px;">
+        <div class="body"></div>
+        <div class="edge-refract"><span class="top"></span><span class="bottom"></span><span class="left"></span><span class="right"></span></div>
+        <div class="card-content" style="align-items:flex-start; flex-direction:column; padding-top:24px;">
+          <div class="card-title">先保留入口，再逐步接入旧版功能</div>
+          <div class="card-sub">这里集中放手机任务、账本工具和 Web 迁移能力。</div>
+          <div class="pill-row" style="width:100%;"><div class="pill">¥47</div><div class="pill">6</div><div class="pill">预览</div></div>
+        </div>
+      </article>
+
+      <article class="glass-card" style="--x:16px;--y:358px;--card-width:398px;--card-height:118px;">
+        <div class="body"></div>
+        <div class="edge-refract"><span class="top"></span><span class="bottom"></span><span class="left"></span><span class="right"></span></div>
+        <div class="card-content"><div class="icon">账</div><div><div class="card-title">账单中心</div><div class="card-sub">查看和管理收入支出</div></div><div class="arrow">›</div></div>
+      </article>
+
+      <article class="glass-card" style="--x:16px;--y:492px;--card-width:398px;--card-height:118px;">
+        <div class="body"></div>
+        <div class="edge-refract"><span class="top"></span><span class="bottom"></span><span class="left"></span><span class="right"></span></div>
+        <div class="card-content"><div class="icon">图</div><div><div class="card-title">数据统计</div><div class="card-sub">按周、月、年查看趋势</div></div><div class="arrow">›</div></div>
+      </article>
+
+      <article class="glass-card" style="--x:16px;--y:626px;--card-width:398px;--card-height:118px;">
+        <div class="body"></div>
+        <div class="edge-refract"><span class="top"></span><span class="bottom"></span><span class="left"></span><span class="right"></span></div>
+        <div class="card-content"><div class="icon">铃</div><div><div class="card-title">提醒闹钟</div><div class="card-sub">创建提醒和闹钟</div></div><div class="arrow">›</div></div>
+      </article>
+    </section>
+  </main>
+
+  <aside class="panel">
+    <h1>玻璃边框调参</h1>
+    <div class="hint">这些参数对应 Compose 里的边缘折射采样和极细高光，不是背景模糊主体参数。目标是：边框干净、不是一堆白线，但边缘能看出背景被压弯。</div>
+
+    <div class="section-title">边缘折射采样</div>
+    <div id="controls"></div>
+
+    <div class="buttons">
+      <button data-preset="iosClean">iOS 干净边框</button>
+      <button data-preset="strongRefract">折射更明显</button>
+      <button data-preset="soft">更柔和</button>
+      <button data-preset="reset">恢复默认</button>
+      <button id="copy">复制参数</button>
+    </div>
+
+    <div class="section-title">当前参数</div>
+    <pre id="output"></pre>
+  </aside>
+
+  <script>
+    const params = [
+      ['blur', '背景模糊 blur', 10, 70, 1, 34, 'px'],
+      ['body-alpha', '主体模糊透明度', 0.20, 0.90, 0.01, 0.54, ''],
+      ['ring-width', '折射带宽 ringWidth', 2, 18, 1, 8, 'px'],
+      ['top-refract', '上边缘采样偏移 topRefract', -24, 6, 1, -10, 'px'],
+      ['bottom-refract', '下边缘采样偏移 bottomRefract', -6, 24, 1, 8, 'px'],
+      ['side-refract', '左右边缘采样偏移 sideRefract', 0, 18, 1, 6, 'px'],
+      ['top-strip-alpha', '上边缘折射透明度', 0, 1, 0.01, 0.56, ''],
+      ['bottom-strip-alpha', '下边缘折射透明度', 0, 1, 0.01, 0.42, ''],
+      ['side-strip-alpha', '左右边缘折射透明度', 0, 1, 0.01, 0.34, ''],
+      ['edge-boost', '边缘亮度 edgeBoost', 0.80, 1.35, 0.01, 1.06, ''],
+      ['edge-contrast', '边缘对比 edgeContrast', 0.80, 1.50, 0.01, 1.10, ''],
+      ['edge-saturation', '边缘饱和 edgeSaturation', 0.80, 1.60, 0.01, 1.18, ''],
+      ['outer-line-alpha', '极细外高光 outerLine', 0, 0.60, 0.01, 0.26, ''],
+      ['top-highlight-alpha', '顶部高光 topHighlight', 0, 0.50, 0.01, 0.18, ''],
+      ['inner-line-alpha', '内侧二次边 innerLine', 0, 0.35, 0.01, 0.10, ''],
+      ['corner-glint-alpha', '圆角 glint', 0, 0.30, 0.01, 0.08, ''],
+      ['bottom-shadow-alpha', '底部暗边 shadow', 0, 0.45, 0.01, 0.16, ''],
+      ['mist-alpha', '顶部雾面 mist', 0, 0.40, 0.01, 0.18, ''],
+      ['radius', '圆角 radius', 18, 52, 1, 36, 'px']
+    ];
+
+    const presets = {
+      iosClean: {
+        'blur': 34, 'body-alpha': .54, 'ring-width': 8, 'top-refract': -10, 'bottom-refract': 8, 'side-refract': 6,
+        'top-strip-alpha': .56, 'bottom-strip-alpha': .42, 'side-strip-alpha': .34,
+        'edge-boost': 1.06, 'edge-contrast': 1.10, 'edge-saturation': 1.18,
+        'outer-line-alpha': .26, 'top-highlight-alpha': .18, 'inner-line-alpha': .10, 'corner-glint-alpha': .08,
+        'bottom-shadow-alpha': .16, 'mist-alpha': .18, 'radius': 36
+      },
+      strongRefract: {
+        'blur': 38, 'body-alpha': .58, 'ring-width': 11, 'top-refract': -16, 'bottom-refract': 12, 'side-refract': 10,
+        'top-strip-alpha': .72, 'bottom-strip-alpha': .56, 'side-strip-alpha': .50,
+        'edge-boost': 1.14, 'edge-contrast': 1.22, 'edge-saturation': 1.34,
+        'outer-line-alpha': .22, 'top-highlight-alpha': .16, 'inner-line-alpha': .06, 'corner-glint-alpha': .06,
+        'bottom-shadow-alpha': .18, 'mist-alpha': .15, 'radius': 36
+      },
+      soft: {
+        'blur': 34, 'body-alpha': .50, 'ring-width': 6, 'top-refract': -7, 'bottom-refract': 5, 'side-refract': 4,
+        'top-strip-alpha': .40, 'bottom-strip-alpha': .30, 'side-strip-alpha': .22,
+        'edge-boost': 1.02, 'edge-contrast': 1.04, 'edge-saturation': 1.08,
+        'outer-line-alpha': .20, 'top-highlight-alpha': .12, 'inner-line-alpha': .05, 'corner-glint-alpha': .04,
+        'bottom-shadow-alpha': .10, 'mist-alpha': .13, 'radius': 36
+      }
+    };
+
+    const root = document.documentElement;
+    const controls = document.getElementById('controls');
+    const output = document.getElementById('output');
+    const values = Object.fromEntries(params.map(p => [p[0], p[5]]));
+
+    function fmt(v) {
+      const n = Number(v);
+      return Number.isInteger(n) ? String(n) : n.toFixed(2);
+    }
+
+    function setParam(key, value) {
+      const p = params.find(x => x[0] === key);
+      values[key] = Number(value);
+      root.style.setProperty('--' + key, fmt(value) + p[6]);
+      const valEl = document.querySelector(`[data-value="${key}"]`);
+      if (valEl) valEl.textContent = fmt(value) + p[6];
+      renderOutput();
+    }
+
+    function renderOutput() {
+      output.textContent = `Border tuner params\n` +
+        `ringWidth=${fmt(values['ring-width'])}\n` +
+        `topRefract=${fmt(values['top-refract'])}\n` +
+        `bottomRefract=${fmt(values['bottom-refract'])}\n` +
+        `sideRefract=${fmt(values['side-refract'])}\n` +
+        `topStripAlpha=${fmt(values['top-strip-alpha'])}\n` +
+        `bottomStripAlpha=${fmt(values['bottom-strip-alpha'])}\n` +
+        `sideStripAlpha=${fmt(values['side-strip-alpha'])}\n` +
+        `edgeBoost=${fmt(values['edge-boost'])}\n` +
+        `edgeContrast=${fmt(values['edge-contrast'])}\n` +
+        `edgeSaturation=${fmt(values['edge-saturation'])}\n` +
+        `outerLineAlpha=${fmt(values['outer-line-alpha'])}\n` +
+        `topHighlightAlpha=${fmt(values['top-highlight-alpha'])}\n` +
+        `innerLineAlpha=${fmt(values['inner-line-alpha'])}\n` +
+        `cornerGlintAlpha=${fmt(values['corner-glint-alpha'])}\n` +
+        `bottomShadowAlpha=${fmt(values['bottom-shadow-alpha'])}\n` +
+        `mistAlpha=${fmt(values['mist-alpha'])}\n` +
+        `radius=${fmt(values['radius'])}\n\n` +
+        `Compose mapping idea\n` +
+        `ringWidthDp = ${fmt(values['ring-width'])}.dp\n` +
+        `topRefractDp = ${fmt(values['top-refract'])}.dp\n` +
+        `bottomRefractDp = ${fmt(values['bottom-refract'])}.dp\n` +
+        `sideRefractDp = ${fmt(values['side-refract'])}.dp\n` +
+        `topStripAlpha = ${fmt(values['top-strip-alpha'])}f\n` +
+        `bottomStripAlpha = ${fmt(values['bottom-strip-alpha'])}f\n` +
+        `sideStripAlpha = ${fmt(values['side-strip-alpha'])}f`;
+    }
+
+    params.forEach(([key, label, min, max, step, def, unit]) => {
+      const div = document.createElement('div');
+      div.className = 'control';
+      div.innerHTML = `
+        <div class="label"><span>${label}</span><span class="value" data-value="${key}">${def}${unit}</span></div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${def}" data-key="${key}" />
+      `;
+      controls.appendChild(div);
+      setParam(key, def);
+    });
+
+    controls.addEventListener('input', e => {
+      if (e.target.matches('input[type="range"]')) setParam(e.target.dataset.key, e.target.value);
+    });
+
+    document.querySelectorAll('[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.preset;
+        const preset = name === 'reset' ? presets.iosClean : presets[name];
+        Object.entries(preset).forEach(([k, v]) => {
+          const input = document.querySelector(`input[data-key="${k}"]`);
+          if (input) input.value = v;
+          setParam(k, v);
+        });
+      });
+    });
+
+    document.getElementById('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(output.textContent);
+      const old = document.getElementById('copy').textContent;
+      document.getElementById('copy').textContent = '已复制';
+      setTimeout(() => document.getElementById('copy').textContent = old, 900);
+    });
+  </script>
+</body>
+</html>
