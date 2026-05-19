@@ -1,16 +1,9 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -47,7 +40,7 @@ val LocalGlassBackdrop = compositionLocalOf<GlassBackdropSpec?> { null }
 fun SampledWeatherGlassBackdrop(
     modifier: Modifier = Modifier,
     radius: Int,
-    globalOffset: Offset,
+    coordinateSource: GlassCoordinateSource,
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
@@ -57,6 +50,7 @@ fun SampledWeatherGlassBackdrop(
     val view = LocalView.current
     val cachedBackdrop = LocalBlurredBackdrop.current
     val spec = LocalGlassBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
     val params = spec?.params ?: BackdropDebugParams()
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
@@ -95,9 +89,10 @@ fun SampledWeatherGlassBackdrop(
             .clip(RoundedCornerShape(radius.dp))
             .then(if (cachedBackdrop == null) Modifier.blur(fallbackBlur.dp) else Modifier)
     ) {
+        val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
         if (cachedBackdrop != null) {
-            val srcX = (globalOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.width - 1)
-            val srcY = (globalOffset.y * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.height - 1)
+            val srcX = (sampleOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.width - 1)
+            val srcY = (sampleOffset.y * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.height - 1)
             val srcW = (size.width * cachedBackdrop.scale).roundToInt().coerceAtLeast(1)
                 .coerceAtMost(cachedBackdrop.image.width - srcX)
             val srcH = (size.height * cachedBackdrop.scale).roundToInt().coerceAtLeast(1)
@@ -112,9 +107,9 @@ fun SampledWeatherGlassBackdrop(
                 blendMode = BlendMode.SrcOver
             )
         } else {
-            val rootW = if (view.width > 0) view.width.toFloat() else size.width + globalOffset.x
-            val rootH = if (view.height > 0) view.height.toFloat() else size.height + globalOffset.y
-            drawSpreadBackdropSamples(rootW, rootH, theme, params, globalOffset, spreadPx)
+            val rootW = if (view.width > 0) view.width.toFloat() else size.width + sampleOffset.x
+            val rootH = if (view.height > 0) view.height.toFloat() else size.height + sampleOffset.y
+            drawSpreadBackdropSamples(rootW, rootH, theme, params, sampleOffset, spreadPx)
         }
 
         drawRect(
@@ -162,7 +157,7 @@ private fun DrawScope.drawSpreadBackdropSamples(
     rootH: Float,
     theme: BackgroundTheme,
     params: BackdropDebugParams,
-    globalOffset: Offset,
+    sampleOffset: Offset,
     spreadPx: Float
 ) {
     val samples = listOf(
@@ -177,11 +172,11 @@ private fun DrawScope.drawSpreadBackdropSamples(
         Offset(0.72f, -1.05f) to 0.048f
     )
     samples.forEach { (unitOffset, sampleAlpha) ->
-        withTransform({ translate(left = -globalOffset.x + unitOffset.x * spreadPx, top = -globalOffset.y + unitOffset.y * spreadPx) }) {
+        withTransform({ translate(left = -sampleOffset.x + unitOffset.x * spreadPx, top = -sampleOffset.y + unitOffset.y * spreadPx) }) {
             drawWeatherNightBackground(rootW, rootH, theme, sampleAlpha, params)
         }
     }
-    withTransform({ translate(left = -globalOffset.x, top = -globalOffset.y) }) {
+    withTransform({ translate(left = -sampleOffset.x, top = -sampleOffset.y) }) {
         drawWeatherNightBackgroundGlow(rootW, rootH, theme, 0.82f, params)
     }
 }
@@ -190,26 +185,18 @@ private fun DrawScope.drawSpreadBackdropSamples(
 fun SampledWeatherEdgeRefraction(
     modifier: Modifier = Modifier,
     radius: Int,
-    globalOffset: Offset,
+    coordinateSource: GlassCoordinateSource,
     quality: RenderQuality,
     motionIntensity: Float,
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
     val spec = LocalGlassBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
     val border = spec?.borderStyle ?: GlassBorderStyle()
-    val transition = rememberInfiniteTransition(label = "ios-edge-flow")
-    val flow by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween((6200 / motionIntensity.coerceAtLeast(0.35f)).roundToInt(), easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "ios-edge-flow-value"
-    )
     val alpha = strength.coerceIn(0f, 0.34f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
+        val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
         val w = size.width
         val h = size.height
         val corner = radius.dp.toPx()
@@ -217,7 +204,7 @@ fun SampledWeatherEdgeRefraction(
         val midInset = 2.70.dp.toPx()
         val innerInset = 7.0.dp.toPx()
         val cornerRadius = CornerRadius(corner, corner)
-        val positionPhase = ((globalOffset.x + globalOffset.y) / 900f + flow) % 1f
+        val positionPhase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
@@ -292,7 +279,7 @@ fun SampledWeatherEdgeRefraction(
         )
 
         val movingGlint = Brush.linearGradient(
-            colors = listOf(Color.Transparent, Color.White.copy(alpha = border.topHighlightAlpha * 0.55f), Color.Transparent),
+            colors = listOf(Color.Transparent, Color.White.copy(alpha = border.topHighlightAlpha * 0.38f), Color.Transparent),
             start = Offset(w * (positionPhase - 0.32f), 0f),
             end = Offset(w * (positionPhase + 0.18f), h * 0.18f)
         )
