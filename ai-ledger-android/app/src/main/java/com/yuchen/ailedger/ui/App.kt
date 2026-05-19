@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
@@ -39,12 +41,22 @@ import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
 
+private const val COMPACT_DP_SCALE = 0.90f
+private const val COMPACT_FONT_SCALE = 0.92f
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val rootView = LocalView.current
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val compactDensity = remember(density.density, density.fontScale) {
+        Density(
+            density = density.density * COMPACT_DP_SCALE,
+            fontScale = density.fontScale * COMPACT_FONT_SCALE
+        )
+    }
     val actionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
@@ -107,90 +119,92 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 14.dp)
-                    ) {
-                        when (state.currentTab) {
-                            AppTab.Assistant -> AssistantScreen(
-                                state = state,
-                                onComposerChange = viewModel::updateComposer,
-                                onSend = viewModel::submitComposer,
-                                onQuickCommand = viewModel::sendUserCommand,
-                                onDraftCommand = viewModel::insertCommandDraft,
-                                onModelClick = viewModel::cycleModel,
-                                onPickImage = {
-                                    assistantImagePicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                                onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                onNavigateHome = {
-                                    val ok = actionRouter?.startNavigation("家") == true
-                                    viewModel.appendAssistantNotice(if (ok) "已打开系统地图，开始导航到家。" else "没有可用的地图应用。")
-                                },
-                                onSetAlarm = {
-                                    val ok = actionRouter?.setAlarm(21, 30, "AI 助手提醒：晚上复盘") == true
-                                    viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
-                                },
-                                onToggleOnline = viewModel::toggleOnline
-                            )
-                            AppTab.Tools -> ToolsScreen(
-                                state = state,
-                                onOpenTool = viewModel::openTool,
-                                onBack = viewModel::closeTool,
-                                onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
-                                onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
-                                onLedgerTypeChange = viewModel::selectLedgerDraftType,
-                                onLedgerCategoryChange = viewModel::selectLedgerCategory,
-                                onLedgerBudgetChange = viewModel::updateLedgerBudget,
-                                onAddLedgerRecord = viewModel::addLedgerRecord,
-                                onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
-                                onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
-                            )
-                            AppTab.Settings -> SettingsPolishedScreen(
-                                state = state,
-                                aiEndpoint = viewModel.aiEndpoint,
-                                onQualityChange = viewModel::selectQuality,
-                                onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                onGlassPresetChange = viewModel::setGlassPreset,
-                                onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                onGlassIntensityChange = viewModel::setGlassIntensity,
-                                onMotionIntensityChange = viewModel::setMotionIntensity,
-                                onBackdropChange = viewModel::setBackdropDebugParams,
-                                onBorderChange = viewModel::setGlassBorderStyle,
-                                onUploadBackgroundClick = {
-                                    backgroundPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                                onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                            )
+                    CompositionLocalProvider(LocalDensity provides compactDensity) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 12.dp)
+                        ) {
+                            when (state.currentTab) {
+                                AppTab.Assistant -> AssistantScreen(
+                                    state = state,
+                                    onComposerChange = viewModel::updateComposer,
+                                    onSend = viewModel::submitComposer,
+                                    onQuickCommand = viewModel::sendUserCommand,
+                                    onDraftCommand = viewModel::insertCommandDraft,
+                                    onModelClick = viewModel::cycleModel,
+                                    onPickImage = {
+                                        assistantImagePicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                    onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                    onNavigateHome = {
+                                        val ok = actionRouter?.startNavigation("家") == true
+                                        viewModel.appendAssistantNotice(if (ok) "已打开系统地图，开始导航到家。" else "没有可用的地图应用。")
+                                    },
+                                    onSetAlarm = {
+                                        val ok = actionRouter?.setAlarm(21, 30, "AI 助手提醒：晚上复盘") == true
+                                        viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
+                                    },
+                                    onToggleOnline = viewModel::toggleOnline
+                                )
+                                AppTab.Tools -> ToolsScreen(
+                                    state = state,
+                                    onOpenTool = viewModel::openTool,
+                                    onBack = viewModel::closeTool,
+                                    onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
+                                    onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
+                                    onLedgerTypeChange = viewModel::selectLedgerDraftType,
+                                    onLedgerCategoryChange = viewModel::selectLedgerCategory,
+                                    onLedgerBudgetChange = viewModel::updateLedgerBudget,
+                                    onAddLedgerRecord = viewModel::addLedgerRecord,
+                                    onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
+                                    onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                )
+                                AppTab.Settings -> SettingsPolishedScreen(
+                                    state = state,
+                                    aiEndpoint = viewModel.aiEndpoint,
+                                    onQualityChange = viewModel::selectQuality,
+                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                    onGlassPresetChange = viewModel::setGlassPreset,
+                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                    onGlassIntensityChange = viewModel::setGlassIntensity,
+                                    onMotionIntensityChange = viewModel::setMotionIntensity,
+                                    onBackdropChange = viewModel::setBackdropDebugParams,
+                                    onBorderChange = viewModel::setGlassBorderStyle,
+                                    onUploadBackgroundClick = {
+                                        backgroundPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                )
+                            }
                         }
+
+                        BottomDockSeparationMist(
+                            quality = state.quality,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                        )
+
+                        CompactLiquidBottomBar(
+                            currentTab = state.currentTab,
+                            quality = state.quality,
+                            glassIntensity = state.glassIntensity,
+                            motionIntensity = state.motionIntensity,
+                            onTabChange = viewModel::selectTab,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                        )
                     }
-
-                    BottomDockSeparationMist(
-                        quality = state.quality,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                    )
-
-                    CompactLiquidBottomBar(
-                        currentTab = state.currentTab,
-                        quality = state.quality,
-                        glassIntensity = state.glassIntensity,
-                        motionIntensity = state.motionIntensity,
-                        onTabChange = viewModel::selectTab,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 4.dp)
-                    )
                 }
             }
         }
@@ -199,9 +213,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
 @Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
-    val blur = if (quality.enableMotion) 14.dp else 0.dp
-    val height = if (quality.enableMotion) 112.dp else 76.dp
-    val bottomAlpha = if (quality.enableMotion) 0x88 else 0x5C
+    val blur = if (quality.enableMotion) 10.dp else 0.dp
+    val height = if (quality.enableMotion) 86.dp else 64.dp
+    val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -211,8 +225,8 @@ private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier 
                 Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0x1A08142C),
-                        Color(0x5208142C),
+                        Color(0x1208142C),
+                        Color(0x3E08142C),
                         Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
                     )
                 )
