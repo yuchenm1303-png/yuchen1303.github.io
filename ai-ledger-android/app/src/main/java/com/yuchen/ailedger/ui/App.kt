@@ -139,7 +139,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 }
                             )
                             AppTab.Tools -> ToolsScreen(
-                                // Keep this call aligned with the ledger-capable ToolsScreen signature in Screens.kt.
                                 state = state,
                                 onOpenTool = viewModel::openTool,
                                 onBack = viewModel::closeTool,
@@ -152,7 +151,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                 onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                             )
-                            AppTab.Settings -> SettingsScreen(
+                            AppTab.Settings -> SettingsPolishedScreen(
                                 state = state,
                                 aiEndpoint = viewModel.aiEndpoint,
                                 onQualityChange = viewModel::selectQuality,
@@ -160,27 +159,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 onGlassPresetChange = viewModel::setGlassPreset,
                                 onBackgroundThemeChange = viewModel::setBackgroundTheme,
                                 onGlassIntensityChange = viewModel::setGlassIntensity,
-                                onMotionIntensityChange = viewModel::setMotionIntensity
+                                onMotionIntensityChange = viewModel::setMotionIntensity,
+                                onUploadBackgroundClick = {
+                                    backgroundPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                onClearCustomBackgroundClick = viewModel::clearCustomBackground
                             )
                         }
-                    }
-
-                    if (state.currentTab == AppTab.Settings) {
-                        GlassDebugFloatingPanel(
-                            state = state,
-                            onBackdropChange = viewModel::setBackdropDebugParams,
-                            onBorderChange = viewModel::setGlassBorderStyle,
-                            onUploadBackgroundClick = {
-                                backgroundPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            onClearCustomBackgroundClick = viewModel::clearCustomBackground,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .statusBarsPadding()
-                                .padding(horizontal = 14.dp, vertical = 84.dp)
-                        )
                     }
 
                     BottomDockSeparationMist(
