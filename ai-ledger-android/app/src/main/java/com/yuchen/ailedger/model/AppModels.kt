@@ -75,19 +75,19 @@ data class BackdropDebugParams(
 )
 
 data class GlassBorderStyle(
-    val outerStrokeAlpha: Float = 0.48f,
+    val outerStrokeAlpha: Float = 0.46f,
     val innerStrokeAlpha: Float = 0.00f,
-    val topHighlightAlpha: Float = 0.49f,
-    val bottomShadowAlpha: Float = 0.03f,
-    val cornerGlintAlpha: Float = 0.07f,
-    val ringWidthDp: Float = 19f,
-    val edgePullDp: Float = 110f,
-    val edgeAlpha: Float = 0.84f,
-    val edgeBlurDp: Float = 24f,
-    val edgeContrast: Float = 1.60f,
-    val edgeSaturation: Float = 1.42f,
-    val edgeBrightness: Float = 0.98f,
-    val bodyAlpha: Float = 0.51f
+    val topHighlightAlpha: Float = 0.44f,
+    val bottomShadowAlpha: Float = 0.035f,
+    val cornerGlintAlpha: Float = 0.075f,
+    val ringWidthDp: Float = 12f,
+    val edgePullDp: Float = 76f,
+    val edgeAlpha: Float = 0.52f,
+    val edgeBlurDp: Float = 12f,
+    val edgeContrast: Float = 1.36f,
+    val edgeSaturation: Float = 1.26f,
+    val edgeBrightness: Float = 1.02f,
+    val bodyAlpha: Float = 0.18f
 )
 
 enum class MessageRole {
