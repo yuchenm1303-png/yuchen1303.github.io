@@ -146,16 +146,16 @@ private fun DrawScope.drawContinuousLens(
     val h = itemRect.height
     if (w <= 4f || h <= 4f) return
     val corner = radius.dp.toPx()
-    val edgeWidth = (border.ringWidthDp.dp.toPx() * 1.55f + border.edgeBlurDp.dp.toPx() * 1.04f).coerceIn(20.dp.toPx(), min(w, h) * 0.58f)
-    val edgePull = (border.edgePullDp.dp.toPx() * 1.82f).coerceIn(0f, min(w, h) * 1.58f)
-    val edgeAlpha = (border.edgeAlpha * (1.58f + strength * 0.72f) * border.edgeBrightness.coerceIn(0.72f, 1.36f)).coerceIn(0f, 1.42f)
+    val edgeWidth = (border.ringWidthDp.dp.toPx() * 1.76f + border.edgeBlurDp.dp.toPx() * 1.18f).coerceIn(22.dp.toPx(), min(w, h) * 0.64f)
+    val edgePull = (border.edgePullDp.dp.toPx() * 1.88f).coerceIn(0f, min(w, h) * 1.62f)
+    val edgeAlpha = (border.edgeAlpha * (1.76f + strength * 0.78f) * border.edgeBrightness.coerceIn(0.72f, 1.40f)).coerceIn(0f, 1.56f)
     if (edgeAlpha <= 0.01f || edgePull <= 0.5f) return
     val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
     clipPath(path) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (drawShaderLens(backdrop, itemRect, visibleRect, sampleOffset, corner, edgeWidth, edgePull, edgeAlpha, border)) return@clipPath
         }
-        drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.34f, edgeAlpha * 0.52f)
+        drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.36f, edgeAlpha * 0.58f)
     }
 }
 
@@ -183,9 +183,9 @@ private fun DrawScope.drawShaderLens(
             setFloatUniform("edgeWidth", edgeWidth)
             setFloatUniform("edgePull", edgePull)
             setFloatUniform("edgeAlpha", edgeAlpha)
-            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.92f, 2.55f))
-            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.88f, 2.80f))
-            setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.72f, 1.65f))
+            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.96f, 2.80f))
+            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.92f, 3.00f))
+            setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.72f, 1.72f))
         }
         val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             shader = lensShader
@@ -227,7 +227,7 @@ private fun DrawScope.drawFallbackLens(
     val srcY = ((sampleOffset.y + srcLocalY) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
     val srcW = (visibleRect.width * srcWLocal / w * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
     val srcH = (visibleRect.height * srcHLocal / h * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.46f), blendMode = BlendMode.SrcOver)
+    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.50f), blendMode = BlendMode.SrcOver)
 }
 
 private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: GlassBorderStyle) {
@@ -285,8 +285,8 @@ float roundedBoxSdf(float2 p, float2 halfSize, float r) {
 }
 float3 adjustColor(float3 color) {
     float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
-    color = mix(float3(luma, luma, luma), color, edgeSaturation * 1.18);
-    color = (color - float3(0.5, 0.5, 0.5)) * edgeContrast * 1.22 + float3(0.5, 0.5, 0.5);
+    color = mix(float3(luma, luma, luma), color, edgeSaturation * 1.24);
+    color = (color - float3(0.5, 0.5, 0.5)) * edgeContrast * 1.30 + float3(0.5, 0.5, 0.5);
     return clamp(color * edgeBrightness, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
 }
 half4 main(float2 coord) {
@@ -308,46 +308,55 @@ half4 main(float2 coord) {
     half4 base = backdrop.eval(baseCoord);
     float3 baseColor = float3(base.r, base.g, base.b);
 
-    float outerRim = 1.0 - smoothstep(0.0, max(edgeWidth * 0.66, 1.0), inside);
-    float innerRim = 1.0 - smoothstep(max(edgeWidth * 0.12, 1.0), max(edgeWidth * 1.82, 2.0), inside);
-    float softRim = 1.0 - smoothstep(max(edgeWidth * 0.62, 1.0), max(edgeWidth * 2.70, 2.0), inside);
-    float rimMask = clamp(outerRim * 1.02 + innerRim * 0.62, 0.0, 1.0);
-    float tailMask = clamp(softRim * 0.30, 0.0, 0.30);
+    float crestRim = 1.0 - smoothstep(0.0, max(edgeWidth * 0.22, 1.0), inside);
+    float outerRim = 1.0 - smoothstep(0.0, max(edgeWidth * 0.72, 1.0), inside);
+    float innerRim = 1.0 - smoothstep(max(edgeWidth * 0.10, 1.0), max(edgeWidth * 1.92, 2.0), inside);
+    float softRim = 1.0 - smoothstep(max(edgeWidth * 0.58, 1.0), max(edgeWidth * 2.80, 2.0), inside);
+    float rimMask = clamp(outerRim * 1.04 + innerRim * 0.58, 0.0, 1.0);
+    float tailMask = clamp(softRim * 0.26, 0.0, 0.26);
     float maxSize = max(max(itemSize.x, itemSize.y), 1.0);
-    float cornerCurve = clamp(abs(edgeNormal.x * edgeNormal.y) * 2.55, 0.0, 1.0);
-    float tangentPhase = clamp(dot(p / maxSize, edgeTangent) * 3.25, -1.0, 1.0);
+    float cornerCurve = clamp(abs(edgeNormal.x * edgeNormal.y) * 2.65, 0.0, 1.0);
+    float tangentPhase = clamp(dot(p / maxSize, edgeTangent) * 3.45, -1.0, 1.0);
 
     float2 surfaceLocal = local + edgeNormal * inside;
-    float nearReach = min(edgeWidth * 1.04, edgePull * 0.34) * (1.0 + cornerCurve * 0.42);
-    float pressReach = min(edgeWidth * 1.92, edgePull * 0.58) * (1.0 + cornerCurve * 0.62);
-    float tangentBend = edgeWidth * tangentPhase * (outerRim * 0.52 + innerRim * 0.36 + softRim * 0.16) * (1.0 + cornerCurve * 1.10);
+    float crestReach = min(edgeWidth * 0.66, edgePull * 0.26) * (1.0 + cornerCurve * 0.45);
+    float nearReach = min(edgeWidth * 1.10, edgePull * 0.38) * (1.0 + cornerCurve * 0.44);
+    float pressReach = min(edgeWidth * 2.05, edgePull * 0.62) * (1.0 + cornerCurve * 0.66);
+    float tangentBend = edgeWidth * tangentPhase * (crestRim * 0.38 + outerRim * 0.54 + innerRim * 0.36 + softRim * 0.14) * (1.0 + cornerCurve * 1.15);
 
+    float2 crestLocal = surfaceLocal + edgeNormal * crestReach + edgeTangent * tangentBend * 0.42;
     float2 nearLocal = surfaceLocal + edgeNormal * nearReach + edgeTangent * tangentBend * 0.88;
     float2 pressLocal = surfaceLocal + edgeNormal * pressReach + edgeTangent * tangentBend * 1.36;
-    float2 insideLocal = local - edgeNormal * min(edgeWidth * 0.62, edgePull * 0.20) * innerRim;
+    float2 insideLocal = local - edgeNormal * min(edgeWidth * 0.58, edgePull * 0.18) * innerRim;
 
-    half4 nearA = backdrop.eval((sampleOffset + nearLocal + edgeNormal * 2.20 + edgeTangent * 1.28) * backdropScale);
-    half4 nearB = backdrop.eval((sampleOffset + nearLocal - edgeNormal * 1.82 - edgeTangent * 1.02) * backdropScale);
+    half4 crestA = backdrop.eval((sampleOffset + crestLocal + edgeNormal * 1.10 + edgeTangent * 0.58) * backdropScale);
+    half4 crestB = backdrop.eval((sampleOffset + crestLocal - edgeNormal * 0.86 - edgeTangent * 0.44) * backdropScale);
+    half4 nearA = backdrop.eval((sampleOffset + nearLocal + edgeNormal * 2.25 + edgeTangent * 1.32) * backdropScale);
+    half4 nearB = backdrop.eval((sampleOffset + nearLocal - edgeNormal * 1.86 - edgeTangent * 1.06) * backdropScale);
     half4 press = backdrop.eval((sampleOffset + pressLocal) * backdropScale);
     half4 inward = backdrop.eval((sampleOffset + insideLocal) * backdropScale);
 
+    float3 crestColor = float3(crestA.r, press.g, crestB.b);
     float3 edgeSplit = float3(nearA.r, press.g, nearB.b);
     float3 pressedColor = float3(press.r, press.g, press.b);
     float3 inwardColor = float3(inward.r, inward.g, inward.b);
 
-    float edgeMix = clamp(rimMask * (1.08 + cornerCurve * 0.28), 0.0, 1.0);
-    float pressMix = clamp(innerRim * 0.64 + cornerCurve * outerRim * 0.20, 0.0, 0.78);
-    float inwardMix = clamp(tailMask, 0.0, 0.30);
+    float crestMix = clamp(crestRim * (1.18 + cornerCurve * 0.30), 0.0, 1.0);
+    float edgeMix = clamp(rimMask * (1.04 + cornerCurve * 0.24), 0.0, 0.96);
+    float pressMix = clamp(innerRim * 0.58 + cornerCurve * outerRim * 0.18, 0.0, 0.72);
+    float inwardMix = clamp(tailMask, 0.0, 0.26);
 
     float3 refracted = mix(baseColor, edgeSplit, edgeMix);
     refracted = mix(refracted, pressedColor, pressMix);
     refracted = mix(refracted, inwardColor, inwardMix);
     refracted = adjustColor(refracted);
+    float3 crestAdjusted = adjustColor(crestColor);
+    refracted = mix(refracted, crestAdjusted, crestMix * 0.92);
 
-    float rimGlow = outerRim * 0.170 + innerRim * 0.062 + cornerCurve * outerRim * 0.070;
-    refracted = clamp(refracted + float3(rimGlow, rimGlow, rimGlow), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+    float rimGlow = crestRim * 0.210 + outerRim * 0.130 + innerRim * 0.040 + cornerCurve * crestRim * 0.082;
+    refracted = clamp(refracted + float3(rimGlow, rimGlow, rimGlow) * (0.55 + crestRim * 0.45), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
 
-    float alphaField = clamp(outerRim * 1.18 + innerRim * 0.58 + cornerCurve * outerRim * 0.22, 0.0, 1.0);
+    float alphaField = clamp(crestRim * 1.25 + outerRim * 0.98 + innerRim * 0.46 + cornerCurve * crestRim * 0.24, 0.0, 1.0);
     float a = clamp(edgeAlpha * alphaField, 0.0, 1.0);
     return half4(refracted, a);
 }
