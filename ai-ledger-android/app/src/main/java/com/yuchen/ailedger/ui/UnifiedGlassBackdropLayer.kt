@@ -1,10 +1,12 @@
 package com.yuchen.ailedger.ui
 
+import android.annotation.SuppressLint
 import android.graphics.BitmapShader
 import android.graphics.Paint as AndroidPaint
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -31,6 +33,11 @@ import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+private const val GLASS_LENS_TAG = "GlassLensShader"
+
+@Volatile
+private var hasLoggedShaderLensFailure = false
 
 @Composable
 fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
@@ -152,6 +159,7 @@ private fun DrawScope.drawContinuousLens(
     }
 }
 
+@SuppressLint("NewApi")
 private fun DrawScope.drawShaderLens(
     backdrop: BlurredBackdropBitmap,
     itemRect: Rect,
@@ -187,6 +195,11 @@ private fun DrawScope.drawShaderLens(
             canvas.nativeCanvas.drawRect(visibleRect.left, visibleRect.top, visibleRect.right, visibleRect.bottom, paint)
         }
         true
+    }.onFailure { error ->
+        if (!hasLoggedShaderLensFailure) {
+            hasLoggedShaderLensFailure = true
+            Log.w(GLASS_LENS_TAG, "RuntimeShader lens failed; falling back to bitmap stretch lens.", error)
+        }
     }.getOrDefault(false)
 }
 
