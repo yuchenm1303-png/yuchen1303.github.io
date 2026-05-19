@@ -30,10 +30,11 @@ fun WeatherNightBackground(
     motionIntensity: Float = 1f,
     theme: BackgroundTheme = BackgroundTheme.Aurora,
     params: BackdropDebugParams = BackdropDebugParams(),
-    customBackgroundPath: String? = null
+    customBackgroundPath: String? = null,
+    modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val customImage = rememberCustomBackgroundImage(customBackgroundPath)
-    Canvas(Modifier.fillMaxSize()) {
+    Canvas(modifier) {
         if (customImage != null) {
             drawCoverImage(customImage)
         } else {
