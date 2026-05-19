@@ -59,7 +59,7 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
 
 data class BackdropDebugParams(
     val scale: Float = 0.60f,
-    val radius: Float = 4f,
+    val radius: Float = 12f,
     val iterations: Float = 5f,
     val brightness: Float = 1.10f,
     val contrast: Float = 1.08f,
@@ -75,10 +75,19 @@ data class BackdropDebugParams(
 )
 
 data class GlassBorderStyle(
-    val outerStrokeAlpha: Float = 0.34f,
-    val innerStrokeAlpha: Float = 0.16f,
+    val outerStrokeAlpha: Float = 0.13f,
+    val innerStrokeAlpha: Float = 0.01f,
     val topHighlightAlpha: Float = 0.22f,
-    val bottomShadowAlpha: Float = 0.08f
+    val bottomShadowAlpha: Float = 0.14f,
+    val cornerGlintAlpha: Float = 0.07f,
+    val ringWidthDp: Float = 17f,
+    val edgePullDp: Float = 88f,
+    val edgeAlpha: Float = 0.27f,
+    val edgeBlurDp: Float = 10f,
+    val edgeContrast: Float = 1.15f,
+    val edgeSaturation: Float = 1.56f,
+    val edgeBrightness: Float = 0.98f,
+    val bodyAlpha: Float = 0.20f
 )
 
 enum class MessageRole {
