@@ -11,6 +11,8 @@ import com.yuchen.ailedger.data.AssistantRepository
 import com.yuchen.ailedger.data.PreviewAssistantRepository
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
+import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
@@ -68,6 +70,22 @@ class AssistantViewModel(
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
         uiState = uiState.copy(backgroundTheme = backgroundTheme)
         viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme) }
+    }
+
+    fun setBackdropDebugParams(params: BackdropDebugParams) {
+        uiState = uiState.copy(backdropParams = params)
+    }
+
+    fun updateBackdropDebugParams(block: (BackdropDebugParams) -> BackdropDebugParams) {
+        setBackdropDebugParams(block(uiState.backdropParams))
+    }
+
+    fun setGlassBorderStyle(style: GlassBorderStyle) {
+        uiState = uiState.copy(glassBorderStyle = style)
+    }
+
+    fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) {
+        setGlassBorderStyle(block(uiState.glassBorderStyle))
     }
 
     fun setGlassIntensity(value: Float) {
