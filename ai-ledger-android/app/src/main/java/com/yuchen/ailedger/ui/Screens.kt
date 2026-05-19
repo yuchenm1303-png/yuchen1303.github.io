@@ -1,8 +1,21 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,7 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +75,9 @@ import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.model.ToolEntry
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun AssistantScreen(
@@ -81,13 +98,7 @@ fun AssistantScreen(
         modifier = Modifier.fillMaxSize().padding(top = 14.dp, bottom = 78.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        AssistantTopBar(
-            state = state,
-            onModelClick = onModelClick,
-            onToggleOnline = onToggleOnline,
-            onOpenTools = onOpenTools,
-            onOpenSettings = onOpenSettings
-        )
+        AssistantTopBar(state, onModelClick, onToggleOnline, onOpenTools, onOpenSettings)
         ChatGlassPanel(state, Modifier.weight(1f), onDraftCommand, onPickImage)
         AssistantQuickActions(state, onQuickCommand, onNavigateHome, onSetAlarm, onPickImage)
         ComposerBar(state, onComposerChange, onSend, onPickImage)
@@ -138,7 +149,14 @@ private fun ModelChip(state: AssistantUiState, modifier: Modifier, onClick: () -
                 Text(state.selectedModelLabel, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (state.onlineEnabled) "联网已开" else "纯文本模式", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
-            Text(if (state.isSending) "发送中" else "切换", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            AnimatedVisibility(
+                visible = state.isSending,
+                enter = fadeIn(tween(160)) + slideInVertically(tween(180)) { it / 3 },
+                exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 3 }
+            ) {
+                ThinkingDots(size = 4, color = Color.White.copy(alpha = 0.62f))
+            }
+            if (!state.isSending) Text("切换", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -147,7 +165,7 @@ private fun ModelChip(state: AssistantUiState, modifier: Modifier, onClick: () -
 private fun StatusChip(label: String, value: String, accent: Color, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 999, modifier.height(44.dp), GlassRole.Chip, onClick = onClick) {
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(accent))
+            PulseDot(active = state.onlineEnabled || state.isSending, color = accent)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -168,7 +186,7 @@ private fun TinyRoundAction(text: String, state: AssistantUiState, onClick: () -
 @Composable
 private fun ChatGlassPanel(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
-    LaunchedEffect(state.messages.size) {
+    LaunchedEffect(state.messages.size, state.isSending) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 34, modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -176,10 +194,10 @@ private fun ChatGlassPanel(state: AssistantUiState, modifier: Modifier, onDraftC
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("对话", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.weight(1f))
-                Text(if (state.isSending) "云端生成中" else "可上下滑动", color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                AnimatedStatusText(if (state.isSending) "正在思考" else "可上下滑动")
             }
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(state.messages, key = { it.id }) { message -> MessageBubble(message = message, state = state) }
+                items(state.messages, key = { it.id }) { message -> AnimatedMessageBubble(message = message, state = state) }
                 item { StarterSuggestions(state, onDraftCommand, onPickImage) }
             }
         }
@@ -188,13 +206,35 @@ private fun ChatGlassPanel(state: AssistantUiState, modifier: Modifier, onDraftC
 
 @Composable
 private fun StarterSuggestions(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
-        Text("可以这样说", color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            SmallGlassButton("记一笔", state, Modifier.weight(1f)) { onDraftCommand("记一笔 午饭 18 元") }
-            SmallGlassButton("设提醒", state, Modifier.weight(1f)) { onDraftCommand("今晚 9 点半提醒我复盘") }
-            SmallGlassButton("识图", state, Modifier.weight(1f), onClick = onPickImage)
+    AnimatedVisibility(
+        visible = !state.isSending,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
+        exit = fadeOut(tween(140)) + slideOutVertically(tween(140)) { it / 2 }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
+            Text("可以这样说", color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                SmallGlassButton("记一笔", state, Modifier.weight(1f)) { onDraftCommand("记一笔 午饭 18 元") }
+                SmallGlassButton("设提醒", state, Modifier.weight(1f)) { onDraftCommand("今晚 9 点半提醒我复盘") }
+                SmallGlassButton("识图", state, Modifier.weight(1f), onClick = onPickImage)
+            }
         }
+    }
+}
+
+@Composable
+private fun AnimatedMessageBubble(message: ChatMessage, state: AssistantUiState) {
+    val fromUser = message.role == MessageRole.User
+    var visible by remember(message.id) { mutableStateOf(false) }
+    LaunchedEffect(message.id) { visible = true }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+            slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { width -> if (fromUser) width / 3 else -width / 3 } +
+            scaleIn(initialScale = 0.96f, animationSpec = tween(260, easing = FastOutSlowInEasing)),
+        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.98f, animationSpec = tween(120))
+    ) {
+        MessageBubble(message = message, state = state)
     }
 }
 
@@ -203,7 +243,7 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
     val statusColor = when (message.status) {
         MessageStatus.Failed -> Color(0xFFFFB4B4)
-        MessageStatus.Sending -> Color.White.copy(alpha = 0.72f)
+        MessageStatus.Sending -> Color.White.copy(alpha = 0.78f)
         MessageStatus.Sent -> Color.White.copy(alpha = if (fromUser) 0.97f else 0.86f)
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -216,13 +256,17 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
             role = if (fromUser) GlassRole.Floating else GlassRole.Card
         ) {
             Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(
-                    text = displayMessageText(message),
-                    color = statusColor,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
-                )
+                if (message.status == MessageStatus.Sending && !fromUser) {
+                    ThinkingBubbleText()
+                } else {
+                    Text(
+                        text = displayMessageText(message),
+                        color = statusColor,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
+                    )
+                }
                 if (!fromUser) SourceBadgeRow(message)
             }
         }
@@ -230,15 +274,77 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
 }
 
 @Composable
+private fun ThinkingBubbleText() {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+        ThinkingDots(size = 6, color = Color(0xFF8DF9EA).copy(alpha = 0.88f))
+    }
+}
+
+@Composable
+private fun ThinkingDots(size: Int, color: Color) {
+    val transition = rememberInfiniteTransition(label = "thinking-dots")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(960, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "thinking-phase"
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.35f) + 1f) / 2f).coerceIn(0f, 1f)
+            Box(
+                Modifier
+                    .size(size.dp)
+                    .graphicsLayer {
+                        translationY = -5f * wave
+                        alpha = 0.35f + 0.65f * wave
+                        scaleX = 0.78f + 0.22f * wave
+                        scaleY = 0.78f + 0.22f * wave
+                    }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(color)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PulseDot(active: Boolean, color: Color) {
+    val transition = rememberInfiniteTransition(label = "status-dot")
+    val pulse by transition.animateFloat(
+        initialValue = 0.75f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(animation = tween(900, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "status-dot-pulse"
+    )
+    Box(
+        Modifier
+            .size(8.dp)
+            .graphicsLayer {
+                val s = if (active) pulse else 1f
+                scaleX = s
+                scaleY = s
+                alpha = if (active) 0.95f else 0.72f
+            }
+            .clip(RoundedCornerShape(999.dp))
+            .background(color)
+    )
+}
+
+@Composable
+private fun AnimatedStatusText(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(text, color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        if (text.contains("思考")) ThinkingDots(size = 4, color = Color.White.copy(alpha = 0.50f))
+    }
+}
+
+@Composable
 private fun SourceBadgeRow(message: ChatMessage) {
     val badge = messageBadgeText(message) ?: return
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .size(6.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(badgeColor(message).copy(alpha = 0.86f))
-        )
+        Box(Modifier.size(6.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor(message).copy(alpha = 0.86f)))
         Text(
             text = badge,
             color = badgeColor(message).copy(alpha = 0.76f),
@@ -263,15 +369,10 @@ private fun messageBadgeText(message: ChatMessage): String? {
         MessageStatus.Failed -> "请求失败"
         MessageStatus.Sent -> null
     }
-    val main = message.modelLabel?.takeIf { it.isNotBlank() }
-        ?: sourceReadableLabel(message.source)
-        ?: status
+    val main = message.modelLabel?.takeIf { it.isNotBlank() } ?: sourceReadableLabel(message.source) ?: status
     val source = sourceReadableLabel(message.source)
     val version = message.version?.takeIf { it.isNotBlank() }?.let { shortVersion(it) }
-    return listOfNotNull(status, main, source, version)
-        .distinct()
-        .joinToString(" · ")
-        .takeIf { it.isNotBlank() }
+    return listOfNotNull(status, main, source, version).distinct().joinToString(" · ").takeIf { it.isNotBlank() }
 }
 
 private fun sourceReadableLabel(source: String?): String? = when (source) {
@@ -300,9 +401,7 @@ private fun badgeColor(message: ChatMessage): Color = when (message.status) {
     }
 }
 
-private fun shortVersion(version: String): String {
-    return version.removePrefix("2026-").removePrefix("android-").take(18)
-}
+private fun shortVersion(version: String): String = version.removePrefix("2026-").removePrefix("android-").take(18)
 
 @Composable
 private fun AssistantQuickActions(state: AssistantUiState, onQuickCommand: (String) -> Unit, onNavigateHome: () -> Unit, onSetAlarm: () -> Unit, onPickImage: () -> Unit) {
@@ -328,16 +427,16 @@ private fun QuickActionButton(title: String, subtitle: String, state: AssistantU
 private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
     val sendAction = if (state.isSending) ({}) else onSend
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        CircleGlassButton("+", state, size = 52, onClick = onPickImage)
+        CircleGlassButton("+", state, size = 52, active = false, onClick = onPickImage)
         ComposerInputGlass(
             state = state,
             text = state.composerText,
             onTextChange = onComposerChange,
             onSend = sendAction,
             modifier = Modifier.weight(1f),
-            placeholder = if (state.isSending) "正在等待云端回复..." else "和我说点什么..."
+            placeholder = if (state.isSending) "正在等待回复..." else "和我说点什么..."
         )
-        CircleGlassButton(if (state.isSending) "…" else "↑", state, size = 52, onClick = sendAction)
+        SendGlassButton(state, onClick = sendAction)
     }
 }
 
@@ -357,21 +456,57 @@ private fun ComposerInputGlass(
                 value = text,
                 onValueChange = onTextChange,
                 singleLine = true,
+                enabled = !state.isSending || keyboardType != KeyboardType.Text,
                 textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.85f)),
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
                 modifier = Modifier.fillMaxWidth()
             )
-            if (text.isBlank()) Text(placeholder, color = Color.White.copy(alpha = 0.46f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(180)), exit = fadeOut(tween(120))) {
+                Text(placeholder, color = Color.White.copy(alpha = 0.46f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }
 
 @Composable
-private fun CircleGlassButton(text: String, state: AssistantUiState, size: Int, onClick: () -> Unit) {
+private fun SendGlassButton(state: AssistantUiState, onClick: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "send-button")
+    val pulse by transition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(animation = tween(720, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "send-button-pulse"
+    )
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.size(52.dp), GlassRole.Floating, onClick = onClick) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (state.isSending) {
+                ThinkingDots(size = 6, color = Color.White.copy(alpha = 0.90f))
+            } else {
+                Text(
+                    "↑",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = pulse.coerceIn(0.96f, 1.04f)
+                        scaleY = pulse.coerceIn(0.96f, 1.04f)
+                        translationY = -1.5f * (pulse - 1f)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CircleGlassButton(text: String, state: AssistantUiState, size: Int, active: Boolean = false, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.size(size.dp), GlassRole.Floating, onClick = onClick) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White, fontSize = if (text == "+") 28.sp else 22.sp, fontWeight = FontWeight.Black) }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (active) ThinkingDots(size = 6, color = Color.White.copy(alpha = 0.86f))
+            else Text(text, color = Color.White, fontSize = if (text == "+") 28.sp else 22.sp, fontWeight = FontWeight.Black)
+        }
     }
 }
 
@@ -472,14 +607,7 @@ private fun LedgerSummaryCard(state: AssistantUiState) {
 }
 
 @Composable
-private fun LedgerEditorCard(
-    state: AssistantUiState,
-    onTitleChange: (String) -> Unit,
-    onAmountChange: (String) -> Unit,
-    onTypeChange: (LedgerRecordType) -> Unit,
-    onCategoryChange: (String) -> Unit,
-    onAddRecord: () -> Unit
-) {
+private fun LedgerEditorCard(state: AssistantUiState, onTitleChange: (String) -> Unit, onAmountChange: (String) -> Unit, onTypeChange: (LedgerRecordType) -> Unit, onCategoryChange: (String) -> Unit, onAddRecord: () -> Unit) {
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionHeader("快速记一笔", "对应旧版的手动添加账单")
@@ -583,26 +711,6 @@ private fun EmptyToolCard(title: String, subtitle: String, state: AssistantUiSta
 }
 
 @Composable
-fun SettingsScreen(
-    state: AssistantUiState,
-    aiEndpoint: String,
-    onQualityChange: (RenderQuality) -> Unit,
-    onPreviewConversationChange: (Boolean) -> Unit,
-    onGlassPresetChange: (GlassPreset) -> Unit,
-    onBackgroundThemeChange: (BackgroundTheme) -> Unit,
-    onGlassIntensityChange: (Float) -> Unit,
-    onMotionIntensityChange: (Float) -> Unit
-) {
-    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = 124.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { PageHeader("SETTINGS", "设置", "外观、性能、偏好和服务状态。") }
-        item { SettingsGlassCard(state, onQualityChange, onGlassPresetChange, onBackgroundThemeChange, onGlassIntensityChange, onMotionIntensityChange) }
-        item { ToggleSettingCard("聊天预览", "保留首页里的示例对话和快捷建议。", state.showPreviewConversation, onPreviewConversationChange, state) }
-        item { ServiceStatusCard(aiEndpoint = aiEndpoint, state = state) }
-        item { SettingsShortcutList(state) }
-    }
-}
-
-@Composable
 private fun PageHeader(eyebrow: String, title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(eyebrow, color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
@@ -685,20 +793,6 @@ private fun toolGlyph(title: String): String = when (displayToolTitle(title)) {
 }
 
 @Composable
-private fun SettingsGlassCard(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionHeader("玻璃与性能", "真机调试时优先使用均衡档")
-            SegmentedQuality(state, onQualityChange)
-            GlassPresetSelector(state, onGlassPresetChange)
-            ThemeSelector(state, onBackgroundThemeChange)
-            SliderLine("玻璃强度", state.glassIntensity, onGlassIntensityChange, 0.6f..1.4f)
-            SliderLine("动态强度", state.motionIntensity, onMotionIntensityChange, 0f..1.4f)
-        }
-    }
-}
-
-@Composable
 private fun SectionHeader(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
@@ -707,105 +801,11 @@ private fun SectionHeader(title: String, subtitle: String) {
 }
 
 @Composable
-private fun SegmentedQuality(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        RenderQuality.entries.forEach { quality ->
-            val selected = state.quality == quality
-            PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 20, Modifier.weight(1f).height(52.dp), if (selected) GlassRole.Floating else GlassRole.Chip, onClick = { onQualityChange(quality) }) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(qualityLabel(quality), color = Color.White.copy(alpha = if (selected) 1f else 0.68f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GlassPresetSelector(state: AssistantUiState, onGlassPresetChange: (GlassPreset) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        GlassPreset.entries.forEach { preset ->
-            val selected = state.glassPreset == preset
-            PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 20, Modifier.weight(1f).height(50.dp), if (selected) GlassRole.Floating else GlassRole.Chip, onClick = { onGlassPresetChange(preset) }) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(preset.label, color = Color.White.copy(alpha = if (selected) 1f else 0.68f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ThemeSelector(state: AssistantUiState, onBackgroundThemeChange: (BackgroundTheme) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        BackgroundTheme.entries.forEach { theme ->
-            val selected = state.backgroundTheme == theme
-            PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 20, Modifier.weight(1f).height(46.dp), if (selected) GlassRole.Floating else GlassRole.Chip, onClick = { onBackgroundThemeChange(theme) }) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(themeLabel(theme), color = Color.White.copy(alpha = if (selected) 1f else 0.66f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SliderLine(label: String, value: Float, onValueChange: (Float) -> Unit, range: ClosedFloatingPointRange<Float>) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            Text("${value.format2x()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
-        Slider(value = value, onValueChange = onValueChange, valueRange = range)
-    }
-}
-
-@Composable
-private fun ToggleSettingCard(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, state: AssistantUiState) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-                Text(subtitle, color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp)
-            }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
-        }
-    }
-}
-
-@Composable
-private fun ServiceStatusCard(aiEndpoint: String, state: AssistantUiState) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("服务状态", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Compose 版已接入第一阶段纯文本 AI 请求链路。", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp, lineHeight = 20.sp)
-            Text(aiEndpoint, color = Color.White.copy(alpha = 0.36f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun SettingsShortcutList(state: AssistantUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SettingsListCard("账号与同步", "登录状态、云端同步和本地备份。", state)
-        SettingsListCard("手机偏好", "家庭地址、默认地图、提醒和闹钟。", state)
-        SettingsListCard("数据与预算", "预算、账单、导出和清空记录。", state)
-    }
-}
-
-@Composable
-private fun SettingsListCard(title: String, subtitle: String, state: AssistantUiState) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 26, Modifier.fillMaxWidth().height(78.dp), GlassRole.Card) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text("›", color = Color.White.copy(alpha = 0.62f), fontSize = 30.sp, fontWeight = FontWeight.Light)
-        }
-    }
-}
-
-@Composable
 private fun MiniMetricGlass(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 22, modifier.height(74.dp), GlassRole.Card) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(value, color = Color.White.copy(alpha = 0.96f), fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.96f), fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -856,7 +856,6 @@ fun navIcon(tab: AppTab): String = when (tab) {
 }
 
 private fun todayExpenseText(state: AssistantUiState): String = formatMoney(state.ledgerRecords.filter { it.dateLabel == "今天" && it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }.toFloat())
-
 private fun formatMoney(value: Float): String = "¥${String.format("%.2f", value)}"
 
 private fun qualityLabel(quality: RenderQuality): String = when (quality) {
