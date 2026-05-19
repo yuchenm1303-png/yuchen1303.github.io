@@ -61,7 +61,6 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
             )
             drawUnifiedGlassEdgeItem(
                 itemRect = itemRect,
-                visibleRect = visibleRect,
                 sampleOffset = sampleOffset,
                 radius = item.radius,
                 border = border,
@@ -193,7 +192,6 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
 
 private fun DrawScope.drawUnifiedGlassEdgeItem(
     itemRect: Rect,
-    visibleRect: Rect,
     sampleOffset: Offset,
     radius: Int,
     border: GlassBorderStyle,
@@ -201,134 +199,160 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
 ) {
     val w = itemRect.width
     val h = itemRect.height
-    val alpha = strength.coerceIn(0f, 0.34f)
+    val baseAlpha = strength.coerceIn(0f, 0.44f)
     val corner = radius.dp.toPx()
     val cornerRadius = CornerRadius(corner, corner)
-    val outerInset = 0.55.dp.toPx()
-    val midInset = 2.70.dp.toPx()
-    val innerInset = 7.0.dp.toPx()
     val positionPhase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
-
     val path = Path().apply {
-        addRoundRect(
-            RoundRect(
-                rect = itemRect,
-                cornerRadius = cornerRadius
-            )
-        )
+        addRoundRect(RoundRect(rect = itemRect, cornerRadius = cornerRadius))
     }
 
     fun itemOffset(x: Float, y: Float): Offset = Offset(itemRect.left + x, itemRect.top + y)
     fun itemSize(width: Float, height: Float): Size = Size(width, height)
 
     clipPath(path) {
+        // 1. 宽而淡的外部折射晕：先把玻璃边缘做厚，不是一圈硬白线。
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.055f * alpha),
-                    Color.White.copy(alpha = 0.018f * alpha),
+                    Color(0xFFF4F9FF).copy(alpha = 0.18f * baseAlpha),
+                    Color(0xFFDDEBFF).copy(alpha = 0.052f * baseAlpha),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.010f * alpha),
-                    Color.White.copy(alpha = 0.010f * alpha)
+                    Color(0xFF90A3CA).copy(alpha = 0.020f * baseAlpha),
+                    Color(0xFFFFD5E4).copy(alpha = 0.050f * baseAlpha)
                 ),
-                start = itemOffset(w * (positionPhase - 0.18f), 0f),
-                end = itemOffset(w * (positionPhase + 0.82f), h)
+                start = itemOffset(w * (positionPhase - 0.22f), -h * 0.10f),
+                end = itemOffset(w * (positionPhase + 0.90f), h * 1.08f)
             ),
-            topLeft = itemOffset(outerInset, outerInset),
-            size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
+            topLeft = itemOffset(1.2.dp.toPx(), 1.2.dp.toPx()),
+            size = itemSize(w - 2.4.dp.toPx(), h - 2.4.dp.toPx()),
             cornerRadius = cornerRadius,
-            style = Stroke(width = 8.5.dp.toPx()),
+            style = Stroke(width = 9.5.dp.toPx()),
             blendMode = BlendMode.Screen
         )
+
+        // 2. 顶部冷白高光带：图 1 最明显的“玻璃上沿亮边”。
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.070f * alpha),
-                    Color.White.copy(alpha = 0.018f * alpha),
+                    Color.White.copy(alpha = (border.topHighlightAlpha * 1.20f).coerceIn(0f, 0.64f)),
+                    Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.32f),
                     Color.Transparent
                 ),
                 startY = itemRect.top,
-                endY = itemRect.top + h * 0.30f
+                endY = itemRect.top + h * 0.24f
             ),
-            topLeft = itemOffset(midInset, midInset),
-            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            topLeft = itemOffset(0.8.dp.toPx(), 0.8.dp.toPx()),
+            size = itemSize(w - 1.6.dp.toPx(), h - 1.6.dp.toPx()),
             cornerRadius = cornerRadius,
-            style = Stroke(width = 5.6.dp.toPx()),
+            style = Stroke(width = 3.4.dp.toPx()),
             blendMode = BlendMode.Screen
         )
+
+        // 3. 细外轮廓：保持锋利边界，但透明度随方向变化。
         drawRoundRect(
-            brush = Brush.horizontalGradient(
+            brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.030f * alpha),
-                    Color.Transparent,
-                    Color.Transparent,
-                    Color.Black.copy(alpha = 0.010f * alpha),
-                    Color.White.copy(alpha = 0.016f * alpha)
+                    Color.White.copy(alpha = (border.outerStrokeAlpha * 1.20f).coerceIn(0f, 0.72f)),
+                    Color(0xFFE6F2FF).copy(alpha = border.outerStrokeAlpha * 0.46f),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.16f),
+                    Color(0xFFB8C7E8).copy(alpha = border.outerStrokeAlpha * 0.10f),
+                    Color(0xFFFFD6E1).copy(alpha = border.outerStrokeAlpha * 0.18f)
                 ),
-                startX = itemRect.left,
-                endX = itemRect.right
+                start = itemOffset(0f, 0f),
+                end = itemOffset(w, h)
             ),
-            topLeft = itemOffset(midInset, midInset),
-            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            topLeft = itemOffset(0.55.dp.toPx(), 0.55.dp.toPx()),
+            size = itemSize(w - 1.1.dp.toPx(), h - 1.1.dp.toPx()),
             cornerRadius = cornerRadius,
-            style = Stroke(width = 4.8.dp.toPx()),
+            style = Stroke(width = 1.08.dp.toPx()),
             blendMode = BlendMode.Screen
         )
+
+        // 4. 内侧二次反光线：制造玻璃厚度。
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
+                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.95f),
+                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.20f),
                     Color.Transparent,
-                    Color.Black.copy(alpha = 0.004f * alpha),
-                    Color.Black.copy(alpha = 0.018f * alpha)
-                ),
-                startY = itemRect.top + h * 0.48f,
-                endY = itemRect.bottom
-            ),
-            topLeft = itemOffset(innerInset, innerInset),
-            size = itemSize(w - innerInset * 2f, h - innerInset * 2f),
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 2.4.dp.toPx()),
-            blendMode = BlendMode.Multiply
-        )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = border.outerStrokeAlpha),
-                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f),
-                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)
+                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.12f)
                 ),
                 startY = itemRect.top,
                 endY = itemRect.bottom
             ),
-            topLeft = itemOffset(outerInset, outerInset),
-            size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
+            topLeft = itemOffset(3.0.dp.toPx(), 3.0.dp.toPx()),
+            size = itemSize(w - 6.0.dp.toPx(), h - 6.0.dp.toPx()),
             cornerRadius = cornerRadius,
             style = Stroke(width = 1.15.dp.toPx()),
             blendMode = BlendMode.Screen
         )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(Color.White.copy(alpha = border.innerStrokeAlpha), Color.Transparent, Color.White.copy(alpha = border.innerStrokeAlpha * 0.28f)),
-                startY = itemRect.top,
-                endY = itemRect.bottom
+
+        // 5. 左上角与右上角局部 glint：让圆角不是平均亮。
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.topHighlightAlpha * 0.26f),
+                    Color(0xFFEAF4FF).copy(alpha = border.topHighlightAlpha * 0.10f),
+                    Color.Transparent
+                ),
+                center = itemOffset(w * 0.08f, h * 0.08f),
+                radius = w * 0.32f
             ),
-            topLeft = itemOffset(midInset, midInset),
-            size = itemSize(w - midInset * 2f, h - midInset * 2f),
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 0.82.dp.toPx()),
+            topLeft = itemOffset(0f, 0f),
+            size = itemSize(w, h),
             blendMode = BlendMode.Screen
         )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFFE7F0FF).copy(alpha = border.topHighlightAlpha * 0.15f),
+                    Color.White.copy(alpha = border.topHighlightAlpha * 0.045f),
+                    Color.Transparent
+                ),
+                center = itemOffset(w * 0.92f, h * 0.10f),
+                radius = w * 0.26f
+            ),
+            topLeft = itemOffset(0f, 0f),
+            size = itemSize(w, h),
+            blendMode = BlendMode.Screen
+        )
+
+        // 6. 底部/右下轻微压暗：形成厚玻璃的折射压缩感。
         drawRoundRect(
             brush = Brush.verticalGradient(
-                colors = listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = border.bottomShadowAlpha)),
-                startY = itemRect.top + h * 0.52f,
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color(0xFF081322).copy(alpha = border.bottomShadowAlpha * 0.40f),
+                    Color(0xFF020814).copy(alpha = border.bottomShadowAlpha * 0.92f)
+                ),
+                startY = itemRect.top + h * 0.54f,
                 endY = itemRect.bottom
             ),
-            topLeft = itemOffset(midInset, midInset),
-            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            topLeft = itemOffset(2.6.dp.toPx(), 2.6.dp.toPx()),
+            size = itemSize(w - 5.2.dp.toPx(), h - 5.2.dp.toPx()),
             cornerRadius = cornerRadius,
-            style = Stroke(width = 1.1.dp.toPx()),
+            style = Stroke(width = 2.4.dp.toPx()),
             blendMode = BlendMode.Multiply
+        )
+
+        // 7. 极细移动高光，跟随位置变化，避免边框像贴图一样死。
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.White.copy(alpha = border.topHighlightAlpha * 0.20f),
+                    Color.Transparent
+                ),
+                start = itemOffset(w * (positionPhase - 0.36f), -h * 0.04f),
+                end = itemOffset(w * (positionPhase + 0.16f), h * 0.22f)
+            ),
+            topLeft = itemOffset(0.65.dp.toPx(), 0.65.dp.toPx()),
+            size = itemSize(w - 1.3.dp.toPx(), h - 1.3.dp.toPx()),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 0.82.dp.toPx()),
+            blendMode = BlendMode.Plus
         )
     }
 }
