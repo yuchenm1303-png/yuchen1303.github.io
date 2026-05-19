@@ -51,6 +51,7 @@ fun SampledWeatherGlassBackdrop(
     val cachedBackdrop = LocalBlurredBackdrop.current
     val spec = LocalGlassBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
+    val frameTicker = LocalBackdropFrameTicker.current
     val params = spec?.params ?: BackdropDebugParams()
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
@@ -89,6 +90,7 @@ fun SampledWeatherGlassBackdrop(
             .clip(RoundedCornerShape(radius.dp))
             .then(if (cachedBackdrop == null) Modifier.blur(fallbackBlur.dp) else Modifier)
     ) {
+        frameTicker?.frameNanos
         val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
         if (cachedBackdrop != null) {
             val srcX = (sampleOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.width - 1)
@@ -193,9 +195,11 @@ fun SampledWeatherEdgeRefraction(
 ) {
     val spec = LocalGlassBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
+    val frameTicker = LocalBackdropFrameTicker.current
     val border = spec?.borderStyle ?: GlassBorderStyle()
     val alpha = strength.coerceIn(0f, 0.34f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
+        frameTicker?.frameNanos
         val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
         val w = size.width
         val h = size.height
