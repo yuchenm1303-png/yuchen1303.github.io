@@ -212,68 +212,85 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
     val corner = radius.dp.toPx()
     val ringWidth = border.ringWidthDp.dp.toPx().coerceIn(2.dp.toPx(), min(w, h) * 0.30f)
     val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 0.95f)
+    val edgeAlpha = (border.edgeAlpha * (0.54f + strength * 0.74f) * border.edgeBrightness.coerceIn(0.72f, 1.35f)).coerceIn(0f, 1f)
+    val softWidth = (border.edgeBlurDp.dp.toPx() * 0.28f).coerceIn(2.dp.toPx(), ringWidth * 0.55f)
     val outerPath = Path().apply {
         addRoundRect(RoundRect(rect = itemRect, cornerRadius = CornerRadius(corner, corner)))
-    }
-    val innerRect = itemRect.insetBy(ringWidth)
-    val innerCorner = (corner - ringWidth).coerceAtLeast(0f)
-    val ringPath = Path().apply {
-        fillType = PathFillType.EvenOdd
-        addRoundRect(RoundRect(rect = itemRect, cornerRadius = CornerRadius(corner, corner)))
-        if (innerRect.width > 0f && innerRect.height > 0f) {
-            addRoundRect(RoundRect(rect = innerRect, cornerRadius = CornerRadius(innerCorner, innerCorner)))
-        }
     }
 
     fun itemOffset(x: Float, y: Float): Offset = Offset(itemRect.left + x, itemRect.top + y)
     fun itemSize(width: Float, height: Float): Size = Size(width, height)
 
     clipPath(outerPath) {
-        clipPath(ringPath) {
-            val edgeAlpha = (border.edgeAlpha * (0.74f + strength)).coerceIn(0f, 1f)
-            drawRefractedBackdropStrip(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                screenRect = screenRect,
-                stripRect = Rect(itemRect.left, itemRect.top, itemRect.right, itemRect.top + ringWidth * 1.55f),
-                sampleOffset = sampleOffset,
-                refractOffset = Offset(0f, edgePull),
-                alpha = edgeAlpha
-            )
-            drawRefractedBackdropStrip(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                screenRect = screenRect,
-                stripRect = Rect(itemRect.left, itemRect.bottom - ringWidth * 1.55f, itemRect.right, itemRect.bottom),
-                sampleOffset = sampleOffset,
-                refractOffset = Offset(0f, -edgePull),
-                alpha = edgeAlpha * 0.84f
-            )
-            drawRefractedBackdropStrip(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                screenRect = screenRect,
-                stripRect = Rect(itemRect.left, itemRect.top, itemRect.left + ringWidth * 1.45f, itemRect.bottom),
-                sampleOffset = sampleOffset,
-                refractOffset = Offset(edgePull, 0f),
-                alpha = edgeAlpha * 0.72f
-            )
-            drawRefractedBackdropStrip(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                screenRect = screenRect,
-                stripRect = Rect(itemRect.right - ringWidth * 1.45f, itemRect.top, itemRect.right, itemRect.bottom),
-                sampleOffset = sampleOffset,
-                refractOffset = Offset(-edgePull, 0f),
-                alpha = edgeAlpha * 0.72f
-            )
-        }
+        // 多层软衰减透镜边缘：外层弱、中层强、内层快速淡出，避免“切下一块”的硬边。
+        drawSoftRimLayer(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            sampleOffset = sampleOffset,
+            corner = corner,
+            inset = 0f,
+            width = ringWidth * 0.30f + softWidth * 0.35f,
+            edgePull = edgePull * 1.06f,
+            alpha = edgeAlpha * 0.28f
+        )
+        drawSoftRimLayer(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            sampleOffset = sampleOffset,
+            corner = corner,
+            inset = ringWidth * 0.18f,
+            width = ringWidth * 0.34f + softWidth * 0.42f,
+            edgePull = edgePull,
+            alpha = edgeAlpha * 0.72f
+        )
+        drawSoftRimLayer(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            sampleOffset = sampleOffset,
+            corner = corner,
+            inset = ringWidth * 0.46f,
+            width = ringWidth * 0.30f + softWidth * 0.32f,
+            edgePull = edgePull * 0.82f,
+            alpha = edgeAlpha * 0.38f
+        )
+        drawSoftRimLayer(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            sampleOffset = sampleOffset,
+            corner = corner,
+            inset = ringWidth * 0.72f,
+            width = ringWidth * 0.22f + softWidth * 0.22f,
+            edgePull = edgePull * 0.58f,
+            alpha = edgeAlpha * 0.13f
+        )
+
+        // 用一层很轻的雾面过渡把折射边缘并回主体玻璃，弱化内圈硬边。
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.bodyAlpha * 0.030f),
+                    Color.White.copy(alpha = border.bodyAlpha * 0.012f),
+                    Color.Transparent
+                ),
+                startY = itemRect.top,
+                endY = itemRect.top + h * 0.42f
+            ),
+            topLeft = itemOffset(softWidth * 0.35f, softWidth * 0.35f),
+            size = itemSize(w - softWidth * 0.70f, h - softWidth * 0.70f),
+            cornerRadius = CornerRadius(corner, corner),
+            style = Stroke(width = (ringWidth * 0.70f).coerceAtLeast(3.dp.toPx())),
+            blendMode = BlendMode.Screen
+        )
 
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = border.topHighlightAlpha * 0.22f),
-                    Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.045f),
+                    Color.White.copy(alpha = border.topHighlightAlpha * 0.18f),
+                    Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.035f),
                     Color.Transparent
                 ),
                 startY = itemRect.top,
@@ -282,17 +299,17 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
             topLeft = itemOffset(1.0.dp.toPx(), 1.0.dp.toPx()),
             size = itemSize(w - 2.0.dp.toPx(), h - 2.0.dp.toPx()),
             cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 2.2.dp.toPx()),
+            style = Stroke(width = 2.0.dp.toPx()),
             blendMode = BlendMode.Screen
         )
 
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = (border.outerStrokeAlpha * 0.42f).coerceIn(0f, 0.28f)),
-                    Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.16f),
-                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.035f),
-                    Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.055f)
+                    Color.White.copy(alpha = (border.outerStrokeAlpha * 0.36f).coerceIn(0f, 0.24f)),
+                    Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.13f),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.030f),
+                    Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.048f)
                 ),
                 start = itemOffset(0f, 0f),
                 end = itemOffset(w, h)
@@ -304,32 +321,37 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
             blendMode = BlendMode.Screen
         )
 
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.10f),
-                    Color.Transparent,
-                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.03f)
+        val innerInset = ringWidth + softWidth * 0.45f
+        val innerRect = itemRect.insetBy(innerInset)
+        if (innerRect.width > 0f && innerRect.height > 0f) {
+            val innerCorner = (corner - innerInset).coerceAtLeast(0f)
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = border.innerStrokeAlpha * 0.06f),
+                        Color.Transparent,
+                        Color.White.copy(alpha = border.innerStrokeAlpha * 0.018f)
+                    ),
+                    startY = itemRect.top,
+                    endY = itemRect.bottom
                 ),
-                startY = itemRect.top,
-                endY = itemRect.bottom
-            ),
-            topLeft = itemOffset(ringWidth, ringWidth),
-            size = itemSize(w - ringWidth * 2f, h - ringWidth * 2f),
-            cornerRadius = CornerRadius(innerCorner, innerCorner),
-            style = Stroke(width = 0.56.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
+                topLeft = Offset(innerRect.left, innerRect.top),
+                size = Size(innerRect.width, innerRect.height),
+                cornerRadius = CornerRadius(innerCorner, innerCorner),
+                style = Stroke(width = 0.46.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
+        }
 
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = border.cornerGlintAlpha),
-                    Color(0xFFEAF5FF).copy(alpha = border.cornerGlintAlpha * 0.28f),
+                    Color.White.copy(alpha = border.cornerGlintAlpha * 0.72f),
+                    Color(0xFFEAF5FF).copy(alpha = border.cornerGlintAlpha * 0.20f),
                     Color.Transparent
                 ),
                 center = itemOffset(w * 0.10f, h * 0.08f),
-                radius = w * 0.26f
+                radius = w * 0.28f
             ),
             topLeft = itemOffset(0f, 0f),
             size = itemSize(w, h),
@@ -341,16 +363,83 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
                 colors = listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color(0xFF071225).copy(alpha = border.bottomShadowAlpha * 0.34f)
+                    Color(0xFF071225).copy(alpha = border.bottomShadowAlpha * 0.24f)
                 ),
-                startY = itemRect.top + h * 0.54f,
+                startY = itemRect.top + h * 0.56f,
                 endY = itemRect.bottom
             ),
             topLeft = itemOffset(2.0.dp.toPx(), 2.0.dp.toPx()),
             size = itemSize(w - 4.0.dp.toPx(), h - 4.0.dp.toPx()),
             cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 1.2.dp.toPx()),
+            style = Stroke(width = 1.0.dp.toPx()),
             blendMode = BlendMode.Multiply
+        )
+    }
+}
+
+private fun DrawScope.drawSoftRimLayer(
+    backdrop: BlurredBackdropBitmap,
+    itemRect: Rect,
+    screenRect: Rect,
+    sampleOffset: Offset,
+    corner: Float,
+    inset: Float,
+    width: Float,
+    edgePull: Float,
+    alpha: Float
+) {
+    val layerRect = itemRect.insetBy(inset)
+    if (layerRect.width <= 0f || layerRect.height <= 0f || width <= 0f || alpha <= 0f) return
+    val layerCorner = (corner - inset).coerceAtLeast(0f)
+    val innerRect = layerRect.insetBy(width)
+    val innerCorner = (layerCorner - width).coerceAtLeast(0f)
+    val ringPath = Path().apply {
+        fillType = PathFillType.EvenOdd
+        addRoundRect(RoundRect(rect = layerRect, cornerRadius = CornerRadius(layerCorner, layerCorner)))
+        if (innerRect.width > 0f && innerRect.height > 0f) {
+            addRoundRect(RoundRect(rect = innerRect, cornerRadius = CornerRadius(innerCorner, innerCorner)))
+        }
+    }
+    val layerTop = layerRect.top
+    val layerBottom = layerRect.bottom
+    val layerLeft = layerRect.left
+    val layerRight = layerRect.right
+    clipPath(ringPath) {
+        drawRefractedBackdropStrip(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            stripRect = Rect(layerLeft, layerTop, layerRight, layerTop + width * 1.72f),
+            sampleOffset = sampleOffset,
+            refractOffset = Offset(0f, edgePull),
+            alpha = alpha
+        )
+        drawRefractedBackdropStrip(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            stripRect = Rect(layerLeft, layerBottom - width * 1.72f, layerRight, layerBottom),
+            sampleOffset = sampleOffset,
+            refractOffset = Offset(0f, -edgePull),
+            alpha = alpha * 0.80f
+        )
+        drawRefractedBackdropStrip(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            stripRect = Rect(layerLeft, layerTop, layerLeft + width * 1.58f, layerBottom),
+            sampleOffset = sampleOffset,
+            refractOffset = Offset(edgePull, 0f),
+            alpha = alpha * 0.68f
+        )
+        drawRefractedBackdropStrip(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            screenRect = screenRect,
+            stripRect = Rect(layerRight - width * 1.58f, layerTop, layerRight, layerBottom),
+            sampleOffset = sampleOffset,
+            refractOffset = Offset(-edgePull, 0f),
+            alpha = alpha * 0.68f
         )
     }
 }
