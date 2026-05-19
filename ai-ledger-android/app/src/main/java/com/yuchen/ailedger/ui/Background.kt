@@ -4,29 +4,26 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
-import kotlin.math.min
 
 @Composable
 fun WeatherNightBackground(
     quality: RenderQuality,
     motionIntensity: Float = 1f,
-    theme: BackgroundTheme = BackgroundTheme.Aurora
+    theme: BackgroundTheme = BackgroundTheme.Aurora,
+    params: BackdropDebugParams = BackdropDebugParams()
 ) {
     Canvas(Modifier.fillMaxSize()) {
         drawWeatherNightBackground(
             w = size.width,
             h = size.height,
             theme = theme,
-            alphaScale = 1f
+            alphaScale = 1f,
+            params = params
         )
     }
 }
@@ -35,18 +32,20 @@ fun DrawScope.drawWeatherNightBackground(
     w: Float,
     h: Float,
     theme: BackgroundTheme = BackgroundTheme.Aurora,
-    alphaScale: Float = 1f
+    alphaScale: Float = 1f,
+    params: BackdropDebugParams = BackdropDebugParams()
 ) {
-    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = false)
+    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = false, params = params)
 }
 
 fun DrawScope.drawWeatherNightBackgroundGlow(
     w: Float,
     h: Float,
     theme: BackgroundTheme = BackgroundTheme.Aurora,
-    alphaScale: Float = 1f
+    alphaScale: Float = 1f,
+    params: BackdropDebugParams = BackdropDebugParams()
 ) {
-    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = true)
+    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = true, params = params)
 }
 
 private data class BackgroundPalette(
