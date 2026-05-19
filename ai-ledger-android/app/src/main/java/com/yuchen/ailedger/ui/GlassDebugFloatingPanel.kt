@@ -39,6 +39,8 @@ fun GlassDebugFloatingPanel(
     state: AssistantUiState,
     onBackdropChange: (BackdropDebugParams) -> Unit,
     onBorderChange: (GlassBorderStyle) -> Unit,
+    onUploadBackgroundClick: () -> Unit,
+    onClearCustomBackgroundClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -85,6 +87,19 @@ fun GlassDebugFloatingPanel(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text("自定义背景", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    DebugActionButton("上传背景", Modifier.weight(1f), onUploadBackgroundClick)
+                    DebugActionButton("恢复内置", Modifier.weight(1f), onClearCustomBackgroundClick)
+                }
+                Text(
+                    text = if (state.customBackgroundPath == null) "当前：内置晚霞天气背景" else "当前：自定义图片背景",
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(Modifier.height(6.dp))
                 Text("背景模糊缓存", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
                 DebugSlider("缓存分辨率", state.backdropParams.scale, 0.18f..0.72f) { onBackdropChange(state.backdropParams.copy(scale = it)) }
                 DebugSlider("模糊半径", state.backdropParams.radius, 1f..18f) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
@@ -112,6 +127,24 @@ fun GlassDebugFloatingPanel(
                 DebugSlider("底部暗边", state.glassBorderStyle.bottomShadowAlpha, 0f..0.28f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
             }
         }
+    }
+}
+
+@Composable
+private fun DebugActionButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    val source = remember { MutableInteractionSource() }
+    Row(
+        modifier = modifier
+            .height(42.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.12f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
