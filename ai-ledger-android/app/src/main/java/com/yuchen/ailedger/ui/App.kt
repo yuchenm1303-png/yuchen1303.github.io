@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,10 +30,16 @@ import com.yuchen.ailedger.model.RenderQuality
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
+    val backgroundPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) viewModel.importCustomBackground(uri)
+    }
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
-        params = state.backdropParams
+        params = state.backdropParams,
+        customBackgroundPath = state.customBackgroundPath
     )
 
     MaterialTheme {
@@ -50,7 +59,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         quality = state.quality,
                         motionIntensity = state.motionIntensity,
                         theme = state.backgroundTheme,
-                        params = state.backdropParams
+                        params = state.backdropParams,
+                        customBackgroundPath = state.customBackgroundPath
                     )
 
                     Column(
@@ -81,6 +91,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             state = state,
                             onBackdropChange = viewModel::setBackdropDebugParams,
                             onBorderChange = viewModel::setGlassBorderStyle,
+                            onUploadBackgroundClick = {
+                                backgroundPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onClearCustomBackgroundClick = viewModel::clearCustomBackground,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .statusBarsPadding()
