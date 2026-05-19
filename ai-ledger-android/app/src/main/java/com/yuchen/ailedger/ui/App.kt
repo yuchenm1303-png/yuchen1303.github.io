@@ -36,6 +36,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
+    val glassRegistry = remember { GlassItemRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -67,7 +68,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 ),
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
-                LocalBackdropFrameTicker provides backdropTicker
+                LocalBackdropFrameTicker provides backdropTicker,
+                LocalGlassItemRegistry provides glassRegistry
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
@@ -80,6 +82,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             .fillMaxSize()
                             .onPlaced { backdropOrigin.coordinates = it }
                     )
+
+                    UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
 
                     Column(
                         modifier = Modifier
