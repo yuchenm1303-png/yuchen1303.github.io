@@ -10,7 +10,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -35,11 +34,8 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,8 +49,8 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
-import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.GlassPreset
+import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.model.ToolEntry
 import kotlin.math.roundToInt
@@ -63,504 +59,19 @@ import kotlin.math.roundToInt
 fun AssistantScreen(state: AssistantUiState) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 18.dp, bottom = 118.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 116.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { AssistantPageHeader() }
-        item { AssistantControlRow(state) }
-        item { AssistantConversationPanel(state) }
-        item { AppleGlassQuickActions(state) }
-    }
-}
-
-@Composable
-private fun AssistantPageHeader() {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text("AI 助手", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, lineHeight = 36.sp)
-        Text("把主要空间留给对话，工具按钮围绕聊天框展开", color = Color.White.copy(alpha = 0.58f), fontSize = 15.sp, lineHeight = 21.sp)
-    }
-}
-
-@Composable
-private fun AssistantControlRow(state: AssistantUiState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TopCommandPill("清空", state, Modifier.weight(1f))
-        TopCommandPill("◎", "联网", state, Modifier.weight(1.12f))
-        TopCommandPill("模型", state, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun AssistantConversationPanel(state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 36,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Shell
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            ChatModelStrip(state)
-            ChatMessagesArea(state)
-            ChatAssistantHint(state)
-            ComposerBar(state)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("拍照", "文件", "语音").forEach { action ->
-                    SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatModelStrip(state: AssistantUiState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity,
-            motionIntensity = state.motionIntensity,
-            radius = 999,
-            modifier = Modifier.weight(1f).height(46.dp),
-            role = GlassRole.Chip
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xFF8DF9EA)))
-                Text("Gemini 2.5 Flash", color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.weight(1f))
-                Text("切换", color = Color.White.copy(alpha = 0.54f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity,
-            motionIntensity = state.motionIntensity,
-            radius = 999,
-            modifier = Modifier.width(72.dp).height(46.dp),
-            role = GlassRole.Floating
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("识图", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatMessagesArea(state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.92f,
-        motionIntensity = state.motionIntensity,
-        radius = 30,
-        modifier = Modifier.fillMaxWidth().height(380.dp),
-        role = GlassRole.Card
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            UserBubble("你可以帮我做题吗？", state)
-            AssistantBubble(
-                text = state.messages.firstOrNull()?.text ?: "可以，我可以帮你理解题目、解释概念、整理解题思路，也可以检查答案。你把题目发给我就行。",
-                tag = "Gemini 对话 · orch-v5-nvidia-planner",
-                state = state
-            )
-            UserBubble("提取一下图中的文字", state)
-            AssistantBubble(
-                text = "可以。请上传图片后，我会优先识别图片文字；如果当前模型额度不足，会自动切到备用识图服务。",
-                tag = "Workers AI 识图兜底 · attach-v5-auto-tools",
-                state = state
-            )
-            Spacer(Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun UserBubble(text: String, state: AssistantUiState) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * 1.10f,
-            motionIntensity = state.motionIntensity,
-            radius = 24,
-            modifier = Modifier.fillMaxWidth(0.72f),
-            role = GlassRole.Floating
-        ) {
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = 16.sp,
-                lineHeight = 23.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        item {
+            PageHeader(
+                eyebrow = "AI ASSISTANT",
+                title = "AI 助手",
+                subtitle = "把对话放在中央，常用动作收进轻量入口。"
             )
         }
-    }
-}
-
-@Composable
-private fun AssistantBubble(text: String, tag: String, state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.96f,
-        motionIntensity = state.motionIntensity,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(text, color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Medium)
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
-                motionIntensity = state.motionIntensity,
-                radius = 999,
-                modifier = Modifier.fillMaxWidth().height(38.dp),
-                role = GlassRole.Chip
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.70f)))
-                    Text(tag, color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatAssistantHint(state: AssistantUiState) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        listOf("设提醒", "导航回家", "记一笔").forEach { action ->
-            SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun AppleGlassAssistant(state: AssistantUiState) {
-    AssistantConversationPanel(state)
-}
-
-@Composable
-private fun FloatingNotificationCard(
-    appName: String,
-    time: String,
-    title: String,
-    body: String,
-    badge: String,
-    state: AssistantUiState,
-    prominent: Boolean = false
-) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * if (prominent) 1.08f else 0.98f,
-        motionIntensity = state.motionIntensity,
-        radius = if (prominent) 34 else 30,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(13.dp)
-        ) {
-            GlassPanel(state.quality, state.glassIntensity * 1.12f, state.motionIntensity, 18, Modifier.size(54.dp), GlassRole.Floating) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(badge, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                }
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(appName, color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Text(time, color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-                Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = if (prominent) 21.sp else 18.sp, fontWeight = FontWeight.ExtraBold)
-                Text(
-                    text = body,
-                    color = Color.White.copy(alpha = 0.82f),
-                    fontSize = if (prominent) 17.sp else 15.sp,
-                    lineHeight = if (prominent) 26.sp else 23.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniMetricGlass(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 1.02f,
-        motionIntensity = state.motionIntensity,
-        radius = 28,
-        modifier = modifier.height(92.dp),
-        role = GlassRole.Card
-    ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(value, color = Color.White.copy(alpha = 0.96f), fontSize = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun ComposerDock(state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.96f,
-        motionIntensity = state.motionIntensity,
-        radius = 34,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Shell
-    ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ComposerBar(state)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("提醒", "回家", "记账").forEach { action ->
-                    SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppleGlassQuickActions(state: AssistantUiState) {
-    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("快捷动作", color = Color.White.copy(alpha = 0.92f), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("对话框外的小按钮入口", color = Color.White.copy(alpha = 0.54f), fontSize = 14.sp)
-                }
-                Text("4 个入口", color = Color.White.copy(alpha = 0.48f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("查账单", "开应用", "设闹钟", "做题").forEach { action ->
-                    SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AssistantShell(state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 32,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Shell
-    ) {
-        Column(
-            modifier = Modifier.padding(15.dp),
-            verticalArrangement = Arrangement.spacedBy(13.dp)
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                HeaderChip("AI", "自动", state, Modifier.weight(1.05f))
-                HeaderChip("✦", "轻量待命", state, Modifier.weight(1.22f))
-            }
-            if (state.showPreviewConversation) {
-                state.messages.take(1).forEach { AssistantMessageCard(it, state) }
-            } else {
-                PreviewHiddenCard(state)
-            }
-            Spacer(Modifier.height(250.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                listOf("设提醒", "导航回家", "记一笔").forEach { action ->
-                    SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
-                }
-            }
-            ComposerBar(state)
-            Text(
-                text = "本地动作会优先快速识别，复杂问题再交给云端。",
-                color = Color.White.copy(alpha = 0.48f),
-                fontSize = 14.sp,
-                lineHeight = 20.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun TopCommandPill(text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 999,
-        modifier = modifier.height(46.dp),
-        role = GlassRole.Chip
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun TopCommandPill(icon: String, text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 999,
-        modifier = modifier.height(46.dp),
-        role = GlassRole.Chip
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(icon, color = Color(0xFF8DF9EA), fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.48f)))
-        }
-    }
-}
-
-@Composable
-private fun HeaderChip(icon: String, text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 28,
-        modifier = modifier.height(58.dp),
-        role = GlassRole.Chip
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(icon, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            Text(text, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun AssistantMessageCard(message: ChatMessage, state: AssistantUiState) {
-    var visible by remember(message.id) { mutableStateOf(false) }
-    LaunchedEffect(message.id) { visible = true }
-    val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "msg-alpha")
-    val lift by animateDpAsState(if (visible) 0.dp else 10.dp, label = "msg-lift")
-
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha }.offset(y = lift),
-        role = GlassRole.Card
-    ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Text(
-                text = message.text,
-                color = Color.White.copy(alpha = 0.90f),
-                fontSize = 20.sp,
-                lineHeight = 32.sp,
-                fontWeight = FontWeight.Medium
-            )
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
-                motionIntensity = state.motionIntensity,
-                radius = 999,
-                modifier = Modifier.width(138.dp).height(42.dp),
-                role = GlassRole.Chip
-            ) {
-                Row(
-                    Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(9.dp)
-                ) {
-                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.74f)))
-                    Text("内置回复", color = Color.White.copy(alpha = 0.90f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ComposerBar(state: AssistantUiState) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity,
-            motionIntensity = state.motionIntensity,
-            radius = 999,
-            modifier = Modifier.size(58.dp),
-            role = GlassRole.Floating
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("+", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        ComposerInputGlass(state = state, modifier = Modifier.weight(1f))
-        CircleGlassButton("➤", state)
-    }
-}
-
-@Composable
-private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "composer-sheen")
-    val sweep by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(4800, easing = LinearEasing), RepeatMode.Restart),
-        label = "composer-sheen-value"
-    )
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.height(58.dp), GlassRole.Card) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.026f + 0.026f * sweep), Color.Transparent)
-                    )
-                ),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = "和我说点什么",
-                color = Color.White.copy(alpha = 0.50f),
-                fontSize = 17.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 18.dp)
-            )
-        }
+        item { AssistantStatusRow(state) }
+        item { AssistantConversationCard(state) }
+        item { QuickCommandPanel(state) }
     }
 }
 
@@ -568,30 +79,20 @@ private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Mod
 fun ToolsScreen(state: AssistantUiState) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 18.dp, bottom = 116.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 116.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ToolsPageHeader() }
         item {
-            FloatingNotificationCard(
-                appName = "功能中心",
-                time = "分组整理",
-                title = "先保留入口，再逐步接入旧版功能",
-                body = "这里集中放手机任务、账本工具和 Web 版迁移能力，避免功能散在首页里。",
-                badge = "▦",
-                state = state,
-                prominent = true
+            PageHeader(
+                eyebrow = "TOOLS",
+                title = "功能",
+                subtitle = "手机任务、账本工具和快捷指令集中放在这里。"
             )
         }
-        items(state.tools, key = { it.title }) { tool -> ToolCard(tool = tool, state = state) }
-    }
-}
-
-@Composable
-private fun ToolsPageHeader() {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("功能", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, lineHeight = 38.sp)
-        Text("把可执行能力集中管理，后续一项项接入", color = Color.White.copy(alpha = 0.58f), fontSize = 16.sp, lineHeight = 22.sp)
+        item { ToolsHeroCard(state) }
+        items(toolEntries(state), key = { it.title }) { tool ->
+            ToolListCard(tool = tool, state = state)
+        }
     }
 }
 
@@ -608,91 +109,505 @@ fun SettingsScreen(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 18.dp, bottom = 124.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(top = 16.dp, bottom = 124.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { SettingsHero() }
-        item { SettingsListCard("☁", "账号与同步", "登录状态、云端同步、本地备份和 AI 服务地址。", state) }
-        item { SettingsListCard("Aa", "显示与语言", "语言、字体大小、紧凑模式和页面显示习惯。", state) }
-        item { SettingsListCard("⌖", "手机偏好", "家庭地址、默认地图、提醒、闹钟等手机任务偏好。", state) }
-        item { SettingsListCard("✦", "背景外观", "背景主题、玻璃风格、透明度和模糊强度。", state) }
-        item { SettingsListCard("▤", "数据与预算", "预算、账单、导出、清空记录等数据工具。", state) }
         item {
-            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("玻璃与性能", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
-                    Text(
-                        "默认建议用“自动”。它会根据 Android 设备、内存、CPU 核心数、屏幕尺寸和当前交互状态自动选择策略。",
-                        color = Color.White.copy(alpha = 0.58f),
-                        fontSize = 15.sp,
-                        lineHeight = 23.sp
+            PageHeader(
+                eyebrow = "SETTINGS",
+                title = "设置",
+                subtitle = "外观、性能、偏好和服务状态。"
+            )
+        }
+        item {
+            SettingsGlassCard(
+                state = state,
+                onQualityChange = onQualityChange,
+                onGlassPresetChange = onGlassPresetChange,
+                onBackgroundThemeChange = onBackgroundThemeChange,
+                onGlassIntensityChange = onGlassIntensityChange,
+                onMotionIntensityChange = onMotionIntensityChange
+            )
+        }
+        item {
+            ToggleSettingCard(
+                title = "聊天预览",
+                subtitle = "保留首页里的示例对话和快捷建议。",
+                checked = state.showPreviewConversation,
+                onCheckedChange = onPreviewConversationChange,
+                state = state
+            )
+        }
+        item { ServiceStatusCard(aiEndpoint = aiEndpoint, state = state) }
+        item { SettingsShortcutList(state) }
+    }
+}
+
+@Composable
+private fun PageHeader(eyebrow: String, title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            text = eyebrow,
+            color = Color(0xFF8DF9EA).copy(alpha = 0.72f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.sp
+        )
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 38.sp,
+            lineHeight = 42.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1
+        )
+        Text(
+            text = subtitle,
+            color = Color.White.copy(alpha = 0.62f),
+            fontSize = 15.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun AssistantStatusRow(state: AssistantUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        StatusPill("在线", "Gemini 2.5", state, Modifier.weight(1.12f), accent = Color(0xFF8DF9EA))
+        StatusPill("识图", "可用", state, Modifier.weight(0.88f), accent = Color(0xFF9EB7FF))
+        StatusPill("本地", "待命", state, Modifier.weight(0.88f), accent = Color(0xFFFFD166))
+    }
+}
+
+@Composable
+private fun StatusPill(label: String, value: String, state: AssistantUiState, modifier: Modifier, accent: Color) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.96f,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.height(48.dp),
+        role = GlassRole.Chip
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(accent))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(value, color = Color.White.copy(alpha = 0.93f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantConversationCard(state: AssistantUiState) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 34,
+        modifier = Modifier.fillMaxWidth(),
+        role = GlassRole.Shell
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ModelSelectorRow(state)
+            ConversationPreview(state)
+            SuggestionRow(state)
+            ComposerBar(state)
+        }
+    }
+}
+
+@Composable
+private fun ModelSelectorRow(state: AssistantUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            radius = 999,
+            modifier = Modifier.weight(1f).height(44.dp),
+            role = GlassRole.Chip
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("AI", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                Text("Gemini 2.5 Flash", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.weight(1f))
+                Text("切换", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            radius = 999,
+            modifier = Modifier.width(76.dp).height(44.dp),
+            role = GlassRole.Floating
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("识图", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationPreview(state: AssistantUiState) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.92f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier.fillMaxWidth(),
+        role = GlassRole.Card
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp)
+        ) {
+            val visibleMessages = if (state.showPreviewConversation) previewMessages(state) else emptyList()
+            if (visibleMessages.isEmpty()) {
+                EmptyConversationState(state)
+            } else {
+                visibleMessages.forEach { message ->
+                    MessageBubble(
+                        text = message.text,
+                        fromUser = message.role == MessageRole.User,
+                        state = state
                     )
-                    GlassPresetSelector(state, onGlassPresetChange)
-                    Text("液态玻璃强度 ${state.glassIntensity.format2x()}x", color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp)
-                    Slider(value = state.glassIntensity, onValueChange = onGlassIntensityChange, valueRange = 0.6f..1.4f)
-                    Text("动态强度 ${state.motionIntensity.format2x()}x", color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp)
-                    Slider(value = state.motionIntensity, onValueChange = onMotionIntensityChange, valueRange = 0f..1.4f)
-                }
-            }
-        }
-        item {
-            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("聊天预览", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                        Text("保留示例对话和快捷指令。", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp)
-                    }
-                    Switch(checked = state.showPreviewConversation, onCheckedChange = onPreviewConversationChange)
-                }
-            }
-        }
-        item {
-            GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("服务状态", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
-                    Text("当前是 Compose 迁移预览版，后续会接入原来的云同步和 AI 解析服务。", color = Color.White.copy(alpha = 0.62f), fontSize = 15.sp, lineHeight = 22.sp)
-                    Spacer(Modifier.height(12.dp))
-                    Text(text = aiEndpoint, color = Color.White.copy(alpha = 0.36f), fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
         }
     }
 }
 
+private data class PreviewMessage(val text: String, val role: MessageRole)
+
+private fun previewMessages(state: AssistantUiState): List<PreviewMessage> {
+    val assistantText = state.messages.firstOrNull { it.role == MessageRole.Assistant }?.text
+        ?: "我可以帮你记账、识别图片文字、设置提醒，也能把复杂任务拆成一步步执行。"
+    return listOf(
+        PreviewMessage("帮我整理一下今天的支出", MessageRole.User),
+        PreviewMessage(assistantText, MessageRole.Assistant),
+        PreviewMessage("顺便提醒我晚上复盘", MessageRole.User)
+    )
+}
+
 @Composable
-private fun SettingsHero() {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("设置", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, lineHeight = 38.sp)
-        Text("账号、显示、手机偏好、背景外观和数据预算", color = Color.White.copy(alpha = 0.58f), fontSize = 16.sp, lineHeight = 22.sp)
+private fun EmptyConversationState(state: AssistantUiState) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("对话预览已隐藏", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+        Text("输入框会保留，首页更接近真实空白状态。", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp)
     }
 }
 
 @Composable
-private fun SettingsListCard(icon: String, title: String, subtitle: String, state: AssistantUiState) {
+private fun MessageBubble(text: String, fromUser: Boolean, state: AssistantUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
+    ) {
+        val width = if (fromUser) 0.74f else 0.92f
+        val role = if (fromUser) GlassRole.Floating else GlassRole.Card
+        GlassPanel(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * if (fromUser) 1.08f else 0.98f,
+            motionIntensity = state.motionIntensity,
+            radius = 24,
+            modifier = Modifier.fillMaxWidth(width),
+            role = role
+        ) {
+            Text(
+                text = text,
+                color = Color.White.copy(alpha = if (fromUser) 0.96f else 0.86f),
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SuggestionRow(state: AssistantUiState) {
+    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+        listOf("记一笔", "设提醒", "识别图片").forEach { action ->
+            SmallGlassButton(text = action, state = state, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ComposerBar(state: AssistantUiState) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        CircleGlassButton("+", state, size = 54)
+        ComposerInputGlass(state = state, modifier = Modifier.weight(1f))
+        CircleGlassButton("↑", state, size = 54)
+    }
+}
+
+@Composable
+private fun ComposerInputGlass(state: AssistantUiState, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "composer-sheen")
+    val sweep by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing), RepeatMode.Restart),
+        label = "composer-sheen-value"
+    )
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, modifier.height(54.dp), GlassRole.Card) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.020f + 0.024f * sweep),
+                            Color.Transparent
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "和我说点什么...",
+                color = Color.White.copy(alpha = 0.54f),
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 17.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickCommandPanel(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            SectionHeader("快捷指令", "把高频动作放在对话框外侧")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                QuickActionButton("账单", "查明细", state, Modifier.weight(1f))
+                QuickActionButton("导航", "回家", state, Modifier.weight(1f))
+                QuickActionButton("闹钟", "提醒", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 24,
+        modifier = modifier.height(76.dp),
+        role = GlassRole.Chip
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ToolsHeroCard(state: AssistantUiState) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 1.04f,
+        motionIntensity = state.motionIntensity,
+        radius = 32,
+        modifier = Modifier.fillMaxWidth(),
+        role = GlassRole.Shell
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("功能中心", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("保留入口，逐步接入旧版功能", color = Color.White, fontSize = 25.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black)
+                }
+                Text("整理", color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                text = "先把能力分区放稳：账本、提醒、应用控制和快捷任务都可以从这里进入。",
+                color = Color.White.copy(alpha = 0.68f),
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                MiniMetricGlass("今日支出", "¥47", state, Modifier.weight(1f))
+                MiniMetricGlass("待接入", "6", state, Modifier.weight(1f))
+                MiniMetricGlass("状态", "预览", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+private fun toolEntries(state: AssistantUiState): List<ToolEntry> {
+    if (state.tools.isNotEmpty()) {
+        return state.tools
+    }
+    return listOf(
+        ToolEntry("账单中心", "查看和管理收入支出"),
+        ToolEntry("数据统计", "按周、月、年查看趋势"),
+        ToolEntry("提醒闹钟", "创建提醒和闹钟"),
+        ToolEntry("应用控制", "打开微信、支付宝等应用"),
+        ToolEntry("快捷指令", "保存常用任务"),
+        ToolEntry("任务记录", "查看助手执行历史")
+    )
+}
+
+@Composable
+private fun ToolListCard(tool: ToolEntry, state: AssistantUiState) {
     PressableGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 28,
-        modifier = Modifier.fillMaxWidth().height(92.dp),
+        modifier = Modifier.fillMaxWidth().height(88.dp),
         role = GlassRole.Card
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 15.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 18, Modifier.size(50.dp), GlassRole.Chip) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(icon, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(toolGlyph(tool.title), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
                 }
             }
-            Spacer(Modifier.width(15.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(displayToolTitle(tool.title), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(displayToolSubtitle(tool), color = Color.White.copy(alpha = 0.56f), fontSize = 14.sp, lineHeight = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text("›", color = Color.White.copy(alpha = 0.78f), fontSize = 34.sp, fontWeight = FontWeight.Light)
+            Text("›", color = Color.White.copy(alpha = 0.70f), fontSize = 34.sp, fontWeight = FontWeight.Light)
+        }
+    }
+}
+
+private fun displayToolTitle(title: String): String {
+    return when {
+        title.contains("账单") -> title
+        title.contains("数据") -> title
+        title.contains("提醒") || title.contains("闹钟") -> title
+        title.contains("应用") -> title
+        title.contains("快捷") -> title
+        title.contains("任务") -> title
+        title.contains("璐") || title.contains("鍗") -> "账单中心"
+        title.contains("鏁") || title.contains("缁") -> "数据统计"
+        title.contains("鎻") || title.contains("闂") -> "提醒闹钟"
+        title.contains("搴") || title.contains("鎺") -> "应用控制"
+        title.contains("蹇") || title.contains("鎸") -> "快捷指令"
+        title.contains("浠") || title.contains("璁") -> "任务记录"
+        else -> title.ifBlank { "功能入口" }
+    }
+}
+
+private fun displayToolSubtitle(tool: ToolEntry): String {
+    val title = displayToolTitle(tool.title)
+    return when (title) {
+        "账单中心" -> "查看和管理收入支出"
+        "数据统计" -> "按周、月、年查看趋势"
+        "提醒闹钟" -> "创建提醒和闹钟"
+        "应用控制" -> "打开微信、支付宝等应用"
+        "快捷指令" -> "保存常用任务"
+        "任务记录" -> "查看助手执行历史"
+        else -> tool.subtitle
+    }
+}
+
+private fun toolGlyph(title: String): String = when (displayToolTitle(title)) {
+    "账单中心" -> "账"
+    "数据统计" -> "图"
+    "提醒闹钟" -> "铃"
+    "应用控制" -> "启"
+    "快捷指令" -> "令"
+    else -> "记"
+}
+
+@Composable
+private fun SettingsGlassCard(
+    state: AssistantUiState,
+    onQualityChange: (RenderQuality) -> Unit,
+    onGlassPresetChange: (GlassPreset) -> Unit,
+    onBackgroundThemeChange: (BackgroundTheme) -> Unit,
+    onGlassIntensityChange: (Float) -> Unit,
+    onMotionIntensityChange: (Float) -> Unit
+) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Shell) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionHeader("玻璃与性能", "真机调试时优先使用均衡档")
+            SegmentedQuality(state, onQualityChange)
+            GlassPresetSelector(state, onGlassPresetChange)
+            ThemeSelector(state, onBackgroundThemeChange)
+            SliderLine("玻璃强度", state.glassIntensity, onGlassIntensityChange, 0.6f..1.4f)
+            SliderLine("动态强度", state.motionIntensity, onMotionIntensityChange, 0f..1.4f)
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, subtitle: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
+        Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+private fun SegmentedQuality(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RenderQuality.entries.forEach { quality ->
+            val selected = state.quality == quality
+            PressableGlass(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
+                motionIntensity = state.motionIntensity,
+                radius = 20,
+                modifier = Modifier.weight(1f).height(52.dp),
+                role = if (selected) GlassRole.Floating else GlassRole.Chip,
+                onClick = { onQualityChange(quality) }
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(qualityLabel(quality), color = Color.White.copy(alpha = if (selected) 1f else 0.68f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+            }
         }
     }
 }
@@ -707,12 +622,12 @@ private fun GlassPresetSelector(state: AssistantUiState, onGlassPresetChange: (G
                 glassIntensity = state.glassIntensity,
                 motionIntensity = state.motionIntensity,
                 radius = 20,
-                modifier = Modifier.weight(1f).height(54.dp),
+                modifier = Modifier.weight(1f).height(50.dp),
                 role = if (selected) GlassRole.Floating else GlassRole.Chip,
                 onClick = { onGlassPresetChange(preset) }
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(preset.label, color = Color.White.copy(alpha = if (selected) 1f else 0.72f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text(preset.label, color = Color.White.copy(alpha = if (selected) 1f else 0.68f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
             }
         }
@@ -720,36 +635,130 @@ private fun GlassPresetSelector(state: AssistantUiState, onGlassPresetChange: (G
 }
 
 @Composable
-private fun PreviewHiddenCard(state: AssistantUiState) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(20.dp)) {
-            Text("预览对话已隐藏", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text("现在展示的是更接近真实聊天入口的空白态，方便下一步直接接 AI Worker。", color = Color.White.copy(alpha = 0.58f), fontSize = 15.sp, lineHeight = 22.sp)
+private fun ThemeSelector(state: AssistantUiState, onBackgroundThemeChange: (BackgroundTheme) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        BackgroundTheme.entries.forEach { theme ->
+            val selected = state.backgroundTheme == theme
+            PressableGlass(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
+                motionIntensity = state.motionIntensity,
+                radius = 20,
+                modifier = Modifier.weight(1f).height(46.dp),
+                role = if (selected) GlassRole.Floating else GlassRole.Chip,
+                onClick = { onBackgroundThemeChange(theme) }
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(themeLabel(theme), color = Color.White.copy(alpha = if (selected) 1f else 0.66f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun ToolCard(tool: ToolEntry, state: AssistantUiState) {
-    SettingsListCard(tool.icon, tool.title, tool.subtitle, state)
+private fun SliderLine(label: String, value: Float, onValueChange: (Float) -> Unit, range: ClosedFloatingPointRange<Float>) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("${value.format2x()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Slider(value = value, onValueChange = onValueChange, valueRange = range)
+    }
+}
+
+@Composable
+private fun ToggleSettingCard(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    state: AssistantUiState
+) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                Text(subtitle, color = Color.White.copy(alpha = 0.58f), fontSize = 14.sp, lineHeight = 20.sp)
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
+@Composable
+private fun ServiceStatusCard(aiEndpoint: String, state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("服务状态", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            Text("当前是 Compose 迁移预览版，后续会接入云同步和 AI 解析服务。", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp, lineHeight = 20.sp)
+            Text(aiEndpoint, color = Color.White.copy(alpha = 0.36f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun SettingsShortcutList(state: AssistantUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingsListCard("账号与同步", "登录状态、云端同步和本地备份。", state)
+        SettingsListCard("手机偏好", "家庭地址、默认地图、提醒和闹钟。", state)
+        SettingsListCard("数据与预算", "预算、账单、导出和清空记录。", state)
+    }
+}
+
+@Composable
+private fun SettingsListCard(title: String, subtitle: String, state: AssistantUiState) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 26,
+        modifier = Modifier.fillMaxWidth().height(78.dp),
+        role = GlassRole.Card
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text(subtitle, color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("›", color = Color.White.copy(alpha = 0.62f), fontSize = 30.sp, fontWeight = FontWeight.Light)
+        }
+    }
+}
+
+@Composable
+private fun MiniMetricGlass(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 22,
+        modifier = modifier.height(74.dp),
+        role = GlassRole.Card
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.96f), fontSize = 22.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        }
+    }
 }
 
 @Composable
 private fun SmallGlassButton(text: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 24, modifier.height(50.dp), GlassRole.Chip) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 22, modifier.height(46.dp), GlassRole.Chip) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun CircleGlassButton(text: String, state: AssistantUiState) {
+private fun CircleGlassButton(text: String, state: AssistantUiState, size: Int) {
     val transition = rememberInfiniteTransition(label = "send-btn-pulse")
     val pulse by transition.animateFloat(
-        initialValue = 0.98f,
-        targetValue = if (state.motionIntensity > 0f) 1.025f else 1f,
+        initialValue = 0.985f,
+        targetValue = if (state.motionIntensity > 0f) 1.018f else 1f,
         animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1900, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
         label = "send-btn-pulse-value"
     )
@@ -758,11 +767,11 @@ private fun CircleGlassButton(text: String, state: AssistantUiState) {
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 999,
-        modifier = Modifier.size(58.dp).graphicsLayer { scaleX = pulse; scaleY = pulse },
+        modifier = Modifier.size(size.dp).graphicsLayer { scaleX = pulse; scaleY = pulse },
         role = GlassRole.Floating
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+            Text(text, color = Color.White, fontSize = if (text == "+") 28.sp else 22.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -776,8 +785,8 @@ fun LiquidBottomBar(
     onTabChange: (AppTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassPanel(quality, glassIntensity, motionIntensity, 34, modifier.fillMaxWidth(), GlassRole.Nav) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(7.dp)) {
+    GlassPanel(quality, glassIntensity, motionIntensity, 30, modifier.fillMaxWidth().height(62.dp), GlassRole.Nav) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(6.dp)) {
             val tabCount = AppTab.entries.size
             val slot = maxWidth / tabCount
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
@@ -786,10 +795,10 @@ fun LiquidBottomBar(
 
             GlassPanel(
                 quality = quality,
-                glassIntensity = glassIntensity * 1.10f,
+                glassIntensity = glassIntensity * 1.08f,
                 motionIntensity = motionIntensity,
-                radius = 26,
-                modifier = Modifier.offset(x = indicatorX + 4.dp, y = 1.dp).width(indicatorW).height(68.dp),
+                radius = 24,
+                modifier = Modifier.offset(x = indicatorX + 4.dp, y = 1.dp).width(indicatorW).height(48.dp),
                 role = GlassRole.Floating
             ) {}
 
@@ -802,16 +811,15 @@ fun LiquidBottomBar(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .height(70.dp)
+                            .height(50.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(28.dp))
+                            .clip(RoundedCornerShape(24.dp))
                             .clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(navIcon(tab), color = Color.White.copy(alpha = if (selected) 0.98f else 0.55f), fontSize = 22.sp, maxLines = 1)
-                        Spacer(Modifier.height(3.dp))
-                        Text(tab.title, color = Color.White.copy(alpha = if (selected) 0.96f else 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(navIcon(tab), color = Color.White.copy(alpha = if (selected) 0.98f else 0.52f), fontSize = 16.sp, maxLines = 1)
+                        Text(tabLabel(tab), color = Color.White.copy(alpha = if (selected) 0.96f else 0.50f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -819,12 +827,29 @@ fun LiquidBottomBar(
     }
 }
 
-private fun navIcon(tab: AppTab): String {
-    return when (tab) {
-        AppTab.Assistant -> "✦"
-        AppTab.Tools -> "▦"
-        AppTab.Settings -> "⚙"
-    }
+fun tabLabel(tab: AppTab): String = when (tab) {
+    AppTab.Assistant -> "AI 助手"
+    AppTab.Tools -> "功能"
+    AppTab.Settings -> "设置"
+}
+
+fun navIcon(tab: AppTab): String = when (tab) {
+    AppTab.Assistant -> "✦"
+    AppTab.Tools -> "▦"
+    AppTab.Settings -> "⚙"
+}
+
+private fun qualityLabel(quality: RenderQuality): String = when (quality) {
+    RenderQuality.Smooth -> "流畅"
+    RenderQuality.Balanced -> "均衡"
+    RenderQuality.Experimental -> "高画质"
+}
+
+private fun themeLabel(theme: BackgroundTheme): String = when (theme) {
+    BackgroundTheme.Aurora -> "极光"
+    BackgroundTheme.Jade -> "翡翠"
+    BackgroundTheme.Sunset -> "暮色"
+    BackgroundTheme.Dawn -> "晨雾"
 }
 
 private fun Float.format2x(): String {

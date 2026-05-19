@@ -46,13 +46,13 @@ fun CompactLiquidBottomBar(
 ) {
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity * 0.88f,
+        glassIntensity = glassIntensity * 0.92f,
         motionIntensity = motionIntensity,
-        radius = 26,
-        modifier = modifier.fillMaxWidth().height(54.dp),
+        radius = 28,
+        modifier = modifier.fillMaxWidth().height(58.dp),
         role = GlassRole.Nav
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(5.dp)) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(6.dp)) {
             val slot = maxWidth / AppTab.entries.size
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
             val indicatorX by animateDpAsState(
@@ -68,13 +68,13 @@ fun CompactLiquidBottomBar(
 
             GlassPanel(
                 quality = quality,
-                glassIntensity = glassIntensity * 1.04f,
+                glassIntensity = glassIntensity * 1.05f,
                 motionIntensity = motionIntensity,
-                radius = 21,
+                radius = 23,
                 modifier = Modifier
                     .offset(x = indicatorX + 4.dp, y = 1.dp)
                     .width(indicatorW)
-                    .height(42.dp),
+                    .height(44.dp),
                 role = GlassRole.Floating
             ) {}
 
@@ -87,24 +87,24 @@ fun CompactLiquidBottomBar(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .height(44.dp)
+                            .height(46.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(21.dp))
+                            .clip(RoundedCornerShape(23.dp))
                             .clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            compactNavIcon(tab),
+                            navIcon(tab),
                             color = Color.White.copy(alpha = if (selected) 0.96f else 0.48f),
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             maxLines = 1
                         )
-                        Spacer(Modifier.height(0.dp))
+                        Spacer(Modifier.height(1.dp))
                         Text(
-                            tab.title,
+                            tabLabel(tab),
                             color = Color.White.copy(alpha = if (selected) 0.92f else 0.46f),
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -114,10 +114,4 @@ fun CompactLiquidBottomBar(
             }
         }
     }
-}
-
-private fun compactNavIcon(tab: AppTab): String = when (tab) {
-    AppTab.Assistant -> "✦"
-    AppTab.Tools -> "▦"
-    AppTab.Settings -> "⚙"
 }
