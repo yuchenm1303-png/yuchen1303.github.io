@@ -1,5 +1,10 @@
 package com.yuchen.ailedger.ui
 
+import android.graphics.BitmapShader
+import android.graphics.Paint as AndroidPaint
+import android.graphics.RuntimeShader
+import android.graphics.Shader
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -12,10 +17,12 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -28,68 +35,40 @@ import kotlin.math.roundToInt
 @Composable
 fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     val registry = LocalGlassItemRegistry.current
-    val cachedBackdrop = LocalBlurredBackdrop.current
-    val backdropOrigin = LocalBackdropOrigin.current
+    val backdrop = LocalBlurredBackdrop.current
+    val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val spec = LocalGlassBackdrop.current
 
     Canvas(modifier = modifier) {
         ticker?.frameNanos
-        val backdrop = cachedBackdrop ?: return@Canvas
-        val items = registry?.snapshot().orEmpty()
+        val cached = backdrop ?: return@Canvas
         val border = spec?.borderStyle ?: GlassBorderStyle()
-        val screenRect = Rect(0f, 0f, size.width, size.height)
-
-        items.forEach { item ->
+        val screen = Rect(0f, 0f, size.width, size.height)
+        registry?.snapshot().orEmpty().forEach { item ->
             if (!item.coordinates.isAttached()) return@forEach
             val itemSize = item.coordinates.itemSize()
             if (itemSize.width <= 0 || itemSize.height <= 0) return@forEach
-
             val topLeft = item.coordinates.rootOffset()
-            val itemRect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
-            val visibleRect = itemRect.intersectionOrNull(screenRect) ?: return@forEach
-            val sampleOffset = item.coordinates.offsetRelativeTo(backdropOrigin)
-
-            drawUnifiedGlassBackdropItem(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                visibleRect = visibleRect,
-                sampleOffset = sampleOffset,
-                radius = item.radius,
-                quality = item.quality,
-                glassIntensity = item.glassIntensity,
-                backdropAlpha = item.backdropAlpha,
-                border = border
-            )
-            drawUnifiedGlassLensEdgeItem(
-                backdrop = backdrop,
-                itemRect = itemRect,
-                screenRect = screenRect,
-                sampleOffset = sampleOffset,
-                radius = item.radius,
-                border = border,
-                strength = item.edgeStrength
-            )
-            drawUnifiedGlassHighlightItem(
-                itemRect = itemRect,
-                radius = item.radius,
-                border = border
-            )
+            val rect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
+            val visible = rect.intersectionOrNull(screen) ?: return@forEach
+            val sampleOffset = item.coordinates.offsetRelativeTo(origin)
+            drawGlassBody(cached, rect, visible, sampleOffset, item.radius, item.quality, item.glassIntensity, item.backdropAlpha, border)
+            drawContinuousLens(cached, rect, visible, sampleOffset, item.radius, border, item.edgeStrength)
+            drawGlassHighlights(rect, item.radius, border)
         }
     }
 }
 
 private fun Rect.intersectionOrNull(other: Rect): Rect? {
-    val left = max(this.left, other.left)
-    val top = max(this.top, other.top)
-    val right = min(this.right, other.right)
-    val bottom = min(this.bottom, other.bottom)
+    val left = max(left, other.left)
+    val top = max(top, other.top)
+    val right = min(right, other.right)
+    val bottom = min(bottom, other.bottom)
     return if (right > left && bottom > top) Rect(left, top, right, bottom) else null
 }
 
-private fun Rect.insetBy(value: Float): Rect = Rect(left + value, top + value, right - value, bottom - value)
-
-private fun DrawScope.drawUnifiedGlassBackdropItem(
+private fun DrawScope.drawGlassBody(
     backdrop: BlurredBackdropBitmap,
     itemRect: Rect,
     visibleRect: Rect,
@@ -100,72 +79,57 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
     backdropAlpha: Float,
     border: GlassBorderStyle
 ) {
-    val visibleWidth = visibleRect.width.roundToInt().coerceAtLeast(1)
-    val visibleHeight = visibleRect.height.roundToInt().coerceAtLeast(1)
     val corner = radius.dp.toPx()
-    val path = Path().apply {
-        addRoundRect(RoundRect(rect = itemRect, cornerRadius = CornerRadius(corner, corner)))
-    }
-
     val bodyScale = (border.bodyAlpha / 0.20f).coerceIn(0.35f, 2.20f)
     val alpha = (glassIntensity * bodyScale).coerceIn(0.12f, 1.25f)
-    val baseScrimAlpha = when (quality) {
+    val base = when (quality) {
         RenderQuality.Smooth -> 0.15f
         RenderQuality.Balanced -> 0.18f
         RenderQuality.Experimental -> 0.21f
     } * alpha
-    val milkAlpha = when (quality) {
+    val milk = when (quality) {
         RenderQuality.Smooth -> 0.040f
         RenderQuality.Balanced -> 0.052f
         RenderQuality.Experimental -> 0.064f
     } * alpha
-
-    val visibleDeltaX = visibleRect.left - itemRect.left
-    val visibleDeltaY = visibleRect.top - itemRect.top
-    val visibleSampleX = sampleOffset.x + visibleDeltaX
-    val visibleSampleY = sampleOffset.y + visibleDeltaY
-    val srcX = (visibleSampleX * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = (visibleSampleY * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val srcW = (visibleWidth * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (visibleHeight * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-
+    val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
+    val srcX = ((sampleOffset.x + visibleRect.left - itemRect.left) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
+    val srcY = ((sampleOffset.y + visibleRect.top - itemRect.top) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
+    val dstW = visibleRect.width.roundToInt().coerceAtLeast(1)
+    val dstH = visibleRect.height.roundToInt().coerceAtLeast(1)
+    val srcW = (dstW * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
+    val srcH = (dstH * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
     clipPath(path) {
         drawImage(
             image = backdrop.image,
             srcOffset = IntOffset(srcX, srcY),
             srcSize = IntSize(srcW, srcH),
             dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
-            dstSize = IntSize(visibleWidth, visibleHeight),
+            dstSize = IntSize(dstW, dstH),
             alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f),
             blendMode = BlendMode.SrcOver
         )
-        drawRect(
-            color = Color(0xFF72859A).copy(alpha = baseScrimAlpha * 0.22f),
-            topLeft = Offset(visibleRect.left, visibleRect.top),
-            size = Size(visibleRect.width, visibleRect.height),
-            blendMode = BlendMode.SrcOver
-        )
+        drawRect(Color(0xFF72859A).copy(alpha = base * 0.22f), Offset(visibleRect.left, visibleRect.top), Size(visibleRect.width, visibleRect.height))
         drawRect(
             brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = milkAlpha * 0.34f),
-                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.15f),
-                    Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.10f)
+                listOf(
+                    Color.White.copy(alpha = milk * 0.34f),
+                    Color(0xFFDCE5EF).copy(alpha = milk * 0.15f),
+                    Color(0xFF172333).copy(alpha = base * 0.10f)
                 ),
                 startY = itemRect.top,
                 endY = itemRect.bottom
             ),
             topLeft = Offset(visibleRect.left, visibleRect.top),
-            size = Size(visibleRect.width, visibleRect.height),
-            blendMode = BlendMode.SrcOver
+            size = Size(visibleRect.width, visibleRect.height)
         )
     }
 }
 
-private fun DrawScope.drawUnifiedGlassLensEdgeItem(
+private fun DrawScope.drawContinuousLens(
     backdrop: BlurredBackdropBitmap,
     itemRect: Rect,
-    screenRect: Rect,
+    visibleRect: Rect,
     sampleOffset: Offset,
     radius: Int,
     border: GlassBorderStyle,
@@ -174,191 +138,59 @@ private fun DrawScope.drawUnifiedGlassLensEdgeItem(
     val w = itemRect.width
     val h = itemRect.height
     if (w <= 4f || h <= 4f) return
-
     val corner = radius.dp.toPx()
-    val ringWidth = border.ringWidthDp.dp.toPx().coerceIn(2.dp.toPx(), min(w, h) * 0.30f)
-    val pull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 0.42f)
-    val edgeAlpha = (border.edgeAlpha * (0.42f + strength * 0.42f) * border.edgeBrightness.coerceIn(0.72f, 1.25f)).coerceIn(0f, 0.72f)
-    if (edgeAlpha <= 0.01f || pull <= 0.5f) return
-
-    val outerPath = Path().apply {
-        addRoundRect(RoundRect(rect = itemRect, cornerRadius = CornerRadius(corner, corner)))
-    }
-
-    clipPath(outerPath) {
-        drawContinuousLensLayer(
-            backdrop = backdrop,
-            itemRect = itemRect,
-            screenRect = screenRect,
-            sampleOffset = sampleOffset,
-            corner = corner,
-            inset = 0f,
-            width = ringWidth * 0.34f,
-            sourceInset = pull * 1.05f,
-            alpha = edgeAlpha * 0.18f
-        )
-        drawContinuousLensLayer(
-            backdrop = backdrop,
-            itemRect = itemRect,
-            screenRect = screenRect,
-            sampleOffset = sampleOffset,
-            corner = corner,
-            inset = ringWidth * 0.18f,
-            width = ringWidth * 0.42f,
-            sourceInset = pull,
-            alpha = edgeAlpha * 0.42f
-        )
-        drawContinuousLensLayer(
-            backdrop = backdrop,
-            itemRect = itemRect,
-            screenRect = screenRect,
-            sampleOffset = sampleOffset,
-            corner = corner,
-            inset = ringWidth * 0.52f,
-            width = ringWidth * 0.34f,
-            sourceInset = pull * 0.66f,
-            alpha = edgeAlpha * 0.18f
-        )
-
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = border.bodyAlpha * 0.020f),
-                    Color.White.copy(alpha = border.bodyAlpha * 0.010f),
-                    Color.Transparent
-                ),
-                center = itemRect.center,
-                radius = max(w, h) * 0.82f
-            ),
-            topLeft = Offset(itemRect.left + ringWidth * 0.35f, itemRect.top + ringWidth * 0.35f),
-            size = Size(w - ringWidth * 0.70f, h - ringWidth * 0.70f),
-            cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = ringWidth * 0.88f),
-            blendMode = BlendMode.Screen
-        )
+    val edgeWidth = (border.ringWidthDp.dp.toPx() + border.edgeBlurDp.dp.toPx() * 0.44f).coerceIn(4.dp.toPx(), min(w, h) * 0.46f)
+    val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 0.80f)
+    val edgeAlpha = (border.edgeAlpha * (0.32f + strength * 0.30f) * border.edgeBrightness.coerceIn(0.72f, 1.25f)).coerceIn(0f, 0.56f)
+    if (edgeAlpha <= 0.01f || edgePull <= 0.5f) return
+    val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
+    clipPath(path) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (drawShaderLens(backdrop, itemRect, visibleRect, sampleOffset, corner, edgeWidth, edgePull, edgeAlpha, border)) return@clipPath
+        }
+        drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.72f, edgeAlpha * 0.18f)
     }
 }
 
-private fun DrawScope.drawUnifiedGlassHighlightItem(
-    itemRect: Rect,
-    radius: Int,
-    border: GlassBorderStyle
-) {
-    val w = itemRect.width
-    val h = itemRect.height
-    val corner = radius.dp.toPx()
-    fun itemOffset(x: Float, y: Float): Offset = Offset(itemRect.left + x, itemRect.top + y)
-    fun itemSize(width: Float, height: Float): Size = Size(width, height)
-
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = border.topHighlightAlpha * 0.16f),
-                Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.028f),
-                Color.Transparent
-            ),
-            startY = itemRect.top,
-            endY = itemRect.top + h * 0.20f
-        ),
-        topLeft = itemOffset(1.0.dp.toPx(), 1.0.dp.toPx()),
-        size = itemSize(w - 2.0.dp.toPx(), h - 2.0.dp.toPx()),
-        cornerRadius = CornerRadius(corner, corner),
-        style = Stroke(width = 1.9.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = (border.outerStrokeAlpha * 0.32f).coerceIn(0f, 0.22f)),
-                Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.11f),
-                Color.White.copy(alpha = border.outerStrokeAlpha * 0.026f),
-                Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.040f)
-            ),
-            start = itemOffset(0f, 0f),
-            end = itemOffset(w, h)
-        ),
-        topLeft = itemOffset(0.65.dp.toPx(), 0.65.dp.toPx()),
-        size = itemSize(w - 1.3.dp.toPx(), h - 1.3.dp.toPx()),
-        cornerRadius = CornerRadius(corner, corner),
-        style = Stroke(width = 0.70.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-
-    drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = border.cornerGlintAlpha * 0.55f),
-                Color(0xFFEAF5FF).copy(alpha = border.cornerGlintAlpha * 0.16f),
-                Color.Transparent
-            ),
-            center = itemOffset(w * 0.10f, h * 0.08f),
-            radius = w * 0.28f
-        ),
-        topLeft = itemOffset(0f, 0f),
-        size = itemSize(w, h),
-        blendMode = BlendMode.Screen
-    )
-
-    if (border.bottomShadowAlpha > 0.01f) {
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.Transparent,
-                    Color(0xFF071225).copy(alpha = border.bottomShadowAlpha * 0.20f)
-                ),
-                startY = itemRect.top + h * 0.58f,
-                endY = itemRect.bottom
-            ),
-            topLeft = itemOffset(2.0.dp.toPx(), 2.0.dp.toPx()),
-            size = itemSize(w - 4.0.dp.toPx(), h - 4.0.dp.toPx()),
-            cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 1.0.dp.toPx()),
-            blendMode = BlendMode.Multiply
-        )
-    }
-}
-
-private fun DrawScope.drawContinuousLensLayer(
+private fun DrawScope.drawShaderLens(
     backdrop: BlurredBackdropBitmap,
     itemRect: Rect,
-    screenRect: Rect,
+    visibleRect: Rect,
     sampleOffset: Offset,
-    corner: Float,
-    inset: Float,
-    width: Float,
-    sourceInset: Float,
-    alpha: Float
-) {
-    val layerRect = itemRect.insetBy(inset)
-    if (layerRect.width <= 0f || layerRect.height <= 0f || width <= 0f || alpha <= 0f) return
-
-    val layerCorner = (corner - inset).coerceAtLeast(0f)
-    val innerRect = layerRect.insetBy(width)
-    val innerCorner = (layerCorner - width).coerceAtLeast(0f)
-    val ringPath = Path().apply {
-        fillType = PathFillType.EvenOdd
-        addRoundRect(RoundRect(rect = layerRect, cornerRadius = CornerRadius(layerCorner, layerCorner)))
-        if (innerRect.width > 0f && innerRect.height > 0f) {
-            addRoundRect(RoundRect(rect = innerRect, cornerRadius = CornerRadius(innerCorner, innerCorner)))
+    radius: Float,
+    edgeWidth: Float,
+    edgePull: Float,
+    edgeAlpha: Float,
+    border: GlassBorderStyle
+): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+    return runCatching {
+        val lensShader = RuntimeShader(GLASS_LENS_SHADER).apply {
+            setInputShader("backdrop", BitmapShader(backdrop.image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+            setFloatUniform("itemPos", itemRect.left, itemRect.top)
+            setFloatUniform("itemSize", itemRect.width, itemRect.height)
+            setFloatUniform("sampleOffset", sampleOffset.x, sampleOffset.y)
+            setFloatUniform("backdropScale", backdrop.scale)
+            setFloatUniform("radius", radius)
+            setFloatUniform("edgeWidth", edgeWidth)
+            setFloatUniform("edgePull", edgePull)
+            setFloatUniform("edgeAlpha", edgeAlpha)
+            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.85f))
+            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.10f))
+            setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
         }
-    }
-
-    val visible = layerRect.intersectionOrNull(screenRect) ?: return
-    clipPath(ringPath) {
-        drawLensBackdrop(
-            backdrop = backdrop,
-            itemRect = itemRect,
-            visibleRect = visible,
-            sampleOffset = sampleOffset,
-            sourceInset = sourceInset,
-            alpha = alpha
-        )
-    }
+        val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+            shader = lensShader
+            isDither = true
+        }
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawRect(visibleRect.left, visibleRect.top, visibleRect.right, visibleRect.bottom, paint)
+        }
+        true
+    }.getOrDefault(false)
 }
 
-private fun DrawScope.drawLensBackdrop(
+private fun DrawScope.drawFallbackLens(
     backdrop: BlurredBackdropBitmap,
     itemRect: Rect,
     visibleRect: Rect,
@@ -368,32 +200,94 @@ private fun DrawScope.drawLensBackdrop(
 ) {
     val w = itemRect.width.coerceAtLeast(1f)
     val h = itemRect.height.coerceAtLeast(1f)
-    val insetX = sourceInset.coerceIn(0f, w * 0.38f)
-    val insetY = sourceInset.coerceIn(0f, h * 0.38f)
-    val sourceW = (w - insetX * 2f).coerceAtLeast(1f)
-    val sourceH = (h - insetY * 2f).coerceAtLeast(1f)
-
-    val relLeft = visibleRect.left - itemRect.left
-    val relTop = visibleRect.top - itemRect.top
-    val sourceLocalX = insetX + relLeft * sourceW / w
-    val sourceLocalY = insetY + relTop * sourceH / h
-    val sourceLocalW = visibleRect.width * sourceW / w
-    val sourceLocalH = visibleRect.height * sourceH / h
-
+    val insetX = sourceInset.coerceIn(0f, w * 0.34f)
+    val insetY = sourceInset.coerceIn(0f, h * 0.34f)
+    val srcWLocal = (w - insetX * 2f).coerceAtLeast(1f)
+    val srcHLocal = (h - insetY * 2f).coerceAtLeast(1f)
+    val relX = visibleRect.left - itemRect.left
+    val relY = visibleRect.top - itemRect.top
+    val srcLocalX = insetX + relX * srcWLocal / w
+    val srcLocalY = insetY + relY * srcHLocal / h
     val dstW = visibleRect.width.roundToInt().coerceAtLeast(1)
     val dstH = visibleRect.height.roundToInt().coerceAtLeast(1)
-    val srcX = ((sampleOffset.x + sourceLocalX) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = ((sampleOffset.y + sourceLocalY) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val srcW = (sourceLocalW * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (sourceLocalH * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-
-    drawImage(
-        image = backdrop.image,
-        srcOffset = IntOffset(srcX, srcY),
-        srcSize = IntSize(srcW, srcH),
-        dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
-        dstSize = IntSize(dstW, dstH),
-        alpha = alpha.coerceIn(0f, 1f),
-        blendMode = BlendMode.SrcOver
-    )
+    val srcX = ((sampleOffset.x + srcLocalX) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
+    val srcY = ((sampleOffset.y + srcLocalY) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
+    val srcW = (visibleRect.width * srcWLocal / w * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
+    val srcH = (visibleRect.height * srcHLocal / h * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
+    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.20f), blendMode = BlendMode.Screen)
 }
+
+private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: GlassBorderStyle) {
+    val w = itemRect.width
+    val h = itemRect.height
+    val corner = radius.dp.toPx()
+    fun p(x: Float, y: Float) = Offset(itemRect.left + x, itemRect.top + y)
+    fun s(width: Float, height: Float) = Size(width, height)
+    drawRoundRect(
+        brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = border.topHighlightAlpha * 0.16f), Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.028f), Color.Transparent), itemRect.top, itemRect.top + h * 0.20f),
+        topLeft = p(1.dp.toPx(), 1.dp.toPx()),
+        size = s(w - 2.dp.toPx(), h - 2.dp.toPx()),
+        cornerRadius = CornerRadius(corner, corner),
+        style = Stroke(width = 1.9.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(listOf(Color.White.copy(alpha = (border.outerStrokeAlpha * 0.32f).coerceIn(0f, 0.22f)), Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.11f), Color.White.copy(alpha = border.outerStrokeAlpha * 0.026f), Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.040f)), p(0f, 0f), p(w, h)),
+        topLeft = p(0.65.dp.toPx(), 0.65.dp.toPx()),
+        size = s(w - 1.3.dp.toPx(), h - 1.3.dp.toPx()),
+        cornerRadius = CornerRadius(corner, corner),
+        style = Stroke(width = 0.70.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = border.cornerGlintAlpha * 0.55f), Color(0xFFEAF5FF).copy(alpha = border.cornerGlintAlpha * 0.16f), Color.Transparent), p(w * 0.10f, h * 0.08f), w * 0.28f), p(0f, 0f), s(w, h), blendMode = BlendMode.Screen)
+    if (border.bottomShadowAlpha > 0.01f) {
+        drawRoundRect(
+            brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF071225).copy(alpha = border.bottomShadowAlpha * 0.20f)), itemRect.top + h * 0.58f, itemRect.bottom),
+            topLeft = p(2.dp.toPx(), 2.dp.toPx()),
+            size = s(w - 4.dp.toPx(), h - 4.dp.toPx()),
+            cornerRadius = CornerRadius(corner, corner),
+            style = Stroke(width = 1.dp.toPx()),
+            blendMode = BlendMode.Multiply
+        )
+    }
+}
+
+private const val GLASS_LENS_SHADER = """
+uniform shader backdrop;
+uniform float2 itemPos;
+uniform float2 itemSize;
+uniform float2 sampleOffset;
+uniform float backdropScale;
+uniform float radius;
+uniform float edgeWidth;
+uniform float edgePull;
+uniform float edgeAlpha;
+uniform float edgeContrast;
+uniform float edgeSaturation;
+uniform float edgeBrightness;
+float roundedBoxSdf(float2 p, float2 halfSize, float r) {
+    float2 b = max(halfSize - float2(r, r), float2(0.0, 0.0));
+    float2 q = abs(p) - b;
+    return length(max(q, float2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+float3 adjustColor(float3 color) {
+    float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
+    color = mix(float3(luma, luma, luma), color, edgeSaturation);
+    color = (color - float3(0.5, 0.5, 0.5)) * edgeContrast + float3(0.5, 0.5, 0.5);
+    return clamp(color * edgeBrightness, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+}
+half4 main(float2 coord) {
+    float2 local = coord - itemPos;
+    float2 center = itemSize * 0.5;
+    float sd = roundedBoxSdf(local - center, itemSize * 0.5, radius);
+    float inside = max(-sd, 0.0);
+    float nearEdge = exp(-inside / max(edgeWidth * 0.52, 1.0));
+    float softTail = exp(-inside / max(max(itemSize.x, itemSize.y) * 0.34, 1.0)) * 0.11;
+    float falloff = clamp(nearEdge + softTail, 0.0, 1.0);
+    float2 toCenter = normalize(center - local + float2(0.001, 0.001));
+    float2 sampleCoord = (sampleOffset + local + toCenter * edgePull * falloff) * backdropScale;
+    half4 src = backdrop.eval(sampleCoord);
+    float a = edgeAlpha * falloff;
+    return half4(adjustColor(float3(src.r, src.g, src.b)) * a, a);
+}
+"""
