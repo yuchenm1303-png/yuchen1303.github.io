@@ -42,8 +42,21 @@ enum class GlassRole(
     Floating(0f, 1.00f, 1.00f, 14)
 }
 
+private const val STRONG_GLASS_BLUR_DP = 132
+private const val MEDIUM_GLASS_BLUR_DP = 96
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 1.00f
 private const val UNIFIED_EDGE_STRENGTH = 0.24f
+
+private fun blurForRole(role: GlassRole): Int = when (role) {
+    GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
+    GlassRole.Nav -> 118
+    GlassRole.Chip -> MEDIUM_GLASS_BLUR_DP
+}
+
+private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
+    GlassRole.Chip, GlassRole.Floating -> false
+}
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     if (radius >= 999) return radius
@@ -71,23 +84,27 @@ fun GlassPanel(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
+    val backdrop = LocalGlassBackdrop.current
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role)
     val key = remember { Any() }
 
-    SideEffect {
-        registry?.upsert(
-            GlassRenderItem(
-                key = key,
-                coordinates = coordinates,
-                radius = effectiveRadius,
-                role = role,
-                quality = quality,
-                glassIntensity = glassIntensity,
-                edgeStrength = UNIFIED_EDGE_STRENGTH,
-                backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
+    if (useUnifiedBackdrop) {
+        SideEffect {
+            registry?.upsert(
+                GlassRenderItem(
+                    key = key,
+                    coordinates = coordinates,
+                    radius = effectiveRadius,
+                    role = role,
+                    quality = quality,
+                    glassIntensity = glassIntensity,
+                    edgeStrength = UNIFIED_EDGE_STRENGTH,
+                    backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
+                )
             )
-        )
+        }
     }
-    DisposableEffect(registry, key) {
+    DisposableEffect(registry, key, useUnifiedBackdrop) {
         onDispose { registry?.remove(key) }
     }
 
@@ -96,6 +113,27 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
+        if (!useUnifiedBackdrop && backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(role),
+                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
+            )
+            SampledWeatherEdgeRefraction(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                strength = UNIFIED_EDGE_STRENGTH
+            )
+        }
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -140,24 +178,28 @@ fun PressableGlass(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
+    val backdrop = LocalGlassBackdrop.current
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.08f else glassIntensity
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role)
 
-    SideEffect {
-        registry?.upsert(
-            GlassRenderItem(
-                key = key,
-                coordinates = coordinates,
-                radius = effectiveRadius,
-                role = role,
-                quality = quality,
-                glassIntensity = pressedIntensity,
-                edgeStrength = UNIFIED_EDGE_STRENGTH,
-                backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+    if (useUnifiedBackdrop) {
+        SideEffect {
+            registry?.upsert(
+                GlassRenderItem(
+                    key = key,
+                    coordinates = coordinates,
+                    radius = effectiveRadius,
+                    role = role,
+                    quality = quality,
+                    glassIntensity = pressedIntensity,
+                    edgeStrength = UNIFIED_EDGE_STRENGTH,
+                    backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+                )
             )
-        )
+        }
     }
-    DisposableEffect(registry, key) {
+    DisposableEffect(registry, key, useUnifiedBackdrop) {
         onDispose { registry?.remove(key) }
     }
 
@@ -173,6 +215,27 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
+        if (!useUnifiedBackdrop && backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(role),
+                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+            )
+            SampledWeatherEdgeRefraction(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                strength = UNIFIED_EDGE_STRENGTH
+            )
+        }
         Box(
             modifier = Modifier
                 .matchParentSize()
