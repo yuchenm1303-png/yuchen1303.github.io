@@ -14,8 +14,10 @@ import com.yuchen.ailedger.data.PreviewAssistantRepository
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
+import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
+import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +64,79 @@ class AssistantViewModel(
 
     fun selectTab(tab: AppTab) {
         uiState = uiState.copy(currentTab = tab)
+    }
+
+    fun updateComposer(text: String) {
+        uiState = uiState.copy(composerText = text)
+    }
+
+    fun submitComposer() {
+        val text = uiState.composerText.trim()
+        if (text.isBlank()) return
+        sendUserCommand(text)
+    }
+
+    fun sendUserCommand(text: String) {
+        val cleanText = text.trim()
+        if (cleanText.isBlank()) return
+        val userMessage = ChatMessage(
+            id = "user-${System.currentTimeMillis()}",
+            text = cleanText,
+            role = MessageRole.User
+        )
+        val assistantMessage = ChatMessage(
+            id = "assistant-${System.currentTimeMillis() + 1}",
+            text = buildLocalAssistantReply(cleanText),
+            role = MessageRole.Assistant
+        )
+        uiState = uiState.copy(
+            messages = uiState.messages + userMessage + assistantMessage,
+            composerText = ""
+        )
+    }
+
+    fun insertCommandDraft(text: String) {
+        uiState = uiState.copy(composerText = text)
+    }
+
+    fun cycleModel() {
+        val next = when (uiState.selectedModelLabel) {
+            "Gemini 2.5 Flash" -> "Gemini 2.5 Pro"
+            "Gemini 2.5 Pro" -> "本地执行优先"
+            else -> "Gemini 2.5 Flash"
+        }
+        uiState = uiState.copy(selectedModelLabel = next)
+        appendAssistantNotice("已切换为 $next。")
+    }
+
+    fun onImagePickedForAssistant(uri: Uri?) {
+        if (uri == null) return
+        appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，先在这里保留图片输入入口。")
+    }
+
+    fun appendAssistantNotice(text: String) {
+        uiState = uiState.copy(
+            messages = uiState.messages + ChatMessage(
+                id = "assistant-${System.currentTimeMillis()}",
+                text = text,
+                role = MessageRole.Assistant
+            )
+        )
+    }
+
+    private fun buildLocalAssistantReply(command: String): String {
+        val lower = command.lowercase()
+        return when {
+            command.contains("记") || command.contains("支出") || command.contains("收入") || command.contains("账") ->
+                "收到。我先把它识别为记账任务，后面会继续接入金额、分类和账单保存。"
+            command.contains("提醒") || command.contains("闹钟") ->
+                "可以，我会把这句话当成提醒任务。你也可以点下方“设提醒”直接打开系统闹钟入口。"
+            command.contains("导航") || command.contains("回家") || lower.contains("map") ->
+                "我理解为导航任务。点“回家”会调用系统地图，后面可以在设置里配置家庭地址。"
+            command.contains("图片") || command.contains("识图") || command.contains("照片") ->
+                "可以识图。点右上角“识图”或输入框左侧加号，选择图片后就能继续处理。"
+            else -> "我在。这个版本先把消息发送、滑动聊天和快捷动作跑通，后面再接入真正的 AI 回复。"
+        }
     }
 
     fun selectQuality(quality: RenderQuality) {
