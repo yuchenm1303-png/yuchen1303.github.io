@@ -138,7 +138,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
                                 }
                             )
-                            AppTab.Tools -> ToolsScreen(state)
+                            AppTab.Tools -> ToolsScreen(
+                                state = state,
+                                onOpenTool = viewModel::openTool,
+                                onBack = viewModel::closeTool,
+                                onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
+                                onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
+                                onLedgerTypeChange = viewModel::selectLedgerDraftType,
+                                onLedgerCategoryChange = viewModel::selectLedgerCategory,
+                                onLedgerBudgetChange = viewModel::updateLedgerBudget,
+                                onAddLedgerRecord = viewModel::addLedgerRecord,
+                                onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
+                                onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                            )
                             AppTab.Settings -> SettingsScreen(
                                 state = state,
                                 aiEndpoint = viewModel.aiEndpoint,
