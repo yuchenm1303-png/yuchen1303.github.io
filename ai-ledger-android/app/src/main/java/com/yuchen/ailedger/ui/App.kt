@@ -16,7 +16,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -33,6 +35,7 @@ import com.yuchen.ailedger.model.RenderQuality
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val backdropOrigin = remember { BackdropCoordinateSource() }
+    val backdropTicker = remember { BackdropFrameTicker() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -45,6 +48,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         customBackgroundPath = state.customBackgroundPath
     )
 
+    LaunchedEffect(state.quality.enableMotion, state.motionIntensity) {
+        while (state.quality.enableMotion && state.motionIntensity > 0.02f) {
+            val frameTime = withFrameNanos { it }
+            backdropTicker.frameNanos = frameTime
+        }
+    }
+
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
@@ -56,7 +66,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     borderStyle = state.glassBorderStyle
                 ),
                 LocalBlurredBackdrop provides blurredBackdrop,
-                LocalBackdropOrigin provides backdropOrigin
+                LocalBackdropOrigin provides backdropOrigin,
+                LocalBackdropFrameTicker provides backdropTicker
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
