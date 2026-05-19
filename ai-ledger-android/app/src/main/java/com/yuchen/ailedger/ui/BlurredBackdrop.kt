@@ -54,46 +54,15 @@ private data class BackdropTuning(
     val scale: Float,
     val radius: Int,
     val iterations: Int,
-    val spread: Float,
-    val iconAlpha: Float,
     val brightness: Float,
     val contrast: Float,
     val saturation: Float
 )
 
-private fun tuningFor(quality: RenderQuality): BackdropTuning {
-    return when (quality) {
-        RenderQuality.Smooth -> BackdropTuning(
-            scale = 0.420f,
-            radius = 4,
-            iterations = 4,
-            spread = 1.02f,
-            iconAlpha = 1.02f,
-            brightness = 1.08f,
-            contrast = 1.06f,
-            saturation = 1.06f
-        )
-        RenderQuality.Balanced -> BackdropTuning(
-            scale = 0.600f,
-            radius = 4,
-            iterations = 5,
-            spread = 1.03f,
-            iconAlpha = 1.10f,
-            brightness = 1.12f,
-            contrast = 1.11f,
-            saturation = 1.12f
-        )
-        RenderQuality.Experimental -> BackdropTuning(
-            scale = 0.600f,
-            radius = 5,
-            iterations = 5,
-            spread = 1.06f,
-            iconAlpha = 1.12f,
-            brightness = 1.13f,
-            contrast = 1.12f,
-            saturation = 1.13f
-        )
-    }
+private fun tuningFor(quality: RenderQuality): BackdropTuning = when (quality) {
+    RenderQuality.Smooth -> BackdropTuning(0.420f, 4, 4, 1.06f, 1.04f, 1.04f)
+    RenderQuality.Balanced -> BackdropTuning(0.600f, 4, 5, 1.10f, 1.08f, 1.08f)
+    RenderQuality.Experimental -> BackdropTuning(0.600f, 5, 5, 1.11f, 1.09f, 1.09f)
 }
 
 private fun buildBlurredBackdropBitmap(
@@ -108,20 +77,10 @@ private fun buildBlurredBackdropBitmap(
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    drawAndroidBackdropSource(
-        bitmap = source,
-        theme = theme,
-        spread = tuning.spread,
-        iconAlpha = tuning.iconAlpha
-    )
+    drawAndroidBackdropSource(source, theme)
 
     val blurred = boxBlur(source, tuning.radius, tuning.iterations)
-    val tuned = tuneBitmapTone(
-        input = blurred,
-        brightness = tuning.brightness,
-        contrast = tuning.contrast,
-        saturation = tuning.saturation
-    )
+    val tuned = tuneBitmapTone(blurred, tuning.brightness, tuning.contrast, tuning.saturation)
 
     return BlurredBackdropBitmap(
         image = tuned.asImageBitmap(),
@@ -131,135 +90,109 @@ private fun buildBlurredBackdropBitmap(
     )
 }
 
-private fun drawAndroidBackdropSource(
-    bitmap: Bitmap,
-    theme: BackgroundTheme,
-    spread: Float,
-    iconAlpha: Float
-) {
+private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
     val h = bitmap.height.toFloat()
-    val palette = androidPalette(theme)
-    val icon = min(w * 0.145f, h * 0.068f)
+    val p = androidWeatherPalette(theme)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     paint.shader = LinearGradient(
-        w * 0.08f,
         0f,
-        w * 0.92f,
+        0f,
+        0f,
         h,
-        intArrayOf(palette.deep, palette.mid, palette.glow, palette.bottom),
+        intArrayOf(p.top, p.upper, p.mid, p.horizon, p.bottom),
         null,
         Shader.TileMode.CLAMP
     )
     canvas.drawRect(0f, 0f, w, h, paint)
     paint.shader = null
 
-    paint.shader = RadialGradient(
-        w * 0.74f,
-        h * 0.34f,
-        w * 0.58f,
-        intArrayOf(withAlpha(palette.primaryAura, 0.34f), Color.TRANSPARENT),
-        null,
-        Shader.TileMode.CLAMP
-    )
-    canvas.drawOval(RectF(w * 0.18f, h * 0.02f, w * 1.30f, h * 0.77f), paint)
+    drawAndroidGlow(canvas, paint, w * 0.82f, h * 0.12f, w * 0.52f, h * 0.26f, p.violet, 0.38f)
+    drawAndroidGlow(canvas, paint, w * 0.34f, h * 0.82f, w * 0.70f, h * 0.34f, p.warm, 0.34f)
+    drawAndroidGlow(canvas, paint, w * 0.24f, h * 0.44f, w * 0.46f, h * 0.28f, p.blue, 0.22f)
 
-    paint.shader = RadialGradient(
-        w * 0.20f,
-        h * 0.62f,
-        w * 0.44f,
-        intArrayOf(withAlpha(palette.secondaryAura, 0.22f), Color.TRANSPARENT),
+    drawAndroidCloudBand(canvas, paint, w, h, 0.11f, 0.16f, p.cloudLight, 0.34f, -0.10f)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.25f, 0.18f, p.cloudBlue, 0.30f, 0.08f)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.47f, 0.25f, p.cloudWarm, 0.28f, -0.03f)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.68f, 0.24f, p.cloudRose, 0.22f, 0.14f)
+
+    drawAndroidStars(canvas, paint, w, h)
+    drawAndroidCrescent(canvas, paint, w, h, p)
+
+    paint.shader = LinearGradient(
+        0f,
+        h * 0.60f,
+        0f,
+        h,
+        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, withAlpha(Color.rgb(0x07, 0x0B, 0x18), 0.16f)),
         null,
         Shader.TileMode.CLAMP
     )
-    canvas.drawOval(RectF(-w * 0.18f, h * 0.30f, w * 0.62f, h * 0.88f), paint)
+    canvas.drawRect(0f, 0f, w, h, paint)
     paint.shader = null
+}
 
-    val xs = floatArrayOf(0.15f, 0.38f, 0.62f, 0.85f)
-    val ys = floatArrayOf(0.11f, 0.24f, 0.37f, 0.50f, 0.63f, 0.76f)
-    var index = 0
-    for (y in ys) {
-        for (x in xs) {
-            if (!((y == 0.24f && x > 0.50f) || (y == 0.76f && x == 0.62f))) {
-                drawSoftBlock(
-                    canvas = canvas,
-                    paint = paint,
-                    color = palette.icons[index % palette.icons.size],
-                    cx = w * x,
-                    cy = h * y,
-                    base = icon,
-                    alpha = 0.92f * iconAlpha,
-                    spread = spread
-                )
-                index++
-            }
-        }
-    }
-
-    drawSoftBlock(
-        canvas = canvas,
-        paint = paint,
-        color = palette.widget,
-        cx = w * 0.73f,
-        cy = h * 0.295f,
-        base = min(w * 0.40f, h * 0.17f),
-        alpha = 0.72f * iconAlpha,
-        aspect = 2.35f,
-        spread = spread
+private fun drawAndroidGlow(canvas: Canvas, paint: Paint, cx: Float, cy: Float, rx: Float, ry: Float, color: Int, alpha: Float) {
+    paint.shader = RadialGradient(
+        cx,
+        cy,
+        max(rx, ry),
+        intArrayOf(withAlpha(color, alpha), withAlpha(color, alpha * 0.28f), Color.TRANSPARENT),
+        null,
+        Shader.TileMode.CLAMP
     )
+    canvas.drawOval(RectF(cx - rx, cy - ry, cx + rx, cy + ry), paint)
+    paint.shader = null
+}
 
-    repeat(5) { i ->
-        drawSoftBlock(
-            canvas = canvas,
-            paint = paint,
-            color = palette.icons[(i + 2) % palette.icons.size],
-            cx = w * (0.14f + i * 0.18f),
-            cy = h * 0.932f,
-            base = icon * 0.80f,
-            alpha = 0.74f * iconAlpha,
-            spread = spread
-        )
+private fun drawAndroidCloudBand(
+    canvas: Canvas,
+    paint: Paint,
+    w: Float,
+    h: Float,
+    y: Float,
+    bandHeight: Float,
+    color: Int,
+    alpha: Float,
+    drift: Float
+) {
+    val cy = h * y
+    val bh = h * bandHeight
+    val positions = floatArrayOf(-0.08f, 0.14f, 0.34f, 0.57f, 0.82f, 1.05f)
+    positions.forEachIndexed { index, x ->
+        val centerX = w * (x + drift)
+        val centerY = cy + bh * if (index % 2 == 0) 0.10f else -0.04f
+        val rx = w * (0.21f + (index % 3) * 0.04f)
+        val ry = bh * (0.56f + (index % 2) * 0.16f)
+        drawAndroidGlow(canvas, paint, centerX, centerY, rx, ry, color, alpha)
     }
 }
 
-private fun drawSoftBlock(
-    canvas: Canvas,
-    paint: Paint,
-    color: Int,
-    cx: Float,
-    cy: Float,
-    base: Float,
-    alpha: Float,
-    aspect: Float = 1f,
-    spread: Float = 1f
-) {
-    val layers = arrayOf(
-        3.15f to 0.030f,
-        2.78f to 0.045f,
-        2.45f to 0.060f,
-        2.14f to 0.080f,
-        1.86f to 0.105f,
-        1.60f to 0.135f,
-        1.36f to 0.170f,
-        1.14f to 0.215f,
-        0.96f to 0.270f,
-        0.82f to 0.340f,
-        0.68f to 0.430f
+private fun drawAndroidStars(canvas: Canvas, paint: Paint, w: Float, h: Float) {
+    val points = arrayOf(
+        0.12f to 0.17f, 0.21f to 0.10f, 0.31f to 0.19f, 0.47f to 0.12f,
+        0.63f to 0.16f, 0.74f to 0.09f, 0.88f to 0.20f, 0.18f to 0.30f,
+        0.52f to 0.27f, 0.82f to 0.34f, 0.70f to 0.43f
     )
-    layers.forEach { (scale, weight) ->
-        val blockW = base * scale * spread * aspect
-        val blockH = base * scale * spread
-        paint.color = withAlpha(color, alpha * weight)
+    val radius = min(w, h) * 0.0028f
+    points.forEachIndexed { index, point ->
         paint.shader = null
-        canvas.drawRoundRect(
-            RectF(cx - blockW / 2f, cy - blockH / 2f, cx + blockW / 2f, cy + blockH / 2f),
-            blockH * 0.30f,
-            blockH * 0.30f,
-            paint
-        )
+        paint.color = withAlpha(Color.WHITE, 0.18f + (index % 3) * 0.08f)
+        canvas.drawCircle(w * point.first, h * point.second, radius * (0.72f + (index % 4) * 0.18f), paint)
     }
+}
+
+private fun drawAndroidCrescent(canvas: Canvas, paint: Paint, w: Float, h: Float, p: AndroidWeatherPalette) {
+    val radius = min(w, h) * 0.026f
+    val cx = w * 0.82f
+    val cy = h * 0.21f
+    paint.shader = null
+    paint.color = withAlpha(Color.rgb(0xFF, 0xF3, 0xD6), 0.46f)
+    canvas.drawCircle(cx, cy, radius, paint)
+    paint.color = withAlpha(p.upper, 0.94f)
+    canvas.drawCircle(cx + radius * 0.42f, cy - radius * 0.20f, radius * 1.04f, paint)
 }
 
 private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
@@ -295,10 +228,7 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
             b += c and 0xFF
         }
         for (x in 0 until width) {
-            temp[row + x] = ((a / window) shl 24) or
-                ((r / window) shl 16) or
-                ((g / window) shl 8) or
-                (b / window)
+            temp[row + x] = ((a / window) shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
             val removeX = (x - radius).coerceIn(0, width - 1)
             val addX = (x + radius + 1).coerceIn(0, width - 1)
             val remove = source[row + removeX]
@@ -324,10 +254,7 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
             b += c and 0xFF
         }
         for (y in 0 until height) {
-            output[y * width + x] = ((a / window) shl 24) or
-                ((r / window) shl 16) or
-                ((g / window) shl 8) or
-                (b / window)
+            output[y * width + x] = ((a / window) shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
             val removeY = (y - radius).coerceIn(0, height - 1)
             val addY = (y + radius + 1).coerceIn(0, height - 1)
             val remove = temp[removeY * width + x]
@@ -342,12 +269,7 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
     return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
 }
 
-private fun tuneBitmapTone(
-    input: Bitmap,
-    brightness: Float,
-    contrast: Float,
-    saturation: Float
-): Bitmap {
+private fun tuneBitmapTone(input: Bitmap, brightness: Float, contrast: Float, saturation: Float): Bitmap {
     val width = input.width
     val height = input.height
     val pixels = IntArray(width * height)
@@ -372,73 +294,29 @@ private fun tuneBitmapTone(
     return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
 }
 
-private data class AndroidBackdropPalette(
-    val deep: Int,
+private data class AndroidWeatherPalette(
+    val top: Int,
+    val upper: Int,
     val mid: Int,
-    val glow: Int,
+    val horizon: Int,
     val bottom: Int,
-    val primaryAura: Int,
-    val secondaryAura: Int,
-    val widget: Int,
-    val icons: List<Int>
+    val violet: Int,
+    val warm: Int,
+    val blue: Int,
+    val cloudLight: Int,
+    val cloudBlue: Int,
+    val cloudWarm: Int,
+    val cloudRose: Int
 )
 
-private fun androidPalette(theme: BackgroundTheme): AndroidBackdropPalette {
-    return when (theme) {
-        BackgroundTheme.Aurora -> AndroidBackdropPalette(
-            deep = Color.rgb(0x06, 0x14, 0x26),
-            mid = Color.rgb(0x0B, 0x29, 0x47),
-            glow = Color.rgb(0x16, 0x41, 0x66),
-            bottom = Color.rgb(0x07, 0x11, 0x1F),
-            primaryAura = Color.rgb(0x2F, 0x72, 0xAD),
-            secondaryAura = Color.rgb(0x23, 0x6A, 0xA8),
-            widget = Color.rgb(0xB9, 0xC3, 0xCD),
-            icons = listOf(
-                Color.rgb(0x18, 0xAF, 0xFF), Color.rgb(0xFF, 0xB5, 0x1B), Color.rgb(0x18, 0x1A, 0x28), Color.WHITE,
-                Color.rgb(0xFF, 0x50, 0x58), Color.rgb(0xFF, 0x94, 0x1D), Color.rgb(0xB9, 0xC3, 0xCD), Color.rgb(0x10, 0x78, 0xF8)
-            )
-        )
-        BackgroundTheme.Jade -> AndroidBackdropPalette(
-            deep = Color.rgb(0x07, 0x1B, 0x21),
-            mid = Color.rgb(0x0B, 0x3A, 0x43),
-            glow = Color.rgb(0x0C, 0x5B, 0x66),
-            bottom = Color.rgb(0x06, 0x14, 0x19),
-            primaryAura = Color.rgb(0x22, 0xC7, 0xA7),
-            secondaryAura = Color.rgb(0x40, 0xDC, 0xA8),
-            widget = Color.rgb(0xC8, 0xD8, 0xD2),
-            icons = listOf(
-                Color.rgb(0x20, 0xD3, 0xB2), Color.rgb(0xFF, 0xC9, 0x5C), Color.rgb(0x1D, 0x26, 0x30), Color.WHITE,
-                Color.rgb(0xFF, 0x6B, 0x7C), Color.rgb(0x50, 0xB7, 0xFF), Color.rgb(0xBF, 0xD5, 0xCE), Color.rgb(0x0D, 0x8E, 0x7B)
-            )
-        )
-        BackgroundTheme.Sunset -> AndroidBackdropPalette(
-            deep = Color.rgb(0x22, 0x13, 0x27),
-            mid = Color.rgb(0x4B, 0x21, 0x38),
-            glow = Color.rgb(0x7E, 0x3D, 0x4F),
-            bottom = Color.rgb(0x14, 0x0E, 0x1E),
-            primaryAura = Color.rgb(0xFF, 0x7A, 0x6E),
-            secondaryAura = Color.rgb(0xFF, 0xB3, 0x5B),
-            widget = Color.rgb(0xD8, 0xC6, 0xC8),
-            icons = listOf(
-                Color.rgb(0xFF, 0x6E, 0x82), Color.rgb(0xFF, 0xB8, 0x4A), Color.rgb(0x24, 0x22, 0x33), Color.WHITE,
-                Color.rgb(0xFF, 0x4F, 0x6D), Color.rgb(0xFF, 0x8B, 0x2C), Color.rgb(0xCD, 0xC1, 0xD2), Color.rgb(0x6A, 0x79, 0xFF)
-            )
-        )
-        BackgroundTheme.Dawn -> AndroidBackdropPalette(
-            deep = Color.rgb(0x1A, 0x26, 0x34),
-            mid = Color.rgb(0x52, 0x65, 0x7A),
-            glow = Color.rgb(0x93, 0xA8, 0xB7),
-            bottom = Color.rgb(0x10, 0x18, 0x22),
-            primaryAura = Color.rgb(0xEA, 0xF2, 0xFF),
-            secondaryAura = Color.rgb(0x9E, 0xD4, 0xFF),
-            widget = Color.rgb(0xE7, 0xE9, 0xEE),
-            icons = listOf(
-                Color.rgb(0x45, 0xB8, 0xFF), Color.rgb(0xFF, 0xC8, 0x61), Color.rgb(0x28, 0x30, 0x3A), Color.WHITE,
-                Color.rgb(0xFF, 0x6F, 0x83), Color.rgb(0xFF, 0xA1, 0x5C), Color.rgb(0xD9, 0xE0, 0xE9), Color.rgb(0x35, 0x8C, 0xFF)
-            )
-        )
-    }
+private fun androidWeatherPalette(theme: BackgroundTheme): AndroidWeatherPalette = when (theme) {
+    BackgroundTheme.Aurora -> AndroidWeatherPalette(rgb(0x06,0x14,0x26), rgb(0x26,0x3A,0x68), rgb(0x59,0x6B,0x99), rgb(0x8B,0x71,0x86), rgb(0xB7,0x83,0x69), rgb(0xB7,0x9A,0xFF), rgb(0xFF,0xA0,0x6E), rgb(0x5C,0xA9,0xE6), rgb(0xB7,0xB6,0xE8), rgb(0x88,0xA7,0xCE), rgb(0xD4,0xA1,0x9A), rgb(0xC0,0x81,0x94))
+    BackgroundTheme.Jade -> AndroidWeatherPalette(rgb(0x07,0x1A,0x22), rgb(0x24,0x46,0x5F), rgb(0x5E,0x7E,0x95), rgb(0x83,0xA3,0x94), rgb(0xB5,0x9B,0x79), rgb(0x8E,0xC2,0xDD), rgb(0xE8,0xB3,0x7F), rgb(0x58,0xC0,0xBC), rgb(0xAE,0xC7,0xD8), rgb(0x80,0xAF,0xC1), rgb(0xC7,0xAE,0x92), rgb(0xA6,0x8F,0x97))
+    BackgroundTheme.Sunset -> AndroidWeatherPalette(rgb(0x20,0x18,0x2D), rgb(0x49,0x36,0x5E), rgb(0x73,0x5C,0x83), rgb(0xA8,0x75,0x86), rgb(0xD1,0x97,0x6B), rgb(0xC0,0x98,0xFF), rgb(0xFF,0x9A,0x64), rgb(0x75,0x87,0xD5), rgb(0xC6,0xB3,0xE6), rgb(0x9C,0xA2,0xC8), rgb(0xE0,0xA1,0x8D), rgb(0xD0,0x80,0x9A))
+    BackgroundTheme.Dawn -> AndroidWeatherPalette(rgb(0x16,0x25,0x3C), rgb(0x52,0x6A,0x91), rgb(0x89,0xA5,0xBE), rgb(0xC1,0xA6,0xA4), rgb(0xD8,0xB2,0x87), rgb(0xE2,0xCC,0xFF), rgb(0xFF,0xC2,0x8A), rgb(0x9E,0xD4,0xFF), rgb(0xD7,0xD6,0xF0), rgb(0xAA,0xC5,0xDA), rgb(0xE2,0xC0,0xA6), rgb(0xD5,0xA0,0xAD))
 }
+
+private fun rgb(r: Int, g: Int, b: Int): Int = Color.rgb(r, g, b)
 
 private fun withAlpha(color: Int, alpha: Float): Int {
     val safeAlpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt()
