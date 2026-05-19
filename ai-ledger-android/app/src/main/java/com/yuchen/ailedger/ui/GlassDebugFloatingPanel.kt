@@ -120,11 +120,23 @@ fun GlassDebugFloatingPanel(
                 DebugSlider("月牙高光", state.backdropParams.moonRimAlpha, 0f..1.00f) { onBackdropChange(state.backdropParams.copy(moonRimAlpha = it)) }
 
                 Spacer(Modifier.height(6.dp))
+                Text("iOS 透镜边缘", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                DebugSlider("边缘厚度", state.glassBorderStyle.ringWidthDp, 2f..24f) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
+                DebugSlider("内部拉取", state.glassBorderStyle.edgePullDp, 0f..110f) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it.roundToInt().toFloat())) }
+                DebugSlider("折射强度", state.glassBorderStyle.edgeAlpha, 0f..1.00f) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
+                DebugSlider("折射模糊", state.glassBorderStyle.edgeBlurDp, 0f..40f) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
+                DebugSlider("边缘对比", state.glassBorderStyle.edgeContrast, 0.80f..1.70f) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
+                DebugSlider("边缘饱和", state.glassBorderStyle.edgeSaturation, 0.80f..1.90f) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
+                DebugSlider("边缘亮度", state.glassBorderStyle.edgeBrightness, 0.80f..1.45f) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
+                DebugSlider("主体雾面", state.glassBorderStyle.bodyAlpha, 0.05f..0.60f) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
+
+                Spacer(Modifier.height(6.dp))
                 Text("iOS 边框高光", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                DebugSlider("外边框", state.glassBorderStyle.outerStrokeAlpha, 0.08f..0.80f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
-                DebugSlider("内边框", state.glassBorderStyle.innerStrokeAlpha, 0.02f..0.46f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
-                DebugSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0.02f..0.60f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
-                DebugSlider("底部暗边", state.glassBorderStyle.bottomShadowAlpha, 0f..0.28f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+                DebugSlider("外边框", state.glassBorderStyle.outerStrokeAlpha, 0.00f..0.70f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
+                DebugSlider("内边框", state.glassBorderStyle.innerStrokeAlpha, 0.00f..0.35f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
+                DebugSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0.00f..0.60f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
+                DebugSlider("底部暗边", state.glassBorderStyle.bottomShadowAlpha, 0f..0.50f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+                DebugSlider("圆角 glint", state.glassBorderStyle.cornerGlintAlpha, 0f..0.30f) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
             }
         }
     }
