@@ -40,9 +40,11 @@ import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
+private const val ENABLE_OPENGL_GLASS_PROBE = true
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -118,6 +120,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+
+                    OpenGLGlassProbeLayer(
+                        enabled = ENABLE_OPENGL_GLASS_PROBE,
+                        modifier = Modifier.fillMaxSize()
+                    )
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
