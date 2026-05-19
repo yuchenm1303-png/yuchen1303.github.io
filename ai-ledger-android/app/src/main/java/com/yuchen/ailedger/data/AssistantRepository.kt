@@ -2,6 +2,8 @@ package com.yuchen.ailedger.data
 
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.LedgerRecord
+import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StatSummary
 import com.yuchen.ailedger.model.ToolEntry
@@ -31,6 +33,12 @@ class PreviewAssistantRepository : AssistantRepository {
                 ToolEntry("应用控制", "打开常用应用入口"),
                 ToolEntry("快捷指令", "保存常用任务"),
                 ToolEntry("任务记录", "查看助手执行历史")
+            ),
+            ledgerRecords = listOf(
+                LedgerRecord("record-coffee", "咖啡", 12f, LedgerRecordType.Expense, "饮品", "今天"),
+                LedgerRecord("record-lunch", "午饭", 18f, LedgerRecordType.Expense, "餐饮", "今天"),
+                LedgerRecord("record-metro", "地铁", 4f, LedgerRecordType.Expense, "交通", "昨天"),
+                LedgerRecord("record-parttime", "兼职收入", 120f, LedgerRecordType.Income, "工资", "昨天")
             )
         )
     }
