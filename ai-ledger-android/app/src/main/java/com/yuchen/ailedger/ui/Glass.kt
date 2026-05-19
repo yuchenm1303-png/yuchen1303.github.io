@@ -23,7 +23,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 
@@ -80,7 +80,7 @@ fun GlassPanel(
 
     Box(
         modifier = modifier
-            .onGloballyPositioned { coordinates.coordinates = it }
+            .onPlaced { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         if (backdrop != null) {
@@ -152,7 +152,7 @@ fun PressableGlass(
 
     Box(
         modifier = modifier
-            .onGloballyPositioned { coordinates.coordinates = it }
+            .onPlaced { coordinates.coordinates = it }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
