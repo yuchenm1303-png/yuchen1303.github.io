@@ -58,7 +58,8 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
                 radius = item.radius,
                 quality = item.quality,
                 glassIntensity = item.glassIntensity,
-                backdropAlpha = item.backdropAlpha
+                backdropAlpha = item.backdropAlpha,
+                border = border
             )
             drawUnifiedGlassEdgeItem(
                 backdrop = backdrop,
@@ -91,7 +92,8 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
     radius: Int,
     quality: RenderQuality,
     glassIntensity: Float,
-    backdropAlpha: Float
+    backdropAlpha: Float,
+    border: GlassBorderStyle
 ) {
     val itemWidth = itemRect.width
     val itemHeight = itemRect.height
@@ -107,7 +109,8 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
         )
     }
 
-    val alpha = glassIntensity.coerceIn(0.34f, 1.25f)
+    val bodyScale = (border.bodyAlpha / 0.20f).coerceIn(0.35f, 2.20f)
+    val alpha = (glassIntensity * bodyScale).coerceIn(0.12f, 1.25f)
     val baseScrimAlpha = when (quality) {
         RenderQuality.Smooth -> 0.15f
         RenderQuality.Balanced -> 0.18f
@@ -140,7 +143,7 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
             srcSize = IntSize(srcW, srcH),
             dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
             dstSize = IntSize(visibleWidth, visibleHeight),
-            alpha = backdropAlpha.coerceIn(0.35f, 1f),
+            alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
@@ -207,8 +210,8 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
     val w = itemRect.width
     val h = itemRect.height
     val corner = radius.dp.toPx()
-    val ringWidth = min(11.0.dp.toPx(), min(w, h) * 0.18f).coerceAtLeast(6.0.dp.toPx())
-    val edgePull = min(46.0.dp.toPx(), min(w, h) * 0.34f).coerceAtLeast(24.0.dp.toPx())
+    val ringWidth = border.ringWidthDp.dp.toPx().coerceIn(2.dp.toPx(), min(w, h) * 0.30f)
+    val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 0.95f)
     val outerPath = Path().apply {
         addRoundRect(RoundRect(rect = itemRect, cornerRadius = CornerRadius(corner, corner)))
     }
@@ -227,8 +230,7 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
 
     clipPath(outerPath) {
         clipPath(ringPath) {
-            // 真正的“玻璃厚边”：边缘不是采样边缘外侧，而是向玻璃内部深处取样。
-            // 这样中间的红/白/蓝色块也会被拉到边缘，视觉上更接近 iOS 的透镜折射。
+            val edgeAlpha = (border.edgeAlpha * (0.74f + strength)).coerceIn(0f, 1f)
             drawRefractedBackdropStrip(
                 backdrop = backdrop,
                 itemRect = itemRect,
@@ -236,7 +238,7 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
                 stripRect = Rect(itemRect.left, itemRect.top, itemRect.right, itemRect.top + ringWidth * 1.55f),
                 sampleOffset = sampleOffset,
                 refractOffset = Offset(0f, edgePull),
-                alpha = 0.68f
+                alpha = edgeAlpha
             )
             drawRefractedBackdropStrip(
                 backdrop = backdrop,
@@ -245,7 +247,7 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
                 stripRect = Rect(itemRect.left, itemRect.bottom - ringWidth * 1.55f, itemRect.right, itemRect.bottom),
                 sampleOffset = sampleOffset,
                 refractOffset = Offset(0f, -edgePull),
-                alpha = 0.56f
+                alpha = edgeAlpha * 0.84f
             )
             drawRefractedBackdropStrip(
                 backdrop = backdrop,
@@ -254,7 +256,7 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
                 stripRect = Rect(itemRect.left, itemRect.top, itemRect.left + ringWidth * 1.45f, itemRect.bottom),
                 sampleOffset = sampleOffset,
                 refractOffset = Offset(edgePull, 0f),
-                alpha = 0.44f
+                alpha = edgeAlpha * 0.72f
             )
             drawRefractedBackdropStrip(
                 backdrop = backdrop,
@@ -263,11 +265,10 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
                 stripRect = Rect(itemRect.right - ringWidth * 1.45f, itemRect.top, itemRect.right, itemRect.bottom),
                 sampleOffset = sampleOffset,
                 refractOffset = Offset(-edgePull, 0f),
-                alpha = 0.44f
+                alpha = edgeAlpha * 0.72f
             )
         }
 
-        // 顶部只保留很薄的光泽，不再用白色矩形带撑边。
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -285,7 +286,6 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
             blendMode = BlendMode.Screen
         )
 
-        // 极细外高光：只负责干净轮廓，不负责“折射”。
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
@@ -304,7 +304,6 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
             blendMode = BlendMode.Screen
         )
 
-        // 很轻的内侧二次边，降低白线感。
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -325,8 +324,8 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = border.topHighlightAlpha * 0.070f),
-                    Color(0xFFEAF5FF).copy(alpha = border.topHighlightAlpha * 0.020f),
+                    Color.White.copy(alpha = border.cornerGlintAlpha),
+                    Color(0xFFEAF5FF).copy(alpha = border.cornerGlintAlpha * 0.28f),
                     Color.Transparent
                 ),
                 center = itemOffset(w * 0.10f, h * 0.08f),
