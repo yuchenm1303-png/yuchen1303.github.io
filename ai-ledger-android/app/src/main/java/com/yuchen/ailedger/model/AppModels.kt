@@ -95,6 +95,11 @@ enum class MessageRole {
     User
 }
 
+enum class LedgerRecordType(val label: String) {
+    Expense("支出"),
+    Income("收入")
+}
+
 data class ChatMessage(
     val id: String,
     val text: String,
@@ -112,6 +117,15 @@ data class ToolEntry(
     val icon: String = "✦"
 )
 
+data class LedgerRecord(
+    val id: String,
+    val title: String,
+    val amount: Float,
+    val type: LedgerRecordType,
+    val category: String,
+    val dateLabel: String
+)
+
 data class AssistantUiState(
     val currentTab: AppTab = AppTab.Assistant,
     val quality: RenderQuality = RenderQuality.Balanced,
@@ -127,5 +141,12 @@ data class AssistantUiState(
     val messages: List<ChatMessage> = emptyList(),
     val tools: List<ToolEntry> = emptyList(),
     val composerText: String = "",
-    val selectedModelLabel: String = "Gemini 2.5 Flash"
+    val selectedModelLabel: String = "Gemini 2.5 Flash",
+    val selectedToolTitle: String? = null,
+    val ledgerRecords: List<LedgerRecord> = emptyList(),
+    val ledgerBudgetText: String = "1500",
+    val ledgerDraftTitle: String = "",
+    val ledgerDraftAmount: String = "",
+    val ledgerDraftType: LedgerRecordType = LedgerRecordType.Expense,
+    val ledgerDraftCategory: String = "餐饮"
 )
