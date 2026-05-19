@@ -26,6 +26,7 @@ data class AssistantPreferences(
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f
 )
@@ -38,6 +39,7 @@ class AssistantPreferencesStore(
         val showPreviewConversation = booleanPreferencesKey("show_preview_conversation")
         val glassPreset = stringPreferencesKey("glass_preset")
         val backgroundTheme = stringPreferencesKey("background_theme")
+        val customBackgroundPath = stringPreferencesKey("custom_background_path")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
     }
@@ -48,6 +50,7 @@ class AssistantPreferencesStore(
                 if (error is IOException) emit(emptyPreferences()) else throw error
             }
             .map { preferences ->
+                val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
                 AssistantPreferences(
                     quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
                         ?: RenderQuality.Balanced,
@@ -56,6 +59,7 @@ class AssistantPreferencesStore(
                         ?: GlassPreset.Liquid,
                     backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
                         ?: BackgroundTheme.Aurora,
+                    customBackgroundPath = customPath,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                     motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
                 )
@@ -75,6 +79,13 @@ class AssistantPreferencesStore(
 
     suspend fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
         context.assistantPreferencesDataStore.edit { it[Keys.backgroundTheme] = backgroundTheme.storageValue }
+    }
+
+    suspend fun setCustomBackgroundPath(path: String?) {
+        context.assistantPreferencesDataStore.edit { preferences ->
+            if (path.isNullOrBlank()) preferences.remove(Keys.customBackgroundPath)
+            else preferences[Keys.customBackgroundPath] = path
+        }
     }
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
