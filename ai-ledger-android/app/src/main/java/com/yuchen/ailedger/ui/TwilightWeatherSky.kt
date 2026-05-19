@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
 import kotlin.math.min
 
 fun DrawScope.drawTwilightWeatherSky(
@@ -14,7 +15,8 @@ fun DrawScope.drawTwilightWeatherSky(
     h: Float,
     theme: BackgroundTheme,
     alphaScale: Float = 1f,
-    glowOnly: Boolean = false
+    glowOnly: Boolean = false,
+    params: BackdropDebugParams = BackdropDebugParams()
 ) {
     val a = alphaScale.coerceIn(0f, 1f)
     val p = twilightPalette(theme)
@@ -31,18 +33,19 @@ fun DrawScope.drawTwilightWeatherSky(
             endY = h
         )
     )
+
     drawWeatherOval(w * 0.82f, h * 0.12f, w * 0.52f, h * 0.26f, p.violet, 0.38f * a)
     drawWeatherOval(w * 0.34f, h * 0.82f, w * 0.70f, h * 0.34f, p.warm, 0.34f * a)
     drawWeatherOval(w * 0.24f, h * 0.44f, w * 0.46f, h * 0.28f, p.blue, 0.22f * a)
 
-    val cloudAlpha = if (glowOnly) 0.72f else 1f
-    drawCloudBand(w, h, 0.11f, 0.16f, p.cloudLight, 0.34f * a * cloudAlpha, -0.10f)
-    drawCloudBand(w, h, 0.25f, 0.18f, p.cloudBlue, 0.30f * a * cloudAlpha, 0.08f)
-    drawCloudBand(w, h, 0.47f, 0.25f, p.cloudWarm, 0.28f * a * cloudAlpha, -0.03f)
-    drawCloudBand(w, h, 0.68f, 0.24f, p.cloudRose, 0.22f * a * cloudAlpha, 0.14f)
+    val cloudAlpha = params.cloudAlpha * if (glowOnly) 0.72f else 1f
+    drawCloudBand(w, h, 0.10f, 0.18f, p.cloudLight, 0.40f * a * cloudAlpha, -0.12f, params)
+    drawCloudBand(w, h, 0.22f, 0.21f, p.cloudBlue, 0.38f * a * cloudAlpha, 0.06f, params)
+    drawCloudBand(w, h, 0.44f, 0.27f, p.cloudWarm, 0.34f * a * cloudAlpha, -0.04f, params)
+    drawCloudBand(w, h, 0.66f, 0.26f, p.cloudRose, 0.28f * a * cloudAlpha, 0.14f, params)
 
     drawStars(w, h, a)
-    drawCrescent(w, h, a, p)
+    drawCrescent(w, h, a, p, params)
     drawRect(
         Brush.verticalGradient(
             listOf(Color.Transparent, Color.Transparent, Color(0xFF070B18).copy(alpha = 0.16f * a)),
@@ -66,16 +69,87 @@ private fun DrawScope.drawWeatherOval(cx: Float, cy: Float, rx: Float, ry: Float
     )
 }
 
-private fun DrawScope.drawCloudBand(w: Float, h: Float, y: Float, bandHeight: Float, color: Color, alpha: Float, drift: Float) {
+private fun DrawScope.drawCloudBand(
+    w: Float,
+    h: Float,
+    y: Float,
+    bandHeight: Float,
+    color: Color,
+    alpha: Float,
+    drift: Float,
+    params: BackdropDebugParams
+) {
     val cy = h * y
     val bh = h * bandHeight
-    listOf(-0.08f, 0.14f, 0.34f, 0.57f, 0.82f, 1.05f).forEachIndexed { index, x ->
-        val centerX = w * (x + drift)
-        val centerY = cy + bh * if (index % 2 == 0) 0.10f else -0.04f
-        val rx = w * (0.21f + (index % 3) * 0.04f)
-        val ry = bh * (0.56f + (index % 2) * 0.16f)
-        drawWeatherOval(centerX, centerY, rx, ry, color, alpha)
+    val positions = listOf(-0.10f, 0.08f, 0.24f, 0.41f, 0.60f, 0.78f, 0.96f, 1.12f)
+    positions.forEachIndexed { index, x ->
+        val center = Offset(
+            x = w * (x + drift),
+            y = cy + bh * if (index % 2 == 0) 0.09f else -0.05f
+        )
+        val width = w * (0.18f + (index % 3) * 0.035f) * params.cloudStretchX
+        val height = bh * (0.38f + (index % 2) * 0.10f) * params.cloudStretchY
+        drawCloudBlob(
+            center = center,
+            width = width,
+            height = height,
+            color = color,
+            alpha = alpha * (0.78f + (index % 4) * 0.055f),
+            params = params
+        )
     }
+}
+
+private fun DrawScope.drawCloudBlob(
+    center: Offset,
+    width: Float,
+    height: Float,
+    color: Color,
+    alpha: Float,
+    params: BackdropDebugParams
+) {
+    val softness = params.cloudSoftness
+    drawOval(
+        brush = Brush.radialGradient(
+            listOf(
+                color.copy(alpha = alpha * 0.42f),
+                color.copy(alpha = alpha * 0.16f),
+                Color.Transparent
+            ),
+            center = center,
+            radius = width * 0.55f * softness
+        ),
+        topLeft = Offset(center.x - width * 0.62f, center.y - height * 0.56f),
+        size = Size(width * 1.24f, height * 1.12f),
+        blendMode = BlendMode.Screen
+    )
+    drawOval(
+        brush = Brush.radialGradient(
+            listOf(
+                color.copy(alpha = alpha),
+                color.copy(alpha = alpha * 0.32f),
+                Color.Transparent
+            ),
+            center = center + Offset(0f, -height * 0.04f),
+            radius = width * 0.43f * softness
+        ),
+        topLeft = Offset(center.x - width * 0.48f, center.y - height * 0.42f),
+        size = Size(width * 0.96f, height * 0.84f),
+        blendMode = BlendMode.Screen
+    )
+    drawOval(
+        brush = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = params.cloudHighlightAlpha * alpha),
+                Color.Transparent
+            ),
+            center = center + Offset(0f, -height * 0.24f),
+            radius = width * 0.28f
+        ),
+        topLeft = Offset(center.x - width * 0.30f, center.y - height * 0.38f),
+        size = Size(width * 0.60f, height * 0.26f),
+        blendMode = BlendMode.Screen
+    )
 }
 
 private fun DrawScope.drawStars(w: Float, h: Float, alpha: Float) {
@@ -95,11 +169,22 @@ private fun DrawScope.drawStars(w: Float, h: Float, alpha: Float) {
     }
 }
 
-private fun DrawScope.drawCrescent(w: Float, h: Float, alpha: Float, p: TwilightPalette) {
-    val r = min(w, h) * 0.026f
+private fun DrawScope.drawCrescent(w: Float, h: Float, alpha: Float, p: TwilightPalette, params: BackdropDebugParams) {
+    val r = min(w, h) * 0.024f * params.moonScale
     val c = Offset(w * 0.82f, h * 0.21f)
-    drawCircle(Color(0xFFFFF3D6).copy(alpha = 0.46f * alpha), r, c, blendMode = BlendMode.Screen)
-    drawCircle(p.upper.copy(alpha = 0.94f * alpha), r * 1.04f, Offset(c.x + r * 0.42f, c.y - r * 0.20f))
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(Color(0xFFFFF3D6).copy(alpha = params.moonHaloAlpha * alpha), Color.Transparent),
+            center = c,
+            radius = r * 2.35f
+        ),
+        radius = r * 2.35f,
+        center = c,
+        blendMode = BlendMode.Screen
+    )
+    drawCircle(Color(0xFFFFF3D6).copy(alpha = 0.62f * alpha), r, c, blendMode = BlendMode.Screen)
+    drawCircle(p.upper.copy(alpha = 0.97f * alpha), r * 1.05f, Offset(c.x + r * 0.46f, c.y - r * 0.12f))
+    drawCircle(Color.White.copy(alpha = params.moonRimAlpha * alpha), r * 0.20f, Offset(c.x - r * 0.42f, c.y + r * 0.02f), blendMode = BlendMode.Screen)
 }
 
 private data class TwilightPalette(
