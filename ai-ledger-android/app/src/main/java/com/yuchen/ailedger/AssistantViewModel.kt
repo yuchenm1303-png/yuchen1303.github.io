@@ -1,6 +1,7 @@
 package com.yuchen.ailedger
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -8,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.data.AssistantRepository
+import com.yuchen.ailedger.data.CustomBackgroundStore
 import com.yuchen.ailedger.data.PreviewAssistantRepository
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
@@ -16,20 +18,24 @@ import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AssistantViewModel(
     application: Application,
     private val repository: AssistantRepository,
     private val preferencesStore: AssistantPreferencesStore,
-    private val aiWorkerClient: AiWorkerClient
+    private val aiWorkerClient: AiWorkerClient,
+    private val customBackgroundStore: CustomBackgroundStore
 ) : AndroidViewModel(application) {
 
     constructor(application: Application) : this(
         application = application,
         repository = PreviewAssistantRepository(),
         preferencesStore = AssistantPreferencesStore(application),
-        aiWorkerClient = AiWorkerClient()
+        aiWorkerClient = AiWorkerClient(),
+        customBackgroundStore = CustomBackgroundStore(application)
     )
 
     var uiState by mutableStateOf(repository.initialState())
@@ -43,6 +49,7 @@ class AssistantViewModel(
                     showPreviewConversation = preferences.showPreviewConversation,
                     glassPreset = preferences.glassPreset,
                     backgroundTheme = preferences.backgroundTheme,
+                    customBackgroundPath = preferences.customBackgroundPath,
                     glassIntensity = preferences.glassIntensity,
                     motionIntensity = preferences.motionIntensity
                 )
@@ -68,8 +75,27 @@ class AssistantViewModel(
     }
 
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
-        uiState = uiState.copy(backgroundTheme = backgroundTheme)
-        viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme) }
+        uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = null)
+        viewModelScope.launch {
+            preferencesStore.setBackgroundTheme(backgroundTheme)
+            preferencesStore.setCustomBackgroundPath(null)
+        }
+    }
+
+    fun importCustomBackground(uri: Uri) {
+        viewModelScope.launch {
+            val path = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }
+            uiState = uiState.copy(customBackgroundPath = path)
+            preferencesStore.setCustomBackgroundPath(path)
+        }
+    }
+
+    fun clearCustomBackground() {
+        uiState = uiState.copy(customBackgroundPath = null)
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }
+            preferencesStore.setCustomBackgroundPath(null)
+        }
     }
 
     fun setBackdropDebugParams(params: BackdropDebugParams) {
