@@ -57,6 +57,30 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
     }
 }
 
+data class BackdropDebugParams(
+    val scale: Float = 0.60f,
+    val radius: Float = 4f,
+    val iterations: Float = 5f,
+    val brightness: Float = 1.10f,
+    val contrast: Float = 1.08f,
+    val saturation: Float = 1.08f,
+    val cloudAlpha: Float = 1.18f,
+    val cloudSoftness: Float = 1.35f,
+    val cloudStretchX: Float = 2.20f,
+    val cloudStretchY: Float = 0.72f,
+    val cloudHighlightAlpha: Float = 0.24f,
+    val moonScale: Float = 1.00f,
+    val moonHaloAlpha: Float = 0.18f,
+    val moonRimAlpha: Float = 0.42f
+)
+
+data class GlassBorderStyle(
+    val outerStrokeAlpha: Float = 0.34f,
+    val innerStrokeAlpha: Float = 0.16f,
+    val topHighlightAlpha: Float = 0.22f,
+    val bottomShadowAlpha: Float = 0.08f
+)
+
 enum class MessageRole {
     Assistant,
     User
@@ -87,6 +111,8 @@ data class AssistantUiState(
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
+    val backdropParams: BackdropDebugParams = BackdropDebugParams(),
+    val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
     val stats: List<StatSummary> = emptyList(),
     val messages: List<ChatMessage> = emptyList(),
     val tools: List<ToolEntry> = emptyList()
