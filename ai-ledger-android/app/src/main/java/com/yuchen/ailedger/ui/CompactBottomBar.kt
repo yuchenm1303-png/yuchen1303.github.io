@@ -46,39 +46,39 @@ fun CompactLiquidBottomBar(
 ) {
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity * 0.92f,
+        glassIntensity = glassIntensity * 0.86f,
         motionIntensity = motionIntensity,
-        radius = 28,
-        modifier = modifier.fillMaxWidth().height(58.dp),
+        radius = 24,
+        modifier = modifier.fillMaxWidth().height(52.dp),
         role = GlassRole.Nav
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(6.dp)) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(5.dp)) {
             val slot = maxWidth / AppTab.entries.size
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
             val indicatorX by animateDpAsState(
                 targetValue = slot * target.toFloat(),
-                animationSpec = tween(420, easing = FastOutSlowInEasing),
+                animationSpec = tween(360, easing = FastOutSlowInEasing),
                 label = "compact-nav-indicator-x"
             )
             val indicatorW by animateDpAsState(
-                targetValue = slot - 8.dp,
-                animationSpec = tween(420, easing = FastOutSlowInEasing),
+                targetValue = slot - 7.dp,
+                animationSpec = tween(360, easing = FastOutSlowInEasing),
                 label = "compact-nav-indicator-w"
             )
 
             GlassPanel(
                 quality = quality,
-                glassIntensity = glassIntensity * 1.05f,
+                glassIntensity = glassIntensity * 0.98f,
                 motionIntensity = motionIntensity,
-                radius = 23,
+                radius = 20,
                 modifier = Modifier
-                    .offset(x = indicatorX + 4.dp, y = 1.dp)
+                    .offset(x = indicatorX + 3.5.dp, y = 1.dp)
                     .width(indicatorW)
-                    .height(44.dp),
+                    .height(40.dp),
                 role = GlassRole.Floating
             ) {}
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AppTab.entries.forEach { tab ->
                     val selected = tab == currentTab
                     val interaction = remember { MutableInteractionSource() }
@@ -87,24 +87,24 @@ fun CompactLiquidBottomBar(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .height(42.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
-                            .clip(RoundedCornerShape(23.dp))
+                            .clip(RoundedCornerShape(20.dp))
                             .clickable(interactionSource = interaction, indication = null) { onTabChange(tab) },
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             navIcon(tab),
-                            color = Color.White.copy(alpha = if (selected) 0.96f else 0.48f),
-                            fontSize = 16.sp,
+                            color = Color.White.copy(alpha = if (selected) 0.94f else 0.44f),
+                            fontSize = 14.sp,
                             maxLines = 1
                         )
                         Spacer(Modifier.height(1.dp))
                         Text(
                             tabLabel(tab),
-                            color = Color.White.copy(alpha = if (selected) 0.92f else 0.46f),
-                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = if (selected) 0.90f else 0.42f),
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
