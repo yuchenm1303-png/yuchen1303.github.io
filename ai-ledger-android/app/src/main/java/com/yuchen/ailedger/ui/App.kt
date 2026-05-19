@@ -16,11 +16,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
@@ -30,6 +32,7 @@ import com.yuchen.ailedger.model.RenderQuality
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
+    val backdropOrigin = remember { BackdropCoordinateSource() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -52,7 +55,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     params = state.backdropParams,
                     borderStyle = state.glassBorderStyle
                 ),
-                LocalBlurredBackdrop provides blurredBackdrop
+                LocalBlurredBackdrop provides blurredBackdrop,
+                LocalBackdropOrigin provides backdropOrigin
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
@@ -60,7 +64,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         motionIntensity = state.motionIntensity,
                         theme = state.backgroundTheme,
                         params = state.backdropParams,
-                        customBackgroundPath = state.customBackgroundPath
+                        customBackgroundPath = state.customBackgroundPath,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { backdropOrigin.coordinates = it }
                     )
 
                     Column(
