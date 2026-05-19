@@ -21,13 +21,17 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
+import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.roundToInt
 
 data class GlassBackdropSpec(
     val quality: RenderQuality,
     val motionIntensity: Float,
-    val theme: BackgroundTheme
+    val theme: BackgroundTheme,
+    val params: BackdropDebugParams = BackdropDebugParams(),
+    val borderStyle: GlassBorderStyle = GlassBorderStyle()
 )
 
 val LocalGlassBackdrop = compositionLocalOf<GlassBackdropSpec?> { null }
@@ -45,6 +49,8 @@ fun SampledWeatherGlassBackdrop(
 ) {
     val view = LocalView.current
     val cachedBackdrop = LocalBlurredBackdrop.current
+    val spec = LocalGlassBackdrop.current
+    val params = spec?.params ?: BackdropDebugParams()
     val alpha = liftAlpha.coerceIn(0.34f, 1.00f)
     val baseScrimAlpha = when (quality) {
         RenderQuality.Smooth -> 0.17f
@@ -102,6 +108,7 @@ fun SampledWeatherGlassBackdrop(
                 rootW = rootW,
                 rootH = rootH,
                 theme = theme,
+                params = params,
                 globalOffset = globalOffset,
                 spreadPx = spreadPx
             )
@@ -162,6 +169,7 @@ private fun DrawScope.drawSpreadBackdropSamples(
     rootW: Float,
     rootH: Float,
     theme: BackgroundTheme,
+    params: BackdropDebugParams,
     globalOffset: Offset,
     spreadPx: Float
 ) {
@@ -196,7 +204,8 @@ private fun DrawScope.drawSpreadBackdropSamples(
                 w = rootW,
                 h = rootH,
                 theme = theme,
-                alphaScale = sampleAlpha
+                alphaScale = sampleAlpha,
+                params = params
             )
         }
     }
@@ -205,7 +214,8 @@ private fun DrawScope.drawSpreadBackdropSamples(
             w = rootW,
             h = rootH,
             theme = theme,
-            alphaScale = 0.88f
+            alphaScale = 0.88f,
+            params = params
         )
     }
 }
@@ -220,6 +230,8 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
+    val spec = LocalGlassBackdrop.current
+    val border = spec?.borderStyle ?: GlassBorderStyle()
     val alpha = strength.coerceIn(0f, 0.34f)
     Canvas(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
         val w = size.width
@@ -302,6 +314,74 @@ fun SampledWeatherEdgeRefraction(
             size = innerSize,
             cornerRadius = cornerRadius,
             style = Stroke(width = 2.6.dp.toPx()),
+            blendMode = BlendMode.Multiply
+        )
+
+        val iosOuterInset = 0.60.dp.toPx()
+        val iosInnerInset = 2.25.dp.toPx()
+        val iosOuterSize = Size(w - iosOuterInset * 2f, h - iosOuterInset * 2f)
+        val iosInnerSize = Size(w - iosInnerInset * 2f, h - iosInnerInset * 2f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.outerStrokeAlpha),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.46f),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.16f)
+                ),
+                startY = 0f,
+                endY = h
+            ),
+            topLeft = Offset(iosOuterInset, iosOuterInset),
+            size = iosOuterSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 1.05.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.innerStrokeAlpha),
+                    Color.Transparent,
+                    Color.White.copy(alpha = border.innerStrokeAlpha * 0.30f)
+                ),
+                startY = 0f,
+                endY = h
+            ),
+            topLeft = Offset(iosInnerInset, iosInnerInset),
+            size = iosInnerSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 0.82.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.topHighlightAlpha),
+                    Color.White.copy(alpha = border.topHighlightAlpha * 0.20f),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = h * 0.25f
+            ),
+            topLeft = Offset(w * 0.055f, 0f),
+            size = Size(w * 0.89f, h * 0.24f),
+            cornerRadius = cornerRadius,
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color.Black.copy(alpha = border.bottomShadowAlpha)
+                ),
+                startY = h * 0.52f,
+                endY = h
+            ),
+            topLeft = Offset(iosInnerInset, iosInnerInset),
+            size = iosInnerSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 1.1.dp.toPx()),
             blendMode = BlendMode.Multiply
         )
     }
