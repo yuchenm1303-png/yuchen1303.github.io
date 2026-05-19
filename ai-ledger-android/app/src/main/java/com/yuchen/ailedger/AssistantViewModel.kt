@@ -17,6 +17,8 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
+import com.yuchen.ailedger.model.LedgerRecord
+import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
@@ -64,6 +66,58 @@ class AssistantViewModel(
 
     fun selectTab(tab: AppTab) {
         uiState = uiState.copy(currentTab = tab)
+    }
+
+    fun openTool(title: String) {
+        uiState = uiState.copy(selectedToolTitle = title)
+    }
+
+    fun closeTool() {
+        uiState = uiState.copy(selectedToolTitle = null)
+    }
+
+    fun updateLedgerDraftTitle(value: String) {
+        uiState = uiState.copy(ledgerDraftTitle = value)
+    }
+
+    fun updateLedgerDraftAmount(value: String) {
+        uiState = uiState.copy(ledgerDraftAmount = value.filter { it.isDigit() || it == '.' }.take(10))
+    }
+
+    fun selectLedgerDraftType(type: LedgerRecordType) {
+        uiState = uiState.copy(ledgerDraftType = type)
+    }
+
+    fun selectLedgerCategory(category: String) {
+        uiState = uiState.copy(ledgerDraftCategory = category)
+    }
+
+    fun updateLedgerBudget(value: String) {
+        uiState = uiState.copy(ledgerBudgetText = value.filter { it.isDigit() || it == '.' }.take(10))
+    }
+
+    fun addLedgerRecord() {
+        val amount = uiState.ledgerDraftAmount.toFloatOrNull() ?: return
+        val title = uiState.ledgerDraftTitle.trim().ifBlank { if (uiState.ledgerDraftType == LedgerRecordType.Income) "未命名收入" else "未命名支出" }
+        if (amount <= 0f) return
+        val record = LedgerRecord(
+            id = "record-${System.currentTimeMillis()}",
+            title = title.take(24),
+            amount = amount,
+            type = uiState.ledgerDraftType,
+            category = uiState.ledgerDraftCategory,
+            dateLabel = "今天"
+        )
+        uiState = uiState.copy(
+            ledgerRecords = listOf(record) + uiState.ledgerRecords,
+            ledgerDraftTitle = "",
+            ledgerDraftAmount = ""
+        )
+        appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。")
+    }
+
+    fun deleteLedgerRecord(id: String) {
+        uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id })
     }
 
     fun updateComposer(text: String) {
@@ -128,7 +182,7 @@ class AssistantViewModel(
         val lower = command.lowercase()
         return when {
             command.contains("记") || command.contains("支出") || command.contains("收入") || command.contains("账") ->
-                "收到。我先把它识别为记账任务，后面会继续接入金额、分类和账单保存。"
+                "收到。我先把它识别为记账任务，你也可以到功能页的账单中心手动补充金额、分类和预算。"
             command.contains("提醒") || command.contains("闹钟") ->
                 "可以，我会把这句话当成提醒任务。你也可以点下方“设提醒”直接打开系统闹钟入口。"
             command.contains("导航") || command.contains("回家") || lower.contains("map") ->
@@ -137,6 +191,10 @@ class AssistantViewModel(
                 "可以识图。点右上角“识图”或输入框左侧加号，选择图片后就能继续处理。"
             else -> "我在。这个版本先把消息发送、滑动聊天和快捷动作跑通，后面再接入真正的 AI 回复。"
         }
+    }
+
+    private fun formatCurrency(value: Float): String {
+        return "¥${String.format("%.2f", value)}"
     }
 
     fun selectQuality(quality: RenderQuality) {
