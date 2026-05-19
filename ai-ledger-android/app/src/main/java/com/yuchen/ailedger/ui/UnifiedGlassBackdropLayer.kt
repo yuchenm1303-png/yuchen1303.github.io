@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.RenderQuality
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 @Composable
@@ -35,6 +37,7 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
         val backdrop = cachedBackdrop ?: return@Canvas
         val items = registry?.snapshot().orEmpty()
         val border = spec?.borderStyle ?: GlassBorderStyle()
+        val screenRect = Rect(0f, 0f, size.width, size.height)
 
         items.forEach { item ->
             if (!item.coordinates.isAttached()) return@forEach
@@ -42,14 +45,14 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
             if (itemSize.width <= 0 || itemSize.height <= 0) return@forEach
 
             val topLeft = item.coordinates.rootOffset()
-            if (topLeft.y > size.height || topLeft.y + itemSize.height < 0f) return@forEach
-            if (topLeft.x > size.width || topLeft.x + itemSize.width < 0f) return@forEach
+            val itemRect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
+            val visibleRect = itemRect.intersectionOrNull(screenRect) ?: return@forEach
 
             val sampleOffset = item.coordinates.offsetRelativeTo(backdropOrigin)
             drawUnifiedGlassBackdropItem(
                 backdrop = backdrop,
-                topLeft = topLeft,
-                itemSize = itemSize,
+                itemRect = itemRect,
+                visibleRect = visibleRect,
                 sampleOffset = sampleOffset,
                 radius = item.radius,
                 quality = item.quality,
@@ -57,8 +60,8 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
                 backdropAlpha = item.backdropAlpha
             )
             drawUnifiedGlassEdgeItem(
-                topLeft = topLeft,
-                itemSize = itemSize,
+                itemRect = itemRect,
+                visibleRect = visibleRect,
                 sampleOffset = sampleOffset,
                 radius = item.radius,
                 border = border,
@@ -68,23 +71,33 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     }
 }
 
+private fun Rect.intersectionOrNull(other: Rect): Rect? {
+    val left = max(this.left, other.left)
+    val top = max(this.top, other.top)
+    val right = min(this.right, other.right)
+    val bottom = min(this.bottom, other.bottom)
+    return if (right > left && bottom > top) Rect(left, top, right, bottom) else null
+}
+
 private fun DrawScope.drawUnifiedGlassBackdropItem(
     backdrop: BlurredBackdropBitmap,
-    topLeft: Offset,
-    itemSize: IntSize,
+    itemRect: Rect,
+    visibleRect: Rect,
     sampleOffset: Offset,
     radius: Int,
     quality: RenderQuality,
     glassIntensity: Float,
     backdropAlpha: Float
 ) {
-    val width = itemSize.width
-    val height = itemSize.height
+    val itemWidth = itemRect.width
+    val itemHeight = itemRect.height
+    val visibleWidth = visibleRect.width.roundToInt().coerceAtLeast(1)
+    val visibleHeight = visibleRect.height.roundToInt().coerceAtLeast(1)
     val corner = radius.dp.toPx()
     val path = Path().apply {
         addRoundRect(
             RoundRect(
-                rect = Rect(topLeft, Size(width.toFloat(), height.toFloat())),
+                rect = itemRect,
                 cornerRadius = CornerRadius(corner, corner)
             )
         )
@@ -107,18 +120,22 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
         RenderQuality.Experimental -> 0.056f
     } * alpha
 
-    val srcX = (sampleOffset.x * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = (sampleOffset.y * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val srcW = (width * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (height * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
+    val visibleDeltaX = visibleRect.left - itemRect.left
+    val visibleDeltaY = visibleRect.top - itemRect.top
+    val visibleSampleX = sampleOffset.x + visibleDeltaX
+    val visibleSampleY = sampleOffset.y + visibleDeltaY
+    val srcX = (visibleSampleX * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
+    val srcY = (visibleSampleY * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
+    val srcW = (visibleWidth * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
+    val srcH = (visibleHeight * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
 
     clipPath(path) {
         drawImage(
             image = backdrop.image,
             srcOffset = IntOffset(srcX, srcY),
             srcSize = IntSize(srcW, srcH),
-            dstOffset = IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()),
-            dstSize = IntSize(width, height),
+            dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
+            dstSize = IntSize(visibleWidth, visibleHeight),
             alpha = backdropAlpha.coerceIn(0.35f, 1f),
             blendMode = BlendMode.SrcOver
         )
@@ -129,17 +146,17 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
                     Color(0xFF9AADBF).copy(alpha = baseScrimAlpha * 0.28f),
                     Color(0xFF40576D).copy(alpha = baseScrimAlpha * 0.30f)
                 ),
-                startY = topLeft.y,
-                endY = topLeft.y + height
+                startY = itemRect.top,
+                endY = itemRect.bottom
             ),
-            topLeft = topLeft,
-            size = Size(width.toFloat(), height.toFloat()),
+            topLeft = Offset(visibleRect.left, visibleRect.top),
+            size = Size(visibleRect.width, visibleRect.height),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
             color = Color(0xFF72859A).copy(alpha = baseScrimAlpha * 0.26f),
-            topLeft = topLeft,
-            size = Size(width.toFloat(), height.toFloat()),
+            topLeft = Offset(visibleRect.left, visibleRect.top),
+            size = Size(visibleRect.width, visibleRect.height),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
@@ -150,11 +167,11 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
                     Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.10f),
                     Color(0xFF172333).copy(alpha = baseScrimAlpha * 0.14f)
                 ),
-                startY = topLeft.y,
-                endY = topLeft.y + height
+                startY = itemRect.top,
+                endY = itemRect.bottom
             ),
-            topLeft = topLeft,
-            size = Size(width.toFloat(), height.toFloat()),
+            topLeft = Offset(visibleRect.left, visibleRect.top),
+            size = Size(visibleRect.width, visibleRect.height),
             blendMode = BlendMode.SrcOver
         )
         drawRect(
@@ -164,26 +181,26 @@ private fun DrawScope.drawUnifiedGlassBackdropItem(
                     Color.White.copy(alpha = highlightAlpha * 0.08f),
                     Color.Transparent
                 ),
-                center = Offset(topLeft.x + width * 0.42f, topLeft.y + height * 0.08f),
-                radius = width * 0.98f
+                center = Offset(itemRect.left + itemWidth * 0.42f, itemRect.top + itemHeight * 0.08f),
+                radius = itemWidth * 0.98f
             ),
-            topLeft = topLeft,
-            size = Size(width.toFloat(), height.toFloat()),
+            topLeft = Offset(visibleRect.left, visibleRect.top),
+            size = Size(visibleRect.width, visibleRect.height),
             blendMode = BlendMode.Screen
         )
     }
 }
 
 private fun DrawScope.drawUnifiedGlassEdgeItem(
-    topLeft: Offset,
-    itemSize: IntSize,
+    itemRect: Rect,
+    visibleRect: Rect,
     sampleOffset: Offset,
     radius: Int,
     border: GlassBorderStyle,
     strength: Float
 ) {
-    val w = itemSize.width.toFloat()
-    val h = itemSize.height.toFloat()
+    val w = itemRect.width
+    val h = itemRect.height
     val alpha = strength.coerceIn(0f, 0.34f)
     val corner = radius.dp.toPx()
     val cornerRadius = CornerRadius(corner, corner)
@@ -192,115 +209,126 @@ private fun DrawScope.drawUnifiedGlassEdgeItem(
     val innerInset = 7.0.dp.toPx()
     val positionPhase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
 
-    fun itemOffset(x: Float, y: Float): Offset = Offset(topLeft.x + x, topLeft.y + y)
+    val path = Path().apply {
+        addRoundRect(
+            RoundRect(
+                rect = itemRect,
+                cornerRadius = cornerRadius
+            )
+        )
+    }
+
+    fun itemOffset(x: Float, y: Float): Offset = Offset(itemRect.left + x, itemRect.top + y)
     fun itemSize(width: Float, height: Float): Size = Size(width, height)
 
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.055f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha),
-                Color.Transparent,
-                Color.Black.copy(alpha = 0.010f * alpha),
-                Color.White.copy(alpha = 0.010f * alpha)
+    clipPath(path) {
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.055f * alpha),
+                    Color.White.copy(alpha = 0.018f * alpha),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.010f * alpha),
+                    Color.White.copy(alpha = 0.010f * alpha)
+                ),
+                start = itemOffset(w * (positionPhase - 0.18f), 0f),
+                end = itemOffset(w * (positionPhase + 0.82f), h)
             ),
-            start = itemOffset(w * (positionPhase - 0.18f), 0f),
-            end = itemOffset(w * (positionPhase + 0.82f), h)
-        ),
-        topLeft = itemOffset(outerInset, outerInset),
-        size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 8.5.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.070f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha),
-                Color.Transparent
+            topLeft = itemOffset(outerInset, outerInset),
+            size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 8.5.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.070f * alpha),
+                    Color.White.copy(alpha = 0.018f * alpha),
+                    Color.Transparent
+                ),
+                startY = itemRect.top,
+                endY = itemRect.top + h * 0.30f
             ),
-            startY = topLeft.y,
-            endY = topLeft.y + h * 0.30f
-        ),
-        topLeft = itemOffset(midInset, midInset),
-        size = itemSize(w - midInset * 2f, h - midInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 5.6.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.horizontalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.030f * alpha),
-                Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = 0.010f * alpha),
-                Color.White.copy(alpha = 0.016f * alpha)
+            topLeft = itemOffset(midInset, midInset),
+            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 5.6.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.030f * alpha),
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.010f * alpha),
+                    Color.White.copy(alpha = 0.016f * alpha)
+                ),
+                startX = itemRect.left,
+                endX = itemRect.right
             ),
-            startX = topLeft.x,
-            endX = topLeft.x + w
-        ),
-        topLeft = itemOffset(midInset, midInset),
-        size = itemSize(w - midInset * 2f, h - midInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 4.8.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.Black.copy(alpha = 0.004f * alpha),
-                Color.Black.copy(alpha = 0.018f * alpha)
+            topLeft = itemOffset(midInset, midInset),
+            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 4.8.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.004f * alpha),
+                    Color.Black.copy(alpha = 0.018f * alpha)
+                ),
+                startY = itemRect.top + h * 0.48f,
+                endY = itemRect.bottom
             ),
-            startY = topLeft.y + h * 0.48f,
-            endY = topLeft.y + h
-        ),
-        topLeft = itemOffset(innerInset, innerInset),
-        size = itemSize(w - innerInset * 2f, h - innerInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 2.4.dp.toPx()),
-        blendMode = BlendMode.Multiply
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = border.outerStrokeAlpha),
-                Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f),
-                Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)
+            topLeft = itemOffset(innerInset, innerInset),
+            size = itemSize(w - innerInset * 2f, h - innerInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 2.4.dp.toPx()),
+            blendMode = BlendMode.Multiply
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = border.outerStrokeAlpha),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f),
+                    Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)
+                ),
+                startY = itemRect.top,
+                endY = itemRect.bottom
             ),
-            startY = topLeft.y,
-            endY = topLeft.y + h
-        ),
-        topLeft = itemOffset(outerInset, outerInset),
-        size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 1.15.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = border.innerStrokeAlpha), Color.Transparent, Color.White.copy(alpha = border.innerStrokeAlpha * 0.28f)),
-            startY = topLeft.y,
-            endY = topLeft.y + h
-        ),
-        topLeft = itemOffset(midInset, midInset),
-        size = itemSize(w - midInset * 2f, h - midInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 0.82.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = border.bottomShadowAlpha)),
-            startY = topLeft.y + h * 0.52f,
-            endY = topLeft.y + h
-        ),
-        topLeft = itemOffset(midInset, midInset),
-        size = itemSize(w - midInset * 2f, h - midInset * 2f),
-        cornerRadius = cornerRadius,
-        style = Stroke(width = 1.1.dp.toPx()),
-        blendMode = BlendMode.Multiply
-    )
+            topLeft = itemOffset(outerInset, outerInset),
+            size = itemSize(w - outerInset * 2f, h - outerInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 1.15.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.White.copy(alpha = border.innerStrokeAlpha), Color.Transparent, Color.White.copy(alpha = border.innerStrokeAlpha * 0.28f)),
+                startY = itemRect.top,
+                endY = itemRect.bottom
+            ),
+            topLeft = itemOffset(midInset, midInset),
+            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 0.82.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = border.bottomShadowAlpha)),
+                startY = itemRect.top + h * 0.52f,
+                endY = itemRect.bottom
+            ),
+            topLeft = itemOffset(midInset, midInset),
+            size = itemSize(w - midInset * 2f, h - midInset * 2f),
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 1.1.dp.toPx()),
+            blendMode = BlendMode.Multiply
+        )
+    }
 }
