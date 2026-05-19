@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -77,19 +75,19 @@ fun GlassPanel(
     val effectiveRadius = effectiveGlassRadius(radius, role)
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
-    var globalOffset by remember { mutableStateOf(Offset.Zero) }
+    val coordinates = remember { GlassCoordinateSource() }
     val backdrop = LocalGlassBackdrop.current
 
     Box(
         modifier = modifier
-            .onGloballyPositioned { globalOffset = it.localToRoot(Offset.Zero) }
+            .onGloballyPositioned { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         if (backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
-                globalOffset = globalOffset,
+                coordinateSource = coordinates,
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
@@ -99,7 +97,7 @@ fun GlassPanel(
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
-                globalOffset = globalOffset,
+                coordinateSource = coordinates,
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
@@ -148,13 +146,13 @@ fun PressableGlass(
     )
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
-    var globalOffset by remember { mutableStateOf(Offset.Zero) }
+    val coordinates = remember { GlassCoordinateSource() }
     val backdrop = LocalGlassBackdrop.current
     val pressedIntensity = if (pressed) glassIntensity * 1.08f else glassIntensity
 
     Box(
         modifier = modifier
-            .onGloballyPositioned { globalOffset = it.localToRoot(Offset.Zero) }
+            .onGloballyPositioned { coordinates.coordinates = it }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -168,7 +166,7 @@ fun PressableGlass(
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
-                globalOffset = globalOffset,
+                coordinateSource = coordinates,
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
@@ -178,7 +176,7 @@ fun PressableGlass(
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
-                globalOffset = globalOffset,
+                coordinateSource = coordinates,
                 quality = backdrop.quality,
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
