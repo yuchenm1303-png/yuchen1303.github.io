@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
@@ -48,8 +48,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         customBackgroundPath = state.customBackgroundPath
     )
 
-    LaunchedEffect(state.quality.enableMotion, state.motionIntensity) {
-        while (state.quality.enableMotion && state.motionIntensity > 0.02f) {
+    LaunchedEffect(Unit) {
+        while (true) {
             val frameTime = withFrameNanos { it }
             backdropTicker.frameNanos = frameTime
         }
@@ -78,7 +78,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         customBackgroundPath = state.customBackgroundPath,
                         modifier = Modifier
                             .fillMaxSize()
-                            .onGloballyPositioned { backdropOrigin.coordinates = it }
+                            .onPlaced { backdropOrigin.coordinates = it }
                     )
 
                     Column(
