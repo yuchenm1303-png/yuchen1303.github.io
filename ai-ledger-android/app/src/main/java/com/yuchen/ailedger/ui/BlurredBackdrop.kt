@@ -9,8 +9,12 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
@@ -21,6 +25,7 @@ import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
@@ -49,12 +54,16 @@ fun rememberBlurredBackdropBitmap(
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
     val key = params.cacheKey()
+    var bitmap by remember(width, height, theme, quality) { mutableStateOf<BlurredBackdropBitmap?>(null) }
 
-    return produceState<BlurredBackdropBitmap?>(initialValue = null, width, height, theme, quality, key) {
-        value = withContext(Dispatchers.Default) {
+    LaunchedEffect(width, height, theme, quality, key) {
+        if (bitmap != null) delay(120)
+        val next = withContext(Dispatchers.Default) {
             runCatching { buildBlurredBackdropBitmap(width, height, theme, params.quantized()) }.getOrNull()
         }
-    }.value
+        if (next != null) bitmap = next
+    }
+    return bitmap
 }
 
 private fun BackdropDebugParams.cacheKey(): String = buildString {
