@@ -1,24 +1,28 @@
 package com.yuchen.ailedger.ui.gl
 
 import android.content.Context
-import android.graphics.PixelFormat
+import android.graphics.SurfaceTexture
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
 import android.opengl.GLES20
-import android.opengl.GLSurfaceView
+import android.view.Surface
+import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.opengles.GL10
 import kotlin.math.max
 
 /**
  * Stage 1 OpenGL glass probe.
  *
- * This is intentionally independent from the production glass registry. It only proves that
- * a transparent OpenGL ES shader layer can be mixed into the Compose scene on API 31 devices.
+ * TextureView is used instead of GLSurfaceView so the GPU layer participates in normal View
+ * composition and can stay transparent over the Compose scene on API 31 / HarmonyOS devices.
  */
 @Composable
 fun OpenGLGlassProbeLayer(
@@ -28,29 +32,166 @@ fun OpenGLGlassProbeLayer(
     if (!enabled) return
     AndroidView(
         modifier = modifier,
-        factory = { context -> OpenGLGlassProbeView(context) },
+        factory = { context -> OpenGLGlassProbeTextureView(context) },
         update = { view -> view.requestRender() }
     )
 }
 
-private class OpenGLGlassProbeView(context: Context) : GLSurfaceView(context) {
-    private val probeRenderer = OpenGLGlassProbeRenderer()
+private class OpenGLGlassProbeTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
+    private var renderThread: GlassEglRenderThread? = null
 
     init {
-        setEGLContextClientVersion(2)
-        setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-        holder.setFormat(PixelFormat.TRANSLUCENT)
-        setZOrderMediaOverlay(true)
-        preserveEGLContextOnPause = true
-        setRenderer(probeRenderer)
-        renderMode = RENDERMODE_WHEN_DIRTY
+        isOpaque = false
+        alpha = 1f
+        surfaceTextureListener = this
         isClickable = false
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
+
+    fun requestRender() {
+        renderThread?.requestRender()
+    }
+
+    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        renderThread?.shutdown()
+        renderThread = GlassEglRenderThread(Surface(surfaceTexture), width, height).also { it.start() }
+    }
+
+    override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        renderThread?.resize(width, height)
+    }
+
+    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        renderThread?.shutdown()
+        renderThread = null
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
 }
 
-private class OpenGLGlassProbeRenderer : GLSurfaceView.Renderer {
+private class GlassEglRenderThread(
+    private val surface: Surface,
+    width: Int,
+    height: Int
+) : Thread("OpenGLGlassProbeTextureThread") {
+    private val renderer = OpenGLGlassProbeRenderer()
+    private val renderLock = Object()
+
+    @Volatile private var running = true
+    @Volatile private var pendingRender = true
+    @Volatile private var viewportWidth = max(width, 1)
+    @Volatile private var viewportHeight = max(height, 1)
+    @Volatile private var sizeDirty = true
+
+    private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
+    private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
+    private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+
+    fun requestRender() {
+        synchronized(renderLock) {
+            pendingRender = true
+            renderLock.notifyAll()
+        }
+    }
+
+    fun resize(width: Int, height: Int) {
+        viewportWidth = max(width, 1)
+        viewportHeight = max(height, 1)
+        sizeDirty = true
+        requestRender()
+    }
+
+    fun shutdown() {
+        running = false
+        requestRender()
+    }
+
+    override fun run() {
+        try {
+            initEgl()
+            renderer.onSurfaceCreated()
+            renderer.onSurfaceChanged(viewportWidth, viewportHeight)
+            sizeDirty = false
+
+            while (running) {
+                synchronized(renderLock) {
+                    while (!pendingRender && running) {
+                        renderLock.wait()
+                    }
+                    pendingRender = false
+                }
+                if (!running) break
+                if (sizeDirty) {
+                    renderer.onSurfaceChanged(viewportWidth, viewportHeight)
+                    sizeDirty = false
+                }
+                renderer.onDrawFrame()
+                EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+            }
+        } finally {
+            releaseEgl()
+            surface.release()
+        }
+    }
+
+    private fun initEgl() {
+        eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        check(eglDisplay != EGL14.EGL_NO_DISPLAY) { "Unable to get EGL display" }
+
+        val version = IntArray(2)
+        check(EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) { "Unable to initialize EGL" }
+
+        val configAttributes = intArrayOf(
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
+            EGL14.EGL_RED_SIZE, 8,
+            EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8,
+            EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_DEPTH_SIZE, 0,
+            EGL14.EGL_STENCIL_SIZE, 0,
+            EGL14.EGL_NONE
+        )
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val configCount = IntArray(1)
+        check(EGL14.eglChooseConfig(eglDisplay, configAttributes, 0, configs, 0, configs.size, configCount, 0)) {
+            "Unable to choose EGL config"
+        }
+        val eglConfig = configs[0] ?: error("No EGL config found")
+
+        val contextAttributes = intArrayOf(
+            EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
+            EGL14.EGL_NONE
+        )
+        eglContext = EGL14.eglCreateContext(eglDisplay, eglConfig, EGL14.EGL_NO_CONTEXT, contextAttributes, 0)
+        check(eglContext != EGL14.EGL_NO_CONTEXT) { "Unable to create EGL context" }
+
+        eglSurface = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, surface, intArrayOf(EGL14.EGL_NONE), 0)
+        check(eglSurface != EGL14.EGL_NO_SURFACE) { "Unable to create EGL window surface" }
+
+        check(EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) { "Unable to make EGL context current" }
+    }
+
+    private fun releaseEgl() {
+        if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
+            EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            if (eglSurface != EGL14.EGL_NO_SURFACE) {
+                EGL14.eglDestroySurface(eglDisplay, eglSurface)
+            }
+            if (eglContext != EGL14.EGL_NO_CONTEXT) {
+                EGL14.eglDestroyContext(eglDisplay, eglContext)
+            }
+            EGL14.eglTerminate(eglDisplay)
+        }
+        eglDisplay = EGL14.EGL_NO_DISPLAY
+        eglSurface = EGL14.EGL_NO_SURFACE
+        eglContext = EGL14.EGL_NO_CONTEXT
+    }
+}
+
+private class OpenGLGlassProbeRenderer {
     private val quadVertices: FloatBuffer = ByteBuffer
         .allocateDirect(FULLSCREEN_QUAD.size * Float.SIZE_BYTES)
         .order(ByteOrder.nativeOrder())
@@ -68,7 +209,7 @@ private class OpenGLGlassProbeRenderer : GLSurfaceView.Renderer {
     private var viewportHeight = 1
     private var startTimeNanos = System.nanoTime()
 
-    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+    fun onSurfaceCreated() {
         program = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         resolutionHandle = GLES20.glGetUniformLocation(program, "uResolution")
@@ -81,13 +222,13 @@ private class OpenGLGlassProbeRenderer : GLSurfaceView.Renderer {
         GLES20.glClearColor(0f, 0f, 0f, 0f)
     }
 
-    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+    fun onSurfaceChanged(width: Int, height: Int) {
         viewportWidth = max(width, 1)
         viewportHeight = max(height, 1)
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
     }
 
-    override fun onDrawFrame(gl: GL10?) {
+    fun onDrawFrame() {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
