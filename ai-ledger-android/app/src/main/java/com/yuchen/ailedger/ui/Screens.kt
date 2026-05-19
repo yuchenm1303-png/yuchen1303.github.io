@@ -74,13 +74,20 @@ fun AssistantScreen(
     onOpenTools: () -> Unit,
     onOpenSettings: () -> Unit,
     onNavigateHome: () -> Unit,
-    onSetAlarm: () -> Unit
+    onSetAlarm: () -> Unit,
+    onToggleOnline: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(top = 14.dp, bottom = 78.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        AssistantTopBar(state, onModelClick, onPickImage, onOpenTools, onOpenSettings)
+        AssistantTopBar(
+            state = state,
+            onModelClick = onModelClick,
+            onToggleOnline = onToggleOnline,
+            onOpenTools = onOpenTools,
+            onOpenSettings = onOpenSettings
+        )
         ChatGlassPanel(state, Modifier.weight(1f), onDraftCommand, onPickImage)
         AssistantQuickActions(state, onQuickCommand, onNavigateHome, onSetAlarm, onPickImage)
         ComposerBar(state, onComposerChange, onSend, onPickImage)
@@ -91,10 +98,11 @@ fun AssistantScreen(
 private fun AssistantTopBar(
     state: AssistantUiState,
     onModelClick: () -> Unit,
-    onPickImage: () -> Unit,
+    onToggleOnline: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
+    val allowSwitch = !state.isSending
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -108,8 +116,15 @@ private fun AssistantTopBar(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            ModelChip(state, Modifier.weight(1f), onModelClick)
-            StatusChip("识图", "图片入口", Color(0xFF9EB7FF), state, Modifier.weight(0.72f), onPickImage)
+            ModelChip(state, Modifier.weight(1f), if (allowSwitch) onModelClick else {})
+            StatusChip(
+                label = "联网",
+                value = if (state.onlineEnabled) "已开启" else "已关闭",
+                accent = if (state.onlineEnabled) Color(0xFF8DF9EA) else Color(0xFF9EB7FF),
+                state = state,
+                modifier = Modifier.weight(0.72f),
+                onClick = if (allowSwitch) onToggleOnline else {}
+            )
         }
     }
 }
@@ -311,17 +326,18 @@ private fun QuickActionButton(title: String, subtitle: String, state: AssistantU
 
 @Composable
 private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val sendAction = if (state.isSending) ({}) else onSend
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         CircleGlassButton("+", state, size = 52, onClick = onPickImage)
         ComposerInputGlass(
             state = state,
             text = state.composerText,
             onTextChange = onComposerChange,
-            onSend = onSend,
+            onSend = sendAction,
             modifier = Modifier.weight(1f),
             placeholder = if (state.isSending) "正在等待云端回复..." else "和我说点什么..."
         )
-        CircleGlassButton(if (state.isSending) "…" else "↑", state, size = 52, onClick = onSend)
+        CircleGlassButton(if (state.isSending) "…" else "↑", state, size = 52, onClick = sendAction)
     }
 }
 
