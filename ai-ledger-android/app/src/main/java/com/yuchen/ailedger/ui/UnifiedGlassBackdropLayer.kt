@@ -35,6 +35,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val GLASS_LENS_TAG = "GlassLensShader"
+private const val SOFT_LENS_DETAIL_MIX = 0.28f
+private const val LENS_BAND_STRENGTH = 1.0f
 
 @Volatile
 private var hasLoggedShaderLensFailure = false
@@ -174,7 +176,8 @@ private fun DrawScope.drawShaderLens(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
     return runCatching {
         val lensShader = RuntimeShader(GLASS_LENS_SHADER).apply {
-            setInputShader("backdrop", BitmapShader(backdrop.image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+            setInputShader("backdropBlur", BitmapShader(backdrop.image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+            setInputShader("backdropLens", BitmapShader(backdrop.lensImage.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
             setFloatUniform("itemPos", itemRect.left, itemRect.top)
             setFloatUniform("itemSize", itemRect.width, itemRect.height)
             setFloatUniform("sampleOffset", sampleOffset.x, sampleOffset.y)
@@ -186,6 +189,8 @@ private fun DrawScope.drawShaderLens(
             setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.95f))
             setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.25f))
             setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
+            setFloatUniform("lensMix", SOFT_LENS_DETAIL_MIX)
+            setFloatUniform("bandStrength", LENS_BAND_STRENGTH)
         }
         val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             shader = lensShader
@@ -266,7 +271,8 @@ private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: G
 }
 
 private const val GLASS_LENS_SHADER = """
-uniform shader backdrop;
+uniform shader backdropBlur;
+uniform shader backdropLens;
 uniform float2 itemPos;
 uniform float2 itemSize;
 uniform float2 sampleOffset;
@@ -278,6 +284,8 @@ uniform float edgeAlpha;
 uniform float edgeContrast;
 uniform float edgeSaturation;
 uniform float edgeBrightness;
+uniform float lensMix;
+uniform float bandStrength;
 float roundedBoxSdf(float2 p, float2 halfSize, float r) {
     float2 b = max(halfSize - float2(r, r), float2(0.0, 0.0));
     float2 q = abs(p) - b;
@@ -288,6 +296,18 @@ float3 adjustColor(float3 color) {
     color = mix(float3(luma, luma, luma), color, edgeSaturation);
     color = (color - float3(0.5, 0.5, 0.5)) * edgeContrast + float3(0.5, 0.5, 0.5);
     return clamp(color * edgeBrightness, float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+}
+half4 sampleSoftLens(float2 uv, float2 n, float2 t, float radiusPx) {
+    half4 c = backdropLens.eval(uv) * 0.30;
+    c += backdropLens.eval(uv + n * radiusPx) * 0.13;
+    c += backdropLens.eval(uv - n * radiusPx) * 0.13;
+    c += backdropLens.eval(uv + t * radiusPx) * 0.11;
+    c += backdropLens.eval(uv - t * radiusPx) * 0.11;
+    c += backdropLens.eval(uv + (n + t) * radiusPx * 0.70) * 0.08;
+    c += backdropLens.eval(uv + (n - t) * radiusPx * 0.70) * 0.07;
+    c += backdropLens.eval(uv - (n + t) * radiusPx * 0.70) * 0.04;
+    c += backdropLens.eval(uv - (n - t) * radiusPx * 0.70) * 0.03;
+    return c;
 }
 half4 main(float2 coord) {
     float2 local = coord - itemPos;
@@ -307,54 +327,79 @@ half4 main(float2 coord) {
     float maxSize = max(max(itemSize.x, itemSize.y), 1.0);
     float cornerCurve = clamp(abs(edgeNormal.x * edgeNormal.y) * 2.15, 0.0, 1.0);
     float tangentPhase = clamp(dot(p / maxSize, edgeTangent) * 2.0, -1.0, 1.0);
-    float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 2.10, 1.0), 0.0, 1.0);
+    float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 1.25, 1.0), 0.0, 1.0);
 
-    float edgeCore = exp(-inside / max(edgeWidth * 0.20, 1.0));
-    float edgeShoulder = exp(-inside / max(edgeWidth * 0.62, 1.0)) * 0.30;
-    float softTail = exp(-inside / max(edgeWidth * 1.18, 1.0)) * 0.045;
-    float opticalWeight = clamp(edgeCore + edgeShoulder + softTail, 0.0, 1.0) * surfaceGate;
+    float edgeCore = exp(-inside / max(edgeWidth * 0.14, 1.0));
+    float edgeShoulder = exp(-inside / max(edgeWidth * 0.46, 1.0)) * 0.34;
+    float softTail = exp(-inside / max(edgeWidth * 0.92, 1.0)) * 0.030;
 
     float2 surfaceLocal = local + edgeNormal * inside;
-    float nearReach = min(edgePull * 0.18, edgeWidth * 0.55) * (1.0 + cornerCurve * 0.18);
-    float midReach = min(edgePull * 0.36, edgeWidth * 1.18) * (1.0 + cornerCurve * 0.28);
-    float farReach = min(edgePull * 0.62, edgeWidth * 2.10);
-    float compression = inside * (0.12 + edgeCore * 0.12 + edgeShoulder * 0.18 + cornerCurve * 0.06);
-    float tangentBend = edgeWidth * tangentPhase * (edgeCore * 0.085 + edgeShoulder * 0.18) * (1.0 + cornerCurve * 0.42);
+    float nearReach = min(edgePull * 0.20, edgeWidth * 0.62) * (1.0 + cornerCurve * 0.20);
+    float midReach = min(edgePull * 0.42, edgeWidth * 1.32) * (1.0 + cornerCurve * 0.32);
+    float farReach = min(edgePull * 0.68, edgeWidth * 2.18);
+    float compression = inside * (0.16 + edgeCore * 0.14 + edgeShoulder * 0.22 + cornerCurve * 0.08);
+    float tangentBend = edgeWidth * tangentPhase * (edgeCore * 0.12 + edgeShoulder * 0.22) * (1.0 + cornerCurve * 0.46);
 
     float2 baseCoord = (sampleOffset + local) * backdropScale;
-    float2 nearLocal = surfaceLocal + edgeNormal * (nearReach - compression * 0.30) + edgeTangent * tangentBend * 0.46;
+    float2 nearLocal = surfaceLocal + edgeNormal * (nearReach - compression * 0.32) + edgeTangent * tangentBend * 0.44;
     float2 midLocal = surfaceLocal + edgeNormal * (midReach - compression) + edgeTangent * tangentBend;
-    float2 farLocal = surfaceLocal + edgeNormal * (farReach - compression * 1.28) + edgeTangent * tangentBend * 1.24;
-    float2 innerLocal = local - edgeNormal * edgePull * clamp(edgeShoulder * 0.13 + softTail * 0.13, 0.0, 0.20);
+    float2 farLocal = surfaceLocal + edgeNormal * (farReach - compression * 1.24) + edgeTangent * tangentBend * 1.16;
+    float2 innerLocal = local - edgeNormal * edgePull * clamp(edgeShoulder * 0.12 + softTail * 0.12, 0.0, 0.18);
 
-    half4 base = backdrop.eval(baseCoord);
-    half4 nearR = backdrop.eval((sampleOffset + nearLocal + edgeNormal * (1.25 + cornerCurve * 0.80) + edgeTangent * 0.44) * backdropScale);
-    half4 nearG = backdrop.eval((sampleOffset + nearLocal) * backdropScale);
-    half4 nearB = backdrop.eval((sampleOffset + nearLocal - edgeNormal * (1.05 + cornerCurve * 0.72) - edgeTangent * 0.36) * backdropScale);
-    half4 mid = backdrop.eval((sampleOffset + midLocal) * backdropScale);
-    half4 far = backdrop.eval((sampleOffset + farLocal) * backdropScale);
-    half4 inner = backdrop.eval((sampleOffset + innerLocal) * backdropScale);
+    float2 nearUv = (sampleOffset + nearLocal) * backdropScale;
+    float2 midUv = (sampleOffset + midLocal) * backdropScale;
+    float2 farUv = (sampleOffset + farLocal) * backdropScale;
+    float2 innerUv = (sampleOffset + innerLocal) * backdropScale;
+
+    half4 base = backdropBlur.eval(baseCoord);
+    half4 nearBlur = backdropBlur.eval(nearUv);
+    half4 midBlur = backdropBlur.eval(midUv);
+    half4 far = backdropBlur.eval(farUv);
+    half4 inner = backdropBlur.eval(innerUv);
+
+    float softRadius = mix(2.8, 6.8, cornerCurve) * (1.0 + edgeShoulder * 1.25);
+    half4 nearSoft = sampleSoftLens(nearUv, edgeNormal, edgeTangent, softRadius);
+    half4 midSoft = sampleSoftLens(midUv, edgeNormal, edgeTangent, softRadius * 1.35);
+
+    float lensGate = lensMix * clamp(edgeCore * 0.70 + edgeShoulder * 0.48 + cornerCurve * edgeCore * 0.16, 0.0, 1.0) * surfaceGate;
+    float midLensGate = lensGate * clamp(0.52 + cornerCurve * 0.18, 0.0, 0.72);
 
     float3 baseColor = float3(base.r, base.g, base.b);
-    float3 nearSplit = float3(nearR.r, nearG.g, nearB.b);
-    float3 midColor = float3(mid.r, mid.g, mid.b);
+    float3 nearBlurColor = float3(nearBlur.r, nearBlur.g, nearBlur.b);
+    float3 midBlurColor = float3(midBlur.r, midBlur.g, midBlur.b);
+    float3 nearSoftColor = float3(nearSoft.r, nearSoft.g, nearSoft.b);
+    float3 midSoftColor = float3(midSoft.r, midSoft.g, midSoft.b);
+    float3 nearColor = mix(nearBlurColor, nearSoftColor, lensGate);
+    float3 midColor = mix(midBlurColor, midSoftColor, midLensGate);
     float3 farColor = float3(far.r, far.g, far.b);
     float3 innerColor = float3(inner.r, inner.g, inner.b);
-    float edgeMix = clamp(surfaceGate * (edgeCore * 0.78 + edgeShoulder * 0.42 + cornerCurve * edgeCore * 0.10), 0.0, 0.88);
-    float midMix = clamp(surfaceGate * (edgeShoulder * 0.58 + cornerCurve * edgeCore * 0.08), 0.0, 0.48);
-    float farMix = clamp(surfaceGate * softTail * 0.35, 0.0, 0.12);
-    float innerMix = clamp(surfaceGate * (edgeShoulder * 0.10 + softTail * 0.08), 0.0, 0.14);
 
-    float3 refracted = mix(baseColor, nearSplit, edgeMix);
+    float edgeMix = clamp(surfaceGate * (edgeCore * 0.82 + edgeShoulder * 0.44 + cornerCurve * edgeCore * 0.12), 0.0, 0.86);
+    float midMix = clamp(surfaceGate * (edgeShoulder * 0.60 + cornerCurve * edgeCore * 0.09), 0.0, 0.46);
+    float farMix = clamp(surfaceGate * softTail * 0.28, 0.0, 0.10);
+    float innerMix = clamp(surfaceGate * (edgeShoulder * 0.09 + softTail * 0.07), 0.0, 0.12);
+
+    float3 refracted = mix(baseColor, nearColor, edgeMix);
     refracted = mix(refracted, midColor, midMix);
     refracted = mix(refracted, farColor, farMix);
     refracted = mix(refracted, innerColor, innerMix);
     refracted = adjustColor(refracted);
 
-    float rimGlow = edgeCore * 0.052 + edgeShoulder * 0.022 + cornerCurve * edgeCore * 0.022;
+    float brightBand = exp(-inside / max(edgeWidth * 0.10, 1.0)) * 0.072;
+    float compressionBand = exp(-pow((inside - edgeWidth * 0.24) / max(edgeWidth * 0.18, 1.0), 2.0)) * 0.095;
+    float innerDarkBand = exp(-pow((inside - edgeWidth * 0.58) / max(edgeWidth * 0.26, 1.0), 2.0)) * 0.060;
+    float cornerCaustic = cornerCurve * exp(-inside / max(edgeWidth * 0.32, 1.0)) * 0.092;
+    float3 compressed = clamp((refracted - float3(0.5, 0.5, 0.5)) * 1.12 + float3(0.5, 0.5, 0.5), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
+
+    refracted = mix(refracted, compressed, compressionBand * bandStrength);
+    refracted += float3(brightBand, brightBand, brightBand) * bandStrength;
+    refracted -= float3(innerDarkBand, innerDarkBand, innerDarkBand) * bandStrength;
+    refracted += float3(cornerCaustic * 1.05, cornerCaustic * 0.92, cornerCaustic * 0.78) * bandStrength;
+
+    float rimGlow = edgeCore * 0.032 + edgeShoulder * 0.016 + cornerCurve * edgeCore * 0.018;
     refracted = clamp(refracted + float3(rimGlow, rimGlow, rimGlow), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
 
-    float alphaField = clamp(edgeCore * 0.82 + edgeShoulder * 0.24 + softTail * 0.04 + cornerCurve * edgeCore * 0.06, 0.0, 0.90);
+    float alphaField = clamp(edgeCore * 0.84 + edgeShoulder * 0.23 + softTail * 0.035 + cornerCurve * edgeCore * 0.07, 0.0, 0.88);
     float a = edgeAlpha * alphaField * surfaceGate;
     return half4(refracted, a);
 }
