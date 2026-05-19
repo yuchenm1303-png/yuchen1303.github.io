@@ -29,7 +29,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
-        quality = state.quality
+        quality = state.quality,
+        params = state.backdropParams
     )
 
     MaterialTheme {
@@ -38,7 +39,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalGlassBackdrop provides GlassBackdropSpec(
                     quality = state.quality,
                     motionIntensity = state.motionIntensity,
-                    theme = state.backgroundTheme
+                    theme = state.backgroundTheme,
+                    params = state.backdropParams,
+                    borderStyle = state.glassBorderStyle
                 ),
                 LocalBlurredBackdrop provides blurredBackdrop
             ) {
@@ -46,7 +49,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     WeatherNightBackground(
                         quality = state.quality,
                         motionIntensity = state.motionIntensity,
-                        theme = state.backgroundTheme
+                        theme = state.backgroundTheme,
+                        params = state.backdropParams
                     )
 
                     Column(
@@ -70,6 +74,18 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 onMotionIntensityChange = viewModel::setMotionIntensity
                             )
                         }
+                    }
+
+                    if (state.currentTab == AppTab.Settings) {
+                        GlassDebugFloatingPanel(
+                            state = state,
+                            onBackdropChange = viewModel::setBackdropDebugParams,
+                            onBorderChange = viewModel::setGlassBorderStyle,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(horizontal = 14.dp, vertical = 84.dp)
+                        )
                     }
 
                     BottomDockSeparationMist(
