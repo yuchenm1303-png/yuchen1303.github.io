@@ -15,11 +15,13 @@ import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
 import kotlinx.coroutines.Dispatchers
@@ -113,7 +115,7 @@ class AssistantViewModel(
             ledgerDraftTitle = "",
             ledgerDraftAmount = ""
         )
-        appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。")
+        appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。", source = "local_ledger")
     }
 
     fun deleteLedgerRecord(id: String) {
@@ -126,27 +128,78 @@ class AssistantViewModel(
 
     fun submitComposer() {
         val text = uiState.composerText.trim()
-        if (text.isBlank()) return
+        if (text.isBlank() || uiState.isSending) return
         sendUserCommand(text)
     }
 
     fun sendUserCommand(text: String) {
         val cleanText = text.trim()
-        if (cleanText.isBlank()) return
+        if (cleanText.isBlank() || uiState.isSending) return
+
+        val now = System.currentTimeMillis()
         val userMessage = ChatMessage(
-            id = "user-${System.currentTimeMillis()}",
+            id = "user-$now",
             text = cleanText,
             role = MessageRole.User
         )
-        val assistantMessage = ChatMessage(
-            id = "assistant-${System.currentTimeMillis() + 1}",
-            text = buildLocalAssistantReply(cleanText),
-            role = MessageRole.Assistant
+        val pendingMessage = ChatMessage(
+            id = "assistant-${now + 1}",
+            text = "正在思考…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "cloud_ai",
+            modelLabel = uiState.selectedModel.label
         )
+        val requestMessages = uiState.messages + userMessage
+        val selectedModel = uiState.selectedModel
+        val onlineEnabled = uiState.onlineEnabled
+
         uiState = uiState.copy(
-            messages = uiState.messages + userMessage + assistantMessage,
-            composerText = ""
+            messages = requestMessages + pendingMessage,
+            composerText = "",
+            isSending = true
         )
+
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    aiWorkerClient.sendChat(
+                        messages = requestMessages,
+                        modelPreference = selectedModel,
+                        onlineEnabled = onlineEnabled
+                    )
+                }
+            }
+
+            result.onSuccess { response ->
+                replaceMessage(
+                    id = pendingMessage.id,
+                    next = pendingMessage.copy(
+                        text = response.reply,
+                        status = MessageStatus.Sent,
+                        source = response.source,
+                        model = response.model,
+                        modelLabel = response.modelLabel ?: selectedModel.label,
+                        version = response.version,
+                        errorText = null
+                    )
+                )
+            }.onFailure { error ->
+                val friendly = error.message?.takeIf { it.isNotBlank() }
+                    ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
+                replaceMessage(
+                    id = pendingMessage.id,
+                    next = pendingMessage.copy(
+                        text = friendly,
+                        status = MessageStatus.Failed,
+                        source = "cloud_fetch_failed",
+                        modelLabel = selectedModel.label,
+                        errorText = friendly
+                    )
+                )
+            }
+            uiState = uiState.copy(isSending = false)
+        }
     }
 
     fun insertCommandDraft(text: String) {
@@ -154,43 +207,68 @@ class AssistantViewModel(
     }
 
     fun cycleModel() {
-        val next = when (uiState.selectedModelLabel) {
-            "Gemini 2.5 Flash" -> "Gemini 2.5 Pro"
-            "Gemini 2.5 Pro" -> "本地执行优先"
-            else -> "Gemini 2.5 Flash"
+        val next = when (uiState.selectedModel) {
+            ChatModel.Auto -> ChatModel.Workers
+            ChatModel.Workers -> ChatModel.Gemini
+            ChatModel.Gemini -> ChatModel.Kimi
+            ChatModel.Kimi -> ChatModel.Mistral
+            ChatModel.Mistral -> ChatModel.Auto
         }
-        uiState = uiState.copy(selectedModelLabel = next)
-        appendAssistantNotice("已切换为 $next。")
+        selectModel(next)
+    }
+
+    fun selectModel(model: ChatModel) {
+        uiState = uiState.copy(
+            selectedModel = model,
+            selectedModelLabel = model.label
+        )
+        appendAssistantNotice("已切换为 ${model.label}。", source = "local")
+    }
+
+    fun toggleOnline() {
+        val enabled = !uiState.onlineEnabled
+        uiState = uiState.copy(onlineEnabled = enabled)
+        appendAssistantNotice(
+            text = if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。",
+            source = "local"
+        )
+    }
+
+    fun clearChat() {
+        uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false)
+        appendAssistantNotice("对话已清空。", source = "local")
     }
 
     fun onImagePickedForAssistant(uri: Uri?) {
         if (uri == null) return
-        appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，先在这里保留图片输入入口。")
+        appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local")
     }
 
-    fun appendAssistantNotice(text: String) {
+    fun appendAssistantNotice(text: String, source: String? = null) {
         uiState = uiState.copy(
             messages = uiState.messages + ChatMessage(
                 id = "assistant-${System.currentTimeMillis()}",
                 text = text,
-                role = MessageRole.Assistant
+                role = MessageRole.Assistant,
+                source = source,
+                modelLabel = sourceLabel(source)
             )
         )
     }
 
-    private fun buildLocalAssistantReply(command: String): String {
-        val lower = command.lowercase()
-        return when {
-            command.contains("记") || command.contains("支出") || command.contains("收入") || command.contains("账") ->
-                "收到。我先把它识别为记账任务，你也可以到功能页的账单中心手动补充金额、分类和预算。"
-            command.contains("提醒") || command.contains("闹钟") ->
-                "可以，我会把这句话当成提醒任务。你也可以点下方“设提醒”直接打开系统闹钟入口。"
-            command.contains("导航") || command.contains("回家") || lower.contains("map") ->
-                "我理解为导航任务。点“回家”会调用系统地图，后面可以在设置里配置家庭地址。"
-            command.contains("图片") || command.contains("识图") || command.contains("照片") ->
-                "可以识图。点右上角“识图”或输入框左侧加号，选择图片后就能继续处理。"
-            else -> "我在。这个版本先把消息发送、滑动聊天和快捷动作跑通，后面再接入真正的 AI 回复。"
-        }
+    private fun replaceMessage(id: String, next: ChatMessage) {
+        uiState = uiState.copy(
+            messages = uiState.messages.map { message ->
+                if (message.id == id) next else message
+            }
+        )
+    }
+
+    private fun sourceLabel(source: String?): String? = when (source) {
+        "local" -> "本地"
+        "local_ledger" -> "本地记账"
+        "cloud_fetch_failed" -> "云端连接失败"
+        else -> null
     }
 
     private fun formatCurrency(value: Float): String {
