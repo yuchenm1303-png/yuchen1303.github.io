@@ -37,89 +37,7 @@ fun DrawScope.drawWeatherNightBackground(
     theme: BackgroundTheme = BackgroundTheme.Aurora,
     alphaScale: Float = 1f
 ) {
-    val a = alphaScale.coerceIn(0f, 1f)
-    val palette = backgroundPalette(theme)
-    val icon = min(w * 0.145f, h * 0.068f)
-
-    drawRect(
-        brush = Brush.linearGradient(
-            listOf(
-                palette.deep.copy(alpha = a),
-                palette.mid.copy(alpha = a),
-                palette.glow.copy(alpha = a),
-                palette.bottom.copy(alpha = a)
-            ),
-            start = Offset(w * 0.08f, 0f),
-            end = Offset(w * 0.92f, h)
-        )
-    )
-    drawOval(
-        brush = Brush.radialGradient(
-            listOf(palette.primaryAura.copy(alpha = 0.34f * a), Color.Transparent),
-            center = Offset(w * 0.74f, h * 0.34f),
-            radius = w * 0.58f
-        ),
-        topLeft = Offset(w * 0.18f, h * 0.02f),
-        size = Size(w * 1.12f, h * 0.75f),
-        blendMode = BlendMode.Screen
-    )
-    drawOval(
-        brush = Brush.radialGradient(
-            listOf(palette.secondaryAura.copy(alpha = 0.20f * a), Color.Transparent),
-            center = Offset(w * 0.20f, h * 0.62f),
-            radius = w * 0.44f
-        ),
-        topLeft = Offset(-w * 0.18f, h * 0.30f),
-        size = Size(w * 0.80f, h * 0.58f),
-        blendMode = BlendMode.Screen
-    )
-
-    val xs = listOf(0.15f, 0.38f, 0.62f, 0.85f)
-    val ys = listOf(0.11f, 0.24f, 0.37f, 0.50f, 0.63f, 0.76f)
-    var k = 0
-    ys.forEach { y ->
-        xs.forEach { x ->
-            if (!(y == 0.24f && x > 0.50f) && !(y == 0.76f && x == 0.62f)) {
-                drawRoundRect(
-                    color = palette.icons[k % palette.icons.size].copy(alpha = 0.92f * a),
-                    topLeft = Offset(w * x - icon / 2f, h * y - icon / 2f),
-                    size = Size(icon, icon),
-                    cornerRadius = CornerRadius(icon * 0.22f, icon * 0.22f)
-                )
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.25f * a), Color.Transparent)
-                    ),
-                    topLeft = Offset(w * x - icon / 2f, h * y - icon / 2f),
-                    size = Size(icon, icon),
-                    cornerRadius = CornerRadius(icon * 0.22f, icon * 0.22f),
-                    blendMode = BlendMode.Screen
-                )
-                k++
-            }
-        }
-    }
-
-    drawRoundRect(
-        color = palette.widget.copy(alpha = 0.88f * a),
-        topLeft = Offset(w * 0.53f, h * 0.21f),
-        size = Size(w * 0.40f, h * 0.17f),
-        cornerRadius = CornerRadius(w * 0.045f, w * 0.045f)
-    )
-    drawRoundRect(
-        color = Color(0xFF071A2B).copy(alpha = 0.52f * a),
-        topLeft = Offset(w * 0.04f, h * 0.885f),
-        size = Size(w * 0.92f, h * 0.095f),
-        cornerRadius = CornerRadius(h * 0.030f, h * 0.030f)
-    )
-    repeat(5) { i ->
-        drawRoundRect(
-            color = palette.icons[(i + 2) % palette.icons.size].copy(alpha = 0.92f * a),
-            topLeft = Offset(w * (0.14f + i * 0.18f) - icon * 0.40f, h * 0.932f - icon * 0.40f),
-            size = Size(icon * 0.80f, icon * 0.80f),
-            cornerRadius = CornerRadius(icon * 0.18f, icon * 0.18f)
-        )
-    }
+    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = false)
 }
 
 fun DrawScope.drawWeatherNightBackgroundGlow(
@@ -128,106 +46,7 @@ fun DrawScope.drawWeatherNightBackgroundGlow(
     theme: BackgroundTheme = BackgroundTheme.Aurora,
     alphaScale: Float = 1f
 ) {
-    val a = alphaScale.coerceIn(0f, 1f)
-    val palette = backgroundPalette(theme)
-    val icon = min(w * 0.145f, h * 0.068f)
-
-    drawRect(
-        brush = Brush.linearGradient(
-            listOf(
-                palette.deep.copy(alpha = 0.96f * a),
-                palette.mid.copy(alpha = 0.92f * a),
-                palette.glow.copy(alpha = 0.88f * a),
-                palette.bottom.copy(alpha = 0.96f * a)
-            ),
-            start = Offset(w * 0.08f, 0f),
-            end = Offset(w * 0.92f, h)
-        )
-    )
-    drawOval(
-        brush = Brush.radialGradient(
-            listOf(palette.primaryAura.copy(alpha = 0.24f * a), Color.Transparent),
-            center = Offset(w * 0.72f, h * 0.34f),
-            radius = w * 0.64f
-        ),
-        topLeft = Offset(w * 0.06f, -h * 0.02f),
-        size = Size(w * 1.24f, h * 0.84f),
-        blendMode = BlendMode.Screen
-    )
-    drawOval(
-        brush = Brush.radialGradient(
-            listOf(palette.secondaryAura.copy(alpha = 0.16f * a), Color.Transparent),
-            center = Offset(w * 0.18f, h * 0.63f),
-            radius = w * 0.52f
-        ),
-        topLeft = Offset(-w * 0.28f, h * 0.22f),
-        size = Size(w * 0.96f, h * 0.70f),
-        blendMode = BlendMode.Screen
-    )
-
-    val xs = listOf(0.15f, 0.38f, 0.62f, 0.85f)
-    val ys = listOf(0.11f, 0.24f, 0.37f, 0.50f, 0.63f, 0.76f)
-    var k = 0
-    ys.forEach { y ->
-        xs.forEach { x ->
-            if (!(y == 0.24f && x > 0.50f) && !(y == 0.76f && x == 0.62f)) {
-                drawSoftRoundedGlow(
-                    color = palette.icons[k % palette.icons.size],
-                    center = Offset(w * x, h * y),
-                    baseSize = icon,
-                    alpha = 0.22f * a,
-                    cornerRatio = 0.36f
-                )
-                k++
-            }
-        }
-    }
-
-    drawSoftRoundedGlow(
-        color = palette.widget,
-        center = Offset(w * 0.73f, h * 0.295f),
-        baseSize = min(w * 0.40f, h * 0.17f),
-        alpha = 0.16f * a,
-        cornerRatio = 0.30f,
-        aspect = 2.35f
-    )
-    repeat(5) { i ->
-        drawSoftRoundedGlow(
-            color = palette.icons[(i + 2) % palette.icons.size],
-            center = Offset(w * (0.14f + i * 0.18f), h * 0.932f),
-            baseSize = icon * 0.80f,
-            alpha = 0.18f * a,
-            cornerRatio = 0.34f
-        )
-    }
-}
-
-private fun DrawScope.drawSoftRoundedGlow(
-    color: Color,
-    center: Offset,
-    baseSize: Float,
-    alpha: Float,
-    cornerRatio: Float,
-    aspect: Float = 1f
-) {
-    val layers = listOf(
-        3.40f to 0.08f,
-        2.55f to 0.11f,
-        1.90f to 0.15f,
-        1.35f to 0.20f,
-        0.96f to 0.22f
-    )
-    layers.forEach { (scale, weight) ->
-        val width = baseSize * scale * aspect
-        val height = baseSize * scale
-        drawRoundRect(
-            color = color.copy(alpha = alpha * weight),
-            topLeft = Offset(center.x - width / 2f, center.y - height / 2f),
-            size = Size(width, height),
-            cornerRadius = CornerRadius(height * cornerRatio, height * cornerRatio),
-            blendMode = BlendMode.Screen
-        )
-    }
+    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = true)
 }
 
 private data class BackgroundPalette(
@@ -241,7 +60,8 @@ private data class BackgroundPalette(
     val icons: List<Color>
 )
 
-private fun backgroundPalette(theme: BackgroundTheme): BackgroundPalette {
+@Suppress("unused")
+private fun legacyBackgroundPalette(theme: BackgroundTheme): BackgroundPalette {
     return when (theme) {
         BackgroundTheme.Aurora -> BackgroundPalette(
             deep = Color(0xFF061426),
