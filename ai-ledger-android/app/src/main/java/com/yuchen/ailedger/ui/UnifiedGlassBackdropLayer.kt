@@ -35,8 +35,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val GLASS_LENS_TAG = "GlassLensShader"
-private const val SOFT_LENS_DETAIL_MIX = 0.28f
-private const val LENS_BAND_STRENGTH = 1.0f
+private const val SOFT_LENS_DETAIL_MIX = 0.34f
+private const val LENS_BAND_STRENGTH = 1.25f
 
 @Volatile
 private var hasLoggedShaderLensFailure = false
@@ -327,7 +327,7 @@ half4 main(float2 coord) {
     float maxSize = max(max(itemSize.x, itemSize.y), 1.0);
     float cornerCurve = clamp(abs(edgeNormal.x * edgeNormal.y) * 2.15, 0.0, 1.0);
     float tangentPhase = clamp(dot(p / maxSize, edgeTangent) * 2.0, -1.0, 1.0);
-    float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 1.25, 1.0), 0.0, 1.0);
+    float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 1.55, 1.0), 0.0, 1.0);
 
     float edgeCore = exp(-inside / max(edgeWidth * 0.14, 1.0));
     float edgeShoulder = exp(-inside / max(edgeWidth * 0.46, 1.0)) * 0.34;
