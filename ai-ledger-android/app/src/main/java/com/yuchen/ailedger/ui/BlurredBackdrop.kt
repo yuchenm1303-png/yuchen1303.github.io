@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
 import kotlin.math.min
@@ -35,7 +36,8 @@ val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 @Composable
 fun rememberBlurredBackdropBitmap(
     theme: BackgroundTheme,
-    quality: RenderQuality
+    quality: RenderQuality,
+    params: BackdropDebugParams = BackdropDebugParams()
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
     val density = LocalDensity.current
@@ -45,42 +47,35 @@ fun rememberBlurredBackdropBitmap(
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
 
-    return remember(width, height, theme, quality) {
-        runCatching { buildBlurredBackdropBitmap(width, height, theme, quality) }.getOrNull()
+    return remember(width, height, theme, quality, params) {
+        runCatching { buildBlurredBackdropBitmap(width, height, theme, params) }.getOrNull()
     }
-}
-
-private data class BackdropTuning(
-    val scale: Float,
-    val radius: Int,
-    val iterations: Int,
-    val brightness: Float,
-    val contrast: Float,
-    val saturation: Float
-)
-
-private fun tuningFor(quality: RenderQuality): BackdropTuning = when (quality) {
-    RenderQuality.Smooth -> BackdropTuning(0.420f, 4, 4, 1.06f, 1.04f, 1.04f)
-    RenderQuality.Balanced -> BackdropTuning(0.600f, 4, 5, 1.10f, 1.08f, 1.08f)
-    RenderQuality.Experimental -> BackdropTuning(0.600f, 5, 5, 1.11f, 1.09f, 1.09f)
 }
 
 private fun buildBlurredBackdropBitmap(
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme,
-    quality: RenderQuality
+    params: BackdropDebugParams
 ): BlurredBackdropBitmap {
-    val tuning = tuningFor(quality)
-    val smallWidth = (fullWidth * tuning.scale).roundToInt().coerceAtLeast(128)
-    val smallHeight = (fullHeight * tuning.scale).roundToInt().coerceAtLeast(216)
+    val smallWidth = (fullWidth * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(128)
+    val smallHeight = (fullHeight * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    drawAndroidBackdropSource(source, theme)
+    drawAndroidBackdropSource(source, theme, params)
 
-    val blurred = boxBlur(source, tuning.radius, tuning.iterations)
-    val tuned = tuneBitmapTone(blurred, tuning.brightness, tuning.contrast, tuning.saturation)
+    val blurred = boxBlur(
+        input = source,
+        radius = params.radius.roundToInt().coerceIn(1, 32),
+        iterations = params.iterations.roundToInt().coerceIn(1, 8)
+    )
+    val tuned = tuneBitmapTone(
+        input = blurred,
+        brightness = params.brightness.coerceIn(0.70f, 1.35f),
+        contrast = params.contrast.coerceIn(0.70f, 1.35f),
+        saturation = params.saturation.coerceIn(0.50f, 1.60f)
+    )
 
     return BlurredBackdropBitmap(
         image = tuned.asImageBitmap(),
@@ -90,7 +85,7 @@ private fun buildBlurredBackdropBitmap(
     )
 }
 
-private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
+private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
     val h = bitmap.height.toFloat()
@@ -113,13 +108,14 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme) {
     drawAndroidGlow(canvas, paint, w * 0.34f, h * 0.82f, w * 0.70f, h * 0.34f, p.warm, 0.34f)
     drawAndroidGlow(canvas, paint, w * 0.24f, h * 0.44f, w * 0.46f, h * 0.28f, p.blue, 0.22f)
 
-    drawAndroidCloudBand(canvas, paint, w, h, 0.11f, 0.16f, p.cloudLight, 0.34f, -0.10f)
-    drawAndroidCloudBand(canvas, paint, w, h, 0.25f, 0.18f, p.cloudBlue, 0.30f, 0.08f)
-    drawAndroidCloudBand(canvas, paint, w, h, 0.47f, 0.25f, p.cloudWarm, 0.28f, -0.03f)
-    drawAndroidCloudBand(canvas, paint, w, h, 0.68f, 0.24f, p.cloudRose, 0.22f, 0.14f)
+    val cloudAlpha = params.cloudAlpha.coerceIn(0.25f, 2.2f)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.10f, 0.18f, p.cloudLight, 0.40f * cloudAlpha, -0.12f, params)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.22f, 0.21f, p.cloudBlue, 0.38f * cloudAlpha, 0.06f, params)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.44f, 0.27f, p.cloudWarm, 0.34f * cloudAlpha, -0.04f, params)
+    drawAndroidCloudBand(canvas, paint, w, h, 0.66f, 0.26f, p.cloudRose, 0.28f * cloudAlpha, 0.14f, params)
 
     drawAndroidStars(canvas, paint, w, h)
-    drawAndroidCrescent(canvas, paint, w, h, p)
+    drawAndroidCrescent(canvas, paint, w, h, p, params)
 
     paint.shader = LinearGradient(
         0f,
@@ -156,18 +152,36 @@ private fun drawAndroidCloudBand(
     bandHeight: Float,
     color: Int,
     alpha: Float,
-    drift: Float
+    drift: Float,
+    params: BackdropDebugParams
 ) {
     val cy = h * y
     val bh = h * bandHeight
-    val positions = floatArrayOf(-0.08f, 0.14f, 0.34f, 0.57f, 0.82f, 1.05f)
+    val positions = floatArrayOf(-0.10f, 0.08f, 0.24f, 0.41f, 0.60f, 0.78f, 0.96f, 1.12f)
     positions.forEachIndexed { index, x ->
         val centerX = w * (x + drift)
-        val centerY = cy + bh * if (index % 2 == 0) 0.10f else -0.04f
-        val rx = w * (0.21f + (index % 3) * 0.04f)
-        val ry = bh * (0.56f + (index % 2) * 0.16f)
-        drawAndroidGlow(canvas, paint, centerX, centerY, rx, ry, color, alpha)
+        val centerY = cy + bh * if (index % 2 == 0) 0.09f else -0.05f
+        val blockW = w * (0.18f + (index % 3) * 0.035f) * params.cloudStretchX.coerceIn(0.8f, 3.8f)
+        val blockH = bh * (0.38f + (index % 2) * 0.10f) * params.cloudStretchY.coerceIn(0.35f, 1.4f)
+        drawAndroidCloudBlob(canvas, paint, centerX, centerY, blockW, blockH, color, alpha * (0.78f + (index % 4) * 0.055f), params)
     }
+}
+
+private fun drawAndroidCloudBlob(
+    canvas: Canvas,
+    paint: Paint,
+    cx: Float,
+    cy: Float,
+    width: Float,
+    height: Float,
+    color: Int,
+    alpha: Float,
+    params: BackdropDebugParams
+) {
+    val softness = params.cloudSoftness.coerceIn(0.65f, 2.4f)
+    drawAndroidGlow(canvas, paint, cx, cy, width * 0.62f * softness, height * 0.56f, color, alpha * 0.42f)
+    drawAndroidGlow(canvas, paint, cx, cy - height * 0.04f, width * 0.48f * softness, height * 0.42f, color, alpha)
+    drawAndroidGlow(canvas, paint, cx, cy - height * 0.25f, width * 0.30f, height * 0.14f, Color.WHITE, alpha * params.cloudHighlightAlpha.coerceIn(0f, 0.8f))
 }
 
 private fun drawAndroidStars(canvas: Canvas, paint: Paint, w: Float, h: Float) {
@@ -184,15 +198,18 @@ private fun drawAndroidStars(canvas: Canvas, paint: Paint, w: Float, h: Float) {
     }
 }
 
-private fun drawAndroidCrescent(canvas: Canvas, paint: Paint, w: Float, h: Float, p: AndroidWeatherPalette) {
-    val radius = min(w, h) * 0.026f
+private fun drawAndroidCrescent(canvas: Canvas, paint: Paint, w: Float, h: Float, p: AndroidWeatherPalette, params: BackdropDebugParams) {
+    val radius = min(w, h) * 0.024f * params.moonScale.coerceIn(0.45f, 1.8f)
     val cx = w * 0.82f
     val cy = h * 0.21f
+    drawAndroidGlow(canvas, paint, cx, cy, radius * 2.35f, radius * 2.35f, Color.rgb(0xFF, 0xF3, 0xD6), params.moonHaloAlpha.coerceIn(0f, 0.8f))
     paint.shader = null
-    paint.color = withAlpha(Color.rgb(0xFF, 0xF3, 0xD6), 0.46f)
+    paint.color = withAlpha(Color.rgb(0xFF, 0xF3, 0xD6), 0.62f)
     canvas.drawCircle(cx, cy, radius, paint)
-    paint.color = withAlpha(p.upper, 0.94f)
-    canvas.drawCircle(cx + radius * 0.42f, cy - radius * 0.20f, radius * 1.04f, paint)
+    paint.color = withAlpha(p.upper, 0.97f)
+    canvas.drawCircle(cx + radius * 0.46f, cy - radius * 0.12f, radius * 1.05f, paint)
+    paint.color = withAlpha(Color.WHITE, params.moonRimAlpha.coerceIn(0f, 1f))
+    canvas.drawCircle(cx - radius * 0.42f, cy + radius * 0.02f, radius * 0.20f, paint)
 }
 
 private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
