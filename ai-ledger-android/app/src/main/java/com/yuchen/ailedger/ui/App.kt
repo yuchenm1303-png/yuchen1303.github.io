@@ -139,6 +139,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 }
                             )
                             AppTab.Tools -> ToolsScreen(
+                                // Keep this call aligned with the ledger-capable ToolsScreen signature in Screens.kt.
                                 state = state,
                                 onOpenTool = viewModel::openTool,
                                 onBack = viewModel::closeTool,
