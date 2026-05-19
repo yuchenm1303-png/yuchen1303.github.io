@@ -84,14 +84,18 @@ class AiWorkerClient(
 
             if (reply.isBlank()) throw IOException("云端没有返回有效回复")
 
+            val rawModel = data.optString("model").takeIf { it.isNotBlank() }
+            val rawVersion = data.optString("version").takeIf { it.isNotBlank() }
+            val rawModelLabel = data.optString("modelLabel")
+                .ifBlank { rawModel.orEmpty() }
+                .ifBlank { modelPreference.label }
+
             AiChatResponse(
                 reply = reply,
                 source = data.optString("source").ifBlank { "cloud_ai" },
-                model = data.optString("model").ifBlank { null },
-                modelLabel = data.optString("modelLabel")
-                    .ifBlank { data.optString("model") }
-                    .ifBlank { modelPreference.label },
-                version = data.optString("version").ifBlank { null }
+                model = rawModel,
+                modelLabel = rawModelLabel,
+                version = rawVersion
             )
         } catch (error: SocketTimeoutException) {
             throw IOException("云端 AI 请求超时，请稍后再试", error)
@@ -102,7 +106,7 @@ class AiWorkerClient(
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
         val recent = filter { it.role == MessageRole.User || it.role == MessageRole.Assistant }
-            .filter { it.text.isNotBlank() }
+            .filter { it.text.isNotBlank() && it.status.name != "Sending" }
             .takeLast(16)
         return JSONArray().apply {
             recent.forEach { message ->
