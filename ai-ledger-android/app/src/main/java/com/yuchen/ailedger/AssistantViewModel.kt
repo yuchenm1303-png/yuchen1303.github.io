@@ -151,15 +151,48 @@ class AssistantViewModel(
             modelLabel = uiState.selectedModel.label
         )
         val requestMessages = uiState.messages + userMessage
-        val selectedModel = uiState.selectedModel
-        val onlineEnabled = uiState.onlineEnabled
 
         uiState = uiState.copy(
             messages = requestMessages + pendingMessage,
             composerText = "",
             isSending = true
         )
+        sendPendingRequest(requestMessages, pendingMessage)
+    }
 
+    fun retryMessage(messageId: String) {
+        if (uiState.isSending) return
+        val assistantIndex = uiState.messages.indexOfFirst { it.id == messageId && it.role == MessageRole.Assistant }
+        if (assistantIndex <= 0) return
+        val previousUser = uiState.messages
+            .take(assistantIndex)
+            .lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() } ?: return
+        val requestMessages = uiState.messages.take(assistantIndex)
+        val pendingMessage = ChatMessage(
+            id = "assistant-${System.currentTimeMillis()}",
+            text = "正在重新生成…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "cloud_ai",
+            modelLabel = uiState.selectedModel.label
+        )
+        uiState = uiState.copy(
+            messages = requestMessages + pendingMessage,
+            composerText = "",
+            isSending = true
+        )
+        sendPendingRequest(
+            requestMessages = requestMessages.ifEmpty { listOf(previousUser) },
+            pendingMessage = pendingMessage
+        )
+    }
+
+    private fun sendPendingRequest(
+        requestMessages: List<ChatMessage>,
+        pendingMessage: ChatMessage
+    ) {
+        val selectedModel = uiState.selectedModel
+        val onlineEnabled = uiState.onlineEnabled
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
@@ -207,6 +240,7 @@ class AssistantViewModel(
     }
 
     fun cycleModel() {
+        if (uiState.isSending) return
         val next = when (uiState.selectedModel) {
             ChatModel.Auto -> ChatModel.Workers
             ChatModel.Workers -> ChatModel.Gemini
@@ -218,6 +252,7 @@ class AssistantViewModel(
     }
 
     fun selectModel(model: ChatModel) {
+        if (uiState.isSending) return
         uiState = uiState.copy(
             selectedModel = model,
             selectedModelLabel = model.label
@@ -226,6 +261,7 @@ class AssistantViewModel(
     }
 
     fun toggleOnline() {
+        if (uiState.isSending) return
         val enabled = !uiState.onlineEnabled
         uiState = uiState.copy(onlineEnabled = enabled)
         appendAssistantNotice(
@@ -235,8 +271,8 @@ class AssistantViewModel(
     }
 
     fun clearChat() {
+        if (uiState.isSending) return
         uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false)
-        appendAssistantNotice("对话已清空。", source = "local")
     }
 
     fun onImagePickedForAssistant(uri: Uri?) {
