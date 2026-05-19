@@ -95,6 +95,27 @@ enum class MessageRole {
     User
 }
 
+enum class MessageStatus {
+    Sending,
+    Sent,
+    Failed
+}
+
+enum class ChatModel(val id: String, val label: String, val shortLabel: String) {
+    Auto("auto", "自动选择", "自动"),
+    Gemini("gemini", "Gemini 2.5 Flash", "Gemini"),
+    Kimi("kimi", "Kimi K2.6", "Kimi"),
+    Mistral("mistral", "Mistral Medium 3.5", "Mistral"),
+    Workers("workers", "Workers AI", "Workers");
+
+    companion object {
+        fun fromId(value: String): ChatModel {
+            val clean = value.lowercase().trim().replace("workers_ai", "workers")
+            return entries.firstOrNull { it.id == clean || it.name.lowercase() == clean } ?: Auto
+        }
+    }
+}
+
 enum class LedgerRecordType(val label: String) {
     Expense("支出"),
     Income("收入")
@@ -103,7 +124,14 @@ enum class LedgerRecordType(val label: String) {
 data class ChatMessage(
     val id: String,
     val text: String,
-    val role: MessageRole
+    val role: MessageRole,
+    val status: MessageStatus = MessageStatus.Sent,
+    val source: String? = null,
+    val model: String? = null,
+    val modelLabel: String? = null,
+    val version: String? = null,
+    val errorText: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 data class StatSummary(
@@ -141,7 +169,10 @@ data class AssistantUiState(
     val messages: List<ChatMessage> = emptyList(),
     val tools: List<ToolEntry> = emptyList(),
     val composerText: String = "",
-    val selectedModelLabel: String = "Gemini 2.5 Flash",
+    val selectedModel: ChatModel = ChatModel.Auto,
+    val selectedModelLabel: String = ChatModel.Auto.label,
+    val onlineEnabled: Boolean = false,
+    val isSending: Boolean = false,
     val selectedToolTitle: String? = null,
     val ledgerRecords: List<LedgerRecord> = emptyList(),
     val ledgerBudgetText: String = "1500",
