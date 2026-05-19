@@ -38,7 +38,8 @@ data class BlurredBackdropBitmap(
     val image: ImageBitmap,
     val fullWidthPx: Int,
     val fullHeightPx: Int,
-    val scale: Float
+    val scale: Float,
+    val lensImage: ImageBitmap = image
 )
 
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
@@ -133,6 +134,13 @@ private fun buildBlurredBackdropBitmap(
     val drewCustom = drawCustomImageBackdropSource(source, customBackgroundPath)
     if (!drewCustom) drawAndroidBackdropSource(source, theme, params)
 
+    val lensTuned = tuneBitmapTone(
+        input = source,
+        brightness = params.brightness.coerceIn(0.70f, 1.35f),
+        contrast = params.contrast.coerceIn(0.70f, 1.35f),
+        saturation = params.saturation.coerceIn(0.50f, 1.60f)
+    )
+
     val blurred = boxBlur(
         input = source,
         radius = params.radius.roundToInt().coerceIn(1, 32),
@@ -149,7 +157,8 @@ private fun buildBlurredBackdropBitmap(
         image = tuned.asImageBitmap(),
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
-        scale = effectiveScale
+        scale = effectiveScale,
+        lensImage = lensTuned.asImageBitmap()
     )
 }
 
