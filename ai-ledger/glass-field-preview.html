@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Liquid Glass Field Preview</title>
+  <style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;background:#0b1020;color:#fff}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 20% 0%,#263b72 0,#090d18 42%,#05070c 100%);overflow:hidden}
+    .wrap{width:min(100vw,520px);height:100vh;max-height:980px;position:relative;display:grid;place-items:center;padding:8px}
+    canvas{width:100%;height:100%;border-radius:28px;box-shadow:0 24px 80px rgba(0,0,0,.45);background:#fff;touch-action:none}
+    .panel{position:absolute;left:18px;right:18px;bottom:18px;padding:12px 14px;border-radius:22px;background:rgba(8,12,24,.58);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.18);box-shadow:0 10px 34px rgba(0,0,0,.28)}
+    .row{display:grid;grid-template-columns:78px 1fr 46px;gap:10px;align-items:center;font-size:12px;color:rgba(255,255,255,.78);margin:6px 0}.row b{font-weight:800;color:#fff}.row input{width:100%;accent-color:#8bd8ff}.top{position:absolute;top:18px;left:24px;right:24px;display:flex;justify-content:space-between;gap:10px;pointer-events:none;font-size:12px;color:rgba(255,255,255,.72)}.pill{padding:8px 11px;border-radius:999px;background:rgba(0,0,0,.25);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.12)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="c"></canvas>
+    <div class="top"><div class="pill">边缘锚定光学场预览</div><div class="pill">拖动 / 滚轮看折射</div></div>
+    <div class="panel">
+      <div class="row"><b>边缘强度</b><input id="edgeAlpha" type="range" min="0" max="1.2" step="0.01" value="0.86"><span id="edgeAlphaV"></span></div>
+      <div class="row"><b>拉取距离</b><input id="edgePull" type="range" min="0" max="180" step="1" value="110"><span id="edgePullV"></span></div>
+      <div class="row"><b>边缘宽度</b><input id="edgeWidth" type="range" min="6" max="90" step="1" value="30"><span id="edgeWidthV"></span></div>
+      <div class="row"><b>雾面强度</b><input id="bodyAlpha" type="range" min="0" max="1" step="0.01" value="0.51"><span id="bodyAlphaV"></span></div>
+    </div>
+  </div>
+<script>
+const canvas=document.getElementById('c');
+const gl=canvas.getContext('webgl',{alpha:false,antialias:true,preserveDrawingBuffer:false});
+if(!gl){document.body.innerHTML='<div style="padding:24px;font-size:18px">当前浏览器不支持 WebGL，无法显示预览。</div>';throw new Error('WebGL unavailable')}
+const ui=['edgeAlpha','edgePull','edgeWidth','bodyAlpha'].reduce((a,id)=>(a[id]=document.getElementById(id),a[id+'V']=document.getElementById(id+'V'),a),{});
+let drag=false,lastY=0,scroll=0,time0=performance.now();
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
+const vs=`attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}`;
+const fs=`precision highp float;
+uniform vec2 uRes;uniform float uTime,uScroll,uEdgeAlpha,uEdgePull,uEdgeWidth,uBodyAlpha;
+float boxSdf(vec2 p,vec2 h,float r){vec2 b=max(h-vec2(r),vec2(0.0));vec2 q=abs(p)-b;return length(max(q,vec2(0.0)))+min(max(q.x,q.y),0.0)-r;}
+vec3 bg(vec2 uv){float y=uv.y+uScroll;vec3 c=vec3(0.97);if(y<150.0)c=mix(vec3(0.16,0.54,0.98),vec3(0.45,0.73,1.0),uv.y/150.0);float grid=step(.985,fract((uv.x+18.0)/92.0))*0.08+step(.985,fract((y+6.0)/82.0))*0.08;c-=grid;float bar=smoothstep(650.0,690.0,y)*(1.0-smoothstep(840.0,880.0,y));float rx=step(80.0,uv.x)*step(185.0,mod(uv.x,360.0));float bx=step(185.0,mod(uv.x,360.0))*step(mod(uv.x,360.0),330.0);c=mix(c,vec3(1.0,0.22,0.15),bar*rx*.82);c=mix(c,vec3(0.16,0.40,0.95),bar*bx*.88);float red=exp(-length((uv-vec2(380.0,420.0+sin(uTime*.7)*120.0))/vec2(80.0,48.0)));float blue=exp(-length((uv-vec2(170.0,545.0+cos(uTime*.55)*90.0))/vec2(65.0,80.0)));c=mix(c,vec3(1.0,.2,.2),red*.65);c=mix(c,vec3(.15,.45,1.0),blue*.55);float lines=0.0;for(float i=0.0;i<10.0;i++){float yy=220.0+i*92.0-uScroll*.15;lines+=exp(-abs(uv.y-yy)/2.6)*step(60.0,uv.x)*step(uv.x,460.0)*.10;}c-=lines;return clamp(c,0.0,1.0);} 
+vec3 satcon(vec3 c){float l=dot(c,vec3(.2126,.7152,.0722));c=mix(vec3(l),c,1.42);return clamp((c-.5)*1.60+.5,0.0,1.0);} 
+vec4 glass(vec2 uv,vec4 under,vec2 pos,vec2 size,float rad){vec2 local=uv-pos;vec2 center=size*.5;vec2 p=local-center;float sd=boxSdf(p,size*.5,rad);if(sd>0.0)return under;float inside=max(-sd,0.0);vec2 dx=vec2(1,0),dy=vec2(0,1);float gx=boxSdf(p+dx,size*.5,rad)-boxSdf(p-dx,size*.5,rad);float gy=boxSdf(p+dy,size*.5,rad)-boxSdf(p-dy,size*.5,rad);vec2 n=normalize(vec2(gx,gy)+vec2(.0001));vec2 t=vec2(-n.y,n.x);float maxSize=max(max(size.x,size.y),1.0);float corner=clamp(abs(n.x*n.y)*2.15,0.0,1.0);float phase=clamp(dot(p/maxSize,t)*2.0,-1.0,1.0);float gate=clamp(1.0-inside/max(uEdgeWidth*2.10,1.0),0.0,1.0);float core=exp(-inside/max(uEdgeWidth*.20,1.0));float shoulder=exp(-inside/max(uEdgeWidth*.62,1.0))*.30;float tail=exp(-inside/max(uEdgeWidth*1.18,1.0))*.045;float optical=clamp(core+shoulder+tail,0.0,1.0)*gate;vec2 surface=local+n*inside;float reach=uEdgePull*clamp(core*.56+shoulder*.78+corner*core*.24,0.0,1.05);float compression=inside*(.18+core*.32+corner*.10);float bend=uEdgeWidth*phase*(core*.10+shoulder*.22)*(1.0+corner*.48);vec2 rim=surface+n*(reach-compression)+t*bend;vec3 base=bg(uv);vec3 red=bg(pos+rim+n*(1.65+corner*1.10)+t*.72);vec3 green=bg(pos+rim);vec3 blue=bg(pos+rim-n*(1.35+corner*.95)-t*.58);vec3 split=vec3(red.r,green.g,blue.b);vec3 inner=bg(uv-n*uEdgePull*clamp(shoulder*.16+tail*.18,0.0,.28));float rimMix=clamp(optical*(core*.62+shoulder*.72+corner*core*.12),0.0,.88);float innerMix=clamp(gate*(shoulder*.13+tail*.10),0.0,.18);vec3 refr=mix(base,split,rimMix);refr=mix(refr,inner,innerMix);refr=satcon(refr);float glow=core*.050+shoulder*.026+corner*core*.022;refr=clamp(refr+glow,0.0,1.0);float a=uEdgeAlpha*clamp(core*.74+shoulder*.28+tail*.06+corner*core*.06,0.0,.88)*gate;vec3 body=mix(base,vec3(.96,.98,1.0),uBodyAlpha*.72);body=mix(body,vec3(1.0),smoothstep(0.0,size.y,local.y)*.08);vec3 col=mix(body,refr,a);float border=smoothstep(1.8,0.0,inside);col+=border*vec3(.15,.18,.20);return vec4(mix(under.rgb,col,.92),1.0);} 
+void main(){vec2 uv=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);vec4 col=vec4(bg(uv),1.0);col=glass(uv,col,vec2(18.0,130.0-uScroll*.22),vec2(uRes.x-36.0,300.0),46.0);col=glass(uv,col,vec2(18.0,490.0-uScroll*.18),vec2(uRes.x-36.0,270.0),42.0);col=glass(uv,col,vec2(60.0,800.0-uScroll*.12),vec2(uRes.x-120.0,92.0),46.0);gl_FragColor=col;}`;
+const prog=gl.createProgram();gl.attachShader(prog,shader(gl.VERTEX_SHADER,vs));gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));gl.useProgram(prog);
+const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);const loc=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U=n=>gl.getUniformLocation(prog,n);const u={res:U('uRes'),time:U('uTime'),scroll:U('uScroll'),edgeAlpha:U('uEdgeAlpha'),edgePull:U('uEdgePull'),edgeWidth:U('uEdgeWidth'),bodyAlpha:U('uBodyAlpha')};
+function resize(){const d=Math.min(devicePixelRatio||1,2);const r=canvas.getBoundingClientRect();canvas.width=Math.max(1,Math.floor(r.width*d));canvas.height=Math.max(1,Math.floor(r.height*d));gl.viewport(0,0,canvas.width,canvas.height)}
+function draw(){resize();for(const k of ['edgeAlpha','edgePull','edgeWidth','bodyAlpha'])ui[k+'V'].textContent=ui[k].value;gl.uniform2f(u.res,canvas.width,canvas.height);gl.uniform1f(u.time,(performance.now()-time0)/1000);gl.uniform1f(u.scroll,scroll);gl.uniform1f(u.edgeAlpha,+ui.edgeAlpha.value);gl.uniform1f(u.edgePull,+ui.edgePull.value);gl.uniform1f(u.edgeWidth,+ui.edgeWidth.value);gl.uniform1f(u.bodyAlpha,+ui.bodyAlpha.value);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);requestAnimationFrame(draw)}
+canvas.addEventListener('pointerdown',e=>{drag=true;lastY=e.clientY;canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(drag){scroll=Math.max(-260,Math.min(560,scroll+(lastY-e.clientY)*1.6));lastY=e.clientY}});canvas.addEventListener('pointerup',()=>drag=false);canvas.addEventListener('wheel',e=>{scroll=Math.max(-260,Math.min(560,scroll+e.deltaY*.7));e.preventDefault()},{passive:false});
+addEventListener('resize',resize);draw();
+</script>
+</body>
+</html>
