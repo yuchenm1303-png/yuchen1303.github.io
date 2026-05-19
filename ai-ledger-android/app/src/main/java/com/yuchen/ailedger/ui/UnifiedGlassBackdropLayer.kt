@@ -37,6 +37,7 @@ import kotlin.math.roundToInt
 private const val GLASS_LENS_TAG = "GlassLensShader"
 private const val SOFT_LENS_DETAIL_MIX = 0.34f
 private const val LENS_BAND_STRENGTH = 1.25f
+private const val SHADER_DIAGNOSTIC_TINT = 1.0f
 
 @Volatile
 private var hasLoggedShaderLensFailure = false
@@ -191,6 +192,7 @@ private fun DrawScope.drawShaderLens(
             setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
             setFloatUniform("lensMix", SOFT_LENS_DETAIL_MIX)
             setFloatUniform("bandStrength", LENS_BAND_STRENGTH)
+            setFloatUniform("diagnosticTint", SHADER_DIAGNOSTIC_TINT)
         }
         val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
             shader = lensShader
@@ -286,6 +288,7 @@ uniform float edgeSaturation;
 uniform float edgeBrightness;
 uniform float lensMix;
 uniform float bandStrength;
+uniform float diagnosticTint;
 float roundedBoxSdf(float2 p, float2 halfSize, float r) {
     float2 b = max(halfSize - float2(r, r), float2(0.0, 0.0));
     float2 q = abs(p) - b;
@@ -395,6 +398,7 @@ half4 main(float2 coord) {
     refracted += float3(brightBand, brightBand, brightBand) * bandStrength;
     refracted -= float3(innerDarkBand, innerDarkBand, innerDarkBand) * bandStrength;
     refracted += float3(cornerCaustic * 1.05, cornerCaustic * 0.92, cornerCaustic * 0.78) * bandStrength;
+    refracted = mix(refracted, float3(1.0, 0.22, 0.02), diagnosticTint * edgeCore * surfaceGate * 0.72);
 
     float rimGlow = edgeCore * 0.032 + edgeShoulder * 0.016 + cornerCurve * edgeCore * 0.018;
     refracted = clamp(refracted + float3(rimGlow, rimGlow, rimGlow), float3(0.0, 0.0, 0.0), float3(1.0, 1.0, 1.0));
