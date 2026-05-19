@@ -17,4 +17,17 @@ class BackdropCoordinateSource {
     }
 }
 
+class GlassCoordinateSource {
+    var coordinates: LayoutCoordinates? = null
+
+    fun offsetRelativeTo(backdrop: BackdropCoordinateSource?): Offset {
+        val current = coordinates
+        return if (current != null && current.isAttached) {
+            current.localToRoot(Offset.Zero) - (backdrop?.rootOffset() ?: Offset.Zero)
+        } else {
+            Offset.Zero
+        }
+    }
+}
+
 val LocalBackdropOrigin = compositionLocalOf<BackdropCoordinateSource?> { null }
