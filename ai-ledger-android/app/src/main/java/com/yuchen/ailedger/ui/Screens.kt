@@ -57,6 +57,7 @@ import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.model.ToolEntry
 import kotlin.math.roundToInt
@@ -118,8 +119,11 @@ private fun ModelChip(state: AssistantUiState, modifier: Modifier, onClick: () -
     PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(44.dp), GlassRole.Chip, onClick = onClick) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("AI", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Text(state.selectedModelLabel, color = Color.White.copy(alpha = 0.90f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text("切换", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text(state.selectedModelLabel, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (state.onlineEnabled) "联网已开" else "纯文本模式", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Text(if (state.isSending) "发送中" else "切换", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -157,7 +161,7 @@ private fun ChatGlassPanel(state: AssistantUiState, modifier: Modifier, onDraftC
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("对话", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.weight(1f))
-                Text("可上下滑动", color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(if (state.isSending) "云端生成中" else "可上下滑动", color = Color.White.copy(alpha = 0.42f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(state.messages, key = { it.id }) { message -> MessageBubble(message = message, state = state) }
@@ -182,11 +186,107 @@ private fun StarterSuggestions(state: AssistantUiState, onDraftCommand: (String)
 @Composable
 private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
+    val statusColor = when (message.status) {
+        MessageStatus.Failed -> Color(0xFFFFB4B4)
+        MessageStatus.Sending -> Color.White.copy(alpha = 0.72f)
+        MessageStatus.Sent -> Color.White.copy(alpha = if (fromUser) 0.97f else 0.86f)
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
-        GlassPanel(state.quality, state.glassIntensity * if (fromUser) 1.08f else 0.96f, state.motionIntensity, 24, Modifier.fillMaxWidth(if (fromUser) 0.78f else 0.92f), if (fromUser) GlassRole.Floating else GlassRole.Card) {
-            Text(message.text, color = Color.White.copy(alpha = if (fromUser) 0.97f else 0.86f), fontSize = 15.sp, lineHeight = 22.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp))
+        GlassPanel(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * if (fromUser) 1.08f else 0.96f,
+            motionIntensity = state.motionIntensity,
+            radius = 24,
+            modifier = Modifier.fillMaxWidth(if (fromUser) 0.78f else 0.92f),
+            role = if (fromUser) GlassRole.Floating else GlassRole.Card
+        ) {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(
+                    text = displayMessageText(message),
+                    color = statusColor,
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
+                )
+                if (!fromUser) SourceBadgeRow(message)
+            }
         }
     }
+}
+
+@Composable
+private fun SourceBadgeRow(message: ChatMessage) {
+    val badge = messageBadgeText(message) ?: return
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(badgeColor(message).copy(alpha = 0.86f))
+        )
+        Text(
+            text = badge,
+            color = badgeColor(message).copy(alpha = 0.76f),
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun displayMessageText(message: ChatMessage): String = when (message.status) {
+    MessageStatus.Sending -> message.text.ifBlank { "正在思考…" }
+    MessageStatus.Failed -> message.errorText ?: message.text.ifBlank { "云端请求失败，请稍后再试。" }
+    MessageStatus.Sent -> message.text
+}
+
+private fun messageBadgeText(message: ChatMessage): String? {
+    val status = when (message.status) {
+        MessageStatus.Sending -> "生成中"
+        MessageStatus.Failed -> "请求失败"
+        MessageStatus.Sent -> null
+    }
+    val main = message.modelLabel?.takeIf { it.isNotBlank() }
+        ?: sourceReadableLabel(message.source)
+        ?: status
+    val source = sourceReadableLabel(message.source)
+    val version = message.version?.takeIf { it.isNotBlank() }?.let { shortVersion(it) }
+    return listOfNotNull(status, main, source, version)
+        .distinct()
+        .joinToString(" · ")
+        .takeIf { it.isNotBlank() }
+}
+
+private fun sourceReadableLabel(source: String?): String? = when (source) {
+    null, "" -> null
+    "cloud_ai" -> "云端 AI"
+    "workers_ai", "workers_ai_text_fallback" -> "Workers AI"
+    "gemini_ai", "gemini_chat", "gemini_text_fallback" -> "Gemini"
+    "kimi", "nvidia_chat" -> "Kimi / NIM"
+    "mistral" -> "Mistral"
+    "web_search_tool", "tavily_web_search", "tavily_ai_summary" -> "联网搜索"
+    "cloud_fetch_failed" -> "云端连接失败"
+    "cloud_error_normalized" -> "云端错误"
+    "local" -> "本地"
+    "local_ledger" -> "本地记账"
+    "local_mobile" -> "手机动作"
+    else -> source.replace('_', ' ').replaceFirstChar { it.uppercase() }
+}
+
+private fun badgeColor(message: ChatMessage): Color = when (message.status) {
+    MessageStatus.Failed -> Color(0xFFFFB4B4)
+    MessageStatus.Sending -> Color(0xFF8DF9EA)
+    MessageStatus.Sent -> when (message.source) {
+        "web_search_tool", "tavily_web_search", "tavily_ai_summary" -> Color(0xFF8DF9EA)
+        "cloud_fetch_failed", "cloud_error_normalized" -> Color(0xFFFFB4B4)
+        else -> Color.White
+    }
+}
+
+private fun shortVersion(version: String): String {
+    return version.removePrefix("2026-").removePrefix("android-").take(18)
 }
 
 @Composable
@@ -213,8 +313,15 @@ private fun QuickActionButton(title: String, subtitle: String, state: AssistantU
 private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         CircleGlassButton("+", state, size = 52, onClick = onPickImage)
-        ComposerInputGlass(state, state.composerText, onComposerChange, onSend, Modifier.weight(1f), "和我说点什么...")
-        CircleGlassButton("↑", state, size = 52, onClick = onSend)
+        ComposerInputGlass(
+            state = state,
+            text = state.composerText,
+            onTextChange = onComposerChange,
+            onSend = onSend,
+            modifier = Modifier.weight(1f),
+            placeholder = if (state.isSending) "正在等待云端回复..." else "和我说点什么..."
+        )
+        CircleGlassButton(if (state.isSending) "…" else "↑", state, size = 52, onClick = onSend)
     }
 }
 
@@ -649,7 +756,7 @@ private fun ServiceStatusCard(aiEndpoint: String, state: AssistantUiState) {
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("服务状态", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-            Text("当前是 Compose 迁移预览版，后续会接入云同步和 AI 解析服务。", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp, lineHeight = 20.sp)
+            Text("Compose 版已接入第一阶段纯文本 AI 请求链路。", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp, lineHeight = 20.sp)
             Text(aiEndpoint, color = Color.White.copy(alpha = 0.36f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
