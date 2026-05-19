@@ -136,7 +136,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 onSetAlarm = {
                                     val ok = actionRouter?.setAlarm(21, 30, "AI 助手提醒：晚上复盘") == true
                                     viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
-                                }
+                                },
+                                onToggleOnline = viewModel::toggleOnline
                             )
                             AppTab.Tools -> ToolsScreen(
                                 state = state,
