@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BackdropDebugParams
+import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.roundToInt
@@ -39,6 +41,8 @@ fun SettingsPolishedScreen(
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
+    onBackdropChange: (BackdropDebugParams) -> Unit,
+    onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit
 ) {
@@ -47,7 +51,7 @@ fun SettingsPolishedScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 118.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item { SettingsHeader(state) }
+        item { SettingsHeader() }
         item { SettingsOverviewCard(state, aiEndpoint) }
         item { AppearanceSettingsCard(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick) }
         item { GlassFeelSettingsCard(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange) }
@@ -55,30 +59,40 @@ fun SettingsPolishedScreen(
         item { DataBudgetSettingsCard(state) }
         item { ServiceSettingsCard(state, aiEndpoint) }
         item { AdvancedSettingsCard(state) }
+        item {
+            GlassDebugFloatingPanel(
+                state = state,
+                onBackdropChange = onBackdropChange,
+                onBorderChange = onBorderChange,
+                onUploadBackgroundClick = onUploadBackgroundClick,
+                onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
 @Composable
-private fun SettingsHeader(state: AssistantUiState) {
+private fun SettingsHeader() {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("SETTINGS", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-        Text("设置", color = Color.White, fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        Text("常用设置放前面，玻璃调试收到底部，避免页面被调参项挤乱。", color = Color.White.copy(alpha = 0.62f), fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+        Text("设置", color = Color.White, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("常用设置放前面，玻璃调试放到底部折叠面板里。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    GlassPanel(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 32, Modifier.fillMaxWidth(), GlassRole.Shell) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 28, Modifier.fillMaxWidth().height(138.dp), GlassRole.Card) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("当前状态", color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("原生 Compose 版", color = Color.White, fontSize = 27.sp, lineHeight = 31.sp, fontWeight = FontWeight.Black)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("当前状态", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Compose 原生版", color = Color.White, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 }
                 SettingsStatusBadge(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", state)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 MiniSettingMetric("画质", qualityLabel(state.quality), state, Modifier.weight(1f))
                 MiniSettingMetric("玻璃", glassPresetLabel(state.glassPreset), state, Modifier.weight(1f))
                 MiniSettingMetric("背景", themeLabel(state.backgroundTheme), state, Modifier.weight(1f))
@@ -94,7 +108,7 @@ private fun AppearanceSettingsCard(
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit
 ) {
-    SettingsSectionCard(state, "显示与背景", "先管看得见的东西：背景、图片和页面观感。") {
+    SettingsSectionCard(state, "显示与背景", "背景、图片和页面观感放在最前面。") {
         SettingChipGrid(
             items = BackgroundTheme.entries,
             selected = state.backgroundTheme,
@@ -117,7 +131,7 @@ private fun GlassFeelSettingsCard(
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit
 ) {
-    SettingsSectionCard(state, "玻璃与流畅度", "只调整入口参数，不改玻璃底层采样和模糊实现。") {
+    SettingsSectionCard(state, "玻璃与流畅度", "这里是日常可调项，细节参数在底部玻璃调试里。") {
         SettingChipGrid(RenderQuality.entries, state.quality, { qualityLabel(it) }, state, onQualityChange)
         SettingChipGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabel(it) }, state, onGlassPresetChange)
         SliderSettingRow("玻璃强度", state.glassIntensity, 0.6f..1.4f, state, onGlassIntensityChange)
@@ -162,9 +176,9 @@ private fun ServiceSettingsCard(state: AssistantUiState, aiEndpoint: String) {
 
 @Composable
 private fun AdvancedSettingsCard(state: AssistantUiState) {
-    SettingsSectionCard(state, "高级调试", "玻璃参数调试面板已从顶部浮层收起，避免遮挡设置内容。") {
-        SettingInfoRow("背景采样", "由 Glass / Backdrop 相关文件继续维护", state)
-        SettingInfoRow("当前建议", "普通使用只调画质、背景和强度", state)
+    SettingsSectionCard(state, "高级调试", "玻璃参数调试已恢复到底部折叠面板，不再浮在顶部挡内容。") {
+        SettingInfoRow("玻璃渲染", "统一层 + 连续场边缘折射", state)
+        SettingInfoRow("调试入口", "继续往下滑，展开玻璃调试", state)
     }
 }
 
@@ -175,8 +189,8 @@ private fun SettingsSectionCard(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
                 Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, lineHeight = 18.sp)
@@ -203,7 +217,7 @@ private fun <T> SettingChipGrid(
                     glassIntensity = state.glassIntensity,
                     motionIntensity = state.motionIntensity,
                     radius = 999,
-                    modifier = Modifier.weight(1f).height(44.dp),
+                    modifier = Modifier.weight(1f).height(42.dp),
                     role = if (active) GlassRole.Floating else GlassRole.Chip,
                     onClick = { onSelected(item) }
                 ) {
@@ -237,7 +251,7 @@ private fun SliderSettingRow(
 
 @Composable
 private fun SettingActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 24, modifier.height(60.dp), GlassRole.Chip, onClick = onClick) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 24, modifier.height(58.dp), GlassRole.Chip, onClick = onClick) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -247,7 +261,7 @@ private fun SettingActionButton(title: String, subtitle: String, state: Assistan
 
 @Composable
 private fun SettingInfoRow(title: String, value: String, state: AssistantUiState) {
-    PressableGlass(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(54.dp), GlassRole.Chip) {
+    PressableGlass(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(52.dp), GlassRole.Chip) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Spacer(Modifier.weight(1f))
@@ -258,18 +272,18 @@ private fun SettingInfoRow(title: String, value: String, state: AssistantUiState
 
 @Composable
 private fun MiniSettingMetric(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 22, modifier.height(70.dp), GlassRole.Chip) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(value, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 20, modifier.height(58.dp), GlassRole.Chip) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.94f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun SettingsStatusBadge(text: String, state: AssistantUiState) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.height(38.dp), GlassRole.Floating) {
-        Box(Modifier.padding(horizontal = 14.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.height(36.dp), GlassRole.Floating) {
+        Box(Modifier.padding(horizontal = 13.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
     }
