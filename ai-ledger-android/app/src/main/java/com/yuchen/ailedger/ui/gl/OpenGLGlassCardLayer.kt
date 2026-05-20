@@ -325,6 +325,8 @@ private class OpenGLGlassCardRenderer {
     private var blurTextureHandle = 0
     private var lensTextureHandle = 0
     private var materialHandle = 0
+    private var refractionHandle = 0
+    private var opticsHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -366,6 +368,8 @@ private class OpenGLGlassCardRenderer {
         blurTextureHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
         lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
+        refractionHandle = GLES20.glGetUniformLocation(program, "uRefraction")
+        opticsHandle = GLES20.glGetUniformLocation(program, "uOptics")
 
         val textures = IntArray(2)
         GLES20.glGenTextures(2, textures, 0)
@@ -375,9 +379,6 @@ private class OpenGLGlassCardRenderer {
         configureTexture(lensTextureId)
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
-        // Draw the card material directly into the transparent TextureView surface.
-        // Enabling GL_BLEND here would square the fragment alpha against the clear buffer,
-        // letting the sharp Compose background leak through the card.
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
     }
@@ -403,10 +404,24 @@ private class OpenGLGlassCardRenderer {
         GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
         GLES20.glUniform4f(
             materialHandle,
-            style.bodyAlpha.coerceIn(0f, 1.2f),
-            style.openGlVisibility.coerceIn(0f, 2f),
-            style.openGlMaxAlpha.coerceIn(0.30f, 0.98f),
-            style.edgeBrightness.coerceIn(0.55f, 1.35f)
+            style.openGlVisibility.coerceIn(0f, 20f),
+            style.openGlMaxAlpha.coerceIn(0f, 1f),
+            style.edgeBrightness.coerceIn(-5f, 5f),
+            style.bodyAlpha.coerceIn(-5f, 5f)
+        )
+        GLES20.glUniform4f(
+            refractionHandle,
+            style.openGlPullScale.coerceIn(-300f, 300f),
+            style.edgePullDp.coerceIn(-600f, 600f),
+            style.openGlCompressionScale.coerceIn(-10f, 10f),
+            style.openGlCornerScale.coerceIn(0f, 200f)
+        )
+        GLES20.glUniform4f(
+            opticsHandle,
+            style.openGlSampleRadiusScale.coerceIn(0f, 200f),
+            style.ringWidthDp.coerceIn(0f, 300f),
+            style.openGlDebugLineAlpha.coerceIn(0f, 1f),
+            style.openGlDarkScale.coerceIn(-10f, 10f)
         )
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -520,23 +535,11 @@ private class OpenGLGlassCardRenderer {
             uniform float uRadius;
             uniform float uIntensity;
             uniform float uTextureReady;
-            uniform vec4 uMaterial; // x reserved, y visibility, z reserved, w reserved
+            uniform vec4 uMaterial;   // x visibility, y alpha, z brightness, w reserved
+            uniform vec4 uRefraction; // x bodyPx, y edgePx, z lensMix, w gradScale
+            uniform vec4 uOptics;     // x blurPx, y edgeWidthPx, z debugLineAlpha, w darkScale
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
-
-            const float LAB_BLUR_ALPHA = 0.970;
-            const float LAB_FROST = 0.040;
-            const float LAB_BRIGHTNESS = 0.660;
-            const float LAB_SATURATION = 0.600;
-            const float LAB_CONTRAST = 1.800;
-            const float LAB_TOP_HIGHLIGHT = 0.480;
-            const float LAB_BOTTOM_SHADOW = 0.340;
-            const float LAB_EDGE_LINE = 0.070;
-            const float EXTRA_BLUR_PX = 18.0;
-            const float BODY_REFRACT_PX = 5.5;
-            const float EDGE_REFRACT_PX = 21.0;
-            const float LENS_EDGE_MIX = 0.135;
-            const vec3 LAB_TINT = vec3(0.631, 0.710, 0.902);
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
 
@@ -573,7 +576,7 @@ private class OpenGLGlassCardRenderer {
             }
 
             vec3 blurBackdrop(vec2 uv) {
-                vec2 px = vec2(EXTRA_BLUR_PX) / max(uRootResolution, vec2(1.0));
+                vec2 px = vec2(max(uOptics.x, 0.0)) / max(uRootResolution, vec2(1.0));
                 vec3 c = sourceBlurBackdrop(uv) * 0.200;
                 c += sourceBlurBackdrop(uv + vec2(px.x, 0.0)) * 0.110;
                 c += sourceBlurBackdrop(uv - vec2(px.x, 0.0)) * 0.110;
@@ -586,18 +589,11 @@ private class OpenGLGlassCardRenderer {
                 return c;
             }
 
-            vec3 applyLabColor(vec3 color) {
-                vec3 gray = vec3(dot(color, vec3(0.299, 0.587, 0.114)));
-                color = mix(gray, color, LAB_SATURATION);
-                color *= LAB_BRIGHTNESS;
-                color = (color - 0.5) * LAB_CONTRAST + 0.5;
-                return clamp(color, 0.0, 1.0);
-            }
-
             float thicknessAt(vec2 coord, vec2 rectSize, float radius) {
                 float sd = roundedBoxSdfAt(coord, rectSize, radius);
                 float inside = sat(-sd / max(min(rectSize.x, rectSize.y) * 0.42, 1.0));
-                float edge = 1.0 - smoothstep(0.0, 28.0, -sd);
+                float edgeWidth = max(uOptics.y, 0.001);
+                float edge = 1.0 - smoothstep(0.0, edgeWidth, -sd);
                 vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
                 float dome = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.88), 1.38);
                 return inside * 0.18 + dome * 0.32 + edge * 0.78;
@@ -611,9 +607,7 @@ private class OpenGLGlassCardRenderer {
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
 
-                vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
                 vec2 bgUv = globalUv(coord);
-
                 float stepPx = 1.65;
                 float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
                 float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
@@ -622,29 +616,24 @@ private class OpenGLGlassCardRenderer {
                 vec2 grad = vec2(tR - tL, tD - tU);
 
                 float insideDistance = max(-sd, 0.0);
-                float edgePresence = 1.0 - smoothstep(0.0, 32.0, insideDistance);
-                float gradEnergy = sat(length(grad) * 7.5);
-                vec2 refractPx = grad * (BODY_REFRACT_PX + EDGE_REFRACT_PX * edgePresence);
+                float edgeWidth = max(uOptics.y, 0.001);
+                float edgePresence = 1.0 - smoothstep(0.0, edgeWidth, insideDistance);
+                float gradEnergy = sat(length(grad) * max(uRefraction.w, 0.0));
+                vec2 refractPx = grad * (uRefraction.x + uRefraction.y * edgePresence) * max(uMaterial.x, 0.0);
                 vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
 
-                float topGlow = smoothstep(0.92, 0.0, local01.y);
-                float bottomShade = smoothstep(0.58, 1.0, local01.y);
-                float centerSoft = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.90), 1.35);
-                float edgeLine = smoothstep(-1.65, 0.0, sd) * mask;
-
-                vec3 color = applyLabColor(blurBackdrop(refractedUv));
-                vec3 lensColor = applyLabColor(sourceLensBackdrop(refractedUv));
-                float lensMix = sat(edgePresence * LENS_EDGE_MIX + gradEnergy * 0.045);
+                vec3 color = blurBackdrop(refractedUv);
+                vec3 lensColor = sourceLensBackdrop(refractedUv);
+                float lensMix = sat(edgePresence * uRefraction.z + gradEnergy * 0.045);
                 color = mix(color, lensColor, lensMix);
-                color = mix(color, LAB_TINT, LAB_FROST);
-                color += vec3(1.0) * topGlow * LAB_TOP_HIGHLIGHT * 0.080;
-                color += vec3(1.0) * centerSoft * 0.010;
-                color += vec3(1.0) * edgeLine * LAB_EDGE_LINE * 0.090;
-                color += vec3(0.06, 0.09, 0.12) * gradEnergy * 0.075;
-                color -= vec3(0.05, 0.065, 0.09) * bottomShade * LAB_BOTTOM_SHADOW * 0.135;
+                color *= uMaterial.z;
+
+                float debugEdge = smoothstep(-1.65, 0.0, sd) * mask;
+                color = mix(color, vec3(1.0, 0.45, 0.0), debugEdge * uOptics.z);
+                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * edgePresence;
                 color = clamp(color, 0.0, 1.0);
 
-                gl_FragColor = vec4(color, LAB_BLUR_ALPHA * mask);
+                gl_FragColor = vec4(color, clamp(uMaterial.y * uMaterial.x, 0.0, 1.0) * mask);
             }
         """
     }
