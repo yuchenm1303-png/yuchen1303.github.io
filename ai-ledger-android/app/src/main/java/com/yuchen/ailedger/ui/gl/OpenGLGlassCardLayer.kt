@@ -13,7 +13,6 @@ import android.opengl.GLUtils
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
