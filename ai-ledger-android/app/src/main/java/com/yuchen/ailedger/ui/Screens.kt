@@ -9,13 +9,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,9 +70,7 @@ import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.model.ToolEntry
-import kotlin.math.PI
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 @Composable
 fun AssistantScreen(
@@ -187,7 +180,7 @@ private fun TinyRoundAction(text: String, state: AssistantUiState, onClick: () -
 private fun ChatGlassPanel(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size, state.isSending) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+        if (state.messages.isNotEmpty()) listState.scrollToItem(state.messages.lastIndex)
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 34, modifier.fillMaxWidth(), GlassRole.Shell) {
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -224,18 +217,7 @@ private fun StarterSuggestions(state: AssistantUiState, onDraftCommand: (String)
 
 @Composable
 private fun AnimatedMessageBubble(message: ChatMessage, state: AssistantUiState) {
-    val fromUser = message.role == MessageRole.User
-    var visible by remember(message.id) { mutableStateOf(false) }
-    LaunchedEffect(message.id) { visible = true }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
-            slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { width -> if (fromUser) width / 3 else -width / 3 } +
-            scaleIn(initialScale = 0.96f, animationSpec = tween(260, easing = FastOutSlowInEasing)),
-        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.98f, animationSpec = tween(120))
-    ) {
-        MessageBubble(message = message, state = state)
-    }
+    MessageBubble(message = message, state = state)
 }
 
 @Composable
@@ -283,24 +265,13 @@ private fun ThinkingBubbleText() {
 
 @Composable
 private fun ThinkingDots(size: Int, color: Color) {
-    val transition = rememberInfiniteTransition(label = "thinking-dots")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(960, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "thinking-phase"
-    )
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.35f) + 1f) / 2f).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .size(size.dp)
                     .graphicsLayer {
-                        translationY = -5f * wave
-                        alpha = 0.35f + 0.65f * wave
-                        scaleX = 0.78f + 0.22f * wave
-                        scaleY = 0.78f + 0.22f * wave
+                        alpha = 0.42f + index * 0.20f
                     }
                     .clip(RoundedCornerShape(999.dp))
                     .background(color)
@@ -311,20 +282,10 @@ private fun ThinkingDots(size: Int, color: Color) {
 
 @Composable
 private fun PulseDot(active: Boolean, color: Color) {
-    val transition = rememberInfiniteTransition(label = "status-dot")
-    val pulse by transition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1.18f,
-        animationSpec = infiniteRepeatable(animation = tween(900, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "status-dot-pulse"
-    )
     Box(
         Modifier
             .size(8.dp)
             .graphicsLayer {
-                val s = if (active) pulse else 1f
-                scaleX = s
-                scaleY = s
                 alpha = if (active) 0.95f else 0.72f
             }
             .clip(RoundedCornerShape(999.dp))
@@ -472,13 +433,6 @@ private fun ComposerInputGlass(
 
 @Composable
 private fun SendGlassButton(state: AssistantUiState, onClick: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "send-button")
-    val pulse by transition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(animation = tween(720, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "send-button-pulse"
-    )
     PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.size(52.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (state.isSending) {
@@ -488,12 +442,7 @@ private fun SendGlassButton(state: AssistantUiState, onClick: () -> Unit) {
                     "↑",
                     color = Color.White,
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = pulse.coerceIn(0.96f, 1.04f)
-                        scaleY = pulse.coerceIn(0.96f, 1.04f)
-                        translationY = -1.5f * (pulse - 1f)
-                    }
+                    fontWeight = FontWeight.Black
                 )
             }
         }

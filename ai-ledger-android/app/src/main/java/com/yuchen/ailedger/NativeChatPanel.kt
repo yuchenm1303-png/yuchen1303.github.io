@@ -38,7 +38,7 @@ fun NativeChatPanel(
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+        if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
     }
 
     Surface(
@@ -46,7 +46,7 @@ fun NativeChatPanel(
             .fillMaxSize()
             .padding(horizontal = 14.dp)
             .padding(top = 82.dp, bottom = 158.dp)
-            .shadow(12.dp, RoundedCornerShape(30.dp), clip = false),
+            .shadow(4.dp, RoundedCornerShape(30.dp), clip = false),
         shape = RoundedCornerShape(30.dp),
         color = Color.White.copy(alpha = 0.10f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),

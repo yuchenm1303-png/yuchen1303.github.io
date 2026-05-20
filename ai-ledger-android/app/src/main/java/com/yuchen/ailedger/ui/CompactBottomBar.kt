@@ -1,9 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -55,16 +51,8 @@ fun CompactLiquidBottomBar(
         BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(5.dp)) {
             val slot = maxWidth / AppTab.entries.size
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
-            val indicatorX by animateDpAsState(
-                targetValue = slot * target.toFloat(),
-                animationSpec = tween(360, easing = FastOutSlowInEasing),
-                label = "compact-nav-indicator-x"
-            )
-            val indicatorW by animateDpAsState(
-                targetValue = slot - 7.dp,
-                animationSpec = tween(360, easing = FastOutSlowInEasing),
-                label = "compact-nav-indicator-w"
-            )
+            val indicatorX = slot * target.toFloat()
+            val indicatorW = slot - 7.dp
 
             GlassPanel(
                 quality = quality,
@@ -83,7 +71,7 @@ fun CompactLiquidBottomBar(
                     val selected = tab == currentTab
                     val interaction = remember { MutableInteractionSource() }
                     val pressed by interaction.collectIsPressedAsState()
-                    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "compact-tab-press")
+                    val scale = if (pressed) 0.96f else 1f
                     Column(
                         modifier = Modifier
                             .weight(1f)

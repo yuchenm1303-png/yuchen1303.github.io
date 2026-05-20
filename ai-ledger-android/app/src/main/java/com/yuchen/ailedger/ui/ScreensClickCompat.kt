@@ -5,11 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -34,9 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
-import kotlin.math.PI
-import kotlin.math.sin
 
+@Suppress("UNCHECKED_CAST")
 private fun Any.asClickAction(): () -> Unit = this as? (() -> Unit) ?: {}
 
 @Composable
@@ -98,20 +92,10 @@ internal fun StatusChip(
 
 @Composable
 private fun CompatPulseDot(active: Boolean, color: Color) {
-    val transition = rememberInfiniteTransition(label = "compat-status-dot")
-    val pulse by transition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1.18f,
-        animationSpec = infiniteRepeatable(animation = tween(900, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "compat-status-dot-pulse"
-    )
     Box(
         Modifier
             .size(8.dp)
             .graphicsLayer {
-                val s = if (active) pulse else 1f
-                scaleX = s
-                scaleY = s
                 alpha = if (active) 0.95f else 0.72f
             }
             .clip(RoundedCornerShape(999.dp))
@@ -121,24 +105,13 @@ private fun CompatPulseDot(active: Boolean, color: Color) {
 
 @Composable
 private fun CompatThinkingDots(size: Int, color: Color) {
-    val transition = rememberInfiniteTransition(label = "compat-thinking-dots")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(960), repeatMode = RepeatMode.Restart),
-        label = "compat-thinking-phase"
-    )
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.35f) + 1f) / 2f).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .size(size.dp)
                     .graphicsLayer {
-                        translationY = -5f * wave
-                        alpha = 0.35f + 0.65f * wave
-                        scaleX = 0.78f + 0.22f * wave
-                        scaleY = 0.78f + 0.22f * wave
+                        alpha = 0.42f + index * 0.20f
                     }
                     .clip(RoundedCornerShape(999.dp))
                     .background(color)

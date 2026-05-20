@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import android.app.Activity
 import android.view.View
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -21,37 +20,29 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
-import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
-private const val ENABLE_OPENGL_GLASS_PROBE = false
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val rootView = LocalView.current
-    val context = LocalContext.current
     val density = LocalDensity.current
     val compactDensity = remember(density.density, density.fontScale) {
         Density(
@@ -59,9 +50,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             fontScale = density.fontScale * COMPACT_FONT_SCALE
         )
     }
-    val actionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     val backdropOrigin = remember { BackdropCoordinateSource() }
-    val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -84,13 +73,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            val frameTime = withFrameNanos { it }
-            backdropTicker.frameNanos = frameTime
-        }
-    }
-
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
@@ -104,7 +86,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 ),
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
-                LocalBackdropFrameTicker provides backdropTicker,
+                LocalBackdropFrameTicker provides null,
                 LocalGlassItemRegistry provides glassRegistry
             ) {
                 Box(Modifier.fillMaxSize()) {
@@ -119,14 +101,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             .onPlaced { backdropOrigin.coordinates = it }
                     )
 
-                    if (!ENABLE_OPENGL_GLASS_PROBE) {
-                        UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    }
-
-                    OpenGLGlassProbeLayer(
-                        enabled = ENABLE_OPENGL_GLASS_PROBE,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
@@ -213,14 +188,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
 @Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
-    val blur = if (quality.enableMotion) 10.dp else 0.dp
-    val height = if (quality.enableMotion) 86.dp else 64.dp
+    val height = if (quality.enableMotion) 76.dp else 64.dp
     val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .blur(blur)
             .background(
                 Brush.verticalGradient(
                     colors = listOf(

@@ -10,13 +10,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -39,7 +34,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,7 +59,6 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.ToolEntry
-import kotlinx.coroutines.delay
 import kotlin.math.min
 
 @Composable
@@ -83,18 +76,9 @@ fun ToolsScreenV2(
     onOpenAssistant: () -> Unit
 ) {
     val selected = state.selectedToolTitle
-    AnimatedVisibility(
-        visible = selected == null,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = 0.72f)),
-        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.98f, animationSpec = tween(120))
-    ) {
+    if (selected == null) {
         ToolsHomeV2(state = state, onOpenTool = onOpenTool)
-    }
-    AnimatedVisibility(
-        visible = selected != null,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInHorizontally(spring(dampingRatio = 0.72f)) { it / 4 },
-        exit = fadeOut(tween(120)) + slideOutHorizontally(tween(140)) { it / 5 }
-    ) {
+    } else {
         when (selected) {
             "账单中心" -> LedgerCenterV2(
                 state = state,
@@ -108,7 +92,6 @@ fun ToolsScreenV2(
                 onDeleteRecord = onDeleteLedgerRecord,
                 onOpenAssistant = onOpenAssistant
             )
-            null -> Unit
             else -> ToolDetailV2(state = state, title = selected, onBack = onBack, onOpenAssistant = onOpenAssistant)
         }
     }
@@ -378,18 +361,7 @@ private fun DetailHeaderV2(title: String, subtitle: String, state: AssistantUiSt
 
 @Composable
 private fun AnimatedAppear(delayMs: Long, content: @Composable () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(delayMs)
-        visible = true
-    }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInVertically(spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)) { it / 3 } +
-            scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(100)) + shrinkVertically(tween(120))
-    ) { content() }
+    content()
 }
 
 @Composable
@@ -536,14 +508,7 @@ private fun SectionTitleV2(title: String, subtitle: String) {
 
 @Composable
 private fun rememberSoftPulse(offset: Int = 0): Float {
-    val transition = rememberInfiniteTransition(label = "tools-soft-pulse-$offset")
-    val pulse by transition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(animation = tween(1180 + offset * 80, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "tools-soft-pulse-value-$offset"
-    )
-    return pulse
+    return 1f
 }
 
 private fun Modifier.toolCardGlow(glow: Float, pulse: Float, accent: Color): Modifier = drawWithCache {

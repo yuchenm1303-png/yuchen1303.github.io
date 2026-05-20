@@ -180,7 +180,7 @@ private fun NativeTopBadge(
     }
 
     Surface(
-        modifier = modifier.shadow(6.dp, CircleShape, clip = false),
+        modifier = modifier.shadow(2.dp, CircleShape, clip = false),
         shape = CircleShape,
         color = Color.White.copy(alpha = 0.12f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
@@ -212,7 +212,7 @@ private fun NativeLiquidComposer(
         modifier = Modifier
             .fillMaxWidth()
             .height(62.dp)
-            .shadow(14.dp, RoundedCornerShape(25.dp), clip = false),
+            .shadow(4.dp, RoundedCornerShape(25.dp), clip = false),
         shape = RoundedCornerShape(25.dp),
         color = Color.White.copy(alpha = 0.17f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
@@ -337,7 +337,7 @@ private fun NativeGlassBottomNav(
         modifier = modifier
             .fillMaxWidth()
             .height(68.dp)
-            .shadow(12.dp, navShape, clip = false),
+            .shadow(4.dp, navShape, clip = false),
         shape = navShape,
         color = Color.White.copy(alpha = if (glassMode == GlassMode.Safe) 0.16f else 0.20f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.30f)),
@@ -369,7 +369,7 @@ private fun NativeGlassBottomNav(
                     .offset(x = indicatorOffsetX, y = 8.dp)
                     .width(indicatorWidth)
                     .height(52.dp)
-                    .shadow(8.dp, RoundedCornerShape(21.dp), clip = false)
+                    .shadow(3.dp, RoundedCornerShape(21.dp), clip = false)
                     .clip(RoundedCornerShape(21.dp))
                     .background(
                         Brush.linearGradient(

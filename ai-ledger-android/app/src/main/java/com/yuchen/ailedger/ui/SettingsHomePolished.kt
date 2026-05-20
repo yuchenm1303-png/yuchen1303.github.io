@@ -8,14 +8,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -38,7 +33,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,7 +56,6 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
-import kotlinx.coroutines.delay
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -493,30 +486,12 @@ private fun DebugGroupTitle(text: String) {
 
 @Composable
 private fun AnimatedSettingsAppear(delayMs: Long, content: @Composable () -> Unit) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(delayMs)
-        visible = true
-    }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInVertically(spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)) { it / 3 } +
-            scaleIn(initialScale = 0.95f, animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(100))
-    ) { content() }
+    content()
 }
 
 @Composable
 private fun rememberSectionPulse(): Float {
-    val transition = rememberInfiniteTransition(label = "settings-soft-pulse")
-    val pulse by transition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(animation = tween(1180, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "settings-soft-pulse-value"
-    )
-    return pulse
+    return 1f
 }
 
 private fun Modifier.settingsGlow(glow: Float, pulse: Float, accent: Color): Modifier = drawWithCache {

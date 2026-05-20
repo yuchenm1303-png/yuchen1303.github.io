@@ -131,8 +131,9 @@ private fun buildBlurredBackdropBitmap(
     params: BackdropDebugParams,
     customBackgroundPath: String?
 ): BlurredBackdropBitmap {
-    val smallWidth = (fullWidth * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(128)
-    val smallHeight = (fullHeight * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(216)
+    val renderScale = params.scale.coerceIn(0.14f, 0.42f)
+    val smallWidth = (fullWidth * renderScale).roundToInt().coerceAtLeast(112)
+    val smallHeight = (fullHeight * renderScale).roundToInt().coerceAtLeast(192)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
@@ -140,17 +141,10 @@ private fun buildBlurredBackdropBitmap(
     val drewPreset = if (!drewCustom) drawPresetNightSkyBackdropSource(source, context) else false
     if (!drewCustom && !drewPreset) drawAndroidBackdropSource(source, theme, params)
 
-    val lensTuned = tuneBitmapTone(
-        input = source,
-        brightness = params.brightness.coerceIn(0.70f, 1.35f),
-        contrast = params.contrast.coerceIn(0.70f, 1.35f),
-        saturation = params.saturation.coerceIn(0.50f, 1.60f)
-    )
-
     val blurred = boxBlur(
         input = source,
-        radius = params.radius.roundToInt().coerceIn(1, 32),
-        iterations = params.iterations.roundToInt().coerceIn(1, 8)
+        radius = params.radius.roundToInt().coerceIn(1, 18),
+        iterations = params.iterations.roundToInt().coerceIn(1, 3)
     )
     val tuned = tuneBitmapTone(
         input = blurred,
@@ -158,13 +152,14 @@ private fun buildBlurredBackdropBitmap(
         contrast = params.contrast.coerceIn(0.70f, 1.35f),
         saturation = params.saturation.coerceIn(0.50f, 1.60f)
     )
+    val image = tuned.asImageBitmap()
 
     return BlurredBackdropBitmap(
-        image = tuned.asImageBitmap(),
+        image = image,
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
         scale = effectiveScale,
-        lensImage = lensTuned.asImageBitmap()
+        lensImage = image
     )
 }
 
