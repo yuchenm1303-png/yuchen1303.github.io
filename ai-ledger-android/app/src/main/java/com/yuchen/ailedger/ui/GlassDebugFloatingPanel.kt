@@ -45,8 +45,8 @@ fun GlassDebugFloatingPanel(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val panelShape = RoundedCornerShape(28.dp)
-    val buttonShape = RoundedCornerShape(22.dp)
+    val panelShape = RoundedCornerShape(24.dp)
+    val buttonShape = RoundedCornerShape(18.dp)
     val clickSource = remember { MutableInteractionSource() }
 
     Column(
@@ -62,65 +62,55 @@ fun GlassDebugFloatingPanel(
                 )
             )
             .border(1.dp, Color.White.copy(alpha = 0.10f), panelShape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(9.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                .height(38.dp)
                 .clip(buttonShape)
                 .background(Color.White.copy(alpha = 0.06f))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), buttonShape)
                 .clickable(interactionSource = clickSource, indication = null) { expanded = !expanded }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("玻璃调试", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-            Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("玻璃调试", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+            Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
         if (expanded) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 560.dp)
+                    .heightIn(max = 430.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 val supportsAgsl = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 val renderPath = if (supportsAgsl) "AGSL RuntimeShader" else "OpenGL ES card material"
                 val renderHint = if (supportsAgsl) "当前设备支持 Android 13+ Shader 路径" else "当前设备低于 API 33，卡片折射主要靠 OpenGL 路径"
 
-                Text("设备渲染能力", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                Text(
-                    text = "SDK_INT ${Build.VERSION.SDK_INT} / Android ${Build.VERSION.RELEASE} · $renderPath",
-                    color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${Build.MANUFACTURER} ${Build.MODEL}｜$renderHint",
-                    color = Color.White.copy(alpha = 0.58f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                DebugSectionTitle("设备渲染能力")
+                Text("SDK_INT ${Build.VERSION.SDK_INT} / Android ${Build.VERSION.RELEASE} · $renderPath", color = Color.White.copy(alpha = 0.78f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("${Build.MANUFACTURER} ${Build.MODEL}｜$renderHint", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
 
-                Spacer(Modifier.height(6.dp))
-                Text("自定义背景", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.height(3.dp))
+                DebugSectionTitle("自定义背景")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     DebugActionButton("上传背景", Modifier.weight(1f), onUploadBackgroundClick)
                     DebugActionButton("恢复内置", Modifier.weight(1f), onClearCustomBackgroundClick)
                 }
                 Text(
                     text = if (state.customBackgroundPath == null) "当前：内置晚霞天气背景" else "当前：自定义图片背景",
                     color = Color.White.copy(alpha = 0.62f),
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(Modifier.height(6.dp))
-                Text("背景模糊缓存", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(3.dp))
+                DebugSectionTitle("背景模糊缓存")
                 DebugSlider("缓存分辨率", state.backdropParams.scale, 0.04f..2.00f) { onBackdropChange(state.backdropParams.copy(scale = it)) }
                 DebugSlider("模糊半径", state.backdropParams.radius, 0f..180f) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
                 DebugSlider("模糊迭代", state.backdropParams.iterations, 1f..48f) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
@@ -128,14 +118,9 @@ fun GlassDebugFloatingPanel(
                 DebugSlider("对比度", state.backdropParams.contrast, 0.00f..8.00f) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
                 DebugSlider("饱和度", state.backdropParams.saturation, 0.00f..8.00f) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
 
-                Spacer(Modifier.height(6.dp))
-                Text("OpenGL 透明折射核心", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                Text(
-                    text = "现在折射范围故意放得很夸张，方便直接拉爆调参；最终预设先不改。",
-                    color = Color.White.copy(alpha = 0.58f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Spacer(Modifier.height(3.dp))
+                DebugSectionTitle("OpenGL 透明折射核心")
+                Text("范围故意放大，方便拉爆调参；最终预设先不改。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 DebugSlider("调试橙线", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
                 DebugSlider("整体可见度/透明度", state.glassBorderStyle.openGlVisibility, 0f..20f) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
                 DebugSlider("主体 Alpha", state.glassBorderStyle.openGlMaxAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
@@ -148,8 +133,8 @@ fun GlassDebugFloatingPanel(
                 DebugSlider("额外模糊 px", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
                 DebugSlider("内侧暗带", state.glassBorderStyle.openGlDarkScale, -12f..12f) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
 
-                Spacer(Modifier.height(6.dp))
-                Text("旧边框/雾面（默认全关）", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(3.dp))
+                DebugSectionTitle("旧边框/雾面（默认全关）")
                 DebugSlider("主体雾面", state.glassBorderStyle.bodyAlpha, -5f..5f) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
                 DebugSlider("外边框", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
                 DebugSlider("内边框", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
@@ -162,31 +147,36 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
+private fun DebugSectionTitle(text: String) {
+    Text(text, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+}
+
+@Composable
 private fun DebugActionButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(16.dp)
     val source = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
-            .height(42.dp)
+            .height(36.dp)
             .clip(shape)
             .background(Color.White.copy(alpha = 0.08f))
             .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.Center
     ) {
-        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
 @Composable
 private fun DebugSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Text(value.formatDebug(), color = Color.White.copy(alpha = 0.66f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(label, color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(value.formatDebug(), color = Color.White.copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
-        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValueChange, valueRange = range)
+        Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValueChange, valueRange = range, modifier = Modifier.height(30.dp))
     }
 }
 
