@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#061c3c"/>
+      <stop offset="0.46" stop-color="#0a3155"/>
+      <stop offset="0.72" stop-color="#334f88"/>
+      <stop offset="1" stop-color="#112a4b"/>
+    </linearGradient>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <linearGradient id="iconA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#8cc7ff"/>
+    </linearGradient>
+    <linearGradient id="iconB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff3f64"/>
+      <stop offset="1" stop-color="#ff9a6f"/>
+    </linearGradient>
+    <linearGradient id="iconC" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2bf2b8"/>
+      <stop offset="1" stop-color="#2b8eff"/>
+    </linearGradient>
+    <linearGradient id="iconD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b891ff"/>
+      <stop offset="1" stop-color="#ff75c8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <circle cx="180" cy="160" r="150" fill="#37b7ff" opacity="0.20" filter="url(#softGlow)"/>
+  <circle cx="760" cy="260" r="190" fill="#21f0a1" opacity="0.22" filter="url(#softGlow)"/>
+  <circle cx="510" cy="980" r="240" fill="#ff5677" opacity="0.18" filter="url(#softGlow)"/>
+  <circle cx="900" cy="1450" r="180" fill="#49dcff" opacity="0.20" filter="url(#softGlow)"/>
+
+  <g opacity="0.18" stroke="#ffffff" stroke-width="1">
+    <path d="M0 260 C180 220 300 310 520 260 S880 210 1080 270" fill="none"/>
+    <path d="M0 540 C200 500 320 610 520 550 S870 500 1080 570" fill="none"/>
+    <path d="M0 850 C160 820 330 900 540 850 S850 790 1080 860" fill="none"/>
+    <path d="M0 1220 C170 1170 340 1290 560 1230 S860 1170 1080 1260" fill="none"/>
+  </g>
+
+  <g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" text-anchor="middle">
+    <g transform="translate(74 285)">
+      <rect width="154" height="154" rx="34" fill="url(#iconA)" opacity="0.95"/>
+      <text x="77" y="92" fill="#052142" font-size="50" font-weight="800">AI</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">ChatGPT</text>
+    </g>
+    <g transform="translate(328 285)">
+      <rect width="154" height="154" rx="34" fill="url(#iconB)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">书</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">小红书</text>
+    </g>
+    <g transform="translate(582 285)">
+      <rect width="154" height="154" rx="34" fill="url(#iconA)" opacity="0.95"/>
+      <text x="77" y="92" fill="#1d69ff" font-size="50" font-weight="900">文</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">翻译</text>
+    </g>
+    <g transform="translate(836 285)">
+      <rect width="154" height="154" rx="34" fill="url(#iconC)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="48" font-weight="900">音</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">音乐</text>
+    </g>
+
+    <g transform="translate(74 610)">
+      <rect width="154" height="154" rx="34" fill="url(#iconD)" opacity="0.95"/>
+      <text x="77" y="94" fill="#fff" font-size="54" font-weight="900">图</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">图像</text>
+    </g>
+    <g transform="translate(328 610)">
+      <rect width="154" height="154" rx="34" fill="url(#iconC)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">云</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">云盘</text>
+    </g>
+    <g transform="translate(582 610)">
+      <rect width="154" height="154" rx="34" fill="url(#iconB)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">铃</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">提醒</text>
+    </g>
+    <g transform="translate(836 610)">
+      <rect width="154" height="154" rx="34" fill="url(#iconA)" opacity="0.95"/>
+      <text x="77" y="92" fill="#066" font-size="46" font-weight="900">账</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">账单</text>
+    </g>
+
+    <g transform="translate(74 935)">
+      <rect width="154" height="154" rx="34" fill="url(#iconC)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">启</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">启动</text>
+    </g>
+    <g transform="translate(328 935)">
+      <rect width="154" height="154" rx="34" fill="url(#iconA)" opacity="0.95"/>
+      <text x="77" y="92" fill="#147" font-size="46" font-weight="900">相</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">相机</text>
+    </g>
+    <g transform="translate(582 935)">
+      <rect width="154" height="154" rx="34" fill="url(#iconD)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">令</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">指令</text>
+    </g>
+    <g transform="translate(836 935)">
+      <rect width="154" height="154" rx="34" fill="url(#iconB)" opacity="0.95"/>
+      <text x="77" y="92" fill="#fff" font-size="46" font-weight="900">记</text>
+      <text x="77" y="194" fill="#d7e9ff" font-size="26">记录</text>
+    </g>
+  </g>
+
+  <g fill="#ffffff" opacity="0.45">
+    <circle cx="140" cy="210" r="3"/>
+    <circle cx="470" cy="330" r="4"/>
+    <circle cx="860" cy="420" r="3"/>
+    <circle cx="250" cy="850" r="3"/>
+    <circle cx="630" cy="1180" r="4"/>
+    <circle cx="930" cy="1670" r="3"/>
+  </g>
+</svg>
