@@ -23,6 +23,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
+import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import java.nio.ByteBuffer
@@ -41,14 +42,15 @@ fun OpenGLGlassCardLayer(
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
+    val backdropOrigin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    ticker?.frameNanos
+    val frameNanos = ticker?.frameNanos ?: 0L
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     val intensity = glassIntensity.coerceIn(0.35f, 1.35f)
-    val cardOrigin = coordinateSource?.rootOffset() ?: Offset.Zero
+    val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
 
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
@@ -63,7 +65,7 @@ fun OpenGLGlassCardLayer(
                 val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
                 val textureDirty = view.setBackdropTexture(blurBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (specDirty || samplingDirty || textureDirty || styleDirty) view.requestRender()
+                if (specDirty || samplingDirty || textureDirty || styleDirty || frameNanos >= 0L) view.requestRender()
             }
         )
     }
@@ -109,15 +111,15 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
         val nextRootWidth = rootWidth.coerceAtLeast(1f)
         val nextRootHeight = rootHeight.coerceAtLeast(1f)
-        val dirty = abs(originX - latestOriginX) > 0.75f ||
-            abs(originY - latestOriginY) > 0.75f ||
+        val dirty = abs(originX - latestOriginX) > 0.05f ||
+            abs(originY - latestOriginY) > 0.05f ||
             abs(nextRootWidth - latestRootWidth) > 0.5f ||
             abs(nextRootHeight - latestRootHeight) > 0.5f
         latestOriginX = originX
         latestOriginY = originY
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
-        if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+        renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
         return dirty
     }
 
@@ -493,7 +495,7 @@ private class OpenGLGlassCardRenderer {
             uniform vec4 uMaterial; // x reserved, y visibility, z reserved, w reserved
             uniform sampler2D uBlurTexture;
 
-            const float LAB_BLUR_ALPHA = 0.803;
+            const float LAB_BLUR_ALPHA = 0.940;
             const float LAB_FROST = 0.040;
             const float LAB_BRIGHTNESS = 0.660;
             const float LAB_SATURATION = 0.600;
@@ -501,6 +503,7 @@ private class OpenGLGlassCardRenderer {
             const float LAB_TOP_HIGHLIGHT = 0.480;
             const float LAB_BOTTOM_SHADOW = 0.340;
             const float LAB_EDGE_LINE = 0.100;
+            const float EXTRA_BLUR_PX = 18.0;
             const vec3 LAB_TINT = vec3(0.631, 0.710, 0.902);
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
@@ -523,10 +526,24 @@ private class OpenGLGlassCardRenderer {
                 return mix(vec3(0.12, 0.22, 0.38), vec3(0.36, 0.50, 0.72), h);
             }
 
-            vec3 blurBackdrop(vec2 uv) {
+            vec3 sourceBackdrop(vec2 uv) {
                 vec3 fallback = fallbackBackdrop(uv);
                 vec3 realColor = texture2D(uBlurTexture, texUv(uv)).rgb;
                 return mix(fallback, realColor, sat(uTextureReady));
+            }
+
+            vec3 blurBackdrop(vec2 uv) {
+                vec2 px = vec2(EXTRA_BLUR_PX) / max(uRootResolution, vec2(1.0));
+                vec3 c = sourceBackdrop(uv) * 0.200;
+                c += sourceBackdrop(uv + vec2(px.x, 0.0)) * 0.110;
+                c += sourceBackdrop(uv - vec2(px.x, 0.0)) * 0.110;
+                c += sourceBackdrop(uv + vec2(0.0, px.y)) * 0.110;
+                c += sourceBackdrop(uv - vec2(0.0, px.y)) * 0.110;
+                c += sourceBackdrop(uv + vec2(px.x, px.y)) * 0.090;
+                c += sourceBackdrop(uv + vec2(-px.x, px.y)) * 0.090;
+                c += sourceBackdrop(uv + vec2(px.x, -px.y)) * 0.090;
+                c += sourceBackdrop(uv + vec2(-px.x, -px.y)) * 0.090;
+                return c;
             }
 
             vec3 applyLabColor(vec3 color) {
