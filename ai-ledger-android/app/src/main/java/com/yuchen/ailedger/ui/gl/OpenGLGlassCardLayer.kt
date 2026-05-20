@@ -549,23 +549,22 @@ private class OpenGLGlassCardRenderer {
 
             vec3 lensDispersion(vec2 uv, vec2 n, float amountPx) {
                 vec2 d = pxToRootUv(n * amountPx);
-                float r = lensBackdrop(uv + d * 0.85).r;
+                float r = lensBackdrop(uv + d * 0.75).r;
                 float g = lensBackdrop(uv).g;
-                float b = lensBackdrop(uv - d * 0.85).b;
+                float b = lensBackdrop(uv - d * 0.75).b;
                 return vec3(r, g, b);
             }
 
-            vec3 anisotropicLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx, float dispersionPx) {
+            vec3 softLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx, float dispersionPx) {
                 vec2 r = pxToRootUv(vec2(radiusPx));
-                vec3 c = lensDispersion(uv, n, dispersionPx) * 0.31;
-                c += lensDispersion(uv + n * r.x * 0.72, n, dispersionPx) * 0.17;
-                c += lensDispersion(uv - n * r.x * 0.72, n, dispersionPx) * 0.15;
-                c += lensBackdrop(uv + t * r.x * 0.46) * 0.09;
-                c += lensBackdrop(uv - t * r.x * 0.46) * 0.09;
-                c += lensBackdrop(uv + (n + t * 0.45) * r.x * 0.92) * 0.06;
-                c += lensBackdrop(uv + (n - t * 0.45) * r.x * 0.92) * 0.06;
-                c += lensBackdrop(uv - (n + t * 0.45) * r.x * 0.92) * 0.04;
-                c += lensBackdrop(uv - (n - t * 0.45) * r.x * 0.92) * 0.03;
+                vec3 c = lensDispersion(uv, n, dispersionPx) * 0.34;
+                c += lensDispersion(uv + n * r.x * 0.86, n, dispersionPx) * 0.18;
+                c += lensDispersion(uv - n * r.x * 0.86, n, dispersionPx) * 0.15;
+                c += lensBackdrop(uv + t * r.x * 0.48) * 0.09;
+                c += lensBackdrop(uv - t * r.x * 0.48) * 0.09;
+                c += lensBackdrop(uv + (n + t * 0.50) * r.x * 0.95) * 0.06;
+                c += lensBackdrop(uv - (n + t * 0.50) * r.x * 0.95) * 0.05;
+                c += lensBackdrop(uv + (n - t * 0.50) * r.x * 0.95) * 0.04;
                 return c;
             }
 
@@ -585,49 +584,68 @@ private class OpenGLGlassCardRenderer {
                 float gy = roundedBoxSdf(p + vec2(0.0, 1.0), rectSize * 0.5, radius) - roundedBoxSdf(p - vec2(0.0, 1.0), rectSize * 0.5, radius);
                 vec2 normal = normalize(vec2(gx, gy) + vec2(0.0001));
                 vec2 tangent = vec2(-normal.y, normal.x);
-                float corner = sat(abs(normal.x * normal.y) * 2.35);
+                float corner = sat(abs(normal.x * normal.y) * 2.38);
 
                 vec2 bgUv = globalUv(coord);
                 vec2 local01 = clamp((coord - rectPos) / rectSize, 0.0, 1.0);
                 float minSide = min(rectSize.x, rectSize.y);
-                float edgeWidth = minSide * 0.36;
-                float surfaceGate = sat(1.0 - inside / max(edgeWidth * 1.58, 1.0));
-                float edgeCore = exp(-inside / max(edgeWidth * 0.090, 1.0));
-                float outerRim = exp(-inside / max(edgeWidth * 0.050, 1.0));
-                float edgeShoulder = exp(-inside / max(edgeWidth * 0.42, 1.0));
-                float innerFade = exp(-inside / max(edgeWidth * 0.95, 1.0));
-                float compressionBand = exp(-pow((inside - edgeWidth * 0.23) / max(edgeWidth * 0.145, 1.0), 2.0));
-                float innerShadow = exp(-pow((inside - edgeWidth * 0.60) / max(edgeWidth * 0.24, 1.0), 2.0));
-                float cornerCaustic = corner * exp(-inside / max(edgeWidth * 0.26, 1.0));
-                float topLight = smoothstep(1.0, 0.0, local01.y) * surfaceGate;
-                float bottomShade = smoothstep(0.55, 1.0, local01.y) * innerFade;
-                float leftGlow = smoothstep(0.20, 0.0, local01.x) * surfaceGate;
-                float rightWarm = smoothstep(0.55, 1.0, local01.x) * smoothstep(0.18, 1.0, local01.y) * surfaceGate;
+                float edgeWidth = minSide * 0.34;
 
-                float pull = (edgeCore * min(34.0, edgeWidth * 0.74) + compressionBand * min(56.0, edgeWidth * 1.02) + edgeShoulder * min(30.0, edgeWidth * 0.68) + cornerCaustic * min(30.0, edgeWidth * 0.58)) * surfaceGate * (1.0 + corner * 0.62);
-                vec2 refractUv = bgUv + pxToRootUv(normal * pull);
+                float outerHairline = exp(-inside / max(edgeWidth * 0.030, 1.0));
+                float rimLens = exp(-inside / max(edgeWidth * 0.105, 1.0));
+                float rimShoulder = exp(-inside / max(edgeWidth * 0.32, 1.0));
+                float compressionBand = exp(-pow((inside - edgeWidth * 0.24) / max(edgeWidth * 0.13, 1.0), 2.0));
+                float innerDarkBand = exp(-pow((inside - edgeWidth * 0.56) / max(edgeWidth * 0.20, 1.0), 2.0));
+                float surfaceGate = sat(outerHairline * 0.80 + rimLens * 0.72 + rimShoulder * 0.32 + compressionBand * 0.55);
+                float cornerCaustic = corner * exp(-inside / max(edgeWidth * 0.25, 1.0));
+
+                float topLight = smoothstep(1.0, 0.0, local01.y) * (rimShoulder + outerHairline * 0.85);
+                float bottomShade = smoothstep(0.55, 1.0, local01.y) * exp(-inside / max(edgeWidth * 0.86, 1.0));
+                float leftCool = smoothstep(0.22, 0.0, local01.x) * surfaceGate;
+                float rightWarm = smoothstep(0.56, 1.0, local01.x) * smoothstep(0.18, 1.0, local01.y) * surfaceGate;
+
+                float outerPull = rimLens * min(42.0, edgeWidth * 0.95);
+                float innerPull = compressionBand * min(64.0, edgeWidth * 1.24);
+                float shoulderPull = rimShoulder * min(28.0, edgeWidth * 0.62);
+                float cornerPull = cornerCaustic * min(36.0, edgeWidth * 0.75);
+
+                vec2 outerUv = bgUv + pxToRootUv(normal * (outerPull + shoulderPull + cornerPull));
+                vec2 innerUv = bgUv - pxToRootUv(normal * innerPull);
+                vec2 tangentUv = bgUv + pxToRootUv(tangent * (compressionBand - 0.35) * min(14.0, edgeWidth * 0.35));
 
                 vec3 base = blurBackdrop(bgUv);
-                vec3 body = saturateColor(base, 1.06);
-                body = mix(body, vec3(1.0), 0.055 + topLight * 0.025);
-                body *= 1.018;
+                vec3 calmBody = saturateColor(base, 1.045);
+                calmBody = mix(calmBody, vec3(1.0), 0.052 + topLight * 0.018);
+                calmBody *= 1.012;
 
-                float sampleRadius = mix(3.0, 10.5, sat(corner + edgeShoulder * 0.38));
-                float dispersion = (0.65 + corner * 1.65 + edgeCore * 0.90) * surfaceGate;
-                vec3 lensColor = anisotropicLensSample(refractUv, normal, tangent, sampleRadius, dispersion);
-                vec3 compressed = clamp((lensColor - 0.5) * 1.28 + 0.5, 0.0, 1.0);
-                lensColor = mix(lensColor, compressed, compressionBand * 0.34);
-                float lensMix = sat(surfaceGate * (edgeCore * 0.72 + edgeShoulder * 0.38 + compressionBand * 0.42 + cornerCaustic * 0.30));
-                vec3 color = mix(body, lensColor, lensMix);
-                color += vec3(0.74, 0.87, 1.0) * (outerRim * 0.135 + leftGlow * 0.035 + topLight * 0.030);
-                color += vec3(1.0, 0.68, 0.74) * (cornerCaustic * 0.115 + rightWarm * 0.045);
-                color += vec3(1.0) * (compressionBand * 0.038);
-                color -= vec3(0.07, 0.09, 0.13) * (innerShadow * 0.74 + bottomShade * 0.050);
-                float thinSpec = outerRim * (0.62 + topLight * 0.62 + corner * 0.48);
-                color += vec3(1.0, 0.97, 0.92) * thinSpec * 0.070;
+                float dispersion = (0.62 + corner * 1.95 + outerHairline * 0.82) * surfaceGate;
+                float lensRadius = mix(3.0, 10.0, sat(corner + rimShoulder * 0.50));
+                vec3 outerLens = softLensSample(outerUv, normal, tangent, lensRadius, dispersion);
+                vec3 innerLens = softLensSample(innerUv, normal, tangent, lensRadius * 0.78, dispersion * 0.72);
+                vec3 tangentLens = blurBackdrop(tangentUv);
+
+                vec3 compressed = mix(innerLens, outerLens, 0.58 + corner * 0.12);
+                compressed = mix(compressed, tangentLens, 0.18 * rimShoulder);
+                compressed = clamp((compressed - 0.5) * (1.22 + compressionBand * 0.20) + 0.5, 0.0, 1.0);
+
+                float rimMix = sat(rimLens * 0.72 + rimShoulder * 0.32 + compressionBand * 0.58 + cornerCaustic * 0.36);
+                vec3 color = mix(calmBody, compressed, rimMix);
+
+                vec3 coolRim = vec3(0.70, 0.86, 1.0);
+                vec3 warmRim = vec3(1.0, 0.66, 0.72);
+                color += coolRim * (outerHairline * 0.18 + leftCool * 0.038 + topLight * 0.030);
+                color += warmRim * (cornerCaustic * 0.15 + rightWarm * 0.052);
+                color += vec3(1.0) * (compressionBand * 0.050 + outerHairline * 0.060);
+                color -= vec3(0.065, 0.085, 0.13) * (innerDarkBand * 0.86 + bottomShade * 0.060);
+
+                float thinSpec = outerHairline * (0.75 + topLight * 0.62 + corner * 0.58);
+                color += vec3(1.0, 0.97, 0.92) * thinSpec * 0.082;
                 color = clamp(color, 0.0, 1.0);
-                float alpha = mask * (0.095 + edgeCore * 0.32 + edgeShoulder * 0.12 + compressionBand * 0.13 + outerRim * 0.18 + cornerCaustic * 0.13 + topLight * 0.030 + thinSpec * 0.040) * clamp(uIntensity, 0.35, 1.28);
-                gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.62));
+
+                float bodyAlpha = 0.086;
+                float edgeAlpha = outerHairline * 0.25 + rimLens * 0.31 + compressionBand * 0.15 + cornerCaustic * 0.15 + innerDarkBand * 0.045;
+                float alpha = mask * (bodyAlpha + edgeAlpha + thinSpec * 0.040) * clamp(uIntensity, 0.35, 1.28);
+                gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.64));
             }
         """
     }
