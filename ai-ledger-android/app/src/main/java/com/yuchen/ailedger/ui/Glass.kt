@@ -126,6 +126,7 @@ fun GlassPanel(
             OpenGLGlassCardLayer(
                 radius = effectiveRadius,
                 glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
         } else if (!useUnifiedBackdrop && backdrop != null) {
@@ -236,6 +237,7 @@ fun PressableGlass(
             OpenGLGlassCardLayer(
                 radius = effectiveRadius,
                 glassIntensity = pressedIntensity,
+                coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
         } else if (!useUnifiedBackdrop && backdrop != null) {
