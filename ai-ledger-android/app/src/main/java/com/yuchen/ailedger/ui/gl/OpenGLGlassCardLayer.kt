@@ -581,6 +581,14 @@ private class OpenGLGlassCardRenderer {
 
                 vec2 bgUv = globalUv(coord);
                 vec2 local01 = clamp((coord - rectPos) / rectSize, 0.0, 1.0);
+
+                // Temporary diagnostic: if card-bound OpenGL is visible, every GL card shows
+                // a strong orange horizontal line through its center.
+                if (abs(local01.y - 0.50) < 0.018) {
+                    gl_FragColor = vec4(1.0, 0.36, 0.0, 0.95 * mask);
+                    return;
+                }
+
                 float minSide = min(rectSize.x, rectSize.y);
                 float edgeWidth = minSide * 0.32;
 
