@@ -21,7 +21,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,9 +39,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import kotlinx.coroutines.delay
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
+private const val HEAVY_GLASS_STARTUP_DELAY_MS = 420L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -46,6 +51,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val rootView = LocalView.current
     val density = LocalDensity.current
+    var heavyGlassStartupReady by remember { mutableStateOf(false) }
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -75,6 +81,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         while (true) backdropTicker.frameNanos = withFrameNanos { it }
     }
 
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        withFrameNanos { }
+        delay(HEAVY_GLASS_STARTUP_DELAY_MS)
+        heavyGlassStartupReady = true
+    }
+
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
@@ -89,7 +102,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
-                LocalGlassItemRegistry provides glassRegistry
+                LocalGlassItemRegistry provides glassRegistry,
+                LocalHeavyGlassStartupReady provides heavyGlassStartupReady
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
@@ -136,7 +150,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                     onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                 )
-                                AppTab.Settings -> SettingsScreenWithShapeLab(
+                                AppTab.Settings -> SettingsScreenV2(
                                     state = state,
                                     aiEndpoint = viewModel.aiEndpoint,
                                     onQualityChange = viewModel::selectQuality,
