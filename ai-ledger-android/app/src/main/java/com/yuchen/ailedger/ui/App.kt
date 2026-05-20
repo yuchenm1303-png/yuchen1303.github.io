@@ -20,7 +20,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -51,6 +53,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         )
     }
     val backdropOrigin = remember { BackdropCoordinateSource() }
+    val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -73,6 +76,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
+    // 玻璃采样坐标依赖每一帧的当前 LayoutCoordinates。
+    // Codex 优化时把 ticker 关掉后，Canvas 不会持续重绘，导致卡片滑动时仍裁剪旧位置的背景。
+    LaunchedEffect(Unit) {
+        while (true) {
+            backdropTicker.frameNanos = withFrameNanos { it }
+        }
+    }
+
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
@@ -86,7 +97,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 ),
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
-                LocalBackdropFrameTicker provides null,
+                LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry
             ) {
                 Box(Modifier.fillMaxSize()) {
