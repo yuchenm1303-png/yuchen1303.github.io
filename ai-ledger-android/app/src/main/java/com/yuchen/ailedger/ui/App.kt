@@ -44,7 +44,7 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
-private const val ENABLE_OPENGL_GLASS_PROBE = true
+private const val ENABLE_OPENGL_GLASS_PROBE = false
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
