@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
@@ -45,7 +44,6 @@ fun OpenGLGlassCardLayer(
     val border = glassSpec?.borderStyle ?: GlassBorderStyle()
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    val rootView = LocalView.current
     ticker?.frameNanos
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
@@ -57,8 +55,8 @@ fun OpenGLGlassCardLayer(
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
-        val rootWidthPx = rootView.width.coerceAtLeast(widthPx.roundToInt()).toFloat().coerceAtLeast(1f)
-        val rootHeightPx = rootView.height.coerceAtLeast(heightPx.roundToInt()).toFloat().coerceAtLeast(1f)
+        val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+        val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
         AndroidView(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardTextureView(context) },
@@ -445,9 +443,21 @@ private class OpenGLGlassCardRenderer {
                 float corner = sat(abs(normal.x * normal.y) * 2.35);
                 vec2 bgUv = globalUv(coord);
                 vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
-                if (uDebug.x > 0.001 && abs(local01.y - 0.50) < 0.018) {
-                    gl_FragColor = vec4(1.0, 0.36, 0.0, uDebug.x * mask);
-                    return;
+                if (uDebug.x > 0.001) {
+                    if (abs(local01.y - 0.42) < 0.030) {
+                        vec3 lensPreview = lensBackdrop(bgUv);
+                        gl_FragColor = vec4(lensPreview, 0.95 * mask);
+                        return;
+                    }
+                    if (abs(local01.y - 0.50) < 0.018) {
+                        gl_FragColor = vec4(1.0, 0.36, 0.0, uDebug.x * mask);
+                        return;
+                    }
+                    if (abs(local01.y - 0.58) < 0.030) {
+                        vec3 blurPreview = blurBackdrop(bgUv);
+                        gl_FragColor = vec4(blurPreview, 0.95 * mask);
+                        return;
+                    }
                 }
                 float minSide = min(rectSize.x, rectSize.y);
                 float edgeWidth = max(2.0, minSide * 0.32 * max(uDebug.w, 0.02) + uEdgeStyle.y * 0.35);
