@@ -45,6 +45,8 @@ fun OpenGLGlassCardLayer(
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
+    // 读取 ticker 只用于让 Compose 在滑动/动画帧重新执行 update，从而刷新坐标；
+    // 真正的 GL 渲染只在参数或坐标变脏时触发，避免静止页面每张卡片每帧重绘。
     val frameNanos = ticker?.frameNanos ?: 0L
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -59,11 +61,12 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { OpenGLGlassCardTextureView(it) },
             update = { view ->
+                view.noteComposeFrame(frameNanos)
                 val dirtyA = view.setGlassSpec(w, h, radiusPx, intensity)
                 val dirtyB = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
                 val dirtyC = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyD = view.setGlassStyle(border)
-                if (dirtyA || dirtyB || dirtyC || dirtyD || frameNanos >= 0L) view.requestRender()
+                if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
         )
     }
@@ -82,6 +85,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var rootW = 1f
     private var rootH = 1f
     private var style = GlassBorderStyle()
+    private var lastComposeFrame = 0L
 
     init {
         isOpaque = false
@@ -90,6 +94,10 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         isClickable = false
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun noteComposeFrame(frameNanos: Long) {
+        lastComposeFrame = frameNanos
     }
 
     fun setGlassSpec(w: Float, h: Float, radius: Float, intensity: Float): Boolean {
@@ -108,7 +116,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         originY = y
         this.rootW = rootW.coerceAtLeast(1f)
         this.rootH = rootH.coerceAtLeast(1f)
-        thread?.setSamplingSpec(originX, originY, this.rootW, this.rootH)
+        if (dirty) thread?.setSamplingSpec(originX, originY, this.rootW, this.rootH)
         return dirty
     }
 
