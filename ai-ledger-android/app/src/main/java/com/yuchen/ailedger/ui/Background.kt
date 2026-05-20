@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.ui
 
+import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,12 +12,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import com.yuchen.ailedger.R
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
@@ -33,12 +38,14 @@ fun WeatherNightBackground(
     customBackgroundPath: String? = null,
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
+    val context = LocalContext.current
     val customImage = rememberCustomBackgroundImage(customBackgroundPath)
+    val presetImage = rememberPresetNightSkyImage(context)
     Canvas(modifier) {
-        if (customImage != null) {
-            drawCoverImage(customImage)
-        } else {
-            drawWeatherNightBackground(
+        when {
+            customImage != null -> drawCoverImage(customImage)
+            presetImage != null -> drawCoverImage(presetImage)
+            else -> drawWeatherNightBackground(
                 w = size.width,
                 h = size.height,
                 theme = theme,
@@ -62,6 +69,21 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
         }
     }
     return image
+}
+
+@Composable
+private fun rememberPresetNightSkyImage(context: Context): ImageBitmap? {
+    var image by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(Unit) {
+        image = withContext(Dispatchers.IO) {
+            decodePresetNightSkyBitmap(context)?.asImageBitmap()
+        }
+    }
+    return image
+}
+
+fun decodePresetNightSkyBitmap(context: Context): Bitmap? {
+    return BitmapFactory.decodeResource(context.resources, R.drawable.preset_night_sky)
 }
 
 fun DrawScope.drawCoverImage(image: ImageBitmap, alpha: Float = 1f) {
@@ -103,7 +125,16 @@ fun DrawScope.drawWeatherNightBackground(
     alphaScale: Float = 1f,
     params: BackdropDebugParams = BackdropDebugParams()
 ) {
-    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = false, params = params)
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF07112B).copy(alpha = alphaScale),
+                Color(0xFF122B68).copy(alpha = alphaScale),
+                Color(0xFF49387F).copy(alpha = alphaScale),
+                Color(0xFFD65565).copy(alpha = alphaScale)
+            )
+        )
+    )
 }
 
 fun DrawScope.drawWeatherNightBackgroundGlow(
@@ -113,7 +144,7 @@ fun DrawScope.drawWeatherNightBackgroundGlow(
     alphaScale: Float = 1f,
     params: BackdropDebugParams = BackdropDebugParams()
 ) {
-    drawTwilightWeatherSky(w, h, theme, alphaScale, glowOnly = true, params = params)
+    drawWeatherNightBackground(w, h, theme, alphaScale, params)
 }
 
 private data class BackgroundPalette(
