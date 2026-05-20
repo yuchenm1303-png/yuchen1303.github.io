@@ -501,7 +501,7 @@ private class OpenGLGlassCardRenderer {
             }
 
             vec2 texUv(vec2 uv) {
-                return clamp(vec2(uv.x, 1.0 - uv.y), 0.0, 1.0);
+                return clamp(uv, 0.0, 1.0);
             }
 
             vec2 globalUv(vec2 localCoord) {
