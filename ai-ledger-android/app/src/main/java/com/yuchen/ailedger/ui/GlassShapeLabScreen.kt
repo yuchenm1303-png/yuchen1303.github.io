@@ -395,8 +395,11 @@ private fun DrawScope.drawFrostedMaterialLayer(kind: PreviewGlassKind, params: P
     )
     if (kind != PreviewGlassKind.Thin) {
         drawRect(
-            brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.050f * dark + 0.020f * params.depth))),
-            startY = size.height * 0.58f,
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.050f * dark + 0.020f * params.depth)),
+                startY = size.height * 0.58f,
+                endY = size.height
+            ),
             blendMode = BlendMode.Multiply
         )
     }
