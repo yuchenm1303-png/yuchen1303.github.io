@@ -29,8 +29,12 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 private const val MAX_GLASS_ITEMS = 32
+private const val GEOMETRY_PREDICT_FACTOR = 0.58f
+private const val GEOMETRY_PREDICT_MAX_PX = 30f
+private const val GEOMETRY_PREDICT_RESET_PX = 260f
 
 @Composable
 fun OpenGLUnifiedGlassLayer(modifier: Modifier = Modifier) {
@@ -81,7 +85,9 @@ private class OpenGLUnifiedGlassTextureView(context: Context) : TextureView(cont
     private var style = GlassBorderStyle()
     private var itemCount = 0
     private var rects = FloatArray(MAX_GLASS_ITEMS * 4)
+    private var rawRects = FloatArray(MAX_GLASS_ITEMS * 4)
     private var itemParams = FloatArray(MAX_GLASS_ITEMS * 4)
+    private var hasRawRects = false
     private var rootW = 1f
     private var rootH = 1f
 
@@ -111,10 +117,33 @@ private class OpenGLUnifiedGlassTextureView(context: Context) : TextureView(cont
 
     fun setGlassItems(count: Int, nextRects: FloatArray, nextParams: FloatArray, rootWidth: Float, rootHeight: Float): Boolean {
         val safeCount = count.coerceIn(0, MAX_GLASS_ITEMS)
-        var dirty = safeCount != itemCount || abs(rootWidth - rootW) > 0.5f || abs(rootHeight - rootH) > 0.5f
+        val predicted = FloatArray(MAX_GLASS_ITEMS * 4)
         val used = safeCount * 4
+        for (itemIndex in 0 until safeCount) {
+            val i4 = itemIndex * 4
+            val x = nextRects[i4]
+            val y = nextRects[i4 + 1]
+            val w = nextRects[i4 + 2]
+            val h = nextRects[i4 + 3]
+            var px = x
+            var py = y
+            if (hasRawRects && itemIndex < itemCount) {
+                val dx = x - rawRects[i4]
+                val dy = y - rawRects[i4 + 1]
+                if (abs(dx) < GEOMETRY_PREDICT_RESET_PX && abs(dy) < GEOMETRY_PREDICT_RESET_PX) {
+                    px = x + dx.coerceIn(-GEOMETRY_PREDICT_MAX_PX, GEOMETRY_PREDICT_MAX_PX) * GEOMETRY_PREDICT_FACTOR
+                    py = y + dy.coerceIn(-GEOMETRY_PREDICT_MAX_PX, GEOMETRY_PREDICT_MAX_PX) * GEOMETRY_PREDICT_FACTOR
+                }
+            }
+            predicted[i4] = px
+            predicted[i4 + 1] = py
+            predicted[i4 + 2] = w
+            predicted[i4 + 3] = h
+        }
+
+        var dirty = safeCount != itemCount || abs(rootWidth - rootW) > 0.5f || abs(rootHeight - rootH) > 0.5f
         for (i in 0 until used) {
-            if (abs(nextRects[i] - rects[i]) > 0.05f || abs(nextParams[i] - itemParams[i]) > 0.05f) {
+            if (abs(predicted[i] - rects[i]) > 0.05f || abs(nextParams[i] - itemParams[i]) > 0.05f) {
                 dirty = true
                 break
             }
@@ -122,8 +151,10 @@ private class OpenGLUnifiedGlassTextureView(context: Context) : TextureView(cont
         itemCount = safeCount
         rootW = rootWidth.coerceAtLeast(1f)
         rootH = rootHeight.coerceAtLeast(1f)
-        System.arraycopy(nextRects, 0, rects, 0, rects.size)
+        System.arraycopy(predicted, 0, rects, 0, rects.size)
+        System.arraycopy(nextRects, 0, rawRects, 0, rawRects.size)
         System.arraycopy(nextParams, 0, itemParams, 0, itemParams.size)
+        hasRawRects = safeCount > 0
         thread?.setGlassItems(itemCount, rects, itemParams, rootW, rootH)
         return dirty
     }
@@ -436,30 +467,25 @@ private class OpenGLUnifiedGlassRenderer {
             uniform int uItemCount;
             uniform vec4 uRects[MAX_ITEMS];
             uniform vec4 uItemParams[MAX_ITEMS];
-            uniform vec4 uMaterial;   // visibility, alpha, brightness, body
-            uniform vec4 uRefraction; // bodyPull, edgePull, lensMix/drag, grad/unused
-            uniform vec4 uOptics;     // extraBlur, edgeWidth, debug, dark
-            uniform vec4 uLegacy;     // edgeAlpha, edgeBlur, contrast, saturation
-            uniform vec4 uExtra;      // edgeWidthScale, specular, chromatic, bottomShadow
+            uniform vec4 uMaterial;
+            uniform vec4 uRefraction;
+            uniform vec4 uOptics;
+            uniform vec4 uLegacy;
+            uniform vec4 uExtra;
             uniform float uTextureReady;
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
             vec2 safeUv(vec2 uv) { return clamp(uv, 0.0, 1.0); }
-
             float roundedBoxSdf(vec2 coord, vec2 size, float radius) {
                 vec2 p = coord - size * 0.5;
                 vec2 q = abs(p) - max(size * 0.5 - vec2(radius), vec2(0.0));
                 return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
             }
-
-            vec3 fallbackBackdrop(vec2 uv) {
-                return mix(vec3(0.04, 0.08, 0.22), vec3(0.52, 0.23, 0.45), smoothstep(0.0, 1.0, uv.y));
-            }
+            vec3 fallbackBackdrop(vec2 uv) { return mix(vec3(0.04, 0.08, 0.22), vec3(0.52, 0.23, 0.45), smoothstep(0.0, 1.0, uv.y)); }
             vec3 sampleBlur(vec2 uv) { return mix(fallbackBackdrop(uv), texture2D(uBlurTexture, safeUv(uv)).rgb, sat(uTextureReady)); }
             vec3 sampleLens(vec2 uv) { return mix(fallbackBackdrop(uv), texture2D(uLensTexture, safeUv(uv)).rgb, sat(uTextureReady)); }
-
             vec2 sdfNormal(vec2 coord, vec2 size, float radius) {
                 float d = 1.25;
                 float l = roundedBoxSdf(coord - vec2(d, 0.0), size, radius);
@@ -469,20 +495,17 @@ private class OpenGLUnifiedGlassRenderer {
                 vec2 n = vec2(r - l, b - t);
                 return n / max(length(n), 0.001);
             }
-
             float colorSignal(vec3 c) {
                 float luma = dot(c, vec3(0.299, 0.587, 0.114));
                 float chroma = length(c - vec3(luma));
                 return sat((luma - 0.18) * 1.35 + chroma * 1.6);
             }
-
             vec3 adjustColor(vec3 c) {
                 float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
                 c = mix(vec3(luma), c, max(uLegacy.w, 0.0));
                 c = (c - vec3(0.5)) * max(uLegacy.z, 0.0) + vec3(0.5);
                 return clamp(c * uMaterial.z, 0.0, 1.0);
             }
-
             vec3 blur9(vec2 uv, float px) {
                 vec2 p = vec2(px) / max(uRootResolution, vec2(1.0));
                 vec3 c = sampleBlur(uv) * 0.22;
@@ -496,7 +519,6 @@ private class OpenGLUnifiedGlassRenderer {
                 c += sampleBlur(uv + vec2(-p.x, p.y)) * 0.085;
                 return c;
             }
-
             vec4 evalItem(vec2 coord, vec4 rect, vec4 itemParam) {
                 vec2 local = coord - rect.xy;
                 vec2 size = max(rect.zw, vec2(1.0));
@@ -524,7 +546,6 @@ private class OpenGLUnifiedGlassRenderer {
                 vec3 color = blur9(uv, max(uOptics.x, 0.0) * (1.0 + edgeWide * 0.35));
                 float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.40;
                 color = mix(color, sampleLens(uv), lensMix);
-
                 float dragPull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
                 float smear = clamp(4.0 + edgeWidth * 0.55, 4.0, 22.0);
                 vec2 dragBase = coord - normal * dragPull;
@@ -535,7 +556,6 @@ private class OpenGLUnifiedGlassRenderer {
                 drag += sampleLens(safeUv((dragBase + normal * dragPull * 0.45) / max(uRootResolution, vec2(1.0)))) * 0.12;
                 float dragAlpha = edgeDragBand * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + edgeCore * 0.030 + uLegacy.x * 0.035) * colorSignal(drag);
                 color = mix(color, drag, sat(dragAlpha));
-
                 float top = smoothstep(size.y, 0.0, local.y) * edgeWide;
                 float bottom = smoothstep(0.0, size.y, local.y) * edgeWide;
                 color += vec3(top * uExtra.y * 0.04);
@@ -547,7 +567,6 @@ private class OpenGLUnifiedGlassRenderer {
                 float alpha = clamp(uMaterial.x * uMaterial.y * itemParam.y * itemParam.w, 0.0, 1.0) * mask;
                 return vec4(color, alpha);
             }
-
             void main() {
                 vec2 coord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
                 vec4 acc = vec4(0.0);
