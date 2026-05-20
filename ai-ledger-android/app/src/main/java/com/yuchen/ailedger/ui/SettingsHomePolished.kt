@@ -216,6 +216,15 @@ fun SettingsScreenV2(
                 LiquidGlassSlider("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
                 LiquidGlassSlider("额外模糊 px", "边缘折射区再柔化", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
                 LiquidGlassSlider("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
+                LiquidGlassSlider("边缘宽度 scale", "备用 OpenGL 边缘宽度倍率", state.glassBorderStyle.openGlEdgeWidthScale, -20f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
+                LiquidGlassSlider("镜面高光 scale", "备用 OpenGL 高光强度", state.glassBorderStyle.openGlSpecularScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
+                LiquidGlassSlider("色散 scale", "备用 RGB 边缘分离强度", state.glassBorderStyle.openGlChromaticScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
+
+                DebugGroupTitle("边缘兼容参数")
+                LiquidGlassSlider("边缘 Alpha", "Compose/兼容边缘整体强度", state.glassBorderStyle.edgeAlpha, 0f..2f, state) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
+                LiquidGlassSlider("边缘模糊 px", "兼容边缘柔化半径", state.glassBorderStyle.edgeBlurDp, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
+                LiquidGlassSlider("边缘对比度", "兼容边缘背景反差", state.glassBorderStyle.edgeContrast, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
+                LiquidGlassSlider("边缘饱和度", "兼容边缘颜色浓度", state.glassBorderStyle.edgeSaturation, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
 
                 DebugGroupTitle("旧边框/雾面（默认全关）")
                 LiquidGlassSlider("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, -5f..5f, state) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
@@ -264,7 +273,7 @@ private fun ExpandableSettingsSection(
             .settingsGlow(glow = if (expanded) 0.42f else 0.10f, pulse = 1f, accent = accent),
         role = if (expanded) GlassRole.Shell else GlassRole.Card
     ) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PressableGlass(
                 quality = state.quality,
                 glassIntensity = state.glassIntensity * if (expanded) 1.04f else 0.92f,
@@ -290,7 +299,7 @@ private fun ExpandableSettingsSection(
                     scaleIn(initialScale = 0.97f, animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)),
                 exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.98f, animationSpec = tween(140))
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) { content() }
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { content() }
             }
         }
     }
@@ -425,19 +434,19 @@ private fun LiquidGlassSlider(
 ) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(72.dp), GlassRole.Card) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(56.dp), GlassRole.Card) {
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(clamped.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                Text(clamped.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
             }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(24.dp)
+                    .height(20.dp)
                     .liquidSliderGlow(percent = percent, pulse = 1f)
                     .padding(horizontal = 2.dp),
                 contentAlignment = Alignment.Center
@@ -446,7 +455,7 @@ private fun LiquidGlassSlider(
                     value = clamped,
                     onValueChange = onValueChange,
                     valueRange = range,
-                    modifier = Modifier.fillMaxWidth().height(24.dp),
+                    modifier = Modifier.fillMaxWidth().height(20.dp),
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White.copy(alpha = 0.96f),
                         activeTrackColor = Color(0xFF8DF9EA).copy(alpha = 0.56f),
