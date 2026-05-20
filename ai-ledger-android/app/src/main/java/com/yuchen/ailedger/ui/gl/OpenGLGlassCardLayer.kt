@@ -490,8 +490,18 @@ private class OpenGLGlassCardRenderer {
             uniform float uRadius;
             uniform float uIntensity;
             uniform float uTextureReady;
-            uniform vec4 uMaterial; // x frostAmount, y visibility, z maxAlpha, w brightness
+            uniform vec4 uMaterial; // x reserved, y visibility, z reserved, w reserved
             uniform sampler2D uBlurTexture;
+
+            const float LAB_BLUR_ALPHA = 0.803;
+            const float LAB_FROST = 0.040;
+            const float LAB_BRIGHTNESS = 0.660;
+            const float LAB_SATURATION = 0.600;
+            const float LAB_CONTRAST = 1.800;
+            const float LAB_TOP_HIGHLIGHT = 0.480;
+            const float LAB_BOTTOM_SHADOW = 0.340;
+            const float LAB_EDGE_LINE = 0.100;
+            const vec3 LAB_TINT = vec3(0.631, 0.710, 0.902);
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
 
@@ -519,6 +529,14 @@ private class OpenGLGlassCardRenderer {
                 return mix(fallback, realColor, sat(uTextureReady));
             }
 
+            vec3 applyLabColor(vec3 color) {
+                vec3 gray = vec3(dot(color, vec3(0.299, 0.587, 0.114)));
+                color = mix(gray, color, LAB_SATURATION);
+                color *= LAB_BRIGHTNESS;
+                color = (color - 0.5) * LAB_CONTRAST + 0.5;
+                return clamp(color, 0.0, 1.0);
+            }
+
             void main() {
                 vec2 coord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
                 vec2 rectSize = max(uRect.zw, vec2(1.0));
@@ -530,20 +548,20 @@ private class OpenGLGlassCardRenderer {
                 vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
                 vec2 bgUv = globalUv(coord);
 
-                float frost = sat(0.18 + uMaterial.x * 0.14);
                 float topGlow = smoothstep(0.92, 0.0, local01.y);
                 float bottomShade = smoothstep(0.58, 1.0, local01.y);
                 float centerSoft = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.90), 1.35);
+                float edgeLine = smoothstep(-1.65, 0.0, sd) * mask;
 
-                vec3 color = blurBackdrop(bgUv) * uMaterial.w;
-                color = mix(color, vec3(0.72, 0.80, 0.90), frost);
-                color += vec3(0.20, 0.28, 0.38) * topGlow * 0.035;
-                color += vec3(1.0) * centerSoft * 0.018;
-                color -= vec3(0.05, 0.065, 0.09) * bottomShade * 0.040;
+                vec3 color = applyLabColor(blurBackdrop(bgUv));
+                color = mix(color, LAB_TINT, LAB_FROST);
+                color += vec3(1.0) * topGlow * LAB_TOP_HIGHLIGHT * 0.080;
+                color += vec3(1.0) * centerSoft * 0.010;
+                color += vec3(1.0) * edgeLine * LAB_EDGE_LINE * 0.090;
+                color -= vec3(0.05, 0.065, 0.09) * bottomShade * LAB_BOTTOM_SHADOW * 0.135;
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = (0.84 + uMaterial.x * 0.12 + centerSoft * 0.018) * uMaterial.y * clamp(uIntensity, 0.35, 1.18);
-                alpha = clamp(alpha, 0.0, uMaterial.z);
+                float alpha = LAB_BLUR_ALPHA * uMaterial.y * clamp(uIntensity, 0.35, 1.10);
                 gl_FragColor = vec4(color, alpha * mask);
             }
         """
