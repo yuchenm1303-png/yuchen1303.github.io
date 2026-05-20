@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -20,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -52,6 +54,7 @@ fun rememberBlurredBackdropBitmap(
     customBackgroundPath: String? = null
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
+    val context = LocalContext.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val fallbackWidth = with(density) { configuration.screenWidthDp.dp.roundToPx() }
@@ -62,7 +65,7 @@ fun rememberBlurredBackdropBitmap(
     val customKey = customBackgroundPath?.let { path ->
         val file = File(path)
         if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$path"
-    } ?: "builtin"
+    } ?: "preset_night_sky_drawable"
     var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
 
     LaunchedEffect(width, height, theme, quality, key, customKey) {
@@ -70,6 +73,7 @@ fun rememberBlurredBackdropBitmap(
         val next = withContext(Dispatchers.Default) {
             runCatching {
                 buildBlurredBackdropBitmap(
+                    context = context.applicationContext,
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
@@ -120,6 +124,7 @@ private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
 
 private fun buildBlurredBackdropBitmap(
+    context: Context,
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme,
@@ -132,7 +137,8 @@ private fun buildBlurredBackdropBitmap(
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
     val drewCustom = drawCustomImageBackdropSource(source, customBackgroundPath)
-    if (!drewCustom) drawAndroidBackdropSource(source, theme, params)
+    val drewPreset = if (!drewCustom) drawPresetNightSkyBackdropSource(source, context) else false
+    if (!drewCustom && !drewPreset) drawAndroidBackdropSource(source, theme, params)
 
     val lensTuned = tuneBitmapTone(
         input = source,
@@ -166,6 +172,19 @@ private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolea
     val file = path?.let(::File) ?: return false
     if (!file.exists()) return false
     val source = BitmapFactory.decodeFile(file.absolutePath) ?: return false
+    drawBitmapCoverIntoTarget(source, target)
+    source.recycle()
+    return true
+}
+
+private fun drawPresetNightSkyBackdropSource(target: Bitmap, context: Context): Boolean {
+    val source = decodePresetNightSkyBitmap(context) ?: return false
+    drawBitmapCoverIntoTarget(source, target)
+    source.recycle()
+    return true
+}
+
+private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
     val canvas = Canvas(target)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     val srcW = source.width
@@ -195,8 +214,6 @@ private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolea
         RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
         paint
     )
-    source.recycle()
-    return true
 }
 
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
