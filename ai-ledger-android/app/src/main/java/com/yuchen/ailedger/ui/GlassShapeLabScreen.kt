@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,12 +34,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
@@ -65,6 +73,9 @@ fun GlassShapeLabScreenV2(
     var colorPop by rememberSaveable { mutableFloatStateOf(0.34f) }
     var grooveFill by rememberSaveable { mutableFloatStateOf(0.58f) }
     var pressPop by rememberSaveable { mutableFloatStateOf(1.00f) }
+    var sampleMix by rememberSaveable { mutableFloatStateOf(0.82f) }
+    var refractionShift by rememberSaveable { mutableFloatStateOf(18f) }
+    var edgeFocus by rememberSaveable { mutableFloatStateOf(0.86f) }
 
     val params = PreviewGlassShapeParams(
         bodyAlpha = bodyAlpha,
@@ -74,7 +85,10 @@ fun GlassShapeLabScreenV2(
         roundness = roundness,
         colorPop = colorPop,
         grooveFill = grooveFill,
-        pressPop = pressPop
+        pressPop = pressPop,
+        sampleMix = sampleMix,
+        refractionShift = refractionShift,
+        edgeFocus = edgeFocus
     )
 
     LazyColumn(
@@ -99,7 +113,10 @@ fun GlassShapeLabScreenV2(
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("形态控制参数", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                    Text("这些参数只控制本页样本，不影响现有 OpenGL 玻璃。后面调舒服了再回填成正式 GlassRole。", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 15.sp)
+                    Text("底层复用正式 App 的 blurred/lens 背景缓存，上层只测试不同 Compose 小玻璃皮肤。", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 15.sp)
+                    ShapeLabSlider("背景采样", "真实背景模糊层混入比例", sampleMix, 0f..1.20f) { sampleMix = it }
+                    ShapeLabSlider("假折射偏移", "lens 背景相对主体的错位 px", refractionShift, 0f..64f) { refractionShift = it }
+                    ShapeLabSlider("边缘聚焦", "边缘 lens、亮边和压缩感", edgeFocus, 0f..1.80f) { edgeFocus = it }
                     ShapeLabSlider("主体雾面", "整体玻璃底色和可读性", bodyAlpha, 0f..0.70f) { bodyAlpha = it }
                     ShapeLabSlider("顶部高光", "水滴、浮岛和宝石的亮边", highlight, 0f..1.60f) { highlight = it }
                     ShapeLabSlider("内侧暗边", "凹槽、厚度和下沉感", shadow, 0f..1.60f) { shadow = it }
@@ -133,7 +150,7 @@ private fun ShapeLabHeader(state: AssistantUiState, onBack: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("SHAPE LAB", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
             Text("玻璃形态预览", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-            Text("先用轻量 Compose 皮肤做形态差异：水滴、凹槽、滑轨、宝石、薄标签和浮岛。", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+            Text("样本会裁正式背景缓存，并用 lens 偏移模拟弱折射。", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -151,7 +168,7 @@ private fun ShapePreviewBoard(state: AssistantUiState, params: PreviewGlassShape
         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("样本面板", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black)
-                Text("大底板仍然走 OpenGL，里面这些是不同成本的 Compose 玻璃形态。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp)
+                Text("大底板仍然走 OpenGL，里面这些小组件使用真实背景采样 + 偏移 lens + 形态光影。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                 ShapeSampleCard("水滴按钮", "凸起 / 选项", PreviewGlassKind.WaterDrop, params, Modifier.weight(1f).height(76.dp))
@@ -184,19 +201,78 @@ private fun ShapeSampleCard(
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "shape-sample-scale"
     )
+    val coordinates = remember { GlassCoordinateSource() }
+    val cachedBackdrop = LocalBlurredBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameNanos = LocalBackdropFrameTicker.current?.frameNanos ?: 0L
+    val radiusDp = (24f * params.roundness).roundToInt().dp
     Box(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape((24f * params.roundness).roundToInt().dp))
-            .previewGlassShapeSkin(kind, params),
+            .clip(RoundedCornerShape(radiusDp))
+            .onPlaced { coordinates.coordinates = it },
         contentAlignment = Alignment.Center
     ) {
+        Canvas(Modifier.matchParentSize()) {
+            frameNanos
+            val sampleOffset = coordinates.offsetRelativeTo(backdropOrigin)
+            if (cachedBackdrop != null) {
+                fun drawPatch(dx: Float, dy: Float, useLens: Boolean, alpha: Float, blendMode: BlendMode) {
+                    val image = if (useLens) cachedBackdrop.lensImage else cachedBackdrop.image
+                    val srcX = ((sampleOffset.x + dx) * cachedBackdrop.scale).roundToInt().coerceIn(0, image.width - 1)
+                    val srcY = ((sampleOffset.y + dy) * cachedBackdrop.scale).roundToInt().coerceIn(0, image.height - 1)
+                    val srcW = (size.width * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.width - srcX)
+                    val srcH = (size.height * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.height - srcY)
+                    drawImage(
+                        image = image,
+                        srcOffset = IntOffset(srcX, srcY),
+                        srcSize = IntSize(srcW, srcH),
+                        dstOffset = IntOffset.Zero,
+                        dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)),
+                        alpha = alpha.coerceIn(0f, 1f),
+                        blendMode = blendMode
+                    )
+                }
+                val shift = params.refractionShift.coerceIn(0f, 96f)
+                val kindLens = when (kind) {
+                    PreviewGlassKind.WaterDrop -> 1.00f
+                    PreviewGlassKind.Jewel -> 1.18f
+                    PreviewGlassKind.Inset -> 0.46f
+                    PreviewGlassKind.Groove -> 0.62f
+                    PreviewGlassKind.Thin -> 0.24f
+                    PreviewGlassKind.Island -> 0.92f
+                }
+                val baseAlpha = params.sampleMix.coerceIn(0f, 1.2f) * when (kind) {
+                    PreviewGlassKind.Thin -> 0.38f
+                    PreviewGlassKind.Inset -> 0.62f
+                    PreviewGlassKind.Groove -> 0.70f
+                    else -> 0.82f
+                }
+                val lensAlpha = params.edgeFocus.coerceIn(0f, 1.8f) * 0.22f * kindLens
+                drawPatch(-shift * kindLens, -shift * 0.36f, useLens = true, alpha = lensAlpha, blendMode = BlendMode.Screen)
+                drawPatch(0f, 0f, useLens = false, alpha = baseAlpha, blendMode = BlendMode.SrcOver)
+                if (kind != PreviewGlassKind.Thin) {
+                    drawPatch(shift * 0.45f, -shift * 0.18f, useLens = true, alpha = lensAlpha * 0.55f, blendMode = BlendMode.Screen)
+                }
+            } else {
+                drawRect(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFFBFD3FF).copy(alpha = 0.24f), Color(0xFF34557F).copy(alpha = 0.18f), Color(0xFF050A20).copy(alpha = 0.32f)),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height)
+                    )
+                )
+            }
+        }
+        Canvas(Modifier.matchParentSize()) {
+            drawPreviewShapeOverlay(kind, params)
+        }
         when (kind) {
             PreviewGlassKind.Groove -> GrooveSampleContent(params)
             PreviewGlassKind.Jewel -> JewelSampleContent(title, subtitle, params)
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Color.White.copy(alpha = 0.50f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -208,7 +284,7 @@ private fun GrooveSampleContent(params: PreviewGlassShapeParams) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("液态滑轨", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.Black)
             Spacer(Modifier.weight(1f))
-            Text("${(params.grooveFill * 100).roundToInt()}%", color = Color.White.copy(alpha = 0.66f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+            Text("${(params.grooveFill * 100).roundToInt()}%", color = Color.White.copy(alpha = 0.70f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
         }
         Box(Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(999.dp)).grooveTrackSkin(params))
     }
@@ -220,7 +296,7 @@ private fun JewelSampleContent(title: String, subtitle: String, params: PreviewG
         Box(Modifier.size(28.dp).clip(RoundedCornerShape(999.dp)).previewGlassShapeSkin(PreviewGlassKind.Jewel, params))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Text(subtitle, color = Color.White.copy(alpha = 0.50f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -263,10 +339,13 @@ private data class PreviewGlassShapeParams(
     val roundness: Float,
     val colorPop: Float,
     val grooveFill: Float,
-    val pressPop: Float
+    val pressPop: Float,
+    val sampleMix: Float,
+    val refractionShift: Float,
+    val edgeFocus: Float
 )
 
-private fun Modifier.previewGlassShapeSkin(kind: PreviewGlassKind, params: PreviewGlassShapeParams): Modifier = drawWithCache {
+private fun DrawScope.drawPreviewShapeOverlay(kind: PreviewGlassKind, params: PreviewGlassShapeParams) {
     val radius = size.minDimension * 0.50f * params.roundness.coerceIn(0.45f, 1.40f)
     val corner = CornerRadius(radius, radius)
     val accent = when (kind) {
@@ -280,75 +359,77 @@ private fun Modifier.previewGlassShapeSkin(kind: PreviewGlassKind, params: Previ
     val dark = params.shadow.coerceIn(0f, 1.8f)
     val depth = params.depth.coerceIn(0f, 1.8f)
     val pop = params.colorPop.coerceIn(0f, 1.5f)
-    val base = Brush.linearGradient(
+    val edgeFocus = params.edgeFocus.coerceIn(0f, 1.8f)
+    val wash = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = baseAlpha + 0.10f * high),
-            accent.copy(alpha = baseAlpha * 0.34f + pop * 0.08f),
-            Color.Black.copy(alpha = 0.05f * dark)
+            Color.White.copy(alpha = baseAlpha + 0.045f * high),
+            accent.copy(alpha = baseAlpha * 0.18f + pop * 0.065f),
+            Color.Black.copy(alpha = 0.030f * dark)
         ),
         start = Offset.Zero,
         end = Offset(size.width, size.height)
     )
     val top = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.24f * high),
-            Color.White.copy(alpha = 0.035f * high),
-            Color.Transparent
-        ),
+        listOf(Color.White.copy(alpha = 0.26f * high), Color.White.copy(alpha = 0.050f * high), Color.Transparent),
         startY = 0f,
         endY = size.height * 0.44f
     )
     val bottom = Brush.verticalGradient(
-        listOf(
-            Color.Transparent,
-            Color.Black.copy(alpha = 0.16f * dark)
-        ),
-        startY = size.height * 0.54f,
+        listOf(Color.Transparent, Color.Black.copy(alpha = 0.17f * dark + 0.025f * depth)),
+        startY = size.height * 0.48f,
         endY = size.height
     )
     val colorCore = Brush.radialGradient(
-        listOf(
-            accent.copy(alpha = 0.26f * pop),
-            accent.copy(alpha = 0.06f * pop),
-            Color.Transparent
-        ),
-        center = Offset(size.width * 0.74f, size.height * 0.22f),
+        listOf(accent.copy(alpha = 0.30f * pop), accent.copy(alpha = 0.06f * pop), Color.Transparent),
+        center = Offset(size.width * 0.74f, size.height * 0.20f),
         radius = size.maxDimension * 0.72f
     )
+    val sidePrism = Brush.horizontalGradient(
+        listOf(Color.White.copy(alpha = 0.10f * edgeFocus), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.045f * edgeFocus), Color.White.copy(alpha = 0.07f * edgeFocus))
+    )
     val insetShade = Brush.verticalGradient(
-        listOf(
-            Color.Black.copy(alpha = 0.16f * dark),
-            Color.Transparent,
-            Color.White.copy(alpha = 0.10f * high)
-        ),
+        listOf(Color.Black.copy(alpha = 0.20f * dark), Color.Transparent, Color.White.copy(alpha = 0.12f * high)),
         startY = 0f,
         endY = size.height
     )
+    when (kind) {
+        PreviewGlassKind.Inset -> {
+            drawRoundRect(Color.Black.copy(alpha = 0.16f * dark), cornerRadius = corner, blendMode = BlendMode.Multiply)
+            drawRoundRect(insetShade, cornerRadius = corner, blendMode = BlendMode.SrcOver)
+            drawRoundRect(Color.White.copy(alpha = 0.045f * high), topLeft = Offset(1.2f, size.height * 0.08f), size = Size(size.width - 2.4f, size.height - 2.4f), cornerRadius = corner, blendMode = BlendMode.Screen)
+        }
+        PreviewGlassKind.Thin -> {
+            drawRoundRect(Color.White.copy(alpha = baseAlpha * 0.36f + 0.025f), cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(top, cornerRadius = corner, blendMode = BlendMode.Screen)
+        }
+        else -> {
+            drawRoundRect(wash, cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(colorCore, cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(sidePrism, cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(top, cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(bottom, cornerRadius = corner, blendMode = BlendMode.Multiply)
+        }
+    }
+    val strokeAlpha = when (kind) {
+        PreviewGlassKind.Inset -> 0.12f * high
+        PreviewGlassKind.Groove -> 0.08f * high + 0.04f * edgeFocus
+        PreviewGlassKind.Thin -> 0.06f * high
+        else -> 0.20f * high + 0.05f * depth + 0.04f * edgeFocus
+    }
+    drawRoundRect(Color.White.copy(alpha = strokeAlpha), cornerRadius = corner, style = Stroke(width = 1.0.dp.toPx()), blendMode = BlendMode.Screen)
+    if (kind == PreviewGlassKind.WaterDrop || kind == PreviewGlassKind.Island || kind == PreviewGlassKind.Jewel) {
+        drawRoundRect(
+            brush = Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.18f * high), Color.Transparent), start = Offset(size.width * -0.10f, 0f), end = Offset(size.width * 0.92f, size.height * 0.20f)),
+            cornerRadius = corner,
+            style = Stroke(width = (1.0f + 2.0f * depth).dp.toPx()),
+            blendMode = BlendMode.Plus
+        )
+    }
+}
+
+private fun Modifier.previewGlassShapeSkin(kind: PreviewGlassKind, params: PreviewGlassShapeParams): Modifier = drawWithCache {
     onDrawWithContent {
-        when (kind) {
-            PreviewGlassKind.Inset -> {
-                drawRoundRect(Color.Black.copy(alpha = 0.12f * dark), cornerRadius = corner, blendMode = BlendMode.Multiply)
-                drawRoundRect(insetShade, cornerRadius = corner, blendMode = BlendMode.SrcOver)
-                drawRoundRect(Color.White.copy(alpha = 0.035f * high), topLeft = Offset(1.2f, size.height * 0.08f), size = androidx.compose.ui.geometry.Size(size.width - 2.4f, size.height - 2.4f), cornerRadius = corner, blendMode = BlendMode.Screen)
-            }
-            PreviewGlassKind.Thin -> {
-                drawRoundRect(Color.White.copy(alpha = baseAlpha * 0.55f + 0.03f), cornerRadius = corner, blendMode = BlendMode.Screen)
-                drawRoundRect(top, cornerRadius = corner, blendMode = BlendMode.Screen)
-            }
-            else -> {
-                drawRoundRect(base, cornerRadius = corner, blendMode = BlendMode.Screen)
-                drawRoundRect(colorCore, cornerRadius = corner, blendMode = BlendMode.Screen)
-                drawRoundRect(top, cornerRadius = corner, blendMode = BlendMode.Screen)
-                drawRoundRect(bottom, cornerRadius = corner, blendMode = BlendMode.Multiply)
-            }
-        }
-        val strokeAlpha = when (kind) {
-            PreviewGlassKind.Inset -> 0.10f * high
-            PreviewGlassKind.Groove -> 0.08f * high
-            PreviewGlassKind.Thin -> 0.06f * high
-            else -> 0.18f * high + 0.04f * depth
-        }
-        drawRoundRect(Color.White.copy(alpha = strokeAlpha), cornerRadius = corner, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.0.dp.toPx()), blendMode = BlendMode.Screen)
+        drawPreviewShapeOverlay(kind, params)
         drawContent()
     }
 }
@@ -356,12 +437,12 @@ private fun Modifier.previewGlassShapeSkin(kind: PreviewGlassKind, params: Previ
 private fun Modifier.grooveTrackSkin(params: PreviewGlassShapeParams): Modifier = drawWithCache {
     val corner = CornerRadius(size.height / 2f, size.height / 2f)
     val fillWidth = size.width * params.grooveFill.coerceIn(0f, 1f)
-    val groove = Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.18f * params.shadow), Color.White.copy(alpha = 0.09f * params.highlight), Color.Black.copy(alpha = 0.10f * params.shadow)))
-    val liquid = Brush.horizontalGradient(listOf(Color(0xFF6E4DB6).copy(alpha = 0.78f), Color(0xFF8DF9EA).copy(alpha = 0.32f + 0.28f * params.colorPop)))
+    val groove = Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.20f * params.shadow), Color.White.copy(alpha = 0.10f * params.highlight), Color.Black.copy(alpha = 0.12f * params.shadow)))
+    val liquid = Brush.horizontalGradient(listOf(Color(0xFF6E4DB6).copy(alpha = 0.80f), Color(0xFF8DF9EA).copy(alpha = 0.32f + 0.30f * params.colorPop)))
     onDrawWithContent {
         drawRoundRect(groove, cornerRadius = corner, blendMode = BlendMode.SrcOver)
-        drawRoundRect(liquid, size = androidx.compose.ui.geometry.Size(fillWidth, size.height), cornerRadius = corner, blendMode = BlendMode.Screen)
-        drawRoundRect(Color.White.copy(alpha = 0.12f * params.highlight), cornerRadius = corner, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.8.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(liquid, size = Size(fillWidth, size.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+        drawRoundRect(Color.White.copy(alpha = 0.14f * params.highlight), cornerRadius = corner, style = Stroke(width = 0.8.dp.toPx()), blendMode = BlendMode.Screen)
     }
 }
 
