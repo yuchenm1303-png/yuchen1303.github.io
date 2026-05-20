@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
@@ -99,76 +100,82 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         theme = state.backgroundTheme,
                         params = state.backdropParams,
                         customBackgroundPath = state.customBackgroundPath,
-                        modifier = Modifier.fillMaxSize().onPlaced { backdropOrigin.coordinates = it }
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(0f)
+                            .onPlaced { backdropOrigin.coordinates = it }
                     )
 
-                    // 单个全屏 OpenGL 层统一绘制全部玻璃，避免多个 TextureView 在快速滑动时错拍。
-                    OpenGLUnifiedGlassLayer(Modifier.fillMaxSize())
-
+                    // 先组合内容，让 GlassPanel/PressableGlass 把本帧坐标写进 registry；
+                    // 再组合全屏 OpenGL 层，并用 zIndex 把它画在内容下面。
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding()
-                                .navigationBarsPadding()
-                                .padding(horizontal = 12.dp)
-                        ) {
-                            when (state.currentTab) {
-                                AppTab.Assistant -> AssistantScreenV2(
-                                    state = state,
-                                    onComposerChange = viewModel::updateComposer,
-                                    onSend = viewModel::submitComposer,
-                                    onDraftCommand = viewModel::insertCommandDraft,
-                                    onModelSelected = viewModel::selectModel,
-                                    onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                    onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                    onToggleOnline = viewModel::toggleOnline
-                                )
-                                AppTab.Tools -> ToolsScreenV2(
-                                    state = state,
-                                    onOpenTool = viewModel::openTool,
-                                    onBack = viewModel::closeTool,
-                                    onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
-                                    onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
-                                    onLedgerTypeChange = viewModel::selectLedgerDraftType,
-                                    onLedgerCategoryChange = viewModel::selectLedgerCategory,
-                                    onLedgerBudgetChange = viewModel::updateLedgerBudget,
-                                    onAddLedgerRecord = viewModel::addLedgerRecord,
-                                    onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
-                                    onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
-                                )
-                                AppTab.Settings -> SettingsScreenV2(
-                                    state = state,
-                                    aiEndpoint = viewModel.aiEndpoint,
-                                    onQualityChange = viewModel::selectQuality,
-                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                    onGlassPresetChange = viewModel::setGlassPreset,
-                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                    onGlassIntensityChange = viewModel::setGlassIntensity,
-                                    onMotionIntensityChange = viewModel::setMotionIntensity,
-                                    onBackdropChange = viewModel::setBackdropDebugParams,
-                                    onBorderChange = viewModel::setGlassBorderStyle,
-                                    onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                )
+                        Box(Modifier.fillMaxSize().zIndex(2f)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .statusBarsPadding()
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 12.dp)
+                            ) {
+                                when (state.currentTab) {
+                                    AppTab.Assistant -> AssistantScreenV2(
+                                        state = state,
+                                        onComposerChange = viewModel::updateComposer,
+                                        onSend = viewModel::submitComposer,
+                                        onDraftCommand = viewModel::insertCommandDraft,
+                                        onModelSelected = viewModel::selectModel,
+                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                        onToggleOnline = viewModel::toggleOnline
+                                    )
+                                    AppTab.Tools -> ToolsScreenV2(
+                                        state = state,
+                                        onOpenTool = viewModel::openTool,
+                                        onBack = viewModel::closeTool,
+                                        onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
+                                        onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
+                                        onLedgerTypeChange = viewModel::selectLedgerDraftType,
+                                        onLedgerCategoryChange = viewModel::selectLedgerCategory,
+                                        onLedgerBudgetChange = viewModel::updateLedgerBudget,
+                                        onAddLedgerRecord = viewModel::addLedgerRecord,
+                                        onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
+                                        onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                    )
+                                    AppTab.Settings -> SettingsPolishedScreen(
+                                        state = state,
+                                        aiEndpoint = viewModel.aiEndpoint,
+                                        onQualityChange = viewModel::selectQuality,
+                                        onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                        onGlassPresetChange = viewModel::setGlassPreset,
+                                        onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                        onGlassIntensityChange = viewModel::setGlassIntensity,
+                                        onMotionIntensityChange = viewModel::setMotionIntensity,
+                                        onBackdropChange = viewModel::setBackdropDebugParams,
+                                        onBorderChange = viewModel::setGlassBorderStyle,
+                                        onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                    )
+                                }
                             }
+
+                            BottomDockSeparationMist(
+                                quality = state.quality,
+                                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                            )
+
+                            CompactLiquidBottomBar(
+                                currentTab = state.currentTab,
+                                quality = state.quality,
+                                glassIntensity = state.glassIntensity,
+                                motionIntensity = state.motionIntensity,
+                                onTabChange = viewModel::selectTab,
+                                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
+                            )
                         }
-
-                        BottomDockSeparationMist(
-                            quality = state.quality,
-                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                        )
-
-                        CompactLiquidBottomBar(
-                            currentTab = state.currentTab,
-                            quality = state.quality,
-                            glassIntensity = state.glassIntensity,
-                            motionIntensity = state.motionIntensity,
-                            onTabChange = viewModel::selectTab,
-                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
-                        )
                     }
+
+                    OpenGLUnifiedGlassLayer(Modifier.fillMaxSize().zIndex(1f))
                 }
             }
         }
