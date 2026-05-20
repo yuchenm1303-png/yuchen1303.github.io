@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.OpenGLUnifiedGlassLayer
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -47,22 +48,17 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val rootView = LocalView.current
     val density = LocalDensity.current
     val compactDensity = remember(density.density, density.fontScale) {
-        Density(
-            density = density.density * COMPACT_DP_SCALE,
-            fontScale = density.fontScale * COMPACT_FONT_SCALE
-        )
+        Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
-    val backgroundPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+    val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
     }
-    val assistantImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> viewModel.onImagePickedForAssistant(uri) }
+    val assistantImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        viewModel.onImagePickedForAssistant(uri)
+    }
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
@@ -76,12 +72,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    // 玻璃采样坐标依赖每一帧的当前 LayoutCoordinates。
-    // Codex 优化时把 ticker 关掉后，Canvas 不会持续重绘，导致卡片滑动时仍裁剪旧位置的背景。
     LaunchedEffect(Unit) {
-        while (true) {
-            backdropTicker.frameNanos = withFrameNanos { it }
-        }
+        while (true) backdropTicker.frameNanos = withFrameNanos { it }
     }
 
     MaterialTheme {
@@ -107,12 +99,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         theme = state.backgroundTheme,
                         params = state.backdropParams,
                         customBackgroundPath = state.customBackgroundPath,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onPlaced { backdropOrigin.coordinates = it }
+                        modifier = Modifier.fillMaxSize().onPlaced { backdropOrigin.coordinates = it }
                     )
 
-                    UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    // 单个全屏 OpenGL 层统一绘制全部玻璃，避免多个 TextureView 在快速滑动时错拍。
+                    OpenGLUnifiedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
@@ -129,11 +120,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onSend = viewModel::submitComposer,
                                     onDraftCommand = viewModel::insertCommandDraft,
                                     onModelSelected = viewModel::selectModel,
-                                    onPickImage = {
-                                        assistantImagePicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
+                                    onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     onOpenTools = { viewModel.selectTab(AppTab.Tools) },
                                     onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
                                     onToggleOnline = viewModel::toggleOnline
@@ -162,11 +149,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onMotionIntensityChange = viewModel::setMotionIntensity,
                                     onBackdropChange = viewModel::setBackdropDebugParams,
                                     onBorderChange = viewModel::setGlassBorderStyle,
-                                    onUploadBackgroundClick = {
-                                        backgroundPicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
+                                    onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     onClearCustomBackgroundClick = viewModel::clearCustomBackground
                                 )
                             }
@@ -174,9 +157,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
                         BottomDockSeparationMist(
                             quality = state.quality,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
+                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                         )
 
                         CompactLiquidBottomBar(
@@ -185,10 +166,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
                             onTabChange = viewModel::selectTab,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -202,18 +180,15 @@ private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier 
     val height = if (quality.enableMotion) 76.dp else 64.dp
     val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0x1208142C),
-                        Color(0x3E08142C),
-                        Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
-                    )
+        modifier = modifier.fillMaxWidth().height(height).background(
+            Brush.verticalGradient(
+                listOf(
+                    Color.Transparent,
+                    Color(0x1208142C),
+                    Color(0x3E08142C),
+                    Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
                 )
             )
+        )
     )
 }
