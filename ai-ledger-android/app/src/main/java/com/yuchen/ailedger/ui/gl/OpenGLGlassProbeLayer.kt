@@ -27,11 +27,12 @@ import java.nio.FloatBuffer
 import kotlin.math.max
 
 /**
- * Stage 3 OpenGL glass probe.
+ * OpenGL liquid glass layer.
  *
- * The layer reads real glass item bounds from GlassItemRegistry and samples the app's generated
- * blurred/lens backdrop bitmaps as OpenGL textures. It still runs as a probe layer until the old
- * Compose fallback is intentionally reduced or disabled.
+ * This layer reads real glass item bounds from GlassItemRegistry and samples the app's generated
+ * blurred/lens backdrop bitmaps as OpenGL textures. The shader uses a thick-edge lens model:
+ * transparent body, compressed rim, inner shadow, outer highlight, corner caustics and subtle
+ * chromatic dispersion.
  */
 @Composable
 fun OpenGLGlassProbeLayer(
@@ -490,8 +491,17 @@ private class OpenGLGlassProbeRenderer {
             uniform sampler2D uLensTexture;
 
             float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
-                vec2 q = abs(p) - (halfSize - vec2(radius));
+                vec2 q = abs(p) - max(halfSize - vec2(radius), vec2(0.0));
                 return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+            }
+
+            float sat(float x) {
+                return clamp(x, 0.0, 1.0);
+            }
+
+            vec3 saturateColor(vec3 color, float amount) {
+                float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+                return mix(vec3(luma), color, amount);
             }
 
             vec3 syntheticBackdrop(vec2 uv) {
@@ -514,26 +524,36 @@ private class OpenGLGlassProbeRenderer {
             vec3 blurBackdrop(vec2 uv) {
                 vec3 fallback = syntheticBackdrop(uv);
                 vec3 realColor = texture2D(uBlurTexture, texUv(uv)).rgb;
-                return mix(fallback, realColor, clamp(uTextureReady, 0.0, 1.0));
+                return mix(fallback, realColor, sat(uTextureReady));
             }
 
             vec3 lensBackdrop(vec2 uv) {
                 vec3 fallback = syntheticBackdrop(uv);
                 vec3 realColor = texture2D(uLensTexture, texUv(uv)).rgb;
-                return mix(fallback, realColor, clamp(uTextureReady, 0.0, 1.0));
+                return mix(fallback, realColor, sat(uTextureReady));
             }
 
-            vec3 softLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx) {
+            vec3 lensDispersion(vec2 uv, vec2 n, float amountPx) {
+                vec2 d = n * amountPx / uResolution;
+                float r = lensBackdrop(uv + d * 0.85).r;
+                float g = lensBackdrop(uv).g;
+                float b = lensBackdrop(uv - d * 0.85).b;
+                return vec3(r, g, b);
+            }
+
+            vec3 anisotropicLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx, float dispersionPx) {
                 vec2 r = vec2(radiusPx) / uResolution;
-                vec3 c = lensBackdrop(uv) * 0.28;
-                c += lensBackdrop(uv + n * r.x * 0.75) * 0.15;
-                c += lensBackdrop(uv - n * r.x * 0.75) * 0.15;
-                c += lensBackdrop(uv + t * r.x * 0.42) * 0.10;
-                c += lensBackdrop(uv - t * r.x * 0.42) * 0.10;
-                c += lensBackdrop(uv + (n + t * 0.45) * r.x) * 0.08;
-                c += lensBackdrop(uv + (n - t * 0.45) * r.x) * 0.08;
-                c += lensBackdrop(uv - (n + t * 0.45) * r.x) * 0.03;
-                c += lensBackdrop(uv - (n - t * 0.45) * r.x) * 0.03;
+                vec3 c = lensDispersion(uv, n, dispersionPx) * 0.24;
+                c += lensDispersion(uv + n * r.x * 0.55, n, dispersionPx) * 0.15;
+                c += lensDispersion(uv - n * r.x * 0.55, n, dispersionPx) * 0.13;
+                c += lensDispersion(uv + n * r.x * 1.15, n, dispersionPx * 0.80) * 0.10;
+                c += lensDispersion(uv - n * r.x * 1.15, n, dispersionPx * 0.80) * 0.09;
+                c += lensBackdrop(uv + t * r.x * 0.42) * 0.07;
+                c += lensBackdrop(uv - t * r.x * 0.42) * 0.07;
+                c += lensBackdrop(uv + (n + t * 0.45) * r.x * 0.88) * 0.05;
+                c += lensBackdrop(uv + (n - t * 0.45) * r.x * 0.88) * 0.05;
+                c += lensBackdrop(uv - (n + t * 0.45) * r.x * 0.88) * 0.03;
+                c += lensBackdrop(uv - (n - t * 0.45) * r.x * 0.88) * 0.02;
                 return c;
             }
 
@@ -545,7 +565,7 @@ private class OpenGLGlassProbeRenderer {
                 float radius = min(uRadius, min(rectSize.x, rectSize.y) * 0.5);
                 vec2 p = coord - center;
                 float sd = roundedBoxSdf(p, rectSize * 0.5, radius);
-                float mask = 1.0 - smoothstep(0.0, 2.0, sd);
+                float mask = 1.0 - smoothstep(0.0, 1.65, sd);
                 if (mask <= 0.001) {
                     discard;
                 }
@@ -557,34 +577,65 @@ private class OpenGLGlassProbeRenderer {
                 float gy = roundedBoxSdf(p + dy, rectSize * 0.5, radius) - roundedBoxSdf(p - dy, rectSize * 0.5, radius);
                 vec2 normal = normalize(vec2(gx, gy) + vec2(0.0001));
                 vec2 tangent = vec2(-normal.y, normal.x);
-                float corner = clamp(abs(normal.x * normal.y) * 2.2, 0.0, 1.0);
-
-                float edgeWidth = min(rectSize.x, rectSize.y) * 0.32;
-                float surfaceGate = clamp(1.0 - inside / max(edgeWidth * 1.42, 1.0), 0.0, 1.0);
-                float edgeCore = exp(-inside / max(edgeWidth * 0.12, 1.0));
-                float edgeShoulder = exp(-inside / max(edgeWidth * 0.45, 1.0)) * 0.38;
-                float outerHighlight = exp(-inside / max(edgeWidth * 0.075, 1.0));
-                float compressionBand = exp(-pow((inside - edgeWidth * 0.22) / max(edgeWidth * 0.15, 1.0), 2.0));
-                float innerShadow = exp(-pow((inside - edgeWidth * 0.58) / max(edgeWidth * 0.23, 1.0), 2.0));
-                float caustic = corner * exp(-inside / max(edgeWidth * 0.28, 1.0));
+                float corner = sat(abs(normal.x * normal.y) * 2.35);
 
                 vec2 uv = coord / uResolution;
-                float pull = (edgeCore * 26.0 + edgeShoulder * 40.0 + caustic * 18.0) * surfaceGate;
-                float tangentBend = sin((p.x + p.y) * 0.018) * edgeShoulder * 14.0;
+                vec2 local01 = clamp((coord - rectPos) / rectSize, 0.0, 1.0);
+                float minSide = min(rectSize.x, rectSize.y);
+                float edgeWidth = minSide * 0.36;
+
+                float surfaceGate = sat(1.0 - inside / max(edgeWidth * 1.58, 1.0));
+                float edgeCore = exp(-inside / max(edgeWidth * 0.090, 1.0));
+                float outerRim = exp(-inside / max(edgeWidth * 0.050, 1.0));
+                float edgeShoulder = exp(-inside / max(edgeWidth * 0.42, 1.0));
+                float innerFade = exp(-inside / max(edgeWidth * 0.95, 1.0));
+                float compressionBand = exp(-pow((inside - edgeWidth * 0.23) / max(edgeWidth * 0.145, 1.0), 2.0));
+                float innerShadow = exp(-pow((inside - edgeWidth * 0.60) / max(edgeWidth * 0.24, 1.0), 2.0));
+                float cornerCaustic = corner * exp(-inside / max(edgeWidth * 0.26, 1.0));
+                float topLight = smoothstep(1.0, 0.0, local01.y) * surfaceGate;
+                float bottomShade = smoothstep(0.55, 1.0, local01.y) * innerFade;
+                float leftGlow = smoothstep(0.20, 0.0, local01.x) * surfaceGate;
+                float rightWarm = smoothstep(0.55, 1.0, local01.x) * smoothstep(0.18, 1.0, local01.y) * surfaceGate;
+
+                float tangentPhase = sin((p.x * 0.013 + p.y * 0.009) + uTime * 0.20);
+                float cornerBoost = 1.0 + corner * 0.62;
+                float outerPull = edgeCore * min(34.0, edgeWidth * 0.74);
+                float innerPull = compressionBand * min(56.0, edgeWidth * 1.02);
+                float shoulderPull = edgeShoulder * min(30.0, edgeWidth * 0.68);
+                float pull = (outerPull + innerPull + shoulderPull + cornerCaustic * min(30.0, edgeWidth * 0.58)) * surfaceGate * cornerBoost;
+                float tangentBend = tangentPhase * edgeShoulder * min(18.0, edgeWidth * 0.36) * (1.0 + corner * 0.55);
                 vec2 refractUv = uv + (normal * pull + tangent * tangentBend) / uResolution;
 
                 vec3 base = blurBackdrop(uv);
-                vec3 refracted = softLensSample(refractUv, normal, tangent, mix(3.0, 9.0, corner));
-                vec3 color = mix(base, refracted, surfaceGate * 0.66);
-                vec3 compressed = clamp((color - 0.5) * 1.18 + 0.5, 0.0, 1.0);
-                color = mix(color, compressed, compressionBand * 0.18);
-                color += vec3(outerHighlight * 0.10);
-                color -= vec3(innerShadow * 0.055);
-                color += vec3(caustic * 0.10, caustic * 0.08, caustic * 0.055);
-                color = mix(color, vec3(1.0), 0.075);
+                vec3 body = saturateColor(base, 1.06);
+                body = mix(body, vec3(1.0), 0.055 + topLight * 0.025);
+                body *= 1.018;
+
+                float sampleRadius = mix(3.0, 10.5, sat(corner + edgeShoulder * 0.38));
+                float dispersion = (0.65 + corner * 1.65 + edgeCore * 0.90) * surfaceGate;
+                vec3 lensColor = anisotropicLensSample(refractUv, normal, tangent, sampleRadius, dispersion);
+                vec3 compressed = clamp((lensColor - 0.5) * 1.28 + 0.5, 0.0, 1.0);
+                lensColor = mix(lensColor, compressed, compressionBand * 0.34);
+
+                float lensMix = sat(surfaceGate * (edgeCore * 0.72 + edgeShoulder * 0.38 + compressionBand * 0.42 + cornerCaustic * 0.30));
+                vec3 color = mix(body, lensColor, lensMix);
+
+                vec3 coolRim = vec3(0.74, 0.87, 1.0);
+                vec3 warmRim = vec3(1.0, 0.68, 0.74);
+                color += coolRim * (outerRim * 0.135 + leftGlow * 0.035 + topLight * 0.030);
+                color += warmRim * (cornerCaustic * 0.115 + rightWarm * 0.045);
+                color += vec3(1.0) * (compressionBand * 0.038);
+                color -= vec3(0.07, 0.09, 0.13) * (innerShadow * 0.74 + bottomShade * 0.050);
+
+                float thinSpec = outerRim * (0.62 + topLight * 0.62 + corner * 0.48);
+                color += vec3(1.0, 0.97, 0.92) * thinSpec * 0.070;
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = mask * (0.18 + edgeCore * 0.17 + outerHighlight * 0.12 + caustic * 0.06) * clamp(uIntensity, 0.35, 1.35);
+                float bodyAlpha = 0.095;
+                float edgeAlpha = edgeCore * 0.32 + edgeShoulder * 0.12 + compressionBand * 0.13 + outerRim * 0.18 + cornerCaustic * 0.13;
+                float highlightAlpha = topLight * 0.030 + thinSpec * 0.040;
+                float alpha = mask * (bodyAlpha + edgeAlpha + highlightAlpha) * clamp(uIntensity, 0.35, 1.28);
+                alpha = clamp(alpha, 0.0, 0.62);
                 gl_FragColor = vec4(color, alpha);
             }
         """
