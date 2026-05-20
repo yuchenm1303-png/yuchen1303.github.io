@@ -150,19 +150,20 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        val skinIntensity = if (useCardOpenGlBackdrop) glassIntensity * 0.46f else glassIntensity
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassSkin(
-                    quality = quality,
-                    radius = effectiveRadius,
-                    shimmer = shimmer,
-                    breathe = breathe,
-                    glassIntensity = skinIntensity,
-                    includeShadow = false
-                )
-        )
+        if (!useCardOpenGlBackdrop) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .glassSkin(
+                        quality = quality,
+                        radius = effectiveRadius,
+                        shimmer = shimmer,
+                        breathe = breathe,
+                        glassIntensity = glassIntensity,
+                        includeShadow = false
+                    )
+            )
+        }
         content()
     }
 }
@@ -262,19 +263,20 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        val skinIntensity = if (useCardOpenGlBackdrop) pressedIntensity * 0.46f else pressedIntensity
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassSkin(
-                    quality = quality,
-                    radius = effectiveRadius,
-                    shimmer = shimmer + if (pressed) 0.024f else 0f,
-                    breathe = breathe,
-                    glassIntensity = skinIntensity,
-                    includeShadow = false
-                )
-        )
+        if (!useCardOpenGlBackdrop) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .glassSkin(
+                        quality = quality,
+                        radius = effectiveRadius,
+                        shimmer = shimmer + if (pressed) 0.024f else 0f,
+                        breathe = breathe,
+                        glassIntensity = pressedIntensity,
+                        includeShadow = false
+                    )
+            )
+        }
         content()
     }
 }
