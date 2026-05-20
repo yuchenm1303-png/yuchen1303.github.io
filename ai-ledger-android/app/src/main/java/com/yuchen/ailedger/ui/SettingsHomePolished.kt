@@ -230,7 +230,7 @@ private fun DebugHeaderV2(state: AssistantUiState, onBack: () -> Unit) {
 @Composable
 private fun DebugTabRow(state: AssistantUiState, selected: String, onSelected: (String) -> Unit) {
     val tabs = listOf("背景", "天空", "折射", "边缘", "边框")
-    GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Flex) {
         Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             tabs.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
@@ -251,7 +251,7 @@ private fun DebugTabRow(state: AssistantUiState, selected: String, onSelected: (
 
 @Composable
 private fun DebugGroupCard(state: AssistantUiState, title: String, subtitle: String, content: @Composable () -> Unit) {
-    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth().settingsGlow(0.24f, 1f, Color(0xFF8DF9EA)), GlassRole.Shell) {
+    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth().settingsGlow(0.24f, 1f, Color(0xFF8DF9EA)), GlassRole.Flex) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
@@ -335,7 +335,7 @@ private fun SettingsHeaderV2() {
 @Composable
 private fun ExpandableSettingsSection(state: AssistantUiState, title: String, subtitle: String, glyph: String, accent: Color, expanded: Boolean, onToggle: () -> Unit, content: @Composable () -> Unit) {
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow), label = "settings-section-arrow")
-    GlassPanel(state.quality, state.glassIntensity * if (expanded) 1.02f else 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth().settingsGlow(if (expanded) 0.42f else 0.10f, 1f, accent), if (expanded) GlassRole.Shell else GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity * if (expanded) 1.02f else 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth().settingsGlow(if (expanded) 0.42f else 0.10f, 1f, accent), GlassRole.Flex) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PressableGlass(state.quality, state.glassIntensity * if (expanded) 1.04f else 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth().height(54.dp), if (expanded) GlassRole.Floating else GlassRole.Chip, onClick = onToggle) {
                 Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -399,7 +399,7 @@ private fun <T> SettingOptionGrid(items: List<T>, selected: T, label: (T) -> Str
 @Composable
 private fun LiquidSwitchRow(title: String, subtitle: String, checked: Boolean, state: AssistantUiState, onCheckedChange: (Boolean) -> Unit) {
     val glow by animateFloatAsState(if (checked) 1f else 0f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow), label = "liquid-switch-glow")
-    PressableGlass(state.quality, state.glassIntensity * if (checked) 1.05f else 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth().height(58.dp).settingsGlow(glow * 0.42f, 1f, Color(0xFF8DF9EA)), if (checked) GlassRole.Floating else GlassRole.Card, onClick = { onCheckedChange(!checked) }) {
+    PressableGlass(state.quality, state.glassIntensity * if (checked) 1.05f else 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth().height(58.dp).settingsGlow(glow * 0.42f, 1f, Color(0xFF8DF9EA)), if (checked) GlassRole.Floating else GlassRole.Flex, onClick = { onCheckedChange(!checked) }) {
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 15.sp, fontWeight = FontWeight.Black)
@@ -423,7 +423,7 @@ private fun LiquidSwitch(checked: Boolean, glow: Float) {
 private fun LiquidGlassSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(56.dp), GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(56.dp), GlassRole.Flex) {
         SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
     }
 }
