@@ -87,7 +87,18 @@ data class GlassBorderStyle(
     val edgeContrast: Float = 1.60f,
     val edgeSaturation: Float = 1.42f,
     val edgeBrightness: Float = 0.98f,
-    val bodyAlpha: Float = 0.51f
+    val bodyAlpha: Float = 0.51f,
+    val openGlDebugLineAlpha: Float = 0f,
+    val openGlVisibility: Float = 1f,
+    val openGlMaxAlpha: Float = 0.38f,
+    val openGlEdgeWidthScale: Float = 1f,
+    val openGlPullScale: Float = 1f,
+    val openGlCompressionScale: Float = 1f,
+    val openGlCornerScale: Float = 1f,
+    val openGlDarkScale: Float = 1f,
+    val openGlSpecularScale: Float = 1f,
+    val openGlChromaticScale: Float = 1f,
+    val openGlSampleRadiusScale: Float = 1f
 )
 
 enum class MessageRole {
