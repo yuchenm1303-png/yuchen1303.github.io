@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -127,7 +128,22 @@ private fun ModelAndNetworkPanel(
     onToggleOnline: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val panelHeight by animateDpAsState(
+        targetValue = if (expanded) 268.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-panel-height"
+    )
+    val panelAlpha by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(durationMillis = if (expanded) 150 else 90),
+        label = "model-panel-alpha"
+    )
+    val panelScale by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0.985f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-panel-scale"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ModelSelectorChip(
                 state = state,
@@ -141,20 +157,26 @@ private fun ModelAndNetworkPanel(
                 onClick = { if (!state.isSending) onToggleOnline() }
             )
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-                expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) +
-                scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
-            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.97f, animationSpec = tween(150))
-        ) {
-            ModelChooserSheet(
-                state = state,
-                onSelected = { model ->
-                    onModelSelected(model)
-                    expanded = false
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(panelHeight)
+                .clip(RoundedCornerShape(30.dp))
+                .graphicsLayer {
+                    alpha = panelAlpha
+                    scaleX = panelScale
+                    scaleY = panelScale
                 }
-            )
+        ) {
+            Column(Modifier.padding(top = 8.dp)) {
+                ModelChooserSheet(
+                    state = state,
+                    onSelected = { model ->
+                        onModelSelected(model)
+                        expanded = false
+                    }
+                )
+            }
         }
     }
 }
