@@ -122,8 +122,8 @@ private fun AssistantHeroV2(
             Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            RoundIconButtonV2("▦", state, onOpenTools)
-            RoundIconButtonV2("⚙", state, onOpenSettings)
+            RoundIconButtonV2("▦", state, onClick = onOpenTools)
+            RoundIconButtonV2("⚙", state, onClick = onOpenSettings)
         }
     }
 }
