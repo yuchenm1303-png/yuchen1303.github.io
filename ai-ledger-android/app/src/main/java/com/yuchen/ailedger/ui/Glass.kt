@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 
 enum class GlassRole(
     val fillScale: Float,
@@ -46,7 +47,7 @@ private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
-private const val USE_CARD_BOUND_OPENGL_GLASS = false
+private const val USE_CARD_BOUND_OPENGL_GLASS = true
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
@@ -59,7 +60,10 @@ private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
     GlassRole.Chip, GlassRole.Floating -> false
 }
 
-private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = false
+private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
+    GlassRole.Shell, GlassRole.Card -> true
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
+}
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     if (radius >= 999) return radius
@@ -118,7 +122,14 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (!useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -139,7 +150,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useUnifiedBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -186,9 +197,11 @@ fun PressableGlass(
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
+    val cardBackdrop = LocalBlurredBackdrop.current
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role)
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -222,7 +235,14 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (!useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -243,7 +263,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useUnifiedBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -267,7 +287,9 @@ private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float)
 }
 
 @Composable
-private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float) = if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
+private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float {
+    return if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
+}
 
 private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifier {
     val shape = RoundedCornerShape(radius.dp)
@@ -378,12 +400,20 @@ fun Modifier.glassSkin(
             endY = h
         )
         val movingEdgeGlint = Brush.linearGradient(
-            colors = listOf(Color.Transparent, Color.White.copy(alpha = material.motionGlint), Color.Transparent),
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = material.motionGlint),
+                Color.Transparent
+            ),
             start = Offset(w * (safeShimmer - 0.28f), 0f),
             end = Offset(w * (safeShimmer + 0.16f), h * 0.20f)
         )
         val cornerCatchlight = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = material.cornerHighlight), Color.White.copy(alpha = material.cornerHighlight * 0.08f), Color.Transparent),
+            colors = listOf(
+                Color.White.copy(alpha = material.cornerHighlight),
+                Color.White.copy(alpha = material.cornerHighlight * 0.08f),
+                Color.Transparent
+            ),
             center = Offset(w * (0.035f + drift * 0.010f), h * 0.020f),
             radius = w * 0.26f
         )
@@ -393,21 +423,41 @@ fun Modifier.glassSkin(
             drawRect(topLens, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
             drawContent()
-            drawRoundRect(mainRim, Offset(rimInset, rimInset), rimSize, cornerRadius, style = Stroke(width = 0.32.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(topHairline, Offset(innerInset, innerInset), innerSize, cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(innerSoftRim, Offset(innerInset, innerInset), innerSize, cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.SrcOver)
-            drawRoundRect(bottomShadow, Offset(bottomInset, bottomInset), bottomSize, cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Multiply)
-            if (quality.enableMotion) drawRoundRect(movingEdgeGlint, Offset(rimInset, rimInset), rimSize, cornerRadius, style = Stroke(width = 0.07.dp.toPx()), blendMode = BlendMode.Plus)
-            drawRoundRect(cornerCatchlight, Offset(rimInset, rimInset), rimSize, cornerRadius, style = Stroke(width = 0.13.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.32.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = innerSoftRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.SrcOver)
+            drawRoundRect(brush = bottomShadow, topLeft = Offset(bottomInset, bottomInset), size = bottomSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Multiply)
+            if (quality.enableMotion) {
+                drawRoundRect(brush = movingEdgeGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.07.dp.toPx()), blendMode = BlendMode.Plus)
+            }
+            drawRoundRect(brush = cornerCatchlight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.13.dp.toPx()), blendMode = BlendMode.Screen)
         }
     }
 }
 
-private data class GlassMaterial(val frost: Float, val rim: Float, val topHighlight: Float, val cornerHighlight: Float, val motionGlint: Float, val depthShadow: Float, val shadowAmbient: Float, val shadowSpot: Float)
+private data class GlassMaterial(
+    val frost: Float,
+    val rim: Float,
+    val topHighlight: Float,
+    val cornerHighlight: Float,
+    val motionGlint: Float,
+    val depthShadow: Float,
+    val shadowAmbient: Float,
+    val shadowSpot: Float
+)
 
 private fun glassMaterial(intensity: Float): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
-    val base = GlassMaterial(0.044f, 0.104f, 0.036f, 0.021f, 0.0035f, 0.015f, 0.028f, 0.0035f)
+    val base = GlassMaterial(
+        frost = 0.044f,
+        rim = 0.104f,
+        topHighlight = 0.036f,
+        cornerHighlight = 0.021f,
+        motionGlint = 0.0035f,
+        depthShadow = 0.015f,
+        shadowAmbient = 0.028f,
+        shadowSpot = 0.0035f
+    )
     return GlassMaterial(
         frost = (base.frost * safeIntensity).coerceIn(0.006f, 0.052f),
         rim = (base.rim * safeIntensity).coerceIn(0.018f, 0.154f),
