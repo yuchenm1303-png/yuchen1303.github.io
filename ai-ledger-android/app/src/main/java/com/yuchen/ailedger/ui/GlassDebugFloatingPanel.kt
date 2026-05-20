@@ -56,12 +56,12 @@ fun GlassDebugFloatingPanel(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color(0xFF344761).copy(alpha = 0.72f),
-                        Color(0xFF182437).copy(alpha = 0.68f)
+                        Color(0xFF243247).copy(alpha = 0.42f),
+                        Color(0xFF0B1320).copy(alpha = 0.46f)
                     )
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = 0.22f), panelShape)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), panelShape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -70,8 +70,8 @@ fun GlassDebugFloatingPanel(
                 .fillMaxWidth()
                 .height(44.dp)
                 .clip(buttonShape)
-                .background(Color.White.copy(alpha = 0.10f))
-                .border(1.dp, Color.White.copy(alpha = 0.18f), buttonShape)
+                .background(Color.White.copy(alpha = 0.06f))
+                .border(1.dp, Color.White.copy(alpha = 0.10f), buttonShape)
                 .clickable(interactionSource = clickSource, indication = null) { expanded = !expanded }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -84,12 +84,12 @@ fun GlassDebugFloatingPanel(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 520.dp)
+                    .heightIn(max = 560.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val supportsAgsl = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                val renderPath = if (supportsAgsl) "AGSL RuntimeShader" else "Canvas fallback + OpenGL card lens"
+                val renderPath = if (supportsAgsl) "AGSL RuntimeShader" else "OpenGL ES card material"
                 val renderHint = if (supportsAgsl) "当前设备支持 Android 13+ Shader 路径" else "当前设备低于 API 33，卡片折射主要靠 OpenGL 路径"
 
                 Text("设备渲染能力", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
@@ -121,56 +121,41 @@ fun GlassDebugFloatingPanel(
 
                 Spacer(Modifier.height(6.dp))
                 Text("背景模糊缓存", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                DebugSlider("缓存分辨率", state.backdropParams.scale, 0.18f..0.72f) { onBackdropChange(state.backdropParams.copy(scale = it)) }
-                DebugSlider("模糊半径", state.backdropParams.radius, 1f..18f) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
-                DebugSlider("模糊迭代", state.backdropParams.iterations, 1f..8f) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
-                DebugSlider("亮度", state.backdropParams.brightness, 0.80f..1.35f) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
-                DebugSlider("对比度", state.backdropParams.contrast, 0.80f..1.35f) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
-                DebugSlider("饱和度", state.backdropParams.saturation, 0.70f..1.60f) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
+                DebugSlider("缓存分辨率", state.backdropParams.scale, 0.08f..1.20f) { onBackdropChange(state.backdropParams.copy(scale = it)) }
+                DebugSlider("模糊半径", state.backdropParams.radius, 0f..80f) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
+                DebugSlider("模糊迭代", state.backdropParams.iterations, 1f..24f) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
+                DebugSlider("亮度", state.backdropParams.brightness, 0.10f..3.00f) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
+                DebugSlider("对比度", state.backdropParams.contrast, 0.10f..4.00f) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
+                DebugSlider("饱和度", state.backdropParams.saturation, 0.00f..4.00f) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
 
                 Spacer(Modifier.height(6.dp))
-                Text("云和月亮", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                DebugSlider("云层强度", state.backdropParams.cloudAlpha, 0.25f..2.20f) { onBackdropChange(state.backdropParams.copy(cloudAlpha = it)) }
-                DebugSlider("云层软度", state.backdropParams.cloudSoftness, 0.65f..2.40f) { onBackdropChange(state.backdropParams.copy(cloudSoftness = it)) }
-                DebugSlider("云横向拉伸", state.backdropParams.cloudStretchX, 0.80f..3.80f) { onBackdropChange(state.backdropParams.copy(cloudStretchX = it)) }
-                DebugSlider("云纵向厚度", state.backdropParams.cloudStretchY, 0.35f..1.40f) { onBackdropChange(state.backdropParams.copy(cloudStretchY = it)) }
-                DebugSlider("云顶高光", state.backdropParams.cloudHighlightAlpha, 0f..0.80f) { onBackdropChange(state.backdropParams.copy(cloudHighlightAlpha = it)) }
-                DebugSlider("月亮大小", state.backdropParams.moonScale, 0.45f..1.80f) { onBackdropChange(state.backdropParams.copy(moonScale = it)) }
-                DebugSlider("月亮光晕", state.backdropParams.moonHaloAlpha, 0f..0.80f) { onBackdropChange(state.backdropParams.copy(moonHaloAlpha = it)) }
-                DebugSlider("月牙高光", state.backdropParams.moonRimAlpha, 0f..1.00f) { onBackdropChange(state.backdropParams.copy(moonRimAlpha = it)) }
-
-                Spacer(Modifier.height(6.dp))
-                Text("OpenGL 折射调试", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("OpenGL 透明折射核心", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    text = "当前已去掉蓝色/白色雾面、高光和暗边。以下参数直接控制透明玻璃采样、折射和边缘透镜。",
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 DebugSlider("调试橙线", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
-                DebugSlider("折射可见度", state.glassBorderStyle.openGlVisibility, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
-                DebugSlider("最大透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1.5f) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
-                DebugSlider("边缘宽度倍率", state.glassBorderStyle.openGlEdgeWidthScale, 0.05f..5f) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
-                DebugSlider("折射拉拽倍率", state.glassBorderStyle.openGlPullScale, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
-                DebugSlider("压缩带倍率", state.glassBorderStyle.openGlCompressionScale, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
-                DebugSlider("圆角焦散倍率", state.glassBorderStyle.openGlCornerScale, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
-                DebugSlider("内侧暗带倍率", state.glassBorderStyle.openGlDarkScale, 0f..6f) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
-                DebugSlider("高光倍率", state.glassBorderStyle.openGlSpecularScale, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
-                DebugSlider("色散倍率", state.glassBorderStyle.openGlChromaticScale, 0f..8f) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
-                DebugSlider("采样扩散倍率", state.glassBorderStyle.openGlSampleRadiusScale, 0.05f..6f) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+                DebugSlider("整体可见度/透明度", state.glassBorderStyle.openGlVisibility, 0f..5f) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
+                DebugSlider("主体 Alpha", state.glassBorderStyle.openGlMaxAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
+                DebugSlider("背景亮度", state.glassBorderStyle.edgeBrightness, 0f..3f) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
+                DebugSlider("主体折射 px", state.glassBorderStyle.openGlPullScale, -300f..300f) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
+                DebugSlider("边缘折射 px", state.glassBorderStyle.edgePullDp, -600f..600f) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
+                DebugSlider("边缘宽度 px", state.glassBorderStyle.ringWidthDp, 0f..300f) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
+                DebugSlider("lens 清晰混入", state.glassBorderStyle.openGlCompressionScale, -3f..3f) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
+                DebugSlider("梯度放大", state.glassBorderStyle.openGlCornerScale, 0f..200f) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
+                DebugSlider("额外模糊 px", state.glassBorderStyle.openGlSampleRadiusScale, 0f..200f) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+                DebugSlider("内侧暗带", state.glassBorderStyle.openGlDarkScale, -5f..5f) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
 
                 Spacer(Modifier.height(6.dp))
-                Text("iOS 透镜边缘", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                DebugSlider("边缘厚度", state.glassBorderStyle.ringWidthDp, 0f..80f) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
-                DebugSlider("内部拉取", state.glassBorderStyle.edgePullDp, 0f..300f) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it.roundToInt().toFloat())) }
-                DebugSlider("折射强度", state.glassBorderStyle.edgeAlpha, 0f..5f) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
-                DebugSlider("折射模糊", state.glassBorderStyle.edgeBlurDp, 0f..80f) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
-                DebugSlider("边缘对比", state.glassBorderStyle.edgeContrast, 0.10f..5f) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
-                DebugSlider("边缘饱和", state.glassBorderStyle.edgeSaturation, 0.10f..5f) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
-                DebugSlider("边缘亮度", state.glassBorderStyle.edgeBrightness, 0.10f..4f) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
-                DebugSlider("主体雾面", state.glassBorderStyle.bodyAlpha, 0.05f..0.60f) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
-
-                Spacer(Modifier.height(6.dp))
-                Text("iOS 边框高光", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-                DebugSlider("外边框", state.glassBorderStyle.outerStrokeAlpha, 0.00f..0.70f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
-                DebugSlider("内边框", state.glassBorderStyle.innerStrokeAlpha, 0.00f..0.35f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
-                DebugSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0.00f..0.60f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
-                DebugSlider("底部暗边", state.glassBorderStyle.bottomShadowAlpha, 0f..0.50f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
-                DebugSlider("圆角 glint", state.glassBorderStyle.cornerGlintAlpha, 0f..0.30f) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
+                Text("旧边框/雾面（默认全关）", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                DebugSlider("主体雾面", state.glassBorderStyle.bodyAlpha, -2f..2f) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
+                DebugSlider("外边框", state.glassBorderStyle.outerStrokeAlpha, 0.00f..1.00f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
+                DebugSlider("内边框", state.glassBorderStyle.innerStrokeAlpha, 0.00f..1.00f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
+                DebugSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0.00f..1.00f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
+                DebugSlider("底部暗边", state.glassBorderStyle.bottomShadowAlpha, 0f..1.00f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+                DebugSlider("圆角 glint", state.glassBorderStyle.cornerGlintAlpha, 0f..1.00f) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
             }
         }
     }
@@ -184,8 +169,8 @@ private fun DebugActionButton(label: String, modifier: Modifier = Modifier, onCl
         modifier = modifier
             .height(42.dp)
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.12f))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
             .clickable(interactionSource = source, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center
