@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Liquid Glass Blur Lab</title>
+  <style>
+    :root {
+      --blur: 28px;
+      --saturate: 1.35;
+      --brightness: 1.05;
+      --contrast: 1.05;
+      --glass-alpha: 0.72;
+      --frost-alpha: 0.22;
+      --tint-r: 166;
+      --tint-g: 198;
+      --tint-b: 230;
+      --radius: 42px;
+      --shadow: 0.34;
+      --highlight: 0.18;
+      --edge: 0.00;
+      --bg-scale: 1.00;
+      --bg-x: 0px;
+      --bg-y: 0px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      background: #071c38;
+      overflow-x: hidden;
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: minmax(340px, 420px) minmax(360px, 1fr);
+      min-height: 100vh;
+    }
+
+    .panel {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 26px 22px 32px;
+      background: rgba(4, 12, 28, 0.86);
+      border-right: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: -0.03em;
+    }
+
+    .tip {
+      margin: 0 0 20px;
+      color: rgba(230, 242, 255, 0.72);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .group {
+      padding: 14px 0 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .group-title {
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: rgba(165, 230, 255, 0.92);
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    label {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin: 10px 0 4px;
+      color: rgba(245, 250, 255, 0.88);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .value {
+      color: rgba(210, 235, 255, 0.72);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #84d7ff;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 16px;
+      background: rgba(126, 201, 255, 0.18);
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    pre {
+      margin: 12px 0 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 11px;
+      line-height: 1.45;
+      color: rgba(225, 244, 255, 0.82);
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .stage-wrap {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      padding: 30px;
+      background: #061c3c;
+    }
+
+    .phone {
+      position: relative;
+      width: min(430px, 92vw);
+      aspect-ratio: 9 / 16;
+      border-radius: 38px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: 0 34px 90px rgba(0, 0, 0, 0.42);
+      background-image: url("glass-lab-background.svg");
+      background-size: calc(100% * var(--bg-scale)) auto;
+      background-position: var(--bg-x) var(--bg-y);
+      background-repeat: no-repeat;
+    }
+
+    .status {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      font-size: 15px;
+      font-weight: 800;
+      text-shadow: 0 1px 6px rgba(0,0,0,.45);
+    }
+
+    .content {
+      padding: 22px 22px 90px;
+    }
+
+    .eyebrow {
+      color: #7ce8ff;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+
+    .title {
+      font-size: 48px;
+      font-weight: 950;
+      letter-spacing: -0.08em;
+      line-height: 0.92;
+      margin-bottom: 18px;
+      text-shadow: 0 2px 12px rgba(0,0,0,.28);
+    }
+
+    .subtitle {
+      color: rgba(235, 245, 255, 0.72);
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    .glass {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: rgba(var(--tint-r), var(--tint-g), var(--tint-b), var(--glass-alpha));
+      backdrop-filter: blur(var(--blur)) saturate(var(--saturate)) brightness(var(--brightness)) contrast(var(--contrast));
+      -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate)) brightness(var(--brightness)) contrast(var(--contrast));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,var(--highlight)),
+        inset 0 -18px 42px rgba(10, 20, 42, calc(var(--shadow) * .28)),
+        0 18px 42px rgba(0,0,0,calc(var(--shadow) * .18));
+    }
+
+    .glass::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 32% 6%, rgba(255,255,255,calc(var(--frost-alpha) * .95)), transparent 38%),
+        linear-gradient(180deg, rgba(255,255,255,calc(var(--frost-alpha) * .42)), transparent 38%, rgba(0,0,0,calc(var(--shadow) * .14)) 100%);
+      mix-blend-mode: screen;
+    }
+
+    .glass::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      border: 1px solid rgba(255, 255, 255, var(--edge));
+    }
+
+    .hero {
+      padding: 26px 24px;
+      margin-bottom: 18px;
+    }
+
+    .hero small {
+      display: block;
+      color: rgba(255,255,255,.68);
+      font-weight: 750;
+      margin-bottom: 10px;
+    }
+
+    .hero strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1.15;
+      margin-bottom: 12px;
+    }
+
+    .hero p {
+      margin: 0;
+      color: rgba(255,255,255,.72);
+      font-size: 16px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+
+    .chips {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .chip {
+      padding: 14px 12px;
+      min-height: 72px;
+    }
+
+    .chip span {
+      display: block;
+      color: rgba(255,255,255,.68);
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .chip strong {
+      font-size: 22px;
+    }
+
+    .list {
+      display: grid;
+      gap: 15px;
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 18px;
+      min-height: 88px;
+    }
+
+    .icon {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      border-radius: 20px;
+      background: rgba(10, 30, 58, .42);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22);
+      font-size: 24px;
+      font-weight: 950;
+    }
+
+    .item h3 {
+      margin: 0 0 4px;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .item p {
+      margin: 0;
+      color: rgba(255,255,255,.68);
+      font-weight: 650;
+      font-size: 14px;
+    }
+
+    .arrow {
+      color: rgba(255,255,255,.78);
+      font-size: 24px;
+      font-weight: 900;
+    }
+
+    .nav {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 18px;
+      height: 58px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      align-items: center;
+      text-align: center;
+      color: rgba(255,255,255,.68);
+      font-size: 12px;
+      font-weight: 800;
+      border-radius: 29px;
+    }
+
+    @media (max-width: 860px) {
+      .page { grid-template-columns: 1fr; }
+      .panel { position: relative; height: auto; }
+      .stage-wrap { min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <aside class="panel">
+      <h1>Liquid Glass Blur Lab</h1>
+      <p class="tip">先只调“模糊主体”：看清楚背景是否被糊掉、雾面是否舒服、文字是否还能读。这里用 CSS backdrop-filter 模拟参数趋势，最终再映射到 Android OpenGL shader。</p>
+
+      <section class="group">
+        <h2 class="group-title">模糊 / 背景处理</h2>
+        <label>Blur 半径 <span class="value" id="v-blur"></span></label>
+        <input data-var="blur" data-unit="px" type="range" min="0" max="80" step="1" value="28">
+        <label>Saturation 饱和度 <span class="value" id="v-saturate"></span></label>
+        <input data-var="saturate" type="range" min="0.60" max="2.40" step="0.01" value="1.35">
+        <label>Brightness 亮度 <span class="value" id="v-brightness"></span></label>
+        <input data-var="brightness" type="range" min="0.60" max="1.60" step="0.01" value="1.05">
+        <label>Contrast 对比度 <span class="value" id="v-contrast"></span></label>
+        <input data-var="contrast" type="range" min="0.60" max="1.80" step="0.01" value="1.05">
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">玻璃主体 / 雾面</h2>
+        <label>Glass Alpha 主体透明度 <span class="value" id="v-glass-alpha"></span></label>
+        <input data-var="glass-alpha" type="range" min="0" max="1" step="0.01" value="0.72">
+        <label>Frost Alpha 雾面白膜 <span class="value" id="v-frost-alpha"></span></label>
+        <input data-var="frost-alpha" type="range" min="0" max="0.60" step="0.01" value="0.22">
+        <label>Highlight 顶部柔光 <span class="value" id="v-highlight"></span></label>
+        <input data-var="highlight" type="range" min="0" max="0.50" step="0.01" value="0.18">
+        <label>Shadow 底部暗压 <span class="value" id="v-shadow"></span></label>
+        <input data-var="shadow" type="range" min="0" max="0.80" step="0.01" value="0.34">
+        <label>Edge 临时边线，建议先保持 0 <span class="value" id="v-edge"></span></label>
+        <input data-var="edge" type="range" min="0" max="0.30" step="0.01" value="0">
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">雾面颜色</h2>
+        <div class="row">
+          <div>
+            <label>R <span class="value" id="v-tint-r"></span></label>
+            <input data-var="tint-r" type="range" min="80" max="255" step="1" value="166">
+          </div>
+          <div>
+            <label>G <span class="value" id="v-tint-g"></span></label>
+            <input data-var="tint-g" type="range" min="80" max="255" step="1" value="198">
+          </div>
+          <div>
+            <label>B <span class="value" id="v-tint-b"></span></label>
+            <input data-var="tint-b" type="range" min="80" max="255" step="1" value="230">
+          </div>
+        </div>
+      </section>
+
+      <section class="group">
+        <h2 class="group-title">形状 / 背景位移测试</h2>
+        <label>Radius 圆角 <span class="value" id="v-radius"></span></label>
+        <input data-var="radius" data-unit="px" type="range" min="12" max="70" step="1" value="42">
+        <label>背景 Scale <span class="value" id="v-bg-scale"></span></label>
+        <input data-var="bg-scale" type="range" min="0.80" max="1.30" step="0.01" value="1.00">
+        <label>背景 X 位移 <span class="value" id="v-bg-x"></span></label>
+        <input data-var="bg-x" data-unit="px" type="range" min="-160" max="160" step="1" value="0">
+        <label>背景 Y 位移 <span class="value" id="v-bg-y"></span></label>
+        <input data-var="bg-y" data-unit="px" type="range" min="-260" max="260" step="1" value="0">
+      </section>
+
+      <button id="copy">复制当前参数</button>
+      <pre id="out"></pre>
+    </aside>
+
+    <section class="stage-wrap">
+      <div class="phone">
+        <div class="status"><span>2:06</span><span>4G  36%</span></div>
+        <div class="content">
+          <div class="eyebrow">TOOLS</div>
+          <div class="title">功能</div>
+          <div class="subtitle">把手机能力变成助手可以执行的动作。</div>
+
+          <section class="glass hero">
+            <small>功能中心</small>
+            <strong>从列表变成真正可进入的功能页</strong>
+            <p>先调出舒服的模糊主体，再进入下一步统一折射。</p>
+          </section>
+
+          <div class="chips">
+            <div class="glass chip"><span>今日支出</span><strong>¥30</strong></div>
+            <div class="glass chip"><span>账单</span><strong>4 笔</strong></div>
+            <div class="glass chip"><span>预算</span><strong>¥1500</strong></div>
+          </div>
+
+          <div class="list">
+            <article class="glass item"><div class="icon">账</div><div><h3>账单中心</h3><p>手动记账、预算、分类和最近明细</p></div><div class="arrow">›</div></article>
+            <article class="glass item"><div class="icon">图</div><div><h3>数据统计</h3><p>按周、月、年查看趋势</p></div><div class="arrow">›</div></article>
+            <article class="glass item"><div class="icon">铃</div><div><h3>提醒闹钟</h3><p>创建提醒和闹钟</p></div><div class="arrow">›</div></article>
+            <article class="glass item"><div class="icon">启</div><div><h3>应用控制</h3><p>打开微信、支付宝等应用</p></div><div class="arrow">›</div></article>
+          </div>
+        </div>
+        <nav class="glass nav"><span>✦<br>AI 助手</span><span>▦<br>功能</span><span>⚙<br>设置</span></nav>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const root = document.documentElement;
+    const out = document.getElementById('out');
+    const controls = [...document.querySelectorAll('input[type="range"]')];
+
+    function formatNumber(value) {
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : n.toFixed(2);
+    }
+
+    function collect() {
+      const data = {};
+      controls.forEach(input => {
+        const key = input.dataset.var;
+        const unit = input.dataset.unit || '';
+        const value = input.value;
+        root.style.setProperty('--' + key, value + unit);
+        data[key] = Number(value);
+        const label = document.getElementById('v-' + key);
+        if (label) label.textContent = formatNumber(value) + unit;
+      });
+      return data;
+    }
+
+    function toAndroidHint(data) {
+      return {
+        cssPreview: data,
+        androidHint: {
+          // 下面是近似映射，不是直接等价。真正 OpenGL 里还要看截图微调。
+          blurTextureAlpha: Number(Math.min(0.98, 0.72 + data['glass-alpha'] * 0.26).toFixed(3)),
+          frostAmount: Number(data['frost-alpha'].toFixed(3)),
+          tintRgb: [data['tint-r'], data['tint-g'], data['tint-b']],
+          brightness: Number(data.brightness.toFixed(3)),
+          saturation: Number(data.saturate.toFixed(3)),
+          contrast: Number(data.contrast.toFixed(3)),
+          topHighlight: Number(data.highlight.toFixed(3)),
+          bottomShadow: Number(data.shadow.toFixed(3)),
+          cornerRadiusPxPreview: data.radius,
+          keepEdgeLine: data.edge
+        }
+      };
+    }
+
+    function render() {
+      const data = collect();
+      out.textContent = JSON.stringify(toAndroidHint(data), null, 2);
+    }
+
+    controls.forEach(input => input.addEventListener('input', render));
+    document.getElementById('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(out.textContent);
+      const old = document.getElementById('copy').textContent;
+      document.getElementById('copy').textContent = '已复制';
+      setTimeout(() => document.getElementById('copy').textContent = old, 900);
+    });
+    render();
+  </script>
+</body>
+</html>
