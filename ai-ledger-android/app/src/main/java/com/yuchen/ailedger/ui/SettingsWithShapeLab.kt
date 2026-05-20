@@ -88,7 +88,7 @@ fun SettingsScreenWithShapeLab(
             enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + scaleIn(initialScale = 0.97f, animationSpec = spring(dampingRatio = 0.74f)),
             exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.99f, animationSpec = tween(120))
         ) {
-            GlassShapeLabScreenV2(
+            GlassShapeLabScreenV3(
                 state = state,
                 onBack = { shapeLabOpen = false }
             )
@@ -116,8 +116,8 @@ private fun ShapeLabEntryCard(state: AssistantUiState, onOpen: () -> Unit) {
             verticalArrangement = Arrangement.Center
         ) {
             Text("玻璃形态预览", color = Color.White.copy(alpha = 0.96f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text("水滴、凹槽、滑轨、宝石、薄标签、浮岛，一页看效果并滑块调参。", color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("进入 Shape Lab ›", color = Color(0xFF8DF9EA).copy(alpha = 0.78f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End))
+            Text("V3 复用老 Compose 玻璃内核，滑块范围更大，并修掉矩形分区线。", color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("进入 Shape Lab V3 ›", color = Color(0xFF8DF9EA).copy(alpha = 0.78f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.End))
         }
     }
 }
