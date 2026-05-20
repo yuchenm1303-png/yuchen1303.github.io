@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 
 enum class GlassRole(
     val fillScale: Float,
@@ -46,6 +47,7 @@ private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
+private const val USE_CARD_BOUND_OPENGL_GLASS = true
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
@@ -54,6 +56,11 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
+    GlassRole.Chip, GlassRole.Floating -> false
+}
+
+private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
     GlassRole.Chip, GlassRole.Floating -> false
 }
@@ -85,7 +92,9 @@ fun GlassPanel(
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role)
+    val cardBackdrop = LocalBlurredBackdrop.current
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
     val key = remember { Any() }
 
     if (useUnifiedBackdrop) {
@@ -113,7 +122,13 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (!useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -179,9 +194,11 @@ fun PressableGlass(
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
+    val cardBackdrop = LocalBlurredBackdrop.current
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role)
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -215,7 +232,13 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (!useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
