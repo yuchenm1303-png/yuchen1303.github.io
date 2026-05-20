@@ -24,7 +24,9 @@ import com.yuchen.ailedger.ui.LocalGlassItemRegistry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * OpenGL liquid glass layer.
@@ -61,11 +63,11 @@ fun OpenGLGlassProbeLayer(
             if (size.width <= 1 || size.height <= 1) return@mapNotNull null
             val topLeft = item.coordinates.rootOffset()
             GlGlassRect(
-                left = topLeft.x,
-                top = topLeft.y,
+                left = topLeft.x.roundToInt().toFloat(),
+                top = topLeft.y.roundToInt().toFloat(),
                 width = size.width.toFloat(),
                 height = size.height.toFloat(),
-                radiusPx = with(density) { item.radius.dp.toPx() },
+                radiusPx = with(density) { item.radius.dp.toPx() }.roundToInt().toFloat(),
                 intensity = item.glassIntensity.coerceIn(0.35f, 1.35f)
             )
         }
@@ -290,6 +292,7 @@ private class OpenGLGlassProbeRenderer {
     private val rectLock = Any()
     private val textureLock = Any()
     private var glassRects: List<GlGlassRect> = emptyList()
+    private var stableGlassRects: List<GlGlassRect> = emptyList()
     private var pendingTextureSource: GlBackdropTextureSource? = null
     private var activeBlurBitmap: Bitmap? = null
     private var activeLensBitmap: Bitmap? = null
@@ -360,8 +363,12 @@ private class OpenGLGlassProbeRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
-        val rects = synchronized(rectLock) { glassRects }
-        if (rects.isEmpty()) return
+        val targetRects = synchronized(rectLock) { glassRects }
+        if (targetRects.isEmpty()) {
+            stableGlassRects = emptyList()
+            return
+        }
+        val rects = stabilizeRects(targetRects)
 
         val seconds = (System.nanoTime() - startTimeNanos) / 1_000_000_000f
         GLES20.glUseProgram(program)
@@ -397,7 +404,66 @@ private class OpenGLGlassProbeRenderer {
         lensTextureId = 0
         activeBlurBitmap = null
         activeLensBitmap = null
+        stableGlassRects = emptyList()
         texturesReady = false
+    }
+
+    private fun stabilizeRects(targetRects: List<GlGlassRect>): List<GlGlassRect> {
+        if (stableGlassRects.size != targetRects.size) {
+            stableGlassRects = targetRects
+            return targetRects
+        }
+        val next = targetRects.mapIndexed { index, target ->
+            val previous = stableGlassRects[index]
+            if (previous.isProbablyDifferentItem(target)) {
+                target
+            } else {
+                target.stabilizedFrom(previous)
+            }
+        }
+        stableGlassRects = next
+        return next
+    }
+
+    private fun GlGlassRect.isProbablyDifferentItem(target: GlGlassRect): Boolean {
+        return abs(width - target.width) > 24f ||
+            abs(height - target.height) > 24f ||
+            abs(radiusPx - target.radiusPx) > 18f ||
+            abs(left - target.left) > 96f ||
+            abs(top - target.top) > 96f
+    }
+
+    private fun GlGlassRect.stabilizedFrom(previous: GlGlassRect): GlGlassRect {
+        return copy(
+            left = stabilizeAxis(previous.left, left),
+            top = stabilizeAxis(previous.top, top),
+            width = stabilizeSize(previous.width, width),
+            height = stabilizeSize(previous.height, height),
+            radiusPx = stabilizeSize(previous.radiusPx, radiusPx),
+            intensity = stabilizeFloat(previous.intensity, intensity, 0.02f, 0.55f)
+        )
+    }
+
+    private fun stabilizeAxis(previous: Float, target: Float): Float {
+        val delta = target - previous
+        val distance = abs(delta)
+        if (distance < 0.65f) return previous
+        if (distance > 42f) return target
+        return (previous + delta * 0.86f).roundToInt().toFloat()
+    }
+
+    private fun stabilizeSize(previous: Float, target: Float): Float {
+        val delta = target - previous
+        val distance = abs(delta)
+        if (distance < 0.65f) return previous
+        if (distance > 10f) return target
+        return (previous + delta * 0.72f).roundToInt().toFloat()
+    }
+
+    private fun stabilizeFloat(previous: Float, target: Float, deadZone: Float, follow: Float): Float {
+        val delta = target - previous
+        if (abs(delta) < deadZone) return previous
+        return previous + delta * follow
     }
 
     private fun uploadPendingTexturesIfNeeded() {
