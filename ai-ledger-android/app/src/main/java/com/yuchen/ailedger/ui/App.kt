@@ -144,6 +144,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onQuickCommand = viewModel::sendUserCommand,
                                     onDraftCommand = viewModel::insertCommandDraft,
                                     onModelClick = viewModel::cycleModel,
+                                    onModelSelected = viewModel::selectModel,
                                     onPickImage = {
                                         assistantImagePicker.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
