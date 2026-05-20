@@ -137,13 +137,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .padding(horizontal = 12.dp)
                         ) {
                             when (state.currentTab) {
-                                AppTab.Assistant -> AssistantScreen(
+                                AppTab.Assistant -> AssistantScreenV2(
                                     state = state,
                                     onComposerChange = viewModel::updateComposer,
                                     onSend = viewModel::submitComposer,
-                                    onQuickCommand = viewModel::sendUserCommand,
                                     onDraftCommand = viewModel::insertCommandDraft,
-                                    onModelClick = viewModel::cycleModel,
                                     onModelSelected = viewModel::selectModel,
                                     onPickImage = {
                                         assistantImagePicker.launch(
@@ -152,14 +150,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     },
                                     onOpenTools = { viewModel.selectTab(AppTab.Tools) },
                                     onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                    onNavigateHome = {
-                                        val ok = actionRouter?.startNavigation("家") == true
-                                        viewModel.appendAssistantNotice(if (ok) "已打开系统地图，开始导航到家。" else "没有可用的地图应用。")
-                                    },
-                                    onSetAlarm = {
-                                        val ok = actionRouter?.setAlarm(21, 30, "AI 助手提醒：晚上复盘") == true
-                                        viewModel.appendAssistantNotice(if (ok) "已打开系统闹钟，准备创建晚上复盘提醒。" else "无法打开系统闹钟。")
-                                    },
                                     onToggleOnline = viewModel::toggleOnline
                                 )
                                 AppTab.Tools -> ToolsScreen(
