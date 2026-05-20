@@ -63,6 +63,7 @@ fun OpenGLGlassProbeLayer(
             if (size.width <= 1 || size.height <= 1) return@mapNotNull null
             val topLeft = item.coordinates.rootOffset()
             GlGlassRect(
+                keyHash = item.key.hashCode(),
                 left = topLeft.x.roundToInt().toFloat(),
                 top = topLeft.y.roundToInt().toFloat(),
                 width = size.width.toFloat(),
@@ -85,6 +86,7 @@ fun OpenGLGlassProbeLayer(
 }
 
 private data class GlGlassRect(
+    val keyHash: Int,
     val left: Float,
     val top: Float,
     val width: Float,
@@ -292,7 +294,9 @@ private class OpenGLGlassProbeRenderer {
     private val rectLock = Any()
     private val textureLock = Any()
     private var glassRects: List<GlGlassRect> = emptyList()
-    private var stableGlassRects: List<GlGlassRect> = emptyList()
+    private var previousGlassRects: List<GlGlassRect> = emptyList()
+    private var glassRectUpdateNanos = 0L
+    private var previousGlassRectUpdateNanos = 0L
     private var pendingTextureSource: GlBackdropTextureSource? = null
     private var activeBlurBitmap: Bitmap? = null
     private var activeLensBitmap: Bitmap? = null
@@ -315,8 +319,12 @@ private class OpenGLGlassProbeRenderer {
     private var startTimeNanos = System.nanoTime()
 
     fun setGlassRects(rects: List<GlGlassRect>) {
+        val now = System.nanoTime()
         synchronized(rectLock) {
+            previousGlassRects = glassRects
+            previousGlassRectUpdateNanos = glassRectUpdateNanos
             glassRects = rects
+            glassRectUpdateNanos = now
         }
     }
 
@@ -363,14 +371,19 @@ private class OpenGLGlassProbeRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
-        val targetRects = synchronized(rectLock) { glassRects }
-        if (targetRects.isEmpty()) {
-            stableGlassRects = emptyList()
-            return
+        val now = System.nanoTime()
+        val rects = synchronized(rectLock) {
+            predictRects(
+                current = glassRects,
+                previous = previousGlassRects,
+                currentNanos = glassRectUpdateNanos,
+                previousNanos = previousGlassRectUpdateNanos,
+                drawNanos = now
+            )
         }
-        val rects = stabilizeRects(targetRects)
+        if (rects.isEmpty()) return
 
-        val seconds = (System.nanoTime() - startTimeNanos) / 1_000_000_000f
+        val seconds = (now - startTimeNanos) / 1_000_000_000f
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES20.glUniform1f(timeHandle, seconds)
@@ -404,66 +417,58 @@ private class OpenGLGlassProbeRenderer {
         lensTextureId = 0
         activeBlurBitmap = null
         activeLensBitmap = null
-        stableGlassRects = emptyList()
+        previousGlassRects = emptyList()
+        glassRects = emptyList()
         texturesReady = false
     }
 
-    private fun stabilizeRects(targetRects: List<GlGlassRect>): List<GlGlassRect> {
-        if (stableGlassRects.size != targetRects.size) {
-            stableGlassRects = targetRects
-            return targetRects
-        }
-        val next = targetRects.mapIndexed { index, target ->
-            val previous = stableGlassRects[index]
-            if (previous.isProbablyDifferentItem(target)) {
+    private fun predictRects(
+        current: List<GlGlassRect>,
+        previous: List<GlGlassRect>,
+        currentNanos: Long,
+        previousNanos: Long,
+        drawNanos: Long
+    ): List<GlGlassRect> {
+        if (current.isEmpty()) return emptyList()
+        if (previous.isEmpty() || currentNanos <= previousNanos) return current
+        val previousByKey = previous.associateBy { it.keyHash }
+        val deltaNanos = (currentNanos - previousNanos).coerceAtLeast(1L).toFloat()
+        val queueAgeNanos = (drawNanos - currentNanos).coerceIn(0L, RECT_PREDICT_MAX_NANOS).toFloat()
+        val leadNanos = (queueAgeNanos + RECT_PREDICT_EXTRA_NANOS).coerceAtMost(RECT_PREDICT_MAX_NANOS.toFloat())
+        return current.map { target ->
+            val prev = previousByKey[target.keyHash] ?: return@map target
+            if (prev.isProbablyDifferentItem(target)) {
                 target
             } else {
-                target.stabilizedFrom(previous)
+                target.predictedFrom(prev, deltaNanos, leadNanos)
             }
         }
-        stableGlassRects = next
-        return next
     }
 
     private fun GlGlassRect.isProbablyDifferentItem(target: GlGlassRect): Boolean {
         return abs(width - target.width) > 24f ||
             abs(height - target.height) > 24f ||
             abs(radiusPx - target.radiusPx) > 18f ||
-            abs(left - target.left) > 96f ||
-            abs(top - target.top) > 96f
+            abs(left - target.left) > 220f ||
+            abs(top - target.top) > 220f
     }
 
-    private fun GlGlassRect.stabilizedFrom(previous: GlGlassRect): GlGlassRect {
+    private fun GlGlassRect.predictedFrom(previous: GlGlassRect, deltaNanos: Float, leadNanos: Float): GlGlassRect {
         return copy(
-            left = stabilizeAxis(previous.left, left),
-            top = stabilizeAxis(previous.top, top),
-            width = stabilizeSize(previous.width, width),
-            height = stabilizeSize(previous.height, height),
-            radiusPx = stabilizeSize(previous.radiusPx, radiusPx),
-            intensity = stabilizeFloat(previous.intensity, intensity, 0.02f, 0.55f)
+            left = predictAxis(previous.left, left, deltaNanos, leadNanos, RECT_PREDICT_MAX_AXIS_PX),
+            top = predictAxis(previous.top, top, deltaNanos, leadNanos, RECT_PREDICT_MAX_AXIS_PX),
+            width = width.roundToInt().toFloat(),
+            height = height.roundToInt().toFloat(),
+            radiusPx = radiusPx.roundToInt().toFloat(),
+            intensity = intensity
         )
     }
 
-    private fun stabilizeAxis(previous: Float, target: Float): Float {
-        val delta = target - previous
-        val distance = abs(delta)
-        if (distance < 0.65f) return previous
-        if (distance > 42f) return target
-        return (previous + delta * 0.86f).roundToInt().toFloat()
-    }
-
-    private fun stabilizeSize(previous: Float, target: Float): Float {
-        val delta = target - previous
-        val distance = abs(delta)
-        if (distance < 0.65f) return previous
-        if (distance > 10f) return target
-        return (previous + delta * 0.72f).roundToInt().toFloat()
-    }
-
-    private fun stabilizeFloat(previous: Float, target: Float, deadZone: Float, follow: Float): Float {
-        val delta = target - previous
-        if (abs(delta) < deadZone) return previous
-        return previous + delta * follow
+    private fun predictAxis(previous: Float, current: Float, deltaNanos: Float, leadNanos: Float, maxPredictPx: Float): Float {
+        val delta = current - previous
+        if (abs(delta) < 0.5f) return current
+        val predictedOffset = (delta / deltaNanos) * leadNanos
+        return (current + predictedOffset.coerceIn(-maxPredictPx, maxPredictPx)).roundToInt().toFloat()
     }
 
     private fun uploadPendingTexturesIfNeeded() {
@@ -709,3 +714,6 @@ private class OpenGLGlassProbeRenderer {
 }
 
 private const val MAX_GLASS_ITEMS = 36
+private const val RECT_PREDICT_EXTRA_NANOS = 14_000_000L
+private const val RECT_PREDICT_MAX_NANOS = 30_000_000L
+private const val RECT_PREDICT_MAX_AXIS_PX = 54f
