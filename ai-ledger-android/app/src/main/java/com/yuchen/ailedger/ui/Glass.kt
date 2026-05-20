@@ -61,8 +61,8 @@ private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell -> true
-    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
+    GlassRole.Shell, GlassRole.Card -> true
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
