@@ -122,6 +122,18 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
+        if (useCardOpenGlBackdrop && backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(role),
+                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
+            )
+        }
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
                 radius = effectiveRadius,
@@ -233,6 +245,18 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
+        if (useCardOpenGlBackdrop && backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(role),
+                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+            )
+        }
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
                 radius = effectiveRadius,
