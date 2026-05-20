@@ -388,8 +388,8 @@ private class OpenGLGlassCardRenderer {
             materialHandle,
             style.bodyAlpha.coerceIn(0f, 1.2f),
             style.openGlVisibility.coerceIn(0f, 2f),
-            style.openGlMaxAlpha.coerceIn(0.08f, 0.72f),
-            style.edgeBrightness.coerceIn(0.45f, 1.45f)
+            style.openGlMaxAlpha.coerceIn(0.30f, 0.98f),
+            style.edgeBrightness.coerceIn(0.55f, 1.35f)
         )
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -490,7 +490,7 @@ private class OpenGLGlassCardRenderer {
             uniform float uRadius;
             uniform float uIntensity;
             uniform float uTextureReady;
-            uniform vec4 uMaterial; // x bodyAlpha, y visibility, z maxAlpha, w brightness
+            uniform vec4 uMaterial; // x frostAmount, y visibility, z maxAlpha, w brightness
             uniform sampler2D uBlurTexture;
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
@@ -529,19 +529,20 @@ private class OpenGLGlassCardRenderer {
 
                 vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
                 vec2 bgUv = globalUv(coord);
-                vec3 blurred = blurBackdrop(bgUv) * uMaterial.w;
 
-                float centerDome = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.86), 1.18);
-                float topGlow = smoothstep(0.90, 0.0, local01.y);
-                float bottomShade = smoothstep(0.60, 1.0, local01.y);
+                float frost = sat(0.18 + uMaterial.x * 0.14);
+                float topGlow = smoothstep(0.92, 0.0, local01.y);
+                float bottomShade = smoothstep(0.58, 1.0, local01.y);
+                float centerSoft = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.90), 1.35);
 
-                vec3 color = blurred;
-                color = mix(color, vec3(0.82, 0.90, 1.0), 0.105 + 0.075 * centerDome);
-                color += vec3(0.22, 0.34, 0.48) * topGlow * 0.045;
-                color -= vec3(0.06, 0.075, 0.10) * bottomShade * 0.045;
+                vec3 color = blurBackdrop(bgUv) * uMaterial.w;
+                color = mix(color, vec3(0.72, 0.80, 0.90), frost);
+                color += vec3(0.20, 0.28, 0.38) * topGlow * 0.035;
+                color += vec3(1.0) * centerSoft * 0.018;
+                color -= vec3(0.05, 0.065, 0.09) * bottomShade * 0.040;
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = (0.22 + uMaterial.x * 0.34 + centerDome * 0.025) * uMaterial.y * clamp(uIntensity, 0.35, 1.24);
+                float alpha = (0.84 + uMaterial.x * 0.12 + centerSoft * 0.018) * uMaterial.y * clamp(uIntensity, 0.35, 1.18);
                 alpha = clamp(alpha, 0.0, uMaterial.z);
                 gl_FragColor = vec4(color, alpha * mask);
             }
