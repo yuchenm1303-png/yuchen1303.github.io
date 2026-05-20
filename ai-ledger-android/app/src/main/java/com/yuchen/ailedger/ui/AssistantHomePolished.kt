@@ -128,21 +128,6 @@ private fun ModelAndNetworkPanel(
     onToggleOnline: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val panelHeight by animateDpAsState(
-        targetValue = if (expanded) 268.dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-panel-height"
-    )
-    val panelAlpha by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(durationMillis = if (expanded) 150 else 90),
-        label = "model-panel-alpha"
-    )
-    val panelScale by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-panel-scale"
-    )
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ModelSelectorChip(
@@ -157,16 +142,10 @@ private fun ModelAndNetworkPanel(
                 onClick = { if (!state.isSending) onToggleOnline() }
             )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(panelHeight)
-                .clip(RoundedCornerShape(30.dp))
-                .graphicsLayer {
-                    alpha = panelAlpha
-                    scaleX = panelScale
-                    scaleY = panelScale
-                }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(120)) + expandVertically(tween(150)) + scaleIn(initialScale = 0.985f, animationSpec = tween(150)),
+            exit = fadeOut(tween(90)) + shrinkVertically(tween(120)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
         ) {
             Column(Modifier.padding(top = 8.dp)) {
                 ModelChooserSheet(
@@ -228,7 +207,7 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
 
 @Composable
 private fun ModelChooserSheet(state: AssistantUiState, onSelected: (ChatModel) -> Unit) {
-    GlassPanel(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Flex) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -251,18 +230,14 @@ private fun ModelChooserSheet(state: AssistantUiState, onSelected: (ChatModel) -
 
 @Composable
 private fun ModelOptionCard(model: ChatModel, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val pop by animateFloatAsState(
-        targetValue = if (selected) 1.0f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow),
-        label = "model-option-pop"
-    )
+    val pop = if (selected) 1.0f else 0.985f
     PressableGlass(
         state.quality,
-        state.glassIntensity * if (selected) 1.08f else 0.92f,
+        state.glassIntensity * if (selected) 1.02f else 0.88f,
         state.motionIntensity,
         22,
         modifier.height(58.dp).graphicsLayer { scaleX = pop; scaleY = pop },
-        if (selected) GlassRole.Floating else GlassRole.Chip,
+        GlassRole.Flex,
         onClick = onClick
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
