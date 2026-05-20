@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.view.View
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -12,7 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -25,8 +28,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 
@@ -48,6 +55,7 @@ private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
+private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 520
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
@@ -76,6 +84,17 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     }
 }
 
+private fun LayoutCoordinates.isNearViewport(rootView: View, marginPx: Float): Boolean {
+    val viewportW = rootView.width
+    val viewportH = rootView.height
+    if (viewportW <= 0 || viewportH <= 0) return true
+    val bounds = boundsInWindow()
+    return bounds.right >= -marginPx &&
+        bounds.left <= viewportW + marginPx &&
+        bounds.bottom >= -marginPx &&
+        bounds.top <= viewportH + marginPx
+}
+
 @Composable
 fun GlassPanel(
     quality: RenderQuality,
@@ -93,8 +112,12 @@ fun GlassPanel(
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
-    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
+    val rootView = LocalView.current
+    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
+    var nearViewport by remember { mutableStateOf(true) }
+    val canUseCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useCardOpenGlBackdrop = canUseCardOpenGlBackdrop && nearViewport
+    val useUnifiedBackdrop = nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !canUseCardOpenGlBackdrop
     val key = remember { Any() }
 
     if (useUnifiedBackdrop) {
@@ -119,7 +142,11 @@ fun GlassPanel(
 
     Box(
         modifier = modifier
-            .onPlaced { coordinates.coordinates = it }
+            .onGloballyPositioned {
+                coordinates.coordinates = it
+                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
+                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
+            }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         if (useCardOpenGlBackdrop) {
@@ -129,7 +156,7 @@ fun GlassPanel(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (!useUnifiedBackdrop && backdrop != null) {
+        } else if (!canUseCardOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -150,7 +177,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop) {
+        if (!canUseCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -198,10 +225,14 @@ fun PressableGlass(
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
+    val rootView = LocalView.current
+    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
+    var nearViewport by remember { mutableStateOf(true) }
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
-    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
+    val canUseCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useCardOpenGlBackdrop = canUseCardOpenGlBackdrop && nearViewport
+    val useUnifiedBackdrop = nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !canUseCardOpenGlBackdrop
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -225,7 +256,11 @@ fun PressableGlass(
 
     Box(
         modifier = modifier
-            .onPlaced { coordinates.coordinates = it }
+            .onGloballyPositioned {
+                coordinates.coordinates = it
+                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
+                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
+            }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -242,7 +277,7 @@ fun PressableGlass(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (!useUnifiedBackdrop && backdrop != null) {
+        } else if (!canUseCardOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -263,7 +298,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop) {
+        if (!canUseCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
