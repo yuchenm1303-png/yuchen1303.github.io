@@ -77,7 +77,7 @@ fun SettingsScreenV2(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 14.dp, bottom = 112.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { AnimatedSettingsAppear(0) { SettingsHeaderV2() } }
         item {
@@ -97,7 +97,7 @@ fun SettingsScreenV2(
                         state = state,
                         onSelected = onBackgroundThemeChange
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
                         LiquidActionCard("上传背景", if (state.customBackgroundPath == null) "选择图片" else "已自定义", state, Modifier.weight(1f), onUploadBackgroundClick)
                         LiquidActionCard("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
                     }
@@ -153,7 +153,7 @@ fun SettingsScreenV2(
                     accent = Color(0xFFFFB4D2),
                     defaultExpanded = false
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
                         MiniSettingGlass("账单", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
                         MiniSettingGlass("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
                         MiniSettingGlass("同步", "本地", state, Modifier.weight(1f))
@@ -182,18 +182,18 @@ fun SettingsScreenV2(
                 ExpandableSettingsSection(
                     state = state,
                     title = "高级玻璃调试",
-                    subtitle = "背景缓存、边缘折射和边框高光。",
+                    subtitle = "背景缓存、OpenGL 折射和边框高光。",
                     glyph = "调",
                     accent = Color(0xFF8DF9EA),
                     defaultExpanded = false
                 ) {
-                    DebugGroupTitle("背景缓存")
-                    LiquidGlassSlider("缓存分辨率", "越高越细，越低越省性能", state.backdropParams.scale, 0.5f..3.0f, state) { onBackdropChange(state.backdropParams.copy(scale = it)) }
-                    LiquidGlassSlider("模糊半径", "背景毛玻璃的柔化范围", state.backdropParams.radius, 0f..24f, state) { onBackdropChange(state.backdropParams.copy(radius = it)) }
-                    LiquidGlassSlider("模糊迭代", "越高越柔，但更耗性能", state.backdropParams.iterations, 1f..18f, state) { onBackdropChange(state.backdropParams.copy(iterations = it)) }
-                    LiquidGlassSlider("亮度", "背景采样后的提亮程度", state.backdropParams.brightness, 0.75f..1.45f, state) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
-                    LiquidGlassSlider("对比度", "玻璃内部背景层次", state.backdropParams.contrast, 0.75f..1.45f, state) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
-                    LiquidGlassSlider("饱和度", "背景颜色浓淡", state.backdropParams.saturation, 0.65f..1.65f, state) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
+                    DebugGroupTitle("背景模糊缓存")
+                    LiquidGlassSlider("缓存分辨率", "越高越细，越低越省性能", state.backdropParams.scale, 0.04f..2.00f, state) { onBackdropChange(state.backdropParams.copy(scale = it)) }
+                    LiquidGlassSlider("模糊半径", "背景毛玻璃的柔化范围", state.backdropParams.radius, 0f..180f, state) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
+                    LiquidGlassSlider("模糊迭代", "越高越柔，但更耗性能", state.backdropParams.iterations, 1f..48f, state) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
+                    LiquidGlassSlider("亮度", "背景采样后的提亮程度", state.backdropParams.brightness, 0.00f..6.00f, state) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
+                    LiquidGlassSlider("对比度", "玻璃内部背景层次", state.backdropParams.contrast, 0.00f..8.00f, state) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
+                    LiquidGlassSlider("饱和度", "背景颜色浓淡", state.backdropParams.saturation, 0.00f..8.00f, state) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
 
                     DebugGroupTitle("天空细节")
                     LiquidGlassSlider("云层强度", "默认背景云雾存在感", state.backdropParams.cloudAlpha, 0f..1.8f, state) { onBackdropChange(state.backdropParams.copy(cloudAlpha = it)) }
@@ -201,17 +201,27 @@ fun SettingsScreenV2(
                     LiquidGlassSlider("月亮大小", "默认背景月牙尺寸", state.backdropParams.moonScale, 0.5f..1.8f, state) { onBackdropChange(state.backdropParams.copy(moonScale = it)) }
                     LiquidGlassSlider("月亮光晕", "月亮周围的柔光", state.backdropParams.moonHaloAlpha, 0f..0.8f, state) { onBackdropChange(state.backdropParams.copy(moonHaloAlpha = it)) }
 
-                    DebugGroupTitle("边缘折射")
-                    LiquidGlassSlider("边缘厚度", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..30f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it)) }
-                    LiquidGlassSlider("边缘拉取", "背景向卡片中心收缩程度", state.glassBorderStyle.edgePullDp, -260f..160f, state) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
-                    LiquidGlassSlider("折射强度", "边缘采样混合比例", state.glassBorderStyle.edgeAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
-                    LiquidGlassSlider("折射柔化", "边缘采样模糊程度", state.glassBorderStyle.edgeBlurDp, 0f..36f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it)) }
-                    LiquidGlassSlider("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
+                    DebugGroupTitle("OpenGL 透明折射核心")
+                    Text("范围故意放大，方便拉爆调参；最终预设先不改。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    LiquidGlassSlider("调试橙线", "显示真实 SDF 边界", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
+                    LiquidGlassSlider("整体可见度/透明度", "OpenGL 玻璃层存在感", state.glassBorderStyle.openGlVisibility, 0f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
+                    LiquidGlassSlider("主体 Alpha", "整体材质不透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
+                    LiquidGlassSlider("背景亮度", "玻璃内部采样亮度", state.glassBorderStyle.edgeBrightness, -2f..6f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
+                    LiquidGlassSlider("主体折射 px", "中心区域轻微连续折射", state.glassBorderStyle.openGlPullScale, -1200f..1200f, state) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
+                    LiquidGlassSlider("边缘折射 px", "边缘把背景向内/外拉动", state.glassBorderStyle.edgePullDp, -2400f..2400f, state) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
+                    LiquidGlassSlider("边缘宽度 px", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
+                    LiquidGlassSlider("lens 清晰混入", "清晰纹理参与折射比例", state.glassBorderStyle.openGlCompressionScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
+                    LiquidGlassSlider("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
+                    LiquidGlassSlider("额外模糊 px", "边缘折射区再柔化", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+                    LiquidGlassSlider("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
 
-                    DebugGroupTitle("边框高光")
-                    LiquidGlassSlider("外边框", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0f..1.5f, state) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
-                    LiquidGlassSlider("顶部高光", "卡片顶部发亮边缘", state.glassBorderStyle.topHighlightAlpha, 0f..2f, state) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
-                    LiquidGlassSlider("底部暗边", "卡片底部压暗层", state.glassBorderStyle.bottomShadowAlpha, 0f..1.2f, state) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+                    DebugGroupTitle("旧边框/雾面（默认全关）")
+                    LiquidGlassSlider("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, -5f..5f, state) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
+                    LiquidGlassSlider("外边框", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
+                    LiquidGlassSlider("内边框", "内侧细线高光", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
+                    LiquidGlassSlider("顶部高光", "卡片顶部发亮边缘", state.glassBorderStyle.topHighlightAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
+                    LiquidGlassSlider("底部暗边", "卡片底部压暗层", state.glassBorderStyle.bottomShadowAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+                    LiquidGlassSlider("圆角 glint", "圆角小高光", state.glassBorderStyle.cornerGlintAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
                 }
             }
         }
@@ -254,23 +264,23 @@ private fun ExpandableSettingsSection(
             .settingsGlow(glow = if (expanded) 0.42f else 0.12f, pulse = pulse, accent = accent),
         role = if (expanded) GlassRole.Shell else GlassRole.Card
     ) {
-        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             PressableGlass(
                 quality = state.quality,
                 glassIntensity = state.glassIntensity * if (expanded) 1.04f else 0.92f,
                 motionIntensity = state.motionIntensity,
                 radius = 24,
-                modifier = Modifier.fillMaxWidth().height(62.dp),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
                 role = if (expanded) GlassRole.Floating else GlassRole.Chip,
                 onClick = { expanded = !expanded }
             ) {
-                Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     SectionGlyph(glyph = glyph, active = expanded, accent = accent)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                        Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                        Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text("⌄", color = Color.White.copy(alpha = 0.60f), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.graphicsLayer { rotationZ = rotation })
+                    Text("⌄", color = Color.White.copy(alpha = 0.60f), fontSize = 17.sp, fontWeight = FontWeight.Black, modifier = Modifier.graphicsLayer { rotationZ = rotation })
                 }
             }
             AnimatedVisibility(
@@ -280,7 +290,7 @@ private fun ExpandableSettingsSection(
                     scaleIn(initialScale = 0.97f, animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)),
                 exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.98f, animationSpec = tween(140))
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) { content() }
             }
         }
     }
@@ -295,12 +305,12 @@ private fun SectionGlyph(glyph: String, active: Boolean, accent: Color) {
     )
     Box(
         modifier = Modifier
-            .size(38.dp)
+            .size(34.dp)
             .settingsGlyphGlow(glow = glow, pulse = rememberSectionPulse(), accent = accent),
         contentAlignment = Alignment.Center
     ) {
-        Box(Modifier.size(30.dp).clip(RoundedCornerShape(13.dp)).background(Color.White.copy(alpha = if (active) 0.10f else 0.045f)), contentAlignment = Alignment.Center) {
-            Text(glyph, color = Color.White.copy(alpha = if (active) 0.96f else 0.66f), fontSize = if (glyph.length > 1) 12.sp else 15.sp, fontWeight = FontWeight.Black)
+        Box(Modifier.size(28.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = if (active) 0.10f else 0.045f)), contentAlignment = Alignment.Center) {
+            Text(glyph, color = Color.White.copy(alpha = if (active) 0.96f else 0.66f), fontSize = if (glyph.length > 1) 11.sp else 14.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -314,7 +324,7 @@ private fun <T> SettingOptionGrid(
     onSelected: (T) -> Unit
 ) {
     items.chunked(2).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
             row.forEach { item ->
                 val active = item == selected
                 val pop by animateFloatAsState(
@@ -327,12 +337,12 @@ private fun <T> SettingOptionGrid(
                     state.glassIntensity * if (active) 1.04f else 0.90f,
                     state.motionIntensity,
                     999,
-                    Modifier.weight(1f).height(40.dp).graphicsLayer { scaleX = pop; scaleY = pop },
+                    Modifier.weight(1f).height(34.dp).graphicsLayer { scaleX = pop; scaleY = pop },
                     if (active) GlassRole.Floating else GlassRole.Chip,
                     onClick = { onSelected(item) }
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(label(item), color = Color.White.copy(alpha = if (active) 0.94f else 0.58f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        Text(label(item), color = Color.White.copy(alpha = if (active) 0.94f else 0.58f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                     }
                 }
             }
@@ -359,14 +369,14 @@ private fun LiquidSwitchRow(
         state.glassIntensity * if (checked) 1.05f else 0.92f,
         state.motionIntensity,
         24,
-        Modifier.fillMaxWidth().height(66.dp).settingsGlow(glow * 0.42f, rememberSectionPulse(), Color(0xFF8DF9EA)),
+        Modifier.fillMaxWidth().height(58.dp).settingsGlow(glow * 0.42f, rememberSectionPulse(), Color(0xFF8DF9EA)),
         if (checked) GlassRole.Floating else GlassRole.Card,
         onClick = { onCheckedChange(!checked) }
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 15.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             LiquidSwitch(checked = checked, glow = glow)
         }
@@ -414,27 +424,28 @@ private fun LiquidGlassSlider(
     onValueChange: (Float) -> Unit
 ) {
     val percent = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(72.dp), GlassRole.Card) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
             }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(34.dp)
+                    .height(24.dp)
                     .liquidSliderGlow(percent = percent, pulse = rememberSectionPulse())
                     .padding(horizontal = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Slider(
-                    value = value,
+                    value = value.coerceIn(range.start, range.endInclusive),
                     onValueChange = onValueChange,
                     valueRange = range,
+                    modifier = Modifier.fillMaxWidth().height(24.dp),
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White.copy(alpha = 0.96f),
                         activeTrackColor = Color(0xFF8DF9EA).copy(alpha = 0.56f),
@@ -450,38 +461,38 @@ private fun LiquidGlassSlider(
 
 @Composable
 private fun LiquidActionCard(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 23, modifier.height(58.dp), GlassRole.Chip, onClick = onClick) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 22, modifier.height(50.dp), GlassRole.Chip, onClick = onClick) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 7.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun SettingInfoGlass(title: String, value: String, state: AssistantUiState) {
-    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(48.dp), GlassRole.Chip) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = Color.White.copy(alpha = 0.68f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 20, Modifier.fillMaxWidth().height(44.dp), GlassRole.Chip) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Spacer(Modifier.weight(1f))
-            Text(value, color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, color = Color.White.copy(alpha = 0.56f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun MiniSettingGlass(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 18, modifier.height(50.dp), GlassRole.Chip) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 7.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 17, modifier.height(46.dp), GlassRole.Chip) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun DebugGroupTitle(text: String) {
-    Text(text, color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 2.dp))
+    Text(text, color = Color.White.copy(alpha = 0.68f), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 2.dp))
 }
 
 @Composable
