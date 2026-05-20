@@ -589,14 +589,29 @@ private class OpenGLGlassCardRenderer {
                 return c;
             }
 
+            float edgeFieldAt(vec2 coord, vec2 rectSize) {
+                float w = max(uOptics.y, 0.001);
+                float left = 1.0 - smoothstep(0.0, w, coord.x);
+                float right = 1.0 - smoothstep(0.0, w, rectSize.x - coord.x);
+                float top = 1.0 - smoothstep(0.0, w, coord.y);
+                float bottom = 1.0 - smoothstep(0.0, w, rectSize.y - coord.y);
+                return sat(left + right + top + bottom);
+            }
+
+            float bodyDomeAt(vec2 coord, vec2 rectSize) {
+                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
+                vec2 p = local * 2.0 - 1.0;
+                p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.4) * 0.42;
+                float d = length(p);
+                return pow(sat(1.0 - d * 0.72), 1.55);
+            }
+
             float thicknessAt(vec2 coord, vec2 rectSize, float radius) {
-                float sd = roundedBoxSdfAt(coord, rectSize, radius);
-                float inside = sat(-sd / max(min(rectSize.x, rectSize.y) * 0.42, 1.0));
-                float edgeWidth = max(uOptics.y, 0.001);
-                float edge = 1.0 - smoothstep(0.0, edgeWidth, -sd);
-                vec2 local01 = clamp(coord / rectSize, 0.0, 1.0);
-                float dome = pow(sat(1.0 - length(local01 - vec2(0.5)) * 0.88), 1.38);
-                return inside * 0.18 + dome * 0.32 + edge * 0.78;
+                float maskGuard = 1.0 - smoothstep(2.0, 18.0, roundedBoxSdfAt(coord, rectSize, radius));
+                float edge = edgeFieldAt(coord, rectSize);
+                float dome = bodyDomeAt(coord, rectSize);
+                float soft = dome * 0.34 + edge * 0.78;
+                return soft * maskGuard;
             }
 
             void main() {
@@ -608,23 +623,26 @@ private class OpenGLGlassCardRenderer {
                 if (mask <= 0.001) discard;
 
                 vec2 bgUv = globalUv(coord);
-                float stepPx = 1.65;
+                float stepPx = 2.25;
                 float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
                 float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
                 float tU = thicknessAt(coord - vec2(0.0, stepPx), rectSize, radius);
                 float tD = thicknessAt(coord + vec2(0.0, stepPx), rectSize, radius);
                 vec2 grad = vec2(tR - tL, tD - tU);
 
-                float insideDistance = max(-sd, 0.0);
-                float edgeWidth = max(uOptics.y, 0.001);
-                float edgePresence = 1.0 - smoothstep(0.0, edgeWidth, insideDistance);
+                float edgePresence = edgeFieldAt(coord, rectSize);
+                float gLen = length(grad);
+                float gradLimit = 0.24;
+                float gradGate = smoothstep(0.0005, 0.010, gLen);
+                grad *= gradGate * min(1.0, gradLimit / max(gLen, 0.0001));
                 float gradEnergy = sat(length(grad) * max(uRefraction.w, 0.0));
+
                 vec2 refractPx = grad * (uRefraction.x + uRefraction.y * edgePresence) * max(uMaterial.x, 0.0);
                 vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
 
                 vec3 color = blurBackdrop(refractedUv);
                 vec3 lensColor = sourceLensBackdrop(refractedUv);
-                float lensMix = sat(edgePresence * uRefraction.z + gradEnergy * 0.045);
+                float lensMix = sat(edgePresence * max(uRefraction.z, 0.0));
                 color = mix(color, lensColor, lensMix);
                 color *= uMaterial.z;
 
