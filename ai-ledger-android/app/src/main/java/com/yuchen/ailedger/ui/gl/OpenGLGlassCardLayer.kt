@@ -362,8 +362,10 @@ private class OpenGLGlassCardRenderer {
         configureTexture(blurTextureId)
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
-        GLES20.glEnable(GLES20.GL_BLEND)
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        // Draw the card material directly into the transparent TextureView surface.
+        // Enabling GL_BLEND here would square the fragment alpha against the clear buffer,
+        // letting the sharp Compose background leak through the card.
+        GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
     }
 
@@ -578,8 +580,9 @@ private class OpenGLGlassCardRenderer {
                 color -= vec3(0.05, 0.065, 0.09) * bottomShade * LAB_BOTTOM_SHADOW * 0.135;
                 color = clamp(color, 0.0, 1.0);
 
-                float alpha = LAB_BLUR_ALPHA * uMaterial.y * clamp(uIntensity, 0.35, 1.10);
-                gl_FragColor = vec4(color, alpha * mask);
+                // Temporary test mode: fully replace the sharp background inside the card.
+                // Only the rounded-rect mask controls transparency at the very edge.
+                gl_FragColor = vec4(color, mask);
             }
         """
     }
