@@ -27,6 +27,7 @@ import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -65,10 +66,10 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardTextureView(context) },
             update = { view ->
-                view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
-                view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
-                view.setBackdropTextures(blurBitmap, lensBitmap)
-                view.requestRender()
+                val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
+                val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+                val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
+                if (specDirty || samplingDirty || textureDirty) view.requestRender()
             }
         )
     }
@@ -96,26 +97,42 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float) {
-        latestWidth = width.coerceAtLeast(1f)
-        latestHeight = height.coerceAtLeast(1f)
+    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
+        val nextWidth = width.coerceAtLeast(1f)
+        val nextHeight = height.coerceAtLeast(1f)
+        val dirty = abs(nextWidth - latestWidth) > 0.5f ||
+            abs(nextHeight - latestHeight) > 0.5f ||
+            abs(radius - latestRadius) > 0.5f ||
+            abs(intensity - latestIntensity) > 0.006f
+        latestWidth = nextWidth
+        latestHeight = nextHeight
         latestRadius = radius
         latestIntensity = intensity
-        renderThread?.setGlassSpec(latestWidth, latestHeight, latestRadius, latestIntensity)
+        if (dirty) renderThread?.setGlassSpec(latestWidth, latestHeight, latestRadius, latestIntensity)
+        return dirty
     }
 
-    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
+        val nextRootWidth = rootWidth.coerceAtLeast(1f)
+        val nextRootHeight = rootHeight.coerceAtLeast(1f)
+        val dirty = abs(originX - latestOriginX) > 0.75f ||
+            abs(originY - latestOriginY) > 0.75f ||
+            abs(nextRootWidth - latestRootWidth) > 0.5f ||
+            abs(nextRootHeight - latestRootHeight) > 0.5f
         latestOriginX = originX
         latestOriginY = originY
-        latestRootWidth = rootWidth.coerceAtLeast(1f)
-        latestRootHeight = rootHeight.coerceAtLeast(1f)
-        renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+        latestRootWidth = nextRootWidth
+        latestRootHeight = nextRootHeight
+        if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+        return dirty
     }
 
-    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
+        val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
         latestBlurBitmap = blurBitmap
         latestLensBitmap = lensBitmap
-        renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
+        if (dirty) renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
+        return dirty
     }
 
     fun requestRender() {
@@ -167,17 +184,14 @@ private class CardGlassEglThread(
 
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float) {
         renderer.setGlassSpec(width, height, radius, intensity)
-        requestRender()
     }
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
         renderer.setSamplingSpec(originX, originY, rootWidth, rootHeight)
-        requestRender()
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
         renderer.setBackdropTextures(blurBitmap, lensBitmap)
-        requestRender()
     }
 
     fun requestRender() {
@@ -543,17 +557,15 @@ private class OpenGLGlassCardRenderer {
 
             vec3 anisotropicLensSample(vec2 uv, vec2 n, vec2 t, float radiusPx, float dispersionPx) {
                 vec2 r = pxToRootUv(vec2(radiusPx));
-                vec3 c = lensDispersion(uv, n, dispersionPx) * 0.24;
-                c += lensDispersion(uv + n * r.x * 0.55, n, dispersionPx) * 0.15;
-                c += lensDispersion(uv - n * r.x * 0.55, n, dispersionPx) * 0.13;
-                c += lensDispersion(uv + n * r.x * 1.15, n, dispersionPx * 0.80) * 0.10;
-                c += lensDispersion(uv - n * r.x * 1.15, n, dispersionPx * 0.80) * 0.09;
-                c += lensBackdrop(uv + t * r.x * 0.42) * 0.07;
-                c += lensBackdrop(uv - t * r.x * 0.42) * 0.07;
-                c += lensBackdrop(uv + (n + t * 0.45) * r.x * 0.88) * 0.05;
-                c += lensBackdrop(uv + (n - t * 0.45) * r.x * 0.88) * 0.05;
-                c += lensBackdrop(uv - (n + t * 0.45) * r.x * 0.88) * 0.03;
-                c += lensBackdrop(uv - (n - t * 0.45) * r.x * 0.88) * 0.02;
+                vec3 c = lensDispersion(uv, n, dispersionPx) * 0.31;
+                c += lensDispersion(uv + n * r.x * 0.72, n, dispersionPx) * 0.17;
+                c += lensDispersion(uv - n * r.x * 0.72, n, dispersionPx) * 0.15;
+                c += lensBackdrop(uv + t * r.x * 0.46) * 0.09;
+                c += lensBackdrop(uv - t * r.x * 0.46) * 0.09;
+                c += lensBackdrop(uv + (n + t * 0.45) * r.x * 0.92) * 0.06;
+                c += lensBackdrop(uv + (n - t * 0.45) * r.x * 0.92) * 0.06;
+                c += lensBackdrop(uv - (n + t * 0.45) * r.x * 0.92) * 0.04;
+                c += lensBackdrop(uv - (n - t * 0.45) * r.x * 0.92) * 0.03;
                 return c;
             }
 
