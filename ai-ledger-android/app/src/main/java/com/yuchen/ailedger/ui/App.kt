@@ -119,7 +119,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             .onPlaced { backdropOrigin.coordinates = it }
                     )
 
-                    UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    if (!ENABLE_OPENGL_GLASS_PROBE) {
+                        UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    }
 
                     OpenGLGlassProbeLayer(
                         enabled = ENABLE_OPENGL_GLASS_PROBE,
