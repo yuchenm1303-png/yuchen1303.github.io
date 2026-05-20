@@ -165,7 +165,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                     onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                 )
-                                AppTab.Settings -> SettingsPolishedScreen(
+                                AppTab.Settings -> SettingsScreenV2(
                                     state = state,
                                     aiEndpoint = viewModel.aiEndpoint,
                                     onQualityChange = viewModel::selectQuality,
