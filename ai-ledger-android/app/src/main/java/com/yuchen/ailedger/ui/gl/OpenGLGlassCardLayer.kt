@@ -404,24 +404,24 @@ private class OpenGLGlassCardRenderer {
         GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
         GLES20.glUniform4f(
             materialHandle,
-            style.openGlVisibility.coerceIn(0f, 40f),
+            style.openGlVisibility.coerceIn(0f, 20f),
             style.openGlMaxAlpha.coerceIn(0f, 1f),
-            style.edgeBrightness.coerceIn(-8f, 8f),
-            style.bodyAlpha.coerceIn(-8f, 8f)
+            style.edgeBrightness.coerceIn(-5f, 5f),
+            style.bodyAlpha.coerceIn(-5f, 5f)
         )
         GLES20.glUniform4f(
             refractionHandle,
-            style.openGlPullScale.coerceIn(-1200f, 1200f),
-            style.edgePullDp.coerceIn(-2400f, 2400f),
-            style.openGlCompressionScale.coerceIn(-20f, 20f),
-            style.openGlCornerScale.coerceIn(0f, 800f)
+            style.openGlPullScale.coerceIn(-300f, 300f),
+            style.edgePullDp.coerceIn(-600f, 600f),
+            style.openGlCompressionScale.coerceIn(-10f, 10f),
+            style.openGlCornerScale.coerceIn(0f, 200f)
         )
         GLES20.glUniform4f(
             opticsHandle,
-            style.openGlSampleRadiusScale.coerceIn(0f, 600f),
-            style.ringWidthDp.coerceIn(0f, 900f),
+            style.openGlSampleRadiusScale.coerceIn(0f, 200f),
+            style.ringWidthDp.coerceIn(0f, 300f),
             style.openGlDebugLineAlpha.coerceIn(0f, 1f),
-            style.openGlDarkScale.coerceIn(-12f, 12f)
+            style.openGlDarkScale.coerceIn(-10f, 10f)
         )
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -575,8 +575,8 @@ private class OpenGLGlassCardRenderer {
                 return mix(fallback, realColor, sat(uTextureReady));
             }
 
-            vec3 blurBackdrop(vec2 uv, float edgeHalo) {
-                float blurBoost = 1.0 + edgeHalo * 0.12;
+            vec3 blurBackdrop(vec2 uv, float edgeWeight) {
+                float blurBoost = 1.0 + edgeWeight * 0.38;
                 vec2 px = vec2(max(uOptics.x, 0.0) * blurBoost) / max(uRootResolution, vec2(1.0));
                 vec3 c = sourceBlurBackdrop(uv) * 0.200;
                 c += sourceBlurBackdrop(uv + vec2(px.x, 0.0)) * 0.110;
@@ -590,50 +590,44 @@ private class OpenGLGlassCardRenderer {
                 return c;
             }
 
-            float edgeWidthPx(vec2 rectSize) {
-                float maxSafe = min(rectSize.x, rectSize.y) * 0.82;
-                return clamp(uOptics.y, 2.0, maxSafe);
+            float effectiveEdgeWidth(vec2 rectSize) {
+                float maxSafe = min(rectSize.x, rectSize.y) * 0.34;
+                return clamp(uOptics.y, 6.0, maxSafe);
             }
 
-            float insideDistanceAt(vec2 coord, vec2 rectSize, float radius) {
-                return max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+            float rimWideAt(vec2 coord, vec2 rectSize, float radius) {
+                float inside = max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+                float w = effectiveEdgeWidth(rectSize);
+                return 1.0 - smoothstep(0.0, w, inside);
             }
 
-            float edgeHaloAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = insideDistanceAt(coord, rectSize, radius);
-                float w = max(edgeWidthPx(rectSize), 1.0);
-                float x = inside / max(w * 0.72, 1.0);
-                return 1.0 / (1.0 + pow(x, 1.85));
-            }
-
-            float outerLensAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = insideDistanceAt(coord, rectSize, radius);
-                float core = clamp(edgeWidthPx(rectSize) * 0.055, 2.0, 14.0);
-                float x = inside / core;
-                return exp(-x * x);
+            float rimCoreAt(vec2 coord, vec2 rectSize, float radius) {
+                float inside = max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+                float w = max(effectiveEdgeWidth(rectSize) * 0.28, 3.0);
+                return 1.0 - smoothstep(0.0, w, inside);
             }
 
             float bodyDomeAt(vec2 coord, vec2 rectSize) {
                 vec2 local = clamp(coord / rectSize, 0.0, 1.0);
                 vec2 p = local * 2.0 - 1.0;
-                p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.4) * 0.32;
+                p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.4) * 0.38;
                 float d = length(p);
-                return pow(sat(1.0 - d * 0.70), 1.65);
+                return pow(sat(1.0 - d * 0.74), 1.65);
             }
 
-            vec2 safeNormalFromSdf(vec2 coord, vec2 rectSize, float radius) {
-                float d = 1.5;
-                float l = roundedBoxSdfAt(coord - vec2(d, 0.0), rectSize, radius);
-                float r = roundedBoxSdfAt(coord + vec2(d, 0.0), rectSize, radius);
-                float u = roundedBoxSdfAt(coord - vec2(0.0, d), rectSize, radius);
-                float b = roundedBoxSdfAt(coord + vec2(0.0, d), rectSize, radius);
-                vec2 g = vec2(r - l, b - u);
-                return g / max(length(g), 0.001);
+            float thicknessAt(vec2 coord, vec2 rectSize, float radius) {
+                float sd = roundedBoxSdfAt(coord, rectSize, radius);
+                float maskGuard = 1.0 - smoothstep(1.5, 16.0, sd);
+                float rimWide = rimWideAt(coord, rectSize, radius);
+                float rimCore = rimCoreAt(coord, rectSize, radius);
+                float dome = bodyDomeAt(coord, rectSize);
+                float t = dome * 0.22 + rimWide * 0.46 + rimCore * 0.34;
+                return t * maskGuard;
             }
 
             vec2 softLimitPx(vec2 v, float limitPx) {
                 float len = length(v);
-                float softLen = limitPx * (1.0 - exp(-len / max(limitPx, 1.0)));
+                float softLen = len / (1.0 + len / max(limitPx, 1.0));
                 return v * (softLen / max(len, 0.0001));
             }
 
@@ -647,41 +641,35 @@ private class OpenGLGlassCardRenderer {
 
                 vec2 bgUv = globalUv(coord);
                 float stepPx = 2.0;
-                float bodyL = bodyDomeAt(coord - vec2(stepPx, 0.0), rectSize);
-                float bodyR = bodyDomeAt(coord + vec2(stepPx, 0.0), rectSize);
-                float bodyU = bodyDomeAt(coord - vec2(0.0, stepPx), rectSize);
-                float bodyD = bodyDomeAt(coord + vec2(0.0, stepPx), rectSize);
-                vec2 bodyGrad = vec2(bodyR - bodyL, bodyD - bodyU);
+                float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
+                float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
+                float tU = thicknessAt(coord - vec2(0.0, stepPx), rectSize, radius);
+                float tD = thicknessAt(coord + vec2(0.0, stepPx), rectSize, radius);
+                vec2 grad = vec2(tR - tL, tD - tU);
 
-                float edgeHalo = edgeHaloAt(coord, rectSize, radius);
-                float outerLens = outerLensAt(coord, rectSize, radius);
-                vec2 edgeNormal = safeNormalFromSdf(coord, rectSize, radius);
-                float bodyLen = length(bodyGrad);
-                bodyGrad *= smoothstep(0.0005, 0.010, bodyLen) * min(1.0, 0.22 / max(bodyLen, 0.0001));
+                float rimWide = rimWideAt(coord, rectSize, radius);
+                float rimCore = rimCoreAt(coord, rectSize, radius);
+                float gLen = length(grad);
+                float gradGate = smoothstep(0.0004, 0.012, gLen);
+                grad *= gradGate * min(1.0, 0.22 / max(gLen, 0.0001));
+                float gradEnergy = sat(length(grad) * max(uRefraction.w, 0.0));
 
-                float edgeGate = pow(sat(outerLens), 1.15);
-                float haloGate = pow(sat(edgeHalo), 2.4);
-                float gradEnergy = sat((length(bodyGrad) + edgeGate * 0.025) * max(uRefraction.w, 0.0));
-
-                vec2 bodyRefractPx = bodyGrad * uRefraction.x * 0.88;
-                vec2 edgeRefractPx = -edgeNormal * uRefraction.y * edgeGate;
-                vec2 haloRefractPx = bodyGrad * uRefraction.y * haloGate * 0.10;
-                vec2 rawRefractPx = (bodyRefractPx + edgeRefractPx + haloRefractPx) * max(uMaterial.x, 0.0);
-                float limitPx = 28.0 + edgeGate * 56.0 + sat(abs(uRefraction.y) / 2400.0) * 80.0;
+                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide) * max(uMaterial.x, 0.0);
+                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0;
                 vec2 refractPx = softLimitPx(rawRefractPx, limitPx);
                 vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
 
-                vec3 color = blurBackdrop(refractedUv, edgeHalo * 0.35);
+                vec3 color = blurBackdrop(refractedUv, rimWide);
                 vec3 lensColor = sourceLensBackdrop(refractedUv);
-                float lensMix = sat(pow(outerLens, 1.9) * max(uRefraction.z, 0.0) * 0.14);
+                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42);
                 color = mix(color, lensColor, lensMix);
 
-                float opticalBoost = pow(outerLens, 1.7) * 0.045 + gradEnergy * 0.020;
-                color *= uMaterial.z * (1.0 + opticalBoost);
+                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045;
+                color *= uMaterial.z * (1.0 + rimOpticalBoost);
 
                 float debugEdge = smoothstep(-1.65, 0.0, sd) * mask;
                 color = mix(color, vec3(1.0, 0.45, 0.0), debugEdge * uOptics.z);
-                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * edgeHalo * 0.45;
+                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * rimWide;
                 color = clamp(color, 0.0, 1.0);
 
                 gl_FragColor = vec4(color, clamp(uMaterial.y * uMaterial.x, 0.0, 1.0) * mask);
