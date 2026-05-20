@@ -152,7 +152,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
                                     onToggleOnline = viewModel::toggleOnline
                                 )
-                                AppTab.Tools -> ToolsScreen(
+                                AppTab.Tools -> ToolsScreenV2(
                                     state = state,
                                     onOpenTool = viewModel::openTool,
                                     onBack = viewModel::closeTool,
