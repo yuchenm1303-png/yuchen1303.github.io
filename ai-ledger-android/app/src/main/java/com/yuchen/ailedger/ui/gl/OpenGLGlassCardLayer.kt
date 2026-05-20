@@ -536,7 +536,7 @@ private class OpenGLGlassCardRenderer {
             uniform float uIntensity;
             uniform float uTextureReady;
             uniform vec4 uMaterial;   // x visibility, y alpha, z brightness, w reserved
-            uniform vec4 uRefraction; // x bodyPx, y edgePx, z lensMix, w gradScale
+            uniform vec4 uRefraction; // x bodyPx, y edgePx, z lensMix/drag, w gradScale
             uniform vec4 uOptics;     // x blurPx, y edgeWidthPx, z debugLineAlpha, w darkScale
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
@@ -595,16 +595,66 @@ private class OpenGLGlassCardRenderer {
                 return clamp(uOptics.y, 6.0, maxSafe);
             }
 
+            float insideDistanceAt(vec2 coord, vec2 rectSize, float radius) {
+                return max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+            }
+
             float rimWideAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+                float inside = insideDistanceAt(coord, rectSize, radius);
                 float w = effectiveEdgeWidth(rectSize);
                 return 1.0 - smoothstep(0.0, w, inside);
             }
 
             float rimCoreAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
+                float inside = insideDistanceAt(coord, rectSize, radius);
                 float w = max(effectiveEdgeWidth(rectSize) * 0.28, 3.0);
                 return 1.0 - smoothstep(0.0, w, inside);
+            }
+
+            float edgeDragBandAt(vec2 coord, vec2 rectSize, float radius) {
+                float inside = insideDistanceAt(coord, rectSize, radius);
+                float w = max(effectiveEdgeWidth(rectSize) * 1.45, 8.0);
+                return pow(1.0 - smoothstep(0.0, w, inside), 1.35);
+            }
+
+            vec2 sdfNormalAt(vec2 coord, vec2 rectSize, float radius) {
+                float d = 1.25;
+                float l = roundedBoxSdfAt(coord - vec2(d, 0.0), rectSize, radius);
+                float r = roundedBoxSdfAt(coord + vec2(d, 0.0), rectSize, radius);
+                float u = roundedBoxSdfAt(coord - vec2(0.0, d), rectSize, radius);
+                float b = roundedBoxSdfAt(coord + vec2(0.0, d), rectSize, radius);
+                vec2 n = vec2(r - l, b - u);
+                return n / max(length(n), 0.001);
+            }
+
+            float colorSignal(vec3 c) {
+                float luma = dot(c, vec3(0.299, 0.587, 0.114));
+                float chroma = length(c - vec3(luma));
+                return sat((luma - 0.20) * 1.25 + chroma * 1.55);
+            }
+
+            vec3 edgeColorDrag(vec2 coord, vec2 rectSize, float radius, float band, float core) {
+                vec2 n = sdfNormalAt(coord, rectSize, radius);
+                vec2 t = vec2(-n.y, n.x);
+                float pull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
+                float smear = clamp(4.0 + effectiveEdgeWidth(rectSize) * 0.55, 4.0, 22.0);
+
+                vec2 baseIn = coord - n * pull;
+                vec2 baseFar = coord - n * (pull * 1.85);
+                vec2 baseOut = coord + n * (pull * 0.45);
+
+                vec3 c = sourceLensBackdrop(globalUv(baseIn)) * 0.28;
+                c += sourceLensBackdrop(globalUv(baseFar)) * 0.18;
+                c += sourceLensBackdrop(globalUv(baseOut)) * 0.12;
+                c += sourceLensBackdrop(globalUv(baseIn + t * smear)) * 0.14;
+                c += sourceLensBackdrop(globalUv(baseIn - t * smear)) * 0.14;
+                c += sourceLensBackdrop(globalUv(baseIn + t * smear * 1.85)) * 0.07;
+                c += sourceLensBackdrop(globalUv(baseIn - t * smear * 1.85)) * 0.07;
+
+                vec3 soft = blurBackdrop(globalUv(baseIn), band) * 0.45 + c * 0.55;
+                float signal = colorSignal(c);
+                float dragAlpha = band * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + core * 0.030) * signal;
+                return mix(vec3(0.0), soft, sat(dragAlpha));
             }
 
             float bodyDomeAt(vec2 coord, vec2 rectSize) {
@@ -649,6 +699,7 @@ private class OpenGLGlassCardRenderer {
 
                 float rimWide = rimWideAt(coord, rectSize, radius);
                 float rimCore = rimCoreAt(coord, rectSize, radius);
+                float dragBand = edgeDragBandAt(coord, rectSize, radius);
                 float gLen = length(grad);
                 float gradGate = smoothstep(0.0004, 0.012, gLen);
                 grad *= gradGate * min(1.0, 0.22 / max(gLen, 0.0001));
@@ -663,6 +714,10 @@ private class OpenGLGlassCardRenderer {
                 vec3 lensColor = sourceLensBackdrop(refractedUv);
                 float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42);
                 color = mix(color, lensColor, lensMix);
+
+                vec3 dragColor = edgeColorDrag(coord, rectSize, radius, dragBand, rimCore);
+                float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
+                color = mix(color, dragColor, dragMix);
 
                 float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045;
                 color *= uMaterial.z * (1.0 + rimOpticalBoost);
