@@ -77,7 +77,7 @@ class GlassItemRegistry {
         items.remove(key)
     }
 
-    fun snapshot(): List<GlassRenderItem> = items.values.toList()
+    fun snapshot(): Collection<GlassRenderItem> = items.values
 }
 
 val LocalBackdropOrigin = compositionLocalOf<BackdropCoordinateSource?> { null }
