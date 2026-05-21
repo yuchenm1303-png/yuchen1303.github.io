@@ -30,8 +30,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -444,45 +442,19 @@ private fun LiquidSwitch(checked: Boolean, glow: Float) {
 
 @Composable
 private fun RecessedSettingSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
-    val clamped = value.coerceIn(range.start, range.endInclusive)
-    val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    RecessedGlass(modifier = Modifier.fillMaxWidth().height(58.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
-    }
+    SampleRecessedSlider(
+        title = title,
+        subtitle = subtitle,
+        value = value,
+        range = range,
+        valueText = value.formatSettingValueV2(),
+        onValueChange = onValueChange
+    )
 }
 
 @Composable
 private fun DebugSliderRow(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
     RecessedSettingSlider(title, subtitle, value, range, onValueChange)
-}
-
-@Composable
-private fun SliderContent(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, percent: Float, onValueChange: (Float) -> Unit, modifier: Modifier) {
-    Row(modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(title, color = Color.White.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.82f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp), maxLines = 1)
-        Spacer(Modifier.width(8.dp))
-        Box(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.Center) {
-            RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(14.dp))
-            Slider(
-                value = value,
-                onValueChange = onValueChange,
-                valueRange = range,
-                modifier = Modifier.fillMaxWidth().height(24.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = Color.White.copy(alpha = 0.96f),
-                    activeTrackColor = Color.Transparent,
-                    inactiveTrackColor = Color.Transparent,
-                    activeTickColor = Color.Transparent,
-                    inactiveTickColor = Color.Transparent
-                )
-            )
-        }
-    }
 }
 
 @Composable
