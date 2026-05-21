@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.ui.gl.DropletGlassStyle
+import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 import kotlin.math.roundToInt
 
 @Composable
@@ -60,11 +62,29 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var insetInnerShadow by rememberSaveable { mutableStateOf(0.52f) }
     var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
 
-    var dropletRadius by rememberSaveable { mutableStateOf(30f) }
-    var dropletBackdropAlpha by rememberSaveable { mutableStateOf(0.88f) }
-    var dropletGlossAlpha by rememberSaveable { mutableStateOf(0.34f) }
-    var dropletBottomGlowAlpha by rememberSaveable { mutableStateOf(0.34f) }
-    var dropletDepthAlpha by rememberSaveable { mutableStateOf(0.18f) }
+    var dropletBodyBulge by rememberSaveable { mutableStateOf(44f) }
+    var dropletEdgePull by rememberSaveable { mutableStateOf(46f) }
+    var dropletEdgeWidth by rememberSaveable { mutableStateOf(9f) }
+    var dropletLensMix by rememberSaveable { mutableStateOf(0.92f) }
+    var dropletDrag by rememberSaveable { mutableStateOf(0.36f) }
+    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.32f) }
+    var dropletTopGloss by rememberSaveable { mutableStateOf(0.22f) }
+    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.30f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.12f) }
+    var dropletAlpha by rememberSaveable { mutableStateOf(0.72f) }
+
+    val dropletStyle = DropletGlassStyle(
+        bodyBulgePx = dropletBodyBulge,
+        edgePullPx = dropletEdgePull,
+        edgeWidthPx = dropletEdgeWidth,
+        lensMix = dropletLensMix,
+        dragStrength = dropletDrag,
+        bottomGlow = dropletBottomGlow,
+        topGloss = dropletTopGloss,
+        cornerGloss = dropletCornerGloss,
+        innerDark = dropletInnerDark,
+        alpha = dropletAlpha
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         GlassLabMiniTitle("雾面信息玻璃", "只裁剪背景模糊层，不叠边框、高光和折射。")
@@ -134,17 +154,46 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("水滴玻璃", "暂时保留 Compose 预览，OpenGL 水滴后续重新设计。")
-        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-            DropletGlassButton("✦", "发送", dropletRadius, dropletBackdropAlpha, dropletGlossAlpha, dropletBottomGlowAlpha, dropletDepthAlpha, Modifier.weight(1f))
-            DropletGlassButton("AI", "AI 助理", dropletRadius, dropletBackdropAlpha, dropletGlossAlpha, dropletBottomGlowAlpha, dropletDepthAlpha, Modifier.weight(1f))
-            DropletGlassButton("♪", "语音", dropletRadius, dropletBackdropAlpha, dropletGlossAlpha, dropletBottomGlowAlpha, dropletDepthAlpha, Modifier.weight(1f))
+        GlassLabMiniTitle("OpenGL 水滴玻璃", "先看背景是否被明显放大、压缩、扭曲；高光和颜色先压低。")
+        OpenGlLargeDropletPreview(style = dropletStyle, modifier = Modifier.fillMaxWidth().height(66.dp))
+        GlassPanelSlider("主体放大", "水滴透镜放大底部图像", dropletBodyBulge, -12f..72f) { dropletBodyBulge = it }
+        GlassPanelSlider("边缘压缩", "厚边拉动并压缩背景", dropletEdgePull, -40f..120f) { dropletEdgePull = it }
+        GlassPanelSlider("边缘宽度", "折射、高光和拖色宽度", dropletEdgeWidth, 2f..32f) { dropletEdgeWidth = it }
+        GlassPanelSlider("清晰混入", "放大后的清晰背景参与", dropletLensMix, 0f..1f) { dropletLensMix = it }
+        GlassPanelSlider("拖色强度", "边缘从背景吸色", dropletDrag, 0f..2f) { dropletDrag = it }
+        GlassPanelSlider("底部焦散", "底边聚光与粉紫拖色", dropletBottomGlow, 0f..2f) { dropletBottomGlow = it }
+        GlassPanelSlider("顶部反光", "上沿真实光亮", dropletTopGloss, 0f..1.8f) { dropletTopGloss = it }
+        GlassPanelSlider("角部反光", "右上角弧形亮斑", dropletCornerGloss, 0f..2f) { dropletCornerGloss = it }
+        GlassPanelSlider("厚度暗边", "底部和边缘压暗", dropletInnerDark, 0f..1f) { dropletInnerDark = it }
+        GlassPanelSlider("整体透明", "OpenGL 水滴层透明度", dropletAlpha, 0f..1f) { dropletAlpha = it }
+    }
+}
+
+@Composable
+private fun OpenGlLargeDropletPreview(style: DropletGlassStyle, modifier: Modifier = Modifier) {
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(
+        modifier = modifier
+            .padding(horizontal = 28.dp, vertical = 4.dp)
+            .onGloballyPositioned { coordinates.coordinates = it }
+            .clip(RoundedCornerShape(999.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        OpenGLDropletGlassLayer(
+            radius = 999,
+            coordinateSource = coordinates,
+            style = style,
+            modifier = Modifier.fillMaxSize()
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)
+        ) {
+            Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Spacer(Modifier.width(10.dp))
+            Text("语音输入", color = Color.White.copy(alpha = 0.86f), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        GlassPanelSlider("圆角", "水滴胶囊的圆润程度", dropletRadius, 16f..42f) { dropletRadius = it }
-        GlassPanelSlider("背景模糊层", "按钮内部的背景采样", dropletBackdropAlpha, 0f..1f) { dropletBackdropAlpha = it }
-        GlassPanelSlider("顶部光泽", "凸起水滴的上沿亮斑", dropletGlossAlpha, 0f..0.85f) { dropletGlossAlpha = it }
-        GlassPanelSlider("底部泛光", "下沿粉紫色液态光", dropletBottomGlowAlpha, 0f..0.90f) { dropletBottomGlowAlpha = it }
-        GlassPanelSlider("厚度暗边", "底部和侧边压暗厚度", dropletDepthAlpha, 0f..0.55f) { dropletDepthAlpha = it }
     }
 }
 
@@ -210,17 +259,7 @@ private fun InsetGlassSlot(
         ) {
             BackdropCrop(coordinateSource = floorCoordinates, backdropAlpha = floorBackdropAlpha.coerceIn(0f, 1f), modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (floorDimAlpha + depth * 0.06f).coerceIn(0f, 0.75f))))
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = innerShadowAlpha * (0.12f + depth * 0.14f)),
-                            Color.Transparent,
-                            Color.White.copy(alpha = rimHighlightAlpha * 0.035f)
-                        )
-                    )
-                )
-            )
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = innerShadowAlpha * (0.12f + depth * 0.14f)), Color.Transparent, Color.White.copy(alpha = rimHighlightAlpha * 0.035f)))))
             content()
         }
 
@@ -239,13 +278,7 @@ private fun InsetGlassSlot(
             val floorTopLeft = Offset(floorInsetPx, floorInsetPx)
             val shadowWidth = (1.2f + depth * 3.8f).dp.toPx()
             drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = innerShadowAlpha * (0.58f + depth * 0.36f)),
-                        Color.Black.copy(alpha = innerShadowAlpha * (0.16f + depth * 0.16f)),
-                        Color.Transparent
-                    )
-                ),
+                brush = Brush.verticalGradient(listOf(Color.Black.copy(alpha = innerShadowAlpha * (0.58f + depth * 0.36f)), Color.Black.copy(alpha = innerShadowAlpha * (0.16f + depth * 0.16f)), Color.Transparent)),
                 topLeft = floorTopLeft,
                 size = floorSize,
                 cornerRadius = floorCorner,
@@ -253,16 +286,7 @@ private fun InsetGlassSlot(
                 blendMode = BlendMode.Multiply
             )
             drawRoundRect(
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.28f),
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.08f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.14f)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height)
-                ),
+                brush = Brush.linearGradient(listOf(Color.White.copy(alpha = rimHighlightAlpha * 0.28f), Color.White.copy(alpha = rimHighlightAlpha * 0.08f), Color.Transparent, Color.Black.copy(alpha = innerShadowAlpha * 0.14f)), start = Offset.Zero, end = Offset(size.width, size.height)),
                 topLeft = Offset(0.65.dp.toPx(), 0.65.dp.toPx()),
                 size = Size(size.width - 1.3.dp.toPx(), size.height - 1.3.dp.toPx()),
                 cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx()),
@@ -326,84 +350,11 @@ private fun InsetProgressBar(progress: Float, modifier: Modifier = Modifier) {
             val radius = size.height / 2f
             drawRoundRect(color = Color.White.copy(alpha = 0.09f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.SrcOver)
             drawRoundRect(
-                brush = Brush.horizontalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.28f),
-                        Color(0xFF8DF9EA).copy(alpha = 0.20f),
-                        Color.White.copy(alpha = 0.12f)
-                    )
-                ),
+                brush = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.28f), Color(0xFF8DF9EA).copy(alpha = 0.20f), Color.White.copy(alpha = 0.12f))),
                 size = Size(size.width * p, size.height),
                 cornerRadius = CornerRadius(radius, radius),
                 blendMode = BlendMode.Screen
             )
-        }
-    }
-}
-
-@Composable
-private fun DropletGlassButton(
-    icon: String,
-    label: String,
-    radius: Float,
-    backdropAlpha: Float,
-    glossAlpha: Float,
-    bottomGlowAlpha: Float,
-    depthAlpha: Float,
-    modifier: Modifier = Modifier
-) {
-    val coordinates = remember { GlassCoordinateSource() }
-    Box(
-        modifier = modifier
-            .height(58.dp)
-            .onGloballyPositioned { coordinates.coordinates = it }
-            .clip(RoundedCornerShape(radius.dp))
-    ) {
-        BackdropCrop(coordinateSource = coordinates, backdropAlpha = backdropAlpha.coerceIn(0f, 1f), modifier = Modifier.fillMaxSize())
-        Canvas(Modifier.fillMaxSize()) {
-            val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = glossAlpha * 0.62f),
-                        Color.White.copy(alpha = glossAlpha * 0.14f),
-                        Color.Black.copy(alpha = depthAlpha)
-                    )
-                ),
-                cornerRadius = corner,
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color(0xFFFF8AC8).copy(alpha = bottomGlowAlpha),
-                        Color(0xFF8DF9EA).copy(alpha = bottomGlowAlpha * 0.20f),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.58f, size.height * 0.96f),
-                    radius = size.width * 0.62f
-                ),
-                cornerRadius = corner,
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = glossAlpha * 0.72f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = depthAlpha * 0.68f)
-                    )
-                ),
-                topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
-                size = Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx()),
-                cornerRadius = corner,
-                style = Stroke(width = 1.dp.toPx()),
-                blendMode = BlendMode.Screen
-            )
-        }
-        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 7.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(icon, color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -462,12 +413,7 @@ private fun FrostMetric(label: String, value: String, alpha: Float, modifier: Mo
 private fun GlassPanelSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.050f))
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.050f)).padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
