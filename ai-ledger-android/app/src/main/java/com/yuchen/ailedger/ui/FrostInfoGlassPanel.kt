@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -166,9 +165,9 @@ fun FrostInfoGlassPanel(
             .onGloballyPositioned { coordinates.coordinates = it }
             .clip(shape)
     ) {
-        BackdropCrop(coordinateSource = coordinates, backdropAlpha = backdropAlpha.coerceIn(0f, 1f), modifier = Modifier.matchParentSize())
-        Box(Modifier.matchParentSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
-        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+        BackdropCrop(coordinateSource = coordinates, backdropAlpha = backdropAlpha.coerceIn(0f, 1f), modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
         content()
     }
 }
@@ -191,7 +190,7 @@ private fun InsetGlassSlot(
     val floorShape = RoundedCornerShape(floorRadius.dp)
 
     Box(modifier = modifier.clip(outerShape)) {
-        Canvas(Modifier.matchParentSize()) {
+        Canvas(Modifier.fillMaxSize()) {
             val outerCorner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
             val w = size.width
             val h = size.height
@@ -227,7 +226,7 @@ private fun InsetGlassSlot(
 
         Box(
             modifier = Modifier
-                .matchParentSize()
+                .fillMaxSize()
                 .padding(safeInset.dp)
                 .onGloballyPositioned { floorCoordinates.coordinates = it }
                 .clip(floorShape)
@@ -235,11 +234,11 @@ private fun InsetGlassSlot(
             BackdropCrop(
                 coordinateSource = floorCoordinates,
                 backdropAlpha = floorBackdropAlpha.coerceIn(0f, 1f),
-                modifier = Modifier.matchParentSize()
+                modifier = Modifier.fillMaxSize()
             )
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = floorDimAlpha.coerceIn(0f, 0.80f))))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = floorDimAlpha.coerceIn(0f, 0.80f))))
             Box(
-                Modifier.matchParentSize().background(
+                Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Black.copy(alpha = innerShadowAlpha * 0.18f),
@@ -252,7 +251,7 @@ private fun InsetGlassSlot(
             content()
         }
 
-        Canvas(Modifier.matchParentSize()) {
+        Canvas(Modifier.fillMaxSize()) {
             val insetPx = safeInset.dp.toPx()
             val floorCorner = CornerRadius(floorRadius.dp.toPx(), floorRadius.dp.toPx())
             val floorSize = Size(size.width - insetPx * 2f, size.height - insetPx * 2f)
@@ -292,7 +291,7 @@ private fun InsetGlassSlot(
 @Composable
 private fun InsetProgressBar(progress: Float, modifier: Modifier = Modifier) {
     Box(modifier = modifier) {
-        Canvas(Modifier.matchParentSize()) {
+        Canvas(Modifier.fillMaxSize()) {
             val p = progress.coerceIn(0f, 1f)
             val radius = size.height / 2f
             drawRoundRect(
@@ -355,8 +354,8 @@ private fun DropletGlassButton(
             .onGloballyPositioned { coordinates.coordinates = it }
             .clip(RoundedCornerShape(radius.dp))
     ) {
-        BackdropCrop(coordinateSource = coordinates, backdropAlpha = backdropAlpha.coerceIn(0f, 1f), modifier = Modifier.matchParentSize())
-        Canvas(Modifier.matchParentSize()) {
+        BackdropCrop(coordinateSource = coordinates, backdropAlpha = backdropAlpha.coerceIn(0f, 1f), modifier = Modifier.fillMaxSize())
+        Canvas(Modifier.fillMaxSize()) {
             val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
             drawRoundRect(
                 brush = Brush.verticalGradient(
@@ -509,6 +508,7 @@ private fun GlassBeadSlider(
     val thumbSize = 24.dp
 
     BoxWithConstraints(modifier = modifier) {
+        val sliderWidth = maxWidth
         val trackWidthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         fun updateFromX(x: Float) {
             val p = (x / trackWidthPx).coerceIn(0f, 1f)
@@ -517,7 +517,7 @@ private fun GlassBeadSlider(
 
         Box(
             Modifier
-                .matchParentSize()
+                .fillMaxSize()
                 .pointerInput(trackWidthPx, range.start, range.endInclusive) {
                     detectDragGestures(
                         onDragStart = { updateFromX(it.x) },
@@ -529,7 +529,7 @@ private fun GlassBeadSlider(
                 },
             contentAlignment = Alignment.CenterStart
         ) {
-            Canvas(Modifier.matchParentSize()) {
+            Canvas(Modifier.fillMaxSize()) {
                 val trackHeight = size.height * 0.44f
                 val top = (size.height - trackHeight) / 2f
                 val radius = trackHeight / 2f
@@ -578,10 +578,10 @@ private fun GlassBeadSlider(
             }
             Box(
                 Modifier
-                    .offset(x = (maxWidth - thumbSize) * percent)
+                    .offset(x = (sliderWidth - thumbSize) * percent)
                     .size(thumbSize)
             ) {
-                GlassBeadThumb(Modifier.matchParentSize())
+                GlassBeadThumb(Modifier.fillMaxSize())
             }
         }
     }
