@@ -228,14 +228,14 @@ private fun OpenGlLargeDropletPreview(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .height(62.dp)
+                .padding(horizontal = 0.dp, vertical = 3.dp)
                 .onGloballyPositioned { coordinates.coordinates = it }
-                .clip(RoundedCornerShape(18.dp)),
+                .clip(RoundedCornerShape(999.dp)),
             contentAlignment = Alignment.Center
         ) {
             OpenGLDropletGlassLayer(
-                radius = 18,
+                radius = 999,
                 coordinateSource = coordinates,
                 style = style,
                 modifier = Modifier.fillMaxSize()
