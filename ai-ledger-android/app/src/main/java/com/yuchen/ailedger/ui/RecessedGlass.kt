@@ -3,10 +3,20 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -16,7 +26,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 @Composable
 fun RecessedGlass(
@@ -129,3 +143,57 @@ fun RecessedProgressTrack(progress: Float, modifier: Modifier = Modifier) {
         )
     }
 }
+
+@Composable
+fun SampleRecessedSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    valueText: String = value.formatSampleSliderValue(),
+    onValueChange: (Float) -> Unit
+) {
+    val clamped = value.coerceIn(range.start, range.endInclusive)
+    val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+    RecessedGlass(
+        modifier = modifier.fillMaxWidth().height(58.dp),
+        radius = 18f,
+        depth = 0.52f,
+        floorAlpha = 0.82f,
+        rimAlpha = 0.34f,
+        innerShadow = 0.67f,
+        bottomDim = 0.23f
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(0.78f), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(1.dp)) {
+                Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(valueText, color = Color.White.copy(alpha = 0.80f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp), maxLines = 1, overflow = TextOverflow.Clip)
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.Center) {
+                RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(14.dp))
+                Slider(
+                    value = clamped,
+                    onValueChange = onValueChange,
+                    valueRange = range,
+                    modifier = Modifier.fillMaxWidth().height(24.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color.White.copy(alpha = 0.96f),
+                        activeTrackColor = Color.Transparent,
+                        inactiveTrackColor = Color.Transparent,
+                        activeTickColor = Color.Transparent,
+                        inactiveTickColor = Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+}
+
+private fun Float.formatSampleSliderValue(): String = "${((this * 100).roundToInt() / 100f)}"
