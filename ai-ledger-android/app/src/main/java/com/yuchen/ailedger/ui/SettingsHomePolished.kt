@@ -1,18 +1,19 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -155,8 +156,8 @@ private fun SettingsHomeV2(
             ExpandableSettingsSection(state, "玻璃与流畅度", "画质、预设和日常强度。", "璃", Color(0xFF9EB7FF), glassExpanded, { glassExpanded = !glassExpanded }) {
                 SettingOptionGrid(RenderQuality.entries, state.quality, { qualityLabelV2(it) }, state, onQualityChange)
                 SettingOptionGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabelV2(it) }, state, onGlassPresetChange)
-                LiquidGlassSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, state, onGlassIntensityChange)
-                LiquidGlassSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, state, onMotionIntensityChange)
+                RecessedSettingSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
+                RecessedSettingSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
             }
         }
         item(key = "assistant-preference") {
@@ -264,74 +265,70 @@ private fun DebugTabRow(state: AssistantUiState, selected: String, onSelected: (
 private fun DebugGroupCard(state: AssistantUiState, title: String, subtitle: String, content: @Composable () -> Unit) {
     GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth().settingsGlow(0.24f, 1f, Color(0xFF8DF9EA)), GlassRole.Flex) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, lineHeight = 16.sp)
-            }
-            AnimatedVisibility(visible = true, enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + scaleIn(initialScale = 0.98f, animationSpec = spring(dampingRatio = 0.72f)), exit = fadeOut(tween(100))) {
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { content() }
-            }
+            Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, lineHeight = 16.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) { content() }
         }
     }
 }
 
 @Composable
 private fun BackgroundDebugGroup(state: AssistantUiState, onBackdropChange: (BackdropDebugParams) -> Unit) {
-    DebugSliderRow("缓存分辨率", "越高越细，越低越省性能", state.backdropParams.scale, 0.04f..2.00f, state) { onBackdropChange(state.backdropParams.copy(scale = it)) }
-    DebugSliderRow("模糊半径", "背景毛玻璃的柔化范围", state.backdropParams.radius, 0f..180f, state) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
-    DebugSliderRow("模糊迭代", "越高越柔，但更耗性能", state.backdropParams.iterations, 1f..48f, state) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
-    DebugSliderRow("亮度", "背景采样后的提亮程度", state.backdropParams.brightness, 0.00f..6.00f, state) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
-    DebugSliderRow("对比度", "玻璃内部背景层次", state.backdropParams.contrast, 0.00f..8.00f, state) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
-    DebugSliderRow("饱和度", "背景颜色浓淡", state.backdropParams.saturation, 0.00f..8.00f, state) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
+    DebugSliderRow("缓存分辨率", "越高越细，越低越省性能", state.backdropParams.scale, 0.04f..2.00f) { onBackdropChange(state.backdropParams.copy(scale = it)) }
+    DebugSliderRow("模糊半径", "背景毛玻璃的柔化范围", state.backdropParams.radius, 0f..180f) { onBackdropChange(state.backdropParams.copy(radius = it.roundToInt().toFloat())) }
+    DebugSliderRow("模糊迭代", "越高越柔，但更耗性能", state.backdropParams.iterations, 1f..48f) { onBackdropChange(state.backdropParams.copy(iterations = it.roundToInt().toFloat())) }
+    DebugSliderRow("亮度", "背景采样后的提亮程度", state.backdropParams.brightness, 0.00f..6.00f) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
+    DebugSliderRow("对比度", "玻璃内部背景层次", state.backdropParams.contrast, 0.00f..8.00f) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
+    DebugSliderRow("饱和度", "背景颜色浓淡", state.backdropParams.saturation, 0.00f..8.00f) { onBackdropChange(state.backdropParams.copy(saturation = it)) }
 }
 
 @Composable
 private fun SkyDebugGroup(state: AssistantUiState, onBackdropChange: (BackdropDebugParams) -> Unit) {
-    DebugSliderRow("云层强度", "默认背景云雾存在感", state.backdropParams.cloudAlpha, 0f..1.8f, state) { onBackdropChange(state.backdropParams.copy(cloudAlpha = it)) }
-    DebugSliderRow("云层柔度", "云雾边缘软硬", state.backdropParams.cloudSoftness, 0.6f..2.2f, state) { onBackdropChange(state.backdropParams.copy(cloudSoftness = it)) }
-    DebugSliderRow("云横向拉伸", "横向云带长度", state.backdropParams.cloudStretchX, 0.5f..4.0f, state) { onBackdropChange(state.backdropParams.copy(cloudStretchX = it)) }
-    DebugSliderRow("云纵向厚度", "云带纵向厚度", state.backdropParams.cloudStretchY, 0.3f..2.0f, state) { onBackdropChange(state.backdropParams.copy(cloudStretchY = it)) }
-    DebugSliderRow("云高光", "云层顶部发亮程度", state.backdropParams.cloudHighlightAlpha, 0f..1.0f, state) { onBackdropChange(state.backdropParams.copy(cloudHighlightAlpha = it)) }
-    DebugSliderRow("月亮大小", "默认背景月牙尺寸", state.backdropParams.moonScale, 0.5f..1.8f, state) { onBackdropChange(state.backdropParams.copy(moonScale = it)) }
-    DebugSliderRow("月亮光晕", "月亮周围的柔光", state.backdropParams.moonHaloAlpha, 0f..0.8f, state) { onBackdropChange(state.backdropParams.copy(moonHaloAlpha = it)) }
-    DebugSliderRow("月牙亮边", "月牙边缘高光", state.backdropParams.moonRimAlpha, 0f..1.2f, state) { onBackdropChange(state.backdropParams.copy(moonRimAlpha = it)) }
+    DebugSliderRow("云层强度", "默认背景云雾存在感", state.backdropParams.cloudAlpha, 0f..1.8f) { onBackdropChange(state.backdropParams.copy(cloudAlpha = it)) }
+    DebugSliderRow("云层柔度", "云雾边缘软硬", state.backdropParams.cloudSoftness, 0.6f..2.2f) { onBackdropChange(state.backdropParams.copy(cloudSoftness = it)) }
+    DebugSliderRow("云横向拉伸", "横向云带长度", state.backdropParams.cloudStretchX, 0.5f..4.0f) { onBackdropChange(state.backdropParams.copy(cloudStretchX = it)) }
+    DebugSliderRow("云纵向厚度", "云带纵向厚度", state.backdropParams.cloudStretchY, 0.3f..2.0f) { onBackdropChange(state.backdropParams.copy(cloudStretchY = it)) }
+    DebugSliderRow("云高光", "云层顶部发亮程度", state.backdropParams.cloudHighlightAlpha, 0f..1.0f) { onBackdropChange(state.backdropParams.copy(cloudHighlightAlpha = it)) }
+    DebugSliderRow("月亮大小", "默认背景月牙尺寸", state.backdropParams.moonScale, 0.5f..1.8f) { onBackdropChange(state.backdropParams.copy(moonScale = it)) }
+    DebugSliderRow("月亮光晕", "月亮周围的柔光", state.backdropParams.moonHaloAlpha, 0f..0.8f) { onBackdropChange(state.backdropParams.copy(moonHaloAlpha = it)) }
+    DebugSliderRow("月牙亮边", "月牙边缘高光", state.backdropParams.moonRimAlpha, 0f..1.2f) { onBackdropChange(state.backdropParams.copy(moonRimAlpha = it)) }
 }
 
 @Composable
 private fun OpenGlDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
     Text("范围故意放大，方便拉爆调参；最终预设先不改。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    DebugSliderRow("调试橙线", "显示真实 SDF 边界", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
-    DebugSliderRow("整体可见度", "OpenGL 玻璃层存在感", state.glassBorderStyle.openGlVisibility, 0f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
-    DebugSliderRow("主体 Alpha", "整体材质不透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
-    DebugSliderRow("背景亮度", "玻璃内部采样亮度", state.glassBorderStyle.edgeBrightness, -2f..6f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
-    DebugSliderRow("主体折射 px", "中心区域轻微连续折射", state.glassBorderStyle.openGlPullScale, -1200f..1200f, state) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
-    DebugSliderRow("边缘折射 px", "边缘把背景向内/外拉动", state.glassBorderStyle.edgePullDp, -2400f..2400f, state) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
-    DebugSliderRow("边缘宽度 px", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
-    DebugSliderRow("清晰混入", "清晰纹理参与折射比例", state.glassBorderStyle.openGlCompressionScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
-    DebugSliderRow("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
-    DebugSliderRow("额外模糊 px", "边缘折射区再柔化", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
-    DebugSliderRow("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
+    DebugSliderRow("调试橙线", "显示真实 SDF 边界", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
+    DebugSliderRow("整体可见度", "OpenGL 玻璃层存在感", state.glassBorderStyle.openGlVisibility, 0f..20f) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
+    DebugSliderRow("主体 Alpha", "整体材质不透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1f) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
+    DebugSliderRow("背景亮度", "玻璃内部采样亮度", state.glassBorderStyle.edgeBrightness, -2f..6f) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
+    DebugSliderRow("主体折射 px", "中心区域轻微连续折射", state.glassBorderStyle.openGlPullScale, -1200f..1200f) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
+    DebugSliderRow("边缘折射 px", "边缘把背景向内/外拉动", state.glassBorderStyle.edgePullDp, -2400f..2400f) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
+    DebugSliderRow("边缘宽度 px", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
+    DebugSliderRow("清晰混入", "清晰纹理参与折射比例", state.glassBorderStyle.openGlCompressionScale, -10f..10f) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
+    DebugSliderRow("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
+    DebugSliderRow("额外模糊 px", "边缘折射区再柔化", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+    DebugSliderRow("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
 }
 
 @Composable
 private fun EdgeCompatDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
-    DebugSliderRow("边缘 Alpha", "兼容边缘整体强度", state.glassBorderStyle.edgeAlpha, 0f..2f, state) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
-    DebugSliderRow("边缘模糊 px", "兼容边缘柔化半径", state.glassBorderStyle.edgeBlurDp, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
-    DebugSliderRow("边缘对比度", "兼容边缘背景反差", state.glassBorderStyle.edgeContrast, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
-    DebugSliderRow("边缘饱和度", "兼容边缘颜色浓度", state.glassBorderStyle.edgeSaturation, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
-    DebugSliderRow("边缘宽度倍率", "备用 OpenGL 边缘宽度", state.glassBorderStyle.openGlEdgeWidthScale, -20f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
-    DebugSliderRow("镜面高光倍率", "备用 OpenGL 高光强度", state.glassBorderStyle.openGlSpecularScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
-    DebugSliderRow("色散倍率", "备用 RGB 边缘分离", state.glassBorderStyle.openGlChromaticScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
+    DebugSliderRow("边缘 Alpha", "兼容边缘整体强度", state.glassBorderStyle.edgeAlpha, 0f..2f) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
+    DebugSliderRow("边缘模糊 px", "兼容边缘柔化半径", state.glassBorderStyle.edgeBlurDp, 0f..600f) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
+    DebugSliderRow("边缘对比度", "兼容边缘背景反差", state.glassBorderStyle.edgeContrast, 0.00f..8.00f) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
+    DebugSliderRow("边缘饱和度", "兼容边缘颜色浓度", state.glassBorderStyle.edgeSaturation, 0.00f..8.00f) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
+    DebugSliderRow("边缘宽度倍率", "备用 OpenGL 边缘宽度", state.glassBorderStyle.openGlEdgeWidthScale, -20f..20f) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
+    DebugSliderRow("镜面高光倍率", "备用 OpenGL 高光强度", state.glassBorderStyle.openGlSpecularScale, -10f..10f) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
+    DebugSliderRow("色散倍率", "备用 RGB 边缘分离", state.glassBorderStyle.openGlChromaticScale, -10f..10f) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
 }
 
 @Composable
 private fun LegacyBorderDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
-    DebugSliderRow("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, -5f..5f, state) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
-    DebugSliderRow("外边框", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
-    DebugSliderRow("内边框", "内侧细线高光", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
-    DebugSliderRow("顶部高光", "卡片顶部发亮边缘", state.glassBorderStyle.topHighlightAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
-    DebugSliderRow("底部暗边", "卡片底部压暗层", state.glassBorderStyle.bottomShadowAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
-    DebugSliderRow("圆角 glint", "圆角小高光", state.glassBorderStyle.cornerGlintAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
+    DebugSliderRow("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, -5f..5f) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
+    DebugSliderRow("外边框", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
+    DebugSliderRow("内边框", "内侧细线高光", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
+    DebugSliderRow("顶部高光", "卡片顶部发亮边缘", state.glassBorderStyle.topHighlightAlpha, 0.00f..2.00f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
+    DebugSliderRow("底部暗边", "卡片底部压暗层", state.glassBorderStyle.bottomShadowAlpha, 0f..2.00f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
+    DebugSliderRow("圆角 glint", "圆角小高光", state.glassBorderStyle.cornerGlintAlpha, 0f..2.00f) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
 }
 
 @Composable
@@ -368,55 +365,17 @@ private fun LiquidCollapsibleSettingsContent(expanded: Boolean, content: @Compos
     val density = LocalDensity.current
     var measuredHeightPx by rememberSaveable { mutableStateOf(0) }
     val targetHeight = with(density) { (if (expanded) measuredHeightPx else 0).toDp() }
-    val animatedHeight by animateDpAsState(
-        targetValue = targetHeight,
-        animationSpec = if (expanded) {
-            spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
-        } else {
-            tween(150)
-        },
-        label = "settings-collapsible-height"
-    )
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(durationMillis = if (expanded) 140 else 110),
-        label = "settings-collapsible-alpha"
-    )
-    val contentScale by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0.98f,
-        animationSpec = if (expanded) {
-            spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)
-        } else {
-            tween(140)
-        },
-        label = "settings-collapsible-scale"
-    )
+    val animatedHeight by animateDpAsState(targetValue = targetHeight, animationSpec = if (expanded) spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow) else tween(150), label = "settings-collapsible-height")
+    val contentAlpha by animateFloatAsState(targetValue = if (expanded) 1f else 0f, animationSpec = tween(durationMillis = if (expanded) 140 else 110), label = "settings-collapsible-alpha")
+    val contentScale by animateFloatAsState(targetValue = if (expanded) 1f else 0.98f, animationSpec = if (expanded) spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow) else tween(140), label = "settings-collapsible-scale")
     val shouldComposeContent = expanded || animatedHeight > 0.dp
 
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(animatedHeight)
-            .clipToBounds()
-    ) {
+    Box(Modifier.fillMaxWidth().height(animatedHeight).clipToBounds()) {
         if (shouldComposeContent) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                    .onSizeChanged { size ->
-                        if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height
-                    }
-                    .graphicsLayer {
-                        alpha = contentAlpha
-                        scaleX = contentScale
-                        scaleY = contentScale
-                        transformOrigin = TransformOrigin(0.5f, 0f)
-                    },
+                modifier = Modifier.fillMaxWidth().wrapContentHeight(align = Alignment.Top, unbounded = true).onSizeChanged { size -> if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height }.graphicsLayer { alpha = contentAlpha; scaleX = contentScale; scaleY = contentScale; transformOrigin = TransformOrigin(0.5f, 0f) },
                 verticalArrangement = Arrangement.spacedBy(5.dp)
-            ) {
-                content()
-            }
+            ) { content() }
         }
     }
 }
@@ -453,9 +412,7 @@ private fun <T> SettingOptionGrid(items: List<T>, selected: T, label: (T) -> Str
                 val active = item == selected
                 val pop by animateFloatAsState(if (active) 1.014f else 1f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow), label = "setting-chip-pop")
                 PressableGlass(state.quality, state.glassIntensity * if (active) 1.04f else 0.90f, state.motionIntensity, 999, Modifier.weight(1f).height(34.dp).graphicsLayer { scaleX = pop; scaleY = pop }, if (active) GlassRole.Floating else GlassRole.Chip, onClick = { onSelected(item) }) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(label(item), color = Color.White.copy(alpha = if (active) 0.94f else 0.58f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                    }
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label(item), color = Color.White.copy(alpha = if (active) 0.94f else 0.58f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
                 }
             }
             if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -480,28 +437,23 @@ private fun LiquidSwitchRow(title: String, subtitle: String, checked: Boolean, s
 @Composable
 private fun LiquidSwitch(checked: Boolean, glow: Float) {
     val knobX by animateDpAsState(if (checked) 27.dp else 3.dp, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow), label = "liquid-switch-knob")
-    val knobScale by animateFloatAsState(if (checked) 1.05f else 0.95f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow), label = "liquid-switch-knob-scale")
     Box(Modifier.width(58.dp).height(32.dp).clip(RoundedCornerShape(999.dp)).liquidSwitchSkin(glow), contentAlignment = Alignment.CenterStart) {
-        Box(Modifier.offset(x = knobX).size(26.dp).graphicsLayer { scaleX = knobScale; scaleY = knobScale }.clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = if (checked) 0.96f else 0.78f)))
+        Box(Modifier.offset(x = knobX).size(26.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = if (checked) 0.96f else 0.78f)))
     }
 }
 
 @Composable
-private fun LiquidGlassSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
+private fun RecessedSettingSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(56.dp), GlassRole.Flex) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
+    RecessedGlass(modifier = Modifier.fillMaxWidth().height(58.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
+        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
     }
 }
 
 @Composable
-private fun DebugSliderRow(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
-    val clamped = value.coerceIn(range.start, range.endInclusive)
-    val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    Box(Modifier.fillMaxWidth().height(54.dp).debugRowSkin(percent)) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
-    }
+private fun DebugSliderRow(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
+    RecessedSettingSlider(title, subtitle, value, range, onValueChange)
 }
 
 @Composable
@@ -509,13 +461,26 @@ private fun SliderContent(title: String, subtitle: String, value: Float, range: 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, color = Color.White.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+            Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.82f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
         }
-        Box(Modifier.fillMaxWidth().height(20.dp).liquidSliderGlow(percent, 1f).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
-            Slider(value = value, onValueChange = onValueChange, valueRange = range, modifier = Modifier.fillMaxWidth().height(20.dp), colors = SliderDefaults.colors(thumbColor = Color.White.copy(alpha = 0.96f), activeTrackColor = Color(0xFF8DF9EA).copy(alpha = 0.56f), inactiveTrackColor = Color.White.copy(alpha = 0.16f), activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent))
+        Box(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
+            RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(14.dp))
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = range,
+                modifier = Modifier.fillMaxWidth().height(24.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White.copy(alpha = 0.96f),
+                    activeTrackColor = Color.Transparent,
+                    inactiveTrackColor = Color.Transparent,
+                    activeTickColor = Color.Transparent,
+                    inactiveTickColor = Color.Transparent
+                )
+            )
         }
     }
 }
@@ -568,19 +533,6 @@ private fun Modifier.liquidSwitchSkin(glow: Float): Modifier = drawWithCache {
     val base = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.18f + 0.10f * glow), Color(0xFF8DF9EA).copy(alpha = 0.12f * glow), Color.Black.copy(alpha = 0.10f)), start = Offset.Zero, end = Offset(size.width, size.height))
     val light = Brush.radialGradient(listOf(Color(0xFF8DF9EA).copy(alpha = 0.32f * glow), Color.Transparent), center = Offset(size.width * 0.70f, size.height * 0.45f), radius = size.width * 0.66f)
     onDrawWithContent { drawRoundRect(base, cornerRadius = CornerRadius(size.height / 2f, size.height / 2f), blendMode = BlendMode.Screen); if (glow > 0.01f) drawRoundRect(light, cornerRadius = CornerRadius(size.height / 2f, size.height / 2f), blendMode = BlendMode.Screen); drawContent() }
-}
-
-private fun Modifier.liquidSliderGlow(percent: Float, pulse: Float): Modifier = drawWithCache {
-    val center = Offset(size.width * percent.coerceIn(0f, 1f), size.height * 0.50f)
-    val brush = Brush.radialGradient(listOf(Color(0xFF8DF9EA).copy(alpha = 0.28f), Color.White.copy(alpha = 0.08f), Color.Transparent), center = center, radius = size.height * (1.05f + 0.12f * pulse))
-    onDrawWithContent { drawRect(brush, blendMode = BlendMode.Screen); drawContent() }
-}
-
-private fun Modifier.debugRowSkin(percent: Float): Modifier = drawWithCache {
-    val shape = CornerRadius(18.dp.toPx(), 18.dp.toPx())
-    val base = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.095f), Color.White.copy(alpha = 0.035f), Color.Black.copy(alpha = 0.055f)), start = Offset.Zero, end = Offset(size.width, size.height))
-    val glow = Brush.radialGradient(listOf(Color(0xFF8DF9EA).copy(alpha = 0.13f), Color.Transparent), center = Offset(size.width * percent.coerceIn(0f, 1f), size.height * 0.54f), radius = size.height * 1.2f)
-    onDrawWithContent { drawRoundRect(base, cornerRadius = shape, blendMode = BlendMode.Screen); drawRoundRect(glow, cornerRadius = shape, blendMode = BlendMode.Screen); drawContent() }
 }
 
 private fun debugGroupTitle(group: String): String = when (group) {
