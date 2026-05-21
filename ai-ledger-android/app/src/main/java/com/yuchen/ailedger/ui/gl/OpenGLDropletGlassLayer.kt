@@ -341,12 +341,19 @@ private class DropletRenderer {
         uploadPendingTextures()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
+        val drawW = max(cardW, viewW.toFloat())
+        val drawH = max(cardH, viewH.toFloat())
+        val drawRadius = if (drawW > drawH * 1.35f && radius > drawH * 0.5f) {
+            drawH * 0.5f
+        } else {
+            radius.coerceIn(2f, max(drawW, drawH))
+        }
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewW.toFloat(), viewH.toFloat())
         GLES20.glUniform2f(originHandle, originX, originY)
         GLES20.glUniform2f(rootHandle, rootW, rootH)
-        GLES20.glUniform4f(rectHandle, 0f, 0f, cardW, cardH)
-        GLES20.glUniform1f(radiusHandle, radius.coerceIn(2f, max(cardW, cardH)))
+        GLES20.glUniform4f(rectHandle, 0f, 0f, drawW, drawH)
+        GLES20.glUniform1f(radiusHandle, drawRadius)
         GLES20.glUniform1f(readyHandle, if (ready) 1f else 0f)
         GLES20.glUniform4f(shapeHandle, style.bodyBulgePx.coerceIn(-80f, 120f), style.edgePullPx.coerceIn(-160f, 180f), style.edgeWidthPx.coerceIn(2f, 72f), style.lensMix.coerceIn(0f, 1f))
         GLES20.glUniform4f(lightHandle, style.dragStrength.coerceIn(0f, 2.5f), style.bottomGlow.coerceIn(0f, 2.5f), style.topGloss.coerceIn(0f, 2.5f), style.cornerGloss.coerceIn(0f, 2.5f))
