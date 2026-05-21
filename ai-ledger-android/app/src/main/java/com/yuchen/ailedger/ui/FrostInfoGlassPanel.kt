@@ -50,12 +50,12 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var frostDimAlpha by rememberSaveable { mutableStateOf(0.00f) }
     var frostContentAlpha by rememberSaveable { mutableStateOf(1.00f) }
 
-    var insetRadius by rememberSaveable { mutableStateOf(20f) }
-    var insetInset by rememberSaveable { mutableStateOf(5.8f) }
-    var insetBackdropAlpha by rememberSaveable { mutableStateOf(0.86f) }
-    var insetRimHighlight by rememberSaveable { mutableStateOf(0.42f) }
-    var insetInnerShadow by rememberSaveable { mutableStateOf(0.64f) }
-    var insetFloorDim by rememberSaveable { mutableStateOf(0.30f) }
+    var insetRadius by rememberSaveable { mutableStateOf(18f) }
+    var insetInset by rememberSaveable { mutableStateOf(2.8f) }
+    var insetBackdropAlpha by rememberSaveable { mutableStateOf(0.82f) }
+    var insetRimHighlight by rememberSaveable { mutableStateOf(0.28f) }
+    var insetInnerShadow by rememberSaveable { mutableStateOf(0.48f) }
+    var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
 
     var dropletRadius by rememberSaveable { mutableStateOf(30f) }
     var dropletBackdropAlpha by rememberSaveable { mutableStateOf(0.88f) }
@@ -91,46 +91,44 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("文字透明度", "只影响预览内容，不影响材质", frostContentAlpha, 0.35f..1f) { frostContentAlpha = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("凹槽玻璃", "先铺一层固定平板玻璃，再在里面挖槽；滑块只调凹槽。")
-        InsetGlassPlate(modifier = Modifier.fillMaxWidth().height(126.dp)) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                InsetGlassSlot(
-                    radius = insetRadius,
-                    innerInset = insetInset,
-                    floorBackdropAlpha = insetBackdropAlpha,
-                    rimHighlightAlpha = insetRimHighlight,
-                    innerShadowAlpha = insetInnerShadow,
-                    floorDimAlpha = insetFloorDim,
-                    modifier = Modifier.fillMaxWidth().height(42.dp)
-                ) {
-                    Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("▸", color = Color.White.copy(alpha = 0.62f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                        InsetProgressBar(progress = 0.58f, modifier = Modifier.weight(1f).height(18.dp))
-                        Text("58", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-                    }
+        GlassLabMiniTitle("凹槽玻璃", "删除额外外层，只保留一层简洁下凹槽。")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+            InsetGlassSlot(
+                radius = insetRadius,
+                innerInset = insetInset,
+                floorBackdropAlpha = insetBackdropAlpha,
+                rimHighlightAlpha = insetRimHighlight,
+                innerShadowAlpha = insetInnerShadow,
+                floorDimAlpha = insetFloorDim,
+                modifier = Modifier.fillMaxWidth().height(38.dp)
+            ) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("▸", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    InsetProgressBar(progress = 0.58f, modifier = Modifier.weight(1f).height(12.dp))
+                    Text("58", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
                 }
-                InsetGlassSlot(
-                    radius = insetRadius,
-                    innerInset = insetInset,
-                    floorBackdropAlpha = insetBackdropAlpha,
-                    rimHighlightAlpha = insetRimHighlight,
-                    innerShadowAlpha = insetInnerShadow,
-                    floorDimAlpha = insetFloorDim,
-                    modifier = Modifier.fillMaxWidth().height(46.dp)
-                ) {
-                    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("向 AI 助理提问...", color = Color.White.copy(alpha = 0.42f), fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("↗", color = Color.White.copy(alpha = 0.34f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                    }
+            }
+            InsetGlassSlot(
+                radius = insetRadius,
+                innerInset = insetInset,
+                floorBackdropAlpha = insetBackdropAlpha,
+                rimHighlightAlpha = insetRimHighlight,
+                innerShadowAlpha = insetInnerShadow,
+                floorDimAlpha = insetFloorDim,
+                modifier = Modifier.fillMaxWidth().height(38.dp)
+            ) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("向 AI 助理提问...", color = Color.White.copy(alpha = 0.40f), fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("↗", color = Color.White.copy(alpha = 0.30f), fontSize = 13.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
-        GlassPanelSlider("槽圆角", "只控制凹槽洞口圆角", insetRadius, 10f..36f) { insetRadius = it }
-        GlassPanelSlider("凹槽内缩", "洞口到下沉底面的距离", insetInset, 1f..10f) { insetInset = it }
+        GlassPanelSlider("槽圆角", "只控制凹槽洞口圆角", insetRadius, 10f..32f) { insetRadius = it }
+        GlassPanelSlider("凹槽内缩", "洞口到下沉底面的距离", insetInset, 0.5f..7f) { insetInset = it }
         GlassPanelSlider("底部模糊层", "下沉底面的背景采样", insetBackdropAlpha, 0f..1f) { insetBackdropAlpha = it }
-        GlassPanelSlider("洞口高光", "凹槽外沿的细亮边", insetRimHighlight, 0f..0.80f) { insetRimHighlight = it }
-        GlassPanelSlider("内壁阴影", "洞口内侧压暗的厚度感", insetInnerShadow, 0f..1f) { insetInnerShadow = it }
-        GlassPanelSlider("底部压暗", "让凹槽底面和外侧平板分离", insetFloorDim, 0f..0.75f) { insetFloorDim = it }
+        GlassPanelSlider("洞口高光", "凹槽外沿的细亮边", insetRimHighlight, 0f..0.65f) { insetRimHighlight = it }
+        GlassPanelSlider("内壁阴影", "洞口内侧压暗的厚度感", insetInnerShadow, 0f..0.85f) { insetInnerShadow = it }
+        GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
         GlassLabMiniTitle("水滴玻璃", "暂时保留 Compose 预览，后续更适合接 OpenGL 透镜。")
@@ -172,58 +170,6 @@ fun FrostInfoGlassPanel(
 }
 
 @Composable
-private fun InsetGlassPlate(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val coordinates = remember { GlassCoordinateSource() }
-    val radius = 30f
-    val shape = RoundedCornerShape(radius.dp)
-
-    Box(
-        modifier = modifier
-            .onGloballyPositioned { coordinates.coordinates = it }
-            .clip(shape)
-    ) {
-        BackdropCrop(coordinateSource = coordinates, backdropAlpha = 0.74f, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.055f)))
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.055f)))
-        Canvas(Modifier.fillMaxSize()) {
-            val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.15f),
-                        Color.White.copy(alpha = 0.035f),
-                        Color.Black.copy(alpha = 0.10f)
-                    )
-                ),
-                cornerRadius = corner,
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.28f),
-                        Color.White.copy(alpha = 0.06f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.10f)
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, size.height)
-                ),
-                topLeft = Offset(0.9.dp.toPx(), 0.9.dp.toPx()),
-                size = Size(size.width - 1.8.dp.toPx(), size.height - 1.8.dp.toPx()),
-                cornerRadius = corner,
-                style = Stroke(width = 1.05.dp.toPx()),
-                blendMode = BlendMode.Screen
-            )
-        }
-        content()
-    }
-}
-
-@Composable
 private fun InsetGlassSlot(
     modifier: Modifier = Modifier,
     radius: Float,
@@ -236,8 +182,8 @@ private fun InsetGlassSlot(
 ) {
     val floorCoordinates = remember { GlassCoordinateSource() }
     val outerShape = RoundedCornerShape(radius.dp)
-    val safeInset = innerInset.coerceIn(0.5f, 12f)
-    val floorRadius = (radius - safeInset * 0.78f).coerceAtLeast(5f)
+    val safeInset = innerInset.coerceIn(0.5f, 9f)
+    val floorRadius = (radius - safeInset * 0.82f).coerceAtLeast(5f)
     val floorShape = RoundedCornerShape(floorRadius.dp)
 
     Box(modifier = modifier.clip(outerShape)) {
@@ -248,9 +194,9 @@ private fun InsetGlassSlot(
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.56f),
-                        Color(0xFF080D2C).copy(alpha = 0.42f),
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.18f)
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.48f),
+                        Color(0xFF070C29).copy(alpha = 0.34f),
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.12f)
                     )
                 ),
                 cornerRadius = outerCorner,
@@ -260,17 +206,17 @@ private fun InsetGlassSlot(
                 brush = Brush.linearGradient(
                     colors = listOf(
                         Color.White.copy(alpha = rimHighlightAlpha),
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.18f),
+                        Color.White.copy(alpha = rimHighlightAlpha * 0.14f),
                         Color.Transparent,
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.34f)
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.22f)
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(w, h)
                 ),
-                topLeft = Offset(0.9.dp.toPx(), 0.9.dp.toPx()),
-                size = Size(w - 1.8.dp.toPx(), h - 1.8.dp.toPx()),
+                topLeft = Offset(0.75.dp.toPx(), 0.75.dp.toPx()),
+                size = Size(w - 1.5.dp.toPx(), h - 1.5.dp.toPx()),
                 cornerRadius = outerCorner,
-                style = Stroke(width = 1.20.dp.toPx()),
+                style = Stroke(width = 0.95.dp.toPx()),
                 blendMode = BlendMode.Screen
             )
         }
@@ -287,14 +233,14 @@ private fun InsetGlassSlot(
                 backdropAlpha = floorBackdropAlpha.coerceIn(0f, 1f),
                 modifier = Modifier.fillMaxSize()
             )
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = floorDimAlpha.coerceIn(0f, 0.85f))))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = floorDimAlpha.coerceIn(0f, 0.75f))))
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = innerShadowAlpha * 0.24f),
+                            Color.Black.copy(alpha = innerShadowAlpha * 0.18f),
                             Color.Transparent,
-                            Color.White.copy(alpha = rimHighlightAlpha * 0.06f)
+                            Color.White.copy(alpha = rimHighlightAlpha * 0.04f)
                         )
                     )
                 )
@@ -310,29 +256,29 @@ private fun InsetGlassSlot(
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = innerShadowAlpha),
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.38f),
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.88f),
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.28f),
                         Color.Transparent
                     )
                 ),
                 topLeft = floorTopLeft,
                 size = floorSize,
                 cornerRadius = floorCorner,
-                style = Stroke(width = (safeInset * 1.05f).dp.toPx()),
+                style = Stroke(width = (safeInset * 0.86f).dp.toPx()),
                 blendMode = BlendMode.Multiply
             )
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.56f),
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.10f),
+                        Color.White.copy(alpha = rimHighlightAlpha * 0.40f),
+                        Color.White.copy(alpha = rimHighlightAlpha * 0.07f),
                         Color.Transparent
                     )
                 ),
-                topLeft = floorTopLeft + Offset(0.7.dp.toPx(), 0.7.dp.toPx()),
-                size = Size(floorSize.width - 1.4.dp.toPx(), floorSize.height - 1.4.dp.toPx()),
+                topLeft = floorTopLeft + Offset(0.55.dp.toPx(), 0.55.dp.toPx()),
+                size = Size(floorSize.width - 1.1.dp.toPx(), floorSize.height - 1.1.dp.toPx()),
                 cornerRadius = floorCorner,
-                style = Stroke(width = 0.78.dp.toPx()),
+                style = Stroke(width = 0.60.dp.toPx()),
                 blendMode = BlendMode.Screen
             )
         }
@@ -346,35 +292,20 @@ private fun InsetProgressBar(progress: Float, modifier: Modifier = Modifier) {
             val p = progress.coerceIn(0f, 1f)
             val radius = size.height / 2f
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.10f),
+                color = Color.White.copy(alpha = 0.09f),
                 cornerRadius = CornerRadius(radius, radius),
                 blendMode = BlendMode.SrcOver
             )
             drawRoundRect(
                 brush = Brush.horizontalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.34f),
-                        Color(0xFF8DF9EA).copy(alpha = 0.26f),
-                        Color.White.copy(alpha = 0.14f)
+                        Color.White.copy(alpha = 0.28f),
+                        Color(0xFF8DF9EA).copy(alpha = 0.20f),
+                        Color.White.copy(alpha = 0.12f)
                     )
                 ),
                 size = Size(size.width * p, size.height),
                 cornerRadius = CornerRadius(radius, radius),
-                blendMode = BlendMode.Screen
-            )
-            val beadX = (size.width * p).coerceIn(radius, size.width - radius)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.72f),
-                        Color(0xFFBEEFFF).copy(alpha = 0.38f),
-                        Color(0xFF18204C).copy(alpha = 0.20f)
-                    ),
-                    center = Offset(beadX - radius * 0.25f, size.height * 0.28f),
-                    radius = size.height * 1.10f
-                ),
-                radius = size.height * 0.68f,
-                center = Offset(beadX, size.height / 2f),
                 blendMode = BlendMode.Screen
             )
         }
