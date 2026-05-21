@@ -41,7 +41,8 @@ data class DropletGlassStyle(
     val topGloss: Float = 0.22f,
     val cornerGloss: Float = 0.30f,
     val innerDark: Float = 0.18f,
-    val alpha: Float = 0.72f
+    val alpha: Float = 0.72f,
+    val debugMaskAlpha: Float = 0f
 )
 
 @Composable
@@ -349,7 +350,7 @@ private class DropletRenderer {
         GLES20.glUniform1f(readyHandle, if (ready) 1f else 0f)
         GLES20.glUniform4f(shapeHandle, style.bodyBulgePx.coerceIn(-80f, 120f), style.edgePullPx.coerceIn(-160f, 180f), style.edgeWidthPx.coerceIn(2f, 72f), style.lensMix.coerceIn(0f, 1f))
         GLES20.glUniform4f(lightHandle, style.dragStrength.coerceIn(0f, 2.5f), style.bottomGlow.coerceIn(0f, 2.5f), style.topGloss.coerceIn(0f, 2.5f), style.cornerGloss.coerceIn(0f, 2.5f))
-        GLES20.glUniform4f(alphaHandle, style.innerDark.coerceIn(0f, 1.5f), style.alpha.coerceIn(0f, 1f), 0f, 0f)
+        GLES20.glUniform4f(alphaHandle, style.innerDark.coerceIn(0f, 1.5f), style.alpha.coerceIn(0f, 1f), style.debugMaskAlpha.coerceIn(0f, 1f), 0f)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
         GLES20.glUniform1i(blurHandle, 0)
@@ -487,6 +488,12 @@ private class DropletRenderer {
                 float sd = capsuleSdf(coord, size, radius);
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
+                if (uAlpha.z > 0.001) {
+                    vec2 uvDebug = coord / max(size, vec2(1.0));
+                    vec3 debugColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.25, 0.95), uvDebug.x);
+                    gl_FragColor = vec4(debugColor, uAlpha.z * mask);
+                    return;
+                }
 
                 vec2 center = size * 0.5;
                 float halfLine = max(size.x * 0.5 - radius, 0.0);
