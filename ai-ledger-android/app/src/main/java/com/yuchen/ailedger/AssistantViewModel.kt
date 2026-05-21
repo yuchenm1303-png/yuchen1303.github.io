@@ -312,16 +312,19 @@ class AssistantViewModel(
     }
 
     fun selectQuality(quality: RenderQuality) {
+        if (quality == uiState.quality) return
         uiState = uiState.copy(quality = quality)
         viewModelScope.launch { preferencesStore.setRenderQuality(quality) }
     }
 
     fun setShowPreviewConversation(showPreviewConversation: Boolean) {
+        if (showPreviewConversation == uiState.showPreviewConversation) return
         uiState = uiState.copy(showPreviewConversation = showPreviewConversation)
         viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) }
     }
 
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
+        if (backgroundTheme == uiState.backgroundTheme && uiState.customBackgroundPath == null) return
         uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = null)
         viewModelScope.launch {
             preferencesStore.setBackgroundTheme(backgroundTheme)
@@ -346,6 +349,7 @@ class AssistantViewModel(
     }
 
     fun setBackdropDebugParams(params: BackdropDebugParams) {
+        if (params == uiState.backdropParams) return
         uiState = uiState.copy(backdropParams = params)
     }
 
@@ -354,6 +358,7 @@ class AssistantViewModel(
     }
 
     fun setGlassBorderStyle(style: GlassBorderStyle) {
+        if (style == uiState.glassBorderStyle) return
         uiState = uiState.copy(glassBorderStyle = style)
     }
 
@@ -363,17 +368,27 @@ class AssistantViewModel(
 
     fun setGlassIntensity(value: Float) {
         val clamped = value.coerceIn(0.6f, 1.4f)
-        uiState = uiState.copy(glassIntensity = clamped, glassPreset = detectPreset(clamped, uiState.motionIntensity))
+        val preset = detectPreset(clamped, uiState.motionIntensity)
+        if (clamped == uiState.glassIntensity && preset == uiState.glassPreset) return
+        uiState = uiState.copy(glassIntensity = clamped, glassPreset = preset)
         viewModelScope.launch { preferencesStore.setGlassIntensity(clamped) }
     }
 
     fun setMotionIntensity(value: Float) {
         val clamped = value.coerceIn(0f, 1.4f)
-        uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped))
+        val preset = detectPreset(uiState.glassIntensity, clamped)
+        if (clamped == uiState.motionIntensity && preset == uiState.glassPreset) return
+        uiState = uiState.copy(motionIntensity = clamped, glassPreset = preset)
         viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) }
     }
 
     fun setGlassPreset(preset: GlassPreset) {
+        if (preset == uiState.glassPreset &&
+            preset.glassIntensity == uiState.glassIntensity &&
+            preset.motionIntensity == uiState.motionIntensity
+        ) {
+            return
+        }
         uiState = uiState.copy(
             glassPreset = preset,
             glassIntensity = preset.glassIntensity,

@@ -61,7 +61,8 @@ fun rememberBlurredBackdropBitmap(
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
-    val key = params.cacheKey()
+    val effectiveParams = params.effectiveBitmapParams()
+    val key = effectiveParams.cacheKey()
     val customKey = customBackgroundPath?.let { path ->
         val file = File(path)
         if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$path"
@@ -77,7 +78,7 @@ fun rememberBlurredBackdropBitmap(
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
-                    params = params.quantized(),
+                    params = effectiveParams,
                     customBackgroundPath = customBackgroundPath
                 )
             }.getOrNull()
@@ -120,6 +121,18 @@ private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
     moonHaloAlpha = moonHaloAlpha.round2(),
     moonRimAlpha = moonRimAlpha.round2()
 )
+
+private fun BackdropDebugParams.effectiveBitmapParams(): BackdropDebugParams {
+    val quantized = quantized()
+    return quantized.copy(
+        scale = quantized.scale.coerceIn(0.14f, 0.42f).round2(),
+        radius = quantized.radius.roundToInt().coerceIn(1, 18).toFloat(),
+        iterations = quantized.iterations.roundToInt().coerceIn(1, 3).toFloat(),
+        brightness = quantized.brightness.coerceIn(0.70f, 1.35f).round2(),
+        contrast = quantized.contrast.coerceIn(0.70f, 1.35f).round2(),
+        saturation = quantized.saturation.coerceIn(0.50f, 1.60f).round2()
+    )
+}
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
 

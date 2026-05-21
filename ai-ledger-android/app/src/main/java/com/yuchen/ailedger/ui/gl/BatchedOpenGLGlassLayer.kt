@@ -17,7 +17,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -129,6 +131,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
+    val drawItemsScratch = remember { ArrayList<DrawItem>(32) }
     ticker?.frameNanos
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -136,26 +139,40 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier = modifier) {
         val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
         val viewportH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-        val items = registry?.snapshot().orEmpty().mapNotNull { item ->
-            if (!item.coordinates.isAttached()) return@mapNotNull null
-            val size = item.coordinates.itemSize()
-            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
-            val topLeft = item.coordinates.rootOffset()
-            val sample = item.coordinates.offsetRelativeTo(origin)
-            DrawItem(
-                left = topLeft.x,
-                top = topLeft.y,
-                width = size.width.toFloat(),
-                height = size.height.toFloat(),
-                originX = sample.x,
-                originY = sample.y,
-                radiusPx = with(density) { item.radius.dp.toPx() },
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
-                zIndex = item.zIndex
-            )
-        }.filter { item ->
-            item.left < viewportW && item.top < viewportH && item.left + item.width > 0f && item.top + item.height > 0f
-        }.sortedBy { it.zIndex }
+        val originRoot = origin?.rootOffset() ?: Offset.Zero
+        val items = drawItemsScratch.apply {
+            clear()
+            registry?.snapshot().orEmpty().forEach { item ->
+                if (!item.coordinates.isAttached()) return@forEach
+                val size = item.coordinates.itemSize()
+                if (size.width <= 0 || size.height <= 0) return@forEach
+                val topLeft = item.coordinates.rootOffset()
+                val width = size.width.toFloat()
+                val height = size.height.toFloat()
+                if (topLeft.x >= viewportW ||
+                    topLeft.y >= viewportH ||
+                    topLeft.x + width <= 0f ||
+                    topLeft.y + height <= 0f
+                ) {
+                    return@forEach
+                }
+                val sample = topLeft - originRoot
+                add(
+                    DrawItem(
+                        left = topLeft.x,
+                        top = topLeft.y,
+                        width = width,
+                        height = height,
+                        originX = sample.x,
+                        originY = sample.y,
+                        radiusPx = with(density) { item.radius.dp.toPx() },
+                        intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
+                        zIndex = item.zIndex
+                    )
+                )
+            }
+            if (size > 1) sortBy { it.zIndex }
+        }
 
         AndroidView(
             modifier = Modifier.matchParentSize(),
@@ -218,11 +235,12 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         val signature = next.fastSignature(rootW, rootH)
         val dirty = signature != lastItemSignature
         if (dirty) {
-            items = next
+            val stableItems = next.toList()
+            items = stableItems
             this.rootW = rootW.coerceAtLeast(1f)
             this.rootH = rootH.coerceAtLeast(1f)
             lastItemSignature = signature
-            thread?.setItems(next, this.rootW, this.rootH)
+            thread?.setItems(stableItems, this.rootW, this.rootH)
         }
         return dirty
     }
@@ -490,7 +508,11 @@ private class BatchedOpenGlGlassRenderer {
         val t = 1f - item.top / viewportH.toFloat() * 2f
         val b = 1f - (item.top + item.height) / viewportH.toFloat() * 2f
         vertices.clear()
-        vertices.put(floatArrayOf(l, b, r, b, l, t, r, t))
+        vertices
+            .put(l).put(b)
+            .put(r).put(b)
+            .put(l).put(t)
+            .put(r).put(t)
         vertices.position(0)
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
@@ -580,7 +602,11 @@ private class BatchedOpenGlGlassRenderer {
         """
 
         const val FRAGMENT_SHADER = """
+            #ifdef GL_FRAGMENT_PRECISION_HIGH
+            precision highp float;
+            #else
             precision mediump float;
+            #endif
             uniform vec2 uResolution;
             uniform vec2 uCardOrigin;
             uniform vec2 uRootResolution;
