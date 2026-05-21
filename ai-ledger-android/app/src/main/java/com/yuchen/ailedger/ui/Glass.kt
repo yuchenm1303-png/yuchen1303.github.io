@@ -166,9 +166,12 @@ fun GlassPanel(
                 )
             )
         }
-    }
-    DisposableEffect(registry, key, useUnifiedBackdrop) {
-        onDispose { registry?.remove(key) }
+        DisposableEffect(registry, key) {
+            onDispose {
+                registry?.remove(key)
+                coordinates.coordinates = null
+            }
+        }
     }
 
     Box(
@@ -297,9 +300,12 @@ fun PressableGlass(
                 )
             )
         }
-    }
-    DisposableEffect(registry, key, useUnifiedBackdrop) {
-        onDispose { registry?.remove(key) }
+        DisposableEffect(registry, key) {
+            onDispose {
+                registry?.remove(key)
+                coordinates.coordinates = null
+            }
+        }
     }
 
     Box(

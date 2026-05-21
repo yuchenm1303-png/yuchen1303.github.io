@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Matrix as AndroidMatrix
 import android.graphics.Paint as AndroidPaint
@@ -10,6 +11,7 @@ import android.os.Build
 import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -43,6 +45,68 @@ private const val SHADER_DIAGNOSTIC_TINT = 1.0f
 @Volatile
 private var hasLoggedShaderLensFailure = false
 
+private class GlassLensShaderCache {
+    private var blurBitmap: Bitmap? = null
+    private var lensBitmap: Bitmap? = null
+    private var shader: Any? = null
+    private var cachedPaint: AndroidPaint? = null
+
+    @SuppressLint("NewApi")
+    fun configuredPaint(
+        backdrop: BlurredBackdropBitmap,
+        itemRect: Rect,
+        sampleOffset: Offset,
+        radius: Float,
+        edgeWidth: Float,
+        edgePull: Float,
+        edgeAlpha: Float,
+        border: GlassBorderStyle
+    ): AndroidPaint {
+        val nextBlurBitmap = backdrop.image.asAndroidBitmap()
+        val nextLensBitmap = backdrop.lensImage.asAndroidBitmap()
+        val currentShader = shader as? RuntimeShader
+        val lensShader = if (currentShader != null && blurBitmap === nextBlurBitmap && lensBitmap === nextLensBitmap) {
+            currentShader
+        } else {
+            RuntimeShader(GLASS_LENS_SHADER).apply {
+                setInputShader("backdropBlur", BitmapShader(nextBlurBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+                setInputShader("backdropLens", BitmapShader(nextLensBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+                setFloatUniform("lensMix", SOFT_LENS_DETAIL_MIX)
+                setFloatUniform("bandStrength", LENS_BAND_STRENGTH)
+                setFloatUniform("diagnosticTint", SHADER_DIAGNOSTIC_TINT)
+            }.also { nextShader ->
+                blurBitmap = nextBlurBitmap
+                lensBitmap = nextLensBitmap
+                shader = nextShader
+                cachedPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
+                    this.shader = nextShader
+                    isDither = true
+                }
+            }
+        }
+
+        lensShader.setFloatUniform("itemPos", itemRect.left, itemRect.top)
+        lensShader.setFloatUniform("itemSize", itemRect.width, itemRect.height)
+        lensShader.setFloatUniform("sampleOffset", sampleOffset.x, sampleOffset.y)
+        lensShader.setFloatUniform("backdropScale", backdrop.scale)
+        lensShader.setFloatUniform("radius", radius)
+        lensShader.setFloatUniform("edgeWidth", edgeWidth)
+        lensShader.setFloatUniform("edgePull", edgePull)
+        lensShader.setFloatUniform("edgeAlpha", edgeAlpha)
+        lensShader.setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.95f))
+        lensShader.setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.25f))
+        lensShader.setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
+        return cachedPaint ?: error("Glass lens shader paint requested before shader initialization.")
+    }
+
+    fun clear() {
+        blurBitmap = null
+        lensBitmap = null
+        shader = null
+        cachedPaint = null
+    }
+}
+
 @Composable
 fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     val registry = LocalGlassItemRegistry.current
@@ -50,13 +114,19 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val spec = LocalGlassBackdrop.current
+    val registryVersion = registry?.version ?: 0L
+    val shaderCache = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) GlassLensShaderCache() else null
+    }
 
     Canvas(modifier = modifier) {
+        registryVersion
         ticker?.frameNanos
         val cached = backdrop ?: return@Canvas
         val border = spec?.borderStyle ?: GlassBorderStyle()
         val screen = Rect(0f, 0f, size.width, size.height)
-        registry?.snapshot().orEmpty().forEach { item ->
+        val items = registry?.snapshot() ?: return@Canvas
+        items.forEach { item ->
             if (!item.coordinates.isAttached()) return@forEach
             val itemSize = item.coordinates.itemSize()
             if (itemSize.width <= 0 || itemSize.height <= 0) return@forEach
@@ -64,9 +134,11 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
             val rect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
             val visible = rect.intersectionOrNull(screen) ?: return@forEach
             val sampleOffset = item.coordinates.offsetRelativeTo(origin)
-            drawGlassBody(cached, rect, visible, sampleOffset, item.radius, item.quality, item.glassIntensity, item.backdropAlpha, border)
-            drawContinuousLens(cached, rect, visible, sampleOffset, item.radius, border, item.edgeStrength)
-            drawGlassHighlights(rect, item.radius, border)
+            val corner = item.radius.dp.toPx()
+            val itemPath = Path().apply { addRoundRect(RoundRect(rect, CornerRadius(corner, corner))) }
+            drawGlassBody(cached, rect, visible, sampleOffset, itemPath, item.quality, item.glassIntensity, item.backdropAlpha, border)
+            drawContinuousLens(cached, rect, visible, sampleOffset, corner, itemPath, border, item.edgeStrength, shaderCache)
+            drawGlassHighlights(rect, corner, border)
         }
     }
 }
@@ -84,13 +156,12 @@ private fun DrawScope.drawGlassBody(
     itemRect: Rect,
     visibleRect: Rect,
     sampleOffset: Offset,
-    radius: Int,
+    itemPath: Path,
     quality: RenderQuality,
     glassIntensity: Float,
     backdropAlpha: Float,
     border: GlassBorderStyle
 ) {
-    val corner = radius.dp.toPx()
     val bodyScale = (border.bodyAlpha / 0.20f).coerceIn(0.35f, 2.20f)
     val alpha = (glassIntensity * bodyScale).coerceIn(0.12f, 1.25f)
     val base = when (quality) {
@@ -103,8 +174,7 @@ private fun DrawScope.drawGlassBody(
         RenderQuality.Balanced -> 0.052f
         RenderQuality.Experimental -> 0.064f
     } * alpha
-    val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
-    clipPath(path) {
+    clipPath(itemPath) {
         drawBackdropBodyImage(
             backdrop = backdrop,
             itemRect = itemRect,
@@ -165,22 +235,22 @@ private fun DrawScope.drawContinuousLens(
     itemRect: Rect,
     visibleRect: Rect,
     sampleOffset: Offset,
-    radius: Int,
+    corner: Float,
+    itemPath: Path,
     border: GlassBorderStyle,
-    strength: Float
+    strength: Float,
+    shaderCache: GlassLensShaderCache?
 ) {
     val w = itemRect.width
     val h = itemRect.height
     if (w <= 4f || h <= 4f) return
-    val corner = radius.dp.toPx()
     val edgeWidth = (border.ringWidthDp.dp.toPx() + border.edgeBlurDp.dp.toPx() * 0.38f).coerceIn(6.dp.toPx(), min(w, h) * 0.40f)
     val edgePull = border.edgePullDp.dp.toPx().coerceIn(0f, min(w, h) * 1.08f)
     val edgeAlpha = (border.edgeAlpha * (0.58f + strength * 0.42f) * border.edgeBrightness.coerceIn(0.72f, 1.25f)).coerceIn(0f, 0.86f)
     if (edgeAlpha <= 0.01f || edgePull <= 0.5f) return
-    val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
-    clipPath(path) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (drawShaderLens(backdrop, itemRect, visibleRect, sampleOffset, corner, edgeWidth, edgePull, edgeAlpha, border)) return@clipPath
+    clipPath(itemPath) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shaderCache != null) {
+            if (drawShaderLens(backdrop, itemRect, visibleRect, sampleOffset, corner, edgeWidth, edgePull, edgeAlpha, border, shaderCache)) return@clipPath
         }
         drawFallbackLens(backdrop, itemRect, visibleRect, sampleOffset, edgePull * 0.28f, edgeAlpha * 0.40f)
     }
@@ -196,37 +266,18 @@ private fun DrawScope.drawShaderLens(
     edgeWidth: Float,
     edgePull: Float,
     edgeAlpha: Float,
-    border: GlassBorderStyle
+    border: GlassBorderStyle,
+    shaderCache: GlassLensShaderCache
 ): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
     return runCatching {
-        val lensShader = RuntimeShader(GLASS_LENS_SHADER).apply {
-            setInputShader("backdropBlur", BitmapShader(backdrop.image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
-            setInputShader("backdropLens", BitmapShader(backdrop.lensImage.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
-            setFloatUniform("itemPos", itemRect.left, itemRect.top)
-            setFloatUniform("itemSize", itemRect.width, itemRect.height)
-            setFloatUniform("sampleOffset", sampleOffset.x, sampleOffset.y)
-            setFloatUniform("backdropScale", backdrop.scale)
-            setFloatUniform("radius", radius)
-            setFloatUniform("edgeWidth", edgeWidth)
-            setFloatUniform("edgePull", edgePull)
-            setFloatUniform("edgeAlpha", edgeAlpha)
-            setFloatUniform("edgeContrast", border.edgeContrast.coerceIn(0.70f, 1.95f))
-            setFloatUniform("edgeSaturation", border.edgeSaturation.coerceIn(0.60f, 2.25f))
-            setFloatUniform("edgeBrightness", border.edgeBrightness.coerceIn(0.60f, 1.60f))
-            setFloatUniform("lensMix", SOFT_LENS_DETAIL_MIX)
-            setFloatUniform("bandStrength", LENS_BAND_STRENGTH)
-            setFloatUniform("diagnosticTint", SHADER_DIAGNOSTIC_TINT)
-        }
-        val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG).apply {
-            shader = lensShader
-            isDither = true
-        }
+        val paint = shaderCache.configuredPaint(backdrop, itemRect, sampleOffset, radius, edgeWidth, edgePull, edgeAlpha, border)
         drawIntoCanvas { canvas ->
             canvas.nativeCanvas.drawRect(visibleRect.left, visibleRect.top, visibleRect.right, visibleRect.bottom, paint)
         }
         true
     }.onFailure { error ->
+        shaderCache.clear()
         if (!hasLoggedShaderLensFailure) {
             hasLoggedShaderLensFailure = true
             Log.w(GLASS_LENS_TAG, "RuntimeShader lens failed; falling back to bitmap stretch lens.", error)
@@ -261,10 +312,9 @@ private fun DrawScope.drawFallbackLens(
     drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.34f), blendMode = BlendMode.SrcOver)
 }
 
-private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: GlassBorderStyle) {
+private fun DrawScope.drawGlassHighlights(itemRect: Rect, corner: Float, border: GlassBorderStyle) {
     val w = itemRect.width
     val h = itemRect.height
-    val corner = radius.dp.toPx()
     fun p(x: Float, y: Float) = Offset(itemRect.left + x, itemRect.top + y)
     fun s(width: Float, height: Float) = Size(width, height)
     drawRoundRect(

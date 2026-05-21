@@ -68,16 +68,33 @@ data class GlassRenderItem(
 
 class GlassItemRegistry {
     private val items = linkedMapOf<Any, GlassRenderItem>()
+    private var cachedSnapshot: List<GlassRenderItem> = emptyList()
+    private var dirty = false
+
+    var version by mutableLongStateOf(0L)
+        private set
 
     fun upsert(item: GlassRenderItem) {
+        if (items[item.key] == item) return
         items[item.key] = item
+        dirty = true
+        version += 1L
     }
 
     fun remove(key: Any) {
-        items.remove(key)
+        if (items.remove(key) != null) {
+            dirty = true
+            version += 1L
+        }
     }
 
-    fun snapshot(): List<GlassRenderItem> = items.values.toList()
+    fun snapshot(): List<GlassRenderItem> {
+        if (dirty) {
+            cachedSnapshot = items.values.toList()
+            dirty = false
+        }
+        return cachedSnapshot
+    }
 }
 
 val LocalBackdropOrigin = compositionLocalOf<BackdropCoordinateSource?> { null }
