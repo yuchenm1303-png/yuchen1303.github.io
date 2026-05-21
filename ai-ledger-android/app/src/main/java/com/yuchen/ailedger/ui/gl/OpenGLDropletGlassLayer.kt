@@ -56,7 +56,14 @@ data class DropletGlassStyle(
     val cornerGloss: Float = 0.30f,
     val innerDark: Float = 0.18f,
     val alpha: Float = 0.72f,
-    val debugMaskAlpha: Float = 0f
+    val debugMaskAlpha: Float = 0f,
+    val activeGlow: Float = 0.62f,
+    val accentRed: Float = 0.52f,
+    val accentGreen: Float = 0.78f,
+    val accentBlue: Float = 1.00f,
+    val warmRed: Float = 1.00f,
+    val warmGreen: Float = 0.45f,
+    val warmBlue: Float = 0.78f
 )
 
 data class DropletDebugMetrics(
@@ -95,11 +102,7 @@ fun OpenGLDropletGlassLayer(
     var debugMetrics by remember { mutableStateOf(DropletDebugMetrics()) }
     val showDebugMetrics = style.debugMaskAlpha > 0.001f
 
-    Box(
-        modifier = modifier.onSizeChanged { size ->
-            if (size.width > 0 && size.height > 0 && size != renderSize) renderSize = size
-        }
-    ) {
+    Box(modifier = modifier.onSizeChanged { size -> if (size.width > 0 && size.height > 0 && size != renderSize) renderSize = size }) {
         AndroidView(
             modifier = Modifier.matchParentSize(),
             factory = { OpenGLDropletTextureView(it) },
@@ -122,11 +125,7 @@ fun OpenGLDropletGlassLayer(
                 fontSize = 8.sp,
                 lineHeight = 9.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.56f), RoundedCornerShape(7.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                modifier = Modifier.align(Alignment.TopStart).padding(4.dp).background(Color.Black.copy(alpha = 0.56f), RoundedCornerShape(7.dp)).padding(horizontal = 6.dp, vertical = 4.dp)
             )
         }
     }
@@ -227,13 +226,7 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
         val h = renderH.takeIf { it > 1 } ?: surfaceH
         surfaceTexture.setDefaultBufferSize(w, h)
         reportDebugMetrics()
-        thread = DropletEglThread(Surface(surfaceTexture), w, h) { ew, eh ->
-            post {
-                eglW = ew
-                eglH = eh
-                reportDebugMetrics()
-            }
-        }.also {
+        thread = DropletEglThread(Surface(surfaceTexture), w, h) { ew, eh -> post { eglW = ew; eglH = eh; reportDebugMetrics() } }.also {
             it.setBounds(w, h, radiusPx)
             it.setSampling(originX, originY, rootW, rootH)
             it.setStyle(style)
@@ -263,19 +256,7 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
 
     private fun reportDebugMetrics() {
-        val metrics = DropletDebugMetrics(
-            composeW = composeW,
-            composeH = composeH,
-            viewW = width,
-            viewH = height,
-            renderW = renderW,
-            renderH = renderH,
-            surfaceW = surfaceW,
-            surfaceH = surfaceH,
-            eglW = eglW,
-            eglH = eglH,
-            radiusPx = radiusPx.roundToInt()
-        )
+        val metrics = DropletDebugMetrics(composeW, composeH, width, height, renderW, renderH, surfaceW, surfaceH, eglW, eglH, radiusPx.roundToInt())
         if (metrics != lastDebugMetrics) {
             lastDebugMetrics = metrics
             post { onDebugMetrics?.invoke(metrics) }
@@ -312,17 +293,8 @@ private class DropletEglThread(
     fun setTextures(blur: Bitmap, lens: Bitmap) = renderer.setTextures(blur, lens)
     fun setStyle(style: DropletGlassStyle) = renderer.setStyle(style)
 
-    fun requestRender() {
-        synchronized(lock) {
-            pending = true
-            lock.notifyAll()
-        }
-    }
-
-    fun shutdown() {
-        running = false
-        requestRender()
-    }
+    fun requestRender() { synchronized(lock) { pending = true; lock.notifyAll() } }
+    fun shutdown() { running = false; requestRender() }
 
     override fun run() {
         try {
@@ -332,16 +304,9 @@ private class DropletEglThread(
             notifyEglSurfaceSize()
             sizeDirty = false
             while (running) {
-                synchronized(lock) {
-                    while (!pending && running) lock.wait()
-                    pending = false
-                }
+                synchronized(lock) { while (!pending && running) lock.wait(); pending = false }
                 if (!running) break
-                if (sizeDirty) {
-                    renderer.onSurfaceChanged(viewportW, viewportH)
-                    notifyEglSurfaceSize()
-                    sizeDirty = false
-                }
+                if (sizeDirty) { renderer.onSurfaceChanged(viewportW, viewportH); notifyEglSurfaceSize(); sizeDirty = false }
                 renderer.onDrawFrame()
                 EGL14.eglSwapBuffers(display, eglSurface)
             }
@@ -357,17 +322,7 @@ private class DropletEglThread(
         check(display != EGL14.EGL_NO_DISPLAY) { "Unable to get EGL display" }
         val version = IntArray(2)
         check(EGL14.eglInitialize(display, version, 0, version, 1)) { "Unable to initialize EGL" }
-        val attrs = intArrayOf(
-            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
-            EGL14.EGL_RED_SIZE, 8,
-            EGL14.EGL_GREEN_SIZE, 8,
-            EGL14.EGL_BLUE_SIZE, 8,
-            EGL14.EGL_ALPHA_SIZE, 8,
-            EGL14.EGL_DEPTH_SIZE, 0,
-            EGL14.EGL_STENCIL_SIZE, 0,
-            EGL14.EGL_NONE
-        )
+        val attrs = intArrayOf(EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT, EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8, EGL14.EGL_DEPTH_SIZE, 0, EGL14.EGL_STENCIL_SIZE, 0, EGL14.EGL_NONE)
         val configs = arrayOfNulls<EGLConfig>(1)
         val count = IntArray(1)
         check(EGL14.eglChooseConfig(display, attrs, 0, configs, 0, configs.size, count, 0)) { "Unable to choose EGL config" }
@@ -403,10 +358,7 @@ private class DropletEglThread(
 }
 
 private class DropletRenderer {
-    private val vertices: FloatBuffer = ByteBuffer.allocateDirect(8 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
-        put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
-        position(0)
-    }
+    private val vertices: FloatBuffer = ByteBuffer.allocateDirect(8 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)); position(0) }
     private val textureLock = Any()
     private var pendingBlur: Bitmap? = null
     private var pendingLens: Bitmap? = null
@@ -433,6 +385,9 @@ private class DropletRenderer {
     private var shapeHandle = 0
     private var lightHandle = 0
     private var alphaHandle = 0
+    private var selectedHandle = 0
+    private var accentHandle = 0
+    private var warmHandle = 0
     private var blurHandle = 0
     private var lensHandle = 0
 
@@ -452,6 +407,9 @@ private class DropletRenderer {
         shapeHandle = GLES20.glGetUniformLocation(program, "uShape")
         lightHandle = GLES20.glGetUniformLocation(program, "uLight")
         alphaHandle = GLES20.glGetUniformLocation(program, "uAlpha")
+        selectedHandle = GLES20.glGetUniformLocation(program, "uSelected")
+        accentHandle = GLES20.glGetUniformLocation(program, "uAccentColor")
+        warmHandle = GLES20.glGetUniformLocation(program, "uWarmColor")
         blurHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
         lensHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         val textures = IntArray(2)
@@ -484,6 +442,9 @@ private class DropletRenderer {
         GLES20.glUniform4f(shapeHandle, style.bodyBulgePx.coerceIn(-80f, 120f), style.edgePullPx.coerceIn(-160f, 180f), style.edgeWidthPx.coerceIn(2f, 72f), style.lensMix.coerceIn(0f, 1f))
         GLES20.glUniform4f(lightHandle, style.dragStrength.coerceIn(0f, 2.5f), style.bottomGlow.coerceIn(0f, 2.5f), style.topGloss.coerceIn(0f, 2.5f), style.cornerGloss.coerceIn(0f, 2.5f))
         GLES20.glUniform4f(alphaHandle, style.innerDark.coerceIn(0f, 1.5f), style.alpha.coerceIn(0f, 1f), style.debugMaskAlpha.coerceIn(0f, 1f), 0f)
+        GLES20.glUniform1f(selectedHandle, style.activeGlow.coerceIn(0f, 2f))
+        GLES20.glUniform3f(accentHandle, style.accentRed.coerceIn(0f, 1f), style.accentGreen.coerceIn(0f, 1f), style.accentBlue.coerceIn(0f, 1f))
+        GLES20.glUniform3f(warmHandle, style.warmRed.coerceIn(0f, 1f), style.warmGreen.coerceIn(0f, 1f), style.warmBlue.coerceIn(0f, 1f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
         GLES20.glUniform1i(blurHandle, 0)
@@ -497,10 +458,7 @@ private class DropletRenderer {
         GLES20.glDisableVertexAttribArray(positionHandle)
     }
 
-    fun onRelease() {
-        val textures = intArrayOf(blurTex, lensTex)
-        if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, textures, 0)
-    }
+    fun onRelease() { if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, intArrayOf(blurTex, lensTex), 0) }
 
     private fun uploadPendingTextures() {
         val pair = synchronized(textureLock) { pendingBlur to pendingLens }
@@ -537,11 +495,7 @@ private class DropletRenderer {
         GLES20.glLinkProgram(p)
         val ok = IntArray(1)
         GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, ok, 0)
-        if (ok[0] == 0) {
-            val log = GLES20.glGetProgramInfoLog(p)
-            GLES20.glDeleteProgram(p)
-            error("OpenGL droplet program link failed: $log")
-        }
+        if (ok[0] == 0) { val log = GLES20.glGetProgramInfoLog(p); GLES20.glDeleteProgram(p); error("OpenGL droplet program link failed: $log") }
         GLES20.glDeleteShader(vs)
         GLES20.glDeleteShader(fs)
         return p
@@ -553,11 +507,7 @@ private class DropletRenderer {
         GLES20.glCompileShader(s)
         val ok = IntArray(1)
         GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, ok, 0)
-        if (ok[0] == 0) {
-            val log = GLES20.glGetShaderInfoLog(s)
-            GLES20.glDeleteShader(s)
-            error("OpenGL droplet shader compile failed: $log")
-        }
+        if (ok[0] == 0) { val log = GLES20.glGetShaderInfoLog(s); GLES20.glDeleteShader(s); error("OpenGL droplet shader compile failed: $log") }
         return s
     }
 
@@ -577,11 +527,12 @@ private class DropletRenderer {
             uniform vec4 uShape;
             uniform vec4 uLight;
             uniform vec4 uAlpha;
+            uniform float uSelected;
+            uniform vec3 uAccentColor;
+            uniform vec3 uWarmColor;
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
-
             float sat(float x) { return clamp(x, 0.0, 1.0); }
-
             float capsuleSdf(vec2 coord, vec2 size, float radius) {
                 vec2 c1 = vec2(radius, size.y * 0.5);
                 vec2 c2 = vec2(size.x - radius, size.y * 0.5);
@@ -590,29 +541,15 @@ private class DropletRenderer {
                 float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.001), 0.0, 1.0);
                 return length(pa - ba * h) - radius;
             }
-
-            vec2 globalUv(vec2 coord) {
-                return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
-            }
-
-            vec3 fallback(vec2 uv) {
-                return mix(vec3(0.04, 0.12, 0.24), vec3(0.12, 0.36, 0.42), smoothstep(0.0, 1.0, uv.y));
-            }
-
-            vec3 sampleBlur(vec2 uv) {
-                return mix(fallback(uv), texture2D(uBlurTexture, uv).rgb, sat(uTextureReady));
-            }
-
-            vec3 sampleLens(vec2 uv) {
-                return mix(fallback(uv), texture2D(uLensTexture, uv).rgb, sat(uTextureReady));
-            }
-
+            vec2 globalUv(vec2 coord) { return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0); }
+            vec3 fallback(vec2 uv) { return mix(vec3(0.04, 0.12, 0.24), vec3(0.12, 0.36, 0.42), smoothstep(0.0, 1.0, uv.y)); }
+            vec3 sampleBlur(vec2 uv) { return mix(fallback(uv), texture2D(uBlurTexture, uv).rgb, sat(uTextureReady)); }
+            vec3 sampleLens(vec2 uv) { return mix(fallback(uv), texture2D(uLensTexture, uv).rgb, sat(uTextureReady)); }
             float signal(vec3 c) {
                 float luma = dot(c, vec3(0.299, 0.587, 0.114));
                 float chroma = length(c - vec3(luma));
                 return sat((luma - 0.16) * 1.55 + chroma * 1.65);
             }
-
             void main() {
                 vec2 coord = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
                 vec2 size = max(uSize, vec2(1.0));
@@ -620,13 +557,11 @@ private class DropletRenderer {
                 float sd = capsuleSdf(coord, size, radius);
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
-
                 if (uAlpha.z > 0.001) {
                     vec3 debugColor = mix(vec3(0.0, 0.95, 1.0), vec3(1.0, 0.25, 0.95), coord.x / size.x);
                     gl_FragColor = vec4(debugColor, uAlpha.z * mask);
                     return;
                 }
-
                 vec2 center = size * 0.5;
                 float halfLine = max(size.x * 0.5 - radius, 0.0);
                 vec2 spine = vec2(clamp(coord.x, center.x - halfLine, center.x + halfLine), center.y);
@@ -643,7 +578,6 @@ private class DropletRenderer {
                 float edge = 1.0 - smoothstep(0.0, edgeWidth, inside);
                 float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.4, 9.0), inside);
                 float lensStrength = sat(abs(uShape.x) / 72.0);
-
                 vec2 centerField = -vec2(wholeLocal.x * 0.12, wholeLocal.y * 0.58) * lensStrength * thickness * (1.0 - edge * 0.15);
                 vec2 magnifyOffset = -local * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);
                 vec2 softHorizontal = vec2(-(coord.x - center.x) * lensStrength * 0.06, 0.0) * thickness;
@@ -652,12 +586,10 @@ private class DropletRenderer {
                 vec2 offsetPx = centerField + magnifyOffset + softHorizontal + rimOffset + edgeCompression;
                 float lenPx = length(offsetPx);
                 offsetPx *= (lenPx / (1.0 + lenPx / 74.0)) / max(lenPx, 0.0001);
-
                 vec2 uv = globalUv(coord + offsetPx);
                 vec3 sharp = sampleLens(uv);
                 vec3 soft = sampleBlur(uv);
                 vec3 color = mix(soft, sharp, sat(0.72 + uShape.w * 0.28));
-
                 float smear = clamp(5.0 + edgeWidth * 0.78, 4.0, 22.0);
                 vec2 dragBase = coord - normal * clamp(6.0 + abs(uShape.y) * 0.12, 5.0, 30.0);
                 vec3 drag = sampleLens(globalUv(dragBase)) * 0.36;
@@ -665,27 +597,36 @@ private class DropletRenderer {
                 drag += sampleLens(globalUv(dragBase - tangent * smear)) * 0.22;
                 drag += sampleLens(globalUv(dragBase - normal * 10.0)) * 0.20;
                 color = mix(color, drag, sat(wideRim * uLight.x * signal(drag) * 0.28));
-
                 float y = coord.y / max(size.y, 1.0);
+                float x = coord.x / max(size.x, 1.0);
                 float topFacing = sat(-normal.y);
                 float bottomFacing = sat(normal.y);
                 vec3 specColor = mix(vec3(1.0), vec3(0.84, 0.78, 1.0), 0.28);
                 float topLine = topFacing * edge * smoothstep(0.02, 0.18, y) * (1.0 - smoothstep(0.24, 0.56, y));
                 color += specColor * topLine * uLight.z * 0.45;
                 color += specColor * pow(sat(dot(normal, normalize(vec2(0.62, -0.78)))), 5.0) * edge * uLight.w * 0.48;
-
                 float bottomBand = bottomFacing * (0.20 + 0.80 * wideRim) * smoothstep(0.46, 1.0, y);
                 vec3 warm = mix(drag, vec3(1.0, 0.34, 0.70), 0.20);
                 color = mix(color, warm, sat(bottomBand * uLight.y * 0.24));
                 color += vec3(1.0, 0.42, 0.76) * bottomBand * signal(drag) * uLight.y * 0.06;
-
+                float active = sat(uSelected);
+                vec3 accentColor = clamp(uAccentColor, 0.0, 1.0);
+                vec3 rimColor = mix(vec3(1.0), accentColor, 0.36);
+                vec3 warmColor = clamp(uWarmColor, 0.0, 1.0);
+                vec2 warmDelta = (coord - vec2(size.x * 0.50, size.y * 1.05)) / vec2(size.x * 0.42, size.y * 0.56);
+                float warmBlob = pow(sat(1.0 - dot(warmDelta, warmDelta)), 1.65) * smoothstep(0.30, 1.0, y);
+                float causticLine = pow(sat(1.0 - abs(y - 0.78) * 5.0), 2.0) * smoothstep(0.10, 0.48, x) * (1.0 - smoothstep(0.94, 1.0, x));
+                float edgeGlow = wideRim * (0.20 + 0.80 * signal(drag)) * (0.28 + 0.72 * rim);
+                float cornerHotspot = pow(sat(dot(normal, normalize(vec2(0.70, -0.72)))), 7.0) * edge;
+                color += warmColor * active * (warmBlob * (0.18 + 0.82 * thickness) + causticLine * (0.22 + 0.78 * bottomFacing)) * 0.58;
+                color += accentColor * active * edgeGlow * 0.22;
+                color += rimColor * active * topLine * (0.32 + 0.68 * thickness) * 0.30;
+                color += mix(warmColor, vec3(1.0), 0.36) * active * cornerHotspot * 0.28;
+                color = mix(color, mix(color, sampleLens(globalUv(coord - normal * 14.0)), 0.26), active * warmBlob * 0.16);
                 float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
                 float bottomShadow = bottomFacing * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
                 color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x;
-
-                color = clamp(color, 0.0, 1.0);
-                float alpha = mask;
-                gl_FragColor = vec4(color, alpha);
+                gl_FragColor = vec4(clamp(color, 0.0, 1.0), mask);
             }
         """
     }
