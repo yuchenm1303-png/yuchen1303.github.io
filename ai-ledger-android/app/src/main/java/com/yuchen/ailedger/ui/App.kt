@@ -61,6 +61,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
+    val recessedGlassRegistry = remember { RecessedGlassRegistry() }
     val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
@@ -107,6 +108,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
+                LocalRecessedGlassRegistry provides recessedGlassRegistry,
                 LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
                 LocalHeavyGlassStartupReady provides heavyGlassStartupReady
             ) {
@@ -122,6 +124,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
                     BatchedOpenGlGlassLayer(Modifier.fillMaxSize())
+                    BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
