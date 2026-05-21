@@ -684,7 +684,7 @@ private class DropletRenderer {
                 color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x;
 
                 color = clamp(color, 0.0, 1.0);
-                float alpha = uAlpha.y * mask * (0.70 + thickness * 0.12 + rim * 0.18);
+                float alpha = mask;
                 gl_FragColor = vec4(color, alpha);
             }
         """
