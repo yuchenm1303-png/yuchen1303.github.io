@@ -58,9 +58,9 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
 }
 
 data class BackdropDebugParams(
-    val scale: Float = 2.00f,
+    val scale: Float = 0.42f,
     val radius: Float = 7f,
-    val iterations: Float = 12f,
+    val iterations: Float = 3f,
     val brightness: Float = 1.16f,
     val contrast: Float = 1.08f,
     val saturation: Float = 1.08f,
