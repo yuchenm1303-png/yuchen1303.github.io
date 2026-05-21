@@ -39,6 +39,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassLayer
+import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassRegistry
+import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlGlassRegistry
 import kotlinx.coroutines.delay
 
 private const val COMPACT_DP_SCALE = 0.90f
@@ -58,6 +61,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
+    val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
     }
@@ -103,6 +107,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
+                LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
                 LocalHeavyGlassStartupReady provides heavyGlassStartupReady
             ) {
                 Box(Modifier.fillMaxSize()) {
@@ -116,6 +121,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    BatchedOpenGlGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
