@@ -39,15 +39,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
+private const val APPROVED_INSET_RADIUS = 18f
+private const val APPROVED_INSET_DEPTH = 0.52f
+private const val APPROVED_INSET_BACKDROP_ALPHA = 0.82f
+private const val APPROVED_INSET_RIM_ALPHA = 0.34f
+private const val APPROVED_INSET_INNER_SHADOW = 0.67f
+private const val APPROVED_INSET_FLOOR_DIM = 0.23f
+
 @Composable
 fun RecessedGlass(
     modifier: Modifier = Modifier,
-    radius: Float = 18f,
-    depth: Float = 0.52f,
-    floorAlpha: Float = 0.82f,
-    rimAlpha: Float = 0.34f,
-    innerShadow: Float = 0.67f,
-    bottomDim: Float = 0.23f,
+    radius: Float = APPROVED_INSET_RADIUS,
+    depth: Float = APPROVED_INSET_DEPTH,
+    floorAlpha: Float = APPROVED_INSET_BACKDROP_ALPHA,
+    rimAlpha: Float = APPROVED_INSET_RIM_ALPHA,
+    innerShadow: Float = APPROVED_INSET_INNER_SHADOW,
+    bottomDim: Float = APPROVED_INSET_FLOOR_DIM,
     content: @Composable () -> Unit
 ) {
     ApprovedInsetGlassSlot(
@@ -63,38 +70,18 @@ fun RecessedGlass(
 }
 
 @Composable
-fun RecessedProgressTrack(progress: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.height(14.dp)) {
-        val p = progress.coerceIn(0f, 1f)
-        val r = size.height / 2f
-        drawRoundRect(color = Color.Black.copy(alpha = 0.34f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Multiply)
-        drawRoundRect(color = Color.White.copy(alpha = 0.18f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Screen)
-        if (p > 0.002f) {
-            drawRoundRect(
-                brush = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.78f), Color(0xFF8DF9EA).copy(alpha = 0.96f), Color(0xFF8ED8FF).copy(alpha = 0.78f))),
-                size = Size(size.width * p, size.height),
-                cornerRadius = CornerRadius(r, r),
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(color = Color.White.copy(alpha = 0.26f), size = Size(size.width * p, size.height * 0.36f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Screen)
-        }
-        drawRoundRect(color = Color.White.copy(alpha = 0.20f), cornerRadius = CornerRadius(r, r), style = Stroke(width = 0.6.dp.toPx()), blendMode = BlendMode.Screen)
-    }
-}
-
-@Composable
-fun SampleRecessedSlider(
+fun ApprovedRecessedSlider(
     title: String,
     subtitle: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
-    valueText: String = value.formatSampleSliderValue(),
+    valueText: String = value.formatApprovedSliderValue(),
     onValueChange: (Float) -> Unit
 ) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    RecessedGlass(modifier = modifier.fillMaxWidth().height(58.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
+    RecessedGlass(modifier = modifier.fillMaxWidth().height(58.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(0.78f), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(1.dp)) {
                 Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -103,7 +90,15 @@ fun SampleRecessedSlider(
             Spacer(Modifier.width(8.dp))
             Text(valueText, color = Color.White.copy(alpha = 0.80f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp), maxLines = 1, overflow = TextOverflow.Clip)
             Spacer(Modifier.width(8.dp))
-            ApprovedInsetGlassSlot(modifier = Modifier.weight(1f).height(38.dp), radius = 18f, grooveDepth = 0.52f, floorBackdropAlpha = 0.82f, rimHighlightAlpha = 0.34f, innerShadowAlpha = 0.67f, floorDimAlpha = 0.23f) {
+            ApprovedInsetGlassSlot(
+                modifier = Modifier.weight(1f).height(38.dp),
+                radius = APPROVED_INSET_RADIUS,
+                grooveDepth = APPROVED_INSET_DEPTH,
+                floorBackdropAlpha = APPROVED_INSET_BACKDROP_ALPHA,
+                rimHighlightAlpha = APPROVED_INSET_RIM_ALPHA,
+                innerShadowAlpha = APPROVED_INSET_INNER_SHADOW,
+                floorDimAlpha = APPROVED_INSET_FLOOR_DIM
+            ) {
                 Box(Modifier.fillMaxSize().padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
                     RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(12.dp))
                     Slider(
@@ -126,8 +121,63 @@ fun SampleRecessedSlider(
 }
 
 @Composable
-fun SampleRecessedInputSlot(modifier: Modifier = Modifier, radius: Float = 28f, content: @Composable () -> Unit) {
-    ApprovedInsetGlassSlot(modifier = modifier, radius = radius, grooveDepth = 0.52f, floorBackdropAlpha = 0.82f, rimHighlightAlpha = 0.34f, innerShadowAlpha = 0.67f, floorDimAlpha = 0.23f, content = content)
+fun ApprovedRecessedInput(
+    modifier: Modifier = Modifier,
+    radius: Float = 28f,
+    content: @Composable () -> Unit
+) {
+    ApprovedInsetGlassSlot(
+        modifier = modifier,
+        radius = radius,
+        grooveDepth = APPROVED_INSET_DEPTH,
+        floorBackdropAlpha = APPROVED_INSET_BACKDROP_ALPHA,
+        rimHighlightAlpha = APPROVED_INSET_RIM_ALPHA,
+        innerShadowAlpha = APPROVED_INSET_INNER_SHADOW,
+        floorDimAlpha = APPROVED_INSET_FLOOR_DIM,
+        content = content
+    )
+}
+
+@Composable
+fun SampleRecessedSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    valueText: String = value.formatApprovedSliderValue(),
+    onValueChange: (Float) -> Unit
+) {
+    ApprovedRecessedSlider(title, subtitle, value, range, modifier, valueText, onValueChange)
+}
+
+@Composable
+fun SampleRecessedInputSlot(
+    modifier: Modifier = Modifier,
+    radius: Float = 28f,
+    content: @Composable () -> Unit
+) {
+    ApprovedRecessedInput(modifier = modifier, radius = radius, content = content)
+}
+
+@Composable
+fun RecessedProgressTrack(progress: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.height(14.dp)) {
+        val p = progress.coerceIn(0f, 1f)
+        val r = size.height / 2f
+        drawRoundRect(color = Color.Black.copy(alpha = 0.34f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Multiply)
+        drawRoundRect(color = Color.White.copy(alpha = 0.18f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Screen)
+        if (p > 0.002f) {
+            drawRoundRect(
+                brush = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.78f), Color(0xFF8DF9EA).copy(alpha = 0.96f), Color(0xFF8ED8FF).copy(alpha = 0.78f))),
+                size = Size(size.width * p, size.height),
+                cornerRadius = CornerRadius(r, r),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(color = Color.White.copy(alpha = 0.26f), size = Size(size.width * p, size.height * 0.36f), cornerRadius = CornerRadius(r, r), blendMode = BlendMode.Screen)
+        }
+        drawRoundRect(color = Color.White.copy(alpha = 0.20f), cornerRadius = CornerRadius(r, r), style = Stroke(width = 0.6.dp.toPx()), blendMode = BlendMode.Screen)
+    }
 }
 
 @Composable
@@ -216,4 +266,4 @@ private fun ApprovedBackdropCrop(coordinateSource: GlassCoordinateSource, backdr
     }
 }
 
-private fun Float.formatSampleSliderValue(): String = "${((this * 100).roundToInt() / 100f)}"
+private fun Float.formatApprovedSliderValue(): String = "${((this * 100).roundToInt() / 100f)}"
