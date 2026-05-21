@@ -74,8 +74,10 @@ private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell -> true
-    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    // Shell 是主舞台玻璃；Card 是功能页列表/普通栏目；Flex 是设置页分组和展开背景。
+    // 这三类都需要真实 OpenGL 折射边缘。Chip/Floating/Nav 仍保留轻量 Compose，避免按钮太多拖慢。
+    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> true
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
 }
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
@@ -127,7 +129,6 @@ fun GlassPanel(
     val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
-    var hasResizedAfterFirstMeasure by remember { mutableStateOf(false) }
     var lastWidth by remember { mutableStateOf(-1) }
     var lastHeight by remember { mutableStateOf(-1) }
     var measuredWidth by remember { mutableStateOf(0) }
@@ -138,7 +139,6 @@ fun GlassPanel(
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
-        !hasResizedAfterFirstMeasure &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
@@ -175,9 +175,6 @@ fun GlassPanel(
 
                 val width = it.size.width
                 val height = it.size.height
-                if (measuredOnce && (width != lastWidth || height != lastHeight)) {
-                    hasResizedAfterFirstMeasure = true
-                }
                 measuredOnce = true
                 measuredWidth = width
                 measuredHeight = height
@@ -214,7 +211,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!canUseCardOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -267,7 +264,6 @@ fun PressableGlass(
     val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
-    var hasResizedAfterFirstMeasure by remember { mutableStateOf(false) }
     var lastWidth by remember { mutableStateOf(-1) }
     var lastHeight by remember { mutableStateOf(-1) }
     var measuredWidth by remember { mutableStateOf(0) }
@@ -280,7 +276,6 @@ fun PressableGlass(
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
-        !hasResizedAfterFirstMeasure &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
@@ -316,9 +311,6 @@ fun PressableGlass(
 
                 val width = it.size.width
                 val height = it.size.height
-                if (measuredOnce && (width != lastWidth || height != lastHeight)) {
-                    hasResizedAfterFirstMeasure = true
-                }
                 measuredOnce = true
                 measuredWidth = width
                 measuredHeight = height
@@ -362,7 +354,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!canUseCardOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
