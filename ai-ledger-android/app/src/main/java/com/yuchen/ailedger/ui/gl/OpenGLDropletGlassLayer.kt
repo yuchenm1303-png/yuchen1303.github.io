@@ -611,18 +611,35 @@ private class DropletRenderer {
                 color += vec3(1.0, 0.42, 0.76) * bottomBand * signal(drag) * uLight.y * 0.06;
                 float active = sat(uSelected);
                 vec3 accentColor = clamp(uAccentColor, 0.0, 1.0);
-                vec3 rimColor = mix(vec3(1.0), accentColor, 0.36);
+                vec3 rimColor = mix(vec3(1.0), accentColor, 0.34);
                 vec3 warmColor = clamp(uWarmColor, 0.0, 1.0);
-                vec2 warmDelta = (coord - vec2(size.x * 0.50, size.y * 1.05)) / vec2(size.x * 0.42, size.y * 0.56);
-                float warmBlob = pow(sat(1.0 - dot(warmDelta, warmDelta)), 1.65) * smoothstep(0.30, 1.0, y);
-                float causticLine = pow(sat(1.0 - abs(y - 0.78) * 5.0), 2.0) * smoothstep(0.10, 0.48, x) * (1.0 - smoothstep(0.94, 1.0, x));
-                float edgeGlow = wideRim * (0.20 + 0.80 * signal(drag)) * (0.28 + 0.72 * rim);
+                vec2 lightOrigin = vec2(size.x * 0.88, size.y * 1.07);
+                vec2 lightDir = normalize(center - lightOrigin);
+                float edgeOptics = edge * 0.35 + wideRim * 0.65;
+                vec2 refractedLightCoord = coord
+                    + normal * (18.0 + 34.0 * wideRim) * (0.20 + 0.80 * bottomFacing)
+                    + tangent * (14.0 * wideRim * bottomFacing)
+                    + lightDir * (10.0 + 20.0 * thickness) * edgeOptics;
+                vec2 hotDelta = (refractedLightCoord - lightOrigin) / vec2(size.x * 0.28, size.y * 0.42);
+                float lowerRightHotspot = pow(sat(1.0 - dot(hotDelta, hotDelta)), 2.20);
+                float rightFalloff = smoothstep(0.20, 0.86, x) * (1.0 - smoothstep(0.98, 1.0, x));
+                float bottomFocus = pow(sat(1.0 - abs(y - 0.78) * 5.8), 2.0) * smoothstep(0.42, 1.0, y);
+                float refractedCaustic = bottomFocus * rightFalloff * (0.30 + 0.70 * bottomFacing) * (0.28 + 0.72 * wideRim);
+                float rimWarmCompression = wideRim * bottomFacing * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * rightFalloff);
+                vec2 volumeDelta = (coord - vec2(size.x * 0.58, size.y * 0.92)) / vec2(size.x * 0.58, size.y * 0.78);
+                float innerWarmTransmission = pow(sat(1.0 - dot(volumeDelta, volumeDelta)), 1.35) * smoothstep(0.18, 0.96, y) * (0.18 + 0.82 * thickness);
+                float edgeGlow = wideRim * (0.20 + 0.80 * signal(drag)) * (0.24 + 0.76 * rim);
                 float cornerHotspot = pow(sat(dot(normal, normalize(vec2(0.70, -0.72)))), 7.0) * edge;
-                color += warmColor * active * (warmBlob * (0.18 + 0.82 * thickness) + causticLine * (0.22 + 0.78 * bottomFacing)) * 0.58;
-                color += accentColor * active * edgeGlow * 0.22;
-                color += rimColor * active * topLine * (0.32 + 0.68 * thickness) * 0.30;
-                color += mix(warmColor, vec3(1.0), 0.36) * active * cornerHotspot * 0.28;
-                color = mix(color, mix(color, sampleLens(globalUv(coord - normal * 14.0)), 0.26), active * warmBlob * 0.16);
+                vec2 lightRefractOffset = lightDir * lowerRightHotspot * active * (5.0 + 9.0 * thickness) + normal * refractedCaustic * active * 8.0;
+                vec3 refractedWarmSample = sampleLens(globalUv(coord + offsetPx + lightRefractOffset));
+                color = mix(color, refractedWarmSample, active * lowerRightHotspot * 0.16);
+                color += warmColor * active * lowerRightHotspot * (0.50 + 0.35 * rim);
+                color += warmColor * active * refractedCaustic * 0.62;
+                color += warmColor * active * rimWarmCompression * 0.34;
+                color += mix(warmColor, accentColor, 0.24) * active * innerWarmTransmission * 0.16;
+                color += accentColor * active * edgeGlow * 0.16;
+                color += rimColor * active * topLine * (0.30 + 0.70 * thickness) * 0.26;
+                color += mix(warmColor, vec3(1.0), 0.40) * active * cornerHotspot * 0.24;
                 float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
                 float bottomShadow = bottomFacing * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
                 color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x;
