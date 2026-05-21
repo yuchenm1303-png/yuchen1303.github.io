@@ -12,19 +12,27 @@ import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.view.Surface
 import android.view.TextureView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
@@ -51,6 +59,22 @@ data class DropletGlassStyle(
     val debugMaskAlpha: Float = 0f
 )
 
+data class DropletDebugMetrics(
+    val composeW: Int = 0,
+    val composeH: Int = 0,
+    val viewW: Int = 0,
+    val viewH: Int = 0,
+    val renderW: Int = 0,
+    val renderH: Int = 0,
+    val surfaceW: Int = 0,
+    val surfaceH: Int = 0,
+    val eglW: Int = 0,
+    val eglH: Int = 0,
+    val radiusPx: Int = 0
+) {
+    fun label(): String = "C ${composeW}×${composeH}\nV ${viewW}×${viewH}\nR ${renderW}×${renderH}\nS ${surfaceW}×${surfaceH}\nE ${eglW}×${eglH}\nr $radiusPx"
+}
+
 @Composable
 fun OpenGLDropletGlassLayer(
     radius: Int,
@@ -68,6 +92,8 @@ fun OpenGLDropletGlassLayer(
     val cardOrigin = coordinateSource?.offsetRelativeTo(origin) ?: Offset.Zero
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     var renderSize by remember { mutableStateOf(IntSize.Zero) }
+    var debugMetrics by remember { mutableStateOf(DropletDebugMetrics()) }
+    val showDebugMetrics = style.debugMaskAlpha > 0.001f
 
     Box(
         modifier = modifier.onSizeChanged { size ->
@@ -81,6 +107,7 @@ fun OpenGLDropletGlassLayer(
                 view.noteComposeFrame(frameNanos)
                 val w = renderSize.width.takeIf { it > 0 } ?: view.width.takeIf { it > 0 } ?: 1
                 val h = renderSize.height.takeIf { it > 0 } ?: view.height.takeIf { it > 0 } ?: 1
+                view.setDebugSink(w, h) { debugMetrics = it }
                 val dirtyA = view.bindBounds(w, h, radiusPx)
                 val dirtyB = view.setSampling(cardOrigin.x, cardOrigin.y, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
                 val dirtyC = view.setTextures(blurBitmap, lensBitmap)
@@ -88,6 +115,20 @@ fun OpenGLDropletGlassLayer(
                 if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
         )
+        if (showDebugMetrics) {
+            Text(
+                text = debugMetrics.label(),
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 8.sp,
+                lineHeight = 9.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+                    .background(Color.Black.copy(alpha = 0.56f), RoundedCornerShape(7.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        }
     }
 }
 
@@ -103,6 +144,14 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
     private var rootW = 1f
     private var rootH = 1f
     private var style = DropletGlassStyle()
+    private var composeW = 0
+    private var composeH = 0
+    private var surfaceW = 0
+    private var surfaceH = 0
+    private var eglW = 0
+    private var eglH = 0
+    private var lastDebugMetrics = DropletDebugMetrics()
+    private var onDebugMetrics: ((DropletDebugMetrics) -> Unit)? = null
 
     init {
         isOpaque = false
@@ -115,6 +164,13 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
 
     fun noteComposeFrame(frameNanos: Long) = Unit
 
+    fun setDebugSink(width: Int, height: Int, callback: ((DropletDebugMetrics) -> Unit)?) {
+        composeW = width.coerceAtLeast(0)
+        composeH = height.coerceAtLeast(0)
+        onDebugMetrics = callback
+        reportDebugMetrics()
+    }
+
     fun bindBounds(width: Int, height: Int, radius: Float): Boolean {
         val w = width.coerceAtLeast(1)
         val h = height.coerceAtLeast(1)
@@ -125,6 +181,7 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
         if (dirty) {
             surfaceTexture?.setDefaultBufferSize(renderW, renderH)
             thread?.setBounds(renderW, renderH, radiusPx)
+            reportDebugMetrics()
         }
         return dirty
     }
@@ -132,6 +189,7 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w > 0 && h > 0) bindBounds(w, h, radiusPx)
+        reportDebugMetrics()
     }
 
     fun setSampling(x: Float, y: Float, rw: Float, rh: Float): Boolean {
@@ -163,10 +221,19 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         thread?.shutdown()
-        val w = renderW.takeIf { it > 1 } ?: width.coerceAtLeast(1)
-        val h = renderH.takeIf { it > 1 } ?: height.coerceAtLeast(1)
+        surfaceW = width.coerceAtLeast(1)
+        surfaceH = height.coerceAtLeast(1)
+        val w = renderW.takeIf { it > 1 } ?: surfaceW
+        val h = renderH.takeIf { it > 1 } ?: surfaceH
         surfaceTexture.setDefaultBufferSize(w, h)
-        thread = DropletEglThread(Surface(surfaceTexture), w, h).also {
+        reportDebugMetrics()
+        thread = DropletEglThread(Surface(surfaceTexture), w, h) { ew, eh ->
+            post {
+                eglW = ew
+                eglH = eh
+                reportDebugMetrics()
+            }
+        }.also {
             it.setBounds(w, h, radiusPx)
             it.setSampling(originX, originY, rootW, rootH)
             it.setStyle(style)
@@ -178,10 +245,13 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-        val w = renderW.takeIf { it > 1 } ?: width.coerceAtLeast(1)
-        val h = renderH.takeIf { it > 1 } ?: height.coerceAtLeast(1)
+        surfaceW = width.coerceAtLeast(1)
+        surfaceH = height.coerceAtLeast(1)
+        val w = renderW.takeIf { it > 1 } ?: surfaceW
+        val h = renderH.takeIf { it > 1 } ?: surfaceH
         surfaceTexture.setDefaultBufferSize(w, h)
         thread?.setBounds(w, h, radiusPx)
+        reportDebugMetrics()
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
@@ -191,9 +261,34 @@ private class OpenGLDropletTextureView(context: Context) : TextureView(context),
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+
+    private fun reportDebugMetrics() {
+        val metrics = DropletDebugMetrics(
+            composeW = composeW,
+            composeH = composeH,
+            viewW = width,
+            viewH = height,
+            renderW = renderW,
+            renderH = renderH,
+            surfaceW = surfaceW,
+            surfaceH = surfaceH,
+            eglW = eglW,
+            eglH = eglH,
+            radiusPx = radiusPx.roundToInt()
+        )
+        if (metrics != lastDebugMetrics) {
+            lastDebugMetrics = metrics
+            post { onDebugMetrics?.invoke(metrics) }
+        }
+    }
 }
 
-private class DropletEglThread(private val surface: Surface, width: Int, height: Int) : Thread("OpenGLDropletGlassThread") {
+private class DropletEglThread(
+    private val surface: Surface,
+    width: Int,
+    height: Int,
+    private val onEglSurfaceSize: ((Int, Int) -> Unit)? = null
+) : Thread("OpenGLDropletGlassThread") {
     private val renderer = DropletRenderer()
     private val lock = Object()
     @Volatile private var running = true
@@ -234,6 +329,7 @@ private class DropletEglThread(private val surface: Surface, width: Int, height:
             initEgl()
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportW, viewportH)
+            notifyEglSurfaceSize()
             sizeDirty = false
             while (running) {
                 synchronized(lock) {
@@ -243,6 +339,7 @@ private class DropletEglThread(private val surface: Surface, width: Int, height:
                 if (!running) break
                 if (sizeDirty) {
                     renderer.onSurfaceChanged(viewportW, viewportH)
+                    notifyEglSurfaceSize()
                     sizeDirty = false
                 }
                 renderer.onDrawFrame()
@@ -280,6 +377,16 @@ private class DropletEglThread(private val surface: Surface, width: Int, height:
         eglSurface = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "Unable to create EGL window surface" }
         check(EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) { "Unable to make EGL current" }
+        notifyEglSurfaceSize()
+    }
+
+    private fun notifyEglSurfaceSize() {
+        if (display == EGL14.EGL_NO_DISPLAY || eglSurface == EGL14.EGL_NO_SURFACE) return
+        val w = IntArray(1)
+        val h = IntArray(1)
+        val okW = EGL14.eglQuerySurface(display, eglSurface, EGL14.EGL_WIDTH, w, 0)
+        val okH = EGL14.eglQuerySurface(display, eglSurface, EGL14.EGL_HEIGHT, h, 0)
+        if (okW && okH) onEglSurfaceSize?.invoke(w[0], h[0])
     }
 
     private fun releaseEgl() {
