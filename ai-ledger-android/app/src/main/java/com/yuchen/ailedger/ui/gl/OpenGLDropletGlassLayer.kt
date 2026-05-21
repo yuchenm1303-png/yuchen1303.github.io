@@ -492,12 +492,15 @@ private class DropletRenderer {
                 float halfLine = max(size.x * 0.5 - radius, 0.0);
                 vec2 spine = vec2(clamp(coord.x, center.x - halfLine, center.x + halfLine), center.y);
                 vec2 local = coord - spine;
+                vec2 wholeLocal = coord - center;
+                float halfWidth = max(size.x * 0.5, 1.0);
                 float distToSpine = length(local);
                 float rNorm = sat(distToSpine / max(radius, 1.0));
                 float inside = max(radius - distToSpine, 0.0);
                 vec2 normal = local / max(distToSpine, 0.001);
                 vec2 tangent = vec2(-normal.y, normal.x);
                 float thickness = sqrt(max(0.0, 1.0 - rNorm * rNorm));
+                float bodyThickness = thickness * (1.0 - smoothstep(0.76, 1.0, abs(wholeLocal.x) / halfWidth) * 0.18);
                 float rim = pow(rNorm, 1.85);
                 float edgeWidth = clamp(uShape.z, 2.0, size.y * 0.48);
                 float edge = 1.0 - smoothstep(0.0, edgeWidth, inside);
@@ -505,11 +508,12 @@ private class DropletRenderer {
                 float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.4, 9.0), inside);
 
                 float lensStrength = sat(abs(uShape.x) / 72.0);
-                vec2 magnifyOffset = -local * lensStrength * (0.62 + 0.25 * thickness) * (1.0 - edge * 0.20);
-                vec2 softHorizontal = vec2(-(coord.x - center.x) * lensStrength * 0.035, 0.0) * thickness;
+                vec2 centerField = -vec2(wholeLocal.x * 0.115, wholeLocal.y * 0.58) * lensStrength * bodyThickness * (1.0 - edge * 0.18);
+                vec2 magnifyOffset = -local * lensStrength * (0.40 + 0.22 * thickness) * (1.0 - edge * 0.20);
+                vec2 softHorizontal = vec2(-(coord.x - center.x) * lensStrength * 0.060, 0.0) * bodyThickness;
                 vec2 rimOffset = normal * uShape.y * edge * (0.18 + 0.82 * rim);
                 vec2 edgeCompression = -normal * abs(uShape.y) * 0.16 * wideRim * (1.0 - thickness);
-                vec2 offsetPx = magnifyOffset + softHorizontal + rimOffset + edgeCompression;
+                vec2 offsetPx = centerField + magnifyOffset + softHorizontal + rimOffset + edgeCompression;
                 float lenPx = length(offsetPx);
                 float limitPx = 74.0;
                 offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
@@ -556,7 +560,7 @@ private class DropletRenderer {
                 color -= vec3(0.055, 0.065, 0.10) * dark;
 
                 color = clamp(color, 0.0, 1.0);
-                float alpha = uAlpha.y * mask * (0.70 + thickness * 0.12 + rim * 0.18);
+                float alpha = uAlpha.y * mask * (0.70 + bodyThickness * 0.12 + rim * 0.18);
                 gl_FragColor = vec4(color, alpha);
             }
         """
