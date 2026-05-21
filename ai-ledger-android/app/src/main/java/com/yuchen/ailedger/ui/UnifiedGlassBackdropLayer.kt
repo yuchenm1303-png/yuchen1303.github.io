@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import android.annotation.SuppressLint
 import android.graphics.BitmapShader
+import android.graphics.Matrix as AndroidMatrix
 import android.graphics.Paint as AndroidPaint
 import android.graphics.RuntimeShader
 import android.graphics.Shader
@@ -103,21 +104,13 @@ private fun DrawScope.drawGlassBody(
         RenderQuality.Experimental -> 0.064f
     } * alpha
     val path = Path().apply { addRoundRect(RoundRect(itemRect, CornerRadius(corner, corner))) }
-    val srcX = ((sampleOffset.x + visibleRect.left - itemRect.left) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = ((sampleOffset.y + visibleRect.top - itemRect.top) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val dstW = visibleRect.width.roundToInt().coerceAtLeast(1)
-    val dstH = visibleRect.height.roundToInt().coerceAtLeast(1)
-    val srcW = (dstW * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (dstH * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
     clipPath(path) {
-        drawImage(
-            image = backdrop.image,
-            srcOffset = IntOffset(srcX, srcY),
-            srcSize = IntSize(srcW, srcH),
-            dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
-            dstSize = IntSize(dstW, dstH),
-            alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f),
-            blendMode = BlendMode.SrcOver
+        drawBackdropBodyImage(
+            backdrop = backdrop,
+            itemRect = itemRect,
+            visibleRect = visibleRect,
+            sampleOffset = sampleOffset,
+            alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f)
         )
         drawRect(Color(0xFF72859A).copy(alpha = base * 0.22f), Offset(visibleRect.left, visibleRect.top), Size(visibleRect.width, visibleRect.height))
         drawRect(
@@ -133,6 +126,37 @@ private fun DrawScope.drawGlassBody(
             topLeft = Offset(visibleRect.left, visibleRect.top),
             size = Size(visibleRect.width, visibleRect.height)
         )
+    }
+}
+
+private fun DrawScope.drawBackdropBodyImage(
+    backdrop: BlurredBackdropBitmap,
+    itemRect: Rect,
+    visibleRect: Rect,
+    sampleOffset: Offset,
+    alpha: Float
+) {
+    val bitmap = backdrop.image.asAndroidBitmap()
+    val backdropRootX = itemRect.left - sampleOffset.x
+    val backdropRootY = itemRect.top - sampleOffset.y
+    val scale = backdrop.scale.coerceAtLeast(0.0001f)
+    val matrix = AndroidMatrix().apply {
+        setScale(1f / scale, 1f / scale)
+        postTranslate(backdropRootX, backdropRootY)
+    }
+    val paint = AndroidPaint(
+        AndroidPaint.ANTI_ALIAS_FLAG or AndroidPaint.FILTER_BITMAP_FLAG or AndroidPaint.DITHER_FLAG
+    ).apply {
+        this.alpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+        isDither = true
+        isFilterBitmap = true
+    }
+    drawIntoCanvas { canvas ->
+        val nativeCanvas = canvas.nativeCanvas
+        val checkpoint = nativeCanvas.save()
+        nativeCanvas.clipRect(visibleRect.left, visibleRect.top, visibleRect.right, visibleRect.bottom)
+        nativeCanvas.drawBitmap(bitmap, matrix, paint)
+        nativeCanvas.restoreToCount(checkpoint)
     }
 }
 
