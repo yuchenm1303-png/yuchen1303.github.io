@@ -54,6 +54,7 @@ fun OpenGLLiquidRefractLayer(
         LiquidRefractShape.Capsule -> 999
         LiquidRefractShape.RoundedRect -> 18
     }
+    val glow = style.activeGlow.coerceIn(0f, 2f)
     OpenGLDropletGlassLayer(
         radius = radius,
         coordinateSource = coordinateSource,
@@ -62,12 +63,12 @@ fun OpenGLLiquidRefractLayer(
             edgePullPx = style.edgeRefractPx,
             edgeWidthPx = style.edgeWidthPx,
             lensMix = style.clearMix,
-            dragStrength = style.edgeColorDrag,
-            bottomGlow = style.bottomCaustic,
-            topGloss = style.topHighlight,
-            cornerGloss = style.capHighlight,
-            innerDark = style.innerShadow,
-            alpha = style.alpha
+            dragStrength = style.edgeColorDrag + glow * 0.10f,
+            bottomGlow = style.bottomCaustic + glow * 0.28f,
+            topGloss = style.topHighlight + glow * 0.20f,
+            cornerGloss = style.capHighlight + glow * 0.28f,
+            innerDark = (style.innerShadow - glow * 0.05f).coerceAtLeast(0f),
+            alpha = (style.alpha + glow * 0.04f).coerceAtMost(1f)
         ),
         modifier = modifier
     )
