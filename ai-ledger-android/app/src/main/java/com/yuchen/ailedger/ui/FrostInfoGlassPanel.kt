@@ -72,6 +72,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletCornerGloss by rememberSaveable { mutableStateOf(0.30f) }
     var dropletInnerDark by rememberSaveable { mutableStateOf(0.18f) }
     var dropletAlpha by rememberSaveable { mutableStateOf(0.72f) }
+    var dropletDebugMask by rememberSaveable { mutableStateOf(0f) }
     var dropletShadowAlpha by rememberSaveable { mutableStateOf(0.18f) }
     var dropletShadowOffsetX by rememberSaveable { mutableStateOf(3.0f) }
     var dropletShadowOffsetY by rememberSaveable { mutableStateOf(7.0f) }
@@ -91,7 +92,8 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         topGloss = dropletTopGloss,
         cornerGloss = dropletCornerGloss,
         innerDark = dropletInnerDark,
-        alpha = dropletAlpha
+        alpha = dropletAlpha,
+        debugMaskAlpha = dropletDebugMask
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -162,7 +164,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 横向水滴", "长胶囊测试：背景点亮、软阴影、外圈辉光和水滴折射分层调试。")
+        GlassLabMiniTitle("OpenGL 横向水滴", "长胶囊测试：调试遮罩可单独验证 OpenGL 本体形状。")
         OpenGlLargeDropletPreview(
             style = dropletStyle,
             shadowAlpha = dropletShadowAlpha,
@@ -175,6 +177,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
             warmGlow = dropletWarmGlow,
             modifier = Modifier.fillMaxWidth().height(96.dp)
         )
+        GlassPanelSlider("遮罩调试", "拉高后只显示 OpenGL 自己的真实遮罩", dropletDebugMask, 0f..1f) { dropletDebugMask = it }
         GlassPanelSlider("主体放大", "水滴透镜放大底部图像", dropletBodyBulge, -12f..72f) { dropletBodyBulge = it }
         GlassPanelSlider("边缘压缩", "厚边拉动并压缩背景", dropletEdgePull, -40f..120f) { dropletEdgePull = it }
         GlassPanelSlider("边缘宽度", "折射、高光和拖色宽度", dropletEdgeWidth, 2f..32f) { dropletEdgeWidth = it }
@@ -210,21 +213,24 @@ private fun OpenGlLargeDropletPreview(
     modifier: Modifier = Modifier
 ) {
     val coordinates = remember { GlassCoordinateSource() }
+    val debug = style.debugMaskAlpha.coerceIn(0f, 1f)
     Box(modifier = modifier.padding(horizontal = 12.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
-        DropletBackgroundGlow(
-            activeGlow = activeGlow,
-            backgroundGlow = backgroundGlow,
-            outerGlow = outerGlow,
-            warmGlow = warmGlow,
-            modifier = Modifier.fillMaxWidth().height(78.dp)
-        )
-        DropletContactShadow(
-            alpha = shadowAlpha,
-            offsetX = shadowOffsetX,
-            offsetY = shadowOffsetY,
-            softness = shadowSoftness,
-            modifier = Modifier.fillMaxWidth().height(70.dp)
-        )
+        if (debug <= 0.001f) {
+            DropletBackgroundGlow(
+                activeGlow = activeGlow,
+                backgroundGlow = backgroundGlow,
+                outerGlow = outerGlow,
+                warmGlow = warmGlow,
+                modifier = Modifier.fillMaxWidth().height(78.dp)
+            )
+            DropletContactShadow(
+                alpha = shadowAlpha,
+                offsetX = shadowOffsetX,
+                offsetY = shadowOffsetY,
+                softness = shadowSoftness,
+                modifier = Modifier.fillMaxWidth().height(70.dp)
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -240,19 +246,21 @@ private fun OpenGlLargeDropletPreview(
                 style = style,
                 modifier = Modifier.fillMaxSize()
             )
-            DropletActiveOverlay(
-                activeGlow = activeGlow,
-                warmGlow = warmGlow,
-                modifier = Modifier.fillMaxSize()
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)
-            ) {
-                Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Spacer(Modifier.width(10.dp))
-                Text("语音输入", color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (debug <= 0.001f) {
+                DropletActiveOverlay(
+                    activeGlow = activeGlow,
+                    warmGlow = warmGlow,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)
+                ) {
+                    Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Spacer(Modifier.width(10.dp))
+                    Text("语音输入", color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
