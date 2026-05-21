@@ -411,7 +411,15 @@ private fun ComposerInputGlass(
     placeholder: String = "输入内容...",
     keyboardType: KeyboardType = KeyboardType.Text
 ) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, modifier.height(52.dp), GlassRole.Card) {
+    RecessedGlass(
+        modifier = modifier.height(52.dp),
+        radius = 28f,
+        depth = 0.52f,
+        floorAlpha = 0.82f,
+        rimAlpha = 0.34f,
+        innerShadow = 0.67f,
+        bottomDim = 0.23f
+    ) {
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
                 value = text,
