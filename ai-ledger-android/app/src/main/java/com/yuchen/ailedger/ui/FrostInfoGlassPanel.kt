@@ -70,8 +70,12 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletBottomGlow by rememberSaveable { mutableStateOf(0.32f) }
     var dropletTopGloss by rememberSaveable { mutableStateOf(0.22f) }
     var dropletCornerGloss by rememberSaveable { mutableStateOf(0.30f) }
-    var dropletInnerDark by rememberSaveable { mutableStateOf(0.12f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.18f) }
     var dropletAlpha by rememberSaveable { mutableStateOf(0.72f) }
+    var dropletShadowAlpha by rememberSaveable { mutableStateOf(0.24f) }
+    var dropletShadowOffsetX by rememberSaveable { mutableStateOf(3.5f) }
+    var dropletShadowOffsetY by rememberSaveable { mutableStateOf(7.5f) }
+    var dropletShadowSoftness by rememberSaveable { mutableStateOf(16f) }
 
     val dropletStyle = DropletGlassStyle(
         bodyBulgePx = dropletBodyBulge,
@@ -154,8 +158,15 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 水滴玻璃", "先看背景是否被明显放大、压缩、扭曲；高光和颜色先压低。")
-        OpenGlLargeDropletPreview(style = dropletStyle, modifier = Modifier.fillMaxWidth().height(66.dp))
+        GlassLabMiniTitle("OpenGL 水滴玻璃", "加入接触阴影和内部厚边阴影，先让水滴贴在背景上。")
+        OpenGlLargeDropletPreview(
+            style = dropletStyle,
+            shadowAlpha = dropletShadowAlpha,
+            shadowOffsetX = dropletShadowOffsetX,
+            shadowOffsetY = dropletShadowOffsetY,
+            shadowSoftness = dropletShadowSoftness,
+            modifier = Modifier.fillMaxWidth().height(82.dp)
+        )
         GlassPanelSlider("主体放大", "水滴透镜放大底部图像", dropletBodyBulge, -12f..72f) { dropletBodyBulge = it }
         GlassPanelSlider("边缘压缩", "厚边拉动并压缩背景", dropletEdgePull, -40f..120f) { dropletEdgePull = it }
         GlassPanelSlider("边缘宽度", "折射、高光和拖色宽度", dropletEdgeWidth, 2f..32f) { dropletEdgeWidth = it }
@@ -164,36 +175,101 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部焦散", "底边聚光与粉紫拖色", dropletBottomGlow, 0f..2f) { dropletBottomGlow = it }
         GlassPanelSlider("顶部反光", "上沿真实光亮", dropletTopGloss, 0f..1.8f) { dropletTopGloss = it }
         GlassPanelSlider("角部反光", "右上角弧形亮斑", dropletCornerGloss, 0f..2f) { dropletCornerGloss = it }
-        GlassPanelSlider("厚度暗边", "底部和边缘压暗", dropletInnerDark, 0f..1f) { dropletInnerDark = it }
+        GlassPanelSlider("内部暗边", "背光侧和底部厚边阴影", dropletInnerDark, 0f..1f) { dropletInnerDark = it }
         GlassPanelSlider("整体透明", "OpenGL 水滴层透明度", dropletAlpha, 0f..1f) { dropletAlpha = it }
+        GlassPanelSlider("接触阴影", "水滴贴在背景上的软阴影", dropletShadowAlpha, 0f..0.75f) { dropletShadowAlpha = it }
+        GlassPanelSlider("阴影 X", "阴影向右偏移", dropletShadowOffsetX, -12f..18f) { dropletShadowOffsetX = it }
+        GlassPanelSlider("阴影 Y", "阴影向下偏移", dropletShadowOffsetY, -6f..22f) { dropletShadowOffsetY = it }
+        GlassPanelSlider("阴影扩散", "阴影边缘柔化范围", dropletShadowSoftness, 2f..36f) { dropletShadowSoftness = it }
     }
 }
 
 @Composable
-private fun OpenGlLargeDropletPreview(style: DropletGlassStyle, modifier: Modifier = Modifier) {
+private fun OpenGlLargeDropletPreview(
+    style: DropletGlassStyle,
+    shadowAlpha: Float,
+    shadowOffsetX: Float,
+    shadowOffsetY: Float,
+    shadowSoftness: Float,
+    modifier: Modifier = Modifier
+) {
     val coordinates = remember { GlassCoordinateSource() }
-    Box(
-        modifier = modifier
-            .padding(horizontal = 28.dp, vertical = 4.dp)
-            .onGloballyPositioned { coordinates.coordinates = it }
-            .clip(RoundedCornerShape(999.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        OpenGLDropletGlassLayer(
-            radius = 999,
-            coordinateSource = coordinates,
-            style = style,
-            modifier = Modifier.fillMaxSize()
+    Box(modifier = modifier.padding(horizontal = 22.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
+        DropletContactShadow(
+            alpha = shadowAlpha,
+            offsetX = shadowOffsetX,
+            offsetY = shadowOffsetY,
+            softness = shadowSoftness,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(horizontal = 6.dp, vertical = 5.dp)
+                .onGloballyPositioned { coordinates.coordinates = it }
+                .clip(RoundedCornerShape(999.dp)),
+            contentAlignment = Alignment.Center
         ) {
-            Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Spacer(Modifier.width(10.dp))
-            Text("语音输入", color = Color.White.copy(alpha = 0.86f), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            OpenGLDropletGlassLayer(
+                radius = 999,
+                coordinateSource = coordinates,
+                style = style,
+                modifier = Modifier.fillMaxSize()
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)
+            ) {
+                Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Spacer(Modifier.width(10.dp))
+                Text("语音输入", color = Color.White.copy(alpha = 0.86f), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
+    }
+}
+
+@Composable
+private fun DropletContactShadow(
+    alpha: Float,
+    offsetX: Float,
+    offsetY: Float,
+    softness: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val expand = softness.dp.toPx()
+        val dx = offsetX.dp.toPx()
+        val dy = offsetY.dp.toPx()
+        val topLeft = Offset(dx - expand, dy - expand * 0.58f)
+        val shadowSize = Size(size.width + expand * 2f, size.height + expand * 1.18f)
+        val radius = shadowSize.height / 2f
+        val coreAlpha = alpha.coerceIn(0f, 1f)
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.Black.copy(alpha = coreAlpha * 0.42f),
+                    Color.Black.copy(alpha = coreAlpha * 0.20f),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.58f + dx, size.height * 0.66f + dy),
+                radius = size.width * 0.72f + expand
+            ),
+            topLeft = topLeft,
+            size = shadowSize,
+            cornerRadius = CornerRadius(radius, radius),
+            blendMode = BlendMode.Multiply
+        )
+        drawRoundRect(
+            color = Color.Black.copy(alpha = coreAlpha * 0.18f),
+            topLeft = Offset(dx + expand * 0.15f, dy + size.height * 0.28f),
+            size = Size(size.width - expand * 0.30f, size.height * 0.42f),
+            cornerRadius = CornerRadius(size.height * 0.22f, size.height * 0.22f),
+            blendMode = BlendMode.Multiply
+        )
     }
 }
 
