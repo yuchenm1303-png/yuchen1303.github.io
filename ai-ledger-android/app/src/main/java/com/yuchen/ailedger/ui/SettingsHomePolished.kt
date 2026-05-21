@@ -447,7 +447,7 @@ private fun RecessedSettingSlider(title: String, subtitle: String, value: Float,
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
     RecessedGlass(modifier = Modifier.fillMaxWidth().height(58.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
     }
 }
 
@@ -458,15 +458,15 @@ private fun DebugSliderRow(title: String, subtitle: String, value: Float, range:
 
 @Composable
 private fun SliderContent(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, percent: Float, onValueChange: (Float) -> Unit, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.82f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+    Row(modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(title, color = Color.White.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Box(Modifier.fillMaxWidth().height(24.dp).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
+        Spacer(Modifier.width(8.dp))
+        Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.82f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp), maxLines = 1)
+        Spacer(Modifier.width(8.dp))
+        Box(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.Center) {
             RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(14.dp))
             Slider(
                 value = value,
