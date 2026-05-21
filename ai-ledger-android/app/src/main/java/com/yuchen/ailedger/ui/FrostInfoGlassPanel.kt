@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.ui.gl.DropletGlassStyle
+import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 import kotlin.math.roundToInt
 
 @Composable
@@ -59,6 +61,30 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var insetRimHighlight by rememberSaveable { mutableStateOf(0.34f) }
     var insetInnerShadow by rememberSaveable { mutableStateOf(0.52f) }
     var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
+
+    var dropletBodyBulge by rememberSaveable { mutableStateOf(4.0f) }
+    var dropletEdgePull by rememberSaveable { mutableStateOf(28f) }
+    var dropletEdgeWidth by rememberSaveable { mutableStateOf(8f) }
+    var dropletLensMix by rememberSaveable { mutableStateOf(0.25f) }
+    var dropletDrag by rememberSaveable { mutableStateOf(0.45f) }
+    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.55f) }
+    var dropletTopGloss by rememberSaveable { mutableStateOf(0.38f) }
+    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.55f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.18f) }
+    var dropletAlpha by rememberSaveable { mutableStateOf(0.92f) }
+
+    val dropletStyle = DropletGlassStyle(
+        bodyBulgePx = dropletBodyBulge,
+        edgePullPx = dropletEdgePull,
+        edgeWidthPx = dropletEdgeWidth,
+        lensMix = dropletLensMix,
+        dragStrength = dropletDrag,
+        bottomGlow = dropletBottomGlow,
+        topGloss = dropletTopGloss,
+        cornerGloss = dropletCornerGloss,
+        innerDark = dropletInnerDark,
+        alpha = dropletAlpha
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         GlassLabMiniTitle("雾面信息玻璃", "只裁剪背景模糊层，不叠边框、高光和折射。")
@@ -126,6 +152,47 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("动态高光", "凹槽边缘采样背景亮色", insetRimHighlight, 0f..0.80f) { insetRimHighlight = it }
         GlassPanelSlider("内壁阴影", "洞口内侧压暗的厚度感", insetInnerShadow, 0f..0.90f) { insetInnerShadow = it }
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
+
+        GlassLabDivider()
+        GlassLabMiniTitle("OpenGL 水滴玻璃", "胶囊 SDF + 凸透镜 + 顶部高光 + 底部暖色拖光。")
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            OpenGlDropletPreview("✦", "发送", dropletStyle, Modifier.weight(1f))
+            OpenGlDropletPreview("AI", "AI 助理", dropletStyle, Modifier.weight(1f))
+            OpenGlDropletPreview("♪", "语音", dropletStyle, Modifier.weight(1f))
+        }
+        GlassPanelSlider("中心凸度", "中心轻微凸透镜折射", dropletBodyBulge, -24f..36f) { dropletBodyBulge = it }
+        GlassPanelSlider("边缘折射", "胶囊边缘拉动背景", dropletEdgePull, -80f..120f) { dropletEdgePull = it }
+        GlassPanelSlider("边缘宽度", "折射和高光集中宽度", dropletEdgeWidth, 2f..32f) { dropletEdgeWidth = it }
+        GlassPanelSlider("清晰混入", "只在边缘混入清晰背景", dropletLensMix, 0f..1f) { dropletLensMix = it }
+        GlassPanelSlider("拖色强度", "边缘从背景吸色", dropletDrag, 0f..1.6f) { dropletDrag = it }
+        GlassPanelSlider("底部暖光", "粉紫色液态底边", dropletBottomGlow, 0f..1.8f) { dropletBottomGlow = it }
+        GlassPanelSlider("顶部光泽", "上沿白紫柔光", dropletTopGloss, 0f..1.4f) { dropletTopGloss = it }
+        GlassPanelSlider("角部高光", "右上角弧形亮斑", dropletCornerGloss, 0f..1.6f) { dropletCornerGloss = it }
+        GlassPanelSlider("厚度暗边", "底部和边缘压暗", dropletInnerDark, 0f..0.8f) { dropletInnerDark = it }
+        GlassPanelSlider("整体透明", "OpenGL 水滴层透明度", dropletAlpha, 0f..1f) { dropletAlpha = it }
+    }
+}
+
+@Composable
+private fun OpenGlDropletPreview(icon: String, label: String, style: DropletGlassStyle, modifier: Modifier = Modifier) {
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(
+        modifier = modifier
+            .height(58.dp)
+            .onGloballyPositioned { coordinates.coordinates = it }
+            .clip(RoundedCornerShape(999.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        OpenGLDropletGlassLayer(
+            radius = 999,
+            coordinateSource = coordinates,
+            style = style,
+            modifier = Modifier.fillMaxSize()
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(icon, color = Color.White.copy(alpha = 0.95f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
