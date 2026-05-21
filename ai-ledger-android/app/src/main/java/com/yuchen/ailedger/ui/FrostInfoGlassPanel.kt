@@ -63,15 +63,15 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
 
     var dropletBodyBulge by rememberSaveable { mutableStateOf(44f) }
-    var dropletEdgePull by rememberSaveable { mutableStateOf(46f) }
-    var dropletEdgeWidth by rememberSaveable { mutableStateOf(9f) }
+    var dropletEdgePull by rememberSaveable { mutableStateOf(120f) }
+    var dropletEdgeWidth by rememberSaveable { mutableStateOf(32f) }
     var dropletLensMix by rememberSaveable { mutableStateOf(0.92f) }
-    var dropletDrag by rememberSaveable { mutableStateOf(0.36f) }
-    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.32f) }
-    var dropletTopGloss by rememberSaveable { mutableStateOf(0.22f) }
-    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.30f) }
-    var dropletInnerDark by rememberSaveable { mutableStateOf(0.18f) }
-    var dropletAlpha by rememberSaveable { mutableStateOf(0.72f) }
+    var dropletDrag by rememberSaveable { mutableStateOf(2.0f) }
+    var dropletBottomGlow by rememberSaveable { mutableStateOf(1.48f) }
+    var dropletTopGloss by rememberSaveable { mutableStateOf(0.53f) }
+    var dropletCornerGloss by rememberSaveable { mutableStateOf(1.03f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.65f) }
+    var dropletAlpha by rememberSaveable { mutableStateOf(0.63f) }
     var dropletDebugMask by rememberSaveable { mutableStateOf(0f) }
     var dropletShadowAlpha by rememberSaveable { mutableStateOf(0.18f) }
     var dropletShadowOffsetX by rememberSaveable { mutableStateOf(3.0f) }
@@ -93,7 +93,8 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         cornerGloss = dropletCornerGloss,
         innerDark = dropletInnerDark,
         alpha = dropletAlpha,
-        debugMaskAlpha = dropletDebugMask
+        debugMaskAlpha = dropletDebugMask,
+        activeGlow = dropletActiveGlow
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
