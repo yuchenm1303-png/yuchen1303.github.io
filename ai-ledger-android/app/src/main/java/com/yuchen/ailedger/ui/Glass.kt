@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import android.view.View
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -11,14 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -31,15 +26,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
-import kotlinx.coroutines.delay
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
 
@@ -69,14 +59,11 @@ private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
-private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 520
-private const val MIN_OPENGL_CARD_SIZE_PX = 48
-private const val OPENGL_SIZE_STABILIZE_DELAY_MS = 220L
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
+    GlassRole.Shell, GlassRole.Card -> STRONG_GLASS_BLUR_DP
     GlassRole.Nav -> 104
-    GlassRole.Chip, GlassRole.Flex -> MEDIUM_GLASS_BLUR_DP
+    GlassRole.Floating, GlassRole.Chip, GlassRole.Flex -> MEDIUM_GLASS_BLUR_DP
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
@@ -90,21 +77,20 @@ private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Flex -> false
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
+    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun decideGlassRenderPath(
     role: GlassRole,
     heavyGlassReady: Boolean,
-    nearViewport: Boolean,
     registryAvailable: Boolean,
     openGlAvailable: Boolean,
     sampledBackdropAvailable: Boolean
 ): GlassRenderPath {
-    if (openGlAvailable && nearViewport) return GlassRenderPath.OpenGlShell
-    if (heavyGlassReady && nearViewport && registryAvailable && roleUsesUnifiedBackdrop(role)) return GlassRenderPath.UnifiedBackdrop
-    if (heavyGlassReady && nearViewport && sampledBackdropAvailable && roleUsesSampledBackdrop(role)) return GlassRenderPath.SampledBackdrop
+    if (openGlAvailable) return GlassRenderPath.OpenGlShell
+    if (heavyGlassReady && registryAvailable && roleUsesUnifiedBackdrop(role)) return GlassRenderPath.UnifiedBackdrop
+    if (heavyGlassReady && sampledBackdropAvailable && roleUsesSampledBackdrop(role)) return GlassRenderPath.SampledBackdrop
     return GlassRenderPath.SkinOnly
 }
 
@@ -117,17 +103,6 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
         GlassRole.Nav -> radius.coerceAtLeast(999)
         GlassRole.Chip, GlassRole.Flex -> radius
     }
-}
-
-private fun LayoutCoordinates.isNearViewport(rootView: View, marginPx: Float): Boolean {
-    val viewportW = rootView.width
-    val viewportH = rootView.height
-    if (viewportW <= 0 || viewportH <= 0) return true
-    val bounds = boundsInWindow()
-    return bounds.right >= -marginPx &&
-        bounds.left <= viewportW + marginPx &&
-        bounds.bottom >= -marginPx &&
-        bounds.top <= viewportH + marginPx
 }
 
 @Composable
@@ -147,46 +122,20 @@ fun GlassPanel(
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
-    val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
-    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
-    var nearViewport by remember { mutableStateOf(true) }
-    var measuredOnce by remember { mutableStateOf(false) }
-    var openGlSizeStable by remember { mutableStateOf(false) }
-    var sizeVersion by remember { mutableIntStateOf(0) }
-    var lastWidth by remember { mutableIntStateOf(-1) }
-    var lastHeight by remember { mutableIntStateOf(-1) }
-    var measuredWidth by remember { mutableIntStateOf(0) }
-    var measuredHeight by remember { mutableIntStateOf(0) }
-
-    val hasValidOpenGlSize = measuredOnce &&
-        measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
-        measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-
-    LaunchedEffect(sizeVersion, measuredWidth, measuredHeight) {
-        if (hasValidOpenGlSize) {
-            delay(OPENGL_SIZE_STABILIZE_DELAY_MS)
-            openGlSizeStable = true
-        } else {
-            openGlSizeStable = false
-        }
-    }
+    val key = remember { Any() }
 
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
-        hasValidOpenGlSize &&
-        openGlSizeStable &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
     val renderPath = decideGlassRenderPath(
         role = role,
         heavyGlassReady = heavyGlassReady,
-        nearViewport = nearViewport,
         registryAvailable = registry != null,
         openGlAvailable = canUseCardOpenGlBackdrop,
         sampledBackdropAvailable = backdrop != null
     )
-    val key = remember { Any() }
 
     if (renderPath == GlassRenderPath.UnifiedBackdrop) {
         SideEffect {
@@ -210,24 +159,7 @@ fun GlassPanel(
 
     Box(
         modifier = modifier
-            .onGloballyPositioned {
-                coordinates.coordinates = it
-                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-
-                val width = it.size.width
-                val height = it.size.height
-                val sizeChanged = !measuredOnce || width != lastWidth || height != lastHeight
-                if (sizeChanged) {
-                    openGlSizeStable = false
-                    sizeVersion += 1
-                }
-                measuredOnce = true
-                measuredWidth = width
-                measuredHeight = height
-                lastWidth = width
-                lastHeight = height
-            }
+            .onGloballyPositioned { coordinates.coordinates = it }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         when (renderPath) {
@@ -309,43 +241,17 @@ fun PressableGlass(
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
-    val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
-    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
-    var nearViewport by remember { mutableStateOf(true) }
-    var measuredOnce by remember { mutableStateOf(false) }
-    var openGlSizeStable by remember { mutableStateOf(false) }
-    var sizeVersion by remember { mutableIntStateOf(0) }
-    var lastWidth by remember { mutableIntStateOf(-1) }
-    var lastHeight by remember { mutableIntStateOf(-1) }
-    var measuredWidth by remember { mutableIntStateOf(0) }
-    var measuredHeight by remember { mutableIntStateOf(0) }
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
 
-    val hasValidOpenGlSize = measuredOnce &&
-        measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
-        measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-
-    LaunchedEffect(sizeVersion, measuredWidth, measuredHeight) {
-        if (hasValidOpenGlSize) {
-            delay(OPENGL_SIZE_STABILIZE_DELAY_MS)
-            openGlSizeStable = true
-        } else {
-            openGlSizeStable = false
-        }
-    }
-
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
-        hasValidOpenGlSize &&
-        openGlSizeStable &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
     val renderPath = decideGlassRenderPath(
         role = role,
         heavyGlassReady = heavyGlassReady,
-        nearViewport = nearViewport,
         registryAvailable = registry != null,
         openGlAvailable = canUseCardOpenGlBackdrop,
         sampledBackdropAvailable = backdrop != null
@@ -373,24 +279,7 @@ fun PressableGlass(
 
     Box(
         modifier = modifier
-            .onGloballyPositioned {
-                coordinates.coordinates = it
-                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-
-                val width = it.size.width
-                val height = it.size.height
-                val sizeChanged = !measuredOnce || width != lastWidth || height != lastHeight
-                if (sizeChanged) {
-                    openGlSizeStable = false
-                    sizeVersion += 1
-                }
-                measuredOnce = true
-                measuredWidth = width
-                measuredHeight = height
-                lastWidth = width
-                lastHeight = height
-            }
+            .onGloballyPositioned { coordinates.coordinates = it }
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
