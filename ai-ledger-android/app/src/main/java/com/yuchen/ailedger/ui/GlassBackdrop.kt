@@ -23,7 +23,11 @@ import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.RenderQuality
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 data class GlassBackdropSpec(
     val quality: RenderQuality,
@@ -186,6 +190,7 @@ fun SampledWeatherEdgeRefraction(
     theme: BackgroundTheme,
     strength: Float = 1f
 ) {
+    val view = LocalView.current
     val spec = LocalGlassBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
@@ -201,22 +206,36 @@ fun SampledWeatherEdgeRefraction(
         val midInset = 2.70.dp.toPx()
         val innerInset = 7.0.dp.toPx()
         val cornerRadius = CornerRadius(corner, corner)
-        val positionPhase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
+
+        val rootW = if (view.width > 0) view.width.toFloat() else max(w + sampleOffset.x, w)
+        val rootH = if (view.height > 0) view.height.toFloat() else max(h + sampleOffset.y, h)
+        val dominantLight = dominantBackdropLight(theme, rootW, rootH)
+        val localLight = Offset(dominantLight.x - sampleOffset.x, dominantLight.y - sampleOffset.y)
+        val nearestX = localLight.x.coerceIn(0f, w)
+        val nearestY = localLight.y.coerceIn(0f, h)
+        val dx = localLight.x - nearestX
+        val dy = localLight.y - nearestY
+        val lightDistance = sqrt(dx * dx + dy * dy)
+        val edgeInfluence = 1f - smoothStep(0f, max(w, h) * 0.62f, lightDistance)
+        val verticalAffinity = 1f - smoothStep(0f, h * 1.15f, abs(localLight.y - h * 0.5f))
+        val horizontalAffinity = 1f - smoothStep(0f, w * 1.05f, abs(localLight.x - w * 0.5f))
+        val lightBoost = (edgeInfluence * (0.48f + 0.32f * verticalAffinity + 0.20f * horizontalAffinity)).coerceIn(0f, 1f)
+        val lightPhase = (localLight.x / max(w, 1f)).coerceIn(-0.35f, 1.35f)
 
         val broadLens = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.055f * alpha),
-                Color.White.copy(alpha = 0.018f * alpha),
+                Color.White.copy(alpha = (0.032f + 0.035f * lightBoost) * alpha),
+                Color.White.copy(alpha = (0.012f + 0.018f * lightBoost) * alpha),
                 Color.Transparent,
                 Color.Black.copy(alpha = 0.010f * alpha),
-                Color.White.copy(alpha = 0.010f * alpha)
+                Color.White.copy(alpha = (0.006f + 0.014f * lightBoost) * alpha)
             ),
-            start = Offset(w * (positionPhase - 0.18f), 0f),
-            end = Offset(w * (positionPhase + 0.82f), h)
+            start = Offset(w * (lightPhase - 0.42f), 0f),
+            end = Offset(w * (lightPhase + 0.64f), h)
         )
         val topPrism = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.070f * alpha),
+                Color.White.copy(alpha = (0.040f + 0.040f * lightBoost) * alpha),
                 Color.White.copy(alpha = 0.018f * alpha),
                 Color.Transparent
             ),
@@ -225,12 +244,21 @@ fun SampledWeatherEdgeRefraction(
         )
         val sideCompression = Brush.horizontalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.030f * alpha),
+                Color.White.copy(alpha = (0.016f + 0.020f * lightBoost) * alpha),
                 Color.Transparent,
                 Color.Transparent,
                 Color.Black.copy(alpha = 0.010f * alpha),
-                Color.White.copy(alpha = 0.016f * alpha)
+                Color.White.copy(alpha = (0.010f + 0.022f * lightBoost) * alpha)
             )
+        )
+        val edgeLight = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = border.topHighlightAlpha * 0.22f * lightBoost),
+                Color.White.copy(alpha = border.topHighlightAlpha * 0.050f * lightBoost),
+                Color.Transparent
+            ),
+            center = localLight,
+            radius = max(w, h) * 0.58f
         )
         val innerDarkBend = Brush.verticalGradient(
             colors = listOf(
@@ -275,11 +303,6 @@ fun SampledWeatherEdgeRefraction(
             blendMode = BlendMode.Multiply
         )
 
-        val movingGlint = Brush.linearGradient(
-            colors = listOf(Color.Transparent, Color.White.copy(alpha = border.topHighlightAlpha * 0.38f), Color.Transparent),
-            start = Offset(w * (positionPhase - 0.32f), 0f),
-            end = Offset(w * (positionPhase + 0.18f), h * 0.18f)
-        )
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -309,12 +332,12 @@ fun SampledWeatherEdgeRefraction(
             blendMode = BlendMode.Screen
         )
         drawRoundRect(
-            brush = movingGlint,
+            brush = edgeLight,
             topLeft = Offset(outerInset, outerInset),
             size = Size(w - outerInset * 2f, h - outerInset * 2f),
             cornerRadius = cornerRadius,
-            style = Stroke(width = 1.0.dp.toPx()),
-            blendMode = BlendMode.Plus
+            style = Stroke(width = 1.20.dp.toPx()),
+            blendMode = BlendMode.Screen
         )
         drawRoundRect(
             brush = Brush.verticalGradient(
@@ -329,4 +352,26 @@ fun SampledWeatherEdgeRefraction(
             blendMode = BlendMode.Multiply
         )
     }
+}
+
+private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
+    val span = (edge1 - edge0).takeIf { abs(it) > 0.0001f } ?: return 0f
+    val t = ((value - edge0) / span).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+private fun dominantBackdropLight(theme: BackgroundTheme, rootW: Float, rootH: Float): Offset {
+    val x = when (theme) {
+        BackgroundTheme.Aurora -> 0.80f
+        BackgroundTheme.Jade -> 0.76f
+        BackgroundTheme.Sunset -> 0.82f
+        BackgroundTheme.Dawn -> 0.78f
+    }
+    val y = when (theme) {
+        BackgroundTheme.Aurora -> 0.30f
+        BackgroundTheme.Jade -> 0.34f
+        BackgroundTheme.Sunset -> 0.31f
+        BackgroundTheme.Dawn -> 0.35f
+    }
+    return Offset(rootW * x, rootH * y)
 }
