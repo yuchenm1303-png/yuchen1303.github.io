@@ -62,16 +62,16 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var insetInnerShadow by rememberSaveable { mutableStateOf(0.52f) }
     var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
 
-    var dropletBodyBulge by rememberSaveable { mutableStateOf(24f) }
-    var dropletEdgePull by rememberSaveable { mutableStateOf(42f) }
-    var dropletEdgeWidth by rememberSaveable { mutableStateOf(10f) }
-    var dropletLensMix by rememberSaveable { mutableStateOf(0.58f) }
-    var dropletDrag by rememberSaveable { mutableStateOf(0.52f) }
-    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.58f) }
-    var dropletTopGloss by rememberSaveable { mutableStateOf(0.42f) }
-    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.66f) }
-    var dropletInnerDark by rememberSaveable { mutableStateOf(0.22f) }
-    var dropletAlpha by rememberSaveable { mutableStateOf(0.84f) }
+    var dropletBodyBulge by rememberSaveable { mutableStateOf(44f) }
+    var dropletEdgePull by rememberSaveable { mutableStateOf(46f) }
+    var dropletEdgeWidth by rememberSaveable { mutableStateOf(9f) }
+    var dropletLensMix by rememberSaveable { mutableStateOf(0.92f) }
+    var dropletDrag by rememberSaveable { mutableStateOf(0.36f) }
+    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.32f) }
+    var dropletTopGloss by rememberSaveable { mutableStateOf(0.22f) }
+    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.30f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.12f) }
+    var dropletAlpha by rememberSaveable { mutableStateOf(0.72f) }
 
     val dropletStyle = DropletGlassStyle(
         bodyBulgePx = dropletBodyBulge,
@@ -154,7 +154,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 水滴玻璃", "先用单个大胶囊样本调通：放大、压缩、顶部反光、底部焦散。")
+        GlassLabMiniTitle("OpenGL 水滴玻璃", "先看背景是否被明显放大、压缩、扭曲；高光和颜色先压低。")
         OpenGlLargeDropletPreview(style = dropletStyle, modifier = Modifier.fillMaxWidth().height(66.dp))
         GlassPanelSlider("主体放大", "水滴透镜放大底部图像", dropletBodyBulge, -12f..72f) { dropletBodyBulge = it }
         GlassPanelSlider("边缘压缩", "厚边拉动并压缩背景", dropletEdgePull, -40f..120f) { dropletEdgePull = it }
