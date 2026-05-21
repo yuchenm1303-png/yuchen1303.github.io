@@ -1,5 +1,10 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -40,6 +45,8 @@ fun CompactLiquidBottomBar(
     onTabChange: (AppTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val motionEnabled = quality.enableMotion && motionIntensity > 0.02f
+
     GlassPanel(
         quality = quality,
         glassIntensity = glassIntensity * 0.86f,
@@ -51,8 +58,24 @@ fun CompactLiquidBottomBar(
         BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(5.dp)) {
             val slot = maxWidth / AppTab.entries.size
             val target = AppTab.entries.indexOf(currentTab).coerceAtLeast(0)
-            val indicatorX = slot * target.toFloat()
-            val indicatorW = slot - 7.dp
+            val indicatorX by animateDpAsState(
+                targetValue = slot * target.toFloat(),
+                animationSpec = if (motionEnabled) {
+                    spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+                } else {
+                    tween(durationMillis = 0)
+                },
+                label = "compact-nav-indicator-x"
+            )
+            val indicatorW by animateDpAsState(
+                targetValue = slot - 7.dp,
+                animationSpec = if (motionEnabled) {
+                    spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
+                } else {
+                    tween(durationMillis = 0)
+                },
+                label = "compact-nav-indicator-w"
+            )
 
             GlassPanel(
                 quality = quality,
@@ -71,7 +94,15 @@ fun CompactLiquidBottomBar(
                     val selected = tab == currentTab
                     val interaction = remember { MutableInteractionSource() }
                     val pressed by interaction.collectIsPressedAsState()
-                    val scale = if (pressed) 0.96f else 1f
+                    val scale by animateFloatAsState(
+                        targetValue = if (pressed) 0.955f else if (selected) 1.012f else 1f,
+                        animationSpec = if (motionEnabled) {
+                            spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)
+                        } else {
+                            tween(durationMillis = 0)
+                        },
+                        label = "compact-nav-press-scale"
+                    )
                     Column(
                         modifier = Modifier
                             .weight(1f)
