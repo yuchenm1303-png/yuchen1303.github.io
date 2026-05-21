@@ -32,9 +32,10 @@ import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val SIGNATURE_QUANTIZE = 4f
 
 class BatchedOpenGlGlassRegistry {
     private val items = linkedMapOf<Any, BatchedOpenGlGlassItem>()
@@ -118,7 +119,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    val frameNanos = ticker?.frameNanos ?: 0L
+    ticker?.frameNanos
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
 
@@ -139,7 +140,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                 originX = sample.x,
                 originY = sample.y,
                 radiusPx = with(density) { item.radius.dp.toPx() },
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.35f),
+                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
                 zIndex = item.zIndex
             )
         }.filter { item ->
@@ -150,12 +151,11 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
             modifier = Modifier.matchParentSize(),
             factory = { BatchedOpenGlGlassTextureView(it) },
             update = { view ->
-                view.noteComposeFrame(frameNanos)
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyC = view.setGlassStyle(border)
-                view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
-                if (dirtyA || dirtyB || dirtyC || items.isNotEmpty()) view.requestRender()
+                val dirtyD = view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
+                if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
         )
     }
@@ -171,7 +171,7 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     private var rootH = 1f
     private var viewportHintW = 1
     private var viewportHintH = 1
-    private var lastComposeFrame = 0L
+    private var lastItemSignature = 0
 
     init {
         isOpaque = false
@@ -180,10 +180,6 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         isClickable = false
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-    }
-
-    fun noteComposeFrame(frameNanos: Long) {
-        lastComposeFrame = frameNanos
     }
 
     fun setViewportHint(w: Int, h: Int): Boolean {
@@ -208,11 +204,17 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         return dirty
     }
 
-    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float) {
-        items = next
-        this.rootW = rootW.coerceAtLeast(1f)
-        this.rootH = rootH.coerceAtLeast(1f)
-        thread?.setItems(next, this.rootW, this.rootH)
+    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float): Boolean {
+        val signature = next.fastSignature(rootW, rootH)
+        val dirty = signature != lastItemSignature
+        if (dirty) {
+            items = next
+            this.rootW = rootW.coerceAtLeast(1f)
+            this.rootH = rootH.coerceAtLeast(1f)
+            lastItemSignature = signature
+            thread?.setItems(next, this.rootW, this.rootH)
+        }
+        return dirty
     }
 
     fun requestRender() = thread?.requestRender() ?: Unit
@@ -240,6 +242,22 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+}
+
+private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
+    fun q(value: Float): Int = (value * SIGNATURE_QUANTIZE).roundToInt()
+    var result = size * 31 + q(rootW) * 17 + q(rootH)
+    forEach { item ->
+        result = result * 31 + q(item.left)
+        result = result * 31 + q(item.top)
+        result = result * 31 + q(item.width)
+        result = result * 31 + q(item.height)
+        result = result * 31 + q(item.originX)
+        result = result * 31 + q(item.originY)
+        result = result * 31 + q(item.radiusPx)
+        result = result * 31 + q(item.intensity * 100f)
+    }
+    return result
 }
 
 private class BatchedGlassEglThread(private val surface: Surface, width: Int, height: Int) : Thread("BatchedOpenGLGlassThread") {
@@ -376,7 +394,7 @@ private class BatchedOpenGlGlassRenderer {
 
     fun setItems(next: List<DrawItem>, rw: Float, rh: Float) {
         synchronized(itemLock) {
-            items = next.toList()
+            items = next
             rootW = rw.coerceAtLeast(1f)
             rootH = rh.coerceAtLeast(1f)
         }
@@ -441,8 +459,8 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glUniform2f(rootHandle, drawRootW, drawRootH)
         GLES20.glUniform1f(textureReadyHandle, if (ready) 1f else 0f)
         val currentStyle = style
-        GLES20.glUniform4f(refractionHandle, currentStyle.openGlPullScale.coerceIn(-300f, 300f), currentStyle.edgePullDp.coerceIn(-600f, 600f), currentStyle.openGlCompressionScale.coerceIn(-10f, 10f), currentStyle.openGlCornerScale.coerceIn(0f, 200f))
-        GLES20.glUniform4f(opticsHandle, currentStyle.openGlSampleRadiusScale.coerceIn(0f, 200f), currentStyle.ringWidthDp.coerceIn(0f, 300f), currentStyle.openGlDebugLineAlpha.coerceIn(0f, 1f), currentStyle.openGlDarkScale.coerceIn(-10f, 10f))
+        GLES20.glUniform4f(refractionHandle, currentStyle.openGlPullScale.coerceIn(-240f, 240f), currentStyle.edgePullDp.coerceIn(-420f, 420f), currentStyle.openGlCompressionScale.coerceIn(-8f, 8f), currentStyle.openGlCornerScale.coerceIn(0f, 160f))
+        GLES20.glUniform4f(opticsHandle, currentStyle.openGlSampleRadiusScale.coerceIn(0f, 80f), currentStyle.ringWidthDp.coerceIn(0f, 220f), currentStyle.openGlDebugLineAlpha.coerceIn(0f, 1f), currentStyle.openGlDarkScale.coerceIn(-8f, 8f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
         GLES20.glUniform1i(blurHandle, 0)
@@ -467,7 +485,7 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
         GLES20.glUniform1f(radiusHandle, item.radiusPx.coerceIn(2f, max(item.width, item.height)))
-        GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-5f, 5f), currentStyle.bodyAlpha.coerceIn(-5f, 5f))
+        GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-4f, 4f), currentStyle.bodyAlpha.coerceIn(-4f, 4f))
         GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertices)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
@@ -588,33 +606,13 @@ private class BatchedOpenGlGlassRenderer {
             }
 
             vec2 sdfNormal(vec2 local, vec2 size, float radius) {
-                float d = 1.5;
+                float d = 2.0;
                 float l = roundedBoxSdf(local - vec2(d, 0.0), size, radius);
                 float r = roundedBoxSdf(local + vec2(d, 0.0), size, radius);
                 float t = roundedBoxSdf(local - vec2(0.0, d), size, radius);
                 float b = roundedBoxSdf(local + vec2(0.0, d), size, radius);
                 vec2 n = vec2(r - l, b - t);
                 return n / max(length(n), 0.001);
-            }
-
-            float colorSignal(vec3 c) {
-                float luma = dot(c, vec3(0.299, 0.587, 0.114));
-                float chroma = length(c - vec3(luma));
-                return sat((luma - 0.18) * 1.35 + chroma * 1.6);
-            }
-
-            vec3 blur9(vec2 uv, float px) {
-                vec2 stepUv = vec2(px) / max(uRootResolution, vec2(1.0));
-                vec3 c = sampleBlur(uv) * 0.22;
-                c += sampleBlur(uv + vec2(stepUv.x, 0.0)) * 0.11;
-                c += sampleBlur(uv - vec2(stepUv.x, 0.0)) * 0.11;
-                c += sampleBlur(uv + vec2(0.0, stepUv.y)) * 0.11;
-                c += sampleBlur(uv - vec2(0.0, stepUv.y)) * 0.11;
-                c += sampleBlur(uv + stepUv) * 0.085;
-                c += sampleBlur(uv - stepUv) * 0.085;
-                c += sampleBlur(uv + vec2(stepUv.x, -stepUv.y)) * 0.085;
-                c += sampleBlur(uv + vec2(-stepUv.x, stepUv.y)) * 0.085;
-                return c;
             }
 
             void main() {
@@ -627,42 +625,38 @@ private class BatchedOpenGlGlassRenderer {
                 if (mask <= 0.001) discard;
 
                 float inside = max(-sd, 0.0);
-                float edgeWidth = clamp(uOptics.y, 3.0, min(size.x, size.y) * 0.34);
+                float edgeWidth = clamp(uOptics.y, 4.0, min(size.x, size.y) * 0.32);
                 float edgeWide = 1.0 - smoothstep(0.0, edgeWidth, inside);
-                float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.30, 2.0), inside);
-                float edgeDragBand = pow(1.0 - smoothstep(0.0, max(edgeWidth * 1.45, 8.0), inside), 1.35);
-
+                float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.26, 2.0), inside);
                 vec2 normal = sdfNormal(local, size, radius);
-                vec2 tangent = vec2(-normal.y, normal.x);
                 vec2 centerDir = normalize(local - size * 0.5 + vec2(0.001));
                 vec2 dir = mix(centerDir, normal, edgeWide);
 
-                float bodyPull = uRefraction.x * 0.08 * (1.0 - edgeWide);
+                float bodyPull = uRefraction.x * 0.035 * (1.0 - edgeWide);
                 float edgePull = uRefraction.y * edgeWide;
                 vec2 offsetPx = dir * (bodyPull + edgePull);
-                float limitPx = mix(12.0, 54.0, edgeWide) + sat(abs(uRefraction.y) / 600.0) * 14.0;
+                float limitPx = mix(10.0, 42.0, edgeWide);
                 float lenPx = length(offsetPx);
                 offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
 
                 vec2 uv = globalUv(local + offsetPx);
-                vec3 color = blur9(uv, max(uOptics.x, 0.0) * (1.0 + edgeWide * 0.35));
+                vec3 base = sampleBlur(uv);
+                vec2 stepUv = vec2(max(uOptics.x, 0.0)) / max(uRootResolution, vec2(1.0));
+                vec3 soft = base * 0.52;
+                soft += sampleBlur(uv + vec2(stepUv.x, 0.0)) * 0.12;
+                soft += sampleBlur(uv - vec2(stepUv.x, 0.0)) * 0.12;
+                soft += sampleBlur(uv + vec2(0.0, stepUv.y)) * 0.12;
+                soft += sampleBlur(uv - vec2(0.0, stepUv.y)) * 0.12;
 
-                float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.40;
-                color = mix(color, sampleLens(uv), lensMix);
+                vec3 lens = sampleLens(uv);
+                float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.28;
+                vec3 color = mix(soft, lens, lensMix);
 
-                float dragPull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
-                float smear = clamp(4.0 + edgeWidth * 0.55, 4.0, 22.0);
-                vec2 dragBase = local - normal * dragPull;
-                vec3 drag = sampleLens(globalUv(dragBase)) * 0.32;
-                drag += sampleLens(globalUv(dragBase + tangent * smear)) * 0.18;
-                drag += sampleLens(globalUv(dragBase - tangent * smear)) * 0.18;
-                drag += sampleLens(globalUv(dragBase - normal * dragPull * 0.9)) * 0.20;
-                drag += sampleLens(globalUv(dragBase + normal * dragPull * 0.45)) * 0.12;
-                float dragAlpha = edgeDragBand * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + edgeCore * 0.030) * colorSignal(drag);
-                color = mix(color, drag, sat(dragAlpha));
-
-                color *= uMaterial.z * (1.0 + edgeCore * 0.12);
-                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * edgeWide;
+                float brightBand = edgeCore * 0.045;
+                float darkBand = smoothstep(edgeWidth * 0.30, edgeWidth, inside) * edgeWide * 0.040;
+                color += vec3(brightBand);
+                color -= vec3(darkBand) * sat(uOptics.w);
+                color *= uMaterial.z;
                 float debug = smoothstep(-1.65, 0.0, sd) * mask;
                 color = mix(color, vec3(1.0, 0.45, 0.0), debug * uOptics.z);
                 color = clamp(color, 0.0, 1.0);
