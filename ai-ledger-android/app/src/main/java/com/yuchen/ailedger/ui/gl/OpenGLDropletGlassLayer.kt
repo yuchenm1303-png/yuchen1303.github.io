@@ -568,7 +568,7 @@ private class DropletRenderer {
         """
 
         const val FRAGMENT_SHADER = """
-            precision mediump float;
+            precision highp float;
             uniform vec2 uSize;
             uniform vec2 uCardOrigin;
             uniform vec2 uRootResolution;
