@@ -40,7 +40,7 @@ data class DropletGlassStyle(
     val bottomGlow: Float = 0.32f,
     val topGloss: Float = 0.22f,
     val cornerGloss: Float = 0.30f,
-    val innerDark: Float = 0.12f,
+    val innerDark: Float = 0.18f,
     val alpha: Float = 0.72f
 )
 
@@ -548,10 +548,15 @@ private class DropletRenderer {
                 float caustic = bottomBand * signal(drag) * uLight.y;
                 color += vec3(1.0, 0.42, 0.76) * caustic * 0.06;
 
-                float dark = (bottomFacing * 0.22 + rim * 0.28 + edgeCore * 0.16) * uAlpha.x;
-                color -= vec3(0.04, 0.05, 0.08) * dark;
+                vec2 shadowDir = normalize(vec2(0.36, 0.94));
+                float castFacing = sat(dot(normal, shadowDir));
+                float rimShadow = (wideRim * 0.38 + edgeCore * 0.18) * (0.42 + 0.58 * castFacing);
+                float bottomShadow = bottomFacing * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
+                float dark = (rimShadow + bottomShadow * 0.45 + rim * 0.14) * uAlpha.x;
+                color -= vec3(0.055, 0.065, 0.10) * dark;
+
                 color = clamp(color, 0.0, 1.0);
-                float alpha = uAlpha.y * mask * (0.72 + thickness * 0.12 + rim * 0.16);
+                float alpha = uAlpha.y * mask * (0.70 + thickness * 0.12 + rim * 0.18);
                 gl_FragColor = vec4(color, alpha);
             }
         """
