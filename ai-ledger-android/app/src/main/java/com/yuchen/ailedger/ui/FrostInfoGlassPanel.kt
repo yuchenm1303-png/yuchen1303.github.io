@@ -62,16 +62,16 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var insetInnerShadow by rememberSaveable { mutableStateOf(0.52f) }
     var insetFloorDim by rememberSaveable { mutableStateOf(0.22f) }
 
-    var dropletBodyBulge by rememberSaveable { mutableStateOf(4.0f) }
-    var dropletEdgePull by rememberSaveable { mutableStateOf(28f) }
-    var dropletEdgeWidth by rememberSaveable { mutableStateOf(8f) }
-    var dropletLensMix by rememberSaveable { mutableStateOf(0.25f) }
-    var dropletDrag by rememberSaveable { mutableStateOf(0.45f) }
-    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.55f) }
-    var dropletTopGloss by rememberSaveable { mutableStateOf(0.38f) }
-    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.55f) }
-    var dropletInnerDark by rememberSaveable { mutableStateOf(0.18f) }
-    var dropletAlpha by rememberSaveable { mutableStateOf(0.92f) }
+    var dropletBodyBulge by rememberSaveable { mutableStateOf(18f) }
+    var dropletEdgePull by rememberSaveable { mutableStateOf(56f) }
+    var dropletEdgeWidth by rememberSaveable { mutableStateOf(14f) }
+    var dropletLensMix by rememberSaveable { mutableStateOf(0.48f) }
+    var dropletDrag by rememberSaveable { mutableStateOf(0.72f) }
+    var dropletBottomGlow by rememberSaveable { mutableStateOf(0.74f) }
+    var dropletTopGloss by rememberSaveable { mutableStateOf(0.48f) }
+    var dropletCornerGloss by rememberSaveable { mutableStateOf(0.78f) }
+    var dropletInnerDark by rememberSaveable { mutableStateOf(0.26f) }
+    var dropletAlpha by rememberSaveable { mutableStateOf(0.88f) }
 
     val dropletStyle = DropletGlassStyle(
         bodyBulgePx = dropletBodyBulge,
@@ -154,21 +154,21 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 水滴玻璃", "胶囊 SDF + 凸透镜 + 顶部高光 + 底部暖色拖光。")
+        GlassLabMiniTitle("OpenGL 水滴玻璃", "胶囊厚透镜：整块折射、边缘压缩、顶部反光、底部焦散。")
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             OpenGlDropletPreview("✦", "发送", dropletStyle, Modifier.weight(1f))
             OpenGlDropletPreview("AI", "AI 助理", dropletStyle, Modifier.weight(1f))
             OpenGlDropletPreview("♪", "语音", dropletStyle, Modifier.weight(1f))
         }
-        GlassPanelSlider("中心凸度", "中心轻微凸透镜折射", dropletBodyBulge, -24f..36f) { dropletBodyBulge = it }
-        GlassPanelSlider("边缘折射", "胶囊边缘拉动背景", dropletEdgePull, -80f..120f) { dropletEdgePull = it }
-        GlassPanelSlider("边缘宽度", "折射和高光集中宽度", dropletEdgeWidth, 2f..32f) { dropletEdgeWidth = it }
-        GlassPanelSlider("清晰混入", "只在边缘混入清晰背景", dropletLensMix, 0f..1f) { dropletLensMix = it }
-        GlassPanelSlider("拖色强度", "边缘从背景吸色", dropletDrag, 0f..1.6f) { dropletDrag = it }
-        GlassPanelSlider("底部暖光", "粉紫色液态底边", dropletBottomGlow, 0f..1.8f) { dropletBottomGlow = it }
-        GlassPanelSlider("顶部光泽", "上沿白紫柔光", dropletTopGloss, 0f..1.4f) { dropletTopGloss = it }
-        GlassPanelSlider("角部高光", "右上角弧形亮斑", dropletCornerGloss, 0f..1.6f) { dropletCornerGloss = it }
-        GlassPanelSlider("厚度暗边", "底部和边缘压暗", dropletInnerDark, 0f..0.8f) { dropletInnerDark = it }
+        GlassPanelSlider("厚度折射", "整块厚胶囊透镜折射", dropletBodyBulge, -24f..72f) { dropletBodyBulge = it }
+        GlassPanelSlider("边缘折射", "边缘厚边拉动背景", dropletEdgePull, -80f..160f) { dropletEdgePull = it }
+        GlassPanelSlider("边缘宽度", "折射、高光和拖色宽度", dropletEdgeWidth, 2f..40f) { dropletEdgeWidth = it }
+        GlassPanelSlider("清晰混入", "厚透镜内清晰背景参与", dropletLensMix, 0f..1f) { dropletLensMix = it }
+        GlassPanelSlider("拖色强度", "边缘从背景吸色", dropletDrag, 0f..2f) { dropletDrag = it }
+        GlassPanelSlider("底部焦散", "粉紫色液态底边", dropletBottomGlow, 0f..2f) { dropletBottomGlow = it }
+        GlassPanelSlider("顶部反光", "上沿真实光亮", dropletTopGloss, 0f..1.8f) { dropletTopGloss = it }
+        GlassPanelSlider("角部反光", "右上角弧形亮斑", dropletCornerGloss, 0f..2f) { dropletCornerGloss = it }
+        GlassPanelSlider("厚度暗边", "底部和边缘压暗", dropletInnerDark, 0f..1f) { dropletInnerDark = it }
         GlassPanelSlider("整体透明", "OpenGL 水滴层透明度", dropletAlpha, 0f..1f) { dropletAlpha = it }
     }
 }
