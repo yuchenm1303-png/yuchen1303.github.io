@@ -32,16 +32,16 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 data class DropletGlassStyle(
-    val bodyBulgePx: Float = 24f,
-    val edgePullPx: Float = 42f,
-    val edgeWidthPx: Float = 10f,
-    val lensMix: Float = 0.58f,
-    val dragStrength: Float = 0.52f,
-    val bottomGlow: Float = 0.58f,
-    val topGloss: Float = 0.42f,
-    val cornerGloss: Float = 0.66f,
-    val innerDark: Float = 0.22f,
-    val alpha: Float = 0.84f
+    val bodyBulgePx: Float = 44f,
+    val edgePullPx: Float = 46f,
+    val edgeWidthPx: Float = 9f,
+    val lensMix: Float = 0.92f,
+    val dragStrength: Float = 0.36f,
+    val bottomGlow: Float = 0.32f,
+    val topGloss: Float = 0.22f,
+    val cornerGloss: Float = 0.30f,
+    val innerDark: Float = 0.12f,
+    val alpha: Float = 0.72f
 )
 
 @Composable
@@ -347,7 +347,7 @@ private class DropletRenderer {
         GLES20.glUniform4f(rectHandle, 0f, 0f, cardW, cardH)
         GLES20.glUniform1f(radiusHandle, radius.coerceIn(2f, max(cardW, cardH)))
         GLES20.glUniform1f(readyHandle, if (ready) 1f else 0f)
-        GLES20.glUniform4f(shapeHandle, style.bodyBulgePx.coerceIn(-80f, 100f), style.edgePullPx.coerceIn(-160f, 180f), style.edgeWidthPx.coerceIn(2f, 72f), style.lensMix.coerceIn(0f, 1f))
+        GLES20.glUniform4f(shapeHandle, style.bodyBulgePx.coerceIn(-80f, 120f), style.edgePullPx.coerceIn(-160f, 180f), style.edgeWidthPx.coerceIn(2f, 72f), style.lensMix.coerceIn(0f, 1f))
         GLES20.glUniform4f(lightHandle, style.dragStrength.coerceIn(0f, 2.5f), style.bottomGlow.coerceIn(0f, 2.5f), style.topGloss.coerceIn(0f, 2.5f), style.cornerGloss.coerceIn(0f, 2.5f))
         GLES20.glUniform4f(alphaHandle, style.innerDark.coerceIn(0f, 1.5f), style.alpha.coerceIn(0f, 1f), 0f, 0f)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -463,7 +463,7 @@ private class DropletRenderer {
             }
 
             vec3 fallback(vec2 uv) {
-                return mix(vec3(0.05, 0.10, 0.23), vec3(0.34, 0.22, 0.48), smoothstep(0.0, 1.0, uv.y));
+                return mix(vec3(0.04, 0.12, 0.24), vec3(0.12, 0.36, 0.42), smoothstep(0.0, 1.0, uv.y));
             }
 
             vec3 sampleBlur(vec2 uv) {
@@ -478,16 +478,6 @@ private class DropletRenderer {
                 float luma = dot(c, vec3(0.299, 0.587, 0.114));
                 float chroma = length(c - vec3(luma));
                 return sat((luma - 0.16) * 1.55 + chroma * 1.65);
-            }
-
-            vec3 blur5(vec2 uv, float px) {
-                vec2 s = vec2(px) / max(uRootResolution, vec2(1.0));
-                vec3 c = sampleBlur(uv) * 0.36;
-                c += sampleBlur(uv + vec2(s.x, 0.0)) * 0.16;
-                c += sampleBlur(uv - vec2(s.x, 0.0)) * 0.16;
-                c += sampleBlur(uv + vec2(0.0, s.y)) * 0.16;
-                c += sampleBlur(uv - vec2(0.0, s.y)) * 0.16;
-                return c;
             }
 
             void main() {
@@ -508,61 +498,60 @@ private class DropletRenderer {
                 vec2 normal = local / max(distToSpine, 0.001);
                 vec2 tangent = vec2(-normal.y, normal.x);
                 float thickness = sqrt(max(0.0, 1.0 - rNorm * rNorm));
-                float rim = pow(rNorm, 1.65);
+                float rim = pow(rNorm, 1.85);
                 float edgeWidth = clamp(uShape.z, 2.0, size.y * 0.48);
                 float edge = 1.0 - smoothstep(0.0, edgeWidth, inside);
                 float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.30, 1.5), inside);
-                float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.8, 10.0), inside);
+                float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.4, 9.0), inside);
 
-                float lensStrength = uShape.x / 72.0;
-                vec2 magnifyOffset = -local * lensStrength * (0.18 + 0.82 * thickness);
-                vec2 centerSoft = vec2(-(coord.x - center.x) * lensStrength * 0.035, 0.0) * thickness;
-                vec2 rimOffset = normal * uShape.y * edge * (0.20 + 0.80 * rim);
-                vec2 edgeCompression = -normal * abs(uShape.y) * 0.10 * wideRim * (1.0 - thickness);
-                vec2 offsetPx = magnifyOffset + centerSoft + rimOffset + edgeCompression;
+                float lensStrength = sat(abs(uShape.x) / 72.0);
+                vec2 magnifyOffset = -local * lensStrength * (0.62 + 0.25 * thickness) * (1.0 - edge * 0.20);
+                vec2 softHorizontal = vec2(-(coord.x - center.x) * lensStrength * 0.035, 0.0) * thickness;
+                vec2 rimOffset = normal * uShape.y * edge * (0.18 + 0.82 * rim);
+                vec2 edgeCompression = -normal * abs(uShape.y) * 0.16 * wideRim * (1.0 - thickness);
+                vec2 offsetPx = magnifyOffset + softHorizontal + rimOffset + edgeCompression;
                 float lenPx = length(offsetPx);
-                float limitPx = 58.0;
+                float limitPx = 74.0;
                 offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
 
                 vec2 uv = globalUv(coord + offsetPx);
-                vec3 color = blur5(uv, 0.7 + wideRim * 1.2);
                 vec3 sharp = sampleLens(uv);
-                float lensAlpha = sat((0.18 + thickness * 0.46 + edgeCore * 0.46) * uShape.w);
-                color = mix(color, sharp, lensAlpha);
+                vec3 soft = sampleBlur(uv);
+                float lensAlpha = sat(0.72 + uShape.w * 0.28);
+                vec3 color = mix(soft, sharp, lensAlpha);
 
-                float smear = clamp(6.0 + edgeWidth * 0.86, 5.0, 26.0);
-                float dragPull = clamp(8.0 + abs(uShape.y) * 0.13, 6.0, 34.0);
+                float smear = clamp(5.0 + edgeWidth * 0.78, 4.0, 22.0);
+                float dragPull = clamp(6.0 + abs(uShape.y) * 0.12, 5.0, 30.0);
                 vec2 dragBase = coord - normal * dragPull;
-                vec3 drag = sampleLens(globalUv(dragBase)) * 0.34;
+                vec3 drag = sampleLens(globalUv(dragBase)) * 0.36;
                 drag += sampleLens(globalUv(dragBase + tangent * smear)) * 0.22;
                 drag += sampleLens(globalUv(dragBase - tangent * smear)) * 0.22;
-                drag += sampleLens(globalUv(dragBase - normal * dragPull * 0.75)) * 0.22;
-                float dragAlpha = wideRim * uLight.x * signal(drag) * 0.46;
+                drag += sampleLens(globalUv(dragBase - normal * dragPull * 0.70)) * 0.20;
+                float dragAlpha = wideRim * uLight.x * signal(drag) * 0.28;
                 color = mix(color, drag, sat(dragAlpha));
 
                 float y = coord.y / max(size.y, 1.0);
                 float topFacing = sat(-normal.y);
                 float bottomFacing = sat(normal.y);
+                vec3 specColor = mix(vec3(1.0), vec3(0.84, 0.78, 1.0), 0.28);
                 float topLine = topFacing * edge * smoothstep(0.02, 0.18, y) * (1.0 - smoothstep(0.24, 0.56, y));
-                vec3 specColor = mix(vec3(1.0), vec3(0.84, 0.78, 1.0), 0.32);
-                color += specColor * topLine * uLight.z * 0.88;
-                color += specColor * topFacing * wideRim * uLight.z * 0.12;
+                color += specColor * topLine * uLight.z * 0.45;
+                color += specColor * topFacing * wideRim * uLight.z * 0.06;
 
                 vec2 lightDir = normalize(vec2(0.62, -0.78));
-                float directional = pow(sat(dot(normal, lightDir)), 4.4) * edge;
-                color += specColor * directional * uLight.w * 0.92;
+                float directional = pow(sat(dot(normal, lightDir)), 5.0) * edge;
+                color += specColor * directional * uLight.w * 0.48;
 
-                float bottomBand = bottomFacing * (0.25 + 0.75 * wideRim) * smoothstep(0.46, 1.0, y);
-                vec3 warm = mix(drag, vec3(1.0, 0.34, 0.70), 0.32);
-                color = mix(color, warm, sat(bottomBand * uLight.y * 0.58));
+                float bottomBand = bottomFacing * (0.20 + 0.80 * wideRim) * smoothstep(0.46, 1.0, y);
+                vec3 warm = mix(drag, vec3(1.0, 0.34, 0.70), 0.20);
+                color = mix(color, warm, sat(bottomBand * uLight.y * 0.24));
                 float caustic = bottomBand * signal(drag) * uLight.y;
-                color += vec3(1.0, 0.42, 0.76) * caustic * 0.16;
+                color += vec3(1.0, 0.42, 0.76) * caustic * 0.06;
 
-                float dark = (bottomFacing * 0.42 + rim * 0.48 + edgeCore * 0.20) * uAlpha.x;
-                color -= vec3(0.06, 0.07, 0.11) * dark;
-                color = mix(color, color * vec3(0.94, 0.98, 1.08), 0.16);
+                float dark = (bottomFacing * 0.22 + rim * 0.28 + edgeCore * 0.16) * uAlpha.x;
+                color -= vec3(0.04, 0.05, 0.08) * dark;
                 color = clamp(color, 0.0, 1.0);
-                float alpha = uAlpha.y * mask * (0.64 + thickness * 0.18 + rim * 0.18);
+                float alpha = uAlpha.y * mask * (0.72 + thickness * 0.12 + rim * 0.16);
                 gl_FragColor = vec4(color, alpha);
             }
         """
