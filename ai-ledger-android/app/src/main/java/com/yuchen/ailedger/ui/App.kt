@@ -44,8 +44,6 @@ import kotlinx.coroutines.delay
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val HEAVY_GLASS_STARTUP_DELAY_MS = 420L
-private const val ACTIVE_GLASS_FRAMES_AFTER_STATE_CHANGE = 24
-private const val IDLE_GLASS_TICKER_DELAY_MS = 33L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -79,21 +77,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    LaunchedEffect(
-        state.currentTab,
-        state.selectedToolTitle,
-        state.isSending,
-        state.quality,
-        state.motionIntensity,
-        state.glassIntensity,
-        state.backgroundTheme,
-        state.customBackgroundPath
-    ) {
-        repeat(ACTIVE_GLASS_FRAMES_AFTER_STATE_CHANGE) {
-            backdropTicker.frameNanos = withFrameNanos { it }
-        }
+    LaunchedEffect(Unit) {
         while (true) {
-            delay(IDLE_GLASS_TICKER_DELAY_MS)
             backdropTicker.frameNanos = withFrameNanos { it }
         }
     }
