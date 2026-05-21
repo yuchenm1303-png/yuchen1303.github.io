@@ -90,74 +90,42 @@ fun RecessedGlass(
 fun RecessedProgressTrack(progress: Float, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.height(14.dp)) {
         val p = progress.coerceIn(0f, 1f)
-        val h = size.height.coerceAtLeast(1f)
-        val r = h / 2f
-        val activeW = size.width * p
-
+        val r = size.height / 2f
         drawRoundRect(
-            brush = Brush.verticalGradient(
-                listOf(
-                    Color.Black.copy(alpha = 0.48f),
-                    Color(0xFF0A1230).copy(alpha = 0.46f),
-                    Color.White.copy(alpha = 0.08f)
-                )
-            ),
+            color = Color.Black.copy(alpha = 0.34f),
             cornerRadius = CornerRadius(r, r),
             blendMode = BlendMode.Multiply
         )
         drawRoundRect(
-            brush = Brush.horizontalGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.18f),
-                    Color(0xFFB9D7FF).copy(alpha = 0.14f),
-                    Color.White.copy(alpha = 0.10f)
-                )
-            ),
+            color = Color.White.copy(alpha = 0.18f),
             cornerRadius = CornerRadius(r, r),
             blendMode = BlendMode.Screen
         )
-        drawRoundRect(
-            color = Color.White.copy(alpha = 0.22f),
-            topLeft = Offset(0.7.dp.toPx(), 0.7.dp.toPx()),
-            size = Size(size.width - 1.4.dp.toPx(), size.height - 1.4.dp.toPx()),
-            cornerRadius = CornerRadius(r, r),
-            style = Stroke(width = 0.75.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
-
-        if (activeW > 1f) {
+        if (p > 0.002f) {
             drawRoundRect(
                 brush = Brush.horizontalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.86f),
-                        Color(0xFFCFFFFF).copy(alpha = 0.92f),
-                        Color(0xFF8DF9EA).copy(alpha = 0.98f),
-                        Color(0xFF8ED8FF).copy(alpha = 0.82f)
+                        Color.White.copy(alpha = 0.78f),
+                        Color(0xFF8DF9EA).copy(alpha = 0.96f),
+                        Color(0xFF8ED8FF).copy(alpha = 0.78f)
                     )
                 ),
-                size = Size(activeW, h),
+                size = Size(size.width * p, size.height),
                 cornerRadius = CornerRadius(r, r),
                 blendMode = BlendMode.Screen
             )
             drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.48f),
-                        Color.White.copy(alpha = 0.12f),
-                        Color.Transparent
-                    )
-                ),
-                size = Size(activeW, h * 0.52f),
-                cornerRadius = CornerRadius(r, r),
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                color = Color(0xFF8DF9EA).copy(alpha = 0.20f),
-                topLeft = Offset(0f, h * 0.56f),
-                size = Size(activeW, h * 0.44f),
+                color = Color.White.copy(alpha = 0.26f),
+                size = Size(size.width * p, size.height * 0.36f),
                 cornerRadius = CornerRadius(r, r),
                 blendMode = BlendMode.Screen
             )
         }
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.20f),
+            cornerRadius = CornerRadius(r, r),
+            style = Stroke(width = 0.6.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
     }
 }
