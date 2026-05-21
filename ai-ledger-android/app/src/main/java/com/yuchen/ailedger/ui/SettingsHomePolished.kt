@@ -134,6 +134,7 @@ private fun SettingsHomeV2(
     var assistantExpanded by rememberSaveable { mutableStateOf(false) }
     var dataExpanded by rememberSaveable { mutableStateOf(false) }
     var serviceExpanded by rememberSaveable { mutableStateOf(false) }
+    var glassPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -183,6 +184,11 @@ private fun SettingsHomeV2(
         }
         item(key = "advanced-debug-entry") {
             SettingsNavigationCard(state, "高级玻璃调试", "进入独立调试页，避免长展开导致 OpenGL 闪烁。", "调", Color(0xFF8DF9EA), onOpenDebug)
+        }
+        item(key = "glass-panel-lab") {
+            ExpandableSettingsSection(state, "玻璃面板", "调试不同形态的 Compose 玻璃。", "面", Color(0xFF8DF9EA), glassPanelExpanded, { glassPanelExpanded = !glassPanelExpanded }) {
+                FrostInfoGlassLab(state)
+            }
         }
     }
 }
