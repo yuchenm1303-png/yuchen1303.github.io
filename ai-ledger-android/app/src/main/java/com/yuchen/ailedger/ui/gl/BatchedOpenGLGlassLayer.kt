@@ -1,0 +1,660 @@
+package com.yuchen.ailedger.ui.gl
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
+import android.opengl.GLES20
+import android.opengl.GLUtils
+import android.view.Surface
+import android.view.TextureView
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.GlassCoordinateSource
+import com.yuchen.ailedger.ui.GlassRole
+import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
+import com.yuchen.ailedger.ui.LocalBackdropOrigin
+import com.yuchen.ailedger.ui.LocalBlurredBackdrop
+import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+class BatchedOpenGlGlassRegistry {
+    private val items = linkedMapOf<Any, BatchedOpenGlGlassItem>()
+
+    fun upsert(item: BatchedOpenGlGlassItem) {
+        items[item.key] = item
+    }
+
+    fun remove(key: Any) {
+        items.remove(key)
+    }
+
+    fun snapshot(): Collection<BatchedOpenGlGlassItem> = items.values
+}
+
+data class BatchedOpenGlGlassItem(
+    val key: Any,
+    val coordinates: GlassCoordinateSource,
+    val radius: Int,
+    val role: GlassRole,
+    val glassIntensity: Float,
+    val zIndex: Float = role.defaultOpenGlZIndex()
+)
+
+val LocalBatchedOpenGlGlassRegistry = compositionLocalOf<BatchedOpenGlGlassRegistry?> { null }
+
+private fun GlassRole.defaultOpenGlZIndex(): Float = when (this) {
+    GlassRole.Shell -> 30f
+    GlassRole.Flex -> 20f
+    GlassRole.Card -> 18f
+    GlassRole.Floating -> 40f
+    GlassRole.Nav -> 50f
+    GlassRole.Chip -> 10f
+}
+
+private data class DrawItem(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val originX: Float,
+    val originY: Float,
+    val radiusPx: Float,
+    val intensity: Float,
+    val zIndex: Float
+)
+
+@Composable
+fun RegisterBatchedOpenGlGlassItem(
+    key: Any,
+    coordinates: GlassCoordinateSource,
+    radius: Int,
+    role: GlassRole,
+    glassIntensity: Float,
+    enabled: Boolean
+) {
+    val registry = LocalBatchedOpenGlGlassRegistry.current
+    if (enabled && registry != null) {
+        SideEffect {
+            registry.upsert(
+                BatchedOpenGlGlassItem(
+                    key = key,
+                    coordinates = coordinates,
+                    radius = radius,
+                    role = role,
+                    glassIntensity = glassIntensity
+                )
+            )
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(registry, key, enabled) {
+        onDispose { registry?.remove(key) }
+    }
+}
+
+@Composable
+fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
+    val registry = LocalBatchedOpenGlGlassRegistry.current
+    val backdrop = LocalBlurredBackdrop.current ?: return
+    val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
+    val origin = LocalBackdropOrigin.current
+    val ticker = LocalBackdropFrameTicker.current
+    val density = LocalDensity.current
+    val frameNanos = ticker?.frameNanos ?: 0L
+    val blurBitmap = backdrop.image.asAndroidBitmap()
+    val lensBitmap = backdrop.lensImage.asAndroidBitmap()
+
+    BoxWithConstraints(modifier = modifier) {
+        val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
+        val viewportH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
+        val items = registry?.snapshot().orEmpty().mapNotNull { item ->
+            if (!item.coordinates.isAttached()) return@mapNotNull null
+            val size = item.coordinates.itemSize()
+            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
+            val topLeft = item.coordinates.rootOffset()
+            val sample = item.coordinates.offsetRelativeTo(origin)
+            val radiusPx = with(density) { item.radius.dp.toPx() }.roundToInt().toFloat()
+            DrawItem(
+                left = topLeft.x,
+                top = topLeft.y,
+                width = size.width.toFloat(),
+                height = size.height.toFloat(),
+                originX = sample.x,
+                originY = sample.y,
+                radiusPx = radiusPx,
+                intensity = item.glassIntensity.coerceIn(0.35f, 1.35f),
+                zIndex = item.zIndex
+            )
+        }.filter { item ->
+            item.left < viewportW && item.top < viewportH && item.left + item.width > 0f && item.top + item.height > 0f
+        }.sortedBy { it.zIndex }
+
+        AndroidView(
+            modifier = Modifier.matchParentSize(),
+            factory = { BatchedOpenGlGlassTextureView(it) },
+            update = { view ->
+                view.noteComposeFrame(frameNanos)
+                val dirtyA = view.setViewportHint(viewportW, viewportH)
+                val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
+                val dirtyC = view.setGlassStyle(border)
+                val dirtyD = view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
+                if (dirtyA || dirtyB || dirtyC || dirtyD || items.isNotEmpty()) view.requestRender()
+            }
+        )
+    }
+}
+
+private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
+    private var thread: BatchedGlassEglThread? = null
+    private var blur: Bitmap? = null
+    private var lens: Bitmap? = null
+    private var style = GlassBorderStyle()
+    private var items: List<DrawItem> = emptyList()
+    private var rootW = 1f
+    private var rootH = 1f
+    private var viewportHintW = 1
+    private var viewportHintH = 1
+    private var lastSignature = 0
+    private var lastComposeFrame = 0L
+
+    init {
+        isOpaque = false
+        alpha = 1f
+        surfaceTextureListener = this
+        isClickable = false
+        isFocusable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun noteComposeFrame(frameNanos: Long) {
+        lastComposeFrame = frameNanos
+    }
+
+    fun setViewportHint(w: Int, h: Int): Boolean {
+        val dirty = w != viewportHintW || h != viewportHintH
+        viewportHintW = max(w, 1)
+        viewportHintH = max(h, 1)
+        return dirty
+    }
+
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
+        val dirty = blurBitmap !== blur || lensBitmap !== lens
+        blur = blurBitmap
+        lens = lensBitmap
+        if (dirty) thread?.setBackdropTextures(blurBitmap, lensBitmap)
+        return dirty
+    }
+
+    fun setGlassStyle(next: GlassBorderStyle): Boolean {
+        val dirty = next != style
+        style = next
+        if (dirty) thread?.setGlassStyle(next)
+        return dirty
+    }
+
+    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float): Boolean {
+        val signature = next.fastSignature(rootW, rootH)
+        val dirty = signature != lastSignature || abs(rootW - this.rootW) > 0.5f || abs(rootH - this.rootH) > 0.5f
+        items = next
+        this.rootW = rootW.coerceAtLeast(1f)
+        this.rootH = rootH.coerceAtLeast(1f)
+        lastSignature = signature
+        if (dirty) thread?.setItems(next, this.rootW, this.rootH)
+        return dirty
+    }
+
+    fun requestRender() = thread?.requestRender() ?: Unit
+
+    override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        thread?.shutdown()
+        thread = BatchedGlassEglThread(Surface(surfaceTexture), width, height).also {
+            it.setGlassStyle(style)
+            it.setItems(items, rootW, rootH)
+            val b = blur
+            val l = lens
+            if (b != null && l != null) it.setBackdropTextures(b, l)
+            it.start()
+        }
+    }
+
+    override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        thread?.resize(width, height)
+    }
+
+    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        thread?.shutdown()
+        thread = null
+        return true
+    }
+
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+}
+
+private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
+    var result = size * 31 + rootW.roundToInt() * 17 + rootH.roundToInt()
+    forEach { item ->
+        result = result * 31 + item.left.roundToInt()
+        result = result * 31 + item.top.roundToInt()
+        result = result * 31 + item.width.roundToInt()
+        result = result * 31 + item.height.roundToInt()
+        result = result * 31 + item.radiusPx.roundToInt()
+        result = result * 31 + (item.intensity * 1000f).roundToInt()
+    }
+    return result
+}
+
+private class BatchedGlassEglThread(private val surface: Surface, width: Int, height: Int) : Thread("BatchedOpenGLGlassThread") {
+    private val renderer = BatchedOpenGlGlassRenderer()
+    private val lock = Object()
+    @Volatile private var running = true
+    @Volatile private var pending = true
+    @Volatile private var viewportW = max(width, 1)
+    @Volatile private var viewportH = max(height, 1)
+    @Volatile private var sizeDirty = true
+    private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+    private var context: EGLContext = EGL14.EGL_NO_CONTEXT
+    private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+
+    fun setItems(items: List<DrawItem>, rootW: Float, rootH: Float) = renderer.setItems(items, rootW, rootH)
+    fun setBackdropTextures(blur: Bitmap, lens: Bitmap) = renderer.setBackdropTextures(blur, lens)
+    fun setGlassStyle(style: GlassBorderStyle) = renderer.setGlassStyle(style)
+
+    fun requestRender() {
+        synchronized(lock) {
+            pending = true
+            lock.notifyAll()
+        }
+    }
+
+    fun resize(width: Int, height: Int) {
+        viewportW = max(width, 1)
+        viewportH = max(height, 1)
+        sizeDirty = true
+        requestRender()
+    }
+
+    fun shutdown() {
+        running = false
+        requestRender()
+    }
+
+    override fun run() {
+        try {
+            initEgl()
+            renderer.onSurfaceCreated()
+            renderer.onSurfaceChanged(viewportW, viewportH)
+            sizeDirty = false
+            while (running) {
+                synchronized(lock) {
+                    while (!pending && running) lock.wait()
+                    pending = false
+                }
+                if (!running) break
+                if (sizeDirty) {
+                    renderer.onSurfaceChanged(viewportW, viewportH)
+                    sizeDirty = false
+                }
+                renderer.onDrawFrame()
+                EGL14.eglSwapBuffers(display, eglSurface)
+            }
+        } finally {
+            runCatching { renderer.onRelease() }
+            releaseEgl()
+            surface.release()
+        }
+    }
+
+    private fun initEgl() {
+        display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        check(display != EGL14.EGL_NO_DISPLAY) { "Unable to get EGL display" }
+        val version = IntArray(2)
+        check(EGL14.eglInitialize(display, version, 0, version, 1)) { "Unable to initialize EGL" }
+        val attrs = intArrayOf(
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT,
+            EGL14.EGL_RED_SIZE, 8,
+            EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8,
+            EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_DEPTH_SIZE, 0,
+            EGL14.EGL_STENCIL_SIZE, 0,
+            EGL14.EGL_NONE
+        )
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val count = IntArray(1)
+        check(EGL14.eglChooseConfig(display, attrs, 0, configs, 0, configs.size, count, 0)) { "Unable to choose EGL config" }
+        val config = configs[0] ?: error("No EGL config found")
+        context = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0)
+        check(context != EGL14.EGL_NO_CONTEXT) { "Unable to create EGL context" }
+        eglSurface = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
+        check(eglSurface != EGL14.EGL_NO_SURFACE) { "Unable to create EGL window surface" }
+        check(EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) { "Unable to make EGL current" }
+    }
+
+    private fun releaseEgl() {
+        if (display != EGL14.EGL_NO_DISPLAY) {
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, eglSurface)
+            if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
+            EGL14.eglTerminate(display)
+        }
+        display = EGL14.EGL_NO_DISPLAY
+        context = EGL14.EGL_NO_CONTEXT
+        eglSurface = EGL14.EGL_NO_SURFACE
+    }
+}
+
+private class BatchedOpenGlGlassRenderer {
+    private val vertices: FloatBuffer = ByteBuffer.allocateDirect(8 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).asFloatBuffer()
+    private val textureLock = Any()
+    private var pendingBlur: Bitmap? = null
+    private var pendingLens: Bitmap? = null
+    private var activeBlur: Bitmap? = null
+    private var activeLens: Bitmap? = null
+    private var blurTex = 0
+    private var lensTex = 0
+    private var ready = false
+    private var items: List<DrawItem> = emptyList()
+    private var rootW = 1f
+    private var rootH = 1f
+    private var style = GlassBorderStyle()
+    private var program = 0
+    private var positionHandle = 0
+    private var resolutionHandle = 0
+    private var originHandle = 0
+    private var rootHandle = 0
+    private var rectHandle = 0
+    private var radiusHandle = 0
+    private var textureReadyHandle = 0
+    private var materialHandle = 0
+    private var refractionHandle = 0
+    private var opticsHandle = 0
+    private var blurHandle = 0
+    private var lensHandle = 0
+    private var viewportW = 1
+    private var viewportH = 1
+
+    fun setItems(next: List<DrawItem>, rw: Float, rh: Float) { items = next; rootW = rw.coerceAtLeast(1f); rootH = rh.coerceAtLeast(1f) }
+    fun setBackdropTextures(blur: Bitmap, lens: Bitmap) { synchronized(textureLock) { pendingBlur = blur; pendingLens = lens } }
+    fun setGlassStyle(s: GlassBorderStyle) { style = s }
+
+    fun onSurfaceCreated() {
+        program = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER)
+        positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
+        resolutionHandle = GLES20.glGetUniformLocation(program, "uResolution")
+        originHandle = GLES20.glGetUniformLocation(program, "uCardOrigin")
+        rootHandle = GLES20.glGetUniformLocation(program, "uRootResolution")
+        rectHandle = GLES20.glGetUniformLocation(program, "uRect")
+        radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
+        textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
+        materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
+        refractionHandle = GLES20.glGetUniformLocation(program, "uRefraction")
+        opticsHandle = GLES20.glGetUniformLocation(program, "uOptics")
+        blurHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
+        lensHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
+        val textures = IntArray(2)
+        GLES20.glGenTextures(2, textures, 0)
+        blurTex = textures[0]
+        lensTex = textures[1]
+        configureTexture(blurTex)
+        configureTexture(lensTex)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glClearColor(0f, 0f, 0f, 0f)
+    }
+
+    fun onSurfaceChanged(w: Int, h: Int) { viewportW = max(w, 1); viewportH = max(h, 1); GLES20.glViewport(0, 0, viewportW, viewportH) }
+
+    fun onDrawFrame() {
+        uploadPendingTextures()
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        if (program == 0) return
+        GLES20.glUseProgram(program)
+        GLES20.glUniform2f(resolutionHandle, viewportW.toFloat(), viewportH.toFloat())
+        GLES20.glUniform2f(rootHandle, rootW, rootH)
+        GLES20.glUniform1f(textureReadyHandle, if (ready) 1f else 0f)
+        GLES20.glUniform4f(materialHandle, style.openGlVisibility.coerceIn(0f, 20f), style.openGlMaxAlpha.coerceIn(0f, 1f), style.edgeBrightness.coerceIn(-5f, 5f), style.bodyAlpha.coerceIn(-5f, 5f))
+        GLES20.glUniform4f(refractionHandle, style.openGlPullScale.coerceIn(-300f, 300f), style.edgePullDp.coerceIn(-600f, 600f), style.openGlCompressionScale.coerceIn(-10f, 10f), style.openGlCornerScale.coerceIn(0f, 200f))
+        GLES20.glUniform4f(opticsHandle, style.openGlSampleRadiusScale.coerceIn(0f, 200f), style.ringWidthDp.coerceIn(0f, 300f), style.openGlDebugLineAlpha.coerceIn(0f, 1f), style.openGlDarkScale.coerceIn(-10f, 10f))
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
+        GLES20.glUniform1i(blurHandle, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lensTex)
+        GLES20.glUniform1i(lensHandle, 1)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        items.forEach { item ->
+            drawItem(item)
+        }
+        GLES20.glDisableVertexAttribArray(positionHandle)
+    }
+
+    private fun drawItem(item: DrawItem) {
+        val left = item.left.coerceAtMost(viewportW.toFloat())
+        val top = item.top.coerceAtMost(viewportH.toFloat())
+        val right = (item.left + item.width).coerceAtLeast(0f)
+        val bottom = (item.top + item.height).coerceAtLeast(0f)
+        if (right <= 0f || bottom <= 0f || left >= viewportW || top >= viewportH) return
+        val l = item.left / viewportW.toFloat() * 2f - 1f
+        val r = (item.left + item.width) / viewportW.toFloat() * 2f - 1f
+        val t = 1f - item.top / viewportH.toFloat() * 2f
+        val b = 1f - (item.top + item.height) / viewportH.toFloat() * 2f
+        vertices.clear()
+        vertices.put(floatArrayOf(l, b, r, b, l, t, r, t))
+        vertices.position(0)
+        GLES20.glUniform2f(originHandle, item.originX, item.originY)
+        GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
+        GLES20.glUniform1f(radiusHandle, item.radiusPx.coerceIn(2f, max(item.width, item.height)))
+        GLES20.glUniform4f(materialHandle, style.openGlVisibility.coerceIn(0f, 20f), style.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, style.edgeBrightness.coerceIn(-5f, 5f), style.bodyAlpha.coerceIn(-5f, 5f))
+        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertices)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    fun onRelease() {
+        val textures = intArrayOf(blurTex, lensTex)
+        if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, textures, 0)
+    }
+
+    private fun uploadPendingTextures() {
+        val pair = synchronized(textureLock) { pendingBlur to pendingLens }
+        val b = pair.first
+        val l = pair.second
+        if (b == null || l == null) { ready = false; return }
+        if (b !== activeBlur) { uploadBitmap(blurTex, b); activeBlur = b }
+        if (l !== activeLens) { uploadBitmap(lensTex, l); activeLens = l }
+        ready = true
+    }
+
+    private fun configureTexture(id: Int) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+    }
+
+    private fun uploadBitmap(id: Int, bitmap: Bitmap) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+    }
+
+    private fun buildProgram(vertex: String, fragment: String): Int {
+        val vs = compileShader(GLES20.GL_VERTEX_SHADER, vertex)
+        val fs = compileShader(GLES20.GL_FRAGMENT_SHADER, fragment)
+        val p = GLES20.glCreateProgram()
+        GLES20.glAttachShader(p, vs)
+        GLES20.glAttachShader(p, fs)
+        GLES20.glLinkProgram(p)
+        val ok = IntArray(1)
+        GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, ok, 0)
+        if (ok[0] == 0) {
+            val log = GLES20.glGetProgramInfoLog(p)
+            GLES20.glDeleteProgram(p)
+            error("Batched OpenGL glass program link failed: $log")
+        }
+        GLES20.glDeleteShader(vs)
+        GLES20.glDeleteShader(fs)
+        return p
+    }
+
+    private fun compileShader(type: Int, source: String): Int {
+        val s = GLES20.glCreateShader(type)
+        GLES20.glShaderSource(s, source)
+        GLES20.glCompileShader(s)
+        val ok = IntArray(1)
+        GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, ok, 0)
+        if (ok[0] == 0) {
+            val log = GLES20.glGetShaderInfoLog(s)
+            GLES20.glDeleteShader(s)
+            error("Batched OpenGL glass shader compile failed: $log")
+        }
+        return s
+    }
+
+    private companion object {
+        const val VERTEX_SHADER = """
+            attribute vec2 aPosition;
+            void main() { gl_Position = vec4(aPosition, 0.0, 1.0); }
+        """
+
+        const val FRAGMENT_SHADER = """
+            precision mediump float;
+            uniform vec2 uResolution;
+            uniform vec2 uCardOrigin;
+            uniform vec2 uRootResolution;
+            uniform vec4 uRect;
+            uniform float uRadius;
+            uniform float uTextureReady;
+            uniform vec4 uMaterial;
+            uniform vec4 uRefraction;
+            uniform vec4 uOptics;
+            uniform sampler2D uBlurTexture;
+            uniform sampler2D uLensTexture;
+
+            float sat(float x) { return clamp(x, 0.0, 1.0); }
+
+            float roundedBoxSdf(vec2 local, vec2 size, float radius) {
+                vec2 p = local - size * 0.5;
+                vec2 q = abs(p) - max(size * 0.5 - vec2(radius), vec2(0.0));
+                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+            }
+
+            vec2 globalUv(vec2 localCoord) {
+                return clamp((uCardOrigin + localCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
+            }
+
+            vec3 sampleBlur(vec2 uv) {
+                vec3 fallback = mix(vec3(0.05, 0.10, 0.23), vec3(0.32, 0.24, 0.45), smoothstep(0.0, 1.0, uv.y));
+                return mix(fallback, texture2D(uBlurTexture, uv).rgb, sat(uTextureReady));
+            }
+
+            vec3 sampleLens(vec2 uv) {
+                vec3 fallback = mix(vec3(0.05, 0.10, 0.23), vec3(0.32, 0.24, 0.45), smoothstep(0.0, 1.0, uv.y));
+                return mix(fallback, texture2D(uLensTexture, uv).rgb, sat(uTextureReady));
+            }
+
+            vec2 sdfNormal(vec2 local, vec2 size, float radius) {
+                float d = 1.5;
+                float l = roundedBoxSdf(local - vec2(d, 0.0), size, radius);
+                float r = roundedBoxSdf(local + vec2(d, 0.0), size, radius);
+                float t = roundedBoxSdf(local - vec2(0.0, d), size, radius);
+                float b = roundedBoxSdf(local + vec2(0.0, d), size, radius);
+                vec2 n = vec2(r - l, b - t);
+                return n / max(length(n), 0.001);
+            }
+
+            float colorSignal(vec3 c) {
+                float luma = dot(c, vec3(0.299, 0.587, 0.114));
+                float chroma = length(c - vec3(luma));
+                return sat((luma - 0.18) * 1.35 + chroma * 1.6);
+            }
+
+            vec3 blur9(vec2 uv, float px) {
+                vec2 stepUv = vec2(px) / max(uRootResolution, vec2(1.0));
+                vec3 c = sampleBlur(uv) * 0.22;
+                c += sampleBlur(uv + vec2(stepUv.x, 0.0)) * 0.11;
+                c += sampleBlur(uv - vec2(stepUv.x, 0.0)) * 0.11;
+                c += sampleBlur(uv + vec2(0.0, stepUv.y)) * 0.11;
+                c += sampleBlur(uv - vec2(0.0, stepUv.y)) * 0.11;
+                c += sampleBlur(uv + stepUv) * 0.085;
+                c += sampleBlur(uv - stepUv) * 0.085;
+                c += sampleBlur(uv + vec2(stepUv.x, -stepUv.y)) * 0.085;
+                c += sampleBlur(uv + vec2(-stepUv.x, stepUv.y)) * 0.085;
+                return c;
+            }
+
+            void main() {
+                vec2 screenCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+                vec2 local = screenCoord - uRect.xy;
+                vec2 size = max(uRect.zw, vec2(1.0));
+                float radius = min(uRadius, min(size.x, size.y) * 0.5);
+                float sd = roundedBoxSdf(local, size, radius);
+                float mask = 1.0 - smoothstep(0.0, 1.35, sd);
+                if (mask <= 0.001) discard;
+
+                float inside = max(-sd, 0.0);
+                float edgeWidth = clamp(uOptics.y, 3.0, min(size.x, size.y) * 0.34);
+                float edgeWide = 1.0 - smoothstep(0.0, edgeWidth, inside);
+                float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.30, 2.0), inside);
+                float edgeDragBand = pow(1.0 - smoothstep(0.0, max(edgeWidth * 1.45, 8.0), inside), 1.35);
+
+                vec2 normal = sdfNormal(local, size, radius);
+                vec2 tangent = vec2(-normal.y, normal.x);
+                vec2 centerDir = normalize(local - size * 0.5 + vec2(0.001));
+                vec2 dir = mix(centerDir, normal, edgeWide);
+
+                float bodyPull = uRefraction.x * 0.08 * (1.0 - edgeWide);
+                float edgePull = uRefraction.y * edgeWide;
+                vec2 offsetPx = dir * (bodyPull + edgePull);
+                float limitPx = mix(12.0, 54.0, edgeWide) + sat(abs(uRefraction.y) / 600.0) * 14.0;
+                float lenPx = length(offsetPx);
+                offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
+
+                vec2 uv = globalUv(local + offsetPx);
+                vec3 color = blur9(uv, max(uOptics.x, 0.0) * (1.0 + edgeWide * 0.35));
+
+                float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.40;
+                color = mix(color, sampleLens(uv), lensMix);
+
+                float dragPull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
+                float smear = clamp(4.0 + edgeWidth * 0.55, 4.0, 22.0);
+                vec2 dragBase = local - normal * dragPull;
+                vec3 drag = sampleLens(globalUv(dragBase)) * 0.32;
+                drag += sampleLens(globalUv(dragBase + tangent * smear)) * 0.18;
+                drag += sampleLens(globalUv(dragBase - tangent * smear)) * 0.18;
+                drag += sampleLens(globalUv(dragBase - normal * dragPull * 0.9)) * 0.20;
+                drag += sampleLens(globalUv(dragBase + normal * dragPull * 0.45)) * 0.12;
+                float dragAlpha = edgeDragBand * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + edgeCore * 0.030) * colorSignal(drag);
+                color = mix(color, drag, sat(dragAlpha));
+
+                color *= uMaterial.z * (1.0 + edgeCore * 0.12);
+                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * edgeWide;
+                float debug = smoothstep(-1.65, 0.0, sd) * mask;
+                color = mix(color, vec3(1.0, 0.45, 0.0), debug * uOptics.z);
+                color = clamp(color, 0.0, 1.0);
+                gl_FragColor = vec4(color, clamp(uMaterial.x * uMaterial.y, 0.0, 1.0) * mask);
+            }
+        """
+    }
+}
