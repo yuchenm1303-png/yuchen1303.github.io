@@ -305,7 +305,15 @@ private fun BackdropCrop(coordinateSource: GlassCoordinateSource, backdropAlpha:
             val srcY = (sampleOffset.y * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
             val srcW = (size.width * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
             val srcH = (size.height * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-            drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset.Zero, IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)), backdropAlpha, BlendMode.SrcOver)
+            drawImage(
+                image = backdrop.image,
+                srcOffset = IntOffset(srcX, srcY),
+                srcSize = IntSize(srcW, srcH),
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)),
+                alpha = backdropAlpha.coerceIn(0f, 1f),
+                blendMode = BlendMode.SrcOver
+            )
         } else {
             drawRect(Brush.verticalGradient(listOf(Color(0xFF1A2B58), Color(0xFF5B4A8E), Color(0xFFB85D78))))
         }
