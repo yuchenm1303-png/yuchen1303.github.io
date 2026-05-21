@@ -16,18 +16,25 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -43,61 +50,16 @@ fun RecessedGlass(
     bottomDim: Float = 0.23f,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(radius.dp)
-    Box(modifier = modifier.clip(shape)) {
-        Canvas(Modifier.fillMaxSize()) {
-            val r = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-            val d = depth.coerceIn(0f, 1f)
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = (0.42f + d * 0.32f) * innerShadow),
-                        Color(0xFF071133).copy(alpha = 0.28f + floorAlpha * 0.20f),
-                        Color.Black.copy(alpha = (0.20f + d * 0.22f) * innerShadow)
-                    )
-                ),
-                cornerRadius = r,
-                blendMode = BlendMode.Multiply
-            )
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF98D8FF).copy(alpha = floorAlpha * 0.16f),
-                        Color(0xFF183E72).copy(alpha = floorAlpha * 0.13f),
-                        Color(0xFF050A22).copy(alpha = bottomDim * 0.55f)
-                    )
-                ),
-                cornerRadius = r,
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = rimAlpha * 0.55f),
-                        Color.White.copy(alpha = rimAlpha * 0.18f),
-                        Color.Transparent,
-                        Color.Black.copy(alpha = innerShadow * 0.20f)
-                    ),
-                    start = Offset.Zero,
-                    end = Offset(size.width, size.height)
-                ),
-                topLeft = Offset(0.8.dp.toPx(), 0.8.dp.toPx()),
-                size = Size(size.width - 1.6.dp.toPx(), size.height - 1.6.dp.toPx()),
-                cornerRadius = r,
-                style = Stroke(width = 1.05.dp.toPx()),
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                color = Color.Black.copy(alpha = innerShadow * (0.30f + d * 0.22f)),
-                topLeft = Offset(1.2.dp.toPx(), 1.2.dp.toPx()),
-                size = Size(size.width - 2.4.dp.toPx(), size.height - 2.4.dp.toPx()),
-                cornerRadius = r,
-                style = Stroke(width = (1.4f + d * 3.2f).dp.toPx()),
-                blendMode = BlendMode.Multiply
-            )
-        }
-        content()
-    }
+    ApprovedInsetGlassSlot(
+        modifier = modifier,
+        radius = radius,
+        grooveDepth = depth,
+        floorBackdropAlpha = floorAlpha,
+        rimHighlightAlpha = rimAlpha,
+        innerShadowAlpha = innerShadow,
+        floorDimAlpha = bottomDim,
+        content = content
+    )
 }
 
 @Composable
@@ -141,7 +103,7 @@ fun SampleRecessedSlider(
             Spacer(Modifier.width(8.dp))
             Text(valueText, color = Color.White.copy(alpha = 0.80f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp), maxLines = 1, overflow = TextOverflow.Clip)
             Spacer(Modifier.width(8.dp))
-            RecessedGlass(modifier = Modifier.weight(1f).height(38.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
+            ApprovedInsetGlassSlot(modifier = Modifier.weight(1f).height(38.dp), radius = 18f, grooveDepth = 0.52f, floorBackdropAlpha = 0.82f, rimHighlightAlpha = 0.34f, innerShadowAlpha = 0.67f, floorDimAlpha = 0.23f) {
                 Box(Modifier.fillMaxSize().padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
                     RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(12.dp))
                     Slider(
@@ -165,7 +127,93 @@ fun SampleRecessedSlider(
 
 @Composable
 fun SampleRecessedInputSlot(modifier: Modifier = Modifier, radius: Float = 28f, content: @Composable () -> Unit) {
-    RecessedGlass(modifier = modifier, radius = radius, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) { content() }
+    ApprovedInsetGlassSlot(modifier = modifier, radius = radius, grooveDepth = 0.52f, floorBackdropAlpha = 0.82f, rimHighlightAlpha = 0.34f, innerShadowAlpha = 0.67f, floorDimAlpha = 0.23f, content = content)
+}
+
+@Composable
+fun ApprovedInsetGlassSlot(
+    modifier: Modifier = Modifier,
+    radius: Float,
+    grooveDepth: Float,
+    floorBackdropAlpha: Float,
+    rimHighlightAlpha: Float,
+    innerShadowAlpha: Float,
+    floorDimAlpha: Float,
+    content: @Composable () -> Unit
+) {
+    val outerCoordinates = remember { GlassCoordinateSource() }
+    val floorCoordinates = remember { GlassCoordinateSource() }
+    val depth = grooveDepth.coerceIn(0f, 1f)
+    val floorInset = 1.35f
+    val floorRadius = (radius - 1.2f).coerceAtLeast(5f)
+    Box(modifier = modifier.onGloballyPositioned { outerCoordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
+        Canvas(Modifier.fillMaxSize()) {
+            val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+            val shadow = (0.30f + depth * 0.70f) * innerShadowAlpha
+            drawRoundRect(brush = Brush.verticalGradient(listOf(Color.Black.copy(alpha = shadow * 0.72f), Color(0xFF070C29).copy(alpha = 0.28f + depth * 0.12f), Color.Black.copy(alpha = shadow * 0.18f))), cornerRadius = corner, blendMode = BlendMode.Multiply)
+        }
+        Box(modifier = Modifier.fillMaxSize().padding(floorInset.dp).onGloballyPositioned { floorCoordinates.coordinates = it }.clip(RoundedCornerShape(floorRadius.dp))) {
+            ApprovedBackdropCrop(floorCoordinates, floorBackdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (floorDimAlpha + depth * 0.06f).coerceIn(0f, 0.75f))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = innerShadowAlpha * (0.12f + depth * 0.14f)), Color.Transparent, Color.White.copy(alpha = rimHighlightAlpha * 0.035f)))))
+            content()
+        }
+        ApprovedDynamicInsetRimHighlight(outerCoordinates, radius, rimHighlightAlpha * (0.42f + depth * 0.20f), 1.20f, Modifier.fillMaxSize())
+        Canvas(Modifier.fillMaxSize()) {
+            val floorInsetPx = floorInset.dp.toPx()
+            val floorCorner = CornerRadius(floorRadius.dp.toPx(), floorRadius.dp.toPx())
+            val floorSize = Size(size.width - floorInsetPx * 2f, size.height - floorInsetPx * 2f)
+            val floorTopLeft = Offset(floorInsetPx, floorInsetPx)
+            val shadowWidth = (1.2f + depth * 3.8f).dp.toPx()
+            drawRoundRect(brush = Brush.verticalGradient(listOf(Color.Black.copy(alpha = innerShadowAlpha * (0.58f + depth * 0.36f)), Color.Black.copy(alpha = innerShadowAlpha * (0.16f + depth * 0.16f)), Color.Transparent)), topLeft = floorTopLeft, size = floorSize, cornerRadius = floorCorner, style = Stroke(width = shadowWidth), blendMode = BlendMode.Multiply)
+            drawRoundRect(brush = Brush.linearGradient(listOf(Color.White.copy(alpha = rimHighlightAlpha * 0.28f), Color.White.copy(alpha = rimHighlightAlpha * 0.08f), Color.Transparent, Color.Black.copy(alpha = innerShadowAlpha * 0.14f)), start = Offset.Zero, end = Offset(size.width, size.height)), topLeft = Offset(0.65.dp.toPx(), 0.65.dp.toPx()), size = Size(size.width - 1.3.dp.toPx(), size.height - 1.3.dp.toPx()), cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx()), style = Stroke(width = 0.72.dp.toPx()), blendMode = BlendMode.Screen)
+        }
+    }
+}
+
+@Composable
+private fun ApprovedDynamicInsetRimHighlight(coordinateSource: GlassCoordinateSource, radius: Float, alpha: Float, strokeDp: Float, modifier: Modifier = Modifier) {
+    val cachedBackdrop = LocalBlurredBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameTicker = LocalBackdropFrameTicker.current
+    Canvas(modifier = modifier) {
+        frameTicker?.frameNanos
+        val image = cachedBackdrop?.image ?: return@Canvas
+        val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
+        val srcX = (sampleOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, image.width - 1)
+        val srcY = (sampleOffset.y * cachedBackdrop.scale).roundToInt().coerceIn(0, image.height - 1)
+        val srcW = (size.width * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.width - srcX)
+        val srcH = (size.height * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.height - srcY)
+        val strokePx = strokeDp.dp.toPx()
+        val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(Rect(Offset.Zero, size), Paint())
+            drawImage(image = image, srcOffset = IntOffset(srcX, srcY), srcSize = IntSize(srcW, srcH), dstOffset = IntOffset.Zero, dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)), alpha = alpha.coerceIn(0f, 1f), blendMode = BlendMode.Screen)
+            drawRoundRect(color = Color.White, topLeft = Offset(strokePx * 0.50f, strokePx * 0.50f), size = Size(size.width - strokePx, size.height - strokePx), cornerRadius = corner, style = Stroke(width = strokePx), blendMode = BlendMode.DstIn)
+            canvas.restore()
+        }
+    }
+}
+
+@Composable
+private fun ApprovedBackdropCrop(coordinateSource: GlassCoordinateSource, backdropAlpha: Float, modifier: Modifier = Modifier) {
+    val cachedBackdrop = LocalBlurredBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameTicker = LocalBackdropFrameTicker.current
+    Canvas(modifier = modifier) {
+        frameTicker?.frameNanos
+        val backdrop = cachedBackdrop
+        val sampleOffset = coordinateSource.offsetRelativeTo(backdropOrigin)
+        if (backdrop != null) {
+            val srcX = (sampleOffset.x * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
+            val srcY = (sampleOffset.y * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
+            val srcW = (size.width * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
+            val srcH = (size.height * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
+            drawImage(image = backdrop.image, srcOffset = IntOffset(srcX, srcY), srcSize = IntSize(srcW, srcH), dstOffset = IntOffset.Zero, dstSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1)), alpha = backdropAlpha.coerceIn(0f, 1f), blendMode = BlendMode.SrcOver)
+        } else {
+            drawRect(Brush.verticalGradient(listOf(Color(0xFF1A2B58), Color(0xFF5B4A8E), Color(0xFFB85D78))))
+        }
+    }
 }
 
 private fun Float.formatSampleSliderValue(): String = "${((this * 100).roundToInt() / 100f)}"
