@@ -39,16 +39,26 @@ private const val SIGNATURE_QUANTIZE = 4f
 
 class BatchedOpenGlGlassRegistry {
     private val items = linkedMapOf<Any, BatchedOpenGlGlassItem>()
+    private var cachedSnapshot: List<BatchedOpenGlGlassItem> = emptyList()
+    private var snapshotDirty = true
 
     fun upsert(item: BatchedOpenGlGlassItem) {
+        if (items[item.key] == item) return
         items[item.key] = item
+        snapshotDirty = true
     }
 
     fun remove(key: Any) {
-        items.remove(key)
+        if (items.remove(key) != null) snapshotDirty = true
     }
 
-    fun snapshot(): Collection<BatchedOpenGlGlassItem> = items.values
+    fun snapshot(): List<BatchedOpenGlGlassItem> {
+        if (snapshotDirty) {
+            cachedSnapshot = items.values.toList()
+            snapshotDirty = false
+        }
+        return cachedSnapshot
+    }
 }
 
 data class BatchedOpenGlGlassItem(

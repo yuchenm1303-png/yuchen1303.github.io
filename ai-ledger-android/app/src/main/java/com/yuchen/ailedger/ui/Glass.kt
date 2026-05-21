@@ -129,6 +129,8 @@ fun GlassPanel(
     var measuredOnce by remember { mutableStateOf(false) }
     var measuredWidth by remember { mutableStateOf(0) }
     var measuredHeight by remember { mutableStateOf(0) }
+    val tracksViewport = heavyGlassReady &&
+        (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
@@ -178,11 +180,15 @@ fun GlassPanel(
         modifier = modifier
             .onGloballyPositioned {
                 coordinates.coordinates = it
-                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-                measuredOnce = true
-                measuredWidth = it.size.width
-                measuredHeight = it.size.height
+                if (tracksViewport) {
+                    val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
+                    if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
+                } else if (!nearViewport) {
+                    nearViewport = true
+                }
+                if (!measuredOnce) measuredOnce = true
+                if (measuredWidth != it.size.width) measuredWidth = it.size.width
+                if (measuredHeight != it.size.height) measuredHeight = it.size.height
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
@@ -264,6 +270,8 @@ fun PressableGlass(
     var measuredHeight by remember { mutableStateOf(0) }
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
+    val tracksViewport = heavyGlassReady &&
+        (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
@@ -312,11 +320,15 @@ fun PressableGlass(
         modifier = modifier
             .onGloballyPositioned {
                 coordinates.coordinates = it
-                val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-                measuredOnce = true
-                measuredWidth = it.size.width
-                measuredHeight = it.size.height
+                if (tracksViewport) {
+                    val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
+                    if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
+                } else if (!nearViewport) {
+                    nearViewport = true
+                }
+                if (!measuredOnce) measuredOnce = true
+                if (measuredWidth != it.size.width) measuredWidth = it.size.width
+                if (measuredHeight != it.size.height) measuredHeight = it.size.height
             }
             .graphicsLayer {
                 scaleX = scale

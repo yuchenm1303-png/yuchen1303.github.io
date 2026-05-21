@@ -391,6 +391,7 @@ private fun LiquidCollapsibleSettingsContent(expanded: Boolean, content: @Compos
         },
         label = "settings-collapsible-scale"
     )
+    val shouldComposeContent = expanded || animatedHeight > 0.dp
 
     Box(
         Modifier
@@ -398,22 +399,24 @@ private fun LiquidCollapsibleSettingsContent(expanded: Boolean, content: @Compos
             .height(animatedHeight)
             .clipToBounds()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                .onSizeChanged { size ->
-                    if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height
-                }
-                .graphicsLayer {
-                    alpha = contentAlpha
-                    scaleX = contentScale
-                    scaleY = contentScale
-                    transformOrigin = TransformOrigin(0.5f, 0f)
-                },
-            verticalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            content()
+        if (shouldComposeContent) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                    .onSizeChanged { size ->
+                        if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height
+                    }
+                    .graphicsLayer {
+                        alpha = contentAlpha
+                        scaleX = contentScale
+                        scaleY = contentScale
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                    },
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                content()
+            }
         }
     }
 }
