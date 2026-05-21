@@ -412,34 +412,14 @@ private fun FrostMetric(label: String, value: String, alpha: Float, modifier: Mo
 @Composable
 private fun GlassPanelSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
-    val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    RecessedGlass(modifier = Modifier.fillMaxWidth().height(58.dp), radius = 18f, depth = 0.52f, floorAlpha = 0.82f, rimAlpha = 0.34f, innerShadow = 0.67f, bottomDim = 0.23f) {
-        Row(modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(clamped.formatGlassPanelValue(), color = Color.White.copy(alpha = 0.80f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.Center) {
-                RecessedProgressTrack(percent, Modifier.fillMaxWidth().height(14.dp))
-                Slider(
-                    value = clamped,
-                    onValueChange = onValueChange,
-                    valueRange = range,
-                    modifier = Modifier.fillMaxWidth().height(24.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White.copy(alpha = 0.96f),
-                        activeTrackColor = Color.Transparent,
-                        inactiveTrackColor = Color.Transparent,
-                        activeTickColor = Color.Transparent,
-                        inactiveTickColor = Color.Transparent
-                    )
-                )
-            }
-        }
-    }
+    SampleRecessedSlider(
+        title = title,
+        subtitle = subtitle,
+        value = clamped,
+        range = range,
+        valueText = clamped.formatGlassPanelValue(),
+        onValueChange = onValueChange
+    )
 }
 
 private fun Float.formatGlassPanelValue(): String = "${((this * 100).roundToInt() / 100f)}"
