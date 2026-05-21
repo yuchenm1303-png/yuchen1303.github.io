@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,6 +39,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
+import kotlinx.coroutines.delay
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
 
@@ -54,6 +57,13 @@ enum class GlassRole(
     Flex(0f, 1.00f, 1.00f, 8)
 }
 
+private enum class GlassRenderPath {
+    OpenGlShell,
+    UnifiedBackdrop,
+    SampledBackdrop,
+    SkinOnly
+}
+
 private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
@@ -61,6 +71,7 @@ private const val UNIFIED_EDGE_STRENGTH = 0.22f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
 private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 520
 private const val MIN_OPENGL_CARD_SIZE_PX = 48
+private const val OPENGL_SIZE_STABILIZE_DELAY_MS = 220L
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
@@ -81,6 +92,20 @@ private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
     GlassRole.Flex -> false
     GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
+}
+
+private fun decideGlassRenderPath(
+    role: GlassRole,
+    heavyGlassReady: Boolean,
+    nearViewport: Boolean,
+    registryAvailable: Boolean,
+    openGlAvailable: Boolean,
+    sampledBackdropAvailable: Boolean
+): GlassRenderPath {
+    if (openGlAvailable && nearViewport) return GlassRenderPath.OpenGlShell
+    if (heavyGlassReady && nearViewport && registryAvailable && roleUsesUnifiedBackdrop(role)) return GlassRenderPath.UnifiedBackdrop
+    if (heavyGlassReady && nearViewport && sampledBackdropAvailable && roleUsesSampledBackdrop(role)) return GlassRenderPath.SampledBackdrop
+    return GlassRenderPath.SkinOnly
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
@@ -127,26 +152,43 @@ fun GlassPanel(
     val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
-    var hasResizedAfterFirstMeasure by remember { mutableStateOf(false) }
-    var lastWidth by remember { mutableStateOf(-1) }
-    var lastHeight by remember { mutableStateOf(-1) }
-    var measuredWidth by remember { mutableStateOf(0) }
-    var measuredHeight by remember { mutableStateOf(0) }
+    var openGlSizeStable by remember { mutableStateOf(false) }
+    var sizeVersion by remember { mutableIntStateOf(0) }
+    var lastWidth by remember { mutableIntStateOf(-1) }
+    var lastHeight by remember { mutableIntStateOf(-1) }
+    var measuredWidth by remember { mutableIntStateOf(0) }
+    var measuredHeight by remember { mutableIntStateOf(0) }
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
+
+    LaunchedEffect(sizeVersion, measuredWidth, measuredHeight) {
+        if (hasValidOpenGlSize) {
+            delay(OPENGL_SIZE_STABILIZE_DELAY_MS)
+            openGlSizeStable = true
+        } else {
+            openGlSizeStable = false
+        }
+    }
+
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
-        !hasResizedAfterFirstMeasure &&
+        openGlSizeStable &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useCardOpenGlBackdrop = canUseCardOpenGlBackdrop && nearViewport
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !canUseCardOpenGlBackdrop
+    val renderPath = decideGlassRenderPath(
+        role = role,
+        heavyGlassReady = heavyGlassReady,
+        nearViewport = nearViewport,
+        registryAvailable = registry != null,
+        openGlAvailable = canUseCardOpenGlBackdrop,
+        sampledBackdropAvailable = backdrop != null
+    )
     val key = remember { Any() }
 
-    if (useUnifiedBackdrop) {
+    if (renderPath == GlassRenderPath.UnifiedBackdrop) {
         SideEffect {
             registry?.upsert(
                 GlassRenderItem(
@@ -162,7 +204,7 @@ fun GlassPanel(
             )
         }
     }
-    DisposableEffect(registry, key, useUnifiedBackdrop) {
+    DisposableEffect(registry, key, renderPath) {
         onDispose { registry?.remove(key) }
     }
 
@@ -175,8 +217,10 @@ fun GlassPanel(
 
                 val width = it.size.width
                 val height = it.size.height
-                if (measuredOnce && (width != lastWidth || height != lastHeight)) {
-                    hasResizedAfterFirstMeasure = true
+                val sizeChanged = !measuredOnce || width != lastWidth || height != lastHeight
+                if (sizeChanged) {
+                    openGlSizeStable = false
+                    sizeVersion += 1
                 }
                 measuredOnce = true
                 measuredWidth = width
@@ -186,35 +230,38 @@ fun GlassPanel(
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (useCardOpenGlBackdrop) {
-            OpenGLGlassCardLayer(
+        when (renderPath) {
+            GlassRenderPath.OpenGlShell -> OpenGLGlassCardLayer(
                 radius = effectiveRadius,
                 glassIntensity = glassIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !canUseCardOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
-            SampledWeatherGlassBackdrop(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                blurRadiusDp = blurForRole(role),
-                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
-            )
-            SampledWeatherEdgeRefraction(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                strength = UNIFIED_EDGE_STRENGTH
-            )
+            GlassRenderPath.SampledBackdrop -> if (backdrop != null) {
+                SampledWeatherGlassBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    blurRadiusDp = blurForRole(role),
+                    liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
+                )
+                SampledWeatherEdgeRefraction(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    strength = UNIFIED_EDGE_STRENGTH
+                )
+            }
+            GlassRenderPath.UnifiedBackdrop,
+            GlassRenderPath.SkinOnly -> Unit
         }
-        if (!canUseCardOpenGlBackdrop) {
+        if (renderPath != GlassRenderPath.OpenGlShell) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -267,27 +314,44 @@ fun PressableGlass(
     val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
-    var hasResizedAfterFirstMeasure by remember { mutableStateOf(false) }
-    var lastWidth by remember { mutableStateOf(-1) }
-    var lastHeight by remember { mutableStateOf(-1) }
-    var measuredWidth by remember { mutableStateOf(0) }
-    var measuredHeight by remember { mutableStateOf(0) }
+    var openGlSizeStable by remember { mutableStateOf(false) }
+    var sizeVersion by remember { mutableIntStateOf(0) }
+    var lastWidth by remember { mutableIntStateOf(-1) }
+    var lastHeight by remember { mutableIntStateOf(-1) }
+    var measuredWidth by remember { mutableIntStateOf(0) }
+    var measuredHeight by remember { mutableIntStateOf(0) }
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
+
+    LaunchedEffect(sizeVersion, measuredWidth, measuredHeight) {
+        if (hasValidOpenGlSize) {
+            delay(OPENGL_SIZE_STABILIZE_DELAY_MS)
+            openGlSizeStable = true
+        } else {
+            openGlSizeStable = false
+        }
+    }
+
     val canUseCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
-        !hasResizedAfterFirstMeasure &&
+        openGlSizeStable &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useCardOpenGlBackdrop = canUseCardOpenGlBackdrop && nearViewport
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !canUseCardOpenGlBackdrop
+    val renderPath = decideGlassRenderPath(
+        role = role,
+        heavyGlassReady = heavyGlassReady,
+        nearViewport = nearViewport,
+        registryAvailable = registry != null,
+        openGlAvailable = canUseCardOpenGlBackdrop,
+        sampledBackdropAvailable = backdrop != null
+    )
 
-    if (useUnifiedBackdrop) {
+    if (renderPath == GlassRenderPath.UnifiedBackdrop) {
         SideEffect {
             registry?.upsert(
                 GlassRenderItem(
@@ -303,7 +367,7 @@ fun PressableGlass(
             )
         }
     }
-    DisposableEffect(registry, key, useUnifiedBackdrop) {
+    DisposableEffect(registry, key, renderPath) {
         onDispose { registry?.remove(key) }
     }
 
@@ -316,8 +380,10 @@ fun PressableGlass(
 
                 val width = it.size.width
                 val height = it.size.height
-                if (measuredOnce && (width != lastWidth || height != lastHeight)) {
-                    hasResizedAfterFirstMeasure = true
+                val sizeChanged = !measuredOnce || width != lastWidth || height != lastHeight
+                if (sizeChanged) {
+                    openGlSizeStable = false
+                    sizeVersion += 1
                 }
                 measuredOnce = true
                 measuredWidth = width
@@ -334,35 +400,38 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (useCardOpenGlBackdrop) {
-            OpenGLGlassCardLayer(
+        when (renderPath) {
+            GlassRenderPath.OpenGlShell -> OpenGLGlassCardLayer(
                 radius = effectiveRadius,
                 glassIntensity = pressedIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !canUseCardOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
-            SampledWeatherGlassBackdrop(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                blurRadiusDp = blurForRole(role),
-                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
-            )
-            SampledWeatherEdgeRefraction(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                strength = UNIFIED_EDGE_STRENGTH
-            )
+            GlassRenderPath.SampledBackdrop -> if (backdrop != null) {
+                SampledWeatherGlassBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    blurRadiusDp = blurForRole(role),
+                    liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+                )
+                SampledWeatherEdgeRefraction(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    strength = UNIFIED_EDGE_STRENGTH
+                )
+            }
+            GlassRenderPath.UnifiedBackdrop,
+            GlassRenderPath.SkinOnly -> Unit
         }
-        if (!canUseCardOpenGlBackdrop) {
+        if (renderPath != GlassRenderPath.OpenGlShell) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
