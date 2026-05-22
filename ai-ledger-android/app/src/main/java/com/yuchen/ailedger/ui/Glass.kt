@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -37,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
@@ -75,8 +77,13 @@ private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> true
-    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
+    GlassRole.Shell -> true
+    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+}
+
+private fun roleUsesBatchedOpenGl(role: GlassRole): Boolean = when (role) {
+    GlassRole.Card, GlassRole.Flex -> true
+    GlassRole.Shell, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
 }
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
@@ -154,18 +161,30 @@ fun GlassPanel(
     var measuredWidth by remember { mutableStateOf(0) }
     var measuredHeight by remember { mutableStateOf(0) }
     val tracksViewport = heavyGlassReady &&
-        (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
+        (roleUsesCardBoundOpenGl(role) || roleUsesBatchedOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+    val useCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
         nearViewport &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !useBatchedOpenGlBackdrop
+    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+        hasValidOpenGlSize &&
+        nearViewport &&
+        USE_CARD_BOUND_OPENGL_GLASS &&
+        roleUsesBatchedOpenGl(role) &&
+        cardBackdrop != null &&
+        !useCardOpenGlBackdrop
+    val useUnifiedBackdrop = heavyGlassReady &&
+        nearViewport &&
+        registry != null &&
+        roleUsesUnifiedBackdrop(role) &&
+        !useCardOpenGlBackdrop &&
+        !useBatchedOpenGlBackdrop
     val lazyItemKey = LocalOpenGlLazyItemKey.current
     val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
 
@@ -216,7 +235,7 @@ fun GlassPanel(
                     it.size.height >= MIN_OPENGL_CARD_SIZE_PX &&
                     nextNearViewport &&
                     USE_CARD_BOUND_OPENGL_GLASS &&
-                    roleUsesCardBoundOpenGl(role) &&
+                    roleUsesBatchedOpenGl(role) &&
                     cardBackdrop != null
                 if (nextUseBatchedOpenGlBackdrop) {
                     it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
@@ -224,7 +243,14 @@ fun GlassPanel(
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -245,7 +271,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useBatchedOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -306,18 +332,30 @@ fun PressableGlass(
     val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
     val tracksViewport = heavyGlassReady &&
-        (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
+        (roleUsesCardBoundOpenGl(role) || roleUsesBatchedOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+    val useCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
         nearViewport &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !useBatchedOpenGlBackdrop
+    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+        hasValidOpenGlSize &&
+        nearViewport &&
+        USE_CARD_BOUND_OPENGL_GLASS &&
+        roleUsesBatchedOpenGl(role) &&
+        cardBackdrop != null &&
+        !useCardOpenGlBackdrop
+    val useUnifiedBackdrop = heavyGlassReady &&
+        nearViewport &&
+        registry != null &&
+        roleUsesUnifiedBackdrop(role) &&
+        !useCardOpenGlBackdrop &&
+        !useBatchedOpenGlBackdrop
 
     RegisterBatchedOpenGlGlassItem(
         key = key,
@@ -366,7 +404,7 @@ fun PressableGlass(
                     it.size.height >= MIN_OPENGL_CARD_SIZE_PX &&
                     nextNearViewport &&
                     USE_CARD_BOUND_OPENGL_GLASS &&
-                    roleUsesCardBoundOpenGl(role) &&
+                    roleUsesBatchedOpenGl(role) &&
                     cardBackdrop != null
                 if (nextUseBatchedOpenGlBackdrop) {
                     it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
@@ -381,7 +419,14 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -402,7 +447,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useBatchedOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
