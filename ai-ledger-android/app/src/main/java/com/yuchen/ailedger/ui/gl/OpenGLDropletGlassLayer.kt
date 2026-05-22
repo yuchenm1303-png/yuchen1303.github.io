@@ -107,8 +107,9 @@ fun OpenGLDropletGlassLayer(
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val frameNanos = ticker?.frameNanos ?: 0L
-    val blurBitmap = backdrop.image.asAndroidBitmap()
-    val lensBitmap = backdrop.lensImage.asAndroidBitmap()
+    val clearBitmap = backdrop.lensImage.asAndroidBitmap()
+    val blurBitmap = clearBitmap
+    val lensBitmap = clearBitmap
     val cardOrigin = coordinateSource?.offsetRelativeTo(origin) ?: Offset.Zero
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     var renderSize by remember { mutableStateOf(IntSize.Zero) }
@@ -849,7 +850,7 @@ private class DropletRenderer {
                 float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
                 float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
                 color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x;
-                gl_FragColor = vec4(clamp(color, 0.0, 1.0), mask * uAlpha.y);
+                gl_FragColor = vec4(clamp(color, 0.0, 1.0), mask);
             }
         """
     }
