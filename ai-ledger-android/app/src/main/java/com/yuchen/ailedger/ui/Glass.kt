@@ -106,6 +106,27 @@ private fun LayoutCoordinates.isNearViewport(rootView: View, marginPx: Float): B
         bounds.top <= viewportH + marginPx
 }
 
+private fun LayoutCoordinates.pushOpenGlFrameRect(
+    key: Any,
+    frameCoordinator: OpenGlGlassFrameCoordinator?,
+    backdropOrigin: BackdropCoordinateSource?
+) {
+    if (!isAttached || frameCoordinator == null) return
+    val topLeft = localToRoot(Offset.Zero)
+    val origin = topLeft - (backdropOrigin?.rootOffset() ?: Offset.Zero)
+    frameCoordinator.upsert(
+        OpenGlGlassFrameRect(
+            key = key,
+            left = topLeft.x,
+            top = topLeft.y,
+            width = size.width.toFloat(),
+            height = size.height.toFloat(),
+            originX = origin.x,
+            originY = origin.y
+        )
+    )
+}
+
 @Composable
 fun GlassPanel(
     quality: RenderQuality,
@@ -122,6 +143,8 @@ fun GlassPanel(
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
@@ -182,15 +205,22 @@ fun GlassPanel(
         modifier = modifier
             .onGloballyPositioned {
                 coordinates.coordinates = it
-                if (tracksViewport) {
-                    val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                    if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-                } else if (!nearViewport) {
-                    nearViewport = true
-                }
+                val nextNearViewport = if (tracksViewport) it.isNearViewport(rootView, visibilityMarginPx) else true
+                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
                 if (!measuredOnce) measuredOnce = true
                 if (measuredWidth != it.size.width) measuredWidth = it.size.width
                 if (measuredHeight != it.size.height) measuredHeight = it.size.height
+
+                val nextUseBatchedOpenGlBackdrop = heavyGlassReady &&
+                    it.size.width >= MIN_OPENGL_CARD_SIZE_PX &&
+                    it.size.height >= MIN_OPENGL_CARD_SIZE_PX &&
+                    nextNearViewport &&
+                    USE_CARD_BOUND_OPENGL_GLASS &&
+                    roleUsesCardBoundOpenGl(role) &&
+                    cardBackdrop != null
+                if (nextUseBatchedOpenGlBackdrop) {
+                    it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
+                }
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
@@ -262,6 +292,8 @@ fun PressableGlass(
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
@@ -323,15 +355,22 @@ fun PressableGlass(
         modifier = modifier
             .onGloballyPositioned {
                 coordinates.coordinates = it
-                if (tracksViewport) {
-                    val nextNearViewport = it.isNearViewport(rootView, visibilityMarginPx)
-                    if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
-                } else if (!nearViewport) {
-                    nearViewport = true
-                }
+                val nextNearViewport = if (tracksViewport) it.isNearViewport(rootView, visibilityMarginPx) else true
+                if (nearViewport != nextNearViewport) nearViewport = nextNearViewport
                 if (!measuredOnce) measuredOnce = true
                 if (measuredWidth != it.size.width) measuredWidth = it.size.width
                 if (measuredHeight != it.size.height) measuredHeight = it.size.height
+
+                val nextUseBatchedOpenGlBackdrop = heavyGlassReady &&
+                    it.size.width >= MIN_OPENGL_CARD_SIZE_PX &&
+                    it.size.height >= MIN_OPENGL_CARD_SIZE_PX &&
+                    nextNearViewport &&
+                    USE_CARD_BOUND_OPENGL_GLASS &&
+                    roleUsesCardBoundOpenGl(role) &&
+                    cardBackdrop != null
+                if (nextUseBatchedOpenGlBackdrop) {
+                    it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
+                }
             }
             .graphicsLayer {
                 scaleX = scale
