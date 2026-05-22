@@ -111,7 +111,6 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         activeRimFlow = dropletActiveRimFlow,
         activeLightX = dropletActiveLightX,
         activeLightSpread = dropletActiveLightSpread,
-        activeEntryHeight = dropletActiveEntryHeight,
         activeEntryPearl = dropletActiveEntryPearl,
         activeRimPearl = dropletActiveRimPearl,
         activeCenterClear = dropletActiveCenterClear
