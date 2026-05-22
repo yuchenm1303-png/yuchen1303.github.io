@@ -183,14 +183,16 @@ fun GlassPanel(
     val lazyItemKey = LocalOpenGlLazyItemKey.current
     val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
 
-    RegisterBatchedOpenGlGlassItem(
-        key = key,
-        coordinates = coordinates,
-        radius = effectiveRadius,
-        role = role,
-        glassIntensity = glassIntensity,
-        enabled = useBatchedOpenGlBackdrop
-    )
+    if (useBatchedOpenGlBackdrop) {
+        RegisterBatchedOpenGlGlassItem(
+            key = key,
+            coordinates = coordinates,
+            radius = effectiveRadius,
+            role = role,
+            glassIntensity = glassIntensity,
+            enabled = true
+        )
+    }
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -352,14 +354,16 @@ fun PressableGlass(
         !useCardOpenGlBackdrop &&
         !useBatchedOpenGlBackdrop
 
-    RegisterBatchedOpenGlGlassItem(
-        key = key,
-        coordinates = coordinates,
-        radius = effectiveRadius,
-        role = role,
-        glassIntensity = pressedIntensity,
-        enabled = useBatchedOpenGlBackdrop
-    )
+    if (useBatchedOpenGlBackdrop) {
+        RegisterBatchedOpenGlGlassItem(
+            key = key,
+            coordinates = coordinates,
+            radius = effectiveRadius,
+            role = role,
+            glassIntensity = pressedIntensity,
+            enabled = true
+        )
+    }
 
     if (useUnifiedBackdrop) {
         SideEffect {
