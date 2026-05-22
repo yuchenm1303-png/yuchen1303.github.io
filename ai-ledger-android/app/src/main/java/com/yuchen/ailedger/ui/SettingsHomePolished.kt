@@ -34,11 +34,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +78,7 @@ fun SettingsScreenV2(
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
+    onOpenGlScrollPredictionChange: (Float) -> Unit,
     onBackdropChange: (BackdropDebugParams) -> Unit,
     onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
@@ -97,6 +100,7 @@ fun SettingsScreenV2(
             onBackgroundThemeChange = onBackgroundThemeChange,
             onGlassIntensityChange = onGlassIntensityChange,
             onMotionIntensityChange = onMotionIntensityChange,
+            onOpenGlScrollPredictionChange = onOpenGlScrollPredictionChange,
             onUploadBackgroundClick = onUploadBackgroundClick,
             onClearCustomBackgroundClick = onClearCustomBackgroundClick,
             onOpenDebug = { debugOpen = true }
@@ -123,6 +127,22 @@ private fun OpenGlLazyItem(key: Any, content: @Composable () -> Unit) {
 }
 
 @Composable
+private fun DriveBackdropTickerDuringScroll(isScrolling: Boolean) {
+    val ticker = LocalBackdropFrameTicker.current ?: return
+    LaunchedEffect(ticker, isScrolling) {
+        if (isScrolling) {
+            while (true) {
+                ticker.frameNanos = withFrameNanos { it }
+            }
+        } else {
+            repeat(10) {
+                ticker.frameNanos = withFrameNanos { it }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsHomeV2(
     state: AssistantUiState,
     aiEndpoint: String,
@@ -132,6 +152,7 @@ private fun SettingsHomeV2(
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
+    onOpenGlScrollPredictionChange: (Float) -> Unit,
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
     onOpenDebug: () -> Unit
@@ -145,6 +166,7 @@ private fun SettingsHomeV2(
     val listState = rememberLazyListState()
     val listAnchor = rememberOpenGlLazyListAnchor()
     SyncOpenGlGlassWithLazyList(listState, listAnchor)
+    DriveBackdropTickerDuringScroll(listState.isScrollInProgress)
 
     LazyColumn(
         state = listState,
@@ -171,6 +193,7 @@ private fun SettingsHomeV2(
                     SettingOptionGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabelV2(it) }, state, onGlassPresetChange)
                     RecessedSettingSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
                     RecessedSettingSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
+                    RecessedSettingSlider("OpenGL 跟手补偿", "纪念参数：旧版滚动追踪补偿", state.openGlScrollPrediction, 0f..1.4f, onOpenGlScrollPredictionChange)
                 }
             }
         }
@@ -229,6 +252,7 @@ private fun GlassDebugScreenV2(
     val listState = rememberLazyListState()
     val listAnchor = rememberOpenGlLazyListAnchor()
     SyncOpenGlGlassWithLazyList(listState, listAnchor)
+    DriveBackdropTickerDuringScroll(listState.isScrollInProgress)
 
     LazyColumn(
         state = listState,
