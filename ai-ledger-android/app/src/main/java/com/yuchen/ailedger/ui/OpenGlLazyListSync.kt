@@ -4,7 +4,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -41,7 +40,7 @@ fun SyncOpenGlGlassWithLazyList(
         val currentVisible = linkedSetOf<Any>()
         layoutInfo.visibleItemsInfo.forEach { item ->
             val key = item.key
-            currentVisible += key
+            currentVisible.add(key)
             val left = listRoot.x + contentLeftPx
             val top = listRoot.y + item.offset
             val width = (viewportWidth - contentLeftPx - contentRightPx).coerceAtLeast(1f)
@@ -61,7 +60,7 @@ fun SyncOpenGlGlassWithLazyList(
         val removed = previouslyVisible.filterNot { it in currentVisible }.toSet()
         if (removed.isNotEmpty()) coordinator.releaseLazyListKeys(removed)
         previouslyVisible.clear()
-        previouslyVisible += currentVisible
+        previouslyVisible.addAll(currentVisible)
     }
 
     DisposableEffect(coordinator) {
