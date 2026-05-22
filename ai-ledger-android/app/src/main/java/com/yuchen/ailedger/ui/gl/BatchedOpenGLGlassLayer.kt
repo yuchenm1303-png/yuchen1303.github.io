@@ -560,6 +560,7 @@ private class BatchedGlassEglThread(private val surface: Surface, width: Int, he
 
 private class BatchedOpenGlGlassRenderer {
     private val vertices: FloatBuffer = ByteBuffer.allocateDirect(8 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).asFloatBuffer()
+    private val vertexScratch = FloatArray(8)
     private val textureLock = Any()
     private val itemLock = Any()
     private var pendingBlur: Bitmap? = null
@@ -676,8 +677,16 @@ private class BatchedOpenGlGlassRenderer {
         val r = (item.left + item.width) / viewportW.toFloat() * 2f - 1f
         val t = 1f - item.top / viewportH.toFloat() * 2f
         val b = 1f - (item.top + item.height) / viewportH.toFloat() * 2f
+        vertexScratch[0] = l
+        vertexScratch[1] = b
+        vertexScratch[2] = r
+        vertexScratch[3] = b
+        vertexScratch[4] = l
+        vertexScratch[5] = t
+        vertexScratch[6] = r
+        vertexScratch[7] = t
         vertices.clear()
-        vertices.put(floatArrayOf(l, b, r, b, l, t, r, t))
+        vertices.put(vertexScratch)
         vertices.position(0)
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
@@ -690,6 +699,12 @@ private class BatchedOpenGlGlassRenderer {
     fun onRelease() {
         val textures = intArrayOf(blurTex, lensTex)
         if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, textures, 0)
+        if (program != 0) GLES20.glDeleteProgram(program)
+        blurTex = 0
+        lensTex = 0
+        program = 0
+        activeBlur = null
+        activeLens = null
     }
 
     private fun uploadPendingTextures() {
