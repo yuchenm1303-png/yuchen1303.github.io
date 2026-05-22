@@ -15,11 +15,9 @@ import android.view.TextureView
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -44,11 +42,10 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.collectLatest
 
-private const val SIGNATURE_QUANTIZE = 1f
-private const val DEFAULT_SCROLL_PREDICTION_FACTOR = 0f
-private const val MIN_SCROLL_PREDICTION_PX = 0.45f
+private const val SIGNATURE_QUANTIZE = 4f
+private const val DEFAULT_SCROLL_PREDICTION_FACTOR = 0.72f
+private const val MIN_SCROLL_PREDICTION_PX = 0.25f
 private const val MAX_SCROLL_PREDICTION_PX = 36f
 private const val FOLLOW_UP_RENDER_WINDOW_NANOS = 96_000_000L
 
@@ -182,7 +179,7 @@ fun BatchedOpenGlGlassLayer(
     val frameRectVersion = frameCoordinator?.version ?: 0L
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
-    val safePrediction = if (frameCoordinator != null) 0f else scrollPrediction.coerceIn(0f, 1.4f)
+    val safePrediction = scrollPrediction.coerceIn(0f, 1.4f)
     val viewHolder = remember { BatchedOpenGlViewHolder() }
 
     BoxWithConstraints(modifier = modifier) {
@@ -201,10 +198,21 @@ fun BatchedOpenGlGlassLayer(
             onDispose { viewHolder.view = null }
         }
 
-        LaunchedEffect(registry, frameCoordinator, density, origin, viewportW, viewportH, backdrop.fullWidthPx, backdrop.fullHeightPx, safePrediction) {
-            if (frameCoordinator == null) return@LaunchedEffect
-            snapshotFlow { frameCoordinator.version }
-                .collectLatest {
+        DisposableEffect(
+            registry,
+            frameCoordinator,
+            density,
+            origin,
+            viewportW,
+            viewportH,
+            backdrop.fullWidthPx,
+            backdrop.fullHeightPx,
+            safePrediction
+        ) {
+            if (frameCoordinator == null) {
+                onDispose { }
+            } else {
+                val listener = {
                     val latestItems = buildDrawItems(
                         registry = registry,
                         frameCoordinator = frameCoordinator,
@@ -214,10 +222,18 @@ fun BatchedOpenGlGlassLayer(
                         viewportH = viewportH
                     )
                     viewHolder.view?.let { view ->
-                        view.setItems(latestItems, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat(), safePrediction)
+                        view.setItems(
+                            latestItems,
+                            backdrop.fullWidthPx.toFloat(),
+                            backdrop.fullHeightPx.toFloat(),
+                            safePrediction
+                        )
                         view.requestRender()
                     }
                 }
+                frameCoordinator.addListener(listener)
+                onDispose { frameCoordinator.removeListener(listener) }
+            }
         }
 
         AndroidView(
