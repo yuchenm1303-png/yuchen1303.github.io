@@ -60,7 +60,7 @@ private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
-private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 128
+private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 0
 private const val MIN_OPENGL_CARD_SIZE_PX = 48
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
