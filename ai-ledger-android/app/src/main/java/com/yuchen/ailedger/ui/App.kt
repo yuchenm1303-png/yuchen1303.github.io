@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,9 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -36,21 +33,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
-import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassRegistry
 import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlGlassRegistry
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlin.math.roundToInt
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -185,27 +178,20 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                     onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                 )
-                                AppTab.Settings -> Box(Modifier.fillMaxSize()) {
-                                    SettingsScreenV2(
-                                        state = state,
-                                        aiEndpoint = viewModel.aiEndpoint,
-                                        onQualityChange = viewModel::selectQuality,
-                                        onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                        onGlassPresetChange = viewModel::setGlassPreset,
-                                        onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                        onGlassIntensityChange = viewModel::setGlassIntensity,
-                                        onMotionIntensityChange = viewModel::setMotionIntensity,
-                                        onBackdropChange = viewModel::setBackdropDebugParams,
-                                        onBorderChange = viewModel::setGlassBorderStyle,
-                                        onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                        onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                    )
-                                    OpenGlScrollTuningCard(
-                                        state = state,
-                                        onValueChange = viewModel::setOpenGlScrollPrediction,
-                                        modifier = Modifier.align(Alignment.BottomCenter).padding(start = 4.dp, end = 4.dp, bottom = 90.dp)
-                                    )
-                                }
+                                AppTab.Settings -> SettingsScreenV2(
+                                    state = state,
+                                    aiEndpoint = viewModel.aiEndpoint,
+                                    onQualityChange = viewModel::selectQuality,
+                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                    onGlassPresetChange = viewModel::setGlassPreset,
+                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                    onGlassIntensityChange = viewModel::setGlassIntensity,
+                                    onMotionIntensityChange = viewModel::setMotionIntensity,
+                                    onBackdropChange = viewModel::setBackdropDebugParams,
+                                    onBorderChange = viewModel::setGlassBorderStyle,
+                                    onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                )
                             }
                         }
 
@@ -230,21 +216,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 }
 
 @Composable
-private fun OpenGlScrollTuningCard(state: AssistantUiState, onValueChange: (Float) -> Unit, modifier: Modifier = Modifier) {
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 24, modifier.fillMaxWidth(), GlassRole.Flex) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("OpenGL 跟手补偿", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Text("0关闭，0.5稳，0.7跟手，1以上可能超前。当前 ${state.openGlScrollPrediction.formatTuningValue()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            Slider(
-                value = state.openGlScrollPrediction.coerceIn(0f, 1.4f),
-                onValueChange = onValueChange,
-                valueRange = 0f..1.4f
-            )
-        }
-    }
-}
-
-@Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
     val height = if (quality.enableMotion) 76.dp else 64.dp
     val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
@@ -261,5 +232,3 @@ private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier 
         )
     )
 }
-
-private fun Float.formatTuningValue(): String = "${((this * 100).roundToInt() / 100f)}"
