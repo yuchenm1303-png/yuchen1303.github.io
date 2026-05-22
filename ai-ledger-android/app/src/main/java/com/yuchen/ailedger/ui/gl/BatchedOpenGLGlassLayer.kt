@@ -37,7 +37,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val SIGNATURE_QUANTIZE = 1f
-private const val SCROLL_PREDICTION_FACTOR = 0.72f
+private const val DEFAULT_SCROLL_PREDICTION_FACTOR = 0.72f
 private const val MIN_SCROLL_PREDICTION_PX = 0.45f
 private const val MAX_SCROLL_PREDICTION_PX = 36f
 private const val FOLLOW_UP_RENDER_WINDOW_NANOS = 96_000_000L
@@ -128,7 +128,10 @@ fun RegisterBatchedOpenGlGlassItem(
 }
 
 @Composable
-fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
+fun BatchedOpenGlGlassLayer(
+    modifier: Modifier = Modifier,
+    scrollPrediction: Float = DEFAULT_SCROLL_PREDICTION_FACTOR
+) {
     val registry = LocalBatchedOpenGlGlassRegistry.current
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
@@ -138,6 +141,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val frameNanos = ticker?.frameNanos ?: 0L
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
+    val safePrediction = scrollPrediction.coerceIn(0f, 1.4f)
 
     BoxWithConstraints(modifier = modifier) {
         val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
@@ -172,7 +176,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyC = view.setGlassStyle(border)
-                val dirtyD = view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
+                val dirtyD = view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat(), safePrediction)
                 if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
         )
@@ -233,8 +237,8 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         return dirty
     }
 
-    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float): Boolean {
-        val predicted = next.withPredictedMotionFrom(rawItems)
+    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float, predictionFactor: Float): Boolean {
+        val predicted = next.withPredictedMotionFrom(rawItems, predictionFactor.coerceIn(0f, 1.4f))
         val signature = predicted.fastSignature(rootW, rootH)
         val dirty = signature != lastItemSignature
         rawItems = next
@@ -293,16 +297,16 @@ private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
     return result
 }
 
-private fun List<DrawItem>.withPredictedMotionFrom(previous: List<DrawItem>): List<DrawItem> {
-    if (isEmpty() || previous.isEmpty()) return this
+private fun List<DrawItem>.withPredictedMotionFrom(previous: List<DrawItem>, predictionFactor: Float): List<DrawItem> {
+    if (predictionFactor <= 0.001f || isEmpty() || previous.isEmpty()) return this
     val previousByKey = previous.associateBy { it.key }
     var changed = false
     val predicted = map { item ->
         val last = previousByKey[item.key] ?: return@map item
         val dx = (item.left - last.left).coerceIn(-MAX_SCROLL_PREDICTION_PX, MAX_SCROLL_PREDICTION_PX)
         val dy = (item.top - last.top).coerceIn(-MAX_SCROLL_PREDICTION_PX, MAX_SCROLL_PREDICTION_PX)
-        val predictX = if (abs(dx) > MIN_SCROLL_PREDICTION_PX) dx * SCROLL_PREDICTION_FACTOR else 0f
-        val predictY = if (abs(dy) > MIN_SCROLL_PREDICTION_PX) dy * SCROLL_PREDICTION_FACTOR else 0f
+        val predictX = if (abs(dx) > MIN_SCROLL_PREDICTION_PX) dx * predictionFactor else 0f
+        val predictY = if (abs(dy) > MIN_SCROLL_PREDICTION_PX) dy * predictionFactor else 0f
         if (predictX == 0f && predictY == 0f) {
             item
         } else {
