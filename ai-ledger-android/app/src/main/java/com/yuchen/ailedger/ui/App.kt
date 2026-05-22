@@ -123,7 +123,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    BatchedOpenGlGlassLayer(Modifier.fillMaxSize())
+                    BatchedOpenGlGlassLayer(
+                        modifier = Modifier.fillMaxSize(),
+                        scrollPrediction = state.openGlScrollPrediction
+                    )
                     BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
@@ -168,6 +171,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onBackgroundThemeChange = viewModel::setBackgroundTheme,
                                     onGlassIntensityChange = viewModel::setGlassIntensity,
                                     onMotionIntensityChange = viewModel::setMotionIntensity,
+                                    onOpenGlScrollPredictionChange = viewModel::setOpenGlScrollPrediction,
                                     onBackdropChange = viewModel::setBackdropDebugParams,
                                     onBorderChange = viewModel::setGlassBorderStyle,
                                     onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
