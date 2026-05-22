@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -142,7 +143,8 @@ fun GlassPanel(
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
     val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !useBatchedOpenGlBackdrop
-    val key = remember { Any() }
+    val lazyItemKey = LocalOpenGlLazyItemKey.current
+    val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
 
     RegisterBatchedOpenGlGlassItem(
         key = key,
@@ -227,7 +229,7 @@ fun GlassPanel(
                     )
             )
         }
-        content()
+        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
     }
 }
 
@@ -268,7 +270,8 @@ fun PressableGlass(
     var measuredOnce by remember { mutableStateOf(false) }
     var measuredWidth by remember { mutableStateOf(0) }
     var measuredHeight by remember { mutableStateOf(0) }
-    val key = remember { Any() }
+    val lazyItemKey = LocalOpenGlLazyItemKey.current
+    val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
     val tracksViewport = heavyGlassReady &&
         (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
@@ -374,7 +377,7 @@ fun PressableGlass(
                     )
             )
         }
-        content()
+        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
     }
 }
 
