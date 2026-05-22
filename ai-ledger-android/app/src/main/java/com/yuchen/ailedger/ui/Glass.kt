@@ -70,23 +70,20 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Nav -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell -> true
-    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> true
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
 }
 
-private fun roleUsesBatchedOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Card, GlassRole.Flex -> true
-    GlassRole.Shell, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
-}
+private fun roleUsesBatchedOpenGl(role: GlassRole): Boolean = false
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Flex -> false
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> false
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
