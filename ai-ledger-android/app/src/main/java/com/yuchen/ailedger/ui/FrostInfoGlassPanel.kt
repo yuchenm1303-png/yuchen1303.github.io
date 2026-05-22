@@ -29,7 +29,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,20 +69,21 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletShadowOffsetX by rememberSaveable { mutableStateOf(3.0f) }
     var dropletShadowOffsetY by rememberSaveable { mutableStateOf(7.0f) }
     var dropletShadowSoftness by rememberSaveable { mutableStateOf(18f) }
-    var dropletActiveGlow by rememberSaveable { mutableStateOf(0.62f) }
-    var dropletActiveRefraction by rememberSaveable { mutableStateOf(1.35f) }
-    var dropletActiveRimRefraction by rememberSaveable { mutableStateOf(1.45f) }
-    var dropletActiveLightY by rememberSaveable { mutableStateOf(0.90f) }
-    var dropletActiveLightThickness by rememberSaveable { mutableStateOf(0.105f) }
-    var dropletActiveHotspot by rememberSaveable { mutableStateOf(0.85f) }
-    var dropletActiveVolumeWarmth by rememberSaveable { mutableStateOf(0.20f) }
-    var dropletActiveRimGather by rememberSaveable { mutableStateOf(0.70f) }
-    var dropletActiveRimFlow by rememberSaveable { mutableStateOf(0.62f) }
-    var dropletActiveLightX by rememberSaveable { mutableStateOf(0.92f) }
-    var dropletActiveLightSpread by rememberSaveable { mutableStateOf(0.22f) }
-    var dropletActiveEntryPearl by rememberSaveable { mutableStateOf(1.25f) }
+    var dropletActiveGlow by rememberSaveable { mutableStateOf(0.73f) }
+    var dropletActiveRefraction by rememberSaveable { mutableStateOf(4.0f) }
+    var dropletActiveRimRefraction by rememberSaveable { mutableStateOf(3.16f) }
+    var dropletActiveLightY by rememberSaveable { mutableStateOf(1.25f) }
+    var dropletActiveEntryHeight by rememberSaveable { mutableStateOf(0.04f) }
+    var dropletActiveLightThickness by rememberSaveable { mutableStateOf(0.22f) }
+    var dropletActiveHotspot by rememberSaveable { mutableStateOf(1.27f) }
+    var dropletActiveVolumeWarmth by rememberSaveable { mutableStateOf(0.14f) }
+    var dropletActiveRimGather by rememberSaveable { mutableStateOf(1.21f) }
+    var dropletActiveRimFlow by rememberSaveable { mutableStateOf(0.89f) }
+    var dropletActiveLightX by rememberSaveable { mutableStateOf(1.0f) }
+    var dropletActiveLightSpread by rememberSaveable { mutableStateOf(0.70f) }
+    var dropletActiveEntryPearl by rememberSaveable { mutableStateOf(1.88f) }
     var dropletActiveRimPearl by rememberSaveable { mutableStateOf(1.35f) }
-    var dropletActiveCenterClear by rememberSaveable { mutableStateOf(0.34f) }
+    var dropletActiveCenterClear by rememberSaveable { mutableStateOf(0.42f) }
     var dropletBackgroundGlow by rememberSaveable { mutableStateOf(0.38f) }
     var dropletOuterGlow by rememberSaveable { mutableStateOf(0.46f) }
     var dropletWarmGlow by rememberSaveable { mutableStateOf(0.54f) }
@@ -111,6 +111,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         activeRimFlow = dropletActiveRimFlow,
         activeLightX = dropletActiveLightX,
         activeLightSpread = dropletActiveLightSpread,
+        activeEntryHeight = dropletActiveEntryHeight,
         activeEntryPearl = dropletActiveEntryPearl,
         activeRimPearl = dropletActiveRimPearl,
         activeCenterClear = dropletActiveCenterClear
@@ -170,6 +171,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("入光方向", "沿水滴外圈旋转：左、上、右、下都可入射", dropletActiveLightX, 0f..1f) { dropletActiveLightX = it }
         GlassPanelSlider("入光宽度", "从局部一束光扩展到大面积边缘入光", dropletActiveLightSpread, 0f..1f) { dropletActiveLightSpread = it }
         GlassPanelSlider("入光半径", "入光点离中心的距离，越大越贴近外边缘", dropletActiveLightY, 0.45f..1.25f) { dropletActiveLightY = it }
+        GlassPanelSlider("入光高度", "入射光源进入水滴内部后的独立高度，不等同于入光半径", dropletActiveEntryHeight, 0f..0.55f) { dropletActiveEntryHeight = it }
         GlassPanelSlider("光源厚度", "入射光束本身的厚度", dropletActiveLightThickness, 0.025f..0.30f) { dropletActiveLightThickness = it }
         GlassPanelSlider("入光强度", "入射点核心亮度", dropletActiveHotspot, 0f..2f) { dropletActiveHotspot = it }
         GlassPanelSlider("入光辉光", "入射点外缘的水珠式月牙辉光", dropletActiveEntryPearl, 0f..3f) { dropletActiveEntryPearl = it }
@@ -227,13 +229,11 @@ private fun DropletBackgroundGlow(activeGlow: Float, backgroundGlow: Float, oute
     Canvas(modifier = modifier) {
         val active = activeGlow.coerceIn(0f, 2f)
         val bg = backgroundGlow.coerceIn(0f, 2f)
-        val outer = outerGlow.coerceIn(0f, 2f)
         val warm = warmGlow.coerceIn(0f, 2f)
         val pillHeight = size.height * 0.58f
         val pillTop = size.height * 0.20f
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.18f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.08f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.42f), size.width * 0.58f), Offset(size.width * 0.03f, pillTop - size.height * 0.12f), Size(size.width * 0.94f, pillHeight + size.height * 0.24f), CornerRadius(size.height * 0.42f, size.height * 0.42f), blendMode = BlendMode.Screen)
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF72B7).copy(alpha = warm * active * 0.22f), Color(0xFFFF9B6F).copy(alpha = warm * active * 0.08f), Color.Transparent), Offset(size.width * 0.46f, size.height * 0.76f), size.width * 0.48f), Offset(size.width * 0.05f, size.height * 0.42f), Size(size.width * 0.90f, size.height * 0.54f), CornerRadius(size.height * 0.32f, size.height * 0.32f), blendMode = BlendMode.Screen)
-        drawRoundRect(Color(0xFFA9DFFF).copy(alpha = outer * active * 0.10f), Offset(size.width * 0.05f, pillTop), Size(size.width * 0.90f, pillHeight), CornerRadius(pillHeight * 0.50f, pillHeight * 0.50f), style = Stroke(width = 1.2.dp.toPx()), blendMode = BlendMode.Screen)
     }
 }
 
@@ -245,7 +245,6 @@ private fun DropletActiveOverlay(activeGlow: Float, warmGlow: Float, modifier: M
         val radius = size.height / 2f
         drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = active * 0.18f), Color.White.copy(alpha = active * 0.035f), Color.Transparent)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF73C5).copy(alpha = active * warm * 0.22f), Color(0xFFFFB06C).copy(alpha = active * warm * 0.055f), Color.Transparent), Offset(size.width * 0.50f, size.height * 1.03f), size.width * 0.42f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.linearGradient(listOf(Color.White.copy(alpha = active * 0.28f), Color.White.copy(alpha = active * 0.08f), Color.Transparent), Offset(size.width * 0.10f, 0f), Offset(size.width * 0.92f, size.height * 0.30f)), Offset(1.dp.toPx(), 1.dp.toPx()), Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx()), CornerRadius(radius, radius), style = Stroke(width = 1.dp.toPx()), blendMode = BlendMode.Screen)
     }
 }
 
