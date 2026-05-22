@@ -206,33 +206,29 @@ fun BatchedOpenGlGlassLayer(
             viewportW,
             viewportH,
             backdrop.fullWidthPx,
-            backdrop.fullHeightPx,
-            safePrediction
+            backdrop.fullHeightPx
         ) {
-            if (frameCoordinator == null) {
+            val coordinator = frameCoordinator
+            if (coordinator == null) {
                 onDispose { }
             } else {
-                val listener = {
+                val listener: () -> Unit = {
                     val latestItems = buildDrawItems(
                         registry = registry,
-                        frameCoordinator = frameCoordinator,
+                        frameCoordinator = coordinator,
                         density = density,
                         origin = origin,
                         viewportW = viewportW,
                         viewportH = viewportH
                     )
-                    viewHolder.view?.let { view ->
-                        view.setItems(
-                            latestItems,
-                            backdrop.fullWidthPx.toFloat(),
-                            backdrop.fullHeightPx.toFloat(),
-                            safePrediction
-                        )
-                        view.requestRender()
-                    }
+                    viewHolder.view?.setItemsDirect(
+                        latestItems,
+                        backdrop.fullWidthPx.toFloat(),
+                        backdrop.fullHeightPx.toFloat()
+                    )
                 }
-                frameCoordinator.addListener(listener)
-                onDispose { frameCoordinator.removeListener(listener) }
+                coordinator.addListener(listener)
+                onDispose { coordinator.removeListener(listener) }
             }
         }
 
@@ -379,6 +375,17 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
             thread?.setItems(predicted, this.rootW, this.rootH)
         }
         return dirty
+    }
+
+    fun setItemsDirect(next: List<DrawItem>, rootW: Float, rootH: Float) {
+        rawItems = next
+        items = next
+        this.rootW = rootW.coerceAtLeast(1f)
+        this.rootH = rootH.coerceAtLeast(1f)
+        lastItemSignature = next.fastSignature(rootW, rootH)
+        lastItemChangeAtNanos = System.nanoTime()
+        thread?.setItems(next, this.rootW, this.rootH)
+        thread?.requestRender()
     }
 
     fun requestRender() = thread?.requestRender() ?: Unit
