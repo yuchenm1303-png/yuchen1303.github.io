@@ -32,10 +32,15 @@ import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private const val SIGNATURE_QUANTIZE = 4f
+private const val SIGNATURE_QUANTIZE = 1f
+private const val SCROLL_PREDICTION_FACTOR = 0.72f
+private const val MIN_SCROLL_PREDICTION_PX = 0.45f
+private const val MAX_SCROLL_PREDICTION_PX = 36f
+private const val FOLLOW_UP_RENDER_WINDOW_NANOS = 96_000_000L
 
 class BatchedOpenGlGlassRegistry {
     private val items = linkedMapOf<Any, BatchedOpenGlGlassItem>()
@@ -82,6 +87,7 @@ private fun GlassRole.defaultOpenGlZIndex(): Float = when (this) {
 }
 
 private data class DrawItem(
+    val key: Any,
     val left: Float,
     val top: Float,
     val width: Float,
@@ -129,7 +135,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    ticker?.frameNanos
+    val frameNanos = ticker?.frameNanos ?: 0L
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
 
@@ -143,6 +149,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
             val topLeft = item.coordinates.rootOffset()
             val sample = item.coordinates.offsetRelativeTo(origin)
             DrawItem(
+                key = item.key,
                 left = topLeft.x,
                 top = topLeft.y,
                 width = size.width.toFloat(),
@@ -161,6 +168,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
             modifier = Modifier.matchParentSize(),
             factory = { BatchedOpenGlGlassTextureView(it) },
             update = { view ->
+                view.noteComposeFrame(frameNanos)
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyC = view.setGlassStyle(border)
@@ -176,12 +184,15 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     private var blur: Bitmap? = null
     private var lens: Bitmap? = null
     private var style = GlassBorderStyle()
+    private var rawItems: List<DrawItem> = emptyList()
     private var items: List<DrawItem> = emptyList()
     private var rootW = 1f
     private var rootH = 1f
     private var viewportHintW = 1
     private var viewportHintH = 1
     private var lastItemSignature = 0
+    private var lastComposeFrameNanos = 0L
+    private var lastItemChangeAtNanos = 0L
 
     init {
         isOpaque = false
@@ -190,6 +201,14 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         isClickable = false
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun noteComposeFrame(frameNanos: Long) {
+        if (frameNanos == 0L || frameNanos == lastComposeFrameNanos) return
+        lastComposeFrameNanos = frameNanos
+        if (System.nanoTime() - lastItemChangeAtNanos <= FOLLOW_UP_RENDER_WINDOW_NANOS) {
+            thread?.requestRender()
+        }
     }
 
     fun setViewportHint(w: Int, h: Int): Boolean {
@@ -215,14 +234,17 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     }
 
     fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float): Boolean {
-        val signature = next.fastSignature(rootW, rootH)
+        val predicted = next.withPredictedMotionFrom(rawItems)
+        val signature = predicted.fastSignature(rootW, rootH)
         val dirty = signature != lastItemSignature
+        rawItems = next
         if (dirty) {
-            items = next
+            items = predicted
             this.rootW = rootW.coerceAtLeast(1f)
             this.rootH = rootH.coerceAtLeast(1f)
             lastItemSignature = signature
-            thread?.setItems(next, this.rootW, this.rootH)
+            lastItemChangeAtNanos = System.nanoTime()
+            thread?.setItems(predicted, this.rootW, this.rootH)
         }
         return dirty
     }
@@ -258,6 +280,7 @@ private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
     fun q(value: Float): Int = (value * SIGNATURE_QUANTIZE).roundToInt()
     var result = size * 31 + q(rootW) * 17 + q(rootH)
     forEach { item ->
+        result = result * 31 + item.key.hashCode()
         result = result * 31 + q(item.left)
         result = result * 31 + q(item.top)
         result = result * 31 + q(item.width)
@@ -268,6 +291,31 @@ private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
         result = result * 31 + q(item.intensity * 100f)
     }
     return result
+}
+
+private fun List<DrawItem>.withPredictedMotionFrom(previous: List<DrawItem>): List<DrawItem> {
+    if (isEmpty() || previous.isEmpty()) return this
+    val previousByKey = previous.associateBy { it.key }
+    var changed = false
+    val predicted = map { item ->
+        val last = previousByKey[item.key] ?: return@map item
+        val dx = (item.left - last.left).coerceIn(-MAX_SCROLL_PREDICTION_PX, MAX_SCROLL_PREDICTION_PX)
+        val dy = (item.top - last.top).coerceIn(-MAX_SCROLL_PREDICTION_PX, MAX_SCROLL_PREDICTION_PX)
+        val predictX = if (abs(dx) > MIN_SCROLL_PREDICTION_PX) dx * SCROLL_PREDICTION_FACTOR else 0f
+        val predictY = if (abs(dy) > MIN_SCROLL_PREDICTION_PX) dy * SCROLL_PREDICTION_FACTOR else 0f
+        if (predictX == 0f && predictY == 0f) {
+            item
+        } else {
+            changed = true
+            item.copy(
+                left = item.left + predictX,
+                top = item.top + predictY,
+                originX = item.originX + predictX,
+                originY = item.originY + predictY
+            )
+        }
+    }
+    return if (changed) predicted else this
 }
 
 private class BatchedGlassEglThread(private val surface: Surface, width: Int, height: Int) : Thread("BatchedOpenGLGlassThread") {
