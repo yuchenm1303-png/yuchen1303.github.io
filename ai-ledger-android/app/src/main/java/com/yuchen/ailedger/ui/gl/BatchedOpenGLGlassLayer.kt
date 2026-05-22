@@ -18,6 +18,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -29,6 +30,8 @@ import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import com.yuchen.ailedger.ui.LocalOpenGlGlassFrameCoordinator
+import com.yuchen.ailedger.ui.OpenGlGlassFrameRect
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -109,6 +112,10 @@ fun RegisterBatchedOpenGlGlassItem(
     enabled: Boolean
 ) {
     val registry = LocalBatchedOpenGlGlassRegistry.current
+    val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val frameNanos = LocalBackdropFrameTicker.current?.frameNanos ?: 0L
+
     if (enabled && registry != null) {
         SideEffect {
             registry.upsert(
@@ -120,10 +127,31 @@ fun RegisterBatchedOpenGlGlassItem(
                     glassIntensity = glassIntensity
                 )
             )
+            frameNanos.hashCode()
+            val current = coordinates.coordinates
+            if (current != null && current.isAttached) {
+                val topLeft = current.localToRoot(Offset.Zero)
+                val size = current.size
+                val origin = topLeft - (backdropOrigin?.rootOffset() ?: Offset.Zero)
+                frameCoordinator?.upsert(
+                    OpenGlGlassFrameRect(
+                        key = key,
+                        left = topLeft.x,
+                        top = topLeft.y,
+                        width = size.width.toFloat(),
+                        height = size.height.toFloat(),
+                        originX = origin.x,
+                        originY = origin.y
+                    )
+                )
+            }
         }
     }
-    DisposableEffect(registry, key, enabled) {
-        onDispose { registry?.remove(key) }
+    DisposableEffect(registry, frameCoordinator, key, enabled) {
+        onDispose {
+            registry?.remove(key)
+            frameCoordinator?.remove(key)
+        }
     }
 }
 
@@ -133,12 +161,15 @@ fun BatchedOpenGlGlassLayer(
     scrollPrediction: Float = DEFAULT_SCROLL_PREDICTION_FACTOR
 ) {
     val registry = LocalBatchedOpenGlGlassRegistry.current
+    val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val frameNanos = ticker?.frameNanos ?: 0L
+    val frameRectVersion = frameCoordinator?.version ?: 0L
+    val frameRectMap = frameCoordinator?.snapshot().orEmpty().associateBy { it.key }
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
     val safePrediction = scrollPrediction.coerceIn(0f, 1.4f)
@@ -147,19 +178,44 @@ fun BatchedOpenGlGlassLayer(
         val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
         val viewportH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
         val items = registry?.snapshot().orEmpty().mapNotNull { item ->
-            if (!item.coordinates.isAttached()) return@mapNotNull null
-            val size = item.coordinates.itemSize()
-            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
-            val topLeft = item.coordinates.rootOffset()
-            val sample = item.coordinates.offsetRelativeTo(origin)
+            val frameRect = frameRectMap[item.key]
+            val width: Float
+            val height: Float
+            val left: Float
+            val top: Float
+            val originX: Float
+            val originY: Float
+
+            if (frameRect != null) {
+                width = frameRect.width
+                height = frameRect.height
+                left = frameRect.left
+                top = frameRect.top
+                originX = frameRect.originX
+                originY = frameRect.originY
+            } else {
+                if (!item.coordinates.isAttached()) return@mapNotNull null
+                val size = item.coordinates.itemSize()
+                if (size.width <= 0 || size.height <= 0) return@mapNotNull null
+                val topLeft = item.coordinates.rootOffset()
+                val sample = item.coordinates.offsetRelativeTo(origin)
+                width = size.width.toFloat()
+                height = size.height.toFloat()
+                left = topLeft.x
+                top = topLeft.y
+                originX = sample.x
+                originY = sample.y
+            }
+
+            if (width <= 0f || height <= 0f) return@mapNotNull null
             DrawItem(
                 key = item.key,
-                left = topLeft.x,
-                top = topLeft.y,
-                width = size.width.toFloat(),
-                height = size.height.toFloat(),
-                originX = sample.x,
-                originY = sample.y,
+                left = left,
+                top = top,
+                width = width,
+                height = height,
+                originX = originX,
+                originY = originY,
                 radiusPx = with(density) { item.radius.dp.toPx() },
                 intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
                 zIndex = item.zIndex
@@ -172,7 +228,7 @@ fun BatchedOpenGlGlassLayer(
             modifier = Modifier.matchParentSize(),
             factory = { BatchedOpenGlGlassTextureView(it) },
             update = { view ->
-                view.noteComposeFrame(frameNanos)
+                view.noteComposeFrame(frameNanos + frameRectVersion)
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyC = view.setGlassStyle(border)
