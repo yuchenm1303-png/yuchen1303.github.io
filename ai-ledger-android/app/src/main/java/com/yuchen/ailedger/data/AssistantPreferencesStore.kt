@@ -28,7 +28,8 @@ data class AssistantPreferences(
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
-    val motionIntensity: Float = 1f
+    val motionIntensity: Float = 1f,
+    val openGlScrollPrediction: Float = 0.72f
 )
 
 class AssistantPreferencesStore(
@@ -42,6 +43,7 @@ class AssistantPreferencesStore(
         val customBackgroundPath = stringPreferencesKey("custom_background_path")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
+        val openGlScrollPrediction = floatPreferencesKey("open_gl_scroll_prediction")
     }
 
     val preferencesFlow: Flow<AssistantPreferences> =
@@ -61,7 +63,8 @@ class AssistantPreferencesStore(
                         ?: BackgroundTheme.Aurora,
                     customBackgroundPath = customPath,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
-                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
+                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
+                    openGlScrollPrediction = (preferences[Keys.openGlScrollPrediction] ?: 0.72f).coerceIn(0f, 1.4f)
                 )
             }
 
@@ -97,6 +100,12 @@ class AssistantPreferencesStore(
     suspend fun setMotionIntensity(motionIntensity: Float) {
         context.assistantPreferencesDataStore.edit {
             it[Keys.motionIntensity] = motionIntensity.coerceIn(0f, 1.4f)
+        }
+    }
+
+    suspend fun setOpenGlScrollPrediction(value: Float) {
+        context.assistantPreferencesDataStore.edit {
+            it[Keys.openGlScrollPrediction] = value.coerceIn(0f, 1.4f)
         }
     }
 }
