@@ -56,6 +56,7 @@ private const val APPROVED_INSET_RIM_ALPHA = 0.34f
 private const val APPROVED_INSET_INNER_SHADOW = 0.67f
 private const val APPROVED_INSET_FLOOR_DIM = 0.23f
 private const val APPROVED_INSET_FLOOR_INSET = 1.35f
+private const val USE_BATCHED_RECESSED_GLASS = false
 
 data class RecessedGlassRenderItem(
     val key: Any,
@@ -251,7 +252,7 @@ fun ApprovedInsetGlassSlot(
     val outerCoordinates = remember { GlassCoordinateSource() }
     val floorCoordinates = remember { GlassCoordinateSource() }
     val registry = LocalRecessedGlassRegistry.current
-    val batched = registry != null
+    val batched = USE_BATCHED_RECESSED_GLASS && registry != null
     val depth = grooveDepth.coerceIn(0f, 1f)
     val floorInset = APPROVED_INSET_FLOOR_INSET
     val floorRadius = (radius - 1.2f).coerceAtLeast(5f)
