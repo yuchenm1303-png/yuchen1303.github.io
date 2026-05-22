@@ -187,7 +187,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     OpenGlScrollTuningCard(
                                         state = state,
                                         onValueChange = viewModel::setOpenGlScrollPrediction,
-                                        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 4.dp, bottom = 90.dp)
+                                        modifier = Modifier.align(Alignment.BottomCenter).padding(start = 4.dp, end = 4.dp, bottom = 90.dp)
                                     )
                                 }
                             }
