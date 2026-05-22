@@ -15,15 +15,20 @@ import android.view.TextureView
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.BackdropCoordinateSource
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassRole
 import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
@@ -31,6 +36,7 @@ import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import com.yuchen.ailedger.ui.LocalOpenGlGlassFrameCoordinator
+import com.yuchen.ailedger.ui.OpenGlGlassFrameCoordinator
 import com.yuchen.ailedger.ui.OpenGlGlassFrameRect
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -38,9 +44,10 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.collectLatest
 
 private const val SIGNATURE_QUANTIZE = 1f
-private const val DEFAULT_SCROLL_PREDICTION_FACTOR = 0.72f
+private const val DEFAULT_SCROLL_PREDICTION_FACTOR = 0f
 private const val MIN_SCROLL_PREDICTION_PX = 0.45f
 private const val MAX_SCROLL_PREDICTION_PX = 36f
 private const val FOLLOW_UP_RENDER_WINDOW_NANOS = 96_000_000L
@@ -101,6 +108,10 @@ private data class DrawItem(
     val intensity: Float,
     val zIndex: Float
 )
+
+private class BatchedOpenGlViewHolder {
+    @Volatile var view: BatchedOpenGlGlassTextureView? = null
+}
 
 @Composable
 fun RegisterBatchedOpenGlGlassItem(
@@ -169,65 +180,53 @@ fun BatchedOpenGlGlassLayer(
     val density = LocalDensity.current
     val frameNanos = ticker?.frameNanos ?: 0L
     val frameRectVersion = frameCoordinator?.version ?: 0L
-    val frameRectMap = frameCoordinator?.snapshot().orEmpty().associateBy { it.key }
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
-    val safePrediction = scrollPrediction.coerceIn(0f, 1.4f)
+    val safePrediction = if (frameCoordinator != null) 0f else scrollPrediction.coerceIn(0f, 1.4f)
+    val viewHolder = remember { BatchedOpenGlViewHolder() }
 
     BoxWithConstraints(modifier = modifier) {
         val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
         val viewportH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-        val items = registry?.snapshot().orEmpty().mapNotNull { item ->
-            val frameRect = frameRectMap[item.key]
-            val width: Float
-            val height: Float
-            val left: Float
-            val top: Float
-            val originX: Float
-            val originY: Float
+        val items = buildDrawItems(
+            registry = registry,
+            frameCoordinator = frameCoordinator,
+            density = density,
+            origin = origin,
+            viewportW = viewportW,
+            viewportH = viewportH
+        )
 
-            if (frameRect != null) {
-                width = frameRect.width
-                height = frameRect.height
-                left = frameRect.left
-                top = frameRect.top
-                originX = frameRect.originX
-                originY = frameRect.originY
-            } else {
-                if (!item.coordinates.isAttached()) return@mapNotNull null
-                val size = item.coordinates.itemSize()
-                if (size.width <= 0 || size.height <= 0) return@mapNotNull null
-                val topLeft = item.coordinates.rootOffset()
-                val sample = item.coordinates.offsetRelativeTo(origin)
-                width = size.width.toFloat()
-                height = size.height.toFloat()
-                left = topLeft.x
-                top = topLeft.y
-                originX = sample.x
-                originY = sample.y
-            }
+        DisposableEffect(viewHolder) {
+            onDispose { viewHolder.view = null }
+        }
 
-            if (width <= 0f || height <= 0f) return@mapNotNull null
-            DrawItem(
-                key = item.key,
-                left = left,
-                top = top,
-                width = width,
-                height = height,
-                originX = originX,
-                originY = originY,
-                radiusPx = with(density) { item.radius.dp.toPx() },
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
-                zIndex = item.zIndex
-            )
-        }.filter { item ->
-            item.left < viewportW && item.top < viewportH && item.left + item.width > 0f && item.top + item.height > 0f
-        }.sortedBy { it.zIndex }
+        LaunchedEffect(registry, frameCoordinator, density, origin, viewportW, viewportH, backdrop.fullWidthPx, backdrop.fullHeightPx, safePrediction) {
+            if (frameCoordinator == null) return@LaunchedEffect
+            snapshotFlow { frameCoordinator.version }
+                .collectLatest {
+                    val latestItems = buildDrawItems(
+                        registry = registry,
+                        frameCoordinator = frameCoordinator,
+                        density = density,
+                        origin = origin,
+                        viewportW = viewportW,
+                        viewportH = viewportH
+                    )
+                    viewHolder.view?.let { view ->
+                        view.setItems(latestItems, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat(), safePrediction)
+                        view.requestRender()
+                    }
+                }
+        }
 
         AndroidView(
             modifier = Modifier.matchParentSize(),
-            factory = { BatchedOpenGlGlassTextureView(it) },
+            factory = { context ->
+                BatchedOpenGlGlassTextureView(context).also { viewHolder.view = it }
+            },
             update = { view ->
+                viewHolder.view = view
                 view.noteComposeFrame(frameNanos + frameRectVersion)
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
@@ -237,6 +236,63 @@ fun BatchedOpenGlGlassLayer(
             }
         )
     }
+}
+
+private fun buildDrawItems(
+    registry: BatchedOpenGlGlassRegistry?,
+    frameCoordinator: OpenGlGlassFrameCoordinator?,
+    density: Density,
+    origin: BackdropCoordinateSource?,
+    viewportW: Int,
+    viewportH: Int
+): List<DrawItem> {
+    val frameRectMap = frameCoordinator?.snapshot().orEmpty().associateBy { it.key }
+    return registry?.snapshot().orEmpty().mapNotNull { item ->
+        val frameRect = frameRectMap[item.key]
+        val width: Float
+        val height: Float
+        val left: Float
+        val top: Float
+        val originX: Float
+        val originY: Float
+
+        if (frameRect != null) {
+            width = frameRect.width
+            height = frameRect.height
+            left = frameRect.left
+            top = frameRect.top
+            originX = frameRect.originX
+            originY = frameRect.originY
+        } else {
+            if (!item.coordinates.isAttached()) return@mapNotNull null
+            val size = item.coordinates.itemSize()
+            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
+            val topLeft = item.coordinates.rootOffset()
+            val sample = item.coordinates.offsetRelativeTo(origin)
+            width = size.width.toFloat()
+            height = size.height.toFloat()
+            left = topLeft.x
+            top = topLeft.y
+            originX = sample.x
+            originY = sample.y
+        }
+
+        if (width <= 0f || height <= 0f) return@mapNotNull null
+        DrawItem(
+            key = item.key,
+            left = left,
+            top = top,
+            width = width,
+            height = height,
+            originX = originX,
+            originY = originY,
+            radiusPx = with(density) { item.radius.dp.toPx() },
+            intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
+            zIndex = item.zIndex
+        )
+    }.filter { item ->
+        item.left < viewportW && item.top < viewportH && item.left + item.width > 0f && item.top + item.height > 0f
+    }.sortedBy { it.zIndex }
 }
 
 private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
