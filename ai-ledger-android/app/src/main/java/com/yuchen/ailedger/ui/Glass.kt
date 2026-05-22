@@ -24,7 +24,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -506,83 +505,32 @@ fun Modifier.glassSkin(
     return base.drawWithCache {
         val w = size.width
         val h = size.height
-        val drift = safeShimmer - 0.5f
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
         val rimInset = 0.62.dp.toPx()
         val innerInset = 1.85.dp.toPx()
-        val bottomInset = 2.10.dp.toPx()
-        val rimSize = Size(w - rimInset * 2f, h - rimInset * 2f)
-        val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
-        val bottomSize = Size(w - bottomInset * 2f, h - bottomInset * 2f)
-
-        val frostedNeutralVeil = Brush.verticalGradient(
+        val rimSize = androidx.compose.ui.geometry.Size(w - rimInset * 2f, h - rimInset * 2f)
+        val innerSize = androidx.compose.ui.geometry.Size(w - innerInset * 2f, h - innerInset * 2f)
+        val veil = Brush.verticalGradient(
             colors = listOf(
                 Color.White.copy(alpha = material.frost * 0.28f * pulse),
                 Color.White.copy(alpha = material.frost * 0.10f),
                 Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.11f)
+                Color.Black.copy(alpha = material.depthShadow * 0.12f)
             ),
             startY = 0f,
             endY = h
         )
-        val topLens = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = material.topHighlight * 0.48f * pulse),
-                Color.White.copy(alpha = material.topHighlight * 0.055f),
-                Color.Transparent
-            ),
-            startY = 0f,
-            endY = h * 0.22f
-        )
-        val lowerShade = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.52f)
-            ),
-            startY = h * 0.64f,
-            endY = h
-        )
-        val mainRim = Brush.linearGradient(
+        val rim = Brush.linearGradient(
             colors = listOf(
                 Color.White.copy(alpha = material.rim * 0.58f),
-                Color.White.copy(alpha = material.rim * 0.048f),
+                Color.White.copy(alpha = material.rim * 0.05f),
                 Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.14f),
-                Color.White.copy(alpha = material.rim * 0.016f)
+                Color.Black.copy(alpha = material.depthShadow * 0.14f)
             ),
-            start = Offset(0f, 0f),
+            start = Offset.Zero,
             end = Offset(w, h)
         )
-        val topHairline = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = material.rim * 0.42f),
-                Color.White.copy(alpha = material.rim * 0.030f),
-                Color.Transparent
-            ),
-            startY = 0f,
-            endY = h * 0.18f
-        )
-        val innerSoftRim = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = material.rim * 0.022f),
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.10f),
-                Color.White.copy(alpha = material.rim * 0.008f)
-            ),
-            start = Offset(w * 0.10f, 0f),
-            end = Offset(w * 0.94f, h)
-        )
-        val bottomShadow = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.34f)
-            ),
-            startY = h * 0.58f,
-            endY = h
-        )
-        val movingEdgeGlint = Brush.linearGradient(
+        val glint = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
                 Color.White.copy(alpha = material.motionGlint),
@@ -591,29 +539,35 @@ fun Modifier.glassSkin(
             start = Offset(w * (safeShimmer - 0.28f), 0f),
             end = Offset(w * (safeShimmer + 0.16f), h * 0.20f)
         )
-        val cornerCatchlight = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = material.cornerHighlight),
-                Color.White.copy(alpha = material.cornerHighlight * 0.08f),
-                Color.Transparent
-            ),
-            center = Offset(w * (0.035f + drift * 0.010f), h * 0.020f),
-            radius = w * 0.26f
-        }
-
         onDrawWithContent {
-            drawRect(frostedNeutralVeil, blendMode = BlendMode.Screen)
-            drawRect(topLens, blendMode = BlendMode.Screen)
-            drawRect(lowerShade, blendMode = BlendMode.Multiply)
+            drawRect(veil, blendMode = BlendMode.Screen)
             drawContent()
-            drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.32.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(brush = innerSoftRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.SrcOver)
-            drawRoundRect(brush = bottomShadow, topLeft = Offset(bottomInset, bottomInset), size = bottomSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Multiply)
+            drawRoundRect(
+                brush = rim,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = 0.32.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = material.rim * 0.10f),
+                topLeft = Offset(innerInset, innerInset),
+                size = innerSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = 0.10.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
             if (quality.enableMotion) {
-                drawRoundRect(brush = movingEdgeGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.07.dp.toPx()), blendMode = BlendMode.Plus)
+                drawRoundRect(
+                    brush = glint,
+                    topLeft = Offset(rimInset, rimInset),
+                    size = rimSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = 0.07.dp.toPx()),
+                    blendMode = BlendMode.Plus
+                )
             }
-            drawRoundRect(brush = cornerCatchlight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.13.dp.toPx()), blendMode = BlendMode.Screen)
         }
     }
 }
