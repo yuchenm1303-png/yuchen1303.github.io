@@ -68,6 +68,7 @@ data class DropletGlassStyle(
     val activeRimFlow: Float = 0.62f,
     val activeLightX: Float = 0.92f,
     val activeLightSpread: Float = 0.22f,
+    val activeEntryHeight: Float = 0.04f,
     val activeEntryPearl: Float = 1.25f,
     val activeRimPearl: Float = 1.35f,
     val activeCenterClear: Float = 0.34f,
@@ -499,7 +500,7 @@ private class DropletRenderer {
         GLES20.glUniform4f(activeAHandle, style.activeGlow.coerceIn(0f, 2f), style.activeRefraction.coerceIn(0f, 4f), style.activeRimRefraction.coerceIn(0f, 4f), style.activeLightY.coerceIn(0.45f, 1.25f))
         GLES20.glUniform4f(activeBHandle, style.activeLightThickness.coerceIn(0.025f, 0.30f), style.activeHotspot.coerceIn(0f, 2f), style.activeVolumeWarmth.coerceIn(0f, 1.2f), style.activeRimGather.coerceIn(0f, 2.5f))
         GLES20.glUniform4f(activeCHandle, style.activeLightX.coerceIn(0f, 1f), style.activeEntryPearl.coerceIn(0f, 3f), style.activeRimPearl.coerceIn(0f, 3f), style.activeCenterClear.coerceIn(0f, 1f))
-        GLES20.glUniform4f(activeDHandle, style.activeLightSpread.coerceIn(0f, 1f), 0f, 0f, 0f)
+        GLES20.glUniform4f(activeDHandle, style.activeLightSpread.coerceIn(0f, 1f), style.activeEntryHeight.coerceIn(0f, 0.55f), 0f, 0f)
         GLES20.glUniform3f(accentHandle, style.accentRed.coerceIn(0f, 1f), style.accentGreen.coerceIn(0f, 1f), style.accentBlue.coerceIn(0f, 1f))
         GLES20.glUniform3f(warmHandle, style.warmRed.coerceIn(0f, 1f), style.warmGreen.coerceIn(0f, 1f), style.warmBlue.coerceIn(0f, 1f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -724,12 +725,14 @@ private class DropletRenderer {
                 float rimPearl = uActiveC.z;
                 float centerClear = uActiveC.w;
                 float lightSpread = sat(uActiveD.x);
+                float entryHeight = sat(uActiveD.y);
                 float sourceAngle = sourceT * 6.2831853 + 1.287;
                 vec2 sourceVec = vec2(cos(sourceAngle), sin(sourceAngle));
                 float radialScale = mix(0.82, 1.08, sat((sourceY - 0.45) / 0.80));
                 vec2 lightOrigin = clamp(vec2(0.5, 0.5) + sourceVec * vec2(0.47, 0.43) * radialScale, vec2(0.035, 0.035), vec2(0.965, 0.965));
                 vec2 lightDir = normalize(vec2(0.5, 0.52) - lightOrigin);
                 vec2 lightTangent = vec2(-lightDir.y, lightDir.x);
+                vec2 lightCoreOrigin = clamp(lightOrigin + lightDir * entryHeight, vec2(0.035, 0.035), vec2(0.965, 0.965));
                 float sourceIsRight = step(0.5, lightOrigin.x);
                 float inwardDir = mix(1.0, -1.0, sourceIsRight);
                 vec3 accentColor = clamp(uAccentColor, 0.0, 1.0);
@@ -745,7 +748,7 @@ private class DropletRenderer {
                 innerFlow += lightDir * (0.035 + 0.12 * thickness) * edgeOptics;
                 vec2 innerCoord = p + innerFlow * activeRefraction;
 
-                float warpedLight = glassLightSource(innerCoord, lightOrigin, lightDir, sourceThickness, hotspotStrength, lightSpread);
+                float warpedLight = glassLightSource(innerCoord, lightCoreOrigin, lightDir, sourceThickness, hotspotStrength, lightSpread);
                 float sideFocus = mix(1.0 - smoothstep(0.04, 0.70, innerCoord.x), smoothstep(0.30, 0.96, innerCoord.x), sourceIsRight);
                 float angularFocus = mix(sideFocus, 1.0, lightSpread * 0.65);
                 float warpedEnergy = warpedLight * (0.34 + 0.66 * thickness) * (0.58 + 0.42 * angularFocus);
@@ -763,7 +766,7 @@ private class DropletRenderer {
                 float rimLight = rimSource * wideRim * (0.25 + 0.75 * thickness) * rimDirection * activeRimRefraction * rimGather;
 
                 vec2 volumeProbe = mix(p, innerCoord, 0.42);
-                vec2 volumeLocal = volumeProbe - lightOrigin;
+                vec2 volumeLocal = volumeProbe - lightCoreOrigin;
                 float volumeAcross = dot(volumeLocal, lightTangent);
                 float volumeAlong = dot(volumeLocal, lightDir);
                 float volumeSideBias = exp(-pow(volumeAcross / mix(0.40, 1.25, lightSpread), 2.0));
@@ -779,13 +782,21 @@ private class DropletRenderer {
                 float centerClearMask = pow(sat(1.0 - softR * 1.08), 1.22) * active * centerClear;
                 volumeField *= 1.0 - centerClearMask * 0.62;
 
-                vec2 entryLocal = p - lightOrigin;
+                vec2 edgeEntryLocal = p - lightOrigin;
+                float edgeEntryAcross = dot(edgeEntryLocal, lightTangent);
+                float edgeEntryAlong = dot(edgeEntryLocal, lightDir);
+                vec2 entryLocal = p - lightCoreOrigin;
                 float entryAcross = dot(entryLocal, lightTangent);
                 float entryAlong = dot(entryLocal, lightDir);
                 float entryGlow = exp(-pow(entryAcross / mix(0.12, 0.72, lightSpread), 2.0) - pow(entryAlong / mix(0.18, 0.58, lightSpread), 2.0)) * hotspotStrength * active;
-                float sourceSideMask = exp(-pow(entryAcross / mix(0.18, 1.05, lightSpread), 2.0));
+                float sourceSideMask = exp(-pow(edgeEntryAcross / mix(0.18, 1.05, lightSpread), 2.0));
                 sourceSideMask = mix(sourceSideMask, 1.0, lightSpread * 0.55);
                 float edgeLatch = sat(thinRim * 0.85 + innerRimLine * 0.45 + wideRim * 0.18);
+                float contactDepth = 1.0 - smoothstep(0.0, mix(10.0, 24.0, lightSpread), inside);
+                float contactAlong = exp(-pow(max(edgeEntryAlong, 0.0) / mix(0.18, 0.62, lightSpread), 2.0));
+                float contactAcross = exp(-pow(edgeEntryAcross / mix(0.22, 1.15, lightSpread), 2.0));
+                float entryEdgeContact = contactDepth * contactAcross * contactAlong * active * hotspotStrength * entryPearl * sat(0.35 + 0.65 * edgeLatch);
+                float entryEdgeWash = (1.0 - smoothstep(3.0, mix(16.0, 34.0, lightSpread), inside)) * contactAcross * exp(-pow(edgeEntryAlong / mix(0.24, 0.78, lightSpread), 2.0)) * active * hotspotStrength * entryPearl * 0.55;
                 vec2 haloDelta = vec2(entryAcross / mix(0.16, 0.82, lightSpread), (entryAlong - 0.02) / mix(0.19, 0.68, lightSpread));
                 float entryHalo = exp(-dot(haloDelta, haloDelta) * 1.15) * sourceSideMask * active * hotspotStrength * entryPearl * (0.25 + 0.75 * edgeLatch);
                 vec2 crescentOuterDelta = vec2(entryAcross / mix(0.16, 0.72, lightSpread), (entryAlong - 0.03) / mix(0.13, 0.46, lightSpread));
@@ -805,7 +816,7 @@ private class DropletRenderer {
                 if (debugMode >= 0.25) {
                     float debugAlpha = mask * uAlpha.y;
                     if (debugMode < 0.50) {
-                        float v = sat(warpedEnergy * active * 0.85 + entryCrescent * 0.55 + entryPin * 0.32);
+                        float v = sat(warpedEnergy * active * 0.85 + entryEdgeContact * 0.48 + entryCrescent * 0.55 + entryPin * 0.32);
                         vec2 q = coord / size;
                         float diag = 1.0 - smoothstep(0.0, 0.018, abs(q.y - (0.18 + 0.50 * q.x)));
                         float corner = step(0.035, q.x) * step(q.x, 0.19) * step(0.035, q.y) * step(q.y, 0.13);
@@ -814,11 +825,11 @@ private class DropletRenderer {
                         gl_FragColor = vec4(debugColor, debugAlpha);
                         return;
                     } else if (debugMode < 0.75) {
-                        float v = sat(rimLight * active * 1.35);
+                        float v = sat(rimLight * active * 1.35 + entryEdgeContact * 0.42);
                         gl_FragColor = vec4(v * vec3(0.10, 1.0, 0.85), debugAlpha);
                         return;
                     } else {
-                        float v = sat(volumeField * volumeWarmth * active * 1.65 + entryGlow * entryPearl * 0.42);
+                        float v = sat(volumeField * volumeWarmth * active * 1.65 + entryGlow * entryPearl * 0.42 + entryEdgeWash * 0.35);
                         gl_FragColor = vec4(v * vec3(1.0, 0.74, 0.12), debugAlpha);
                         return;
                     }
@@ -837,6 +848,8 @@ private class DropletRenderer {
                 color += warmColor * entryGlow * entryPearl * 0.12;
                 color += pearlColor * entryHalo * 0.25;
                 color += pearlColor * entryCrescent * 1.05;
+                color += pearlColor * entryEdgeContact * 0.54;
+                color += mix(warmColor, pearlColor, 0.50) * entryEdgeWash * 0.32;
                 color += vec3(1.0, 0.98, 0.92) * entryPin * 1.25;
                 color -= vec3(0.10, 0.08, 0.18) * rimGrooveShade * 0.34;
                 color += vec3(0.84, 0.96, 1.0) * lowerBlueLine * 0.95;
@@ -849,7 +862,8 @@ private class DropletRenderer {
 
                 float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
                 float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
-                color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x;
+                float shadowAvoid = 1.0 - sat(entryEdgeContact * 0.80 + entryEdgeWash * 0.45);
+                color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x * shadowAvoid;
                 gl_FragColor = vec4(clamp(color, 0.0, 1.0), mask);
             }
         """
