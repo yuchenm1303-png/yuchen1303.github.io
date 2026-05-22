@@ -29,11 +29,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -115,6 +118,11 @@ fun SettingsScreenV2(
 }
 
 @Composable
+private fun OpenGlLazyItem(key: Any, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalOpenGlLazyItemKey provides key) { content() }
+}
+
+@Composable
 private fun SettingsHomeV2(
     state: AssistantUiState,
     aiEndpoint: String,
@@ -134,59 +142,77 @@ private fun SettingsHomeV2(
     var dataExpanded by rememberSaveable { mutableStateOf(false) }
     var serviceExpanded by rememberSaveable { mutableStateOf(false) }
     var glassPanelExpanded by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val listAnchor = rememberOpenGlLazyListAnchor()
+    SyncOpenGlGlassWithLazyList(listState, listAnchor)
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier.fillMaxSize().openGlLazyListAnchor(listAnchor),
         contentPadding = PaddingValues(top = 14.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item(key = "settings-header") { SettingsHeaderV2() }
+        item(key = "settings-header") { OpenGlLazyItem("settings-header") { SettingsHeaderV2() } }
         item(key = "display-background") {
-            ExpandableSettingsSection(state, "显示与背景", "背景、图片和页面观感。", "景", Color(0xFF8DF9EA), displayExpanded, { displayExpanded = !displayExpanded }) {
-                SettingOptionGrid(BackgroundTheme.entries, state.backgroundTheme, { themeLabelV2(it) }, state, onBackgroundThemeChange)
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                    LiquidActionCard("上传背景", if (state.customBackgroundPath == null) "选择图片" else "已自定义", state, Modifier.weight(1f), onUploadBackgroundClick)
-                    LiquidActionCard("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
+            OpenGlLazyItem("display-background") {
+                ExpandableSettingsSection(state, "显示与背景", "背景、图片和页面观感。", "景", Color(0xFF8DF9EA), displayExpanded, { displayExpanded = !displayExpanded }) {
+                    SettingOptionGrid(BackgroundTheme.entries, state.backgroundTheme, { themeLabelV2(it) }, state, onBackgroundThemeChange)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                        LiquidActionCard("上传背景", if (state.customBackgroundPath == null) "选择图片" else "已自定义", state, Modifier.weight(1f), onUploadBackgroundClick)
+                        LiquidActionCard("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
+                    }
                 }
             }
         }
         item(key = "glass-motion") {
-            ExpandableSettingsSection(state, "玻璃与流畅度", "画质、预设和日常强度。", "璃", Color(0xFF9EB7FF), glassExpanded, { glassExpanded = !glassExpanded }) {
-                SettingOptionGrid(RenderQuality.entries, state.quality, { qualityLabelV2(it) }, state, onQualityChange)
-                SettingOptionGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabelV2(it) }, state, onGlassPresetChange)
-                RecessedSettingSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
-                RecessedSettingSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
+            OpenGlLazyItem("glass-motion") {
+                ExpandableSettingsSection(state, "玻璃与流畅度", "画质、预设和日常强度。", "璃", Color(0xFF9EB7FF), glassExpanded, { glassExpanded = !glassExpanded }) {
+                    SettingOptionGrid(RenderQuality.entries, state.quality, { qualityLabelV2(it) }, state, onQualityChange)
+                    SettingOptionGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabelV2(it) }, state, onGlassPresetChange)
+                    RecessedSettingSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
+                    RecessedSettingSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
+                }
             }
         }
         item(key = "assistant-preference") {
-            ExpandableSettingsSection(state, "助手偏好", "首页聊天体验和默认行为。", "AI", Color(0xFFFFD166), assistantExpanded, { assistantExpanded = !assistantExpanded }) {
-                LiquidSwitchRow("聊天预览", "打开后首页保留示例对话和建议词。", state.showPreviewConversation, state, onPreviewConversationChange)
-                SettingInfoGlass("默认模型", state.selectedModelLabel, state)
-                SettingInfoGlass("首页消息", "${state.messages.size} 条", state)
+            OpenGlLazyItem("assistant-preference") {
+                ExpandableSettingsSection(state, "助手偏好", "首页聊天体验和默认行为。", "AI", Color(0xFFFFD166), assistantExpanded, { assistantExpanded = !assistantExpanded }) {
+                    LiquidSwitchRow("聊天预览", "打开后首页保留示例对话和建议词。", state.showPreviewConversation, state, onPreviewConversationChange)
+                    SettingInfoGlass("默认模型", state.selectedModelLabel, state)
+                    SettingInfoGlass("首页消息", "${state.messages.size} 条", state)
+                }
             }
         }
         item(key = "data-budget") {
-            ExpandableSettingsSection(state, "数据与预算", "账单状态、预算和后续同步。", "数", Color(0xFFFFB4D2), dataExpanded, { dataExpanded = !dataExpanded }) {
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                    MiniSettingGlass("账单", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
-                    MiniSettingGlass("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
-                    MiniSettingGlass("同步", "本地", state, Modifier.weight(1f))
+            OpenGlLazyItem("data-budget") {
+                ExpandableSettingsSection(state, "数据与预算", "账单状态、预算和后续同步。", "数", Color(0xFFFFB4D2), dataExpanded, { dataExpanded = !dataExpanded }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                        MiniSettingGlass("账单", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
+                        MiniSettingGlass("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
+                        MiniSettingGlass("同步", "本地", state, Modifier.weight(1f))
+                    }
+                    SettingInfoGlass("数据保存", "当前为内存预览，后续可接 DataStore / Room", state)
                 }
-                SettingInfoGlass("数据保存", "当前为内存预览，后续可接 DataStore / Room", state)
             }
         }
         item(key = "service-status") {
-            ExpandableSettingsSection(state, "服务状态", "AI Worker、云端接口和本地执行。", "云", Color(0xFFC7A8FF), serviceExpanded, { serviceExpanded = !serviceExpanded }) {
-                SettingInfoGlass("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint, state)
-                SettingInfoGlass("执行模式", "本地动作优先，复杂问题交给云端", state)
+            OpenGlLazyItem("service-status") {
+                ExpandableSettingsSection(state, "服务状态", "AI Worker、云端接口和本地执行。", "云", Color(0xFFC7A8FF), serviceExpanded, { serviceExpanded = !serviceExpanded }) {
+                    SettingInfoGlass("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint, state)
+                    SettingInfoGlass("执行模式", "本地动作优先，复杂问题交给云端", state)
+                }
             }
         }
         item(key = "advanced-debug-entry") {
-            SettingsNavigationCard(state, "高级玻璃调试", "进入独立调试页，避免长展开导致 OpenGL 闪烁。", "调", Color(0xFF8DF9EA), onOpenDebug)
+            OpenGlLazyItem("advanced-debug-entry") {
+                SettingsNavigationCard(state, "高级玻璃调试", "进入独立调试页，避免长展开导致 OpenGL 闪烁。", "调", Color(0xFF8DF9EA), onOpenDebug)
+            }
         }
         item(key = "glass-panel-lab") {
-            ExpandableSettingsSection(state, "玻璃面板", "调试不同形态的 Compose 玻璃。", "面", Color(0xFF8DF9EA), glassPanelExpanded, { glassPanelExpanded = !glassPanelExpanded }) {
-                FrostInfoGlassLab(state)
+            OpenGlLazyItem("glass-panel-lab") {
+                ExpandableSettingsSection(state, "玻璃面板", "调试不同形态的 Compose 玻璃。", "面", Color(0xFF8DF9EA), glassPanelExpanded, { glassPanelExpanded = !glassPanelExpanded }) {
+                    FrostInfoGlassLab(state)
+                }
             }
         }
     }
@@ -200,21 +226,28 @@ private fun GlassDebugScreenV2(
     onBorderChange: (GlassBorderStyle) -> Unit
 ) {
     var group by rememberSaveable { mutableStateOf("背景") }
+    val listState = rememberLazyListState()
+    val listAnchor = rememberOpenGlLazyListAnchor()
+    SyncOpenGlGlassWithLazyList(listState, listAnchor)
+
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier.fillMaxSize().openGlLazyListAnchor(listAnchor),
         contentPadding = PaddingValues(top = 14.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item(key = "debug-header") { DebugHeaderV2(state, onBack) }
-        item(key = "debug-tabs") { DebugTabRow(state, group) { group = it } }
+        item(key = "debug-header") { OpenGlLazyItem("debug-header") { DebugHeaderV2(state, onBack) } }
+        item(key = "debug-tabs") { OpenGlLazyItem("debug-tabs") { DebugTabRow(state, group) { group = it } } }
         item(key = "debug-content-$group") {
-            DebugGroupCard(state, debugGroupTitle(group), debugGroupSubtitle(group)) {
-                when (group) {
-                    "背景" -> BackgroundDebugGroup(state, onBackdropChange)
-                    "天空" -> SkyDebugGroup(state, onBackdropChange)
-                    "折射" -> OpenGlDebugGroup(state, onBorderChange)
-                    "边缘" -> EdgeCompatDebugGroup(state, onBorderChange)
-                    else -> LegacyBorderDebugGroup(state, onBorderChange)
+            OpenGlLazyItem("debug-content-$group") {
+                DebugGroupCard(state, debugGroupTitle(group), debugGroupSubtitle(group)) {
+                    when (group) {
+                        "背景" -> BackgroundDebugGroup(state, onBackdropChange)
+                        "天空" -> SkyDebugGroup(state, onBackdropChange)
+                        "折射" -> OpenGlDebugGroup(state, onBorderChange)
+                        "边缘" -> EdgeCompatDebugGroup(state, onBorderChange)
+                        else -> LegacyBorderDebugGroup(state, onBorderChange)
+                    }
                 }
             }
         }
