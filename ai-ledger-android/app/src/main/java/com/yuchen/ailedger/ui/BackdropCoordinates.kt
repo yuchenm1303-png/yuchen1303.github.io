@@ -68,19 +68,33 @@ data class OpenGlGlassFrameRect(
 class OpenGlGlassFrameCoordinator {
     private val rects = linkedMapOf<Any, OpenGlGlassFrameRect>()
     private val lazyListOwnedKeys = linkedSetOf<Any>()
+    private val listeners = linkedSetOf<() -> Unit>()
     private var cachedSnapshot: List<OpenGlGlassFrameRect> = emptyList()
     private var dirty = true
 
     var version by mutableLongStateOf(0L)
         private set
 
+    fun addListener(listener: () -> Unit) {
+        listeners += listener
+    }
+
+    fun removeListener(listener: () -> Unit) {
+        listeners -= listener
+    }
+
+    private fun markChanged() {
+        dirty = true
+        version += 1L
+        listeners.toList().forEach { it() }
+    }
+
     fun upsert(rect: OpenGlGlassFrameRect) {
         if (rect.width <= 0f || rect.height <= 0f) return
         if (rect.key in lazyListOwnedKeys) return
         if (rects[rect.key] == rect) return
         rects[rect.key] = rect
-        dirty = true
-        version += 1L
+        markChanged()
     }
 
     fun upsertFromLazyList(rect: OpenGlGlassFrameRect) {
@@ -88,27 +102,21 @@ class OpenGlGlassFrameCoordinator {
         lazyListOwnedKeys += rect.key
         if (rects[rect.key] == rect) return
         rects[rect.key] = rect
-        dirty = true
-        version += 1L
+        markChanged()
     }
 
     fun remove(key: Any) {
         lazyListOwnedKeys -= key
-        if (rects.remove(key) != null) {
-            dirty = true
-            version += 1L
-        }
+        if (rects.remove(key) != null) markChanged()
     }
 
     fun releaseLazyListKeys(keys: Set<Any>) {
+        var changed = false
         keys.forEach { key ->
             lazyListOwnedKeys -= key
-            rects.remove(key)
+            changed = rects.remove(key) != null || changed
         }
-        if (keys.isNotEmpty()) {
-            dirty = true
-            version += 1L
-        }
+        if (changed) markChanged()
     }
 
     fun snapshot(): List<OpenGlGlassFrameRect> {
