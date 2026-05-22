@@ -70,6 +70,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val glassRegistry = remember { GlassItemRegistry() }
     val recessedGlassRegistry = remember { RecessedGlassRegistry() }
     val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
+    val openGlFrameCoordinator = remember { OpenGlGlassFrameCoordinator() }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
     }
@@ -117,6 +118,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalGlassItemRegistry provides glassRegistry,
                 LocalRecessedGlassRegistry provides recessedGlassRegistry,
                 LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
+                LocalOpenGlGlassFrameCoordinator provides openGlFrameCoordinator,
                 LocalHeavyGlassStartupReady provides heavyGlassStartupReady
             ) {
                 Box(Modifier.fillMaxSize()) {
