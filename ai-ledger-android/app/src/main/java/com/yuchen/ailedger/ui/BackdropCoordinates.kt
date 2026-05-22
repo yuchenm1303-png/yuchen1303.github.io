@@ -55,6 +55,48 @@ class BackdropFrameTicker {
     var frameNanos by mutableLongStateOf(0L)
 }
 
+data class OpenGlGlassFrameRect(
+    val key: Any,
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val originX: Float,
+    val originY: Float
+)
+
+class OpenGlGlassFrameCoordinator {
+    private val rects = linkedMapOf<Any, OpenGlGlassFrameRect>()
+    private var cachedSnapshot: List<OpenGlGlassFrameRect> = emptyList()
+    private var dirty = true
+
+    var version by mutableLongStateOf(0L)
+        private set
+
+    fun upsert(rect: OpenGlGlassFrameRect) {
+        if (rect.width <= 0f || rect.height <= 0f) return
+        if (rects[rect.key] == rect) return
+        rects[rect.key] = rect
+        dirty = true
+        version += 1L
+    }
+
+    fun remove(key: Any) {
+        if (rects.remove(key) != null) {
+            dirty = true
+            version += 1L
+        }
+    }
+
+    fun snapshot(): List<OpenGlGlassFrameRect> {
+        if (dirty) {
+            cachedSnapshot = rects.values.toList()
+            dirty = false
+        }
+        return cachedSnapshot
+    }
+}
+
 data class GlassRenderItem(
     val key: Any,
     val coordinates: GlassCoordinateSource,
@@ -100,3 +142,4 @@ class GlassItemRegistry {
 val LocalBackdropOrigin = compositionLocalOf<BackdropCoordinateSource?> { null }
 val LocalBackdropFrameTicker = compositionLocalOf<BackdropFrameTicker?> { null }
 val LocalGlassItemRegistry = compositionLocalOf<GlassItemRegistry?> { null }
+val LocalOpenGlGlassFrameCoordinator = compositionLocalOf<OpenGlGlassFrameCoordinator?> { null }
