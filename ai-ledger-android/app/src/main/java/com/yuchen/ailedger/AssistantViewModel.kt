@@ -57,7 +57,8 @@ class AssistantViewModel(
                     backgroundTheme = preferences.backgroundTheme,
                     customBackgroundPath = preferences.customBackgroundPath,
                     glassIntensity = preferences.glassIntensity,
-                    motionIntensity = preferences.motionIntensity
+                    motionIntensity = preferences.motionIntensity,
+                    openGlScrollPrediction = preferences.openGlScrollPrediction
                 )
             }
         }
@@ -371,6 +372,12 @@ class AssistantViewModel(
         val clamped = value.coerceIn(0f, 1.4f)
         uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped))
         viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) }
+    }
+
+    fun setOpenGlScrollPrediction(value: Float) {
+        val clamped = value.coerceIn(0f, 1.4f)
+        uiState = uiState.copy(openGlScrollPrediction = clamped)
+        viewModelScope.launch { preferencesStore.setOpenGlScrollPrediction(clamped) }
     }
 
     fun setGlassPreset(preset: GlassPreset) {
