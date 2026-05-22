@@ -67,6 +67,7 @@ data class OpenGlGlassFrameRect(
 
 class OpenGlGlassFrameCoordinator {
     private val rects = linkedMapOf<Any, OpenGlGlassFrameRect>()
+    private val lazyListOwnedKeys = linkedSetOf<Any>()
     private var cachedSnapshot: List<OpenGlGlassFrameRect> = emptyList()
     private var dirty = true
 
@@ -75,6 +76,16 @@ class OpenGlGlassFrameCoordinator {
 
     fun upsert(rect: OpenGlGlassFrameRect) {
         if (rect.width <= 0f || rect.height <= 0f) return
+        if (rect.key in lazyListOwnedKeys) return
+        if (rects[rect.key] == rect) return
+        rects[rect.key] = rect
+        dirty = true
+        version += 1L
+    }
+
+    fun upsertFromLazyList(rect: OpenGlGlassFrameRect) {
+        if (rect.width <= 0f || rect.height <= 0f) return
+        lazyListOwnedKeys += rect.key
         if (rects[rect.key] == rect) return
         rects[rect.key] = rect
         dirty = true
@@ -82,7 +93,19 @@ class OpenGlGlassFrameCoordinator {
     }
 
     fun remove(key: Any) {
+        lazyListOwnedKeys -= key
         if (rects.remove(key) != null) {
+            dirty = true
+            version += 1L
+        }
+    }
+
+    fun releaseLazyListKeys(keys: Set<Any>) {
+        keys.forEach { key ->
+            lazyListOwnedKeys -= key
+            rects.remove(key)
+        }
+        if (keys.isNotEmpty()) {
             dirty = true
             version += 1L
         }
@@ -96,6 +119,8 @@ class OpenGlGlassFrameCoordinator {
         return cachedSnapshot
     }
 }
+
+val LocalOpenGlLazyItemKey = compositionLocalOf<Any?> { null }
 
 data class GlassRenderItem(
     val key: Any,
