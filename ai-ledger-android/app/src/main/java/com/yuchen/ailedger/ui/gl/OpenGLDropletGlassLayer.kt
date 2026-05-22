@@ -518,6 +518,12 @@ private class DropletRenderer {
 
     fun onRelease() {
         if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, intArrayOf(blurTex, lensTex), 0)
+        if (program != 0) GLES20.glDeleteProgram(program)
+        blurTex = 0
+        lensTex = 0
+        program = 0
+        activeBlur = null
+        activeLens = null
     }
 
     private fun uploadPendingTextures() {

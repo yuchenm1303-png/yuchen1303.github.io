@@ -107,6 +107,17 @@ private class GlassLensShaderCache {
     }
 }
 
+private class UnifiedGlassDrawCache {
+    val itemPath = Path()
+    val bitmapMatrix = AndroidMatrix()
+    val bitmapPaint = AndroidPaint(
+        AndroidPaint.ANTI_ALIAS_FLAG or AndroidPaint.FILTER_BITMAP_FLAG or AndroidPaint.DITHER_FLAG
+    ).apply {
+        isDither = true
+        isFilterBitmap = true
+    }
+}
+
 @Composable
 fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     val registry = LocalGlassItemRegistry.current
@@ -118,6 +129,7 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
     val shaderCache = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) GlassLensShaderCache() else null
     }
+    val drawCache = remember { UnifiedGlassDrawCache() }
 
     Canvas(modifier = modifier) {
         registryVersion
@@ -135,8 +147,11 @@ fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
             val visible = rect.intersectionOrNull(screen) ?: return@forEach
             val sampleOffset = item.coordinates.offsetRelativeTo(origin)
             val corner = item.radius.dp.toPx()
-            val itemPath = Path().apply { addRoundRect(RoundRect(rect, CornerRadius(corner, corner))) }
-            drawGlassBody(cached, rect, visible, sampleOffset, itemPath, item.quality, item.glassIntensity, item.backdropAlpha, border)
+            val itemPath = drawCache.itemPath.apply {
+                reset()
+                addRoundRect(RoundRect(rect, CornerRadius(corner, corner)))
+            }
+            drawGlassBody(cached, rect, visible, sampleOffset, itemPath, item.quality, item.glassIntensity, item.backdropAlpha, border, drawCache)
             drawContinuousLens(cached, rect, visible, sampleOffset, corner, itemPath, border, item.edgeStrength, shaderCache)
             drawGlassHighlights(rect, corner, border)
         }
@@ -160,7 +175,8 @@ private fun DrawScope.drawGlassBody(
     quality: RenderQuality,
     glassIntensity: Float,
     backdropAlpha: Float,
-    border: GlassBorderStyle
+    border: GlassBorderStyle,
+    drawCache: UnifiedGlassDrawCache
 ) {
     val bodyScale = (border.bodyAlpha / 0.20f).coerceIn(0.35f, 2.20f)
     val alpha = (glassIntensity * bodyScale).coerceIn(0.12f, 1.25f)
@@ -180,7 +196,8 @@ private fun DrawScope.drawGlassBody(
             itemRect = itemRect,
             visibleRect = visibleRect,
             sampleOffset = sampleOffset,
-            alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f)
+            alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f),
+            drawCache = drawCache
         )
         drawRect(Color(0xFF72859A).copy(alpha = base * 0.22f), Offset(visibleRect.left, visibleRect.top), Size(visibleRect.width, visibleRect.height))
         drawRect(
@@ -204,22 +221,20 @@ private fun DrawScope.drawBackdropBodyImage(
     itemRect: Rect,
     visibleRect: Rect,
     sampleOffset: Offset,
-    alpha: Float
+    alpha: Float,
+    drawCache: UnifiedGlassDrawCache
 ) {
     val bitmap = backdrop.image.asAndroidBitmap()
     val backdropRootX = itemRect.left - sampleOffset.x
     val backdropRootY = itemRect.top - sampleOffset.y
     val scale = backdrop.scale.coerceAtLeast(0.0001f)
-    val matrix = AndroidMatrix().apply {
+    val matrix = drawCache.bitmapMatrix.apply {
+        reset()
         setScale(1f / scale, 1f / scale)
         postTranslate(backdropRootX, backdropRootY)
     }
-    val paint = AndroidPaint(
-        AndroidPaint.ANTI_ALIAS_FLAG or AndroidPaint.FILTER_BITMAP_FLAG or AndroidPaint.DITHER_FLAG
-    ).apply {
+    val paint = drawCache.bitmapPaint.apply {
         this.alpha = (alpha.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-        isDither = true
-        isFilterBitmap = true
     }
     drawIntoCanvas { canvas ->
         val nativeCanvas = canvas.nativeCanvas

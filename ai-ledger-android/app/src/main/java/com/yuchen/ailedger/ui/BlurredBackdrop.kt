@@ -61,7 +61,8 @@ fun rememberBlurredBackdropBitmap(
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
-    val key = params.cacheKey()
+    val renderParams = remember(params) { params.renderParams() }
+    val key = renderParams.cacheKey()
     val customKey = customBackgroundPath?.let { path ->
         val file = File(path)
         if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$path"
@@ -77,7 +78,7 @@ fun rememberBlurredBackdropBitmap(
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
-                    params = params.quantized(),
+                    params = renderParams,
                     customBackgroundPath = customBackgroundPath
                 )
             }.getOrNull()
@@ -104,21 +105,21 @@ private fun BackdropDebugParams.cacheKey(): String = buildString {
     append(moonRimAlpha.round2())
 }
 
-private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
-    scale = scale.round2(),
-    radius = radius.roundToInt().toFloat(),
-    iterations = iterations.roundToInt().toFloat(),
-    brightness = brightness.round2(),
-    contrast = contrast.round2(),
-    saturation = saturation.round2(),
-    cloudAlpha = cloudAlpha.round2(),
-    cloudSoftness = cloudSoftness.round2(),
-    cloudStretchX = cloudStretchX.round2(),
-    cloudStretchY = cloudStretchY.round2(),
-    cloudHighlightAlpha = cloudHighlightAlpha.round2(),
-    moonScale = moonScale.round2(),
-    moonHaloAlpha = moonHaloAlpha.round2(),
-    moonRimAlpha = moonRimAlpha.round2()
+private fun BackdropDebugParams.renderParams(): BackdropDebugParams = copy(
+    scale = scale.round2().coerceIn(0.14f, 0.42f),
+    radius = radius.roundToInt().toFloat().coerceIn(1f, 18f),
+    iterations = iterations.roundToInt().toFloat().coerceIn(1f, 3f),
+    brightness = brightness.round2().coerceIn(0.70f, 1.35f),
+    contrast = contrast.round2().coerceIn(0.70f, 1.35f),
+    saturation = saturation.round2().coerceIn(0.50f, 1.60f),
+    cloudAlpha = cloudAlpha.round2().coerceIn(0.25f, 2.20f),
+    cloudSoftness = cloudSoftness.round2().coerceIn(0.65f, 2.40f),
+    cloudStretchX = cloudStretchX.round2().coerceIn(0.80f, 3.80f),
+    cloudStretchY = cloudStretchY.round2().coerceIn(0.35f, 1.40f),
+    cloudHighlightAlpha = cloudHighlightAlpha.round2().coerceIn(0f, 0.80f),
+    moonScale = moonScale.round2().coerceIn(0.45f, 1.80f),
+    moonHaloAlpha = moonHaloAlpha.round2().coerceIn(0f, 0.80f),
+    moonRimAlpha = moonRimAlpha.round2().coerceIn(0f, 1f)
 )
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f

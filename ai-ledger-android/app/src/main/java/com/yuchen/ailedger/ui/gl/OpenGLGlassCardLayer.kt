@@ -365,6 +365,12 @@ private class OpenGLGlassCardRenderer {
     fun onRelease() {
         val textures = intArrayOf(blurTex, lensTex)
         if (blurTex != 0 || lensTex != 0) GLES20.glDeleteTextures(2, textures, 0)
+        if (program != 0) GLES20.glDeleteProgram(program)
+        blurTex = 0
+        lensTex = 0
+        program = 0
+        activeBlur = null
+        activeLens = null
     }
 
     private fun uploadPendingTextures() {
