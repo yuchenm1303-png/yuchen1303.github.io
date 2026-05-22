@@ -45,15 +45,18 @@ import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassLayer
 import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassRegistry
 import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlGlassRegistry
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val HEAVY_GLASS_STARTUP_DELAY_MS = 420L
+private const val ACTIVE_GLASS_FRAMES_AFTER_STATE_CHANGE = 24
+private const val IDLE_GLASS_TICKER_DELAY_MS = 33L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -90,8 +93,23 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    LaunchedEffect(Unit) {
-        while (true) backdropTicker.frameNanos = withFrameNanos { it }
+    LaunchedEffect(
+        state.currentTab,
+        state.selectedToolTitle,
+        state.isSending,
+        state.quality,
+        state.motionIntensity,
+        state.glassIntensity,
+        state.backgroundTheme,
+        state.customBackgroundPath
+    ) {
+        repeat(ACTIVE_GLASS_FRAMES_AFTER_STATE_CHANGE) {
+            backdropTicker.frameNanos = withFrameNanos { it }
+        }
+        while (currentCoroutineContext().isActive) {
+            delay(IDLE_GLASS_TICKER_DELAY_MS)
+            backdropTicker.frameNanos = withFrameNanos { it }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -132,10 +150,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    BatchedOpenGlGlassLayer(
-                        modifier = Modifier.fillMaxSize(),
-                        scrollPrediction = state.openGlScrollPrediction
-                    )
                     BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
