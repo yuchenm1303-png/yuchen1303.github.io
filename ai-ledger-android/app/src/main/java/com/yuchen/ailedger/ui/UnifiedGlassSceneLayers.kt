@@ -36,8 +36,13 @@ fun UnifiedGlassSceneBackgroundLayer(modifier: Modifier = Modifier) {
         registryVersion
         frameTicker?.frameNanos
         registry?.snapshot().orEmpty().forEach { node ->
-            if (node.kind == GlassKind.Recessed && GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS) {
-                drawUnifiedRecessedBackground(node, cachedBackdrop, backdropOrigin)
+            when {
+                node.kind == GlassKind.Recessed && GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS -> {
+                    drawUnifiedRecessedBackground(node, cachedBackdrop, backdropOrigin)
+                }
+                node.kind == GlassKind.Chip && GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS -> {
+                    drawUnifiedChipBackground(node, cachedBackdrop, backdropOrigin)
+                }
             }
         }
     }
@@ -57,10 +62,171 @@ fun UnifiedGlassSceneForegroundLayer(modifier: Modifier = Modifier) {
         registryVersion
         frameTicker?.frameNanos
         registry?.snapshot().orEmpty().forEach { node ->
-            if (node.kind == GlassKind.Recessed && GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS) {
-                drawUnifiedRecessedForeground(node, cachedBackdrop, backdropOrigin)
+            when {
+                node.kind == GlassKind.Recessed && GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS -> {
+                    drawUnifiedRecessedForeground(node, cachedBackdrop, backdropOrigin)
+                }
+                node.kind == GlassKind.Chip && GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS -> {
+                    drawUnifiedChipForeground(node, cachedBackdrop, backdropOrigin)
+                }
             }
         }
+    }
+}
+
+private fun DrawScope.drawUnifiedChipBackground(
+    node: GlassSceneNode,
+    cachedBackdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?
+) {
+    if (!node.coordinates.isAttached()) return
+    val itemSize = node.coordinates.itemSize()
+    if (itemSize.width <= 0 || itemSize.height <= 0) return
+
+    val topLeft = node.coordinates.rootOffset()
+    val rect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
+    if (rect.left >= size.width || rect.top >= size.height || rect.right <= 0f || rect.bottom <= 0f) return
+
+    val radiusPx = node.radiusDp.dp.toPx()
+    val path = Path().apply { addRoundRect(RoundRect(rect, CornerRadius(radiusPx, radiusPx))) }
+    val intensity = node.intensity.coerceIn(0.35f, 1.35f)
+    val pressedBoost = if (node.pressed) 1.10f else 1f
+    val backdropAlpha = (0.82f * intensity * pressedBoost).coerceIn(0.38f, 1f)
+    val milkAlpha = (0.038f * intensity * pressedBoost).coerceIn(0.010f, 0.070f)
+    val depthAlpha = (0.038f * intensity).coerceIn(0.010f, 0.060f)
+
+    clipPath(path) {
+        drawUnifiedRectBackdropCrop(rect, node.coordinates, backdropAlpha, cachedBackdrop, backdropOrigin)
+        drawRect(
+            color = Color(0xFF72859A).copy(alpha = 0.040f * intensity),
+            topLeft = topLeft,
+            size = rect.size,
+            blendMode = BlendMode.SrcOver
+        )
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = milkAlpha * 1.15f),
+                    Color.White.copy(alpha = milkAlpha * 0.34f),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = depthAlpha)
+                ),
+                startY = rect.top,
+                endY = rect.bottom
+            ),
+            topLeft = topLeft,
+            size = rect.size,
+            blendMode = BlendMode.SrcOver
+        )
+    }
+}
+
+private fun DrawScope.drawUnifiedChipForeground(
+    node: GlassSceneNode,
+    cachedBackdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?
+) {
+    if (!node.coordinates.isAttached()) return
+    val itemSize = node.coordinates.itemSize()
+    if (itemSize.width <= 0 || itemSize.height <= 0) return
+
+    val topLeft = node.coordinates.rootOffset()
+    val rect = Rect(topLeft, Size(itemSize.width.toFloat(), itemSize.height.toFloat()))
+    if (rect.left >= size.width || rect.top >= size.height || rect.right <= 0f || rect.bottom <= 0f) return
+
+    val radiusPx = node.radiusDp.dp.toPx()
+    val intensity = node.intensity.coerceIn(0.35f, 1.35f)
+    val pressedBoost = if (node.pressed) 1.16f else 1f
+    val rimAlpha = (0.085f * intensity * pressedBoost).coerceIn(0.020f, 0.145f)
+    val topAlpha = (0.038f * intensity * pressedBoost).coerceIn(0.010f, 0.070f)
+    val cornerAlpha = (0.020f * intensity).coerceIn(0.004f, 0.045f)
+
+    drawUnifiedChipLensRim(node, rect, radiusPx, cachedBackdrop, backdropOrigin, rimAlpha * 0.70f)
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.White.copy(alpha = topAlpha * 0.35f),
+                Color.Transparent
+            ),
+            startY = rect.top,
+            endY = rect.top + rect.height * 0.52f
+        ),
+        topLeft = topLeft + Offset(0.72.dp.toPx(), 0.72.dp.toPx()),
+        size = Size(rect.width - 1.44.dp.toPx(), rect.height - 1.44.dp.toPx()),
+        cornerRadius = CornerRadius(radiusPx, radiusPx),
+        style = Stroke(width = 0.72.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = rimAlpha),
+                Color.White.copy(alpha = rimAlpha * 0.22f),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.020f * intensity)
+            ),
+            start = topLeft,
+            end = topLeft + Offset(rect.width, rect.height)
+        ),
+        topLeft = topLeft + Offset(0.55.dp.toPx(), 0.55.dp.toPx()),
+        size = Size(rect.width - 1.10.dp.toPx(), rect.height - 1.10.dp.toPx()),
+        cornerRadius = CornerRadius(radiusPx, radiusPx),
+        style = Stroke(width = 0.56.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRect(
+        brush = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = cornerAlpha),
+                Color.White.copy(alpha = cornerAlpha * 0.25f),
+                Color.Transparent
+            ),
+            center = topLeft + Offset(rect.width * 0.16f, rect.height * 0.12f),
+            radius = rect.width * 0.42f
+        ),
+        topLeft = topLeft,
+        size = rect.size,
+        blendMode = BlendMode.Screen
+    )
+}
+
+private fun DrawScope.drawUnifiedChipLensRim(
+    node: GlassSceneNode,
+    rect: Rect,
+    radiusPx: Float,
+    cachedBackdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?,
+    alpha: Float
+) {
+    val image = cachedBackdrop?.image ?: return
+    if (alpha <= 0.001f) return
+    val sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin)
+    val srcX = (sampleOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, image.width - 1)
+    val srcY = (sampleOffset.y * cachedBackdrop.scale).roundToInt().coerceIn(0, image.height - 1)
+    val srcW = (rect.width * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.width - srcX)
+    val srcH = (rect.height * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.height - srcY)
+    val strokePx = 1.0f.dp.toPx()
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(rect, Paint())
+        drawImage(
+            image = image,
+            srcOffset = IntOffset(srcX, srcY),
+            srcSize = IntSize(srcW, srcH),
+            dstOffset = IntOffset(rect.left.roundToInt(), rect.top.roundToInt()),
+            dstSize = IntSize(rect.width.roundToInt().coerceAtLeast(1), rect.height.roundToInt().coerceAtLeast(1)),
+            alpha = alpha.coerceIn(0f, 1f),
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(rect.left + strokePx * 0.50f, rect.top + strokePx * 0.50f),
+            size = Size(rect.width - strokePx, rect.height - strokePx),
+            cornerRadius = CornerRadius(radiusPx, radiusPx),
+            style = Stroke(width = strokePx),
+            blendMode = BlendMode.DstIn
+        )
+        canvas.restore()
     }
 }
 
@@ -160,6 +326,41 @@ private fun DrawScope.drawUnifiedOuterInsetDepth(topLeft: Offset, slotSize: Size
         cornerRadius = CornerRadius(radiusPx, radiusPx),
         blendMode = BlendMode.Multiply
     )
+}
+
+private fun DrawScope.drawUnifiedRectBackdropCrop(
+    rect: Rect,
+    coordinates: GlassCoordinateSource,
+    backdropAlpha: Float,
+    cachedBackdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?
+) {
+    if (cachedBackdrop != null) {
+        val sampleOffset = coordinates.offsetRelativeTo(backdropOrigin)
+        val srcX = (sampleOffset.x * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.width - 1)
+        val srcY = (sampleOffset.y * cachedBackdrop.scale).roundToInt().coerceIn(0, cachedBackdrop.image.height - 1)
+        val srcW = (rect.width * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(cachedBackdrop.image.width - srcX)
+        val srcH = (rect.height * cachedBackdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(cachedBackdrop.image.height - srcY)
+        drawImage(
+            image = cachedBackdrop.image,
+            srcOffset = IntOffset(srcX, srcY),
+            srcSize = IntSize(srcW, srcH),
+            dstOffset = IntOffset(rect.left.roundToInt(), rect.top.roundToInt()),
+            dstSize = IntSize(rect.width.roundToInt().coerceAtLeast(1), rect.height.roundToInt().coerceAtLeast(1)),
+            alpha = backdropAlpha.coerceIn(0f, 1f),
+            blendMode = BlendMode.SrcOver
+        )
+    } else {
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(Color(0xFF1A2B58), Color(0xFF5B4A8E), Color(0xFFB85D78)),
+                startY = rect.top,
+                endY = rect.bottom
+            ),
+            topLeft = Offset(rect.left, rect.top),
+            size = rect.size
+        )
+    }
 }
 
 private fun DrawScope.drawUnifiedBackdropCrop(
