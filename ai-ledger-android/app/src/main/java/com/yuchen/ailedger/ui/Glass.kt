@@ -69,8 +69,8 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Nav -> true
-    GlassRole.Shell, GlassRole.Card, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
+    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
@@ -79,8 +79,8 @@ private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> false
-    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
+    GlassRole.Flex -> false
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
@@ -146,6 +146,10 @@ fun GlassPanel(
         registry != null &&
         roleUsesUnifiedBackdrop(role) &&
         !useCardOpenGlBackdrop
+    val useStableSampledBackdrop = heavyGlassReady &&
+        roleUsesSampledBackdrop(role) &&
+        !useUnifiedBackdrop &&
+        backdrop != null
     val key = remember { Any() }
 
     if (useUnifiedBackdrop) {
@@ -187,14 +191,7 @@ fun GlassPanel(
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (useCardOpenGlBackdrop) {
-            OpenGLGlassCardLayer(
-                radius = effectiveRadius,
-                glassIntensity = glassIntensity,
-                coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
-            )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedBackdrop && backdrop != null) {
+        if (useStableSampledBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -215,20 +212,26 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .glassSkin(
-                        quality = quality,
-                        radius = effectiveRadius,
-                        shimmer = shimmer,
-                        breathe = breathe,
-                        glassIntensity = glassIntensity,
-                        includeShadow = false
-                    )
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
             )
         }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .glassSkin(
+                    quality = quality,
+                    radius = effectiveRadius,
+                    shimmer = shimmer,
+                    breathe = breathe,
+                    glassIntensity = glassIntensity,
+                    includeShadow = false
+                )
+        )
         content()
     }
 }
@@ -289,6 +292,10 @@ fun PressableGlass(
         registry != null &&
         roleUsesUnifiedBackdrop(role) &&
         !useCardOpenGlBackdrop
+    val useStableSampledBackdrop = heavyGlassReady &&
+        roleUsesSampledBackdrop(role) &&
+        !useUnifiedBackdrop &&
+        backdrop != null
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -336,14 +343,7 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (useCardOpenGlBackdrop) {
-            OpenGLGlassCardLayer(
-                radius = effectiveRadius,
-                glassIntensity = pressedIntensity,
-                coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
-            )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedBackdrop && backdrop != null) {
+        if (useStableSampledBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -364,20 +364,26 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .glassSkin(
-                        quality = quality,
-                        radius = effectiveRadius,
-                        shimmer = shimmer + if (pressed) 0.024f else 0f,
-                        breathe = breathe,
-                        glassIntensity = pressedIntensity,
-                        includeShadow = false
-                    )
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
             )
         }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .glassSkin(
+                    quality = quality,
+                    radius = effectiveRadius,
+                    shimmer = shimmer + if (pressed) 0.024f else 0f,
+                    breathe = breathe,
+                    glassIntensity = pressedIntensity,
+                    includeShadow = false
+                )
+        )
         content()
     }
 }
