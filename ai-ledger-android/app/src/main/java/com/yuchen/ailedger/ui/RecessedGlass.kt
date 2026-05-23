@@ -342,7 +342,10 @@ private fun RegisterBatchedRecessedGlassItem(
 }
 
 @Composable
-fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier) {
+fun BatchedRecessedGlassLayer(
+    modifier: Modifier = Modifier,
+    layerCoordinateSource: GlassCoordinateSource? = null
+) {
     val registry = LocalRecessedGlassRegistry.current
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
@@ -352,8 +355,9 @@ fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         registryVersion
         frameTicker?.frameNanos
+        val layerTopLeft = layerCoordinateSource?.rootOffset() ?: Offset.Zero
         registry?.snapshot().orEmpty().forEach { item ->
-            drawBatchedRecessedGlassItem(item, cachedBackdrop, backdropOrigin)
+            drawBatchedRecessedGlassItem(item, cachedBackdrop, backdropOrigin, layerTopLeft)
         }
     }
 }
@@ -361,13 +365,15 @@ fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier) {
 private fun DrawScope.drawBatchedRecessedGlassItem(
     item: RecessedGlassRenderItem,
     cachedBackdrop: BlurredBackdropBitmap?,
-    backdropOrigin: BackdropCoordinateSource?
+    backdropOrigin: BackdropCoordinateSource?,
+    layerTopLeft: Offset
 ) {
     if (!item.outerCoordinates.isAttached()) return
     val outerSize = item.outerCoordinates.itemSize()
     if (outerSize.width <= 0 || outerSize.height <= 0) return
 
-    val outerTopLeft = item.outerCoordinates.rootOffset()
+    val outerRootTopLeft = item.outerCoordinates.rootOffset()
+    val outerTopLeft = outerRootTopLeft - layerTopLeft
     val outerWidth = outerSize.width.toFloat()
     val outerHeight = outerSize.height.toFloat()
     if (outerTopLeft.x >= size.width || outerTopLeft.y >= size.height || outerTopLeft.x + outerWidth <= 0f || outerTopLeft.y + outerHeight <= 0f) return
