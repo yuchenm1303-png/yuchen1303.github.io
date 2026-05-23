@@ -39,7 +39,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassLayer
 import com.yuchen.ailedger.ui.gl.BatchedOpenGlGlassRegistry
 import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlGlassRegistry
 import kotlinx.coroutines.delay
@@ -123,7 +122,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    BatchedOpenGlGlassLayer(Modifier.fillMaxSize())
                     BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
