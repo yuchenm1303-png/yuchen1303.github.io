@@ -10,14 +10,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.IntSize
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
 
 data class OpenGlLazyListVisibleItem(
     val key: Any,
@@ -87,7 +84,6 @@ fun SyncOpenGlGlassWithLazyList(
     contentRightPx: Float = 0f
 ) {
     val coordinator = LocalOpenGlGlassFrameCoordinator.current ?: return
-    val ticker = LocalBackdropFrameTicker.current
     val previouslyVisible = remember { mutableSetOf<Any>() }
 
     fun currentSnapshot(): OpenGlLazyListSnapshot {
@@ -123,37 +119,6 @@ fun SyncOpenGlGlassWithLazyList(
                     contentRightPx = contentRightPx
                 )
             }
-    }
-
-    LaunchedEffect(listState, ticker) {
-        if (ticker == null) return@LaunchedEffect
-        snapshotFlow { listState.isScrollInProgress }
-            .collectLatest { scrolling ->
-                if (scrolling) {
-                    while (currentCoroutineContext().isActive) {
-                        ticker.frameNanos = withFrameNanos { it }
-                    }
-                } else {
-                    repeat(14) {
-                        ticker.frameNanos = withFrameNanos { it }
-                    }
-                }
-            }
-    }
-
-    LaunchedEffect(listState, anchor, ticker) {
-        if (ticker == null) return@LaunchedEffect
-        snapshotFlow {
-            val first = listState.layoutInfo.visibleItemsInfo.firstOrNull()
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset to Triple(
-                first?.key,
-                first?.offset,
-                last?.offset
-            ) to anchor.rootOffset
-        }.collectLatest {
-            ticker.frameNanos = withFrameNanos { it }
-        }
     }
 
     DisposableEffect(coordinator) {
