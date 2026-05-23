@@ -175,7 +175,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onLedgerCategoryChange = viewModel::selectLedgerCategory,
                                     onLedgerBudgetChange = viewModel::updateLedgerBudget,
                                     onAddLedgerRecord = viewModel::addLedgerRecord,
-                                    onDeleteRecord = viewModel::deleteLedgerRecord,
+                                    onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                     onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                 )
                                 AppTab.Settings -> SettingsScreenV2(
