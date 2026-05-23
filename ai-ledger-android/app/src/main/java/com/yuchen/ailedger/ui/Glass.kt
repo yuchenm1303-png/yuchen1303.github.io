@@ -129,6 +129,16 @@ private fun LayoutCoordinates.pushOpenGlFrameRect(
     )
 }
 
+private fun useUnifiedChipGlass(sceneRegistry: GlassSceneRegistry?, role: GlassRole, heavyGlassReady: Boolean): Boolean {
+    return heavyGlassReady &&
+        role == GlassRole.Chip &&
+        GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY &&
+        GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS &&
+        GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER &&
+        GlassFeatureFlags.USE_UNIFIED_GLASS_FOREGROUND_LAYER &&
+        sceneRegistry != null
+}
+
 @Composable
 fun GlassPanel(
     quality: RenderQuality,
@@ -144,6 +154,7 @@ fun GlassPanel(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
+    val sceneRegistry = LocalGlassSceneRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
@@ -180,6 +191,7 @@ fun GlassPanel(
         roleUsesUnifiedBackdrop(role) &&
         !useCardOpenGlBackdrop &&
         !useBatchedOpenGlBackdrop
+    val useUnifiedChipGlass = useUnifiedChipGlass(sceneRegistry, role, heavyGlassReady)
     val lazyItemKey = LocalOpenGlLazyItemKey.current
     val key = remember(lazyItemKey) { lazyItemKey ?: Any() }
 
@@ -193,7 +205,11 @@ fun GlassPanel(
         zIndex = glassZIndexForRole(role),
         quality = quality,
         role = role,
-        rendererHint = if (useCardOpenGlBackdrop) GlassRendererHint.OpenGlCard else GlassRendererHint.KeepExisting
+        rendererHint = when {
+            useCardOpenGlBackdrop -> GlassRendererHint.OpenGlCard
+            useUnifiedChipGlass -> GlassRendererHint.ComposeCanvas
+            else -> GlassRendererHint.KeepExisting
+        }
     )
 
     if (useBatchedOpenGlBackdrop) {
@@ -251,7 +267,7 @@ fun GlassPanel(
                     it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
                 }
             }
-            .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
+            .glassContainerFrame(radius = effectiveRadius, glassIntensity = glassIntensity, useUnifiedSceneCanvas = useUnifiedChipGlass)
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -260,7 +276,7 @@ fun GlassPanel(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedChipGlass && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -281,7 +297,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
+        if (!useUnifiedChipGlass && !useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -327,6 +343,7 @@ fun PressableGlass(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
+    val sceneRegistry = LocalGlassSceneRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameCoordinator = LocalOpenGlGlassFrameCoordinator.current
@@ -366,6 +383,7 @@ fun PressableGlass(
         roleUsesUnifiedBackdrop(role) &&
         !useCardOpenGlBackdrop &&
         !useBatchedOpenGlBackdrop
+    val useUnifiedChipGlass = useUnifiedChipGlass(sceneRegistry, role, heavyGlassReady)
 
     RegisterGlassSceneNode(
         key = key,
@@ -378,7 +396,11 @@ fun PressableGlass(
         quality = quality,
         role = role,
         pressed = pressed,
-        rendererHint = if (useCardOpenGlBackdrop) GlassRendererHint.OpenGlCard else GlassRendererHint.KeepExisting
+        rendererHint = when {
+            useCardOpenGlBackdrop -> GlassRendererHint.OpenGlCard
+            useUnifiedChipGlass -> GlassRendererHint.ComposeCanvas
+            else -> GlassRendererHint.KeepExisting
+        }
     )
 
     if (useBatchedOpenGlBackdrop) {
@@ -440,10 +462,10 @@ fun PressableGlass(
                 scaleX = scale
                 scaleY = scale
                 translationY = lift
-                shadowElevation = if (pressed) 0.18f else 0f
+                shadowElevation = if (!useUnifiedChipGlass && pressed) 0.18f else 0f
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
+            .glassContainerFrame(radius = effectiveRadius, glassIntensity = pressedIntensity, useUnifiedSceneCanvas = useUnifiedChipGlass)
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -452,7 +474,7 @@ fun PressableGlass(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedChipGlass && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -473,7 +495,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
+        if (!useUnifiedChipGlass && !useCardOpenGlBackdrop && !useBatchedOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -499,6 +521,15 @@ private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float)
 @Composable
 private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float {
     return if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
+}
+
+private fun Modifier.glassContainerFrame(radius: Int, glassIntensity: Float, useUnifiedSceneCanvas: Boolean): Modifier {
+    val shape = RoundedCornerShape(radius.dp)
+    return if (useUnifiedSceneCanvas) {
+        this.clip(shape)
+    } else {
+        this.glassOuterFrame(radius = radius, glassIntensity = glassIntensity)
+    }
 }
 
 private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifier {
