@@ -145,6 +145,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    UnifiedGlassSceneBackgroundLayer(Modifier.fillMaxSize())
                     BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
@@ -212,6 +213,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
                         )
                     }
+
+                    UnifiedGlassSceneForegroundLayer(Modifier.fillMaxSize())
                 }
             }
         }
