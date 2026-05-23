@@ -49,7 +49,7 @@ private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val HEAVY_GLASS_STARTUP_DELAY_MS = 420L
 private const val ACTIVE_GLASS_FRAMES_AFTER_STATE_CHANGE = 24
-private const val IDLE_GLASS_TICKER_DELAY_MS = 16L
+private const val IDLE_GLASS_TICKER_DELAY_MS = 33L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -64,7 +64,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
-    val recessedGlassRegistry = remember { RecessedGlassRegistry() }
     val glassSceneRegistry = remember { GlassSceneRegistry() }
     val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
     val openGlFrameCoordinator = remember { OpenGlGlassFrameCoordinator() }
@@ -128,7 +127,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
-                LocalRecessedGlassRegistry provides recessedGlassRegistry,
                 LocalGlassSceneRegistry provides glassSceneRegistry,
                 LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
                 LocalOpenGlGlassFrameCoordinator provides openGlFrameCoordinator,
@@ -146,7 +144,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
                     UnifiedGlassSceneBackgroundLayer(Modifier.fillMaxSize())
-                    BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
@@ -213,8 +210,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
                         )
                     }
-
-                    UnifiedGlassSceneForegroundLayer(Modifier.fillMaxSize())
                 }
             }
         }
