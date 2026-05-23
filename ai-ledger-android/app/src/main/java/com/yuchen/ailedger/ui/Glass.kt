@@ -4,7 +4,6 @@ import android.view.View
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -40,7 +39,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
-import kotlin.math.max
 import kotlin.math.min
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
@@ -354,7 +352,6 @@ fun PressableGlass(
     val useStableSampledBackdrop = heavyGlassReady &&
         roleUsesSampledBackdrop(role) &&
         !useUnifiedBackdrop &&
-        !useBatchedChrome &&
         backdrop != null
 
     if (useUnifiedBackdrop) {
@@ -424,15 +421,17 @@ fun PressableGlass(
                 blurRadiusDp = blurForRole(role),
                 liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
             )
-            SampledWeatherEdgeRefraction(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                strength = UNIFIED_EDGE_STRENGTH
-            )
+            if (!useBatchedChrome) {
+                SampledWeatherEdgeRefraction(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    strength = UNIFIED_EDGE_STRENGTH
+                )
+            }
         }
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -446,7 +445,13 @@ fun PressableGlass(
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .cheapGlassChromeBase(role = role, glassIntensity = pressedIntensity, pressed = pressed)
+                    .batchedGlassBody(
+                        quality = quality,
+                        role = role,
+                        glassIntensity = pressedIntensity,
+                        pressed = pressed,
+                        breathe = breathe
+                    )
             )
         } else {
             Box(
@@ -528,7 +533,7 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
     val itemSizePx = Size(visualWidth, visualHeight)
     val radiusPx = if (item.radius >= 999) min(visualWidth, visualHeight) * 0.5f else item.radius.dp.toPx().coerceAtMost(min(visualWidth, visualHeight) * 0.5f)
     val corner = CornerRadius(radiusPx, radiusPx)
-    val material = glassMaterial(item.glassIntensity * if (item.pressed) 1.06f else 1f)
+    val material = glassMaterial(item.glassIntensity)
     val floatingBoost = if (item.role == GlassRole.Floating) 1.18f else 1.0f
     val pressedBoost = if (item.pressed) 1.22f else 1.0f
     val rimInset = 0.62.dp.toPx()
@@ -539,43 +544,13 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
     val innerSize = Size((itemSizePx.width - innerInset * 2f).coerceAtLeast(1f), (itemSizePx.height - innerInset * 2f).coerceAtLeast(1f))
 
     drawRoundRect(
-        brush = Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = material.topHighlight * 0.50f * floatingBoost * pressedBoost),
-                Color.White.copy(alpha = material.topHighlight * 0.06f),
-                Color.Transparent
-            ),
-            startY = topLeft.y,
-            endY = topLeft.y + itemSizePx.height * 0.38f
-        ),
-        topLeft = topLeft,
-        size = itemSizePx,
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            listOf(
-                Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.42f * floatingBoost)
-            ),
-            startY = topLeft.y + itemSizePx.height * 0.48f,
-            endY = topLeft.y + itemSizePx.height
-        ),
-        topLeft = topLeft,
-        size = itemSizePx,
-        cornerRadius = corner,
-        blendMode = BlendMode.Multiply
-    )
-    drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
-                Color.White.copy(alpha = material.rim * 0.72f * floatingBoost * pressedBoost),
-                Color.White.copy(alpha = material.rim * 0.08f),
+                Color.White.copy(alpha = material.rim * 0.76f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.rim * 0.10f),
                 Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.16f),
-                Color.White.copy(alpha = material.rim * 0.03f)
+                Color.Black.copy(alpha = material.depthShadow * 0.18f),
+                Color.White.copy(alpha = material.rim * 0.04f)
             ),
             start = topLeft,
             end = topLeft + Offset(itemSizePx.width, itemSizePx.height)
@@ -583,15 +558,31 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = corner,
-        style = Stroke(width = 0.42.dp.toPx()),
+        style = Stroke(width = 0.46.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.34f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.rim * 0.040f),
+                Color.Transparent
+            ),
+            startY = topLeft.y,
+            endY = topLeft.y + itemSizePx.height * 0.22f
+        ),
+        topLeft = innerTopLeft,
+        size = innerSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.18.dp.toPx()),
         blendMode = BlendMode.Screen
     )
     drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
-                Color.White.copy(alpha = material.rim * 0.040f * floatingBoost),
+                Color.White.copy(alpha = material.rim * 0.050f * floatingBoost),
                 Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.13f * floatingBoost)
+                Color.Black.copy(alpha = material.depthShadow * 0.15f * floatingBoost)
             ),
             start = topLeft + Offset(itemSizePx.width * 0.10f, 0f),
             end = topLeft + Offset(itemSizePx.width * 0.94f, itemSizePx.height)
@@ -602,26 +593,58 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
         style = Stroke(width = 0.16.dp.toPx()),
         blendMode = BlendMode.SrcOver
     )
-    if (item.pressed) {
-        drawRoundRect(
-            color = Color.White.copy(alpha = 0.030f),
-            topLeft = topLeft,
-            size = itemSizePx,
-            cornerRadius = corner,
-            blendMode = BlendMode.Screen
-        )
-    }
 }
 
-private fun Modifier.cheapGlassChromeBase(role: GlassRole, glassIntensity: Float, pressed: Boolean): Modifier {
-    val safeIntensity = glassIntensity.coerceIn(0.25f, 1.45f)
-    val baseAlpha = when (role) {
-        GlassRole.Floating -> 0.060f
-        GlassRole.Chip -> 0.044f
-        else -> 0.040f
+private fun Modifier.batchedGlassBody(
+    quality: RenderQuality,
+    role: GlassRole,
+    glassIntensity: Float,
+    pressed: Boolean,
+    breathe: Float
+): Modifier {
+    val material = glassMaterial(glassIntensity)
+    val pulse = 0.92f + breathe * 0.045f
+    val floatingBoost = if (role == GlassRole.Floating) 1.16f else 1.0f
+    val pressedBoost = if (pressed) 1.18f else 1.0f
+
+    return this.drawWithCache {
+        val h = size.height
+        val baseVeil = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = material.frost * 0.62f * floatingBoost * pressedBoost * pulse),
+                Color.White.copy(alpha = material.frost * 0.26f * floatingBoost),
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.16f * floatingBoost)
+            ),
+            startY = 0f,
+            endY = h
+        )
+        val topLens = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = material.topHighlight * 0.78f * floatingBoost * pressedBoost * pulse),
+                Color.White.copy(alpha = material.topHighlight * 0.12f * floatingBoost),
+                Color.Transparent
+            ),
+            startY = 0f,
+            endY = h * 0.36f
+        )
+        val lowerShade = Brush.verticalGradient(
+            listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.50f * floatingBoost)
+            ),
+            startY = h * 0.52f,
+            endY = h
+        )
+        onDrawWithContent {
+            drawRect(baseVeil, blendMode = BlendMode.Screen)
+            drawRect(topLens, blendMode = BlendMode.Screen)
+            drawRect(lowerShade, blendMode = BlendMode.Multiply)
+            if (pressed) drawRect(Color.White.copy(alpha = if (quality.enableMotion) 0.020f else 0.014f), blendMode = BlendMode.Screen)
+            drawContent()
+        }
     }
-    val pressedBoost = if (pressed) 0.020f else 0f
-    return this.background(Color.White.copy(alpha = (baseAlpha * safeIntensity + pressedBoost).coerceIn(0.018f, 0.105f)))
 }
 
 @Composable
