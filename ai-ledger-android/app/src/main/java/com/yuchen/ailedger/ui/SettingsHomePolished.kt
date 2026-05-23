@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -424,13 +425,21 @@ private fun LiquidCollapsibleSettingsContent(expanded: Boolean, content: @Compos
     val contentAlpha by animateFloatAsState(targetValue = if (expanded) 1f else 0f, animationSpec = tween(durationMillis = if (expanded) 140 else 110), label = "settings-collapsible-alpha")
     val contentScale by animateFloatAsState(targetValue = if (expanded) 1f else 0.98f, animationSpec = if (expanded) spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow) else tween(140), label = "settings-collapsible-scale")
     val shouldComposeContent = expanded || animatedHeight > 0.dp
+    val localRecessedRegistry = remember { RecessedGlassRegistry() }
+    val localLayerCoordinates = remember { GlassCoordinateSource() }
 
-    Box(Modifier.fillMaxWidth().height(animatedHeight).clipToBounds()) {
+    Box(Modifier.fillMaxWidth().height(animatedHeight).clipToBounds().onGloballyPositioned { localLayerCoordinates.coordinates = it }) {
         if (shouldComposeContent) {
-            Column(
-                modifier = Modifier.fillMaxWidth().wrapContentHeight(align = Alignment.Top, unbounded = true).onSizeChanged { size -> if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height }.graphicsLayer { alpha = contentAlpha; scaleX = contentScale; scaleY = contentScale; transformOrigin = TransformOrigin(0.5f, 0f) },
-                verticalArrangement = Arrangement.spacedBy(5.dp)
-            ) { content() }
+            CompositionLocalProvider(LocalRecessedGlassRegistry provides localRecessedRegistry) {
+                BatchedRecessedGlassLayer(
+                    modifier = Modifier.matchParentSize(),
+                    layerCoordinateSource = localLayerCoordinates
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().wrapContentHeight(align = Alignment.Top, unbounded = true).onSizeChanged { size -> if (size.height > 0 && size.height != measuredHeightPx) measuredHeightPx = size.height }.graphicsLayer { alpha = contentAlpha; scaleX = contentScale; scaleY = contentScale; transformOrigin = TransformOrigin(0.5f, 0f) },
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) { content() }
+            }
         }
     }
 }
