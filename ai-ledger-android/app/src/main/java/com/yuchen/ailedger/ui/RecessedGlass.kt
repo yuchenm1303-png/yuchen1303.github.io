@@ -56,7 +56,7 @@ private const val APPROVED_INSET_RIM_ALPHA = 0.34f
 private const val APPROVED_INSET_INNER_SHADOW = 0.67f
 private const val APPROVED_INSET_FLOOR_DIM = 0.23f
 private const val APPROVED_INSET_FLOOR_INSET = 1.35f
-private const val USE_BATCHED_RECESSED_GLASS = true
+private const val USE_BATCHED_RECESSED_GLASS = false
 
 data class RecessedGlassRenderItem(
     val key: Any,
@@ -254,12 +254,13 @@ fun ApprovedInsetGlassSlot(
     val registry = LocalRecessedGlassRegistry.current
     val sceneRegistry = LocalGlassSceneRegistry.current
     val backdropSpec = LocalGlassBackdrop.current
-    val useUnifiedRecessed = GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY &&
+    val insideOpenGlHost = LocalOpenGlGlassHostActive.current
+    val useUnifiedRecessed = !insideOpenGlHost &&
+        GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY &&
         GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS &&
         GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER &&
-        GlassFeatureFlags.USE_UNIFIED_GLASS_FOREGROUND_LAYER &&
         sceneRegistry != null
-    val batched = !useUnifiedRecessed && USE_BATCHED_RECESSED_GLASS && registry != null
+    val batched = false
     val depth = grooveDepth.coerceIn(0f, 1f)
     val floorInset = APPROVED_INSET_FLOOR_INSET
     val floorRadius = (radius - 1.2f).coerceAtLeast(5f)
