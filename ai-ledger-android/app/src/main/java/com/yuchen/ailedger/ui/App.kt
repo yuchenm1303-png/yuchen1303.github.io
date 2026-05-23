@@ -196,6 +196,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             }
                         }
 
+                        UnifiedGlassSceneForegroundLayer(Modifier.fillMaxSize())
+
                         BottomDockSeparationMist(
                             quality = state.quality,
                             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
