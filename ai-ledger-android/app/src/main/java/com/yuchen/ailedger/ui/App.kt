@@ -65,6 +65,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
     val recessedGlassRegistry = remember { RecessedGlassRegistry() }
+    val glassSceneRegistry = remember { GlassSceneRegistry() }
     val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
     val openGlFrameCoordinator = remember { OpenGlGlassFrameCoordinator() }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -128,6 +129,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
                 LocalRecessedGlassRegistry provides recessedGlassRegistry,
+                LocalGlassSceneRegistry provides glassSceneRegistry,
                 LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
                 LocalOpenGlGlassFrameCoordinator provides openGlFrameCoordinator,
                 LocalHeavyGlassStartupReady provides heavyGlassStartupReady
