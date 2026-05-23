@@ -40,6 +40,7 @@ data class GlassSceneNode(
     val pressed: Boolean = false,
     val selected: Boolean = false,
     val rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting,
+    val hostKey: Any? = null,
     val secondaryCoordinates: GlassCoordinateSource? = null,
     val floorInsetDp: Float = 0f,
     val floorAlpha: Float = 1f,
@@ -80,6 +81,7 @@ class GlassSceneRegistry {
 }
 
 val LocalGlassSceneRegistry = compositionLocalOf<GlassSceneRegistry?> { null }
+val LocalGlassSceneHostKey = compositionLocalOf<Any?> { null }
 
 fun glassKindForRole(role: GlassRole): GlassKind = when (role) {
     GlassRole.Nav -> GlassKind.Nav
@@ -126,6 +128,7 @@ fun RegisterGlassSceneNode(
     pressed: Boolean = false,
     selected: Boolean = false,
     rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting,
+    hostKey: Any? = LocalGlassSceneHostKey.current,
     secondaryCoordinates: GlassCoordinateSource? = null,
     floorInsetDp: Float = 0f,
     floorAlpha: Float = 1f,
@@ -154,6 +157,7 @@ fun RegisterGlassSceneNode(
                     pressed = pressed,
                     selected = selected,
                     rendererHint = rendererHint,
+                    hostKey = hostKey,
                     secondaryCoordinates = secondaryCoordinates,
                     floorInsetDp = floorInsetDp,
                     floorAlpha = floorAlpha,
