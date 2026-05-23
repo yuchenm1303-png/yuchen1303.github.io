@@ -40,7 +40,6 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
-val LocalOpenGlGlassHostActive = compositionLocalOf { false }
 
 enum class GlassRole(
     val fillScale: Float,
@@ -312,12 +311,7 @@ fun GlassPanel(
                     )
             )
         }
-        CompositionLocalProvider(
-            LocalOpenGlLazyItemKey provides null,
-            LocalOpenGlGlassHostActive provides (LocalOpenGlGlassHostActive.current || useCardOpenGlBackdrop)
-        ) {
-            content()
-        }
+        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
     }
 }
 
@@ -520,14 +514,10 @@ fun PressableGlass(
 }
 
 @Composable
-private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float {
-    return if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
-}
+private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float) = if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
 
 @Composable
-private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float {
-    return if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
-}
+private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float) = if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
 
 private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifier {
     val shape = RoundedCornerShape(radius.dp)
