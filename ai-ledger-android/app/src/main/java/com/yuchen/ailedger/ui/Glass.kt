@@ -8,8 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -36,12 +34,10 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
-import kotlin.math.roundToInt
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
 
@@ -144,26 +140,17 @@ private fun useUnifiedChipGlass(sceneRegistry: GlassSceneRegistry?, role: GlassR
 }
 
 @Composable
-private fun CardBoundUnifiedGlassSceneLayer(rootView: View, coordinateSource: GlassCoordinateSource) {
+private fun CardBoundUnifiedGlassSceneLayer(
+    hostKey: Any,
+    coordinateSource: GlassCoordinateSource,
+    modifier: Modifier = Modifier
+) {
     if (!GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER) return
     if (!GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS && !GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS) return
-    val rootWidth = rootView.width
-    val rootHeight = rootView.height
-    if (rootWidth <= 0 || rootHeight <= 0) return
-    val density = LocalDensity.current
-    val rootOffset = coordinateSource.rootOffset()
     UnifiedGlassSceneBackgroundLayer(
-        modifier = Modifier
-            .offset {
-                IntOffset(
-                    x = (-rootOffset.x).roundToInt(),
-                    y = (-rootOffset.y).roundToInt()
-                )
-            }
-            .size(
-                width = with(density) { rootWidth.toDp() },
-                height = with(density) { rootHeight.toDp() }
-            )
+        modifier = modifier,
+        hostKey = hostKey,
+        layerCoordinateSource = coordinateSource
     )
 }
 
@@ -233,6 +220,7 @@ fun GlassPanel(
         zIndex = glassZIndexForRole(role),
         quality = quality,
         role = role,
+        hostKey = null,
         rendererHint = when {
             useCardOpenGlBackdrop -> GlassRendererHint.OpenGlCard
             useUnifiedChipGlass -> GlassRendererHint.ComposeCanvas
@@ -304,7 +292,11 @@ fun GlassPanel(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-            CardBoundUnifiedGlassSceneLayer(rootView = rootView, coordinateSource = coordinates)
+            CardBoundUnifiedGlassSceneLayer(
+                hostKey = key,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
         } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedChipGlass && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
@@ -340,7 +332,12 @@ fun GlassPanel(
                     )
             )
         }
-        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
+        CompositionLocalProvider(
+            LocalOpenGlLazyItemKey provides null,
+            LocalGlassSceneHostKey provides if (useCardOpenGlBackdrop) key else LocalGlassSceneHostKey.current
+        ) {
+            content()
+        }
     }
 }
 
