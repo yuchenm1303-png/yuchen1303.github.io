@@ -40,6 +40,7 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
+val LocalOpenGlGlassHostActive = compositionLocalOf { false }
 
 enum class GlassRole(
     val fillScale: Float,
@@ -311,7 +312,12 @@ fun GlassPanel(
                     )
             )
         }
-        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
+        CompositionLocalProvider(
+            LocalOpenGlLazyItemKey provides null,
+            LocalOpenGlGlassHostActive provides (LocalOpenGlGlassHostActive.current || useCardOpenGlBackdrop)
+        ) {
+            content()
+        }
     }
 }
 
