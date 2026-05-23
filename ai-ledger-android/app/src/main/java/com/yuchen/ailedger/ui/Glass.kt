@@ -4,6 +4,7 @@ import android.view.View
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -14,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -27,6 +29,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -37,6 +40,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
+import kotlin.math.max
+import kotlin.math.min
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
 
@@ -83,6 +88,11 @@ private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
 }
 
+private fun roleUsesBatchedChrome(role: GlassRole): Boolean = when (role) {
+    GlassRole.Chip, GlassRole.Floating -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Flex -> false
+}
+
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     if (radius >= 999) return radius
     return when (role) {
@@ -104,6 +114,48 @@ private fun LayoutCoordinates.isNearViewport(rootView: View, marginPx: Float): B
         bounds.bottom >= -marginPx &&
         bounds.top <= viewportH + marginPx
 }
+
+data class BatchedGlassChromeRenderItem(
+    val key: Any,
+    val coordinates: GlassCoordinateSource,
+    val radius: Int,
+    val role: GlassRole,
+    val glassIntensity: Float,
+    val pressed: Boolean
+)
+
+class BatchedGlassChromeRegistry {
+    private val items = linkedMapOf<Any, BatchedGlassChromeRenderItem>()
+    private var cachedSnapshot: List<BatchedGlassChromeRenderItem> = emptyList()
+    private var dirty = true
+
+    var version by mutableLongStateOf(0L)
+        private set
+
+    fun upsert(item: BatchedGlassChromeRenderItem) {
+        if (items[item.key] == item) return
+        items[item.key] = item
+        dirty = true
+        version += 1L
+    }
+
+    fun remove(key: Any) {
+        if (items.remove(key) != null) {
+            dirty = true
+            version += 1L
+        }
+    }
+
+    fun snapshot(): List<BatchedGlassChromeRenderItem> {
+        if (dirty) {
+            cachedSnapshot = items.values.toList()
+            dirty = false
+        }
+        return cachedSnapshot
+    }
+}
+
+val LocalBatchedGlassChromeRegistry = compositionLocalOf<BatchedGlassChromeRegistry?> { null }
 
 @Composable
 fun GlassPanel(
@@ -264,6 +316,7 @@ fun PressableGlass(
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
+    val chromeRegistry = LocalBatchedGlassChromeRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val rootView = LocalView.current
@@ -276,11 +329,16 @@ fun PressableGlass(
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
     val tracksViewport = heavyGlassReady &&
-        (roleUsesCardBoundOpenGl(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
+        (roleUsesCardBoundOpenGl(role) || roleUsesBatchedChrome(role) || (registry != null && roleUsesUnifiedBackdrop(role)))
 
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
+    val useBatchedChrome = heavyGlassReady &&
+        hasValidOpenGlSize &&
+        nearViewport &&
+        chromeRegistry != null &&
+        roleUsesBatchedChrome(role)
     val useCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
         nearViewport &&
@@ -291,10 +349,12 @@ fun PressableGlass(
         nearViewport &&
         registry != null &&
         roleUsesUnifiedBackdrop(role) &&
-        !useCardOpenGlBackdrop
+        !useCardOpenGlBackdrop &&
+        !useBatchedChrome
     val useStableSampledBackdrop = heavyGlassReady &&
         roleUsesSampledBackdrop(role) &&
         !useUnifiedBackdrop &&
+        !useBatchedChrome &&
         backdrop != null
 
     if (useUnifiedBackdrop) {
@@ -319,6 +379,16 @@ fun PressableGlass(
             }
         }
     }
+
+    RegisterBatchedGlassChromeItem(
+        key = key,
+        coordinates = coordinates,
+        radius = effectiveRadius,
+        role = role,
+        glassIntensity = pressedIntensity,
+        pressed = pressed,
+        enabled = useBatchedChrome
+    )
 
     Box(
         modifier = modifier
@@ -372,20 +442,186 @@ fun PressableGlass(
                 modifier = Modifier.matchParentSize()
             )
         }
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassSkin(
-                    quality = quality,
-                    radius = effectiveRadius,
-                    shimmer = shimmer + if (pressed) 0.024f else 0f,
-                    breathe = breathe,
-                    glassIntensity = pressedIntensity,
-                    includeShadow = false
-                )
-        )
+        if (useBatchedChrome) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .cheapGlassChromeBase(role = role, glassIntensity = pressedIntensity, pressed = pressed)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .glassSkin(
+                        quality = quality,
+                        radius = effectiveRadius,
+                        shimmer = shimmer + if (pressed) 0.024f else 0f,
+                        breathe = breathe,
+                        glassIntensity = pressedIntensity,
+                        includeShadow = false
+                    )
+            )
+        }
         content()
     }
+}
+
+@Composable
+private fun RegisterBatchedGlassChromeItem(
+    key: Any,
+    coordinates: GlassCoordinateSource,
+    radius: Int,
+    role: GlassRole,
+    glassIntensity: Float,
+    pressed: Boolean,
+    enabled: Boolean
+) {
+    val registry = LocalBatchedGlassChromeRegistry.current
+    if (enabled && registry != null) {
+        SideEffect {
+            registry.upsert(
+                BatchedGlassChromeRenderItem(
+                    key = key,
+                    coordinates = coordinates,
+                    radius = radius,
+                    role = role,
+                    glassIntensity = glassIntensity,
+                    pressed = pressed
+                )
+            )
+        }
+    }
+    DisposableEffect(registry, key, enabled) {
+        onDispose { registry?.remove(key) }
+    }
+}
+
+@Composable
+fun BatchedGlassChromeOverlayLayer(modifier: Modifier = Modifier) {
+    val registry = LocalBatchedGlassChromeRegistry.current
+    val frameTicker = LocalBackdropFrameTicker.current
+    val registryVersion = registry?.version ?: 0L
+
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        registryVersion
+        frameTicker?.frameNanos
+        registry?.snapshot().orEmpty().forEach { item ->
+            drawBatchedGlassChromeItem(item)
+        }
+    }
+}
+
+private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderItem) {
+    if (!item.coordinates.isAttached()) return
+    val itemSize = item.coordinates.itemSize()
+    if (itemSize.width <= 0 || itemSize.height <= 0) return
+
+    val rawTopLeft = item.coordinates.rootOffset()
+    val rawWidth = itemSize.width.toFloat()
+    val rawHeight = itemSize.height.toFloat()
+    if (rawTopLeft.x >= size.width || rawTopLeft.y >= size.height || rawTopLeft.x + rawWidth <= 0f || rawTopLeft.y + rawHeight <= 0f) return
+
+    val visualScale = if (item.pressed) 0.975f else 1f
+    val visualWidth = rawWidth * visualScale
+    val visualHeight = rawHeight * visualScale
+    val topLeft = rawTopLeft + Offset((rawWidth - visualWidth) * 0.5f, (rawHeight - visualHeight) * 0.5f + if (item.pressed) 0.28.dp.toPx() else 0f)
+    val itemSizePx = Size(visualWidth, visualHeight)
+    val radiusPx = if (item.radius >= 999) min(visualWidth, visualHeight) * 0.5f else item.radius.dp.toPx().coerceAtMost(min(visualWidth, visualHeight) * 0.5f)
+    val corner = CornerRadius(radiusPx, radiusPx)
+    val material = glassMaterial(item.glassIntensity * if (item.pressed) 1.06f else 1f)
+    val floatingBoost = if (item.role == GlassRole.Floating) 1.18f else 1.0f
+    val pressedBoost = if (item.pressed) 1.22f else 1.0f
+    val rimInset = 0.62.dp.toPx()
+    val innerInset = 1.72.dp.toPx()
+    val rimTopLeft = topLeft + Offset(rimInset, rimInset)
+    val rimSize = Size((itemSizePx.width - rimInset * 2f).coerceAtLeast(1f), (itemSizePx.height - rimInset * 2f).coerceAtLeast(1f))
+    val innerTopLeft = topLeft + Offset(innerInset, innerInset)
+    val innerSize = Size((itemSizePx.width - innerInset * 2f).coerceAtLeast(1f), (itemSizePx.height - innerInset * 2f).coerceAtLeast(1f))
+
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = material.topHighlight * 0.50f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.topHighlight * 0.06f),
+                Color.Transparent
+            ),
+            startY = topLeft.y,
+            endY = topLeft.y + itemSizePx.height * 0.38f
+        ),
+        topLeft = topLeft,
+        size = itemSizePx,
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.42f * floatingBoost)
+            ),
+            startY = topLeft.y + itemSizePx.height * 0.48f,
+            endY = topLeft.y + itemSizePx.height
+        ),
+        topLeft = topLeft,
+        size = itemSizePx,
+        cornerRadius = corner,
+        blendMode = BlendMode.Multiply
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.72f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.rim * 0.08f),
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.16f),
+                Color.White.copy(alpha = material.rim * 0.03f)
+            ),
+            start = topLeft,
+            end = topLeft + Offset(itemSizePx.width, itemSizePx.height)
+        ),
+        topLeft = rimTopLeft,
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.42.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.040f * floatingBoost),
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.13f * floatingBoost)
+            ),
+            start = topLeft + Offset(itemSizePx.width * 0.10f, 0f),
+            end = topLeft + Offset(itemSizePx.width * 0.94f, itemSizePx.height)
+        ),
+        topLeft = innerTopLeft,
+        size = innerSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.16.dp.toPx()),
+        blendMode = BlendMode.SrcOver
+    )
+    if (item.pressed) {
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.030f),
+            topLeft = topLeft,
+            size = itemSizePx,
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+    }
+}
+
+private fun Modifier.cheapGlassChromeBase(role: GlassRole, glassIntensity: Float, pressed: Boolean): Modifier {
+    val safeIntensity = glassIntensity.coerceIn(0.25f, 1.45f)
+    val baseAlpha = when (role) {
+        GlassRole.Floating -> 0.060f
+        GlassRole.Chip -> 0.044f
+        else -> 0.040f
+    }
+    val pressedBoost = if (pressed) 0.020f else 0f
+    return this.background(Color.White.copy(alpha = (baseAlpha * safeIntensity + pressedBoost).coerceIn(0.018f, 0.105f)))
 }
 
 @Composable
