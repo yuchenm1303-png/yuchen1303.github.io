@@ -122,7 +122,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     )
 
                     UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    BatchedRecessedGlassLayer(Modifier.fillMaxSize())
 
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
@@ -173,6 +172,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 )
                             }
                         }
+
+                        BatchedRecessedGlassLayer(Modifier.fillMaxSize(), overlayOnly = true)
 
                         BottomDockSeparationMist(
                             quality = state.quality,
