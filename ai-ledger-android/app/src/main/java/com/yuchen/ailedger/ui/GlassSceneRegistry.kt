@@ -39,7 +39,13 @@ data class GlassSceneNode(
     val role: GlassRole? = null,
     val pressed: Boolean = false,
     val selected: Boolean = false,
-    val rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting
+    val rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting,
+    val secondaryCoordinates: GlassCoordinateSource? = null,
+    val floorInsetDp: Float = 0f,
+    val floorAlpha: Float = 1f,
+    val rimAlpha: Float = 1f,
+    val innerShadowAlpha: Float = 1f,
+    val floorDimAlpha: Float = 0f
 )
 
 class GlassSceneRegistry {
@@ -119,7 +125,13 @@ fun RegisterGlassSceneNode(
     role: GlassRole? = null,
     pressed: Boolean = false,
     selected: Boolean = false,
-    rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting
+    rendererHint: GlassRendererHint = GlassRendererHint.KeepExisting,
+    secondaryCoordinates: GlassCoordinateSource? = null,
+    floorInsetDp: Float = 0f,
+    floorAlpha: Float = 1f,
+    rimAlpha: Float = 1f,
+    innerShadowAlpha: Float = 1f,
+    floorDimAlpha: Float = 0f
 ) {
     val registry = LocalGlassSceneRegistry.current
     if (GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY && registry != null) {
@@ -141,7 +153,13 @@ fun RegisterGlassSceneNode(
                     role = role,
                     pressed = pressed,
                     selected = selected,
-                    rendererHint = rendererHint
+                    rendererHint = rendererHint,
+                    secondaryCoordinates = secondaryCoordinates,
+                    floorInsetDp = floorInsetDp,
+                    floorAlpha = floorAlpha,
+                    rimAlpha = rimAlpha,
+                    innerShadowAlpha = innerShadowAlpha,
+                    floorDimAlpha = floorDimAlpha
                 )
             )
         }
