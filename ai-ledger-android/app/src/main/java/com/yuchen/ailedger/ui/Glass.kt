@@ -135,23 +135,7 @@ private fun useUnifiedChipGlass(sceneRegistry: GlassSceneRegistry?, role: GlassR
         GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY &&
         GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS &&
         GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER &&
-        GlassFeatureFlags.USE_UNIFIED_GLASS_FOREGROUND_LAYER &&
         sceneRegistry != null
-}
-
-@Composable
-private fun CardBoundUnifiedGlassSceneLayer(
-    hostKey: Any,
-    coordinateSource: GlassCoordinateSource,
-    modifier: Modifier = Modifier
-) {
-    if (!GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER) return
-    if (!GlassFeatureFlags.USE_UNIFIED_CHIP_GLASS && !GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS) return
-    UnifiedGlassSceneBackgroundLayer(
-        modifier = modifier,
-        hostKey = hostKey,
-        layerCoordinateSource = coordinateSource
-    )
 }
 
 @Composable
@@ -292,11 +276,6 @@ fun GlassPanel(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-            CardBoundUnifiedGlassSceneLayer(
-                hostKey = key,
-                coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
-            )
         } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedChipGlass && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
@@ -332,12 +311,7 @@ fun GlassPanel(
                     )
             )
         }
-        CompositionLocalProvider(
-            LocalOpenGlLazyItemKey provides null,
-            LocalGlassSceneHostKey provides if (useCardOpenGlBackdrop) key else LocalGlassSceneHostKey.current
-        ) {
-            content()
-        }
+        CompositionLocalProvider(LocalOpenGlLazyItemKey provides null) { content() }
     }
 }
 
