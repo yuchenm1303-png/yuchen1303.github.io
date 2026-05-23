@@ -36,7 +36,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
+import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
 
@@ -59,7 +59,7 @@ private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
-private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 520
+private const val OPENGL_CARD_VISIBILITY_MARGIN_DP = 0
 private const val MIN_OPENGL_CARD_SIZE_PX = 48
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
@@ -69,8 +69,8 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Nav -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
@@ -79,8 +79,8 @@ private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
 }
 
 private fun roleUsesSampledBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Flex -> false
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
+    GlassRole.Shell, GlassRole.Card, GlassRole.Flex -> false
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> true
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
@@ -135,23 +135,18 @@ fun GlassPanel(
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+    val useCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
         nearViewport &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !useBatchedOpenGlBackdrop
+    val useUnifiedBackdrop = heavyGlassReady &&
+        nearViewport &&
+        registry != null &&
+        roleUsesUnifiedBackdrop(role) &&
+        !useCardOpenGlBackdrop
     val key = remember { Any() }
-
-    RegisterBatchedOpenGlGlassItem(
-        key = key,
-        coordinates = coordinates,
-        radius = effectiveRadius,
-        role = role,
-        glassIntensity = glassIntensity,
-        enabled = useBatchedOpenGlBackdrop
-    )
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -192,7 +187,14 @@ fun GlassPanel(
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
-        if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -213,7 +215,7 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useBatchedOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -276,22 +278,17 @@ fun PressableGlass(
     val hasValidOpenGlSize = measuredOnce &&
         measuredWidth >= MIN_OPENGL_CARD_SIZE_PX &&
         measuredHeight >= MIN_OPENGL_CARD_SIZE_PX
-    val useBatchedOpenGlBackdrop = heavyGlassReady &&
+    val useCardOpenGlBackdrop = heavyGlassReady &&
         hasValidOpenGlSize &&
         nearViewport &&
         USE_CARD_BOUND_OPENGL_GLASS &&
         roleUsesCardBoundOpenGl(role) &&
         cardBackdrop != null
-    val useUnifiedBackdrop = heavyGlassReady && nearViewport && registry != null && roleUsesUnifiedBackdrop(role) && !useBatchedOpenGlBackdrop
-
-    RegisterBatchedOpenGlGlassItem(
-        key = key,
-        coordinates = coordinates,
-        radius = effectiveRadius,
-        role = role,
-        glassIntensity = pressedIntensity,
-        enabled = useBatchedOpenGlBackdrop
-    )
+    val useUnifiedBackdrop = heavyGlassReady &&
+        nearViewport &&
+        registry != null &&
+        roleUsesUnifiedBackdrop(role) &&
+        !useCardOpenGlBackdrop
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -339,7 +336,14 @@ fun PressableGlass(
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
-        if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useBatchedOpenGlBackdrop && !useUnifiedBackdrop && backdrop != null) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize()
+            )
+        } else if (heavyGlassReady && roleUsesSampledBackdrop(role) && !useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -360,7 +364,7 @@ fun PressableGlass(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
-        if (!useBatchedOpenGlBackdrop) {
+        if (!useCardOpenGlBackdrop) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
