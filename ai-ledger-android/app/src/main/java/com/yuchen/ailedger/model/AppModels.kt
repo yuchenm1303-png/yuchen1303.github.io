@@ -75,30 +75,30 @@ data class BackdropDebugParams(
 )
 
 data class GlassBorderStyle(
-    val outerStrokeAlpha: Float = 0.40f,
-    val innerStrokeAlpha: Float = 0f,
-    val topHighlightAlpha: Float = 1.28f,
-    val bottomShadowAlpha: Float = 0.35f,
-    val cornerGlintAlpha: Float = 0f,
-    val ringWidthDp: Float = 10f,
-    val edgePullDp: Float = -205.94f,
-    val edgeAlpha: Float = 0f,
+    val outerStrokeAlpha: Float = 0.58f,
+    val innerStrokeAlpha: Float = 0.22f,
+    val topHighlightAlpha: Float = 1.42f,
+    val bottomShadowAlpha: Float = 0.48f,
+    val cornerGlintAlpha: Float = 0.18f,
+    val ringWidthDp: Float = 22f,
+    val edgePullDp: Float = -178f,
+    val edgeAlpha: Float = 0.18f,
     val edgeBlurDp: Float = 24f,
     val edgeContrast: Float = 1.00f,
     val edgeSaturation: Float = 1.00f,
-    val edgeBrightness: Float = 1.03f,
-    val bodyAlpha: Float = 0f,
+    val edgeBrightness: Float = 1.12f,
+    val bodyAlpha: Float = 0.08f,
     val openGlDebugLineAlpha: Float = 0f,
     val openGlVisibility: Float = 20f,
     val openGlMaxAlpha: Float = 1.00f,
-    val openGlEdgeWidthScale: Float = 0f,
+    val openGlEdgeWidthScale: Float = 0.18f,
     val openGlPullScale: Float = 83.21f,
-    val openGlCompressionScale: Float = -10f,
+    val openGlCompressionScale: Float = 1.15f,
     val openGlCornerScale: Float = 0f,
-    val openGlDarkScale: Float = -1.63f,
-    val openGlSpecularScale: Float = 0f,
+    val openGlDarkScale: Float = 1.08f,
+    val openGlSpecularScale: Float = 0.18f,
     val openGlChromaticScale: Float = 0f,
-    val openGlSampleRadiusScale: Float = 0f
+    val openGlSampleRadiusScale: Float = 1.80f
 )
 
 enum class MessageRole {
