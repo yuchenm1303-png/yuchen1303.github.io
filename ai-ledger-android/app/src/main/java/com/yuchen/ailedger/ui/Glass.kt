@@ -267,7 +267,7 @@ fun GlassPanel(
                     it.pushOpenGlFrameRect(key, frameCoordinator, backdropOrigin)
                 }
             }
-            .glassContainerFrame(radius = effectiveRadius, glassIntensity = glassIntensity, useUnifiedSceneCanvas = useUnifiedChipGlass)
+            .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -462,10 +462,10 @@ fun PressableGlass(
                 scaleX = scale
                 scaleY = scale
                 translationY = lift
-                shadowElevation = if (!useUnifiedChipGlass && pressed) 0.18f else 0f
+                shadowElevation = if (pressed) 0.18f else 0f
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .glassContainerFrame(radius = effectiveRadius, glassIntensity = pressedIntensity, useUnifiedSceneCanvas = useUnifiedChipGlass)
+            .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -521,15 +521,6 @@ private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float)
 @Composable
 private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float {
     return if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
-}
-
-private fun Modifier.glassContainerFrame(radius: Int, glassIntensity: Float, useUnifiedSceneCanvas: Boolean): Modifier {
-    val shape = RoundedCornerShape(radius.dp)
-    return if (useUnifiedSceneCanvas) {
-        this.clip(shape)
-    } else {
-        this.glassOuterFrame(radius = radius, glassIntensity = glassIntensity)
-    }
 }
 
 private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifier {
