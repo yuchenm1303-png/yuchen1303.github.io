@@ -61,6 +61,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
     val recessedGlassRegistry = remember { RecessedGlassRegistry() }
+    val glassChromeRegistry = remember { BatchedGlassChromeRegistry() }
     val batchedOpenGlRegistry = remember { BatchedOpenGlGlassRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
@@ -108,6 +109,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
                 LocalRecessedGlassRegistry provides recessedGlassRegistry,
+                LocalBatchedGlassChromeRegistry provides glassChromeRegistry,
                 LocalBatchedOpenGlGlassRegistry provides batchedOpenGlRegistry,
                 LocalHeavyGlassStartupReady provides heavyGlassStartupReady
             ) {
@@ -174,6 +176,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         }
 
                         BatchedRecessedGlassLayer(Modifier.fillMaxSize(), overlayOnly = true)
+                        BatchedGlassChromeOverlayLayer(Modifier.fillMaxSize())
 
                         BottomDockSeparationMist(
                             quality = state.quality,
