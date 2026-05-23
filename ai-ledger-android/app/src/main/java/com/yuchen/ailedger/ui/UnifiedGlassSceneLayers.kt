@@ -45,6 +45,7 @@ fun UnifiedGlassSceneBackgroundLayer(
         registry?.snapshot().orEmpty()
             .asSequence()
             .filter { it.hostKey == hostKey }
+            .filter { it.rendererHint == GlassRendererHint.ComposeCanvas }
             .forEach { node ->
                 when {
                     node.kind == GlassKind.Recessed && GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS -> {
