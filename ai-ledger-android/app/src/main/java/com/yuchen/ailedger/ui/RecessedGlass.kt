@@ -273,7 +273,25 @@ fun ApprovedInsetGlassSlot(
 
     Box(modifier = modifier.onGloballyPositioned { outerCoordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
         if (batched) {
+            Canvas(Modifier.fillMaxSize()) {
+                val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+                val shadow = (0.30f + depth * 0.70f) * innerShadowAlpha
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = shadow * 0.56f),
+                            Color(0xFF070C29).copy(alpha = 0.20f + depth * 0.08f),
+                            Color.Black.copy(alpha = shadow * 0.12f)
+                        )
+                    ),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Multiply
+                )
+            }
             Box(modifier = Modifier.fillMaxSize().padding(floorInset.dp).onGloballyPositioned { floorCoordinates.coordinates = it }.clip(RoundedCornerShape(floorRadius.dp))) {
+                ApprovedBackdropCrop(floorCoordinates, floorBackdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (floorDimAlpha + depth * 0.06f).coerceIn(0f, 0.75f))))
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = innerShadowAlpha * (0.10f + depth * 0.12f)), Color.Transparent, Color.White.copy(alpha = rimHighlightAlpha * 0.030f)))))
                 content()
             }
         } else {
@@ -341,7 +359,7 @@ private fun RegisterBatchedRecessedGlassItem(
 }
 
 @Composable
-fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier) {
+fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier, overlayOnly: Boolean = false) {
     val registry = LocalRecessedGlassRegistry.current
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
@@ -352,9 +370,44 @@ fun BatchedRecessedGlassLayer(modifier: Modifier = Modifier) {
         registryVersion
         frameTicker?.frameNanos
         registry?.snapshot().orEmpty().forEach { item ->
-            drawBatchedRecessedGlassItem(item, cachedBackdrop, backdropOrigin)
+            if (overlayOnly) {
+                drawBatchedRecessedGlassOverlayItem(item, cachedBackdrop, backdropOrigin)
+            } else {
+                drawBatchedRecessedGlassItem(item, cachedBackdrop, backdropOrigin)
+            }
         }
     }
+}
+
+private fun DrawScope.visibleBatchedRecessedGeometry(item: RecessedGlassRenderItem): Pair<Offset, Size>? {
+    if (!item.outerCoordinates.isAttached()) return null
+    val outerSize = item.outerCoordinates.itemSize()
+    if (outerSize.width <= 0 || outerSize.height <= 0) return null
+
+    val outerTopLeft = item.outerCoordinates.rootOffset()
+    val outerWidth = outerSize.width.toFloat()
+    val outerHeight = outerSize.height.toFloat()
+    if (outerTopLeft.x >= size.width || outerTopLeft.y >= size.height || outerTopLeft.x + outerWidth <= 0f || outerTopLeft.y + outerHeight <= 0f) return null
+    return outerTopLeft to Size(outerWidth, outerHeight)
+}
+
+private fun DrawScope.drawBatchedRecessedGlassOverlayItem(
+    item: RecessedGlassRenderItem,
+    cachedBackdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?
+) {
+    val geometry = visibleBatchedRecessedGeometry(item) ?: return
+    val outerTopLeft = geometry.first
+    val outerSize = geometry.second
+    val depth = item.grooveDepth.coerceIn(0f, 1f)
+    val radiusPx = item.radius.dp.toPx()
+    val floorInsetPx = item.floorInset.dp.toPx()
+    val floorRadiusPx = (item.radius - 1.2f).coerceAtLeast(5f).dp.toPx()
+    val floorTopLeft = outerTopLeft + Offset(floorInsetPx, floorInsetPx)
+    val floorSize = Size((outerSize.width - floorInsetPx * 2f).coerceAtLeast(1f), (outerSize.height - floorInsetPx * 2f).coerceAtLeast(1f))
+
+    drawBatchedDynamicInsetRimHighlight(item, outerTopLeft, outerSize, radiusPx, cachedBackdrop, backdropOrigin)
+    drawBatchedInsetStrokes(item, outerTopLeft, outerSize, radiusPx, floorTopLeft, floorSize, floorRadiusPx, depth)
 }
 
 private fun DrawScope.drawBatchedRecessedGlassItem(
@@ -362,15 +415,11 @@ private fun DrawScope.drawBatchedRecessedGlassItem(
     cachedBackdrop: BlurredBackdropBitmap?,
     backdropOrigin: BackdropCoordinateSource?
 ) {
-    if (!item.outerCoordinates.isAttached()) return
-    val outerSize = item.outerCoordinates.itemSize()
-    if (outerSize.width <= 0 || outerSize.height <= 0) return
-
-    val outerTopLeft = item.outerCoordinates.rootOffset()
-    val outerWidth = outerSize.width.toFloat()
-    val outerHeight = outerSize.height.toFloat()
-    if (outerTopLeft.x >= size.width || outerTopLeft.y >= size.height || outerTopLeft.x + outerWidth <= 0f || outerTopLeft.y + outerHeight <= 0f) return
-
+    val geometry = visibleBatchedRecessedGeometry(item) ?: return
+    val outerTopLeft = geometry.first
+    val outerSize = geometry.second
+    val outerWidth = outerSize.width
+    val outerHeight = outerSize.height
     val depth = item.grooveDepth.coerceIn(0f, 1f)
     val radiusPx = item.radius.dp.toPx()
     val floorInsetPx = item.floorInset.dp.toPx()
@@ -380,7 +429,7 @@ private fun DrawScope.drawBatchedRecessedGlassItem(
     val floorRect = Rect(floorTopLeft, floorSize)
     val floorPath = Path().apply { addRoundRect(RoundRect(floorRect, CornerRadius(floorRadiusPx, floorRadiusPx))) }
 
-    drawOuterInsetDepth(outerTopLeft, Size(outerWidth, outerHeight), radiusPx, depth, item.innerShadowAlpha)
+    drawOuterInsetDepth(outerTopLeft, outerSize, radiusPx, depth, item.innerShadowAlpha)
     clipPath(floorPath) {
         drawBatchedBackdropCrop(floorRect, item.floorCoordinates, item.floorBackdropAlpha.coerceIn(0f, 1f), cachedBackdrop, backdropOrigin)
         drawRect(color = Color.Black.copy(alpha = (item.floorDimAlpha + depth * 0.06f).coerceIn(0f, 0.75f)), topLeft = floorTopLeft, size = floorSize)
@@ -398,8 +447,8 @@ private fun DrawScope.drawBatchedRecessedGlassItem(
             size = floorSize
         )
     }
-    drawBatchedDynamicInsetRimHighlight(item, outerTopLeft, Size(outerWidth, outerHeight), radiusPx, cachedBackdrop, backdropOrigin)
-    drawBatchedInsetStrokes(item, outerTopLeft, Size(outerWidth, outerHeight), radiusPx, floorTopLeft, floorSize, floorRadiusPx, depth)
+    drawBatchedDynamicInsetRimHighlight(item, outerTopLeft, outerSize, radiusPx, cachedBackdrop, backdropOrigin)
+    drawBatchedInsetStrokes(item, outerTopLeft, outerSize, radiusPx, floorTopLeft, floorSize, floorRadiusPx, depth)
 }
 
 private fun DrawScope.drawOuterInsetDepth(topLeft: Offset, slotSize: Size, radiusPx: Float, depth: Float, innerShadowAlpha: Float) {
