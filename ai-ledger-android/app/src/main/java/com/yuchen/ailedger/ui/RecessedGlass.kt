@@ -252,11 +252,36 @@ fun ApprovedInsetGlassSlot(
     val outerCoordinates = remember { GlassCoordinateSource() }
     val floorCoordinates = remember { GlassCoordinateSource() }
     val registry = LocalRecessedGlassRegistry.current
-    val batched = USE_BATCHED_RECESSED_GLASS && registry != null
+    val sceneRegistry = LocalGlassSceneRegistry.current
+    val backdropSpec = LocalGlassBackdrop.current
+    val useUnifiedRecessed = GlassFeatureFlags.USE_GLASS_SCENE_REGISTRY &&
+        GlassFeatureFlags.USE_UNIFIED_RECESSED_GLASS &&
+        GlassFeatureFlags.USE_UNIFIED_GLASS_BACKGROUND_LAYER &&
+        GlassFeatureFlags.USE_UNIFIED_GLASS_FOREGROUND_LAYER &&
+        sceneRegistry != null
+    val batched = !useUnifiedRecessed && USE_BATCHED_RECESSED_GLASS && registry != null
     val depth = grooveDepth.coerceIn(0f, 1f)
     val floorInset = APPROVED_INSET_FLOOR_INSET
     val floorRadius = (radius - 1.2f).coerceAtLeast(5f)
     val key = remember { Any() }
+
+    RegisterGlassSceneNode(
+        key = key,
+        coordinates = outerCoordinates,
+        kind = GlassKind.Recessed,
+        radiusDp = radius,
+        depth = depth,
+        intensity = floorBackdropAlpha,
+        zIndex = 12f,
+        quality = backdropSpec?.quality,
+        rendererHint = if (useUnifiedRecessed) GlassRendererHint.ComposeCanvas else GlassRendererHint.KeepExisting,
+        secondaryCoordinates = floorCoordinates,
+        floorInsetDp = floorInset,
+        floorAlpha = floorBackdropAlpha,
+        rimAlpha = rimHighlightAlpha,
+        innerShadowAlpha = innerShadowAlpha,
+        floorDimAlpha = floorDimAlpha
+    )
 
     RegisterBatchedRecessedGlassItem(
         key = key,
@@ -273,7 +298,7 @@ fun ApprovedInsetGlassSlot(
     )
 
     Box(modifier = modifier.onGloballyPositioned { outerCoordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
-        if (batched) {
+        if (useUnifiedRecessed || batched) {
             Box(modifier = Modifier.fillMaxSize().padding(floorInset.dp).onGloballyPositioned { floorCoordinates.coordinates = it }.clip(RoundedCornerShape(floorRadius.dp))) {
                 content()
             }
