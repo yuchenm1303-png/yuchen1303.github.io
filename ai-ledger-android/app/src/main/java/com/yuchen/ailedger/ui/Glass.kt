@@ -119,9 +119,7 @@ data class BatchedGlassChromeRenderItem(
     val radius: Int,
     val role: GlassRole,
     val glassIntensity: Float,
-    val pressed: Boolean,
-    val shimmer: Float,
-    val motionEnabled: Boolean
+    val pressed: Boolean
 )
 
 class BatchedGlassChromeRegistry {
@@ -386,8 +384,6 @@ fun PressableGlass(
         role = role,
         glassIntensity = pressedIntensity,
         pressed = pressed,
-        shimmer = shimmer,
-        motionEnabled = quality.enableMotion,
         enabled = useBatchedChrome
     )
 
@@ -451,6 +447,7 @@ fun PressableGlass(
                         quality = quality,
                         role = role,
                         radius = effectiveRadius,
+                        shimmer = shimmer + if (pressed) 0.024f else 0f,
                         glassIntensity = pressedIntensity,
                         pressed = pressed,
                         breathe = breathe
@@ -482,8 +479,6 @@ private fun RegisterBatchedGlassChromeItem(
     role: GlassRole,
     glassIntensity: Float,
     pressed: Boolean,
-    shimmer: Float,
-    motionEnabled: Boolean,
     enabled: Boolean
 ) {
     val registry = LocalBatchedGlassChromeRegistry.current
@@ -496,9 +491,7 @@ private fun RegisterBatchedGlassChromeItem(
                     radius = radius,
                     role = role,
                     glassIntensity = glassIntensity,
-                    pressed = pressed,
-                    shimmer = shimmer,
-                    motionEnabled = motionEnabled
+                    pressed = pressed
                 )
             )
         }
@@ -511,12 +504,10 @@ private fun RegisterBatchedGlassChromeItem(
 @Composable
 fun BatchedGlassChromeOverlayLayer(modifier: Modifier = Modifier) {
     val registry = LocalBatchedGlassChromeRegistry.current
-    val frameTicker = LocalBackdropFrameTicker.current
     val registryVersion = registry?.version ?: 0L
 
     androidx.compose.foundation.Canvas(modifier = modifier) {
         registryVersion
-        frameTicker?.frameNanos
         registry?.snapshot().orEmpty().forEach { item ->
             drawBatchedGlassChromeItem(item)
         }
@@ -543,8 +534,6 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
     val material = glassMaterial(item.glassIntensity)
     val floatingBoost = if (item.role == GlassRole.Floating) 1.18f else 1.0f
     val pressedBoost = if (item.pressed) 1.22f else 1.0f
-    val safeShimmer = item.shimmer - item.shimmer.toInt()
-    val drift = safeShimmer - 0.5f
     val rimInset = 0.62.dp.toPx()
     val innerInset = 1.72.dp.toPx()
     val rimTopLeft = topLeft + Offset(rimInset, rimInset)
@@ -552,57 +541,18 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
     val innerTopLeft = topLeft + Offset(innerInset, innerInset)
     val innerSize = Size((itemSizePx.width - innerInset * 2f).coerceAtLeast(1f), (itemSizePx.height - innerInset * 2f).coerceAtLeast(1f))
 
-    val mainRim = Brush.linearGradient(
-        listOf(
-            Color.White.copy(alpha = material.rim * 0.76f * floatingBoost * pressedBoost),
-            Color.White.copy(alpha = material.rim * 0.10f),
-            Color.Transparent,
-            Color.Black.copy(alpha = material.depthShadow * 0.18f),
-            Color.White.copy(alpha = material.rim * 0.04f)
-        ),
-        start = topLeft,
-        end = topLeft + Offset(itemSizePx.width, itemSizePx.height)
-    )
-    val topHairline = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = material.rim * 0.36f * floatingBoost * pressedBoost),
-            Color.White.copy(alpha = material.rim * 0.046f),
-            Color.Transparent
-        ),
-        startY = topLeft.y,
-        endY = topLeft.y + itemSizePx.height * 0.22f
-    )
-    val innerSoftRim = Brush.linearGradient(
-        listOf(
-            Color.White.copy(alpha = material.rim * 0.052f * floatingBoost),
-            Color.Transparent,
-            Color.Black.copy(alpha = material.depthShadow * 0.15f * floatingBoost),
-            Color.White.copy(alpha = material.rim * 0.014f)
-        ),
-        start = topLeft + Offset(itemSizePx.width * 0.10f, 0f),
-        end = topLeft + Offset(itemSizePx.width * 0.94f, itemSizePx.height)
-    )
-    val movingEdgeGlint = Brush.linearGradient(
-        listOf(
-            Color.Transparent,
-            Color.White.copy(alpha = material.motionGlint * 1.18f * floatingBoost * pressedBoost),
-            Color.Transparent
-        ),
-        start = topLeft + Offset(itemSizePx.width * (safeShimmer - 0.28f), 0f),
-        end = topLeft + Offset(itemSizePx.width * (safeShimmer + 0.16f), itemSizePx.height * 0.20f)
-    )
-    val cornerCatchlight = Brush.radialGradient(
-        listOf(
-            Color.White.copy(alpha = material.cornerHighlight * 1.08f * floatingBoost * pressedBoost),
-            Color.White.copy(alpha = material.cornerHighlight * 0.09f),
-            Color.Transparent
-        ),
-        center = topLeft + Offset(itemSizePx.width * (0.035f + drift * 0.010f), itemSizePx.height * 0.020f),
-        radius = itemSizePx.width * 0.26f
-    )
-
     drawRoundRect(
-        brush = mainRim,
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.76f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.rim * 0.10f),
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.18f),
+                Color.White.copy(alpha = material.rim * 0.04f)
+            ),
+            start = topLeft,
+            end = topLeft + Offset(itemSizePx.width, itemSizePx.height)
+        ),
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = corner,
@@ -610,7 +560,15 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
         blendMode = BlendMode.Screen
     )
     drawRoundRect(
-        brush = topHairline,
+        brush = Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.36f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.rim * 0.046f),
+                Color.Transparent
+            ),
+            startY = topLeft.y,
+            endY = topLeft.y + itemSizePx.height * 0.22f
+        ),
         topLeft = innerTopLeft,
         size = innerSize,
         cornerRadius = corner,
@@ -618,30 +576,21 @@ private fun DrawScope.drawBatchedGlassChromeItem(item: BatchedGlassChromeRenderI
         blendMode = BlendMode.Screen
     )
     drawRoundRect(
-        brush = innerSoftRim,
+        brush = Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = material.rim * 0.052f * floatingBoost),
+                Color.Transparent,
+                Color.Black.copy(alpha = material.depthShadow * 0.15f * floatingBoost),
+                Color.White.copy(alpha = material.rim * 0.014f)
+            ),
+            start = topLeft + Offset(itemSizePx.width * 0.10f, 0f),
+            end = topLeft + Offset(itemSizePx.width * 0.94f, itemSizePx.height)
+        ),
         topLeft = innerTopLeft,
         size = innerSize,
         cornerRadius = corner,
         style = Stroke(width = 0.16.dp.toPx()),
         blendMode = BlendMode.SrcOver
-    )
-    if (item.motionEnabled) {
-        drawRoundRect(
-            brush = movingEdgeGlint,
-            topLeft = rimTopLeft,
-            size = rimSize,
-            cornerRadius = corner,
-            style = Stroke(width = 0.08.dp.toPx()),
-            blendMode = BlendMode.Plus
-        )
-    }
-    drawRoundRect(
-        brush = cornerCatchlight,
-        topLeft = rimTopLeft,
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(width = 0.14.dp.toPx()),
-        blendMode = BlendMode.Screen
     )
 }
 
@@ -649,20 +598,25 @@ private fun Modifier.batchedGlassBody(
     quality: RenderQuality,
     role: GlassRole,
     radius: Int,
+    shimmer: Float,
     glassIntensity: Float,
     pressed: Boolean,
     breathe: Float
 ): Modifier {
     val material = glassMaterial(glassIntensity)
     val pulse = 0.92f + breathe * 0.045f
+    val safeShimmer = shimmer - shimmer.toInt()
     val floatingBoost = if (role == GlassRole.Floating) 1.16f else 1.0f
     val pressedBoost = if (pressed) 1.18f else 1.0f
 
     return this.drawWithCache {
         val h = size.height
         val w = size.width
+        val drift = safeShimmer - 0.5f
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+        val rimInset = 0.62.dp.toPx()
         val bottomInset = 2.10.dp.toPx()
+        val rimSize = Size(w - rimInset * 2f, h - rimInset * 2f)
         val bottomSize = Size(w - bottomInset * 2f, h - bottomInset * 2f)
         val baseVeil = Brush.verticalGradient(
             listOf(
@@ -701,6 +655,24 @@ private fun Modifier.batchedGlassBody(
             startY = h * 0.58f,
             endY = h
         )
+        val movingEdgeGlint = Brush.linearGradient(
+            listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = material.motionGlint * 1.18f * floatingBoost * pressedBoost),
+                Color.Transparent
+            ),
+            start = Offset(w * (safeShimmer - 0.28f), 0f),
+            end = Offset(w * (safeShimmer + 0.16f), h * 0.20f)
+        )
+        val cornerCatchlight = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = material.cornerHighlight * 1.08f * floatingBoost * pressedBoost),
+                Color.White.copy(alpha = material.cornerHighlight * 0.09f),
+                Color.Transparent
+            ),
+            center = Offset(w * (0.035f + drift * 0.010f), h * 0.020f),
+            radius = w * 0.26f
+        )
         onDrawWithContent {
             drawRect(baseVeil, blendMode = BlendMode.Screen)
             drawRect(topLens, blendMode = BlendMode.Screen)
@@ -712,6 +684,24 @@ private fun Modifier.batchedGlassBody(
                 cornerRadius = cornerRadius,
                 style = Stroke(width = 0.10.dp.toPx()),
                 blendMode = BlendMode.Multiply
+            )
+            if (quality.enableMotion) {
+                drawRoundRect(
+                    brush = movingEdgeGlint,
+                    topLeft = Offset(rimInset, rimInset),
+                    size = rimSize,
+                    cornerRadius = cornerRadius,
+                    style = Stroke(width = 0.08.dp.toPx()),
+                    blendMode = BlendMode.Plus
+                )
+            }
+            drawRoundRect(
+                brush = cornerCatchlight,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = 0.14.dp.toPx()),
+                blendMode = BlendMode.Screen
             )
             if (pressed) drawRect(Color.White.copy(alpha = if (quality.enableMotion) 0.020f else 0.014f), blendMode = BlendMode.Screen)
             drawContent()
