@@ -1,5 +1,16 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +27,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,7 +65,7 @@ fun SettingsPolishedScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 16.dp, bottom = 118.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item { SettingsHeader() }
         item { SettingsOverviewCard(state, aiEndpoint) }
@@ -77,26 +93,29 @@ private fun SettingsHeader() {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("SETTINGS", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
         Text("设置", color = Color.White, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        Text("常用设置放前面，玻璃调试放到底部折叠面板里。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+        Text("点开小栏目再调详细项，常用内容收起来后页面更轻。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 28, Modifier.fillMaxWidth().height(138.dp), GlassRole.Shell) {
-        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("当前状态", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("Compose 原生版", color = Color.White, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                }
-                SettingsStatusBadge(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", state)
+    SettingsSectionCard(
+        state = state,
+        title = "当前状态",
+        subtitle = "应用状态、接口状态和关键外观概览。",
+        summary = if (aiEndpoint.isBlank()) "本地优先" else "云端已配置"
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Compose 原生版", color = Color.White, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("设置已按折叠栏目收纳，展开后再修改细节。", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 17.sp)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniSettingMetric("画质", qualityLabel(state.quality), state, Modifier.weight(1f))
-                MiniSettingMetric("玻璃", glassPresetLabel(state.glassPreset), state, Modifier.weight(1f))
-                MiniSettingMetric("背景", themeLabel(state.backgroundTheme), state, Modifier.weight(1f))
-            }
+            SettingsStatusBadge(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", state)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MiniSettingMetric("画质", qualityLabel(state.quality), state, Modifier.weight(1f))
+            MiniSettingMetric("玻璃", glassPresetLabel(state.glassPreset), state, Modifier.weight(1f))
+            MiniSettingMetric("背景", themeLabel(state.backgroundTheme), state, Modifier.weight(1f))
         }
     }
 }
@@ -108,7 +127,12 @@ private fun AppearanceSettingsCard(
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit
 ) {
-    SettingsSectionCard(state, "显示与背景", "背景、图片和页面观感放在最前面。") {
+    SettingsSectionCard(
+        state = state,
+        title = "显示与背景",
+        subtitle = "背景、图片和页面观感放在最前面。",
+        summary = themeLabel(state.backgroundTheme)
+    ) {
         SettingChipGrid(
             items = BackgroundTheme.entries,
             selected = state.backgroundTheme,
@@ -131,7 +155,12 @@ private fun GlassFeelSettingsCard(
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit
 ) {
-    SettingsSectionCard(state, "玻璃与流畅度", "这里是日常可调项，细节参数在底部玻璃调试里。") {
+    SettingsSectionCard(
+        state = state,
+        title = "玻璃与流畅度",
+        subtitle = "日常可调项，细节参数放在底部玻璃调试。",
+        summary = "${qualityLabel(state.quality)} · ${glassPresetLabel(state.glassPreset)}"
+    ) {
         SettingChipGrid(RenderQuality.entries, state.quality, { qualityLabel(it) }, state, onQualityChange)
         SettingChipGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabel(it) }, state, onGlassPresetChange)
         SliderSettingRow("玻璃强度", state.glassIntensity, 0.6f..1.4f, state, onGlassIntensityChange)
@@ -141,7 +170,12 @@ private fun GlassFeelSettingsCard(
 
 @Composable
 private fun AssistantPreferenceCard(state: AssistantUiState, onPreviewConversationChange: (Boolean) -> Unit) {
-    SettingsSectionCard(state, "助手偏好", "控制首页是否保留引导内容。") {
+    SettingsSectionCard(
+        state = state,
+        title = "助手偏好",
+        subtitle = "控制首页展示、默认模型和对话入口。",
+        summary = state.selectedModelLabel
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("聊天预览", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
@@ -156,7 +190,12 @@ private fun AssistantPreferenceCard(state: AssistantUiState, onPreviewConversati
 
 @Composable
 private fun DataBudgetSettingsCard(state: AssistantUiState) {
-    SettingsSectionCard(state, "数据与预算", "这里先显示账单状态，后续可接导出、清空和同步。") {
+    SettingsSectionCard(
+        state = state,
+        title = "数据与预算",
+        subtitle = "账单状态、预算概览和后续同步入口。",
+        summary = "${state.ledgerRecords.size} 笔"
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             MiniSettingMetric("账单", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
             MiniSettingMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
@@ -168,7 +207,12 @@ private fun DataBudgetSettingsCard(state: AssistantUiState) {
 
 @Composable
 private fun ServiceSettingsCard(state: AssistantUiState, aiEndpoint: String) {
-    SettingsSectionCard(state, "服务状态", "AI Worker、云端接口和本地执行状态。") {
+    SettingsSectionCard(
+        state = state,
+        title = "服务状态",
+        subtitle = "AI Worker、云端接口和本地执行状态。",
+        summary = if (aiEndpoint.isBlank()) "未配置" else "已连接"
+    ) {
         SettingInfoRow("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint, state)
         SettingInfoRow("执行模式", "本地动作优先，复杂问题后续交给云端", state)
     }
@@ -176,7 +220,12 @@ private fun ServiceSettingsCard(state: AssistantUiState, aiEndpoint: String) {
 
 @Composable
 private fun AdvancedSettingsCard(state: AssistantUiState) {
-    SettingsSectionCard(state, "高级调试", "玻璃参数调试已恢复到底部折叠面板，不再浮在顶部挡内容。") {
+    SettingsSectionCard(
+        state = state,
+        title = "高级调试",
+        subtitle = "渲染策略、调试入口和架构提示。",
+        summary = "OpenGL 隔离"
+    ) {
         SettingInfoRow("玻璃渲染", "单卡 OpenGL 大玻璃 + 普通控件隔离", state)
         SettingInfoRow("调试入口", "继续往下滑，展开玻璃调试", state)
     }
@@ -187,17 +236,93 @@ private fun SettingsSectionCard(
     state: AssistantUiState,
     title: String,
     subtitle: String,
+    summary: String = "点按展开",
+    initiallyExpanded: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-section-arrow-$title"
+    )
+    val contentScale by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0.985f,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-section-scale-$title"
+    )
+
     // Major settings sections are deliberate large glass containers.
     // Child chips, sliders, buttons and rows stay Chip/Floating and remain isolated from OpenGL.
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Shell) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
-                Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, lineHeight = 18.sp)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PressableGlass(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity * if (expanded) 1.02f else 0.94f,
+                motionIntensity = state.motionIntensity,
+                radius = 24,
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                role = GlassRole.Chip,
+                onClick = { expanded = !expanded }
+            ) {
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                        Text(title, color = Color.White, fontSize = 18.sp, lineHeight = 21.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        Text(
+                            subtitle,
+                            color = Color.White.copy(alpha = if (expanded) 0.52f else 0.42f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        summary,
+                        color = Color.White.copy(alpha = 0.54f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.28f)
+                    )
+                    Text(
+                        "⌄",
+                        color = Color.White.copy(alpha = 0.68f),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.graphicsLayer { rotationZ = arrowRotation }
+                    )
+                }
             }
-            content()
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+                    expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) +
+                    scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(tween(120)) +
+                    shrinkVertically(tween(150)) +
+                    scaleOut(targetScale = 0.97f, animationSpec = tween(150))
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = contentScale
+                            scaleY = contentScale
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        }
+                        .padding(horizontal = 3.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    content = content
+                )
+            }
         }
     }
 }
