@@ -227,9 +227,8 @@ private fun GlassDebugScreenV2(
                 when (group) {
                     "背景" -> BackgroundDebugGroup(state, onBackdropChange)
                     "天空" -> SkyDebugGroup(state, onBackdropChange)
-                    "折射" -> OpenGlDebugGroup(state, onBorderChange)
-                    "边缘" -> EdgeCompatDebugGroup(state, onBorderChange)
-                    else -> LegacyBorderDebugGroup(state, onBorderChange)
+                    "OpenGL" -> OpenGlDebugGroup(state, onBorderChange)
+                    else -> ComposeGlassDebugGroup(state, onBorderChange)
                 }
             }
         }
@@ -247,14 +246,14 @@ private fun DebugHeaderV2(state: AssistantUiState, onBack: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("GLASS LAB", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
             Text("玻璃调试", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-            Text("一次只显示一组参数，避免超长展开拖慢 OpenGL 玻璃。", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+            Text("按渲染路径整理参数：背景缓存、天空装饰、OpenGL 水滴和 Compose 玻璃。", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
         }
     }
 }
 
 @Composable
 private fun DebugTabRow(state: AssistantUiState, selected: String, onSelected: (String) -> Unit) {
-    val tabs = listOf("背景", "天空", "折射", "边缘", "边框")
+    val tabs = listOf("背景", "天空", "OpenGL", "Compose")
     GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Flex) {
         Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             tabs.chunked(3).forEach { row ->
@@ -313,40 +312,37 @@ private fun SkyDebugGroup(state: AssistantUiState, onBackdropChange: (BackdropDe
 
 @Composable
 private fun OpenGlDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
-    Text("范围故意放大，方便拉爆调参；最终预设先不改。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    DebugSliderRow("调试橙线", "显示真实 SDF 边界", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
+    Text("这一组只放真正参与 OpenGL / AGSL 水滴折射的参数。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    DebugSliderRow("调试边界线", "显示真实 SDF 边界", state.glassBorderStyle.openGlDebugLineAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDebugLineAlpha = it)) }
     DebugSliderRow("整体可见度", "OpenGL 玻璃层存在感", state.glassBorderStyle.openGlVisibility, 0f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlVisibility = it)) }
-    DebugSliderRow("主体 Alpha", "整体材质不透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
-    DebugSliderRow("背景亮度", "玻璃内部采样亮度", state.glassBorderStyle.edgeBrightness, -2f..6f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
-    DebugSliderRow("主体折射 px", "中心区域轻微连续折射", state.glassBorderStyle.openGlPullScale, -1200f..1200f, state) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
+    DebugSliderRow("主体 Alpha", "水滴主体透明度", state.glassBorderStyle.openGlMaxAlpha, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlMaxAlpha = it)) }
+    DebugSliderRow("背景亮度", "OpenGL 采样背景亮度", state.glassBorderStyle.edgeBrightness, -2f..6f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBrightness = it)) }
+    DebugSliderRow("主体折射 px", "中心区域连续折射强度", state.glassBorderStyle.openGlPullScale, -1200f..1200f, state) { onBorderChange(state.glassBorderStyle.copy(openGlPullScale = it)) }
     DebugSliderRow("边缘折射 px", "边缘把背景向内/外拉动", state.glassBorderStyle.edgePullDp, -2400f..2400f, state) { onBorderChange(state.glassBorderStyle.copy(edgePullDp = it)) }
-    DebugSliderRow("边缘宽度 px", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
+    DebugSliderRow("折射边宽 px", "透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
     DebugSliderRow("清晰混入", "清晰纹理参与折射比例", state.glassBorderStyle.openGlCompressionScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
-    DebugSliderRow("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
-    DebugSliderRow("额外模糊 px", "全局折射区再柔化基准", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+    DebugSliderRow("梯度厚度", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
+    DebugSliderRow("全局柔化 px", "全局折射区再柔化基准", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
     DebugSliderRow("中心采样", "0 直接采模糊缓存，1 恢复中心 9 点柔化", state.glassBorderStyle.openGlCenterSampleMix, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleMix = it)) }
     DebugSliderRow("中心半径", "中心额外柔化半径倍率", state.glassBorderStyle.openGlCenterSampleRadiusScale, 0f..3f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleRadiusScale = it)) }
     DebugSliderRow("边缘采样", "边缘 9 点柔化保留比例", state.glassBorderStyle.openGlEdgeSampleMix, 0f..1.5f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleMix = it)) }
     DebugSliderRow("边缘增强", "边缘采样半径额外放大", state.glassBorderStyle.openGlEdgeSampleRadiusBoost, 0f..1.5f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleRadiusBoost = it)) }
     DebugSliderRow("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
+    DebugSliderRow("备用边宽", "备用 OpenGL 边缘宽度倍率", state.glassBorderStyle.openGlEdgeWidthScale, -20f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
+    DebugSliderRow("备用高光", "备用 OpenGL 镜面高光倍率", state.glassBorderStyle.openGlSpecularScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
+    DebugSliderRow("备用色散", "备用 RGB 边缘分离倍率", state.glassBorderStyle.openGlChromaticScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
 }
 
 @Composable
-private fun EdgeCompatDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
-    DebugSliderRow("边缘 Alpha", "兼容边缘整体强度", state.glassBorderStyle.edgeAlpha, 0f..2f, state) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
-    DebugSliderRow("边缘模糊 px", "兼容边缘柔化半径", state.glassBorderStyle.edgeBlurDp, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
-    DebugSliderRow("边缘对比度", "兼容边缘背景反差", state.glassBorderStyle.edgeContrast, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
-    DebugSliderRow("边缘饱和度", "兼容边缘颜色浓度", state.glassBorderStyle.edgeSaturation, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
-    DebugSliderRow("边缘宽度倍率", "备用 OpenGL 边缘宽度", state.glassBorderStyle.openGlEdgeWidthScale, -20f..20f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeWidthScale = it)) }
-    DebugSliderRow("镜面高光倍率", "备用 OpenGL 高光强度", state.glassBorderStyle.openGlSpecularScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSpecularScale = it)) }
-    DebugSliderRow("色散倍率", "备用 RGB 边缘分离", state.glassBorderStyle.openGlChromaticScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlChromaticScale = it)) }
-}
-
-@Composable
-private fun LegacyBorderDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
+private fun ComposeGlassDebugGroup(state: AssistantUiState, onBorderChange: (GlassBorderStyle) -> Unit) {
+    Text("这一组只放普通 Compose 玻璃的雾面、边缘、高光和阴影。", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    DebugSliderRow("边缘 Alpha", "Compose 兼容边缘整体强度", state.glassBorderStyle.edgeAlpha, 0f..2f, state) { onBorderChange(state.glassBorderStyle.copy(edgeAlpha = it)) }
+    DebugSliderRow("边缘模糊 px", "Compose 兼容边缘柔化半径", state.glassBorderStyle.edgeBlurDp, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(edgeBlurDp = it.roundToInt().toFloat())) }
+    DebugSliderRow("边缘对比度", "Compose 边缘背景反差", state.glassBorderStyle.edgeContrast, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeContrast = it)) }
+    DebugSliderRow("边缘饱和度", "Compose 边缘颜色浓度", state.glassBorderStyle.edgeSaturation, 0.00f..8.00f, state) { onBorderChange(state.glassBorderStyle.copy(edgeSaturation = it)) }
     DebugSliderRow("主体雾面", "玻璃中心雾面覆盖", state.glassBorderStyle.bodyAlpha, -5f..5f, state) { onBorderChange(state.glassBorderStyle.copy(bodyAlpha = it)) }
-    DebugSliderRow("外边框", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
-    DebugSliderRow("内边框", "内侧细线高光", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
+    DebugSliderRow("外轮廓高光", "最外层轮廓高光", state.glassBorderStyle.outerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(outerStrokeAlpha = it)) }
+    DebugSliderRow("内侧细线", "内侧细线高光", state.glassBorderStyle.innerStrokeAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(innerStrokeAlpha = it)) }
     DebugSliderRow("顶部高光", "卡片顶部发亮边缘", state.glassBorderStyle.topHighlightAlpha, 0.00f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
     DebugSliderRow("底部暗边", "卡片底部压暗层", state.glassBorderStyle.bottomShadowAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
     DebugSliderRow("圆角 glint", "圆角小高光", state.glassBorderStyle.cornerGlintAlpha, 0f..2.00f, state) { onBorderChange(state.glassBorderStyle.copy(cornerGlintAlpha = it)) }
@@ -611,19 +607,17 @@ private fun Modifier.debugRowSkin(percent: Float): Modifier = drawWithCache {
 }
 
 private fun debugGroupTitle(group: String): String = when (group) {
-    "背景" -> "背景模糊缓存"
-    "天空" -> "天空细节"
-    "折射" -> "OpenGL 透明折射核心"
-    "边缘" -> "边缘兼容参数"
-    else -> "旧边框 / 雾面"
+    "背景" -> "背景缓存 / 毛玻璃底图"
+    "天空" -> "天空细节 / 默认背景"
+    "OpenGL" -> "OpenGL 水滴折射"
+    else -> "Compose 玻璃外观"
 }
 
 private fun debugGroupSubtitle(group: String): String = when (group) {
     "背景" -> "控制模糊 bitmap 的缓存、柔化和颜色处理。"
     "天空" -> "调默认夜空、云层和月牙的绘制参数。"
-    "折射" -> "真正影响 OpenGL / AGSL 玻璃透镜的核心参数。"
-    "边缘" -> "兼容路径和备用边缘参数，方便对比。"
-    else -> "旧边框高光和雾面参数，默认尽量保持克制。"
+    "OpenGL" -> "集中调 OpenGL / AGSL 透明水滴、折射、采样和色散。"
+    else -> "集中调普通 Compose 玻璃的雾面、边缘、边框、高光和阴影。"
 }
 
 private fun qualityLabelV2(quality: RenderQuality): String = when (quality) {
