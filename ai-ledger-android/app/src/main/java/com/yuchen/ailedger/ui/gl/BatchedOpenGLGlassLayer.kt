@@ -20,9 +20,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.BackdropCoordinateSource
@@ -35,43 +35,58 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val SIGNATURE_QUANTIZE = 4f
 
+class BatchedOpenGlClipSource(
+    val coordinates: GlassCoordinateSource,
+    val parent: BatchedOpenGlClipSource? = null
+)
+
+val LocalBatchedOpenGlClipSource = compositionLocalOf<BatchedOpenGlClipSource?> { null }
+val LocalBatchedOpenGlGlassRegistry = compositionLocalOf<BatchedOpenGlGlassRegistry?> { null }
+
 class BatchedOpenGlGlassRegistry {
-    private val items = linkedMapOf<Any, BatchedOpenGlGlassItem>()
+    private data class Entry(
+        val drawOrder: Long,
+        val item: BatchedOpenGlGlassItem
+    )
+
+    private val items = linkedMapOf<Any, Entry>()
+    private var nextDrawOrder = 0L
 
     fun upsert(item: BatchedOpenGlGlassItem) {
-        items[item.key] = item
+        val drawOrder = items[item.key]?.drawOrder ?: nextDrawOrder++
+        items[item.key] = Entry(drawOrder, item.copy(drawOrder = drawOrder))
     }
 
     fun remove(key: Any) {
         items.remove(key)
     }
 
-    fun snapshot(): Collection<BatchedOpenGlGlassItem> = items.values
+    fun snapshot(): List<BatchedOpenGlGlassItem> = items.values
+        .sortedBy { it.drawOrder }
+        .map { it.item }
 }
 
 data class BatchedOpenGlGlassItem(
     val key: Any,
     val coordinates: GlassCoordinateSource,
-    val radius: Int,
+    val radiusPx: Float,
     val role: GlassRole,
     val glassIntensity: Float,
-    val zIndex: Float = role.defaultOpenGlZIndex()
+    val clipSource: BatchedOpenGlClipSource?,
+    val drawOrder: Long = Long.MAX_VALUE
 )
 
-val LocalBatchedOpenGlGlassRegistry = compositionLocalOf<BatchedOpenGlGlassRegistry?> { null }
-
-private fun GlassRole.defaultOpenGlZIndex(): Float = when (this) {
-    GlassRole.Shell -> 30f
-    GlassRole.Flex -> 20f
-    GlassRole.Card -> 18f
-    GlassRole.Floating -> 40f
-    GlassRole.Nav -> 50f
-    GlassRole.Chip -> 10f
-}
+private data class ClipBounds(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
 
 private data class DrawItem(
     val left: Float,
@@ -82,17 +97,22 @@ private data class DrawItem(
     val originY: Float,
     val radiusPx: Float,
     val intensity: Float,
-    val zIndex: Float
+    val clipLeft: Float,
+    val clipTop: Float,
+    val clipRight: Float,
+    val clipBottom: Float,
+    val drawOrder: Long
 )
 
 @Composable
 fun RegisterBatchedOpenGlGlassItem(
     key: Any,
     coordinates: GlassCoordinateSource,
-    radius: Int,
+    radiusPx: Float,
     role: GlassRole,
     glassIntensity: Float,
-    enabled: Boolean
+    enabled: Boolean,
+    clipSource: BatchedOpenGlClipSource?
 ) {
     val registry = LocalBatchedOpenGlGlassRegistry.current
     if (enabled && registry != null) {
@@ -101,9 +121,10 @@ fun RegisterBatchedOpenGlGlassItem(
                 BatchedOpenGlGlassItem(
                     key = key,
                     coordinates = coordinates,
-                    radius = radius,
+                    radiusPx = radiusPx,
                     role = role,
-                    glassIntensity = glassIntensity
+                    glassIntensity = glassIntensity,
+                    clipSource = clipSource
                 )
             )
         }
@@ -139,7 +160,6 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                 val dirtyD = view.setGeometrySource(
                     registry = registry,
                     origin = origin,
-                    densityScale = density.density,
                     rootW = rootW,
                     rootH = rootH
                 )
@@ -162,7 +182,6 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     private var lastItemSignature = 0
     private var registry: BatchedOpenGlGlassRegistry? = null
     private var origin: BackdropCoordinateSource? = null
-    private var densityScale = 1f
     private var frameCallbackPosted = false
     private var preDrawObserver: ViewTreeObserver? = null
 
@@ -228,21 +247,17 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     fun setGeometrySource(
         registry: BatchedOpenGlGlassRegistry?,
         origin: BackdropCoordinateSource?,
-        densityScale: Float,
         rootW: Float,
         rootH: Float
     ): Boolean {
         val nextRootW = rootW.coerceAtLeast(1f)
         val nextRootH = rootH.coerceAtLeast(1f)
-        val nextDensityScale = densityScale.coerceAtLeast(0.01f)
         val dirty = this.registry !== registry ||
             this.origin !== origin ||
-            this.densityScale != nextDensityScale ||
             this.rootW != nextRootW ||
             this.rootH != nextRootH
         this.registry = registry
         this.origin = origin
-        this.densityScale = nextDensityScale
         this.rootW = nextRootW
         this.rootH = nextRootH
         if (dirty) syncFrameGeometry(force = true)
@@ -335,6 +350,10 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
             if (size.width <= 0 || size.height <= 0) return@mapNotNull null
             val topLeft = item.coordinates.rootOffset()
             val sample = item.coordinates.offsetRelativeTo(origin)
+            val clip = resolveClipBounds(item.clipSource)
+            val right = topLeft.x + size.width.toFloat()
+            val bottom = topLeft.y + size.height.toFloat()
+            if (right <= clip.left || bottom <= clip.top || topLeft.x >= clip.right || topLeft.y >= clip.bottom) return@mapNotNull null
             DrawItem(
                 left = topLeft.x,
                 top = topLeft.y,
@@ -342,16 +361,46 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
                 height = size.height.toFloat(),
                 originX = sample.x,
                 originY = sample.y,
-                radiusPx = item.radius * densityScale,
+                radiusPx = item.radiusPx,
                 intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
-                zIndex = item.zIndex
+                clipLeft = clip.left,
+                clipTop = clip.top,
+                clipRight = clip.right,
+                clipBottom = clip.bottom,
+                drawOrder = item.drawOrder
             )
         }.filter { item ->
             item.left < viewportHintW &&
                 item.top < viewportHintH &&
                 item.left + item.width > 0f &&
                 item.top + item.height > 0f
-        }.sortedBy { it.zIndex }
+        }.sortedBy { it.drawOrder }
+    }
+
+    private fun resolveClipBounds(source: BatchedOpenGlClipSource?): ClipBounds {
+        var left = 0f
+        var top = 0f
+        var right = viewportHintW.toFloat()
+        var bottom = viewportHintH.toFloat()
+        var current = source
+        while (current != null) {
+            val coordinates = current.coordinates.coordinates
+            if (coordinates != null && coordinates.isAttached) {
+                val offset = coordinates.localToRoot(Offset.Zero)
+                val size = coordinates.size
+                left = max(left, offset.x)
+                top = max(top, offset.y)
+                right = min(right, offset.x + size.width.toFloat())
+                bottom = min(bottom, offset.y + size.height.toFloat())
+            }
+            current = current.parent
+        }
+        return ClipBounds(
+            left = left.coerceIn(0f, viewportHintW.toFloat()),
+            top = top.coerceIn(0f, viewportHintH.toFloat()),
+            right = right.coerceIn(0f, viewportHintW.toFloat()),
+            bottom = bottom.coerceIn(0f, viewportHintH.toFloat())
+        )
     }
 }
 
@@ -367,6 +416,11 @@ private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
         result = result * 31 + q(item.originY)
         result = result * 31 + q(item.radiusPx)
         result = result * 31 + q(item.intensity * 100f)
+        result = result * 31 + q(item.clipLeft)
+        result = result * 31 + q(item.clipTop)
+        result = result * 31 + q(item.clipRight)
+        result = result * 31 + q(item.clipBottom)
+        result = result * 31 + item.drawOrder.hashCode()
     }
     return result
 }
@@ -494,6 +548,7 @@ private class BatchedOpenGlGlassRenderer {
     private var rootHandle = 0
     private var rectHandle = 0
     private var radiusHandle = 0
+    private var clipHandle = 0
     private var textureReadyHandle = 0
     private var materialHandle = 0
     private var refractionHandle = 0
@@ -530,6 +585,7 @@ private class BatchedOpenGlGlassRenderer {
         rootHandle = GLES20.glGetUniformLocation(program, "uRootResolution")
         rectHandle = GLES20.glGetUniformLocation(program, "uRect")
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
+        clipHandle = GLES20.glGetUniformLocation(program, "uClipRect")
         textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
         materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
         refractionHandle = GLES20.glGetUniformLocation(program, "uRefraction")
@@ -595,6 +651,7 @@ private class BatchedOpenGlGlassRenderer {
         vertices.position(0)
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
+        GLES20.glUniform4f(clipHandle, item.clipLeft, item.clipTop, item.clipRight, item.clipBottom)
         GLES20.glUniform1f(radiusHandle, item.radiusPx.coerceIn(2f, max(item.width, item.height)))
         GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-5f, 5f), currentStyle.bodyAlpha.coerceIn(-5f, 5f))
         GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertices)
@@ -686,6 +743,7 @@ private class BatchedOpenGlGlassRenderer {
             uniform vec2 uCardOrigin;
             uniform vec2 uRootResolution;
             uniform vec4 uRect;
+            uniform vec4 uClipRect;
             uniform float uRadius;
             uniform float uTextureReady;
             uniform vec4 uMaterial;
@@ -748,6 +806,7 @@ private class BatchedOpenGlGlassRenderer {
 
             void main() {
                 vec2 screenCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+                if (screenCoord.x < uClipRect.x || screenCoord.y < uClipRect.y || screenCoord.x > uClipRect.z || screenCoord.y > uClipRect.w) discard;
                 vec2 coord = screenCoord - uRect.xy;
                 vec2 size = max(uRect.zw, vec2(1.0));
                 float radius = min(uRadius, min(size.x, size.y) * 0.5);
