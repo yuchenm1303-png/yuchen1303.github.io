@@ -84,7 +84,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(state.quality.enableMotion, state.motionIntensity) {
+        val shouldAnimateBackdrop = state.quality.enableMotion && state.motionIntensity > 0.02f
+        if (!shouldAnimateBackdrop) {
+            backdropTicker.frameNanos = 0L
+            return@LaunchedEffect
+        }
         while (true) {
             val frameTime = withFrameNanos { it }
             backdropTicker.frameNanos = frameTime
