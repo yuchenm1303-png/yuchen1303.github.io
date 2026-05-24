@@ -76,7 +76,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         theme = state.backgroundTheme,
         quality = state.quality,
         params = state.backdropParams,
-        customBackgroundPath = state.customBackgroundPath
+        customBackgroundPath = state.customBackgroundPath,
+        customBackgroundBlurPath = state.customBackgroundBlurPath
     )
 
     DisposableEffect(rootView) {
