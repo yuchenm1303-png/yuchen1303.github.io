@@ -25,7 +25,7 @@ data class AssistantPreferences(
     val quality: RenderQuality = RenderQuality.Balanced,
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
-    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Default,
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f
@@ -58,7 +58,7 @@ class AssistantPreferencesStore(
                     glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage)
                         ?: GlassPreset.Liquid,
                     backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
-                        ?: BackgroundTheme.Aurora,
+                        ?: BackgroundTheme.Default,
                     customBackgroundPath = customPath,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                     motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
