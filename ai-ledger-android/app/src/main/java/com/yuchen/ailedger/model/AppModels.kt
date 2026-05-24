@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.model
 
+const val BUILTIN_THEME_BACKGROUND_PATH = "__builtin_theme_background__"
+
 enum class AppTab(val title: String, val icon: String) {
     Assistant("AI助手", "AI"),
     Tools("功能", "✦"),
@@ -45,20 +47,14 @@ enum class GlassPreset(val label: String, val glassIntensity: Float, val motionI
 }
 
 enum class BackgroundTheme(val label: String, val storageValue: String) {
-    Default("默认壁纸", "default"),
-    Aurora("极光", "theme_aurora"),
-    Jade("翡翠海雾", "theme_jade"),
-    Sunset("暮色流光", "theme_sunset"),
-    Dawn("晨曦珍珠", "theme_dawn");
+    Aurora("极光", "aurora"),
+    Jade("翡翠海雾", "jade"),
+    Sunset("暮色流光", "sunset"),
+    Dawn("晨曦珍珠", "dawn");
 
     companion object {
-        val selectableThemes: List<BackgroundTheme>
-            get() = listOf(Aurora, Jade, Sunset, Dawn)
-
         fun fromStorage(value: String): BackgroundTheme {
-            val normalized = value.trim()
-            if (normalized in setOf("aurora", "jade", "sunset", "dawn")) return Default
-            return entries.firstOrNull { it.storageValue == normalized || it.name == normalized } ?: Default
+            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Aurora
         }
     }
 }
@@ -176,7 +172,7 @@ data class AssistantUiState(
     val quality: RenderQuality = RenderQuality.Balanced,
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
-    val backgroundTheme: BackgroundTheme = BackgroundTheme.Default,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
