@@ -28,6 +28,7 @@ data class AssistantPreferences(
     val glassPreset: GlassPreset = GlassPreset.Liquid,
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val customBackgroundPath: String? = null,
+    val customBackgroundBlurPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f
 )
@@ -43,6 +44,7 @@ class AssistantPreferencesStore(
         val glassPreset = stringPreferencesKey("glass_preset")
         val backgroundTheme = stringPreferencesKey("background_theme")
         val customBackgroundPath = stringPreferencesKey("custom_background_path")
+        val customBackgroundBlurPath = stringPreferencesKey("custom_background_blur_path")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
     }
@@ -54,6 +56,7 @@ class AssistantPreferencesStore(
             }
             .map { preferences ->
                 val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
+                val blurPath = preferences[Keys.customBackgroundBlurPath]?.takeIf { it.isNotBlank() }
                 AssistantPreferences(
                     quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
                         ?: RenderQuality.Balanced,
@@ -63,6 +66,7 @@ class AssistantPreferencesStore(
                     backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
                         ?: BackgroundTheme.Aurora,
                     customBackgroundPath = customPath,
+                    customBackgroundBlurPath = blurPath,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                     motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
                 )
@@ -91,10 +95,18 @@ class AssistantPreferencesStore(
                 if (pendingThemeSelection) preferences[Keys.customBackgroundPath] = BUILTIN_THEME_BACKGROUND_PATH
                 else preferences.remove(Keys.customBackgroundPath)
                 pendingThemeSelection = false
+                preferences.remove(Keys.customBackgroundBlurPath)
             } else {
                 pendingThemeSelection = false
                 preferences[Keys.customBackgroundPath] = path
             }
+        }
+    }
+
+    suspend fun setCustomBackgroundBlurPath(path: String?) {
+        context.assistantPreferencesDataStore.edit { preferences ->
+            if (path.isNullOrBlank()) preferences.remove(Keys.customBackgroundBlurPath)
+            else preferences[Keys.customBackgroundBlurPath] = path
         }
     }
 
