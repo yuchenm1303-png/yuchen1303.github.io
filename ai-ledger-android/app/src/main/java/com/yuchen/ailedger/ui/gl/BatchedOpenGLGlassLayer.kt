@@ -10,6 +10,7 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.opengl.GLUtils
+import android.view.Choreographer
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,9 +24,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.BackdropCoordinateSource
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassRole
-import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
@@ -117,35 +118,15 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val origin = LocalBackdropOrigin.current
-    val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    ticker?.frameNanos
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
 
     BoxWithConstraints(modifier = modifier) {
         val viewportW = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
         val viewportH = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-        val items = registry?.snapshot().orEmpty().mapNotNull { item ->
-            if (!item.coordinates.isAttached()) return@mapNotNull null
-            val size = item.coordinates.itemSize()
-            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
-            val topLeft = item.coordinates.rootOffset()
-            val sample = item.coordinates.offsetRelativeTo(origin)
-            DrawItem(
-                left = topLeft.x,
-                top = topLeft.y,
-                width = size.width.toFloat(),
-                height = size.height.toFloat(),
-                originX = sample.x,
-                originY = sample.y,
-                radiusPx = with(density) { item.radius.dp.toPx() },
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.35f),
-                zIndex = item.zIndex
-            )
-        }.filter { item ->
-            item.left < viewportW && item.top < viewportH && item.left + item.width > 0f && item.top + item.height > 0f
-        }.sortedBy { it.zIndex }
+        val rootW = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+        val rootH = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
 
         AndroidView(
             modifier = Modifier.matchParentSize(),
@@ -154,7 +135,13 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                 val dirtyA = view.setViewportHint(viewportW, viewportH)
                 val dirtyB = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val dirtyC = view.setGlassStyle(border)
-                val dirtyD = view.setItems(items, backdrop.fullWidthPx.toFloat(), backdrop.fullHeightPx.toFloat())
+                val dirtyD = view.setGeometrySource(
+                    registry = registry,
+                    origin = origin,
+                    densityScale = density.density,
+                    rootW = rootW,
+                    rootH = rootH
+                )
                 if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
         )
@@ -172,6 +159,16 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     private var viewportHintW = 1
     private var viewportHintH = 1
     private var lastItemSignature = 0
+    private var registry: BatchedOpenGlGlassRegistry? = null
+    private var origin: BackdropCoordinateSource? = null
+    private var densityScale = 1f
+    private var frameCallbackPosted = false
+
+    private val frameCallback = Choreographer.FrameCallback {
+        frameCallbackPosted = false
+        syncFrameGeometry()
+        scheduleFrameSync()
+    }
 
     init {
         isOpaque = false
@@ -182,10 +179,25 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        scheduleFrameSync()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopFrameSync()
+        thread?.shutdown()
+        thread = null
+        super.onDetachedFromWindow()
+    }
+
     fun setViewportHint(w: Int, h: Int): Boolean {
-        val dirty = w != viewportHintW || h != viewportHintH
-        viewportHintW = max(w, 1)
-        viewportHintH = max(h, 1)
+        val nextW = max(w, 1)
+        val nextH = max(h, 1)
+        val dirty = nextW != viewportHintW || nextH != viewportHintH
+        viewportHintW = nextW
+        viewportHintH = nextH
+        if (dirty) syncFrameGeometry(force = true)
         return dirty
     }
 
@@ -204,16 +216,28 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         return dirty
     }
 
-    fun setItems(next: List<DrawItem>, rootW: Float, rootH: Float): Boolean {
-        val signature = next.fastSignature(rootW, rootH)
-        val dirty = signature != lastItemSignature
-        if (dirty) {
-            items = next
-            this.rootW = rootW.coerceAtLeast(1f)
-            this.rootH = rootH.coerceAtLeast(1f)
-            lastItemSignature = signature
-            thread?.setItems(next, this.rootW, this.rootH)
-        }
+    fun setGeometrySource(
+        registry: BatchedOpenGlGlassRegistry?,
+        origin: BackdropCoordinateSource?,
+        densityScale: Float,
+        rootW: Float,
+        rootH: Float
+    ): Boolean {
+        val nextRootW = rootW.coerceAtLeast(1f)
+        val nextRootH = rootH.coerceAtLeast(1f)
+        val nextDensityScale = densityScale.coerceAtLeast(0.01f)
+        val dirty = this.registry !== registry ||
+            this.origin !== origin ||
+            this.densityScale != nextDensityScale ||
+            this.rootW != nextRootW ||
+            this.rootH != nextRootH
+        this.registry = registry
+        this.origin = origin
+        this.densityScale = nextDensityScale
+        this.rootW = nextRootW
+        this.rootH = nextRootH
+        if (dirty) syncFrameGeometry(force = true)
+        scheduleFrameSync()
         return dirty
     }
 
@@ -229,19 +253,75 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
             if (b != null && l != null) it.setBackdropTextures(b, l)
             it.start()
         }
+        syncFrameGeometry(force = true)
+        scheduleFrameSync()
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         thread?.resize(width, height)
+        syncFrameGeometry(force = true)
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        stopFrameSync()
         thread?.shutdown()
         thread = null
         return true
     }
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+
+    private fun scheduleFrameSync() {
+        if (!isAttachedToWindow || thread == null || frameCallbackPosted) return
+        frameCallbackPosted = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private fun stopFrameSync() {
+        if (!frameCallbackPosted) return
+        frameCallbackPosted = false
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+    }
+
+    private fun syncFrameGeometry(force: Boolean = false): Boolean {
+        val next = buildFrameItems()
+        val signature = next.fastSignature(rootW, rootH)
+        val dirty = force || signature != lastItemSignature
+        if (dirty) {
+            items = next
+            lastItemSignature = signature
+            thread?.setItems(next, rootW, rootH)
+            thread?.requestRender()
+        }
+        return dirty
+    }
+
+    private fun buildFrameItems(): List<DrawItem> {
+        val currentRegistry = registry ?: return emptyList()
+        return currentRegistry.snapshot().mapNotNull { item ->
+            if (!item.coordinates.isAttached()) return@mapNotNull null
+            val size = item.coordinates.itemSize()
+            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
+            val topLeft = item.coordinates.rootOffset()
+            val sample = item.coordinates.offsetRelativeTo(origin)
+            DrawItem(
+                left = topLeft.x,
+                top = topLeft.y,
+                width = size.width.toFloat(),
+                height = size.height.toFloat(),
+                originX = sample.x,
+                originY = sample.y,
+                radiusPx = item.radius * densityScale,
+                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
+                zIndex = item.zIndex
+            )
+        }.filter { item ->
+            item.left < viewportHintW &&
+                item.top < viewportHintH &&
+                item.left + item.width > 0f &&
+                item.top + item.height > 0f
+        }.sortedBy { it.zIndex }
+    }
 }
 
 private fun List<DrawItem>.fastSignature(rootW: Float, rootH: Float): Int {
