@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
-import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
@@ -35,6 +34,10 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val GLASS_SPEC_EPSILON_PX = 0.5f
+private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
+private const val GLASS_INTENSITY_EPSILON = 0.006f
 
 @Composable
 fun OpenGLGlassCardLayer(
@@ -46,10 +49,8 @@ fun OpenGLGlassCardLayer(
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val backdropOrigin = LocalBackdropOrigin.current
-    val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val rootView = LocalView.current
-    val frameNanos = ticker?.frameNanos ?: 0L
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -72,7 +73,9 @@ fun OpenGLGlassCardLayer(
                 val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (rootDirty || specDirty || samplingDirty || preDrawSamplingDirty || textureDirty || styleDirty || frameNanos >= 0L) view.requestRender()
+                if (rootDirty || specDirty || samplingDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
+                    view.requestRender()
+                }
             }
         )
     }
@@ -158,10 +161,10 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
         val nextWidth = width.coerceAtLeast(1f)
         val nextHeight = height.coerceAtLeast(1f)
-        val dirty = abs(nextWidth - latestWidth) > 0.5f ||
-            abs(nextHeight - latestHeight) > 0.5f ||
-            abs(radius - latestRadius) > 0.5f ||
-            abs(intensity - latestIntensity) > 0.006f
+        val dirty = abs(nextWidth - latestWidth) > GLASS_SPEC_EPSILON_PX ||
+            abs(nextHeight - latestHeight) > GLASS_SPEC_EPSILON_PX ||
+            abs(radius - latestRadius) > GLASS_SPEC_EPSILON_PX ||
+            abs(intensity - latestIntensity) > GLASS_INTENSITY_EPSILON
         latestWidth = nextWidth
         latestHeight = nextHeight
         latestRadius = radius
@@ -173,10 +176,10 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
         val nextRootWidth = rootWidth.coerceAtLeast(1f)
         val nextRootHeight = rootHeight.coerceAtLeast(1f)
-        val dirty = abs(originX - latestOriginX) > 0.05f ||
-            abs(originY - latestOriginY) > 0.05f ||
-            abs(nextRootWidth - latestRootWidth) > 0.5f ||
-            abs(nextRootHeight - latestRootHeight) > 0.5f
+        val dirty = abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
+            abs(originY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
+            abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
+            abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
         latestOriginX = originX
         latestOriginY = originY
         latestRootWidth = nextRootWidth
@@ -345,6 +348,18 @@ private class CardGlassEglThread(
     }
 }
 
+private data class CardGlassDrawSpec(
+    val cardWidth: Float,
+    val cardHeight: Float,
+    val cardRadius: Float,
+    val cardIntensity: Float,
+    val cardOriginX: Float,
+    val cardOriginY: Float,
+    val rootWidth: Float,
+    val rootHeight: Float,
+    val style: GlassBorderStyle
+)
+
 private class OpenGLGlassCardRenderer {
     private val quadVertices: FloatBuffer = ByteBuffer
         .allocateDirect(FULLSCREEN_QUAD.size * Float.SIZE_BYTES)
@@ -356,6 +371,7 @@ private class OpenGLGlassCardRenderer {
         }
 
     private val textureLock = Any()
+    private val specLock = Any()
     private var pendingBlurBitmap: Bitmap? = null
     private var pendingLensBitmap: Bitmap? = null
     private var activeBlurBitmap: Bitmap? = null
@@ -392,17 +408,21 @@ private class OpenGLGlassCardRenderer {
     private var viewportHeight = 1
 
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float) {
-        cardWidth = width.coerceAtLeast(1f)
-        cardHeight = height.coerceAtLeast(1f)
-        cardRadius = radius
-        cardIntensity = intensity
+        synchronized(specLock) {
+            cardWidth = width.coerceAtLeast(1f)
+            cardHeight = height.coerceAtLeast(1f)
+            cardRadius = radius
+            cardIntensity = intensity
+        }
     }
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
-        cardOriginX = originX
-        cardOriginY = originY
-        this.rootWidth = rootWidth.coerceAtLeast(1f)
-        this.rootHeight = rootHeight.coerceAtLeast(1f)
+        synchronized(specLock) {
+            cardOriginX = originX
+            cardOriginY = originY
+            this.rootWidth = rootWidth.coerceAtLeast(1f)
+            this.rootHeight = rootHeight.coerceAtLeast(1f)
+        }
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
@@ -413,7 +433,9 @@ private class OpenGLGlassCardRenderer {
     }
 
     fun setGlassStyle(style: GlassBorderStyle) {
-        this.style = style
+        synchronized(specLock) {
+            this.style = style
+        }
     }
 
     fun onSurfaceCreated() {
@@ -455,13 +477,28 @@ private class OpenGLGlassCardRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
+        val drawSpec = synchronized(specLock) {
+            CardGlassDrawSpec(
+                cardWidth = cardWidth,
+                cardHeight = cardHeight,
+                cardRadius = cardRadius,
+                cardIntensity = cardIntensity,
+                cardOriginX = cardOriginX,
+                cardOriginY = cardOriginY,
+                rootWidth = rootWidth,
+                rootHeight = rootHeight,
+                style = style
+            )
+        }
+        val style = drawSpec.style
+
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
-        GLES20.glUniform2f(cardOriginHandle, cardOriginX, cardOriginY)
-        GLES20.glUniform2f(rootResolutionHandle, rootWidth, rootHeight)
-        GLES20.glUniform4f(rectHandle, 0f, 0f, cardWidth, cardHeight)
-        GLES20.glUniform1f(radiusHandle, cardRadius.coerceIn(2f, max(cardWidth, cardHeight)))
-        GLES20.glUniform1f(intensityHandle, cardIntensity)
+        GLES20.glUniform2f(cardOriginHandle, drawSpec.cardOriginX, drawSpec.cardOriginY)
+        GLES20.glUniform2f(rootResolutionHandle, drawSpec.rootWidth, drawSpec.rootHeight)
+        GLES20.glUniform4f(rectHandle, 0f, 0f, drawSpec.cardWidth, drawSpec.cardHeight)
+        GLES20.glUniform1f(radiusHandle, drawSpec.cardRadius.coerceIn(2f, max(drawSpec.cardWidth, drawSpec.cardHeight)))
+        GLES20.glUniform1f(intensityHandle, drawSpec.cardIntensity)
         GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
         GLES20.glUniform4f(
             materialHandle,
