@@ -50,7 +50,8 @@ fun rememberBlurredBackdropBitmap(
     theme: BackgroundTheme,
     quality: RenderQuality,
     params: BackdropDebugParams = BackdropDebugParams(),
-    customBackgroundPath: String? = null
+    customBackgroundPath: String? = null,
+    customBackgroundBlurPath: String? = null
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
     val context = view.context
@@ -66,7 +67,10 @@ fun rememberBlurredBackdropBitmap(
         BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
         else -> {
             val file = File(customBackgroundPath)
-            if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
+            val blurFile = customBackgroundBlurPath?.let(::File)
+            val baseKey = if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
+            val blurKey = if (blurFile?.exists() == true) "blur:${blurFile.absolutePath}:${blurFile.lastModified()}:${blurFile.length()}" else "blur:missing"
+            "$baseKey|$blurKey"
         }
     }
     var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
@@ -81,6 +85,7 @@ fun rememberBlurredBackdropBitmap(
                     theme = theme,
                     params = params.quantized(),
                     customBackgroundPath = customBackgroundPath,
+                    customBackgroundBlurPath = customBackgroundBlurPath,
                     presetBitmap = decodePresetNightSkyBitmap(context)
                 )
             }.getOrNull()
@@ -132,11 +137,15 @@ private fun buildBlurredBackdropBitmap(
     theme: BackgroundTheme,
     params: BackdropDebugParams,
     customBackgroundPath: String?,
+    customBackgroundBlurPath: String?,
     presetBitmap: Bitmap?
 ): BlurredBackdropBitmap {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
-    val sourceScale = if (useDefaultWallpaper) 0.24f else params.scale.coerceIn(0.18f, 0.72f)
+    val cachedBlurFile = customBackgroundBlurPath
+        ?.let(::File)
+        ?.takeIf { it.exists() && !useThemePreset && !useDefaultWallpaper }
+    val sourceScale = if (useDefaultWallpaper || cachedBlurFile != null) 0.24f else params.scale.coerceIn(0.18f, 0.72f)
     val smallWidth = (fullWidth * sourceScale).roundToInt().coerceAtLeast(128)
     val smallHeight = (fullHeight * sourceScale).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
@@ -157,9 +166,17 @@ private fun buildBlurredBackdropBitmap(
         saturation = params.saturation.coerceIn(0.50f, 1.60f)
     )
 
-    val blurRadius = if (useDefaultWallpaper) params.radius.roundToInt().coerceIn(1, 18) else params.radius.roundToInt().coerceIn(1, 32)
-    val blurIterations = if (useDefaultWallpaper) params.iterations.roundToInt().coerceIn(1, 3) else params.iterations.roundToInt().coerceIn(1, 8)
-    val blurred = boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
+    val blurred = if (cachedBlurFile != null) {
+        Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888).also { cached ->
+            if (!drawCustomImageBackdropSource(cached, cachedBlurFile.absolutePath)) {
+                drawBitmapCoverIntoTarget(source, cached)
+            }
+        }
+    } else {
+        val blurRadius = if (useDefaultWallpaper) params.radius.roundToInt().coerceIn(1, 18) else params.radius.roundToInt().coerceIn(1, 32)
+        val blurIterations = if (useDefaultWallpaper) params.iterations.roundToInt().coerceIn(1, 3) else params.iterations.roundToInt().coerceIn(1, 8)
+        boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
+    }
     val tuned = tuneBitmapTone(
         input = blurred,
         brightness = params.brightness.coerceIn(0.70f, 1.35f),
