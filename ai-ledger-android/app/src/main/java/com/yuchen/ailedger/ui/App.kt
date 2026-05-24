@@ -18,12 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -54,29 +49,23 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val compactDensity = remember(density.density, density.fontScale) {
-        Density(
-            density = density.density * COMPACT_DP_SCALE,
-            fontScale = density.fontScale * COMPACT_FONT_SCALE
-        )
+        Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
-    val actionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
+    remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
-    val backgroundPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
+    val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
     }
-    val assistantImagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> viewModel.onImagePickedForAssistant(uri) }
+    val assistantImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        viewModel.onImagePickedForAssistant(uri)
+    }
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
         params = state.backdropParams,
-        customBackgroundPath = state.customBackgroundPath,
-        customBackgroundBlurPath = state.customBackgroundBlurPath
+        customBackgroundPath = state.customBackgroundPath
     )
 
     DisposableEffect(rootView) {
@@ -91,23 +80,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             backdropTicker.frameNanos = 0L
             return@LaunchedEffect
         }
-        while (true) {
-            val frameTime = withFrameNanos { it }
-            backdropTicker.frameNanos = frameTime
-        }
+        while (true) backdropTicker.frameNanos = withFrameNanos { it }
     }
 
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
                 LocalOverscrollConfiguration provides null,
-                LocalGlassBackdrop provides GlassBackdropSpec(
-                    quality = state.quality,
-                    motionIntensity = state.motionIntensity,
-                    theme = state.backgroundTheme,
-                    params = state.backdropParams,
-                    borderStyle = state.glassBorderStyle
-                ),
+                LocalGlassBackdrop provides GlassBackdropSpec(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle),
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
@@ -120,28 +100,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         theme = state.backgroundTheme,
                         params = state.backdropParams,
                         customBackgroundPath = state.customBackgroundPath,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onPlaced { backdropOrigin.coordinates = it }
+                        modifier = Modifier.fillMaxSize().onPlaced { backdropOrigin.coordinates = it }
                     )
-
-                    if (!ENABLE_OPENGL_GLASS_PROBE) {
-                        UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    }
-
-                    OpenGLGlassProbeLayer(
-                        enabled = ENABLE_OPENGL_GLASS_PROBE,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
+                    if (!ENABLE_OPENGL_GLASS_PROBE) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding()
-                                .navigationBarsPadding()
-                                .padding(horizontal = 12.dp)
-                        ) {
+                        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
                             when (state.currentTab) {
                                 AppTab.Assistant -> AssistantScreenV2(
                                     state = state,
@@ -149,11 +113,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onSend = viewModel::submitComposer,
                                     onDraftCommand = viewModel::insertCommandDraft,
                                     onModelSelected = viewModel::selectModel,
-                                    onPickImage = {
-                                        assistantImagePicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
+                                    onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     onOpenTools = { viewModel.selectTab(AppTab.Tools) },
                                     onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
                                     onToggleOnline = viewModel::toggleOnline
@@ -182,33 +142,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onMotionIntensityChange = viewModel::setMotionIntensity,
                                     onBackdropChange = viewModel::setBackdropDebugParams,
                                     onBorderChange = viewModel::setGlassBorderStyle,
-                                    onUploadBackgroundClick = {
-                                        backgroundPicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                        )
-                                    },
+                                    onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     onClearCustomBackgroundClick = viewModel::clearCustomBackground
                                 )
                             }
                         }
-
-                        BottomDockSeparationMist(
-                            quality = state.quality,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                        )
-
+                        BottomDockSeparationMist(state.quality, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
                         CompactLiquidBottomBar(
                             currentTab = state.currentTab,
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
                             onTabChange = viewModel::selectTab,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -223,19 +169,15 @@ private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier 
     val height = if (quality.enableMotion) 86.dp else 64.dp
     val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .blur(blur)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0x1208142C),
-                        Color(0x3E08142C),
-                        Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
-                    )
+        modifier = modifier.fillMaxWidth().height(height).blur(blur).background(
+            Brush.verticalGradient(
+                listOf(
+                    Color.Transparent,
+                    Color(0x1208142C),
+                    Color(0x3E08142C),
+                    Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
                 )
             )
+        )
     )
 }
