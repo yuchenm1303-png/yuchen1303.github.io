@@ -12,12 +12,15 @@ import android.opengl.GLES20
 import android.opengl.GLUtils
 import android.view.Surface
 import android.view.TextureView
+import android.view.View
+import android.view.ViewTreeObserver
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
@@ -45,6 +48,7 @@ fun OpenGLGlassCardLayer(
     val backdropOrigin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
+    val rootView = LocalView.current
     val frameNanos = ticker?.frameNanos ?: 0L
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
@@ -62,11 +66,13 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardTextureView(context) },
             update = { view ->
+                val rootDirty = view.setSamplingRootView(rootView)
                 val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
                 val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+                val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (specDirty || samplingDirty || textureDirty || styleDirty || frameNanos >= 0L) view.requestRender()
+                if (rootDirty || specDirty || samplingDirty || preDrawSamplingDirty || textureDirty || styleDirty || frameNanos >= 0L) view.requestRender()
             }
         )
     }
@@ -85,6 +91,14 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
     private var latestStyle = GlassBorderStyle()
+    private var samplingRootView: View? = null
+    private val windowLocation = IntArray(2)
+    private val rootWindowLocation = IntArray(2)
+    private var registeredPreDrawObserver: ViewTreeObserver? = null
+    private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
+        syncSamplingFromWindowPosition()
+        true
+    }
 
     init {
         isOpaque = false
@@ -93,6 +107,52 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         isClickable = false
         isFocusable = false
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        registerPreDrawListenerIfNeeded()
+        syncSamplingFromWindowPosition()
+    }
+
+    override fun onDetachedFromWindow() {
+        unregisterPreDrawListener()
+        super.onDetachedFromWindow()
+    }
+
+    fun setSamplingRootView(rootView: View): Boolean {
+        val dirty = samplingRootView !== rootView
+        samplingRootView = rootView
+        registerPreDrawListenerIfNeeded()
+        if (dirty) syncSamplingFromWindowPosition()
+        return dirty
+    }
+
+    fun syncSamplingFromWindowPosition(): Boolean {
+        if (!isAttachedToWindow || width <= 0 || height <= 0) return false
+        val root = samplingRootView ?: rootView ?: return false
+        getLocationInWindow(windowLocation)
+        root.getLocationInWindow(rootWindowLocation)
+        val originX = (windowLocation[0] - rootWindowLocation[0]).toFloat()
+        val originY = (windowLocation[1] - rootWindowLocation[1]).toFloat()
+        val dirty = setSamplingSpec(originX, originY, latestRootWidth, latestRootHeight)
+        if (dirty) requestRender()
+        return dirty
+    }
+
+    private fun registerPreDrawListenerIfNeeded() {
+        if (!isAttachedToWindow || registeredPreDrawObserver != null) return
+        val observer = viewTreeObserver
+        if (observer.isAlive) {
+            observer.addOnPreDrawListener(preDrawListener)
+            registeredPreDrawObserver = observer
+        }
+    }
+
+    private fun unregisterPreDrawListener() {
+        val observer = registeredPreDrawObserver
+        if (observer?.isAlive == true) observer.removeOnPreDrawListener(preDrawListener)
+        registeredPreDrawObserver = null
     }
 
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
@@ -121,7 +181,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         latestOriginY = originY
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
-        renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+        if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
         return dirty
     }
 
@@ -155,6 +215,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
             if (blur != null && lens != null) thread.setBackdropTextures(blur, lens)
             thread.start()
         }
+        syncSamplingFromWindowPosition()
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
