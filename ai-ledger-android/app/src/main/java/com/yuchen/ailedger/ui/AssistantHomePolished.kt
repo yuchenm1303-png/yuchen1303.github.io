@@ -63,6 +63,7 @@ import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -84,28 +85,67 @@ fun AssistantScreenV2(
             .padding(top = 12.dp, bottom = 68.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        AssistantHeroV2(
-            state = state,
-            onOpenTools = onOpenTools,
-            onOpenSettings = onOpenSettings
-        )
-        ModelAndNetworkPanel(
-            state = state,
-            onModelSelected = onModelSelected,
-            onToggleOnline = onToggleOnline
-        )
-        ChatPanelV2(
-            state = state,
+        AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
+            AssistantHeroV2(
+                state = state,
+                onOpenTools = onOpenTools,
+                onOpenSettings = onOpenSettings
+            )
+        }
+        AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
+            ModelAndNetworkPanel(
+                state = state,
+                onModelSelected = onModelSelected,
+                onToggleOnline = onToggleOnline
+            )
+        }
+        AssistantEntrance(
+            delayMs = 92,
             modifier = Modifier.weight(1f),
-            onDraftCommand = onDraftCommand,
-            onPickImage = onPickImage
-        )
-        ComposerBarV2(
-            state = state,
-            onComposerChange = onComposerChange,
-            onSend = onSend,
-            onPickImage = onPickImage
-        )
+            initialOffsetY = 30,
+            initialScale = 0.955f
+        ) {
+            ChatPanelV2(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                onDraftCommand = onDraftCommand,
+                onPickImage = onPickImage
+            )
+        }
+        AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
+            ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onPickImage = onPickImage
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssistantEntrance(
+    delayMs: Long,
+    modifier: Modifier = Modifier,
+    initialOffsetY: Int = 24,
+    initialScale: Float = 0.96f,
+    content: @Composable () -> Unit
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (delayMs > 0L) delay(delayMs)
+        visible = true
+    }
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+            slideInVertically(spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(100)) +
+            scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+    ) {
+        content()
     }
 }
 
