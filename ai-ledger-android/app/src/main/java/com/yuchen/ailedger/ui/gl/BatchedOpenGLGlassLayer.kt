@@ -88,9 +88,9 @@ class BatchedOpenGlGlassRegistry {
 
     fun snapshot(): List<BatchedOpenGlGlassItem> {
         if (dirty) {
-            cachedSnapshot = items.values
-                .sortedBy { it.drawOrder }
-                .map { it.item }
+            val next = ArrayList<BatchedOpenGlGlassItem>(items.size)
+            items.values.forEach { entry -> next.add(entry.item) }
+            cachedSnapshot = next
             dirty = false
         }
         return cachedSnapshot
@@ -367,37 +367,45 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
 
     private fun buildFrameItems(): List<DrawItem> {
         val currentRegistry = registry ?: return emptyList()
-        return currentRegistry.snapshot().mapNotNull { item ->
-            if (!item.coordinates.isAttached()) return@mapNotNull null
+        val snapshot = currentRegistry.snapshot()
+        if (snapshot.isEmpty()) return emptyList()
+
+        val result = ArrayList<DrawItem>(snapshot.size)
+        snapshot.forEach { item ->
+            if (!item.coordinates.isAttached()) return@forEach
             val size = item.coordinates.itemSize()
-            if (size.width <= 0 || size.height <= 0) return@mapNotNull null
+            if (size.width <= 0 || size.height <= 0) return@forEach
+
             val topLeft = item.coordinates.rootOffset()
-            val sample = item.coordinates.offsetRelativeTo(origin)
+            val itemWidth = size.width.toFloat()
+            val itemHeight = size.height.toFloat()
+            val right = topLeft.x + itemWidth
+            val bottom = topLeft.y + itemHeight
+            if (topLeft.x >= viewportHintW || topLeft.y >= viewportHintH || right <= 0f || bottom <= 0f) return@forEach
+
             val clip = resolveClipBounds(item.clipSource)
-            val right = topLeft.x + size.width.toFloat()
-            val bottom = topLeft.y + size.height.toFloat()
-            if (right <= clip.left || bottom <= clip.top || topLeft.x >= clip.right || topLeft.y >= clip.bottom) return@mapNotNull null
-            DrawItem(
-                left = topLeft.x,
-                top = topLeft.y,
-                width = size.width.toFloat(),
-                height = size.height.toFloat(),
-                originX = sample.x,
-                originY = sample.y,
-                radiusPx = item.radiusPx,
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
-                clipLeft = clip.left,
-                clipTop = clip.top,
-                clipRight = clip.right,
-                clipBottom = clip.bottom,
-                drawOrder = item.drawOrder
+            if (right <= clip.left || bottom <= clip.top || topLeft.x >= clip.right || topLeft.y >= clip.bottom) return@forEach
+
+            val sample = item.coordinates.offsetRelativeTo(origin)
+            result.add(
+                DrawItem(
+                    left = topLeft.x,
+                    top = topLeft.y,
+                    width = itemWidth,
+                    height = itemHeight,
+                    originX = sample.x,
+                    originY = sample.y,
+                    radiusPx = item.radiusPx,
+                    intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
+                    clipLeft = clip.left,
+                    clipTop = clip.top,
+                    clipRight = clip.right,
+                    clipBottom = clip.bottom,
+                    drawOrder = item.drawOrder
+                )
             )
-        }.filter { item ->
-            item.left < viewportHintW &&
-                item.top < viewportHintH &&
-                item.left + item.width > 0f &&
-                item.top + item.height > 0f
-        }.sortedBy { it.drawOrder }
+        }
+        return result
     }
 
     private fun resolveClipBounds(source: BatchedOpenGlClipSource?): ClipBounds {
@@ -658,7 +666,9 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lensTex)
         GLES20.glUniform1i(lensHandle, 1)
         GLES20.glEnableVertexAttribArray(positionHandle)
-        drawItems.forEach { item -> drawItem(item, currentStyle) }
+        for (index in drawItems.indices) {
+            drawItem(drawItems[index], currentStyle)
+        }
         GLES20.glDisableVertexAttribArray(positionHandle)
     }
 
@@ -669,9 +679,7 @@ private class BatchedOpenGlGlassRenderer {
         val r = (item.left + item.width) / viewportW.toFloat() * 2f - 1f
         val t = 1f - item.top / viewportH.toFloat() * 2f
         val b = 1f - (item.top + item.height) / viewportH.toFloat() * 2f
-        vertices.clear()
-        vertices.put(floatArrayOf(l, b, r, b, l, t, r, t))
-        vertices.position(0)
+        writeQuadVertices(l, b, r, t)
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
         GLES20.glUniform4f(clipHandle, item.clipLeft, item.clipTop, item.clipRight, item.clipBottom)
@@ -679,6 +687,18 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-5f, 5f), currentStyle.bodyAlpha.coerceIn(-5f, 5f))
         GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertices)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    private fun writeQuadVertices(l: Float, b: Float, r: Float, t: Float) {
+        vertices.put(0, l)
+        vertices.put(1, b)
+        vertices.put(2, r)
+        vertices.put(3, b)
+        vertices.put(4, l)
+        vertices.put(5, t)
+        vertices.put(6, r)
+        vertices.put(7, t)
+        vertices.position(0)
     }
 
     fun onRelease() {
