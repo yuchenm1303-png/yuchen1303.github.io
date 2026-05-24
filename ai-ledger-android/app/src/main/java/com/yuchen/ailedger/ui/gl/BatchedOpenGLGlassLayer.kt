@@ -140,7 +140,7 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                 originX = sample.x,
                 originY = sample.y,
                 radiusPx = with(density) { item.radius.dp.toPx() },
-                intensity = item.glassIntensity.coerceIn(0.35f, 1.30f),
+                intensity = item.glassIntensity.coerceIn(0.35f, 1.35f),
                 zIndex = item.zIndex
             )
         }.filter { item ->
@@ -459,8 +459,8 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glUniform2f(rootHandle, drawRootW, drawRootH)
         GLES20.glUniform1f(textureReadyHandle, if (ready) 1f else 0f)
         val currentStyle = style
-        GLES20.glUniform4f(refractionHandle, currentStyle.openGlPullScale.coerceIn(-240f, 240f), currentStyle.edgePullDp.coerceIn(-420f, 420f), currentStyle.openGlCompressionScale.coerceIn(-8f, 8f), currentStyle.openGlCornerScale.coerceIn(0f, 160f))
-        GLES20.glUniform4f(opticsHandle, currentStyle.openGlSampleRadiusScale.coerceIn(0f, 80f), currentStyle.ringWidthDp.coerceIn(0f, 220f), currentStyle.openGlDebugLineAlpha.coerceIn(0f, 1f), currentStyle.openGlDarkScale.coerceIn(-8f, 8f))
+        GLES20.glUniform4f(refractionHandle, currentStyle.openGlPullScale.coerceIn(-300f, 300f), currentStyle.edgePullDp.coerceIn(-600f, 600f), currentStyle.openGlCompressionScale.coerceIn(-10f, 10f), currentStyle.openGlCornerScale.coerceIn(0f, 200f))
+        GLES20.glUniform4f(opticsHandle, currentStyle.openGlSampleRadiusScale.coerceIn(0f, 200f), currentStyle.ringWidthDp.coerceIn(0f, 300f), currentStyle.openGlDebugLineAlpha.coerceIn(0f, 1f), currentStyle.openGlDarkScale.coerceIn(-10f, 10f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
         GLES20.glUniform1i(blurHandle, 0)
@@ -485,7 +485,7 @@ private class BatchedOpenGlGlassRenderer {
         GLES20.glUniform2f(originHandle, item.originX, item.originY)
         GLES20.glUniform4f(rectHandle, item.left, item.top, item.width, item.height)
         GLES20.glUniform1f(radiusHandle, item.radiusPx.coerceIn(2f, max(item.width, item.height)))
-        GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-4f, 4f), currentStyle.bodyAlpha.coerceIn(-4f, 4f))
+        GLES20.glUniform4f(materialHandle, currentStyle.openGlVisibility.coerceIn(0f, 20f), currentStyle.openGlMaxAlpha.coerceIn(0f, 1f) * item.intensity, currentStyle.edgeBrightness.coerceIn(-5f, 5f), currentStyle.bodyAlpha.coerceIn(-5f, 5f))
         GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, vertices)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
@@ -585,14 +585,14 @@ private class BatchedOpenGlGlassRenderer {
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
 
-            float roundedBoxSdf(vec2 local, vec2 size, float radius) {
-                vec2 p = local - size * 0.5;
+            float roundedBoxSdf(vec2 coord, vec2 size, float radius) {
+                vec2 p = coord - size * 0.5;
                 vec2 q = abs(p) - max(size * 0.5 - vec2(radius), vec2(0.0));
                 return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
             }
 
-            vec2 globalUv(vec2 localCoord) {
-                return clamp((uCardOrigin + localCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
+            vec2 globalUv(vec2 coord) {
+                return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
             }
 
             vec3 sampleBlur(vec2 uv) {
@@ -605,58 +605,82 @@ private class BatchedOpenGlGlassRenderer {
                 return mix(fallback, texture2D(uLensTexture, uv).rgb, sat(uTextureReady));
             }
 
-            vec2 sdfNormal(vec2 local, vec2 size, float radius) {
-                float d = 2.0;
-                float l = roundedBoxSdf(local - vec2(d, 0.0), size, radius);
-                float r = roundedBoxSdf(local + vec2(d, 0.0), size, radius);
-                float t = roundedBoxSdf(local - vec2(0.0, d), size, radius);
-                float b = roundedBoxSdf(local + vec2(0.0, d), size, radius);
+            vec2 sdfNormal(vec2 coord, vec2 size, float radius) {
+                float d = 1.5;
+                float l = roundedBoxSdf(coord - vec2(d, 0.0), size, radius);
+                float r = roundedBoxSdf(coord + vec2(d, 0.0), size, radius);
+                float t = roundedBoxSdf(coord - vec2(0.0, d), size, radius);
+                float b = roundedBoxSdf(coord + vec2(0.0, d), size, radius);
                 vec2 n = vec2(r - l, b - t);
                 return n / max(length(n), 0.001);
             }
 
+            float colorSignal(vec3 c) {
+                float luma = dot(c, vec3(0.299, 0.587, 0.114));
+                float chroma = length(c - vec3(luma));
+                return sat((luma - 0.18) * 1.35 + chroma * 1.6);
+            }
+
+            vec3 blur9(vec2 uv, float px) {
+                vec2 stepUv = vec2(px) / max(uRootResolution, vec2(1.0));
+                vec3 c = sampleBlur(uv) * 0.22;
+                c += sampleBlur(uv + vec2(stepUv.x, 0.0)) * 0.11;
+                c += sampleBlur(uv - vec2(stepUv.x, 0.0)) * 0.11;
+                c += sampleBlur(uv + vec2(0.0, stepUv.y)) * 0.11;
+                c += sampleBlur(uv - vec2(0.0, stepUv.y)) * 0.11;
+                c += sampleBlur(uv + stepUv) * 0.085;
+                c += sampleBlur(uv - stepUv) * 0.085;
+                c += sampleBlur(uv + vec2(stepUv.x, -stepUv.y)) * 0.085;
+                c += sampleBlur(uv + vec2(-stepUv.x, stepUv.y)) * 0.085;
+                return c;
+            }
+
             void main() {
                 vec2 screenCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
-                vec2 local = screenCoord - uRect.xy;
+                vec2 coord = screenCoord - uRect.xy;
                 vec2 size = max(uRect.zw, vec2(1.0));
                 float radius = min(uRadius, min(size.x, size.y) * 0.5);
-                float sd = roundedBoxSdf(local, size, radius);
+                float sd = roundedBoxSdf(coord, size, radius);
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
 
                 float inside = max(-sd, 0.0);
-                float edgeWidth = clamp(uOptics.y, 4.0, min(size.x, size.y) * 0.32);
+                float edgeWidth = clamp(uOptics.y, 3.0, min(size.x, size.y) * 0.34);
                 float edgeWide = 1.0 - smoothstep(0.0, edgeWidth, inside);
-                float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.26, 2.0), inside);
-                vec2 normal = sdfNormal(local, size, radius);
-                vec2 centerDir = normalize(local - size * 0.5 + vec2(0.001));
+                float edgeCore = 1.0 - smoothstep(0.0, max(edgeWidth * 0.30, 2.0), inside);
+                float edgeDragBand = pow(1.0 - smoothstep(0.0, max(edgeWidth * 1.45, 8.0), inside), 1.35);
+
+                vec2 normal = sdfNormal(coord, size, radius);
+                vec2 tangent = vec2(-normal.y, normal.x);
+                vec2 centerDir = normalize(coord - size * 0.5 + vec2(0.001));
                 vec2 dir = mix(centerDir, normal, edgeWide);
 
-                float bodyPull = uRefraction.x * 0.035 * (1.0 - edgeWide);
+                float bodyPull = uRefraction.x * 0.08 * (1.0 - edgeWide);
                 float edgePull = uRefraction.y * edgeWide;
                 vec2 offsetPx = dir * (bodyPull + edgePull);
-                float limitPx = mix(10.0, 42.0, edgeWide);
+                float limitPx = mix(12.0, 54.0, edgeWide) + sat(abs(uRefraction.y) / 600.0) * 14.0;
                 float lenPx = length(offsetPx);
                 offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
 
-                vec2 uv = globalUv(local + offsetPx);
-                vec3 base = sampleBlur(uv);
-                vec2 stepUv = vec2(max(uOptics.x, 0.0)) / max(uRootResolution, vec2(1.0));
-                vec3 soft = base * 0.52;
-                soft += sampleBlur(uv + vec2(stepUv.x, 0.0)) * 0.12;
-                soft += sampleBlur(uv - vec2(stepUv.x, 0.0)) * 0.12;
-                soft += sampleBlur(uv + vec2(0.0, stepUv.y)) * 0.12;
-                soft += sampleBlur(uv - vec2(0.0, stepUv.y)) * 0.12;
+                vec2 uv = globalUv(coord + offsetPx);
+                vec3 color = blur9(uv, max(uOptics.x, 0.0) * (1.0 + edgeWide * 0.35));
 
-                vec3 lens = sampleLens(uv);
-                float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.28;
-                vec3 color = mix(soft, lens, lensMix);
+                float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.40;
+                color = mix(color, sampleLens(uv), lensMix);
 
-                float brightBand = edgeCore * 0.045;
-                float darkBand = smoothstep(edgeWidth * 0.30, edgeWidth, inside) * edgeWide * 0.040;
-                color += vec3(brightBand);
-                color -= vec3(darkBand) * sat(uOptics.w);
-                color *= uMaterial.z;
+                float dragPull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
+                float smear = clamp(4.0 + edgeWidth * 0.55, 4.0, 22.0);
+                vec2 dragBase = coord - normal * dragPull;
+                vec3 drag = sampleLens(globalUv(dragBase)) * 0.32;
+                drag += sampleLens(globalUv(dragBase + tangent * smear)) * 0.18;
+                drag += sampleLens(globalUv(dragBase - tangent * smear)) * 0.18;
+                drag += sampleLens(globalUv(dragBase - normal * dragPull * 0.9)) * 0.20;
+                drag += sampleLens(globalUv(dragBase + normal * dragPull * 0.45)) * 0.12;
+                float dragAlpha = edgeDragBand * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + edgeCore * 0.030) * colorSignal(drag);
+                color = mix(color, drag, sat(dragAlpha));
+
+                color *= uMaterial.z * (1.0 + edgeCore * 0.12);
+                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * edgeWide;
                 float debug = smoothstep(-1.65, 0.0, sd) * mask;
                 color = mix(color, vec3(1.0, 0.45, 0.0), debug * uOptics.z);
                 color = clamp(color, 0.0, 1.0);
