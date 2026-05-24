@@ -284,7 +284,7 @@ private fun drawAndroidCrescent(canvas: Canvas, paint: Paint, w: Float, h: Float
     drawAndroidGlow(canvas, paint, cx, cy, radius * 2.35f, radius * 2.35f, Color.rgb(0xFF, 0xF3, 0xD6), params.moonHaloAlpha.coerceIn(0f, 0.8f))
     paint.shader = null
     paint.color = withAlpha(Color.rgb(0xFF, 0xF3, 0xD6), 0.62f)
-    canvas.drawCircle(cx, cy, radius)
+    canvas.drawCircle(cx, cy, radius, paint)
     paint.color = withAlpha(p.upper, 0.97f)
     canvas.drawCircle(cx + radius * 0.46f, cy - radius * 0.12f, radius * 1.05f, paint)
     paint.color = withAlpha(Color.WHITE, params.moonRimAlpha.coerceIn(0f, 1f))
