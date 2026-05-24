@@ -56,7 +56,15 @@ private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
-private const val USE_CARD_BOUND_OPENGL_GLASS = false
+
+/**
+ * Root OpenGL gate.
+ *
+ * Keep this enabled so deliberately promoted Shell glass can use the card-bound
+ * TextureView/OpenGL path. Ordinary glass is still protected by roleUsesCardBoundOpenGl(),
+ * so Card, Chip, Floating, Nav and Flex cannot enter OpenGL even when this gate is on.
+ */
+private const val USE_CARD_BOUND_OPENGL_GLASS = true
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
