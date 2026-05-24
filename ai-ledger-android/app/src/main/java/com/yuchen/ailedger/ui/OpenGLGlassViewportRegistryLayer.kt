@@ -9,12 +9,12 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassViewportLayer
 
 @Composable
 fun OpenGLGlassViewportRegistryLayer(
-    modifier: Modifier = Modifier,
-    registry: GlassItemRegistry? = LocalOpenGLGlassViewportRegistry.current
+    registry: GlassItemRegistry,
+    modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val origin = LocalBackdropOrigin.current
-    val items = registry?.snapshot().orEmpty().mapNotNull { item ->
+    val items = registry.snapshot().mapNotNull { item ->
         if (item.role != GlassRole.Shell) return@mapNotNull null
         if (!item.coordinates.isAttached()) return@mapNotNull null
         val size = item.coordinates.itemSize()
