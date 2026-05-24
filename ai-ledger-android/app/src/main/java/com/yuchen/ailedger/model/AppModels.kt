@@ -45,14 +45,18 @@ enum class GlassPreset(val label: String, val glassIntensity: Float, val motionI
 }
 
 enum class BackgroundTheme(val label: String, val storageValue: String) {
+    Default("默认壁纸", "default"),
     Aurora("极光", "aurora"),
     Jade("翡翠海雾", "jade"),
     Sunset("暮色流光", "sunset"),
     Dawn("晨曦珍珠", "dawn");
 
     companion object {
+        val selectableThemes: List<BackgroundTheme>
+            get() = listOf(Aurora, Jade, Sunset, Dawn)
+
         fun fromStorage(value: String): BackgroundTheme {
-            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Aurora
+            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Default
         }
     }
 }
@@ -170,7 +174,7 @@ data class AssistantUiState(
     val quality: RenderQuality = RenderQuality.Balanced,
     val showPreviewConversation: Boolean = true,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
-    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Default,
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
