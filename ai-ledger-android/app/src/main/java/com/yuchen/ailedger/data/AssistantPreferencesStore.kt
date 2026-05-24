@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.IOException
@@ -34,6 +35,8 @@ data class AssistantPreferences(
 class AssistantPreferencesStore(
     private val context: Context
 ) {
+    private var pendingThemeSelection = false
+
     private object Keys {
         val renderQuality = stringPreferencesKey("render_quality")
         val showPreviewConversation = booleanPreferencesKey("show_preview_conversation")
@@ -78,13 +81,20 @@ class AssistantPreferencesStore(
     }
 
     suspend fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
+        pendingThemeSelection = true
         context.assistantPreferencesDataStore.edit { it[Keys.backgroundTheme] = backgroundTheme.storageValue }
     }
 
     suspend fun setCustomBackgroundPath(path: String?) {
         context.assistantPreferencesDataStore.edit { preferences ->
-            if (path.isNullOrBlank()) preferences.remove(Keys.customBackgroundPath)
-            else preferences[Keys.customBackgroundPath] = path
+            if (path.isNullOrBlank()) {
+                if (pendingThemeSelection) preferences[Keys.customBackgroundPath] = BUILTIN_THEME_BACKGROUND_PATH
+                else preferences.remove(Keys.customBackgroundPath)
+                pendingThemeSelection = false
+            } else {
+                pendingThemeSelection = false
+                preferences[Keys.customBackgroundPath] = path
+            }
         }
     }
 
