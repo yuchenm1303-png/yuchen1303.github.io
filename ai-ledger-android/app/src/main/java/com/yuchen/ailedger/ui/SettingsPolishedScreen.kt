@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,6 +28,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -45,6 +47,7 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @Composable
@@ -67,24 +70,83 @@ fun SettingsPolishedScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 118.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { SettingsHeader() }
-        item { SettingsOverviewCard(state, aiEndpoint) }
-        item { AppearanceSettingsCard(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick) }
-        item { GlassFeelSettingsCard(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange) }
-        item { AssistantPreferenceCard(state, onPreviewConversationChange) }
-        item { DataBudgetSettingsCard(state) }
-        item { ServiceSettingsCard(state, aiEndpoint) }
-        item { AdvancedSettingsCard(state) }
         item {
-            GlassDebugFloatingPanel(
-                state = state,
-                onBackdropChange = onBackdropChange,
-                onBorderChange = onBorderChange,
-                onUploadBackgroundClick = onUploadBackgroundClick,
-                onClearCustomBackgroundClick = onClearCustomBackgroundClick,
-                modifier = Modifier.fillMaxWidth()
-            )
+            SettingsEntrance(delayMs = 0, initialOffsetY = -8, initialScale = 0.985f) {
+                SettingsHeader()
+            }
         }
+        item {
+            SettingsEntrance(delayMs = 46, initialOffsetY = 20, initialScale = 0.965f) {
+                SettingsOverviewCard(state, aiEndpoint)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 88, initialOffsetY = 22, initialScale = 0.962f) {
+                AppearanceSettingsCard(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 130, initialOffsetY = 24, initialScale = 0.96f) {
+                GlassFeelSettingsCard(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 172, initialOffsetY = 24, initialScale = 0.96f) {
+                AssistantPreferenceCard(state, onPreviewConversationChange)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 214, initialOffsetY = 26, initialScale = 0.958f) {
+                DataBudgetSettingsCard(state)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 256, initialOffsetY = 26, initialScale = 0.958f) {
+                ServiceSettingsCard(state, aiEndpoint)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 298, initialOffsetY = 28, initialScale = 0.956f) {
+                AdvancedSettingsCard(state)
+            }
+        }
+        item {
+            SettingsEntrance(delayMs = 340, initialOffsetY = 30, initialScale = 0.954f) {
+                GlassDebugFloatingPanel(
+                    state = state,
+                    onBackdropChange = onBackdropChange,
+                    onBorderChange = onBorderChange,
+                    onUploadBackgroundClick = onUploadBackgroundClick,
+                    onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsEntrance(
+    delayMs: Long,
+    initialOffsetY: Int = 24,
+    initialScale: Float = 0.96f,
+    content: @Composable () -> Unit
+) {
+    var visible by rememberSaveable(delayMs) { mutableStateOf(false) }
+    LaunchedEffect(delayMs) {
+        if (!visible) {
+            if (delayMs > 0L) delay(delayMs)
+            visible = true
+        }
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+            slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+    ) {
+        content()
     }
 }
 
