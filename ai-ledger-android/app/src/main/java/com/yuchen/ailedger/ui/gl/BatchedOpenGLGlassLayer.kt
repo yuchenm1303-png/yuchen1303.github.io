@@ -584,6 +584,7 @@ private class BatchedOpenGlGlassRenderer {
     private var materialHandle = 0
     private var refractionHandle = 0
     private var opticsHandle = 0
+    private var samplingHandle = 0
     private var blurHandle = 0
     private var lensHandle = 0
     private var viewportW = 1
@@ -621,6 +622,7 @@ private class BatchedOpenGlGlassRenderer {
         materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
         refractionHandle = GLES20.glGetUniformLocation(program, "uRefraction")
         opticsHandle = GLES20.glGetUniformLocation(program, "uOptics")
+        samplingHandle = GLES20.glGetUniformLocation(program, "uSampling")
         blurHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
         lensHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         val textures = IntArray(2)
@@ -659,6 +661,7 @@ private class BatchedOpenGlGlassRenderer {
         val currentStyle = style
         GLES20.glUniform4f(refractionHandle, currentStyle.openGlPullScale.coerceIn(-300f, 300f), currentStyle.edgePullDp.coerceIn(-600f, 600f), currentStyle.openGlCompressionScale.coerceIn(-10f, 10f), currentStyle.openGlCornerScale.coerceIn(0f, 200f))
         GLES20.glUniform4f(opticsHandle, currentStyle.openGlSampleRadiusScale.coerceIn(0f, 200f), currentStyle.ringWidthDp.coerceIn(0f, 300f), currentStyle.openGlDebugLineAlpha.coerceIn(0f, 1f), currentStyle.openGlDarkScale.coerceIn(-10f, 10f))
+        GLES20.glUniform4f(samplingHandle, currentStyle.openGlCenterSampleMix.coerceIn(0f, 1f), currentStyle.openGlCenterSampleRadiusScale.coerceIn(0f, 3f), currentStyle.openGlEdgeSampleMix.coerceIn(0f, 1.5f), currentStyle.openGlEdgeSampleRadiusBoost.coerceIn(0f, 1.5f))
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTex)
         GLES20.glUniform1i(blurHandle, 0)
@@ -792,6 +795,7 @@ private class BatchedOpenGlGlassRenderer {
             uniform vec4 uMaterial;
             uniform vec4 uRefraction;
             uniform vec4 uOptics;
+            uniform vec4 uSampling;
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
 
@@ -847,6 +851,22 @@ private class BatchedOpenGlGlassRenderer {
                 return c;
             }
 
+            vec3 sampleGlassBase(vec2 uv, float edgeWide, float basePx) {
+                vec3 center = sampleBlur(uv);
+                float centerMix = sat(uSampling.x);
+                float centerPx = max(basePx * max(uSampling.y, 0.0), 0.0);
+                if (centerMix > 0.001 && centerPx > 0.001) {
+                    center = mix(center, blur9(uv, centerPx), centerMix);
+                }
+
+                float edgeKeep = sat(edgeWide * clamp(uSampling.z, 0.0, 1.5));
+                if (edgeKeep <= 0.001 || basePx <= 0.001) return center;
+
+                float edgePx = basePx * (1.0 + edgeWide * max(uSampling.w, 0.0));
+                vec3 edge = blur9(uv, edgePx);
+                return mix(center, edge, edgeKeep);
+            }
+
             void main() {
                 vec2 screenCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
                 if (screenCoord.x < uClipRect.x || screenCoord.y < uClipRect.y || screenCoord.x > uClipRect.z || screenCoord.y > uClipRect.w) discard;
@@ -876,7 +896,8 @@ private class BatchedOpenGlGlassRenderer {
                 offsetPx *= (lenPx / (1.0 + lenPx / max(limitPx, 1.0))) / max(lenPx, 0.0001);
 
                 vec2 uv = globalUv(coord + offsetPx);
-                vec3 color = blur9(uv, max(uOptics.x, 0.0) * (1.0 + edgeWide * 0.35));
+                float baseSamplePx = max(uOptics.x, 0.0);
+                vec3 color = sampleGlassBase(uv, edgeWide, baseSamplePx);
 
                 float lensMix = edgeCore * sat(max(uRefraction.z, 0.0)) * 0.40;
                 color = mix(color, sampleLens(uv), lensMix);
