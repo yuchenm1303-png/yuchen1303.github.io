@@ -40,7 +40,8 @@ enum class GlassRole(
     Card(0f, 1.00f, 1.00f, 10),
     Chip(0f, 1.00f, 1.00f, 8),
     Nav(0f, 1.00f, 1.00f, 10),
-    Floating(0f, 1.00f, 1.00f, 10)
+    Floating(0f, 1.00f, 1.00f, 10),
+    Flex(0f, 1.00f, 1.00f, 8)
 }
 
 private const val STRONG_GLASS_BLUR_DP = 118
@@ -52,17 +53,28 @@ private const val USE_CARD_BOUND_OPENGL_GLASS = true
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
     GlassRole.Nav -> 104
-    GlassRole.Chip -> MEDIUM_GLASS_BLUR_DP
+    GlassRole.Chip, GlassRole.Flex -> MEDIUM_GLASS_BLUR_DP
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating -> false
+    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
+/**
+ * OpenGL is intentionally fenced at the root role policy.
+ *
+ * The rolled-back app uses GlassRole.Card for many ordinary surfaces: message bubbles,
+ * text inputs, list rows, hint cards and compact tool entries. Letting every Card enter
+ * OpenGL makes the boundary depend on naming accidents rather than architecture.
+ *
+ * For this branch, only Shell is allowed to create a card-bound OpenGL layer. Ordinary
+ * cards keep the Compose/unified backdrop path. If a future screen needs a truly large
+ * OpenGL card, promote that container deliberately instead of reusing Card for small UI.
+ */
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card -> true
-    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
+    GlassRole.Shell -> true
+    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
@@ -72,7 +84,7 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
         GlassRole.Card -> radius.coerceAtLeast(28)
         GlassRole.Floating -> radius.coerceAtLeast(26)
         GlassRole.Nav -> radius.coerceAtLeast(999)
-        GlassRole.Chip -> radius
+        GlassRole.Chip, GlassRole.Flex -> radius
     }
 }
 
