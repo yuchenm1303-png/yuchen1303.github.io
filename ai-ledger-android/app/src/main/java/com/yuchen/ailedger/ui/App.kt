@@ -63,7 +63,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
-    val settingsOpenGlGlassRegistry = remember { GlassItemRegistry() }
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -135,13 +134,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    if (state.currentTab == AppTab.Settings) {
-                        OpenGLGlassViewportRegistryLayer(
-                            modifier = Modifier.fillMaxSize(),
-                            registry = settingsOpenGlGlassRegistry
-                        )
-                    }
-
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Column(
                             modifier = Modifier
@@ -179,29 +171,24 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
                                     onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                 )
-                                AppTab.Settings -> CompositionLocalProvider(
-                                    LocalGlassItemRegistry provides settingsOpenGlGlassRegistry,
-                                    LocalBlurredBackdrop provides null
-                                ) {
-                                    SettingsPolishedScreen(
-                                        state = state,
-                                        aiEndpoint = viewModel.aiEndpoint,
-                                        onQualityChange = viewModel::selectQuality,
-                                        onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                        onGlassPresetChange = viewModel::setGlassPreset,
-                                        onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                        onGlassIntensityChange = viewModel::setGlassIntensity,
-                                        onMotionIntensityChange = viewModel::setMotionIntensity,
-                                        onBackdropChange = viewModel::setBackdropDebugParams,
-                                        onBorderChange = viewModel::setGlassBorderStyle,
-                                        onUploadBackgroundClick = {
-                                            backgroundPicker.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        },
-                                        onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                    )
-                                }
+                                AppTab.Settings -> SettingsPolishedScreen(
+                                    state = state,
+                                    aiEndpoint = viewModel.aiEndpoint,
+                                    onQualityChange = viewModel::selectQuality,
+                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                    onGlassPresetChange = viewModel::setGlassPreset,
+                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                    onGlassIntensityChange = viewModel::setGlassIntensity,
+                                    onMotionIntensityChange = viewModel::setMotionIntensity,
+                                    onBackdropChange = viewModel::setBackdropDebugParams,
+                                    onBorderChange = viewModel::setGlassBorderStyle,
+                                    onUploadBackgroundClick = {
+                                        backgroundPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                )
                             }
                         }
 
