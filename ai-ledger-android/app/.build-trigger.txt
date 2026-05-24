@@ -1,0 +1,3 @@
+Rollback target: 798f25e0dc2722a4d3c1d496cffa1821789cddc1
+This file only triggers Build Compose Android APK because the workflow listens to ai-ledger-android/app/**.
+App source code remains at the rollback baseline.
