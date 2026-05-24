@@ -13,12 +13,14 @@ import android.opengl.GLUtils
 import android.view.Choreographer
 import android.view.Surface
 import android.view.TextureView
-import android.view.ViewTreeObserver
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -39,6 +41,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val SIGNATURE_QUANTIZE = 4f
+private const val GEOMETRY_SETTLE_FRAME_COUNT = 4
+private const val GEOMETRY_SETTLE_AFTER_CHANGE_COUNT = 2
 
 class BatchedOpenGlClipSource(
     val coordinates: GlassCoordinateSource,
@@ -55,20 +59,42 @@ class BatchedOpenGlGlassRegistry {
     )
 
     private val items = linkedMapOf<Any, Entry>()
+    private var cachedSnapshot: List<BatchedOpenGlGlassItem> = emptyList()
+    private var dirty = true
     private var nextDrawOrder = 0L
+
+    var version by mutableLongStateOf(0L)
+        private set
 
     fun upsert(item: BatchedOpenGlGlassItem) {
         val drawOrder = items[item.key]?.drawOrder ?: nextDrawOrder++
-        items[item.key] = Entry(drawOrder, item.copy(drawOrder = drawOrder))
+        val nextItem = item.copy(drawOrder = drawOrder)
+        if (items[item.key]?.item == nextItem) return
+        items[item.key] = Entry(drawOrder, nextItem)
+        dirty = true
+        version += 1L
     }
 
     fun remove(key: Any) {
-        items.remove(key)
+        if (items.remove(key) != null) {
+            dirty = true
+            version += 1L
+        }
     }
 
-    fun snapshot(): List<BatchedOpenGlGlassItem> = items.values
-        .sortedBy { it.drawOrder }
-        .map { it.item }
+    fun requestGeometrySync() {
+        version += 1L
+    }
+
+    fun snapshot(): List<BatchedOpenGlGlassItem> {
+        if (dirty) {
+            cachedSnapshot = items.values
+                .sortedBy { it.drawOrder }
+                .map { it.item }
+            dirty = false
+        }
+        return cachedSnapshot
+    }
 }
 
 data class BatchedOpenGlGlassItem(
@@ -137,6 +163,7 @@ fun RegisterBatchedOpenGlGlassItem(
 @Composable
 fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
     val registry = LocalBatchedOpenGlGlassRegistry.current
+    val geometryVersion = registry?.version ?: 0L
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val origin = LocalBackdropOrigin.current
@@ -161,7 +188,8 @@ fun BatchedOpenGlGlassLayer(modifier: Modifier = Modifier) {
                     registry = registry,
                     origin = origin,
                     rootW = rootW,
-                    rootH = rootH
+                    rootH = rootH,
+                    geometryVersion = geometryVersion
                 )
                 if (dirtyA || dirtyB || dirtyC || dirtyD) view.requestRender()
             }
@@ -180,20 +208,22 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
     private var viewportHintW = 1
     private var viewportHintH = 1
     private var lastItemSignature = 0
+    private var lastGeometryVersion = Long.MIN_VALUE
     private var registry: BatchedOpenGlGlassRegistry? = null
     private var origin: BackdropCoordinateSource? = null
     private var frameCallbackPosted = false
-    private var preDrawObserver: ViewTreeObserver? = null
+    private var pendingFrameSyncs = 0
 
     private val frameCallback = Choreographer.FrameCallback {
         frameCallbackPosted = false
-        syncFrameGeometry()
-        scheduleFrameSync()
-    }
-
-    private val preDrawListener = ViewTreeObserver.OnPreDrawListener {
-        syncFrameGeometry()
-        true
+        val changed = syncFrameGeometry()
+        if (changed) {
+            pendingFrameSyncs = max(pendingFrameSyncs, GEOMETRY_SETTLE_AFTER_CHANGE_COUNT)
+        }
+        if (pendingFrameSyncs > 0) {
+            pendingFrameSyncs -= 1
+            scheduleFrameSync()
+        }
     }
 
     init {
@@ -207,12 +237,10 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        startPreDrawSync()
-        scheduleFrameSync()
+        requestGeometrySync(force = true, settleFrames = GEOMETRY_SETTLE_AFTER_CHANGE_COUNT)
     }
 
     override fun onDetachedFromWindow() {
-        stopPreDrawSync()
         stopFrameSync()
         thread?.shutdown()
         thread = null
@@ -225,7 +253,7 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         val dirty = nextW != viewportHintW || nextH != viewportHintH
         viewportHintW = nextW
         viewportHintH = nextH
-        if (dirty) syncFrameGeometry(force = true)
+        if (dirty) requestGeometrySync(force = true, settleFrames = GEOMETRY_SETTLE_FRAME_COUNT)
         return dirty
     }
 
@@ -248,22 +276,29 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
         registry: BatchedOpenGlGlassRegistry?,
         origin: BackdropCoordinateSource?,
         rootW: Float,
-        rootH: Float
+        rootH: Float,
+        geometryVersion: Long
     ): Boolean {
         val nextRootW = rootW.coerceAtLeast(1f)
         val nextRootH = rootH.coerceAtLeast(1f)
-        val dirty = this.registry !== registry ||
+        val sourceDirty = this.registry !== registry ||
             this.origin !== origin ||
             this.rootW != nextRootW ||
             this.rootH != nextRootH
+        val versionDirty = geometryVersion != lastGeometryVersion
         this.registry = registry
         this.origin = origin
         this.rootW = nextRootW
         this.rootH = nextRootH
-        if (dirty) syncFrameGeometry(force = true)
-        startPreDrawSync()
-        scheduleFrameSync()
-        return dirty
+        lastGeometryVersion = geometryVersion
+        return if (sourceDirty || versionDirty) {
+            requestGeometrySync(
+                force = sourceDirty,
+                settleFrames = if (sourceDirty) GEOMETRY_SETTLE_FRAME_COUNT else GEOMETRY_SETTLE_AFTER_CHANGE_COUNT
+            )
+        } else {
+            false
+        }
     }
 
     fun requestRender() = thread?.requestRender() ?: Unit
@@ -278,18 +313,15 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
             if (b != null && l != null) it.setBackdropTextures(b, l)
             it.start()
         }
-        syncFrameGeometry(force = true)
-        startPreDrawSync()
-        scheduleFrameSync()
+        requestGeometrySync(force = true, settleFrames = GEOMETRY_SETTLE_FRAME_COUNT)
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
         thread?.resize(width, height)
-        syncFrameGeometry(force = true)
+        requestGeometrySync(force = true, settleFrames = GEOMETRY_SETTLE_FRAME_COUNT)
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-        stopPreDrawSync()
         stopFrameSync()
         thread?.shutdown()
         thread = null
@@ -298,32 +330,23 @@ private class BatchedOpenGlGlassTextureView(context: Context) : TextureView(cont
 
     override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
 
-    private fun startPreDrawSync() {
-        if (!isAttachedToWindow) return
-        val observer = viewTreeObserver
-        if (preDrawObserver === observer) return
-        stopPreDrawSync()
-        if (observer.isAlive) {
-            observer.addOnPreDrawListener(preDrawListener)
-            preDrawObserver = observer
+    private fun requestGeometrySync(force: Boolean = false, settleFrames: Int = GEOMETRY_SETTLE_AFTER_CHANGE_COUNT): Boolean {
+        val changed = syncFrameGeometry(force)
+        if (thread != null && settleFrames > 0) {
+            pendingFrameSyncs = max(pendingFrameSyncs, settleFrames)
+            scheduleFrameSync()
         }
-    }
-
-    private fun stopPreDrawSync() {
-        val observer = preDrawObserver
-        if (observer != null && observer.isAlive) {
-            observer.removeOnPreDrawListener(preDrawListener)
-        }
-        preDrawObserver = null
+        return changed
     }
 
     private fun scheduleFrameSync() {
-        if (!isAttachedToWindow || thread == null || frameCallbackPosted) return
+        if (!isAttachedToWindow || thread == null || frameCallbackPosted || pendingFrameSyncs <= 0) return
         frameCallbackPosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
     private fun stopFrameSync() {
+        pendingFrameSyncs = 0
         if (!frameCallbackPosted) return
         frameCallbackPosted = false
         Choreographer.getInstance().removeFrameCallback(frameCallback)
