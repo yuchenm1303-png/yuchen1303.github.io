@@ -1,6 +1,17 @@
 package com.yuchen.ailedger.ui
 
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,12 +32,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,10 +57,15 @@ fun GlassDebugFloatingPanel(
     onClearCustomBackgroundClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val panelShape = RoundedCornerShape(28.dp)
     val buttonShape = RoundedCornerShape(22.dp)
     val clickSource = remember { MutableInteractionSource() }
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "glass-debug-arrow"
+    )
 
     Column(
         modifier = modifier
@@ -70,17 +88,32 @@ fun GlassDebugFloatingPanel(
                 .fillMaxWidth()
                 .height(44.dp)
                 .clip(buttonShape)
-                .background(Color.White.copy(alpha = 0.06f))
+                .background(Color.White.copy(alpha = if (expanded) 0.085f else 0.06f))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), buttonShape)
                 .clickable(interactionSource = clickSource, indication = null) { expanded = !expanded }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("玻璃调试", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-            Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "⌄",
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.graphicsLayer { rotationZ = arrowRotation }
+                )
+            }
         }
 
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+                expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) +
+                scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.97f, animationSpec = tween(150))
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
