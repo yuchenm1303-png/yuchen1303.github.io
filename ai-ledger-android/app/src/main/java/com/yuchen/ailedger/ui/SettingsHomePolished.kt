@@ -134,7 +134,6 @@ private fun SettingsHomeV2(
     var assistantExpanded by rememberSaveable { mutableStateOf(false) }
     var dataExpanded by rememberSaveable { mutableStateOf(false) }
     var serviceExpanded by rememberSaveable { mutableStateOf(false) }
-    var glassPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -184,11 +183,6 @@ private fun SettingsHomeV2(
         }
         item(key = "advanced-debug-entry") {
             SettingsNavigationCard(state, "高级玻璃调试", "进入独立调试页，避免长展开导致 OpenGL 闪烁。", "调", Color(0xFF8DF9EA), onOpenDebug)
-        }
-        item(key = "glass-panel-lab") {
-            ExpandableSettingsSection(state, "玻璃面板", "调试不同形态的 Compose 玻璃。", "面", Color(0xFF8DF9EA), glassPanelExpanded, { glassPanelExpanded = !glassPanelExpanded }) {
-                FrostInfoGlassLab(state)
-            }
         }
     }
 }
@@ -487,8 +481,18 @@ private fun LiquidSwitch(checked: Boolean, glow: Float) {
 private fun LiquidGlassSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(56.dp), GlassRole.Flex) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.94f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(74.dp)
+            .settingsGlow(0.12f + percent * 0.18f, 1f, Color(0xFF8DF9EA)),
+        role = GlassRole.Flex
+    ) {
+        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
     }
 }
 
@@ -496,23 +500,77 @@ private fun LiquidGlassSlider(title: String, subtitle: String, value: Float, ran
 private fun DebugSliderRow(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
     val percent = ((clamped - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-    Box(Modifier.fillMaxWidth().height(54.dp).debugRowSkin(percent)) {
-        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.88f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(74.dp)
+            .settingsGlow(0.10f + percent * 0.14f, 1f, Color(0xFF8DF9EA)),
+        role = GlassRole.Flex
+    ) {
+        SliderContent(title, subtitle, clamped, range, percent, onValueChange, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
     }
 }
 
 @Composable
 private fun SliderContent(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, percent: Float, onValueChange: (Float) -> Unit, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(value.formatSettingValueV2(), color = Color.White.copy(alpha = 0.78f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold)
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(Modifier.weight(0.96f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(
+                title,
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 16.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        Box(Modifier.fillMaxWidth().height(20.dp).liquidSliderGlow(percent, 1f).padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
-            Slider(value = value, onValueChange = onValueChange, valueRange = range, modifier = Modifier.fillMaxWidth().height(20.dp), colors = SliderDefaults.colors(thumbColor = Color.White.copy(alpha = 0.96f), activeTrackColor = Color(0xFF8DF9EA).copy(alpha = 0.56f), inactiveTrackColor = Color.White.copy(alpha = 0.16f), activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent))
+        Text(
+            value.formatSettingValueV2(),
+            color = Color.White.copy(alpha = 0.80f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            modifier = Modifier.width(58.dp)
+        )
+        Box(
+            Modifier
+                .weight(1.42f)
+                .height(32.dp)
+                .liquidSliderGlow(percent, 1f)
+                .padding(horizontal = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = range,
+                modifier = Modifier.fillMaxWidth().height(32.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = Color.White.copy(alpha = 0.96f),
+                    activeTrackColor = Color(0xFF8DF9EA).copy(alpha = 0.58f),
+                    inactiveTrackColor = Color.White.copy(alpha = 0.12f),
+                    activeTickColor = Color.Transparent,
+                    inactiveTickColor = Color.Transparent
+                )
+            )
         }
     }
 }
