@@ -10,7 +10,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -37,8 +36,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.BatchedOpenGlClipSource
-import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlClipSource
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
@@ -118,20 +115,16 @@ fun GlassPanel(
     role: GlassRole = GlassRole.Card,
     content: @Composable () -> Unit
 ) {
-    val density = LocalDensity.current
     val effectiveRadius = effectiveGlassRadius(radius, role)
-    val effectiveRadiusPx = with(density) { effectiveRadius.dp.toPx() }
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
-    val parentClipSource = LocalBatchedOpenGlClipSource.current
-    val ownClipSource = remember(coordinates, parentClipSource) { BatchedOpenGlClipSource(coordinates, parentClipSource) }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
-    val visibilityMarginPx = with(density) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
+    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
     var measuredWidth by remember { mutableStateOf(0) }
@@ -152,11 +145,10 @@ fun GlassPanel(
     RegisterBatchedOpenGlGlassItem(
         key = key,
         coordinates = coordinates,
-        radiusPx = effectiveRadiusPx,
+        radius = effectiveRadius,
         role = role,
         glassIntensity = glassIntensity,
-        enabled = useBatchedOpenGlBackdrop,
-        clipSource = parentClipSource
+        enabled = useBatchedOpenGlBackdrop
     )
 
     if (useUnifiedBackdrop) {
@@ -229,9 +221,7 @@ fun GlassPanel(
                     )
             )
         }
-        CompositionLocalProvider(LocalBatchedOpenGlClipSource provides ownClipSource) {
-            content()
-        }
+        content()
     }
 }
 
@@ -246,9 +236,7 @@ fun PressableGlass(
     onClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
-    val density = LocalDensity.current
     val effectiveRadius = effectiveGlassRadius(radius, role)
-    val effectiveRadiusPx = with(density) { effectiveRadius.dp.toPx() }
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -264,14 +252,12 @@ fun PressableGlass(
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
-    val parentClipSource = LocalBatchedOpenGlClipSource.current
-    val ownClipSource = remember(coordinates, parentClipSource) { BatchedOpenGlClipSource(coordinates, parentClipSource) }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val rootView = LocalView.current
     val heavyGlassReady = LocalHeavyGlassStartupReady.current
-    val visibilityMarginPx = with(density) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
+    val visibilityMarginPx = with(LocalDensity.current) { OPENGL_CARD_VISIBILITY_MARGIN_DP.dp.toPx() }
     var nearViewport by remember { mutableStateOf(true) }
     var measuredOnce by remember { mutableStateOf(false) }
     var measuredWidth by remember { mutableStateOf(0) }
@@ -293,11 +279,10 @@ fun PressableGlass(
     RegisterBatchedOpenGlGlassItem(
         key = key,
         coordinates = coordinates,
-        radiusPx = effectiveRadiusPx,
+        radius = effectiveRadius,
         role = role,
         glassIntensity = pressedIntensity,
-        enabled = useBatchedOpenGlBackdrop,
-        clipSource = parentClipSource
+        enabled = useBatchedOpenGlBackdrop
     )
 
     if (useUnifiedBackdrop) {
@@ -377,9 +362,7 @@ fun PressableGlass(
                     )
             )
         }
-        CompositionLocalProvider(LocalBatchedOpenGlClipSource provides ownClipSource) {
-            content()
-        }
+        content()
     }
 }
 
