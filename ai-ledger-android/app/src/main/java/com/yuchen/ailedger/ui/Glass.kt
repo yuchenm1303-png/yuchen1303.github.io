@@ -1,15 +1,9 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -17,12 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -35,13 +25,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
-import kotlinx.coroutines.launch
 
 enum class GlassRole(
     val fillScale: Float,
@@ -53,56 +40,29 @@ enum class GlassRole(
     Card(0f, 1.00f, 1.00f, 10),
     Chip(0f, 1.00f, 1.00f, 8),
     Nav(0f, 1.00f, 1.00f, 10),
-    Floating(0f, 1.00f, 1.00f, 10),
-    Flex(0f, 1.00f, 1.00f, 8)
+    Floating(0f, 1.00f, 1.00f, 10)
 }
-
-/**
- * When a page-level OpenGL viewport is active, Shell glass is painted by that single
- * viewport layer instead of creating one TextureView per Shell card. Ordinary roles
- * stay fully Compose based and remain isolated from OpenGL.
- */
-val LocalOpenGLGlassViewportActive = compositionLocalOf { false }
 
 private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
-
-/**
- * Root OpenGL gate.
- *
- * Keep this enabled so deliberately promoted Shell glass can use the card-bound
- * TextureView/OpenGL path. Ordinary glass is still protected by roleUsesCardBoundOpenGl(),
- * so Card, Chip, Floating, Nav and Flex cannot enter OpenGL even when this gate is on.
- */
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
 
 private fun blurForRole(role: GlassRole): Int = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Floating -> STRONG_GLASS_BLUR_DP
     GlassRole.Nav -> 104
-    GlassRole.Chip, GlassRole.Flex -> MEDIUM_GLASS_BLUR_DP
+    GlassRole.Chip -> MEDIUM_GLASS_BLUR_DP
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
     GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Chip, GlassRole.Floating -> false
 }
 
-/**
- * OpenGL is intentionally fenced at the root role policy.
- *
- * The rolled-back app uses GlassRole.Card for many ordinary surfaces: message bubbles,
- * text inputs, list rows, hint cards and compact tool entries. Letting every Card enter
- * OpenGL makes the boundary depend on naming accidents rather than architecture.
- *
- * For this branch, only Shell is allowed to create a card-bound OpenGL layer. Ordinary
- * cards keep the Compose/unified backdrop path. If a future screen needs a truly large
- * OpenGL card, promote that container deliberately instead of reusing Card for small UI.
- */
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell -> true
-    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Shell, GlassRole.Card -> true
+    GlassRole.Nav, GlassRole.Chip, GlassRole.Floating -> false
 }
 
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
@@ -112,7 +72,7 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
         GlassRole.Card -> radius.coerceAtLeast(28)
         GlassRole.Floating -> radius.coerceAtLeast(26)
         GlassRole.Nav -> radius.coerceAtLeast(999)
-        GlassRole.Chip, GlassRole.Flex -> radius
+        GlassRole.Chip -> radius
     }
 }
 
@@ -133,66 +93,9 @@ fun GlassPanel(
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
-    val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
-    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
     val key = remember { Any() }
-
-    val shellPressEnabled = role == GlassRole.Shell && motionIntensity > 0.02f
-    val shellPress = remember { Animatable(0f) }
-    val shellPressScope = rememberCoroutineScope()
-    var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
-    val shellPressProgress = if (shellPressEnabled) shellPress.value.coerceIn(0f, 1.18f) else 0f
-    val pressedGlassIntensity = glassIntensity * (1f + shellPressProgress * 0.28f)
-    val shellPressModifier = if (shellPressEnabled) {
-        Modifier
-            .onSizeChanged { size ->
-                shellPressSize = Size(
-                    width = size.width.coerceAtLeast(1).toFloat(),
-                    height = size.height.coerceAtLeast(1).toFloat()
-                )
-            }
-            .pointerInput(motionIntensity) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val localX = (down.position.x / shellPressSize.width).coerceIn(0f, 1f)
-                    val localY = (down.position.y / shellPressSize.height).coerceIn(0f, 1f)
-                    // Local coordinates are intentionally sampled here even before the
-                    // shader takes a center uniform: keeping this branch in place makes
-                    // the interaction extensible without consuming scroll gestures.
-                    if (localX >= 0f && localY >= 0f) {
-                        shellPressScope.launch {
-                            shellPress.stop()
-                            shellPress.animateTo(
-                                targetValue = 1f,
-                                animationSpec = tween(durationMillis = 110, easing = FastOutSlowInEasing)
-                            )
-                        }
-                    }
-                    val up = waitForUpOrCancellation()
-                    shellPressScope.launch {
-                        shellPress.stop()
-                        if (up != null) {
-                            shellPress.animateTo(
-                                targetValue = 1.16f,
-                                animationSpec = tween(durationMillis = 70, easing = FastOutSlowInEasing)
-                            )
-                            shellPress.animateTo(
-                                targetValue = 0f,
-                                animationSpec = spring(dampingRatio = 0.60f, stiffness = Spring.StiffnessMediumLow)
-                            )
-                        } else {
-                            shellPress.animateTo(
-                                targetValue = 0f,
-                                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
-                            )
-                        }
-                    }
-                }
-            }
-    } else {
-        Modifier
-    }
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -203,9 +106,9 @@ fun GlassPanel(
                     radius = effectiveRadius,
                     role = role,
                     quality = quality,
-                    glassIntensity = pressedGlassIntensity,
+                    glassIntensity = glassIntensity,
                     edgeStrength = UNIFIED_EDGE_STRENGTH,
-                    backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedGlassIntensity.coerceIn(0.70f, 1.25f)
+                    backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
                 )
             )
         }
@@ -216,26 +119,17 @@ fun GlassPanel(
 
     Box(
         modifier = modifier
-            .then(shellPressModifier)
             .onPlaced { coordinates.coordinates = it }
-            .graphicsLayer {
-                if (shellPressEnabled) {
-                    scaleX = 1f + shellPressProgress * 0.0065f
-                    scaleY = 1f - shellPressProgress * 0.0120f
-                    translationY = shellPressProgress * 0.58f
-                    shadowElevation = shellPressProgress * 0.32f
-                }
-            }
-            .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity)
+            .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
                 radius = effectiveRadius,
-                glassIntensity = pressedGlassIntensity,
+                glassIntensity = glassIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -244,7 +138,7 @@ fun GlassPanel(
                 motionIntensity = backdrop.motionIntensity,
                 theme = backdrop.theme,
                 blurRadiusDp = blurForRole(role),
-                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedGlassIntensity.coerceIn(0.70f, 1.25f)
+                liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * glassIntensity.coerceIn(0.70f, 1.25f)
             )
             SampledWeatherEdgeRefraction(
                 modifier = Modifier.matchParentSize(),
@@ -263,9 +157,9 @@ fun GlassPanel(
                     .glassSkin(
                         quality = quality,
                         radius = effectiveRadius,
-                        shimmer = shimmer + shellPressProgress * 0.050f,
+                        shimmer = shimmer,
                         breathe = breathe,
-                        glassIntensity = pressedGlassIntensity,
+                        glassIntensity = glassIntensity,
                         includeShadow = false
                     )
             )
@@ -306,9 +200,8 @@ fun PressableGlass(
     val cardBackdrop = LocalBlurredBackdrop.current
     val key = remember { Any() }
     val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
-    val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
-    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -349,7 +242,7 @@ fun PressableGlass(
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize()
             )
-        } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
+        } else if (!useUnifiedBackdrop && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
