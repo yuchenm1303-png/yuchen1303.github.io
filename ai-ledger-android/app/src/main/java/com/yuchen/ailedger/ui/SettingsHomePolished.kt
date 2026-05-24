@@ -95,6 +95,7 @@ fun SettingsScreenV2(
             onBackgroundThemeChange = onBackgroundThemeChange,
             onGlassIntensityChange = onGlassIntensityChange,
             onMotionIntensityChange = onMotionIntensityChange,
+            onBorderChange = onBorderChange,
             onUploadBackgroundClick = onUploadBackgroundClick,
             onClearCustomBackgroundClick = onClearCustomBackgroundClick,
             onOpenDebug = { debugOpen = true }
@@ -125,6 +126,7 @@ private fun SettingsHomeV2(
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
+    onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
     onOpenDebug: () -> Unit
@@ -157,6 +159,18 @@ private fun SettingsHomeV2(
                 SettingOptionGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabelV2(it) }, state, onGlassPresetChange)
                 LiquidGlassSlider("玻璃强度", "卡片雾面与边缘存在感", state.glassIntensity, 0.6f..1.4f, state, onGlassIntensityChange)
                 LiquidGlassSlider("动态强度", "呼吸、滑动和弹性动画", state.motionIntensity, 0f..1.4f, state, onMotionIntensityChange)
+                LiquidGlassSlider("中心采样", "0 直接采模糊缓存，1 恢复中心 9 点柔化", state.glassBorderStyle.openGlCenterSampleMix, 0f..1f, state) {
+                    onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleMix = it))
+                }
+                LiquidGlassSlider("中心半径", "中心额外柔化半径倍率", state.glassBorderStyle.openGlCenterSampleRadiusScale, 0f..3f, state) {
+                    onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleRadiusScale = it))
+                }
+                LiquidGlassSlider("边缘采样", "边缘 9 点柔化保留比例", state.glassBorderStyle.openGlEdgeSampleMix, 0f..1.5f, state) {
+                    onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleMix = it))
+                }
+                LiquidGlassSlider("边缘增强", "边缘采样半径额外放大", state.glassBorderStyle.openGlEdgeSampleRadiusBoost, 0f..1.5f, state) {
+                    onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleRadiusBoost = it))
+                }
             }
         }
         item(key = "assistant-preference") {
@@ -309,7 +323,11 @@ private fun OpenGlDebugGroup(state: AssistantUiState, onBorderChange: (GlassBord
     DebugSliderRow("边缘宽度 px", "iOS 透镜压缩带宽度", state.glassBorderStyle.ringWidthDp, 0f..900f, state) { onBorderChange(state.glassBorderStyle.copy(ringWidthDp = it.roundToInt().toFloat())) }
     DebugSliderRow("清晰混入", "清晰纹理参与折射比例", state.glassBorderStyle.openGlCompressionScale, -10f..10f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCompressionScale = it)) }
     DebugSliderRow("梯度放大", "厚度场梯度增强", state.glassBorderStyle.openGlCornerScale, 0f..800f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCornerScale = it)) }
-    DebugSliderRow("额外模糊 px", "边缘折射区再柔化", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+    DebugSliderRow("额外模糊 px", "全局折射区再柔化基准", state.glassBorderStyle.openGlSampleRadiusScale, 0f..600f, state) { onBorderChange(state.glassBorderStyle.copy(openGlSampleRadiusScale = it)) }
+    DebugSliderRow("中心采样", "0 直接采模糊缓存，1 恢复中心 9 点柔化", state.glassBorderStyle.openGlCenterSampleMix, 0f..1f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleMix = it)) }
+    DebugSliderRow("中心半径", "中心额外柔化半径倍率", state.glassBorderStyle.openGlCenterSampleRadiusScale, 0f..3f, state) { onBorderChange(state.glassBorderStyle.copy(openGlCenterSampleRadiusScale = it)) }
+    DebugSliderRow("边缘采样", "边缘 9 点柔化保留比例", state.glassBorderStyle.openGlEdgeSampleMix, 0f..1.5f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleMix = it)) }
+    DebugSliderRow("边缘增强", "边缘采样半径额外放大", state.glassBorderStyle.openGlEdgeSampleRadiusBoost, 0f..1.5f, state) { onBorderChange(state.glassBorderStyle.copy(openGlEdgeSampleRadiusBoost = it)) }
     DebugSliderRow("内侧暗带", "边缘内侧压暗厚度感", state.glassBorderStyle.openGlDarkScale, -12f..12f, state) { onBorderChange(state.glassBorderStyle.copy(openGlDarkScale = it)) }
 }
 
