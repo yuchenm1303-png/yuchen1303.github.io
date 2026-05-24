@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
@@ -59,10 +60,14 @@ fun rememberBlurredBackdropBitmap(
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
     val key = params.cacheKey()
-    val customKey = customBackgroundPath?.let { path ->
-        val file = File(path)
-        if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$path"
-    } ?: "builtin"
+    val customKey = when (customBackgroundPath) {
+        null -> "default_wallpaper"
+        BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
+        else -> {
+            val file = File(customBackgroundPath)
+            if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
+        }
+    }
     var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
 
     LaunchedEffect(width, height, theme, quality, key, customKey) {
@@ -131,8 +136,12 @@ private fun buildBlurredBackdropBitmap(
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    val drewCustom = drawCustomImageBackdropSource(source, customBackgroundPath)
-    if (!drewCustom) drawAndroidBackdropSource(source, theme, params)
+    val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
+    val drewCustom = if (useThemePreset) false else drawCustomImageBackdropSource(source, customBackgroundPath)
+    if (!drewCustom) {
+        if (useThemePreset) drawAndroidBackdropSource(source, theme, params)
+        else drawDefaultWallpaperBackdropSource(source)
+    }
 
     val lensTuned = tuneBitmapTone(
         input = source,
@@ -166,6 +175,12 @@ private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolea
     val file = path?.let(::File) ?: return false
     if (!file.exists()) return false
     val source = BitmapFactory.decodeFile(file.absolutePath) ?: return false
+    drawBitmapCoverIntoTarget(source, target)
+    source.recycle()
+    return true
+}
+
+private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
     val canvas = Canvas(target)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     val srcW = source.width
@@ -195,8 +210,42 @@ private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolea
         RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
         paint
     )
-    source.recycle()
-    return true
+}
+
+private fun drawDefaultWallpaperBackdropSource(bitmap: Bitmap) {
+    val canvas = Canvas(bitmap)
+    val w = bitmap.width.toFloat()
+    val h = bitmap.height.toFloat()
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    paint.shader = LinearGradient(
+        0f, 0f, 0f, h,
+        intArrayOf(
+            rgb(0x07, 0x11, 0x2B),
+            rgb(0x10, 0x2B, 0x66),
+            rgb(0x24, 0x3A, 0x83),
+            rgb(0x5E, 0x5A, 0x9C),
+            rgb(0xD4, 0x81, 0x74)
+        ),
+        null,
+        Shader.TileMode.CLAMP
+    )
+    canvas.drawRect(0f, 0f, w, h, paint)
+    paint.shader = null
+
+    drawAndroidGlow(canvas, paint, w * 0.70f, h * 0.12f, w * 0.62f, h * 0.22f, rgb(0xB7, 0xA7, 0xFF), 0.28f)
+    drawAndroidGlow(canvas, paint, w * 0.40f, h * 0.84f, w * 0.70f, h * 0.30f, rgb(0xFF, 0x9B, 0x73), 0.28f)
+    drawAndroidGlow(canvas, paint, w * 0.18f, h * 0.42f, w * 0.46f, h * 0.22f, rgb(0x78, 0xB8, 0xFF), 0.18f)
+    drawAndroidStars(canvas, paint, w, h)
+
+    paint.shader = LinearGradient(
+        0f, h * 0.58f, 0f, h,
+        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, withAlpha(rgb(0x05, 0x09, 0x14), 0.12f)),
+        null,
+        Shader.TileMode.CLAMP
+    )
+    canvas.drawRect(0f, 0f, w, h, paint)
+    paint.shader = null
 }
 
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
