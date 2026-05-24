@@ -98,6 +98,10 @@ data class GlassBorderStyle(
     val openGlDarkScale: Float = -1.63f,
     val openGlSpecularScale: Float = 0f,
     val openGlChromaticScale: Float = 0f,
+    val openGlCenterSampleMix: Float = 0f,
+    val openGlCenterSampleRadiusScale: Float = 1f,
+    val openGlEdgeSampleMix: Float = 1f,
+    val openGlEdgeSampleRadiusBoost: Float = 0.35f,
     val openGlSampleRadiusScale: Float = 0f
 )
 
