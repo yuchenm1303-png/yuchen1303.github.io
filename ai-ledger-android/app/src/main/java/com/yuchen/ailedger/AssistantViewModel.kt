@@ -13,6 +13,7 @@ import com.yuchen.ailedger.data.CustomBackgroundStore
 import com.yuchen.ailedger.data.PreviewAssistantRepository
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -56,6 +57,7 @@ class AssistantViewModel(
                     glassPreset = preferences.glassPreset,
                     backgroundTheme = preferences.backgroundTheme,
                     customBackgroundPath = preferences.customBackgroundPath,
+                    customBackgroundBlurPath = preferences.customBackgroundBlurPath,
                     glassIntensity = preferences.glassIntensity,
                     motionIntensity = preferences.motionIntensity
                 )
@@ -322,26 +324,36 @@ class AssistantViewModel(
     }
 
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
-        uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = null)
+        uiState = uiState.copy(
+            backgroundTheme = backgroundTheme,
+            customBackgroundPath = BUILTIN_THEME_BACKGROUND_PATH,
+            customBackgroundBlurPath = null
+        )
         viewModelScope.launch {
             preferencesStore.setBackgroundTheme(backgroundTheme)
             preferencesStore.setCustomBackgroundPath(null)
+            preferencesStore.setCustomBackgroundBlurPath(null)
         }
     }
 
     fun importCustomBackground(uri: Uri) {
         viewModelScope.launch {
-            val path = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }
-            uiState = uiState.copy(customBackgroundPath = path)
-            preferencesStore.setCustomBackgroundPath(path)
+            val saved = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }
+            uiState = uiState.copy(
+                customBackgroundPath = saved.originalPath,
+                customBackgroundBlurPath = saved.blurPath
+            )
+            preferencesStore.setCustomBackgroundPath(saved.originalPath)
+            preferencesStore.setCustomBackgroundBlurPath(saved.blurPath)
         }
     }
 
     fun clearCustomBackground() {
-        uiState = uiState.copy(customBackgroundPath = null)
+        uiState = uiState.copy(customBackgroundPath = null, customBackgroundBlurPath = null)
         viewModelScope.launch {
             withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }
             preferencesStore.setCustomBackgroundPath(null)
+            preferencesStore.setCustomBackgroundBlurPath(null)
         }
     }
 
