@@ -83,7 +83,7 @@ private fun SettingsHeader() {
 
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 28, Modifier.fillMaxWidth().height(138.dp), GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 28, Modifier.fillMaxWidth().height(138.dp), GlassRole.Shell) {
         Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -177,7 +177,7 @@ private fun ServiceSettingsCard(state: AssistantUiState, aiEndpoint: String) {
 @Composable
 private fun AdvancedSettingsCard(state: AssistantUiState) {
     SettingsSectionCard(state, "高级调试", "玻璃参数调试已恢复到底部折叠面板，不再浮在顶部挡内容。") {
-        SettingInfoRow("玻璃渲染", "统一层 + 连续场边缘折射", state)
+        SettingInfoRow("玻璃渲染", "单卡 OpenGL 大玻璃 + 普通控件隔离", state)
         SettingInfoRow("调试入口", "继续往下滑，展开玻璃调试", state)
     }
 }
@@ -189,7 +189,9 @@ private fun SettingsSectionCard(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+    // Major settings sections are deliberate large glass containers.
+    // Child chips, sliders, buttons and rows stay Chip/Floating and remain isolated from OpenGL.
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Shell) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(title, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold)
