@@ -224,7 +224,9 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, index: Int, onC
             .fillMaxWidth()
             .height(76.dp)
             .toolCardGlow(glow = if (active) 0.34f else 0.14f, pulse = rememberSoftPulse(index), accent = accent),
-        role = if (active) GlassRole.Floating else GlassRole.Card,
+        // These are the outer tool-category containers shown in the feature page.
+        // Promote the container itself to Shell/OpenGL, while its icon glyph remains Chip/Floating.
+        role = GlassRole.Shell,
         onClick = onClick
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
