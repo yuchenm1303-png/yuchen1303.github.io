@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.BatchedOpenGlClipSource
 import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlClipSource
+import com.yuchen.ailedger.ui.gl.LocalBatchedOpenGlGlassRegistry
 import com.yuchen.ailedger.ui.gl.RegisterBatchedOpenGlGlassItem
 
 val LocalHeavyGlassStartupReady = compositionLocalOf { true }
@@ -126,6 +127,7 @@ fun GlassPanel(
     val coordinates = remember { GlassCoordinateSource() }
     val parentClipSource = LocalBatchedOpenGlClipSource.current
     val ownClipSource = remember(coordinates, parentClipSource) { BatchedOpenGlClipSource(coordinates, parentClipSource) }
+    val batchedOpenGlRegistry = LocalBatchedOpenGlGlassRegistry.current
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
@@ -191,6 +193,7 @@ fun GlassPanel(
                 measuredOnce = true
                 measuredWidth = it.size.width
                 measuredHeight = it.size.height
+                batchedOpenGlRegistry?.requestGeometrySync()
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = glassIntensity)
     ) {
@@ -266,6 +269,7 @@ fun PressableGlass(
     val coordinates = remember { GlassCoordinateSource() }
     val parentClipSource = LocalBatchedOpenGlClipSource.current
     val ownClipSource = remember(coordinates, parentClipSource) { BatchedOpenGlClipSource(coordinates, parentClipSource) }
+    val batchedOpenGlRegistry = LocalBatchedOpenGlGlassRegistry.current
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
@@ -332,6 +336,7 @@ fun PressableGlass(
                 measuredOnce = true
                 measuredWidth = it.size.width
                 measuredHeight = it.size.height
+                batchedOpenGlRegistry?.requestGeometrySync()
             }
             .graphicsLayer {
                 scaleX = scale
