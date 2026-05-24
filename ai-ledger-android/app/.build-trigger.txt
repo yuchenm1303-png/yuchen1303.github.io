@@ -1,3 +1,3 @@
-Rollback target: 9a6e4ac7605da3859ff9accd4a33fe0bab7a9ddc
+Rollback target: 3cc7c44f7029465eb22bdf9dc8f5ffb631c41b0a
 Purpose: trigger Build Compose Android APK after rollback.
 App source code remains at the rollback baseline.
