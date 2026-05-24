@@ -69,13 +69,22 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
 
 @Composable
 private fun rememberPresetNightSkyImage(context: Context): ImageBitmap? {
-    var image by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(Unit) {
-        image = withContext(Dispatchers.IO) {
-            decodePresetNightSkyBitmap(context)?.asImageBitmap()
+    val appContext = context.applicationContext
+    return remember(appContext) { PresetNightSkyImageCache.get(appContext) }
+}
+
+private object PresetNightSkyImageCache {
+    @Volatile
+    private var cachedImage: ImageBitmap? = null
+
+    fun get(context: Context): ImageBitmap? {
+        cachedImage?.let { return it }
+        return synchronized(this) {
+            cachedImage ?: decodePresetNightSkyBitmap(context)?.asImageBitmap()?.also { image ->
+                cachedImage = image
+            }
         }
     }
-    return image
 }
 
 fun decodePresetNightSkyBitmap(context: Context): Bitmap? {
