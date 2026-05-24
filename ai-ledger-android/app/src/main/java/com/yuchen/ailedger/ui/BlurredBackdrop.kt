@@ -62,7 +62,7 @@ fun rememberBlurredBackdropBitmap(
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
     val key = params.cacheKey()
     val customKey = when (customBackgroundPath) {
-        null -> "default_wallpaper"
+        null -> "default_wallpaper_lowres"
         BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
         else -> {
             val file = File(customBackgroundPath)
@@ -134,12 +134,14 @@ private fun buildBlurredBackdropBitmap(
     customBackgroundPath: String?,
     presetBitmap: Bitmap?
 ): BlurredBackdropBitmap {
-    val smallWidth = (fullWidth * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(128)
-    val smallHeight = (fullHeight * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(216)
+    val useDefaultWallpaper = customBackgroundPath == null
+    val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
+    val sourceScale = if (useDefaultWallpaper) 0.24f else params.scale.coerceIn(0.18f, 0.72f)
+    val smallWidth = (fullWidth * sourceScale).roundToInt().coerceAtLeast(128)
+    val smallHeight = (fullHeight * sourceScale).roundToInt().coerceAtLeast(216)
     val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
     val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
     val drewCustom = if (useThemePreset) false else drawCustomImageBackdropSource(source, customBackgroundPath)
     if (!drewCustom) {
         if (useThemePreset) drawAndroidBackdropSource(source, theme, params)
@@ -155,11 +157,9 @@ private fun buildBlurredBackdropBitmap(
         saturation = params.saturation.coerceIn(0.50f, 1.60f)
     )
 
-    val blurred = boxBlur(
-        input = source,
-        radius = params.radius.roundToInt().coerceIn(1, 32),
-        iterations = params.iterations.roundToInt().coerceIn(1, 8)
-    )
+    val blurRadius = if (useDefaultWallpaper) params.radius.roundToInt().coerceIn(1, 18) else params.radius.roundToInt().coerceIn(1, 32)
+    val blurIterations = if (useDefaultWallpaper) params.iterations.roundToInt().coerceIn(1, 3) else params.iterations.roundToInt().coerceIn(1, 8)
+    val blurred = boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
     val tuned = tuneBitmapTone(
         input = blurred,
         brightness = params.brightness.coerceIn(0.70f, 1.35f),
@@ -209,12 +209,7 @@ private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
         cropX = 0
         cropY = ((srcH - cropH) / 2f).roundToInt().coerceAtLeast(0)
     }
-    canvas.drawBitmap(
-        source,
-        Rect(cropX, cropY, cropX + cropW, cropY + cropH),
-        RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
-        paint
-    )
+    canvas.drawBitmap(source, Rect(cropX, cropY, cropX + cropW, cropY + cropH), RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()), paint)
 }
 
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
@@ -289,7 +284,7 @@ private fun drawAndroidCrescent(canvas: Canvas, paint: Paint, w: Float, h: Float
     drawAndroidGlow(canvas, paint, cx, cy, radius * 2.35f, radius * 2.35f, Color.rgb(0xFF, 0xF3, 0xD6), params.moonHaloAlpha.coerceIn(0f, 0.8f))
     paint.shader = null
     paint.color = withAlpha(Color.rgb(0xFF, 0xF3, 0xD6), 0.62f)
-    canvas.drawCircle(cx, cy, radius, paint)
+    canvas.drawCircle(cx, cy, radius)
     paint.color = withAlpha(p.upper, 0.97f)
     canvas.drawCircle(cx + radius * 0.46f, cy - radius * 0.12f, radius * 1.05f, paint)
     paint.color = withAlpha(Color.WHITE, params.moonRimAlpha.coerceIn(0f, 1f))
