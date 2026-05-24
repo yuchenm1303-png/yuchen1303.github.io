@@ -53,6 +53,7 @@ fun rememberBlurredBackdropBitmap(
     customBackgroundPath: String? = null
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
+    val context = view.context
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val fallbackWidth = with(density) { configuration.screenWidthDp.dp.roundToPx() }
@@ -79,7 +80,8 @@ fun rememberBlurredBackdropBitmap(
                     fullHeight = height,
                     theme = theme,
                     params = params.quantized(),
-                    customBackgroundPath = customBackgroundPath
+                    customBackgroundPath = customBackgroundPath,
+                    presetBitmap = decodePresetNightSkyBitmap(context)
                 )
             }.getOrNull()
         }
@@ -129,7 +131,8 @@ private fun buildBlurredBackdropBitmap(
     fullHeight: Int,
     theme: BackgroundTheme,
     params: BackdropDebugParams,
-    customBackgroundPath: String?
+    customBackgroundPath: String?,
+    presetBitmap: Bitmap?
 ): BlurredBackdropBitmap {
     val smallWidth = (fullWidth * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(128)
     val smallHeight = (fullHeight * params.scale.coerceIn(0.18f, 0.72f)).roundToInt().coerceAtLeast(216)
@@ -140,8 +143,10 @@ private fun buildBlurredBackdropBitmap(
     val drewCustom = if (useThemePreset) false else drawCustomImageBackdropSource(source, customBackgroundPath)
     if (!drewCustom) {
         if (useThemePreset) drawAndroidBackdropSource(source, theme, params)
-        else drawDefaultWallpaperBackdropSource(source)
+        else if (presetBitmap != null) drawBitmapCoverIntoTarget(presetBitmap, source)
+        else drawAndroidBackdropSource(source, theme, params)
     }
+    presetBitmap?.recycle()
 
     val lensTuned = tuneBitmapTone(
         input = source,
@@ -210,42 +215,6 @@ private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
         RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
         paint
     )
-}
-
-private fun drawDefaultWallpaperBackdropSource(bitmap: Bitmap) {
-    val canvas = Canvas(bitmap)
-    val w = bitmap.width.toFloat()
-    val h = bitmap.height.toFloat()
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    paint.shader = LinearGradient(
-        0f, 0f, 0f, h,
-        intArrayOf(
-            rgb(0x07, 0x11, 0x2B),
-            rgb(0x10, 0x2B, 0x66),
-            rgb(0x24, 0x3A, 0x83),
-            rgb(0x5E, 0x5A, 0x9C),
-            rgb(0xD4, 0x81, 0x74)
-        ),
-        null,
-        Shader.TileMode.CLAMP
-    )
-    canvas.drawRect(0f, 0f, w, h, paint)
-    paint.shader = null
-
-    drawAndroidGlow(canvas, paint, w * 0.70f, h * 0.12f, w * 0.62f, h * 0.22f, rgb(0xB7, 0xA7, 0xFF), 0.28f)
-    drawAndroidGlow(canvas, paint, w * 0.40f, h * 0.84f, w * 0.70f, h * 0.30f, rgb(0xFF, 0x9B, 0x73), 0.28f)
-    drawAndroidGlow(canvas, paint, w * 0.18f, h * 0.42f, w * 0.46f, h * 0.22f, rgb(0x78, 0xB8, 0xFF), 0.18f)
-    drawAndroidStars(canvas, paint, w, h)
-
-    paint.shader = LinearGradient(
-        0f, h * 0.58f, 0f, h,
-        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, withAlpha(rgb(0x05, 0x09, 0x14), 0.12f)),
-        null,
-        Shader.TileMode.CLAMP
-    )
-    canvas.drawRect(0f, 0f, w, h, paint)
-    paint.shader = null
 }
 
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
