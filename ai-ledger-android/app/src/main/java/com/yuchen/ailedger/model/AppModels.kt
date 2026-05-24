@@ -103,16 +103,9 @@ data class GlassBorderStyle(
     val openGlSampleRadiusScale: Float = 0f
 )
 
-enum class MessageRole {
-    Assistant,
-    User
-}
+enum class MessageRole { Assistant, User }
 
-enum class MessageStatus {
-    Sending,
-    Sent,
-    Failed
-}
+enum class MessageStatus { Sending, Sent, Failed }
 
 enum class ChatModel(val id: String, val label: String, val shortLabel: String) {
     Auto("auto", "自动选择", "自动"),
@@ -129,10 +122,7 @@ enum class ChatModel(val id: String, val label: String, val shortLabel: String) 
     }
 }
 
-enum class LedgerRecordType(val label: String) {
-    Expense("支出"),
-    Income("收入")
-}
+enum class LedgerRecordType(val label: String) { Expense("支出"), Income("收入") }
 
 data class ChatMessage(
     val id: String,
@@ -147,16 +137,9 @@ data class ChatMessage(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-data class StatSummary(
-    val title: String,
-    val value: String
-)
+data class StatSummary(val title: String, val value: String)
 
-data class ToolEntry(
-    val title: String,
-    val subtitle: String,
-    val icon: String = "✦"
-)
+data class ToolEntry(val title: String, val subtitle: String, val icon: String = "✦")
 
 data class LedgerRecord(
     val id: String,
@@ -174,7 +157,6 @@ data class AssistantUiState(
     val glassPreset: GlassPreset = GlassPreset.Liquid,
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val customBackgroundPath: String? = null,
-    val customBackgroundBlurPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
     val backdropParams: BackdropDebugParams = BackdropDebugParams(),
