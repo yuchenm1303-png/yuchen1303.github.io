@@ -46,17 +46,19 @@ enum class GlassPreset(val label: String, val glassIntensity: Float, val motionI
 
 enum class BackgroundTheme(val label: String, val storageValue: String) {
     Default("默认壁纸", "default"),
-    Aurora("极光", "aurora"),
-    Jade("翡翠海雾", "jade"),
-    Sunset("暮色流光", "sunset"),
-    Dawn("晨曦珍珠", "dawn");
+    Aurora("极光", "theme_aurora"),
+    Jade("翡翠海雾", "theme_jade"),
+    Sunset("暮色流光", "theme_sunset"),
+    Dawn("晨曦珍珠", "theme_dawn");
 
     companion object {
         val selectableThemes: List<BackgroundTheme>
             get() = listOf(Aurora, Jade, Sunset, Dawn)
 
         fun fromStorage(value: String): BackgroundTheme {
-            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Default
+            val normalized = value.trim()
+            if (normalized in setOf("aurora", "jade", "sunset", "dawn")) return Default
+            return entries.firstOrNull { it.storageValue == normalized || it.name == normalized } ?: Default
         }
     }
 }
