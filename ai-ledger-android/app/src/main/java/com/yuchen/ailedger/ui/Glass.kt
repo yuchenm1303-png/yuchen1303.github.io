@@ -147,7 +147,7 @@ fun GlassPanel(
     val shellPressScope = rememberCoroutineScope()
     var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
     val shellPressProgress = if (shellPressEnabled) shellPress.value.coerceIn(0f, 1.18f) else 0f
-    val pressedGlassIntensity = glassIntensity * (1f + shellPressProgress * 0.22f)
+    val pressedGlassIntensity = glassIntensity * (1f + shellPressProgress * 0.28f)
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
             .onSizeChanged { size ->
@@ -236,8 +236,8 @@ fun GlassPanel(
                     // Do not scale the Shell container: scaling would visually stretch the
                     // TextureView/OpenGL output instead of resampling the backdrop. The
                     // pressed capsule feel is produced by light, shade and rim compression.
-                    translationY = shellPressProgress * 0.62f
-                    shadowElevation = shellPressProgress * 0.18f
+                    translationY = shellPressProgress * 1.10f
+                    shadowElevation = shellPressProgress * 0.24f
                 }
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity)
@@ -277,13 +277,14 @@ fun GlassPanel(
                     .glassSkin(
                         quality = quality,
                         radius = effectiveRadius,
-                        shimmer = shimmer + shellPressProgress * 0.038f,
+                        shimmer = shimmer + shellPressProgress * 0.046f,
                         breathe = breathe,
                         glassIntensity = pressedGlassIntensity,
                         includeShadow = false
                     )
             )
         }
+        content()
         if (shellPressEnabled && shellPressProgress > 0.001f) {
             Box(
                 modifier = Modifier
@@ -291,7 +292,6 @@ fun GlassPanel(
                     .shellPressOptics(press = shellPressProgress, radius = effectiveRadius)
             )
         }
-        content()
     }
 }
 
@@ -452,8 +452,8 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
 
         val pressureBloom = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFE6FFFF).copy(alpha = 0.024f * p),
-                Color(0xFFA7F7FF).copy(alpha = 0.009f * p),
+                Color(0xFFE6FFFF).copy(alpha = 0.050f * p),
+                Color(0xFFA7F7FF).copy(alpha = 0.018f * p),
                 Color.Transparent
             ),
             center = Offset(w * 0.50f, h * 0.34f),
@@ -461,17 +461,17 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
         )
         val surfaceDent = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.018f * p),
+                Color.White.copy(alpha = 0.030f * p),
                 Color.Transparent,
-                Color(0xFF031020).copy(alpha = 0.012f * compression)
+                Color(0xFF031020).copy(alpha = 0.030f * compression)
             ),
             startY = h * 0.10f,
             endY = h * 0.78f
         )
         val topCompressedRim = Brush.verticalGradient(
             colors = listOf(
-                Color(0xFFF2FFFF).copy(alpha = 0.058f * p),
-                Color(0xFF91F4FF).copy(alpha = 0.018f * p),
+                Color(0xFFF2FFFF).copy(alpha = 0.145f * p),
+                Color(0xFF91F4FF).copy(alpha = 0.048f * p),
                 Color.Transparent
             ),
             startY = 0f,
@@ -479,10 +479,10 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
         )
         val rimCompression = Brush.linearGradient(
             colors = listOf(
-                Color(0xFFDFFFFF).copy(alpha = 0.020f * p),
+                Color(0xFFDFFFFF).copy(alpha = 0.052f * p),
                 Color.Transparent,
-                Color(0xFF02101D).copy(alpha = 0.018f * compression),
-                Color(0xFFCFFFFF).copy(alpha = 0.013f * p)
+                Color(0xFF02101D).copy(alpha = 0.040f * compression),
+                Color(0xFFCFFFFF).copy(alpha = 0.034f * p)
             ),
             start = Offset(w * 0.08f, 0f),
             end = Offset(w * 0.94f, h)
@@ -491,15 +491,15 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
             colors = listOf(
                 Color.Transparent,
                 Color.Transparent,
-                Color(0xFF020B16).copy(alpha = 0.034f * compression)
+                Color(0xFF020B16).copy(alpha = 0.072f * compression)
             ),
             startY = h * 0.48f,
             endY = h
         )
         val leftCapsuleGlint = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFD8FFFF).copy(alpha = 0.030f * p),
-                Color(0xFF88F5FF).copy(alpha = 0.006f * p),
+                Color(0xFFD8FFFF).copy(alpha = 0.078f * p),
+                Color(0xFF88F5FF).copy(alpha = 0.018f * p),
                 Color.Transparent
             ),
             center = Offset(w * 0.045f, h * 0.40f),
@@ -507,8 +507,8 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
         )
         val rightCapsuleGlint = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFE8FFFF).copy(alpha = 0.024f * p),
-                Color(0xFF91F4FF).copy(alpha = 0.005f * p),
+                Color(0xFFE8FFFF).copy(alpha = 0.064f * p),
+                Color(0xFF91F4FF).copy(alpha = 0.015f * p),
                 Color.Transparent
             ),
             center = Offset(w * 0.955f, h * 0.38f),
@@ -547,7 +547,7 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
                 topLeft = Offset(rimInset, rimInset),
                 size = rimSize,
                 cornerRadius = cornerRadius,
-                style = Stroke(width = 0.58.dp.toPx()),
+                style = Stroke(width = 0.92.dp.toPx()),
                 blendMode = BlendMode.Screen
             )
             drawRoundRect(
@@ -555,7 +555,7 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
                 topLeft = Offset(rimInset, rimInset),
                 size = rimSize,
                 cornerRadius = cornerRadius,
-                style = Stroke(width = 0.42.dp.toPx()),
+                style = Stroke(width = 0.68.dp.toPx()),
                 blendMode = BlendMode.SrcOver
             )
         }
