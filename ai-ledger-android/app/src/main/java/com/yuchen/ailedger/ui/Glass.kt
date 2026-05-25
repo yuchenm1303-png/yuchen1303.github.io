@@ -69,9 +69,10 @@ private const val STRONG_GLASS_BLUR_DP = 118
 private const val MEDIUM_GLASS_BLUR_DP = 82
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.96f
 private const val UNIFIED_EDGE_STRENGTH = 0.22f
-private val ShellPressPreloadEasing = CubicBezierEasing(0.18f, 0.00f, 0.20f, 1.00f)
-private val ShellPressSinkEasing = CubicBezierEasing(0.12f, 0.00f, 0.10f, 1.00f)
-private val ShellPressReleaseEasing = CubicBezierEasing(0.20f, 0.00f, 0.16f, 1.00f)
+private val ShellPressPreloadEasing = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.00f)
+private val ShellPressSinkEasing = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1.00f)
+private val ShellPressReleaseEasing = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
+private val ShellPressPulseEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
 
 /**
  * Root OpenGL gate.
@@ -152,8 +153,8 @@ fun GlassPanel(
     val shellPressScope = rememberCoroutineScope()
     var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
     var shellPressCenter by remember { mutableStateOf(Offset(0.50f, 0.42f)) }
-    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(0f, 1.05f) else 0f
-    val shellPressCompression = shellPressValue
+    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(0f, 1.08f) else 0f
+    val shellPressCompression = glassSmoothStep((shellPressValue / 0.72f).coerceIn(0f, 1f))
     val pressedGlassIntensity = glassIntensity * (1f + shellPressCompression * 0.10f)
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
@@ -177,16 +178,24 @@ fun GlassPanel(
                     shellPressScope.launch {
                         shellPress.stop()
                         shellPress.animateTo(
-                            targetValue = 0.10f,
-                            animationSpec = tween(durationMillis = 155, easing = ShellPressPreloadEasing)
+                            targetValue = 0.12f,
+                            animationSpec = tween(durationMillis = 230, easing = ShellPressPreloadEasing)
                         )
                         shellPress.animateTo(
-                            targetValue = 0.66f,
-                            animationSpec = tween(durationMillis = 380, easing = ShellPressSinkEasing)
+                            targetValue = 0.60f,
+                            animationSpec = tween(durationMillis = 460, easing = ShellPressSinkEasing)
                         )
                         shellPress.animateTo(
-                            targetValue = 0.72f,
-                            animationSpec = spring(dampingRatio = 0.94f, stiffness = Spring.StiffnessLow)
+                            targetValue = 0.76f,
+                            animationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing)
+                        )
+                        shellPress.animateTo(
+                            targetValue = 0.62f,
+                            animationSpec = tween(durationMillis = 680, easing = FastOutSlowInEasing)
+                        )
+                        shellPress.animateTo(
+                            targetValue = 0.70f,
+                            animationSpec = spring(dampingRatio = 0.95f, stiffness = Spring.StiffnessVeryLow)
                         )
                     }
 
@@ -210,19 +219,31 @@ fun GlassPanel(
                     shellPressScope.launch {
                         shellPress.stop()
                         if (releasedInsideGesture) {
-                            val releaseShelf = (shellPress.value * 0.28f).coerceIn(0.08f, 0.15f)
-                            shellPress.animateTo(
-                                targetValue = releaseShelf,
-                                animationSpec = tween(durationMillis = 190, easing = ShellPressReleaseEasing)
-                            )
+                            val current = shellPress.value.coerceIn(0f, 1.08f)
+                            if (current < 0.32f) {
+                                shellPress.animateTo(
+                                    targetValue = 0.50f,
+                                    animationSpec = tween(durationMillis = 230, easing = ShellPressPulseEasing)
+                                )
+                                shellPress.animateTo(
+                                    targetValue = 0.30f,
+                                    animationSpec = tween(durationMillis = 170, easing = ShellPressReleaseEasing)
+                                )
+                            } else {
+                                val releaseShelf = (current * 0.30f).coerceIn(0.14f, 0.22f)
+                                shellPress.animateTo(
+                                    targetValue = releaseShelf,
+                                    animationSpec = tween(durationMillis = 270, easing = ShellPressReleaseEasing)
+                                )
+                            }
                             shellPress.animateTo(
                                 targetValue = 0f,
-                                animationSpec = tween(durationMillis = 430, easing = FastOutSlowInEasing)
+                                animationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing)
                             )
                         } else {
                             shellPress.animateTo(
                                 targetValue = 0f,
-                                animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
+                                animationSpec = tween(durationMillis = 430, easing = FastOutSlowInEasing)
                             )
                         }
                     }
@@ -462,13 +483,14 @@ private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifi
 private fun Modifier.shellPressSurfaceOptics(press: Float, radius: Int, pressCenter: Offset): Modifier {
     return this.drawWithContent {
         drawContent()
-        val safePress = press.coerceIn(0f, 1.05f)
+        val safePress = press.coerceIn(0f, 1.08f)
         if (safePress < 0.001f) return@drawWithContent
 
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
         val raw = (safePress / 0.72f).coerceIn(0f, 1f)
         val p = glassSmoothStep(raw)
+        val breath = glassSmoothStep((safePress / 0.50f).coerceIn(0f, 1f)) * (1f - 0.11f * glassSmoothStep(((safePress - 0.58f) / 0.28f).coerceIn(0f, 1f)))
         val compression = p * p
         val centerNorm = Offset(
             x = pressCenter.x.coerceIn(0f, 1f),
@@ -486,77 +508,89 @@ private fun Modifier.shellPressSurfaceOptics(press: Float, radius: Int, pressCen
         val bottomNear = nearEdge(1f - centerNorm.y)
         val leftNear = nearEdge(centerNorm.x)
         val rightNear = nearEdge(1f - centerNorm.x)
-        val edgeStroke = (0.68.dp + (0.18f * p).dp).toPx()
-        val localEdgeStroke = (1.04.dp + (0.34f * p).dp).toPx()
+        val edgeStroke = (0.74.dp + (0.26f * p).dp).toPx()
+        val localEdgeStroke = (1.18.dp + (0.48f * p).dp).toPx()
+        val flow = glassSmoothStep((safePress / 0.62f).coerceIn(0f, 1f))
+        val sweepX = -0.18f + flow * 1.36f
 
         val pressureField = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.056f * p),
-                Color(0xFFB8F7FF).copy(alpha = 0.025f * p),
-                Color(0xFF82E8FF).copy(alpha = 0.008f * p),
+                Color(0xFFEFFFFF).copy(alpha = 0.064f * breath),
+                Color(0xFFB8F7FF).copy(alpha = 0.030f * breath),
+                Color(0xFF82E8FF).copy(alpha = 0.010f * breath),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * (0.84f + 0.06f * p)
+            radius = maxSide * (0.86f + 0.06f * p)
         )
         val broadHalo = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.014f * p),
-                Color(0xFFD8FFFF).copy(alpha = 0.010f * p),
+                Color.White.copy(alpha = 0.020f * breath),
+                Color(0xFFD8FFFF).copy(alpha = 0.014f * breath),
                 Color.Transparent
             ),
             center = Offset(w * 0.50f, h * 0.40f),
-            radius = maxSide * 1.14f
+            radius = maxSide * 1.18f
         )
         val elasticSurfaceField = Brush.radialGradient(
             colors = listOf(
                 Color.Transparent,
                 Color(0xFF102C66).copy(alpha = 0.006f * p),
-                Color(0xFF030B1A).copy(alpha = 0.030f * compression)
+                Color(0xFF030B1A).copy(alpha = 0.034f * compression)
             ),
             center = center,
             radius = maxSide * (1.00f + 0.035f * p)
         )
         val topSoftLoad = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.030f * p),
-                Color(0xFFE2FFFF).copy(alpha = 0.012f * p),
+                Color.White.copy(alpha = 0.036f * breath),
+                Color(0xFFE2FFFF).copy(alpha = 0.014f * breath),
                 Color.Transparent
             ),
             startY = 0f,
-            endY = h * 0.36f
+            endY = h * 0.38f
         )
         val lowerWeight = Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
                 Color.Transparent,
-                Color(0xFF020815).copy(alpha = 0.040f * compression)
+                Color(0xFF020815).copy(alpha = 0.044f * compression)
             ),
             startY = h * 0.44f,
             endY = h
         )
         val ambientRim = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.046f * p),
-                Color(0xFFA8F6FF).copy(alpha = 0.018f * p),
+                Color(0xFFEFFFFF).copy(alpha = 0.056f * breath),
+                Color(0xFFA8F6FF).copy(alpha = 0.022f * breath),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * 0.72f
+            radius = maxSide * 0.74f
+        )
+        val flowingRim = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.36f * breath),
+                Color(0xFF9AF7FF).copy(alpha = 0.16f * breath),
+                Color.Transparent
+            ),
+            start = Offset(w * (sweepX - 0.20f), h * 0.02f),
+            end = Offset(w * (sweepX + 0.18f), h * 0.26f)
         )
         val topEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.19f * topNear),
-                Color(0xFFA7F7FF).copy(alpha = 0.070f * topNear),
+                Color.White.copy(alpha = 0.25f * topNear),
+                Color(0xFFA7F7FF).copy(alpha = 0.092f * topNear),
                 Color.Transparent
             ),
             center = Offset(center.x, rimInset),
-            radius = maxSide * 0.36f
+            radius = maxSide * 0.38f
         )
         val bottomEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFF2FFFF).copy(alpha = 0.15f * bottomNear),
-                Color(0xFF88EFFF).copy(alpha = 0.050f * bottomNear),
+                Color(0xFFF2FFFF).copy(alpha = 0.18f * bottomNear),
+                Color(0xFF88EFFF).copy(alpha = 0.062f * bottomNear),
                 Color.Transparent
             ),
             center = Offset(center.x, h - rimInset),
@@ -564,8 +598,8 @@ private fun Modifier.shellPressSurfaceOptics(press: Float, radius: Int, pressCen
         )
         val leftEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.17f * leftNear),
-                Color(0xFF94F2FF).copy(alpha = 0.058f * leftNear),
+                Color.White.copy(alpha = 0.20f * leftNear),
+                Color(0xFF94F2FF).copy(alpha = 0.070f * leftNear),
                 Color.Transparent
             ),
             center = Offset(rimInset, center.y),
@@ -573,8 +607,8 @@ private fun Modifier.shellPressSurfaceOptics(press: Float, radius: Int, pressCen
         )
         val rightEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.17f * rightNear),
-                Color(0xFF94F2FF).copy(alpha = 0.058f * rightNear),
+                Color.White.copy(alpha = 0.20f * rightNear),
+                Color(0xFF94F2FF).copy(alpha = 0.070f * rightNear),
                 Color.Transparent
             ),
             center = Offset(w - rimInset, center.y),
@@ -593,6 +627,14 @@ private fun Modifier.shellPressSurfaceOptics(press: Float, radius: Int, pressCen
             cornerRadius = cornerRadius,
             style = Stroke(width = edgeStroke),
             blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = flowingRim,
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = cornerRadius,
+            style = Stroke(width = 0.72.dp.toPx()),
+            blendMode = BlendMode.Plus
         )
         drawRoundRect(
             brush = topEdgeHalo,
