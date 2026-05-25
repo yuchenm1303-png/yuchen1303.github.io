@@ -233,10 +233,11 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .graphicsLayer {
                 if (shellPressEnabled) {
-                    scaleX = 1f + shellPressProgress * 0.0080f
-                    scaleY = 1f - shellPressProgress * 0.0150f
-                    translationY = shellPressProgress * 0.82f
-                    shadowElevation = shellPressProgress * 0.22f
+                    // Do not scale the Shell container: scaling would visually stretch the
+                    // TextureView/OpenGL output instead of resampling the backdrop. The
+                    // pressed capsule feel is produced by light, shade and rim compression.
+                    translationY = shellPressProgress * 0.62f
+                    shadowElevation = shellPressProgress * 0.18f
                 }
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity)
