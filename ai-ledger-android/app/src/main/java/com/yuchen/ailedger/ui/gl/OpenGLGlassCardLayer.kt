@@ -38,13 +38,17 @@ import kotlin.math.roundToInt
 private const val GLASS_SPEC_EPSILON_PX = 0.5f
 private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
 private const val GLASS_INTENSITY_EPSILON = 0.006f
+private const val GLASS_PRESS_EPSILON = 0.003f
+private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
 
 @Composable
 fun OpenGLGlassCardLayer(
     radius: Int,
     glassIntensity: Float,
     coordinateSource: GlassCoordinateSource? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pressProgress: Float = 0f,
+    pressCenter: Offset = Offset(0.5f, 0.5f)
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
@@ -57,6 +61,9 @@ fun OpenGLGlassCardLayer(
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     val intensity = glassIntensity.coerceIn(0.35f, 1.35f)
     val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
+    val press = pressProgress.coerceIn(0f, 1f)
+    val pressX = pressCenter.x.coerceIn(0f, 1f)
+    val pressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
@@ -70,10 +77,11 @@ fun OpenGLGlassCardLayer(
                 val rootDirty = view.setSamplingRootView(rootView)
                 val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
                 val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+                val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (rootDirty || specDirty || samplingDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
+                if (rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
             }
@@ -93,6 +101,9 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestOriginY = 0f
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
+    private var latestPressProgress = 0f
+    private var latestPressCenterX = 0.5f
+    private var latestPressCenterY = 0.5f
     private var latestStyle = GlassBorderStyle()
     private var samplingRootView: View? = null
     private val windowLocation = IntArray(2)
@@ -188,6 +199,20 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         return dirty
     }
 
+    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean {
+        val nextProgress = progress.coerceIn(0f, 1f)
+        val nextCenterX = centerX.coerceIn(0f, 1f)
+        val nextCenterY = centerY.coerceIn(0f, 1f)
+        val dirty = abs(nextProgress - latestPressProgress) > GLASS_PRESS_EPSILON ||
+            abs(nextCenterX - latestPressCenterX) > GLASS_PRESS_CENTER_EPSILON ||
+            abs(nextCenterY - latestPressCenterY) > GLASS_PRESS_CENTER_EPSILON
+        latestPressProgress = nextProgress
+        latestPressCenterX = nextCenterX
+        latestPressCenterY = nextCenterY
+        if (dirty) renderThread?.setPressSpec(latestPressProgress, latestPressCenterX, latestPressCenterY)
+        return dirty
+    }
+
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
         val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
         latestBlurBitmap = blurBitmap
@@ -212,6 +237,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         renderThread = CardGlassEglThread(Surface(surfaceTexture), width, height).also { thread ->
             thread.setGlassSpec(latestWidth, latestHeight, latestRadius, latestIntensity)
             thread.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+            thread.setPressSpec(latestPressProgress, latestPressCenterX, latestPressCenterY)
             thread.setGlassStyle(latestStyle)
             val blur = latestBlurBitmap
             val lens = latestLensBitmap
@@ -254,6 +280,7 @@ private class CardGlassEglThread(
 
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float) = renderer.setGlassSpec(width, height, radius, intensity)
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) = renderer.setSamplingSpec(originX, originY, rootWidth, rootHeight)
+    fun setPressSpec(progress: Float, centerX: Float, centerY: Float) = renderer.setPressSpec(progress, centerX, centerY)
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) = renderer.setBackdropTextures(blurBitmap, lensBitmap)
     fun setGlassStyle(style: GlassBorderStyle) = renderer.setGlassStyle(style)
 
@@ -357,6 +384,9 @@ private data class CardGlassDrawSpec(
     val cardOriginY: Float,
     val rootWidth: Float,
     val rootHeight: Float,
+    val pressProgress: Float,
+    val pressCenterX: Float,
+    val pressCenterY: Float,
     val style: GlassBorderStyle
 )
 
@@ -388,6 +418,9 @@ private class OpenGLGlassCardRenderer {
     private var cardOriginY = 0f
     private var rootWidth = 1f
     private var rootHeight = 1f
+    private var pressProgress = 0f
+    private var pressCenterX = 0.5f
+    private var pressCenterY = 0.5f
     private var style = GlassBorderStyle()
 
     private var program = 0
@@ -398,6 +431,7 @@ private class OpenGLGlassCardRenderer {
     private var rectHandle = 0
     private var radiusHandle = 0
     private var intensityHandle = 0
+    private var pressHandle = 0
     private var textureReadyHandle = 0
     private var blurTextureHandle = 0
     private var lensTextureHandle = 0
@@ -425,6 +459,14 @@ private class OpenGLGlassCardRenderer {
         }
     }
 
+    fun setPressSpec(progress: Float, centerX: Float, centerY: Float) {
+        synchronized(specLock) {
+            pressProgress = progress.coerceIn(0f, 1f)
+            pressCenterX = centerX.coerceIn(0f, 1f)
+            pressCenterY = centerY.coerceIn(0f, 1f)
+        }
+    }
+
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
         synchronized(textureLock) {
             pendingBlurBitmap = blurBitmap
@@ -447,6 +489,7 @@ private class OpenGLGlassCardRenderer {
         rectHandle = GLES20.glGetUniformLocation(program, "uRect")
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
         intensityHandle = GLES20.glGetUniformLocation(program, "uIntensity")
+        pressHandle = GLES20.glGetUniformLocation(program, "uPress")
         textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
         blurTextureHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
         lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
@@ -487,6 +530,9 @@ private class OpenGLGlassCardRenderer {
                 cardOriginY = cardOriginY,
                 rootWidth = rootWidth,
                 rootHeight = rootHeight,
+                pressProgress = pressProgress,
+                pressCenterX = pressCenterX,
+                pressCenterY = pressCenterY,
                 style = style
             )
         }
@@ -499,6 +545,7 @@ private class OpenGLGlassCardRenderer {
         GLES20.glUniform4f(rectHandle, 0f, 0f, drawSpec.cardWidth, drawSpec.cardHeight)
         GLES20.glUniform1f(radiusHandle, drawSpec.cardRadius.coerceIn(2f, max(drawSpec.cardWidth, drawSpec.cardHeight)))
         GLES20.glUniform1f(intensityHandle, drawSpec.cardIntensity)
+        GLES20.glUniform4f(pressHandle, drawSpec.pressProgress, drawSpec.pressCenterX, drawSpec.pressCenterY, 0f)
         GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
         GLES20.glUniform4f(
             materialHandle,
@@ -632,6 +679,7 @@ private class OpenGLGlassCardRenderer {
             uniform vec4 uRect;
             uniform float uRadius;
             uniform float uIntensity;
+            uniform vec4 uPress;      // x progress, y centerX, z centerY, w reserved
             uniform float uTextureReady;
             uniform vec4 uMaterial;   // x visibility, y alpha, z brightness, w reserved
             uniform vec4 uRefraction; // x bodyPx, y edgePx, z lensMix/drag, w gradScale
@@ -773,6 +821,15 @@ private class OpenGLGlassCardRenderer {
                 return t * maskGuard;
             }
 
+            float pressFieldAt(vec2 coord, vec2 rectSize, vec2 center, float press) {
+                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
+                vec2 delta = local - center;
+                delta.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.2);
+                float d = length(delta);
+                float field = pow(sat(1.0 - d * 1.42), 2.15);
+                return field * press;
+            }
+
             vec2 softLimitPx(vec2 v, float limitPx) {
                 float len = length(v);
                 float softLen = len / (1.0 + len / max(limitPx, 1.0));
@@ -787,7 +844,15 @@ private class OpenGLGlassCardRenderer {
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
 
-                vec2 bgUv = globalUv(coord);
+                float press = sat(uPress.x);
+                vec2 pressCenter = clamp(uPress.yz, vec2(0.0), vec2(1.0));
+                vec2 pressCenterPx = pressCenter * rectSize;
+                float pressField = pressFieldAt(coord, rectSize, pressCenter, press);
+                float pressWide = press * pow(sat(1.0 - length((coord / rectSize - pressCenter) * vec2(min(rectSize.x / max(rectSize.y, 1.0), 2.2), 1.0)) * 0.88), 1.55);
+                vec2 inwardPx = softLimitPx((pressCenterPx - coord) * (0.010 * press + 0.020 * pressField), 9.0 + press * 7.0);
+                vec2 pressedCoord = coord + inwardPx;
+
+                vec2 bgUv = globalUv(pressedCoord);
                 float stepPx = 2.0;
                 float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
                 float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
@@ -803,22 +868,29 @@ private class OpenGLGlassCardRenderer {
                 grad *= gradGate * min(1.0, 0.22 / max(gLen, 0.0001));
                 float gradEnergy = sat(length(grad) * max(uRefraction.w, 0.0));
 
-                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide) * max(uMaterial.x, 0.0);
-                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0;
+                vec2 pressDelta = coord - pressCenterPx;
+                vec2 pressDir = pressDelta / max(length(pressDelta), 0.001);
+                vec2 pressDimplePx = -pressDir * pressField * (2.8 + press * 4.2);
+                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide + press * (10.0 + 22.0 * pressField)) * max(uMaterial.x, 0.0);
+                rawRefractPx += pressDimplePx;
+                rawRefractPx += inwardPx * (0.28 + 0.30 * rimWide);
+                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0 + press * 8.0;
                 vec2 refractPx = softLimitPx(rawRefractPx, limitPx);
                 vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
 
-                vec3 color = blurBackdrop(refractedUv, rimWide);
+                vec3 color = blurBackdrop(refractedUv, rimWide + pressField * 0.42);
                 vec3 lensColor = sourceLensBackdrop(refractedUv);
-                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42);
+                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42 + pressField * 0.105 + pressWide * 0.025);
                 color = mix(color, lensColor, lensMix);
 
-                vec3 dragColor = edgeColorDrag(coord, rectSize, radius, dragBand, rimCore);
+                vec3 dragColor = edgeColorDrag(coord + inwardPx * 0.38, rectSize, radius, dragBand + press * rimWide * 0.18, rimCore);
                 float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
                 color = mix(color, dragColor, dragMix);
 
-                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045;
+                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045 + press * rimCore * 0.045;
                 color *= uMaterial.z * (1.0 + rimOpticalBoost);
+                color *= 1.0 - pressField * 0.035 - pressWide * 0.012;
+                color += vec3(0.018, 0.035, 0.046) * pressField * 0.22;
 
                 float debugEdge = smoothstep(-1.65, 0.0, sd) * mask;
                 color = mix(color, vec3(1.0, 0.45, 0.0), debugEdge * uOptics.z);
