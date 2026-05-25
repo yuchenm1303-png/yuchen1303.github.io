@@ -74,15 +74,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
-    LaunchedEffect(state.quality.enableMotion, state.motionIntensity) {
-        val shouldAnimateBackdrop = state.quality.enableMotion && state.motionIntensity > 0.02f
-        if (!shouldAnimateBackdrop) {
-            backdropTicker.frameNanos = 0L
-            return@LaunchedEffect
-        }
-        while (true) backdropTicker.frameNanos = withFrameNanos { it }
-    }
-
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
