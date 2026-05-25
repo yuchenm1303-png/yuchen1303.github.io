@@ -144,25 +144,40 @@ private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
         radius = 28,
         modifier = Modifier
             .fillMaxWidth()
-            .height(148.dp)
-            .toolCardGlow(glow = 0.70f, accent = Color(0xFF8DF9EA)),
+            .height(174.dp),
         role = GlassRole.Shell,
         onClick = { onOpenTool("账单中心") }
     ) {
-        Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("今日入口", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("账单中心", color = Color.White, fontSize = 25.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black)
-                    Text("先从记账、预算和最近明细开始。", color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, lineHeight = 18.sp)
+                Column(
+                    modifier = Modifier.weight(1f).padding(end = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("今日入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("账单中心", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("从记账、预算和最近明细开始", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IlluminatedGlyph("账", state, active = true)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniToolMetric("记录", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
-                MiniToolMetric("今日", todayExpenseTextV2(state), state, Modifier.weight(1f))
-                MiniToolMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                HeroToolMetric("记录", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
+                HeroToolMetric("今日", todayExpenseTextV2(state), state, Modifier.weight(1f))
+                HeroToolMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
             }
+        }
+    }
+}
+
+@Composable
+private fun HeroToolMetric(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    GlassPanel(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, modifier.height(42.dp), GlassRole.Chip) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
