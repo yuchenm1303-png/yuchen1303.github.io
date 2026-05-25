@@ -808,6 +808,20 @@ private class OpenGLGlassCardRenderer {
                 return v * (softLen / max(len, 0.0001));
             }
 
+            vec2 pressMaterialCoord(vec2 coord, vec2 rectSize, float press) {
+                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
+                vec2 centered = local - 0.5;
+                float aspect = rectSize.x / max(rectSize.y, 1.0);
+                float radial = length(vec2(centered.x * aspect * 0.72, centered.y));
+                float dome = pow(sat(1.0 - radial * 1.26), 1.55);
+                float edgeEase = smoothstep(0.10, 0.72, radial);
+                vec2 inward = centered * rectSize * press * (0.010 + dome * 0.010 + edgeEase * 0.012);
+                float yDent = (smoothstep(0.62, 0.0, local.y) * -1.0 + smoothstep(0.46, 1.0, local.y) * 0.62) * press * 3.6;
+                vec2 offset = inward + vec2(0.0, yDent);
+                float limitPx = min(rectSize.x, rectSize.y) * 0.026;
+                return coord + softLimitPx(offset, limitPx);
+            }
+
             vec2 pressSampleCoord(vec2 coord, vec2 rectSize, float press, float rimWide, float rimCore) {
                 vec2 local = clamp(coord / rectSize, 0.0, 1.0);
                 vec2 centered = local - 0.5;
@@ -828,21 +842,22 @@ private class OpenGLGlassCardRenderer {
                 vec2 coord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
                 vec2 rectSize = max(uRect.zw, vec2(1.0));
                 float radius = min(uRadius, min(rectSize.x, rectSize.y) * 0.5);
-                float sd = roundedBoxSdfAt(coord, rectSize, radius);
+                float press = sat(uPress);
+                vec2 materialCoord = pressMaterialCoord(coord, rectSize, press);
+                float sd = roundedBoxSdfAt(materialCoord, rectSize, radius);
                 float mask = 1.0 - smoothstep(0.0, 1.35, sd);
                 if (mask <= 0.001) discard;
 
-                float press = sat(uPress);
-                float rimWide = rimWideAt(coord, rectSize, radius);
-                float rimCore = rimCoreAt(coord, rectSize, radius);
-                float dragBand = edgeDragBandAt(coord, rectSize, radius);
+                float rimWide = rimWideAt(materialCoord, rectSize, radius);
+                float rimCore = rimCoreAt(materialCoord, rectSize, radius);
+                float dragBand = edgeDragBandAt(materialCoord, rectSize, radius);
                 vec2 sampleCoord = pressSampleCoord(coord, rectSize, press, rimWide, rimCore);
                 vec2 bgUv = globalUv(sampleCoord);
                 float stepPx = 2.0;
-                float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
-                float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
-                float tU = thicknessAt(coord - vec2(0.0, stepPx), rectSize, radius);
-                float tD = thicknessAt(coord + vec2(0.0, stepPx), rectSize, radius);
+                float tL = thicknessAt(materialCoord - vec2(stepPx, 0.0), rectSize, radius);
+                float tR = thicknessAt(materialCoord + vec2(stepPx, 0.0), rectSize, radius);
+                float tU = thicknessAt(materialCoord - vec2(0.0, stepPx), rectSize, radius);
+                float tD = thicknessAt(materialCoord + vec2(0.0, stepPx), rectSize, radius);
                 vec2 grad = vec2(tR - tL, tD - tU);
 
                 float gLen = length(grad);
@@ -860,14 +875,14 @@ private class OpenGLGlassCardRenderer {
                 float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * (0.42 + press * 0.05));
                 color = mix(color, lensColor, lensMix);
 
-                vec3 dragColor = edgeColorDrag(coord, sampleCoord, rectSize, radius, dragBand, rimCore);
+                vec3 dragColor = edgeColorDrag(materialCoord, sampleCoord, rectSize, radius, dragBand, rimCore);
                 float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
                 color = mix(color, dragColor, dragMix);
 
                 float rimOpticalBoost = rimCore * (0.16 + press * 0.11) + gradEnergy * (0.045 + press * 0.026);
                 color *= uMaterial.z * (1.0 + rimOpticalBoost);
 
-                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
+                vec2 local = clamp(materialCoord / rectSize, 0.0, 1.0);
                 float topGlow = smoothstep(0.42, 0.0, local.y) * rimWide * press;
                 float bottomWeight = smoothstep(0.58, 1.0, local.y) * press;
                 float centerFlash = pow(sat(1.0 - length(local - vec2(0.50, 0.42)) * 1.55), 2.2) * press;
