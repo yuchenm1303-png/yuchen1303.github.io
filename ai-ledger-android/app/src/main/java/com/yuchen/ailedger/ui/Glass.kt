@@ -164,6 +164,15 @@ fun GlassPanel(
     val shellPressCompression = glassSmoothStep((shellPressValue.coerceAtLeast(0f) / 0.72f).coerceIn(0f, 1f))
     val shellOpenGlPress = if (shellPressEnabled) shellOpenGlPressAnim.value.coerceIn(0f, 1f) else 0f
     val shellPressRebound = glassSmoothStep((-shellPressValue / 0.10f).coerceIn(0f, 1f))
+    val shellSurfaceOpticsPress = if (shellPressEnabled) {
+        maxOf(
+            shellPressValue.coerceAtLeast(0f),
+            shellOpenGlPress * 0.62f,
+            shellPressRebound * 0.24f
+        )
+    } else {
+        0f
+    }
     val pressedGlassIntensity = glassIntensity * (1f + shellPressCompression * 0.10f)
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
@@ -391,7 +400,7 @@ fun GlassPanel(
                 modifier = Modifier
                     .matchParentSize()
                     .shellPressSurfaceOptics(
-                        press = shellPressValue,
+                        press = shellSurfaceOpticsPress,
                         radius = effectiveRadius,
                         pressCenter = shellPressCenter,
                         rimFlowSeed = shellRimFlowSeed,
