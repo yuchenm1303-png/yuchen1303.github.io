@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -10,13 +9,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -126,7 +120,7 @@ private fun ToolsHomeV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
         item { AnimatedAppear(delayMs = 100) { PrimaryToolRowV2(state, onOpenTool) } }
         itemsIndexed(toolEntriesV2(state), key = { _, item -> item.title }) { index, tool ->
             AnimatedAppear(delayMs = 145L + index * 42L) {
-                ToolCardV2(tool = tool, state = state, index = index, onClick = { onOpenTool(displayToolTitleV2(tool.title)) })
+                ToolCardV2(tool = tool, state = state, onClick = { onOpenTool(displayToolTitleV2(tool.title)) })
             }
         }
     }
@@ -143,7 +137,6 @@ private fun ToolsHeaderV2() {
 
 @Composable
 private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
-    val pulse = rememberSoftPulse()
     PressableGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
@@ -152,7 +145,7 @@ private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(148.dp)
-            .toolCardGlow(glow = 0.70f, pulse = pulse, accent = Color(0xFF8DF9EA)),
+            .toolCardGlow(glow = 0.70f, accent = Color(0xFF8DF9EA)),
         role = GlassRole.Shell,
         onClick = { onOpenTool("账单中心") }
     ) {
@@ -199,7 +192,7 @@ private fun QuickToolPillV2(title: String, subtitle: String, target: String, sta
         modifier
             .height(62.dp)
             .graphicsLayer { scaleX = pop; scaleY = pop }
-            .toolCardGlow(if (active) 0.40f else 0.10f, rememberSoftPulse(), Color(0xFF8DF9EA)),
+            .toolCardGlow(if (active) 0.40f else 0.10f, Color(0xFF8DF9EA)),
         if (active) GlassRole.Floating else GlassRole.Chip,
         onClick = { onOpenTool(target) }
     ) {
@@ -211,7 +204,7 @@ private fun QuickToolPillV2(title: String, subtitle: String, target: String, sta
 }
 
 @Composable
-private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, index: Int, onClick: () -> Unit) {
+private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> Unit) {
     val title = displayToolTitleV2(tool.title)
     val accent = toolAccentV2(title)
     val active = title == "账单中心"
@@ -223,7 +216,7 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, index: Int, onC
         modifier = Modifier
             .fillMaxWidth()
             .height(76.dp)
-            .toolCardGlow(glow = if (active) 0.34f else 0.14f, pulse = rememberSoftPulse(index), accent = accent),
+            .toolCardGlow(glow = if (active) 0.34f else 0.14f, accent = accent),
         // These are the outer tool-category containers shown in the feature page.
         // Promote the container itself to Shell/OpenGL, while its icon glyph remains Chip/Floating.
         role = GlassRole.Shell,
@@ -291,7 +284,7 @@ private fun LedgerSummaryV2(state: AssistantUiState) {
         Modifier
             .fillMaxWidth()
             .height(148.dp)
-            .toolCardGlow(0.62f, rememberSoftPulse(), Color(0xFF8DF9EA)),
+            .toolCardGlow(0.62f, Color(0xFF8DF9EA)),
         GlassRole.Shell
     ) {
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -404,7 +397,7 @@ private fun IlluminatedGlyph(text: String, state: AssistantUiState, active: Bool
     Box(
         modifier = Modifier
             .size(44.dp)
-            .toolGlyphGlow(glow, rememberSoftPulse(), accent),
+            .toolGlyphGlow(glow, accent),
         contentAlignment = Alignment.Center
     ) {
         GlassPanel(state.quality, state.glassIntensity * if (active) 1.04f else 0.90f, state.motionIntensity, 18, Modifier.fillMaxSize(), if (active) GlassRole.Floating else GlassRole.Chip) {
@@ -437,7 +430,7 @@ private fun TypeChipV2(text: String, selected: Boolean, state: AssistantUiState,
         state.glassIntensity * if (selected) 1.05f else 0.90f,
         state.motionIntensity,
         999,
-        modifier.height(39.dp).graphicsLayer { scaleX = pop; scaleY = pop }.toolCardGlow(if (selected) 0.34f else 0f, rememberSoftPulse(), Color(0xFF8DF9EA)),
+        modifier.height(39.dp).graphicsLayer { scaleX = pop; scaleY = pop }.toolCardGlow(if (selected) 0.34f else 0f, Color(0xFF8DF9EA)),
         if (selected) GlassRole.Floating else GlassRole.Chip,
         onClick = onClick
     ) {
@@ -493,7 +486,7 @@ private fun CategoryRowV2(state: AssistantUiState, onCategoryChange: (String) ->
 @Composable
 private fun LedgerRecordCardV2(record: LedgerRecord, state: AssistantUiState, onDelete: () -> Unit) {
     val accent = if (record.type == LedgerRecordType.Income) Color(0xFF8DF9EA) else Color(0xFFFFC2D1)
-    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 23, Modifier.fillMaxWidth().height(66.dp).toolCardGlow(0.16f, rememberSoftPulse(), accent), GlassRole.Card, onClick = onDelete) {
+    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 23, Modifier.fillMaxWidth().height(66.dp).toolCardGlow(0.16f, accent), GlassRole.Card, onClick = onDelete) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(accent.copy(alpha = 0.86f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -536,20 +529,8 @@ private fun SectionTitleV2(title: String, subtitle: String) {
     }
 }
 
-@Composable
-private fun rememberSoftPulse(offset: Int = 0): Float {
-    val transition = rememberInfiniteTransition(label = "tools-soft-pulse-$offset")
-    val pulse by transition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(animation = tween(1180 + offset * 80, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "tools-soft-pulse-value-$offset"
-    )
-    return pulse
-}
-
-private fun Modifier.toolCardGlow(glow: Float, pulse: Float, accent: Color): Modifier = drawWithCache {
-    val radius = min(size.width, size.height) * (1.18f + pulse * 0.10f)
+private fun Modifier.toolCardGlow(glow: Float, accent: Color): Modifier = drawWithCache {
+    val radius = min(size.width, size.height) * 1.28f
     val brush = Brush.radialGradient(
         colors = listOf(
             accent.copy(alpha = 0.14f * glow),
@@ -565,9 +546,9 @@ private fun Modifier.toolCardGlow(glow: Float, pulse: Float, accent: Color): Mod
     }
 }
 
-private fun Modifier.toolGlyphGlow(glow: Float, pulse: Float, accent: Color): Modifier = drawWithCache {
+private fun Modifier.toolGlyphGlow(glow: Float, accent: Color): Modifier = drawWithCache {
     val center = Offset(size.width / 2f, size.height / 2f)
-    val radius = size.minDimension * (0.72f + 0.10f * pulse)
+    val radius = size.minDimension * 0.82f
     val brush = Brush.radialGradient(
         colors = listOf(
             accent.copy(alpha = 0.28f * glow),
