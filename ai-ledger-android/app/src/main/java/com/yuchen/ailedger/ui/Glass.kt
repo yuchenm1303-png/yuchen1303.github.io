@@ -161,6 +161,7 @@ fun GlassPanel(
     var shellRimFlowStrength by remember { mutableStateOf(1f) }
     val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(-0.14f, 1.08f) else 0f
     val shellPressCompression = glassSmoothStep((shellPressValue.coerceAtLeast(0f) / 0.72f).coerceIn(0f, 1f))
+    val shellOpenGlPress = glassSmoothStep(((shellPressValue.coerceAtLeast(0f) - 0.16f) / 0.62f).coerceIn(0f, 1f))
     val shellPressRebound = glassSmoothStep((-shellPressValue / 0.10f).coerceIn(0f, 1f))
     val pressedGlassIntensity = glassIntensity * (1f + shellPressCompression * 0.10f)
     val shellPressModifier = if (shellPressEnabled) {
@@ -234,24 +235,19 @@ fun GlassPanel(
                             val current = shellPress.value.coerceIn(0f, 1.08f)
                             if (current < 0.46f) {
                                 shellPress.animateTo(
-                                    targetValue = 0.58f,
-                                    animationSpec = tween(durationMillis = 170, easing = ShellPressPulseEasing)
+                                    targetValue = 0.52f,
+                                    animationSpec = tween(durationMillis = 105, easing = ShellPressPulseEasing)
                                 )
                                 shellPress.animateTo(
-                                    targetValue = 0.34f,
-                                    animationSpec = tween(durationMillis = 180, easing = ShellPressReleaseEasing)
+                                    targetValue = -0.060f,
+                                    animationSpec = tween(durationMillis = 150, easing = ShellPressReleaseEasing)
                                 )
                             } else {
-                                val releaseShelf = (current * 0.30f).coerceIn(0.16f, 0.24f)
                                 shellPress.animateTo(
-                                    targetValue = releaseShelf,
-                                    animationSpec = tween(durationMillis = 270, easing = ShellPressReleaseEasing)
+                                    targetValue = -0.065f,
+                                    animationSpec = tween(durationMillis = 220, easing = ShellPressReleaseEasing)
                                 )
                             }
-                            shellPress.animateTo(
-                                targetValue = -0.075f,
-                                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
-                            )
                             shellPress.animateTo(
                                 targetValue = 0f,
                                 animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)
@@ -310,7 +306,7 @@ fun GlassPanel(
                 glassIntensity = glassIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize(),
-                pressProgress = shellPressCompression,
+                pressProgress = shellOpenGlPress,
                 pressCenter = shellPressCenter
             )
         } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
