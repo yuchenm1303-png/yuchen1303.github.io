@@ -34,6 +34,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -158,8 +159,9 @@ fun GlassPanel(
     var shellRimFlowDirection by remember { mutableStateOf(1f) }
     var shellRimFlowBand by remember { mutableStateOf(0) }
     var shellRimFlowStrength by remember { mutableStateOf(1f) }
-    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(0f, 1.08f) else 0f
-    val shellPressCompression = glassSmoothStep((shellPressValue / 0.72f).coerceIn(0f, 1f))
+    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(-0.14f, 1.08f) else 0f
+    val shellPressCompression = glassSmoothStep((shellPressValue.coerceAtLeast(0f) / 0.72f).coerceIn(0f, 1f))
+    val shellPressRebound = glassSmoothStep((-shellPressValue / 0.10f).coerceIn(0f, 1f))
     val pressedGlassIntensity = glassIntensity * (1f + shellPressCompression * 0.10f)
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
@@ -247,8 +249,12 @@ fun GlassPanel(
                                 )
                             }
                             shellPress.animateTo(
+                                targetValue = -0.075f,
+                                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                            )
+                            shellPress.animateTo(
                                 targetValue = 0f,
-                                animationSpec = tween(durationMillis = 620, easing = FastOutSlowInEasing)
+                                animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)
                             )
                         } else {
                             shellPress.animateTo(
@@ -289,8 +295,11 @@ fun GlassPanel(
             .onPlaced { coordinates.coordinates = it }
             .graphicsLayer {
                 if (shellPressEnabled) {
-                    translationY = shellPressCompression * 0.34f
-                    shadowElevation = shellPressCompression * 0.12f
+                    transformOrigin = TransformOrigin(shellPressCenter.x, shellPressCenter.y)
+                    scaleX = 1f + shellPressCompression * 0.014f - shellPressRebound * 0.004f
+                    scaleY = 1f - shellPressCompression * 0.022f + shellPressRebound * 0.008f
+                    translationY = shellPressCompression * 2.10f - shellPressRebound * 0.80f
+                    shadowElevation = shellPressCompression * 0.45f
                 }
             }
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity)
