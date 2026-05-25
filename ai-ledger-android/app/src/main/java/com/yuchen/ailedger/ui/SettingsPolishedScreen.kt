@@ -155,7 +155,7 @@ private fun SettingsHeader() {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text("SETTINGS", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
         Text("设置", color = Color.White, fontSize = 36.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        Text("点开小栏目再调详细项，常用内容收起来后页面更轻。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
+        Text("常用设置已直接展开，必要时也可以点按栏目收起。", color = Color.White.copy(alpha = 0.62f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -170,7 +170,7 @@ private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("Compose 原生版", color = Color.White, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text("设置已按折叠栏目收纳，展开后再修改细节。", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 17.sp)
+                Text("设置栏目默认展开，仍然可以点按标题收起。", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 17.sp)
             }
             SettingsStatusBadge(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", state)
         }
@@ -298,11 +298,11 @@ private fun SettingsSectionCard(
     state: AssistantUiState,
     title: String,
     subtitle: String,
-    summary: String = "点按展开",
-    initiallyExpanded: Boolean = false,
+    summary: String = "点按收起",
+    initiallyExpanded: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    var expanded by rememberSaveable(title, initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
@@ -314,9 +314,9 @@ private fun SettingsSectionCard(
         label = "settings-section-scale-$title"
     )
 
-    // Major settings sections are deliberate large glass containers.
-    // Child chips, sliders, buttons and rows stay Chip/Floating and remain isolated from OpenGL.
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Shell) {
+    // Settings sections are ordinary UI cards, not page-level Shell glass.
+    // Keep them isolated from OpenGL so text, sliders, chips and rows remain stable.
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PressableGlass(
                 quality = state.quality,
