@@ -300,7 +300,9 @@ fun GlassPanel(
                 radius = effectiveRadius,
                 glassIntensity = glassIntensity,
                 coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
+                modifier = Modifier.matchParentSize(),
+                pressProgress = shellPressCompression,
+                pressCenter = shellPressCenter
             )
         } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
             SampledWeatherGlassBackdrop(
