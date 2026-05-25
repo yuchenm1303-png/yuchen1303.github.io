@@ -490,6 +490,10 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int, pressCenter: Of
             x = pressCenter.x.coerceIn(0f, 1f) * w,
             y = pressCenter.y.coerceIn(0f, 1f) * h
         )
+        val centerNorm = Offset(
+            x = pressCenter.x.coerceIn(0f, 1f),
+            y = pressCenter.y.coerceIn(0f, 1f)
+        )
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
         val rimInset = (0.72.dp + (1.70f * p).dp - (0.90f * rebound).dp).toPx()
         val rimSize = Size(
@@ -497,81 +501,153 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int, pressCenter: Of
             height = (h - rimInset * 2f).coerceAtLeast(1f)
         )
         val maxSide = maxOf(w, h)
+        val pressGlow = p + rebound * 0.55f
+        fun nearEdge(distance: Float): Float = (1f - distance / 0.34f).coerceIn(0f, 1f) * pressGlow
+        val topNear = nearEdge(centerNorm.y)
+        val bottomNear = nearEdge(1f - centerNorm.y)
+        val leftNear = nearEdge(centerNorm.x)
+        val rightNear = nearEdge(1f - centerNorm.x)
+        val edgeStroke = (0.64.dp + (0.18f * p).dp).toPx()
+        val localEdgeStroke = (1.02.dp + (0.36f * p).dp).toPx()
 
         val pressureField = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.054f * p + 0.022f * rebound),
-                Color(0xFFB8F7FF).copy(alpha = 0.030f * p + 0.012f * rebound),
-                Color(0xFF6EDCFF).copy(alpha = 0.010f * p),
+                Color(0xFFEFFFFF).copy(alpha = 0.056f * p + 0.024f * rebound),
+                Color(0xFFB8F7FF).copy(alpha = 0.028f * p + 0.014f * rebound),
+                Color(0xFF82E8FF).copy(alpha = 0.008f * p),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * (0.78f + 0.08f * p + 0.06f * rebound)
+            radius = maxSide * (0.86f + 0.08f * p + 0.06f * rebound)
+        )
+        val broadHalo = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.016f * p + 0.010f * rebound),
+                Color(0xFFD8FFFF).copy(alpha = 0.012f * p),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.50f, h * 0.42f),
+            radius = maxSide * 1.18f
         )
         val elasticSurfaceField = Brush.radialGradient(
             colors = listOf(
                 Color.Transparent,
-                Color(0xFF112F6F).copy(alpha = 0.010f * p),
-                Color(0xFF030B1A).copy(alpha = 0.038f * compression)
+                Color(0xFF102C66).copy(alpha = 0.008f * p),
+                Color(0xFF030B1A).copy(alpha = 0.036f * compression)
             ),
             center = center,
-            radius = maxSide * (0.95f + 0.05f * p)
+            radius = maxSide * (1.02f + 0.05f * p)
         )
-        val directionalSheen = Brush.linearGradient(
+        val topSoftLoad = Brush.verticalGradient(
             colors = listOf(
-                Color.Transparent,
-                Color(0xFFE8FFFF).copy(alpha = 0.035f * p + 0.018f * rebound),
-                Color(0xFF8DF6FF).copy(alpha = 0.012f * p),
+                Color.White.copy(alpha = 0.030f * p + 0.018f * rebound),
+                Color(0xFFE2FFFF).copy(alpha = 0.012f * p),
                 Color.Transparent
             ),
-            start = Offset(center.x - w * 0.50f, center.y - h * 0.28f),
-            end = Offset(center.x + w * 0.58f, center.y + h * 0.34f)
-        )
-        val wholeCardLoad = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.012f * p + 0.010f * rebound),
-                Color.Transparent,
-                Color(0xFF020815).copy(alpha = 0.052f * compression)
-            ),
             startY = 0f,
+            endY = h * 0.36f
+        )
+        val lowerWeight = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color(0xFF020815).copy(alpha = 0.050f * compression)
+            ),
+            startY = h * 0.42f,
             endY = h
         )
-        val rimFlow = Brush.linearGradient(
+        val ambientRim = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.060f * p + 0.030f * rebound),
-                Color(0xFF9DF4FF).copy(alpha = 0.020f * p + 0.014f * rebound),
-                Color.Transparent,
-                Color(0xFF020A18).copy(alpha = 0.040f * compression),
-                Color(0xFFCFFFFF).copy(alpha = 0.030f * p + 0.020f * rebound)
+                Color(0xFFEFFFFF).copy(alpha = 0.056f * p + 0.026f * rebound),
+                Color(0xFFA8F6FF).copy(alpha = 0.020f * p + 0.012f * rebound),
+                Color.Transparent
             ),
-            start = Offset(center.x - w * 0.52f, center.y - h * 0.46f),
-            end = Offset(center.x + w * 0.62f, center.y + h * 0.62f)
+            center = center,
+            radius = maxSide * 0.72f
+        )
+        val topEdgeHalo = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFF6FFFF).copy(alpha = 0.18f * topNear),
+                Color(0xFF9DF4FF).copy(alpha = 0.062f * topNear),
+                Color.Transparent
+            ),
+            center = Offset(center.x, rimInset),
+            radius = maxSide * 0.34f
+        )
+        val bottomEdgeHalo = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFE8FFFF).copy(alpha = 0.14f * bottomNear),
+                Color(0xFF88EFFF).copy(alpha = 0.044f * bottomNear),
+                Color.Transparent
+            ),
+            center = Offset(center.x, h - rimInset),
+            radius = maxSide * 0.34f
+        )
+        val leftEdgeHalo = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFF2FFFF).copy(alpha = 0.16f * leftNear),
+                Color(0xFF94F2FF).copy(alpha = 0.052f * leftNear),
+                Color.Transparent
+            ),
+            center = Offset(rimInset, center.y),
+            radius = maxSide * 0.32f
+        )
+        val rightEdgeHalo = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFF2FFFF).copy(alpha = 0.16f * rightNear),
+                Color(0xFF94F2FF).copy(alpha = 0.052f * rightNear),
+                Color.Transparent
+            ),
+            center = Offset(w - rimInset, center.y),
+            radius = maxSide * 0.32f
         )
 
         onDrawWithContent {
             drawContent()
+            drawRect(brush = broadHalo, blendMode = BlendMode.Screen)
             drawRect(brush = pressureField, blendMode = BlendMode.Screen)
-            drawRect(brush = directionalSheen, blendMode = BlendMode.Screen)
             drawRect(brush = elasticSurfaceField, blendMode = BlendMode.Multiply)
-            drawRect(brush = wholeCardLoad, blendMode = BlendMode.SrcOver)
+            drawRect(brush = topSoftLoad, blendMode = BlendMode.Screen)
+            drawRect(brush = lowerWeight, blendMode = BlendMode.Multiply)
             drawRoundRect(
-                brush = rimFlow,
+                brush = ambientRim,
                 topLeft = Offset(rimInset, rimInset),
                 size = rimSize,
                 cornerRadius = cornerRadius,
-                style = Stroke(width = (0.58.dp + (0.20f * p).dp).toPx()),
+                style = Stroke(width = edgeStroke),
                 blendMode = BlendMode.Screen
             )
             drawRoundRect(
-                brush = rimFlow,
-                topLeft = Offset(rimInset + 1.00.dp.toPx(), rimInset + 1.00.dp.toPx()),
-                size = Size(
-                    width = (rimSize.width - 2.00.dp.toPx()).coerceAtLeast(1f),
-                    height = (rimSize.height - 2.00.dp.toPx()).coerceAtLeast(1f)
-                ),
+                brush = topEdgeHalo,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
                 cornerRadius = cornerRadius,
-                style = Stroke(width = 0.10.dp.toPx()),
-                blendMode = BlendMode.SrcOver
+                style = Stroke(width = localEdgeStroke),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = bottomEdgeHalo,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = localEdgeStroke),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = leftEdgeHalo,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = localEdgeStroke),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = rightEdgeHalo,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(width = localEdgeStroke),
+                blendMode = BlendMode.Screen
             )
         }
     }
