@@ -494,112 +494,113 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int, pressCenter: Of
             x = pressCenter.x.coerceIn(0f, 1f),
             y = pressCenter.y.coerceIn(0f, 1f)
         )
-        val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val rimInset = (0.72.dp + (1.70f * p).dp - (0.90f * rebound).dp).toPx()
+        val rimInset = 0.56.dp.toPx()
+        val rimRadiusPx = (radius.dp.toPx() - rimInset).coerceAtLeast(0f)
+        val cornerRadius = CornerRadius(rimRadiusPx, rimRadiusPx)
         val rimSize = Size(
             width = (w - rimInset * 2f).coerceAtLeast(1f),
             height = (h - rimInset * 2f).coerceAtLeast(1f)
         )
         val maxSide = maxOf(w, h)
-        val pressGlow = p + rebound * 0.55f
-        fun nearEdge(distance: Float): Float = (1f - distance / 0.34f).coerceIn(0f, 1f) * pressGlow
+        val pressGlow = p + rebound * 0.65f
+        fun nearEdge(distance: Float): Float = (1f - distance / 0.42f).coerceIn(0f, 1f) * pressGlow
         val topNear = nearEdge(centerNorm.y)
         val bottomNear = nearEdge(1f - centerNorm.y)
         val leftNear = nearEdge(centerNorm.x)
         val rightNear = nearEdge(1f - centerNorm.x)
-        val edgeStroke = (0.64.dp + (0.18f * p).dp).toPx()
-        val localEdgeStroke = (1.02.dp + (0.36f * p).dp).toPx()
+        val edgeStroke = (0.82.dp + (0.30f * p).dp).toPx()
+        val localEdgeStroke = (1.38.dp + (0.54f * p).dp).toPx()
 
         val pressureField = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.056f * p + 0.024f * rebound),
-                Color(0xFFB8F7FF).copy(alpha = 0.028f * p + 0.014f * rebound),
-                Color(0xFF82E8FF).copy(alpha = 0.008f * p),
+                Color(0xFFEFFFFF).copy(alpha = 0.090f * p + 0.036f * rebound),
+                Color(0xFFB8F7FF).copy(alpha = 0.046f * p + 0.020f * rebound),
+                Color(0xFF82E8FF).copy(alpha = 0.018f * p),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * (0.86f + 0.08f * p + 0.06f * rebound)
+            radius = maxSide * (0.88f + 0.08f * p + 0.08f * rebound)
         )
         val broadHalo = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.016f * p + 0.010f * rebound),
-                Color(0xFFD8FFFF).copy(alpha = 0.012f * p),
+                Color.White.copy(alpha = 0.030f * p + 0.016f * rebound),
+                Color(0xFFD8FFFF).copy(alpha = 0.022f * p + 0.010f * rebound),
                 Color.Transparent
             ),
             center = Offset(w * 0.50f, h * 0.42f),
-            radius = maxSide * 1.18f
+            radius = maxSide * 1.20f
         )
         val elasticSurfaceField = Brush.radialGradient(
             colors = listOf(
                 Color.Transparent,
-                Color(0xFF102C66).copy(alpha = 0.008f * p),
-                Color(0xFF030B1A).copy(alpha = 0.036f * compression)
+                Color(0xFF102C66).copy(alpha = 0.010f * p),
+                Color(0xFF030B1A).copy(alpha = 0.046f * compression)
             ),
             center = center,
-            radius = maxSide * (1.02f + 0.05f * p)
+            radius = maxSide * (1.04f + 0.05f * p)
         )
         val topSoftLoad = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.030f * p + 0.018f * rebound),
-                Color(0xFFE2FFFF).copy(alpha = 0.012f * p),
+                Color.White.copy(alpha = 0.052f * p + 0.028f * rebound),
+                Color(0xFFE2FFFF).copy(alpha = 0.024f * p + 0.010f * rebound),
                 Color.Transparent
             ),
             startY = 0f,
-            endY = h * 0.36f
+            endY = h * 0.38f
         )
         val lowerWeight = Brush.verticalGradient(
             colors = listOf(
                 Color.Transparent,
                 Color.Transparent,
-                Color(0xFF020815).copy(alpha = 0.050f * compression)
+                Color(0xFF020815).copy(alpha = 0.065f * compression)
             ),
             startY = h * 0.42f,
             endY = h
         )
         val ambientRim = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFEFFFFF).copy(alpha = 0.056f * p + 0.026f * rebound),
-                Color(0xFFA8F6FF).copy(alpha = 0.020f * p + 0.012f * rebound),
+                Color(0xFFEFFFFF).copy(alpha = 0.082f * p + 0.040f * rebound),
+                Color(0xFFA8F6FF).copy(alpha = 0.034f * p + 0.018f * rebound),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * 0.72f
+            radius = maxSide * 0.76f
         )
         val topEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFF6FFFF).copy(alpha = 0.18f * topNear),
-                Color(0xFF9DF4FF).copy(alpha = 0.062f * topNear),
+                Color(0xFFFFFFFF).copy(alpha = 0.32f * topNear),
+                Color(0xFFA7F7FF).copy(alpha = 0.120f * topNear),
                 Color.Transparent
             ),
             center = Offset(center.x, rimInset),
-            radius = maxSide * 0.34f
+            radius = maxSide * 0.38f
         )
         val bottomEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFE8FFFF).copy(alpha = 0.14f * bottomNear),
-                Color(0xFF88EFFF).copy(alpha = 0.044f * bottomNear),
+                Color(0xFFF2FFFF).copy(alpha = 0.25f * bottomNear),
+                Color(0xFF88EFFF).copy(alpha = 0.086f * bottomNear),
                 Color.Transparent
             ),
             center = Offset(center.x, h - rimInset),
-            radius = maxSide * 0.34f
+            radius = maxSide * 0.38f
         )
         val leftEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFF2FFFF).copy(alpha = 0.16f * leftNear),
-                Color(0xFF94F2FF).copy(alpha = 0.052f * leftNear),
+                Color(0xFFFFFFFF).copy(alpha = 0.28f * leftNear),
+                Color(0xFF94F2FF).copy(alpha = 0.100f * leftNear),
                 Color.Transparent
             ),
             center = Offset(rimInset, center.y),
-            radius = maxSide * 0.32f
+            radius = maxSide * 0.36f
         )
         val rightEdgeHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFF2FFFF).copy(alpha = 0.16f * rightNear),
-                Color(0xFF94F2FF).copy(alpha = 0.052f * rightNear),
+                Color(0xFFFFFFFF).copy(alpha = 0.28f * rightNear),
+                Color(0xFF94F2FF).copy(alpha = 0.100f * rightNear),
                 Color.Transparent
             ),
             center = Offset(w - rimInset, center.y),
-            radius = maxSide * 0.32f
+            radius = maxSide * 0.36f
         )
 
         onDrawWithContent {
