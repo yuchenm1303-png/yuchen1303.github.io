@@ -19,7 +19,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -30,9 +33,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
-
-private const val BACKDROP_CACHE_WIDTH_PX = 1080
-private const val BACKDROP_CACHE_HEIGHT_PX = 2400
 
 data class BlurredBackdropBitmap(
     val image: ImageBitmap,
@@ -51,9 +51,14 @@ fun rememberBlurredBackdropBitmap(
     params: BackdropDebugParams = BackdropDebugParams(),
     customBackgroundPath: String? = null
 ): BlurredBackdropBitmap? {
-    val context = LocalContext.current
-    val width = BACKDROP_CACHE_WIDTH_PX
-    val height = BACKDROP_CACHE_HEIGHT_PX
+    val view = LocalView.current
+    val context = view.context
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val fallbackWidth = with(density) { configuration.screenWidthDp.dp.roundToPx() }
+    val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    val width = max(view.width, fallbackWidth).coerceAtLeast(320)
+    val height = max(view.height, fallbackHeight).coerceAtLeast(640)
     val key = params.cacheKey()
     val customKey = when (customBackgroundPath) {
         null -> "default_wallpaper_lowres"
@@ -63,9 +68,9 @@ fun rememberBlurredBackdropBitmap(
             if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
         }
     }
-    var bitmap by remember(theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
+    var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
 
-    LaunchedEffect(theme, quality, key, customKey) {
+    LaunchedEffect(width, height, theme, quality, key, customKey) {
         if (bitmap != null) delay(120)
         val next = withContext(Dispatchers.Default) {
             runCatching {
