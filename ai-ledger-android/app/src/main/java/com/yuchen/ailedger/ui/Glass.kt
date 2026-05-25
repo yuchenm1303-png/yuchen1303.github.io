@@ -254,6 +254,7 @@ fun GlassPanel(
                 radius = effectiveRadius,
                 glassIntensity = pressedGlassIntensity,
                 coordinateSource = coordinates,
+                pressProgress = shellPressCompression,
                 modifier = Modifier.matchParentSize()
             )
         } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
