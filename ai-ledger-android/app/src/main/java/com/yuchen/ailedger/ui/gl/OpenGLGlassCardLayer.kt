@@ -826,7 +826,7 @@ private class OpenGLGlassCardRenderer {
                 vec2 delta = local - center;
                 delta.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.2);
                 float d = length(delta);
-                float field = pow(sat(1.0 - d * 1.42), 2.15);
+                float field = pow(sat(1.0 - d * 0.92), 1.45);
                 return field * press;
             }
 
@@ -848,8 +848,8 @@ private class OpenGLGlassCardRenderer {
                 vec2 pressCenter = clamp(uPress.yz, vec2(0.0), vec2(1.0));
                 vec2 pressCenterPx = pressCenter * rectSize;
                 float pressField = pressFieldAt(coord, rectSize, pressCenter, press);
-                float pressWide = press * pow(sat(1.0 - length((coord / rectSize - pressCenter) * vec2(min(rectSize.x / max(rectSize.y, 1.0), 2.2), 1.0)) * 0.88), 1.55);
-                vec2 inwardPx = softLimitPx((pressCenterPx - coord) * (0.010 * press + 0.020 * pressField), 9.0 + press * 7.0);
+                float pressWide = press * pow(sat(1.0 - length((coord / rectSize - pressCenter) * vec2(min(rectSize.x / max(rectSize.y, 1.0), 2.2), 1.0)) * 0.58), 1.25);
+                vec2 inwardPx = softLimitPx((pressCenterPx - coord) * (0.028 * press + 0.070 * pressField), 24.0 + press * 18.0);
                 vec2 pressedCoord = coord + inwardPx;
 
                 vec2 bgUv = globalUv(pressedCoord);
@@ -870,27 +870,27 @@ private class OpenGLGlassCardRenderer {
 
                 vec2 pressDelta = coord - pressCenterPx;
                 vec2 pressDir = pressDelta / max(length(pressDelta), 0.001);
-                vec2 pressDimplePx = -pressDir * pressField * (2.8 + press * 4.2);
-                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide + press * (10.0 + 22.0 * pressField)) * max(uMaterial.x, 0.0);
+                vec2 pressDimplePx = -pressDir * pressField * (8.0 + press * 10.0);
+                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide + press * (26.0 + 52.0 * pressField)) * max(uMaterial.x, 0.0);
                 rawRefractPx += pressDimplePx;
-                rawRefractPx += inwardPx * (0.28 + 0.30 * rimWide);
-                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0 + press * 8.0;
+                rawRefractPx += inwardPx * (0.76 + 0.46 * rimWide);
+                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0 + press * 20.0;
                 vec2 refractPx = softLimitPx(rawRefractPx, limitPx);
                 vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
 
-                vec3 color = blurBackdrop(refractedUv, rimWide + pressField * 0.42);
+                vec3 color = blurBackdrop(refractedUv, rimWide + pressField * 0.85 + pressWide * 0.22);
                 vec3 lensColor = sourceLensBackdrop(refractedUv);
-                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42 + pressField * 0.105 + pressWide * 0.025);
+                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42 + pressField * 0.220 + pressWide * 0.075);
                 color = mix(color, lensColor, lensMix);
 
-                vec3 dragColor = edgeColorDrag(coord + inwardPx * 0.38, rectSize, radius, dragBand + press * rimWide * 0.18, rimCore);
+                vec3 dragColor = edgeColorDrag(coord + inwardPx * 0.72, rectSize, radius, dragBand + press * rimWide * 0.32 + pressField * 0.18, rimCore);
                 float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
                 color = mix(color, dragColor, dragMix);
 
-                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045 + press * rimCore * 0.045;
+                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045 + press * rimCore * 0.080 + pressField * 0.040;
                 color *= uMaterial.z * (1.0 + rimOpticalBoost);
-                color *= 1.0 - pressField * 0.035 - pressWide * 0.012;
-                color += vec3(0.018, 0.035, 0.046) * pressField * 0.22;
+                color *= 1.0 - pressField * 0.070 - pressWide * 0.025;
+                color += vec3(0.018, 0.035, 0.046) * pressField * 0.38;
 
                 float debugEdge = smoothstep(-1.65, 0.0, sd) * mask;
                 color = mix(color, vec3(1.0, 0.45, 0.0), debugEdge * uOptics.z);
