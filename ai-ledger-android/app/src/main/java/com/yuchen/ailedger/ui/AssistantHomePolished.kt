@@ -448,34 +448,12 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
 
 @Composable
 private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "send-q-bounce")
-    val idlePulse by transition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(animation = tween(820, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "send-idle-pulse"
-    )
-    val sendingSquash by animateFloatAsState(
-        targetValue = if (state.isSending) 0.92f else 1f,
-        animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
-        label = "send-squash"
-    )
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (state.isSending) {
                 ThinkingDotsV2(size = 6, color = Color.White.copy(alpha = 0.90f))
             } else {
-                Text(
-                    "↑",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = idlePulse.coerceIn(0.98f, 1.05f)
-                        scaleY = sendingSquash * idlePulse.coerceIn(0.98f, 1.05f)
-                        translationY = -2f * (idlePulse - 1f)
-                    }
-                )
+                Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -537,6 +515,16 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 
 @Composable
 private fun PulseDotV2(active: Boolean, color: Color) {
+    if (!active) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .graphicsLayer { alpha = 0.68f }
+                .clip(RoundedCornerShape(999.dp))
+                .background(color)
+        )
+        return
+    }
     val transition = rememberInfiniteTransition(label = "pulse-dot-v2")
     val pulse by transition.animateFloat(
         initialValue = 0.76f,
@@ -548,10 +536,9 @@ private fun PulseDotV2(active: Boolean, color: Color) {
         Modifier
             .size(8.dp)
             .graphicsLayer {
-                val s = if (active) pulse else 1f
-                scaleX = s
-                scaleY = s
-                alpha = if (active) 0.96f else 0.68f
+                scaleX = pulse
+                scaleY = pulse
+                alpha = 0.96f
             }
             .clip(RoundedCornerShape(999.dp))
             .background(color)
