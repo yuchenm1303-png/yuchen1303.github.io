@@ -85,8 +85,8 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Shell -> true
+    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 /**
@@ -97,7 +97,7 @@ private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
  * OpenGL makes the boundary depend on naming accidents rather than architecture.
  *
  * For this branch, only Shell is allowed to create a card-bound OpenGL layer. Ordinary
- * cards keep the Compose/unified backdrop path. If a future screen needs a truly large
+ * cards keep the Compose backdrop/skin path. If a future screen needs a truly large
  * OpenGL card, promote that container deliberately instead of reusing Card for small UI.
  */
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
