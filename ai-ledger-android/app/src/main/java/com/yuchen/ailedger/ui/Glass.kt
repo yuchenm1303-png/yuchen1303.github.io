@@ -10,7 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -147,6 +146,7 @@ fun GlassPanel(
     val shellPress = remember { Animatable(0f) }
     val shellPressScope = rememberCoroutineScope()
     var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    var shellPressCenter by remember { mutableStateOf(Offset(0.50f, 0.40f)) }
     val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(-0.22f, 1.18f) else 0f
     val shellPressCompression = shellPressValue.coerceAtLeast(0f)
     val shellPressRebound = (-shellPressValue).coerceAtLeast(0f)
@@ -161,33 +161,51 @@ fun GlassPanel(
             }
             .pointerInput(motionIntensity) {
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val localX = (down.position.x / shellPressSize.width).coerceIn(0f, 1f)
-                    val localY = (down.position.y / shellPressSize.height).coerceIn(0f, 1f)
-                    // Local coordinates are intentionally sampled here even before the
-                    // shader takes a center uniform: keeping this branch in place makes
-                    // the interaction extensible without consuming scroll gestures.
-                    if (localX >= 0f && localY >= 0f) {
-                        shellPressScope.launch {
-                            shellPress.stop()
-                            shellPress.animateTo(
-                                targetValue = 0.22f,
-                                animationSpec = tween(durationMillis = 86, easing = ShellPressPreloadEasing)
-                            )
-                            shellPress.animateTo(
-                                targetValue = 0.92f,
-                                animationSpec = tween(durationMillis = 240, easing = ShellPressSinkEasing)
-                            )
-                            shellPress.animateTo(
-                                targetValue = 0.98f,
-                                animationSpec = spring(dampingRatio = 0.90f, stiffness = Spring.StiffnessLow)
-                            )
-                        }
+                    fun updatePressCenter(position: Offset) {
+                        shellPressCenter = Offset(
+                            x = (position.x / shellPressSize.width).coerceIn(0f, 1f),
+                            y = (position.y / shellPressSize.height).coerceIn(0f, 1f)
+                        )
                     }
-                    val up = waitForUpOrCancellation()
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
                     shellPressScope.launch {
                         shellPress.stop()
-                        if (up != null) {
+                        shellPress.animateTo(
+                            targetValue = 0.22f,
+                            animationSpec = tween(durationMillis = 86, easing = ShellPressPreloadEasing)
+                        )
+                        shellPress.animateTo(
+                            targetValue = 0.92f,
+                            animationSpec = tween(durationMillis = 240, easing = ShellPressSinkEasing)
+                        )
+                        shellPress.animateTo(
+                            targetValue = 0.98f,
+                            animationSpec = spring(dampingRatio = 0.90f, stiffness = Spring.StiffnessLow)
+                        )
+                    }
+
+                    var releasedInsideGesture = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) {
+                                releasedInsideGesture = true
+                                break
+                            }
+                        }
+                        if (event.changes.none { it.pressed }) {
+                            releasedInsideGesture = true
+                            break
+                        }
+                    }
+
+                    shellPressScope.launch {
+                        shellPress.stop()
+                        if (releasedInsideGesture) {
                             val releaseShelf = (shellPress.value * 0.34f).coerceIn(0.14f, 0.24f)
                             shellPress.animateTo(
                                 targetValue = releaseShelf,
@@ -310,7 +328,11 @@ fun GlassPanel(
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .shellPressOptics(press = shellPressValue, radius = effectiveRadius)
+                    .shellPressOptics(
+                        press = shellPressValue,
+                        radius = effectiveRadius,
+                        pressCenter = shellPressCenter
+                    )
             )
         }
     }
@@ -454,7 +476,7 @@ private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifi
         .clip(shape)
 }
 
-private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
+private fun Modifier.shellPressOptics(press: Float, radius: Int, pressCenter: Offset): Modifier {
     val safePress = press.coerceIn(-0.22f, 1.18f)
     if (safePress > -0.001f && safePress < 0.001f) return this
 
@@ -464,120 +486,91 @@ private fun Modifier.shellPressOptics(press: Float, radius: Int): Modifier {
         val p = (safePress.coerceAtLeast(0f) / 1.05f).coerceIn(0f, 1f)
         val rebound = ((-safePress).coerceAtLeast(0f) / 0.18f).coerceIn(0f, 1f)
         val compression = p * p
-        val minSide = minOf(w, h).coerceAtLeast(1f)
+        val center = Offset(
+            x = pressCenter.x.coerceIn(0f, 1f) * w,
+            y = pressCenter.y.coerceIn(0f, 1f) * h
+        )
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val rimInset = (0.72.dp + (3.80f * p).dp - (1.65f * rebound).dp).toPx()
+        val rimInset = (0.72.dp + (1.70f * p).dp - (0.90f * rebound).dp).toPx()
         val rimSize = Size(
             width = (w - rimInset * 2f).coerceAtLeast(1f),
             height = (h - rimInset * 2f).coerceAtLeast(1f)
         )
+        val maxSide = maxOf(w, h)
 
-        val pressureBloom = Brush.radialGradient(
+        val pressureField = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFE6FFFF).copy(alpha = 0.060f * p + 0.018f * rebound),
-                Color(0xFFA7F7FF).copy(alpha = 0.022f * p + 0.012f * rebound),
+                Color(0xFFEFFFFF).copy(alpha = 0.054f * p + 0.022f * rebound),
+                Color(0xFFB8F7FF).copy(alpha = 0.030f * p + 0.012f * rebound),
+                Color(0xFF6EDCFF).copy(alpha = 0.010f * p),
                 Color.Transparent
             ),
-            center = Offset(w * 0.50f, h * (0.34f - 0.025f * rebound)),
-            radius = maxOf(w, h) * (0.52f + 0.07f * rebound)
+            center = center,
+            radius = maxSide * (0.78f + 0.08f * p + 0.06f * rebound)
         )
-        val surfaceDent = Brush.verticalGradient(
+        val elasticSurfaceField = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.038f * p + 0.026f * rebound),
                 Color.Transparent,
-                Color(0xFF031020).copy(alpha = 0.038f * compression)
+                Color(0xFF112F6F).copy(alpha = 0.010f * p),
+                Color(0xFF030B1A).copy(alpha = 0.038f * compression)
             ),
-            startY = h * 0.10f,
-            endY = h * 0.78f
+            center = center,
+            radius = maxSide * (0.95f + 0.05f * p)
         )
-        val topCompressedRim = Brush.verticalGradient(
+        val directionalSheen = Brush.linearGradient(
             colors = listOf(
-                Color(0xFFF2FFFF).copy(alpha = 0.170f * p + 0.065f * rebound),
-                Color(0xFF91F4FF).copy(alpha = 0.060f * p + 0.030f * rebound),
+                Color.Transparent,
+                Color(0xFFE8FFFF).copy(alpha = 0.035f * p + 0.018f * rebound),
+                Color(0xFF8DF6FF).copy(alpha = 0.012f * p),
                 Color.Transparent
+            ),
+            start = Offset(center.x - w * 0.50f, center.y - h * 0.28f),
+            end = Offset(center.x + w * 0.58f, center.y + h * 0.34f)
+        )
+        val wholeCardLoad = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.012f * p + 0.010f * rebound),
+                Color.Transparent,
+                Color(0xFF020815).copy(alpha = 0.052f * compression)
             ),
             startY = 0f,
-            endY = h * (0.22f + 0.04f * p)
-        )
-        val rimCompression = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFFDFFFFF).copy(alpha = 0.060f * p + 0.036f * rebound),
-                Color.Transparent,
-                Color(0xFF02101D).copy(alpha = 0.048f * compression),
-                Color(0xFFCFFFFF).copy(alpha = 0.042f * p + 0.026f * rebound)
-            ),
-            start = Offset(w * 0.08f, 0f),
-            end = Offset(w * 0.94f, h)
-        )
-        val lowerWeightShade = Brush.verticalGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.Transparent,
-                Color(0xFF020B16).copy(alpha = 0.085f * compression)
-            ),
-            startY = h * 0.48f,
             endY = h
         )
-        val leftCapsuleGlint = Brush.radialGradient(
+        val rimFlow = Brush.linearGradient(
             colors = listOf(
-                Color(0xFFD8FFFF).copy(alpha = 0.090f * p + 0.034f * rebound),
-                Color(0xFF88F5FF).copy(alpha = 0.022f * p + 0.012f * rebound),
-                Color.Transparent
+                Color(0xFFEFFFFF).copy(alpha = 0.060f * p + 0.030f * rebound),
+                Color(0xFF9DF4FF).copy(alpha = 0.020f * p + 0.014f * rebound),
+                Color.Transparent,
+                Color(0xFF020A18).copy(alpha = 0.040f * compression),
+                Color(0xFFCFFFFF).copy(alpha = 0.030f * p + 0.020f * rebound)
             ),
-            center = Offset(w * 0.045f, h * 0.40f),
-            radius = minSide * (0.66f + 0.12f * p)
-        )
-        val rightCapsuleGlint = Brush.radialGradient(
-            colors = listOf(
-                Color(0xFFE8FFFF).copy(alpha = 0.076f * p + 0.030f * rebound),
-                Color(0xFF91F4FF).copy(alpha = 0.018f * p + 0.010f * rebound),
-                Color.Transparent
-            ),
-            center = Offset(w * 0.955f, h * 0.38f),
-            radius = minSide * (0.62f + 0.12f * p)
+            start = Offset(center.x - w * 0.52f, center.y - h * 0.46f),
+            end = Offset(center.x + w * 0.62f, center.y + h * 0.62f)
         )
 
         onDrawWithContent {
             drawContent()
-            drawOval(
-                brush = pressureBloom,
-                topLeft = Offset(w * 0.08f, h * 0.04f),
-                size = Size(w * 0.84f, h * 0.68f),
-                blendMode = BlendMode.Screen
-            )
-            drawOval(
-                brush = surfaceDent,
-                topLeft = Offset(w * 0.13f, h * 0.10f),
-                size = Size(w * 0.74f, h * 0.66f),
-                blendMode = BlendMode.SrcOver
-            )
-            drawOval(
-                brush = leftCapsuleGlint,
-                topLeft = Offset(-w * 0.10f, h * 0.12f),
-                size = Size(w * 0.28f, h * 0.74f),
-                blendMode = BlendMode.Screen
-            )
-            drawOval(
-                brush = rightCapsuleGlint,
-                topLeft = Offset(w * 0.82f, h * 0.12f),
-                size = Size(w * 0.28f, h * 0.74f),
-                blendMode = BlendMode.Screen
-            )
-            drawRect(brush = lowerWeightShade, blendMode = BlendMode.Multiply)
+            drawRect(brush = pressureField, blendMode = BlendMode.Screen)
+            drawRect(brush = directionalSheen, blendMode = BlendMode.Screen)
+            drawRect(brush = elasticSurfaceField, blendMode = BlendMode.Multiply)
+            drawRect(brush = wholeCardLoad, blendMode = BlendMode.SrcOver)
             drawRoundRect(
-                brush = topCompressedRim,
+                brush = rimFlow,
                 topLeft = Offset(rimInset, rimInset),
                 size = rimSize,
                 cornerRadius = cornerRadius,
-                style = Stroke(width = (0.92.dp + (0.32f * p).dp).toPx()),
+                style = Stroke(width = (0.58.dp + (0.20f * p).dp).toPx()),
                 blendMode = BlendMode.Screen
             )
             drawRoundRect(
-                brush = rimCompression,
-                topLeft = Offset(rimInset, rimInset),
-                size = rimSize,
+                brush = rimFlow,
+                topLeft = Offset(rimInset + 1.00.dp.toPx(), rimInset + 1.00.dp.toPx()),
+                size = Size(
+                    width = (rimSize.width - 2.00.dp.toPx()).coerceAtLeast(1f),
+                    height = (rimSize.height - 2.00.dp.toPx()).coerceAtLeast(1f)
+                ),
                 cornerRadius = cornerRadius,
-                style = Stroke(width = (0.68.dp + (0.22f * p).dp).toPx()),
+                style = Stroke(width = 0.10.dp.toPx()),
                 blendMode = BlendMode.SrcOver
             )
         }
