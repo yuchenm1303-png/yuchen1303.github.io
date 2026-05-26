@@ -63,7 +63,7 @@ import kotlin.math.roundToInt
 
 private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Debug }
 private val SettingsOverviewRole = GlassRole.Shell
-private val SettingsTileRole = GlassRole.Card
+private val SettingsTileRole = GlassRole.Flex
 private val SettingsDetailRole = GlassRole.Flex
 private val SettingsChipRole = GlassRole.Chip
 private val SettingsFloatingRole = GlassRole.Floating
