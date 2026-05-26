@@ -60,7 +60,6 @@ import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.ToolEntry
 import kotlinx.coroutines.delay
-import kotlin.math.min
 
 @Composable
 fun ToolsScreenV2(
@@ -206,8 +205,7 @@ private fun QuickToolPillV2(title: String, subtitle: String, target: String, sta
         22,
         modifier
             .height(62.dp)
-            .graphicsLayer { scaleX = pop; scaleY = pop }
-            .toolCardGlow(if (active) 0.40f else 0.10f, Color(0xFF8DF9EA)),
+            .graphicsLayer { scaleX = pop; scaleY = pop },
         if (active) GlassRole.Floating else GlassRole.Chip,
         onClick = { onOpenTool(target) }
     ) {
@@ -230,8 +228,7 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> 
         radius = 24,
         modifier = Modifier
             .fillMaxWidth()
-            .height(76.dp)
-            .toolCardGlow(glow = if (active) 0.34f else 0.14f, accent = accent),
+            .height(76.dp),
         mood = OpenGlShellMood.List,
         onClick = onClick
     ) {
@@ -296,8 +293,7 @@ private fun LedgerSummaryV2(state: AssistantUiState) {
         radius = 28,
         modifier = Modifier
             .fillMaxWidth()
-            .height(148.dp)
-            .toolCardGlow(0.62f, Color(0xFF8DF9EA)),
+            .height(148.dp),
         mood = OpenGlShellMood.Summary
     ) {
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -443,7 +439,7 @@ private fun TypeChipV2(text: String, selected: Boolean, state: AssistantUiState,
         state.glassIntensity * if (selected) 1.05f else 0.90f,
         state.motionIntensity,
         999,
-        modifier.height(39.dp).graphicsLayer { scaleX = pop; scaleY = pop }.toolCardGlow(if (selected) 0.34f else 0f, Color(0xFF8DF9EA)),
+        modifier.height(39.dp).graphicsLayer { scaleX = pop; scaleY = pop },
         if (selected) GlassRole.Floating else GlassRole.Chip,
         onClick = onClick
     ) {
@@ -499,7 +495,7 @@ private fun CategoryRowV2(state: AssistantUiState, onCategoryChange: (String) ->
 @Composable
 private fun LedgerRecordCardV2(record: LedgerRecord, state: AssistantUiState, onDelete: () -> Unit) {
     val accent = if (record.type == LedgerRecordType.Income) Color(0xFF8DF9EA) else Color(0xFFFFC2D1)
-    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 23, Modifier.fillMaxWidth().height(66.dp).toolCardGlow(0.16f, accent), GlassRole.Card, onClick = onDelete) {
+    PressableGlass(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 23, Modifier.fillMaxWidth().height(66.dp), GlassRole.Card, onClick = onDelete) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(accent.copy(alpha = 0.86f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -539,23 +535,6 @@ private fun SectionTitleV2(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 12.sp, lineHeight = 16.sp)
-    }
-}
-
-private fun Modifier.toolCardGlow(glow: Float, accent: Color): Modifier = drawWithCache {
-    val radius = min(size.width, size.height) * 1.28f
-    val brush = Brush.radialGradient(
-        colors = listOf(
-            accent.copy(alpha = 0.14f * glow),
-            Color.White.copy(alpha = 0.055f * glow),
-            Color.Transparent
-        ),
-        center = Offset(size.width * 0.22f, size.height * 0.20f),
-        radius = radius
-    )
-    onDrawWithContent {
-        if (glow > 0.01f) drawRect(brush, blendMode = BlendMode.Screen)
-        drawContent()
     }
 }
 
