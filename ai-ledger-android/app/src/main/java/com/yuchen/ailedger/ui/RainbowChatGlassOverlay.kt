@@ -35,7 +35,7 @@ fun RainbowChatGlassOverlay(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(9800, easing = FastOutSlowInEasing),
+            animation = tween(6200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "rainbow-ambient-drift-a"
@@ -44,16 +44,25 @@ fun RainbowChatGlassOverlay(
         initialValue = 1f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(13200, easing = FastOutSlowInEasing),
+            animation = tween(8400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "rainbow-ambient-drift-b"
+    )
+    val sweepBreath by transition.animateFloat(
+        initialValue = 0.50f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "rainbow-sweep-breath"
     )
     val pulse by transition.animateFloat(
         initialValue = 0.24f,
         targetValue = 0.86f,
         animationSpec = infiniteRepeatable(
-            animation = tween(8600, easing = FastOutSlowInEasing),
+            animation = tween(6200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "rainbow-ambient-pulse"
@@ -63,8 +72,9 @@ fun RainbowChatGlassOverlay(
     val a = if (motionOn) driftA else 0.42f
     val b = if (motionOn) driftB else 0.58f
     val p = if (motionOn) pulse else 0.46f
+    val breath = if (motionOn) sweepBreath else 0.88f
     val base = (0.88f + motionIntensity.coerceIn(0f, 1.4f) * 0.16f).coerceIn(0.76f, 1.12f) * style.overall.coerceIn(0f, 2f)
-    val sweep = style.diagonalSweep.coerceIn(0f, 2f)
+    val sweep = style.diagonalSweep.coerceIn(0f, 2f) * breath.coerceIn(0.50f, 1.25f)
     val halo = style.rainbowHalo.coerceIn(0f, 2f)
 
     Canvas(modifier = modifier) {
@@ -83,7 +93,6 @@ fun RainbowChatGlassOverlay(
             }
         }
 
-        // Large-area random-looking coating sweep. No hard diagonal edge, no jump-to-start.
         film(
             Brush.radialGradient(
                 colors = listOf(
@@ -125,7 +134,6 @@ fun RainbowChatGlassOverlay(
             sweep
         )
 
-        // Lens-like rainbow halo remains independent from the edge prism.
         film(
             Brush.radialGradient(
                 colors = listOf(
