@@ -151,23 +151,40 @@ private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
             modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(
-                    modifier = Modifier.weight(1f).padding(end = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text("今日入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text("账单中心", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("从记账、预算和最近明细开始", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                IlluminatedGlyph("账", state, active = true)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("今日入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("账单中心", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("从记账、预算和最近明细开始", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                HeroToolMetric("记录", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
-                HeroToolMetric("今日", todayExpenseTextV2(state), state, Modifier.weight(1f))
-                HeroToolMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", state, Modifier.weight(1f))
+            FrostInfoGlassPanel(
+                radius = 18f,
+                backdropAlpha = 1f,
+                frostAlpha = 0f,
+                dimAlpha = 0f,
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HeroFrostMetric("记录", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
+                    HeroFrostMetric("今日", todayExpenseTextV2(state), Modifier.weight(1f))
+                    HeroFrostMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", Modifier.weight(1f))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun HeroFrostMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
