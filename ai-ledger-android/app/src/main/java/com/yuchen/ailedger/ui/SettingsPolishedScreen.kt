@@ -12,6 +12,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -145,25 +148,39 @@ private fun SettingsHeader() {
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
     GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 30, Modifier.fillMaxWidth(), SettingsOverviewRole) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("当前状态", color = Color.White, fontSize = 22.sp, lineHeight = 26.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("接口、画质和关键外观集中展示。", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 17.sp)
+        FrostInfoGlassPanel(radius = 17.44f, backdropAlpha = 1f, frostAlpha = 0f, dimAlpha = 0f, modifier = Modifier.fillMaxWidth().height(164.dp)) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("当前状态", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                            Text("接口、画质和关键外观集中展示。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
-                SettingsStatusBadge(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", state)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniSettingMetric("服务", if (aiEndpoint.isBlank()) "本地" else "已连接", state, Modifier.weight(1f))
-                MiniSettingMetric("画质", qualityLabel(state.quality), state, Modifier.weight(1f))
-                MiniSettingMetric("背景", themeLabel(state.backgroundTheme), state, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniSettingMetric("玻璃", glassPresetLabel(state.glassPreset), state, Modifier.weight(1f))
-                MiniSettingMetric("账单", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
-                MiniSettingMetric("OpenGL", "隔离", state, Modifier.weight(1f))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        SettingsFrostMetric("服务", if (aiEndpoint.isBlank()) "本地" else "已连接", Modifier.weight(1f))
+                        SettingsFrostMetric("画质", qualityLabel(state.quality), Modifier.weight(1f))
+                        SettingsFrostMetric("背景", themeLabel(state.backgroundTheme), Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        SettingsFrostMetric("玻璃", glassPresetLabel(state.glassPreset), Modifier.weight(1f))
+                        SettingsFrostMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
+                        SettingsFrostMetric("OpenGL", "隔离", Modifier.weight(1f))
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsFrostMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.50f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -196,16 +213,27 @@ private fun SettingsDashboardGrid(state: AssistantUiState, aiEndpoint: String, s
 @Composable
 private fun SettingsTile(icon: String, title: String, subtitle: String, value: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
     val scale by animateFloatAsState(if (selected) 1.018f else 1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow), label = "settings-tile-scale-$title")
-    PressableGlass(state.quality, state.glassIntensity * if (selected) 1.02f else 0.86f, state.motionIntensity, 26, modifier.height(104.dp).settingsTileAccent(selected).graphicsLayer { scaleX = scale; scaleY = scale }, SettingsTileRole, onClick) {
-        Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                SettingsIconBadge(icon, state, selected)
-                Column(Modifier.weight(1f)) {
-                    Text(title, color = Color.White, fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val clickSource = remember { MutableInteractionSource() }
+    FrostInfoGlassPanel(
+        radius = 17.44f,
+        backdropAlpha = 1f,
+        frostAlpha = 0f,
+        dimAlpha = 0f,
+        modifier = modifier
+            .height(104.dp)
+            .settingsTileAccent(selected)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(interactionSource = clickSource, indication = null, onClick = onClick)
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(icon, color = Color.White.copy(alpha = if (selected) 0.86f else 0.58f), fontSize = if (icon.length > 1) 13.sp else 18.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.54f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            SettingsValuePill(value, state, selected)
+            Text(value, color = Color.White.copy(alpha = if (selected) 0.82f else 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         }
     }
 }
