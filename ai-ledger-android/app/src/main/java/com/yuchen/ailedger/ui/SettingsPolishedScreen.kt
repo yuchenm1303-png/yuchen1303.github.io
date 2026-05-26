@@ -46,6 +46,7 @@ import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
+import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -60,6 +61,7 @@ fun SettingsPolishedScreen(
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
+    onRainbowPrismChange: (RainbowPrismStyle) -> Unit,
     onBackdropChange: (BackdropDebugParams) -> Unit,
     onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
@@ -87,7 +89,14 @@ fun SettingsPolishedScreen(
         }
         item {
             SettingsEntrance(delayMs = 130, initialOffsetY = 24, initialScale = 0.96f) {
-                GlassFeelSettingsCard(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange)
+                GlassFeelSettingsCard(
+                    state = state,
+                    onQualityChange = onQualityChange,
+                    onGlassPresetChange = onGlassPresetChange,
+                    onGlassIntensityChange = onGlassIntensityChange,
+                    onMotionIntensityChange = onMotionIntensityChange,
+                    onRainbowPrismChange = onRainbowPrismChange
+                )
             }
         }
         item {
@@ -215,19 +224,32 @@ private fun GlassFeelSettingsCard(
     onQualityChange: (RenderQuality) -> Unit,
     onGlassPresetChange: (GlassPreset) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
-    onMotionIntensityChange: (Float) -> Unit
+    onMotionIntensityChange: (Float) -> Unit,
+    onRainbowPrismChange: (RainbowPrismStyle) -> Unit
 ) {
+    val prism = state.rainbowPrismStyle
     SettingsSectionCard(
         state = state,
         title = "玻璃与流畅度",
-        subtitle = "日常可调项，细节参数放在底部玻璃调试。",
-        summary = "${qualityLabel(state.quality)} · ${glassPresetLabel(state.glassPreset)}"
+        subtitle = "日常可调项，聊天大玻璃彩虹参数也在这里。",
+        summary = "${qualityLabel(state.quality)} · 彩虹 ${prism.overall.formatSettingValue()}x"
     ) {
         SettingChipGrid(RenderQuality.entries, state.quality, { qualityLabel(it) }, state, onQualityChange)
         SettingChipGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabel(it) }, state, onGlassPresetChange)
         SliderSettingRow("玻璃强度", state.glassIntensity, 0.6f..1.4f, state, onGlassIntensityChange)
         SliderSettingRow("动态强度", state.motionIntensity, 0f..1.4f, state, onMotionIntensityChange)
+        SectionTitleInline("首页聊天大玻璃彩虹")
+        SliderSettingRow("整体彩虹强度", prism.overall, 0f..2f, state) { onRainbowPrismChange(prism.copy(overall = it)) }
+        SliderSettingRow("棱彩边缘高光", prism.edgeHighlight, 0f..2f, state) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
+        SliderSettingRow("斜向彩色扫光", prism.diagonalSweep, 0f..2f, state) { onRainbowPrismChange(prism.copy(diagonalSweep = it)) }
+        SliderSettingRow("顶部冷白青金镀膜", prism.topCoating, 0f..2f, state) { onRainbowPrismChange(prism.copy(topCoating = it)) }
+        SliderSettingRow("粉金青蓝彩虹光晕", prism.rainbowHalo, 0f..2f, state) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
     }
+}
+
+@Composable
+private fun SectionTitleInline(title: String) {
+    Text(title, color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, fontWeight = FontWeight.Black)
 }
 
 @Composable
@@ -314,8 +336,6 @@ private fun SettingsSectionCard(
         label = "settings-section-scale-$title"
     )
 
-    // Major settings sections are deliberate large glass containers.
-    // Child chips, sliders, buttons and rows stay Chip/Floating and remain isolated from OpenGL.
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Shell) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PressableGlass(
