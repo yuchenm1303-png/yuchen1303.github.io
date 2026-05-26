@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -313,20 +314,27 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
-        Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                Spacer(Modifier.weight(1f))
-                ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
-            }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 3.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
-                item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+        Box(Modifier.fillMaxSize()) {
+            RainbowChatGlassOverlay(
+                quality = state.quality,
+                motionIntensity = state.motionIntensity,
+                modifier = Modifier.matchParentSize()
+            )
+            Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.weight(1f))
+                    ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 3.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                }
             }
         }
     }
