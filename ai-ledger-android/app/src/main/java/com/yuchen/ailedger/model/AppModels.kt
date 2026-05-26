@@ -159,6 +159,7 @@ data class AssistantUiState(
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
+    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
     val backdropParams: BackdropDebugParams = BackdropDebugParams(),
     val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
     val stats: List<StatSummary> = emptyList(),
