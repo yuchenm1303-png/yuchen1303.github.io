@@ -20,11 +20,11 @@ enum class OpenGlShellMood {
 }
 
 /**
- * Shared large-glass entry for deliberately promoted OpenGL Shell surfaces.
+ * Shared large-glass entry for deliberately promoted Shell surfaces.
  *
- * It keeps the existing role policy intact: only Shell may enter OpenGL. The actual
- * three-phase press choreography still lives in GlassPanel: Compose shell compression,
- * delayed OpenGL lens pull, and surface highlight afterglow.
+ * Performance rule: only the real large hero container may stay on Shell/OpenGL.
+ * Smaller summary/list/settings surfaces are automatically downgraded to Card so
+ * feature pages do not create multiple OpenGL-backed glass layers while scrolling.
  */
 @Composable
 fun OpenGlShellGlass(
@@ -37,28 +37,51 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val clickableModifier = if (onClick != null) {
-        Modifier.clickable(
-            interactionSource = interaction,
-            indication = null,
-            onClick = onClick
+    val surfaceModifier = modifier.openGlShellMoodAura(mood = mood, motionIntensity = motionIntensity)
+
+    if (mood == OpenGlShellMood.Hero) {
+        val interaction = remember { MutableInteractionSource() }
+        val clickableModifier = if (onClick != null) {
+            Modifier.clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick
+            )
+        } else {
+            Modifier
+        }
+
+        GlassPanel(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = surfaceModifier.then(clickableModifier),
+            role = GlassRole.Shell,
+            content = content
+        )
+    } else if (onClick != null) {
+        PressableGlass(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = surfaceModifier,
+            role = GlassRole.Card,
+            onClick = onClick,
+            content = content
         )
     } else {
-        Modifier
+        GlassPanel(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = surfaceModifier,
+            role = GlassRole.Card,
+            content = content
+        )
     }
-
-    GlassPanel(
-        quality = quality,
-        glassIntensity = glassIntensity,
-        motionIntensity = motionIntensity,
-        radius = radius,
-        modifier = modifier
-            .openGlShellMoodAura(mood = mood, motionIntensity = motionIntensity)
-            .then(clickableModifier),
-        role = GlassRole.Shell,
-        content = content
-    )
 }
 
 private fun Modifier.openGlShellMoodAura(
