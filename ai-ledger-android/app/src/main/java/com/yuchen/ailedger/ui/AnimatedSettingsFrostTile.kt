@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -76,14 +75,20 @@ fun AnimatedSettingsFrostTile(
     val phaseA by transition.animateFloat(
         initialValue = seed,
         targetValue = seed + 1f,
-        animationSpec = infiniteRepeatable(tween(if (selected) 5200 else 9200, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(if (selected) 4300 else 8200, easing = LinearEasing), RepeatMode.Restart),
         label = "settings-tile-phase-a-$title"
     )
     val phaseB by transition.animateFloat(
         initialValue = seed + 0.37f,
         targetValue = seed + 1.37f,
-        animationSpec = infiniteRepeatable(tween(if (selected) 7600 else 13100, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(if (selected) 6400 else 11600, easing = LinearEasing), RepeatMode.Restart),
         label = "settings-tile-phase-b-$title"
+    )
+    val phaseC by transition.animateFloat(
+        initialValue = seed + 0.71f,
+        targetValue = seed + 1.71f,
+        animationSpec = infiniteRepeatable(tween(if (selected) 5100 else 10100, easing = LinearEasing), RepeatMode.Restart),
+        label = "settings-tile-phase-c-$title"
     )
     val pressAnim = remember { Animatable(0f) }
     val afterglowAnim = remember { Animatable(0f) }
@@ -98,9 +103,11 @@ fun AnimatedSettingsFrostTile(
     val selectedBase = if (selected) 1f else 0f
     val tA = if (motionOn) phaseA else seed
     val tB = if (motionOn) phaseB else seed + 0.37f
+    val tC = if (motionOn) phaseC else seed + 0.71f
     val tau = (PI * 2.0).toFloat()
-    val selectedPulse = if (selected && motionOn) ((sin(tA * tau) + 1f) * 0.5f).coerceIn(0f, 1f) else selectedBase * 0.36f
-    val energy = (selectedBase * (0.58f + selectedPulse * 0.32f) + press * 0.74f + afterglow * 0.42f).coerceIn(0f, 1.35f)
+    val selectedPulse = if (selected && motionOn) ((sin(tA * tau) + 1f) * 0.5f).coerceIn(0f, 1f) else selectedBase * 0.50f
+    val slowBreath = if (selected && motionOn) ((sin(tC * tau + 0.8f) + 1f) * 0.5f).coerceIn(0f, 1f) else selectedBase * 0.50f
+    val energy = (selectedBase * (0.88f + selectedPulse * 0.42f) + press * 0.90f + afterglow * 0.55f).coerceIn(0f, 1.70f)
     val radius = 17.44f
 
     Box(
@@ -109,10 +116,10 @@ fun AnimatedSettingsFrostTile(
             .onSizeChanged { tileSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
             .graphicsLayer {
                 transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-                scaleX = 1f + selectedBase * 0.010f + selectedPulse * selectedBase * 0.006f + press * 0.018f - recoil * 0.006f
-                scaleY = 1f + selectedBase * 0.002f - press * 0.030f + recoil * 0.012f
-                translationY = press * 2.8f - recoil * 1.2f
-                translationX = (pressCenter.x - 0.5f) * press * 3.4f
+                scaleX = 1f + selectedBase * 0.018f + slowBreath * selectedBase * 0.014f + press * 0.026f - recoil * 0.008f
+                scaleY = 1f + selectedBase * 0.006f + slowBreath * selectedBase * 0.006f - press * 0.036f + recoil * 0.014f
+                translationY = selectedBase * (-0.8f - slowBreath * 0.9f) + press * 3.2f - recoil * 1.3f
+                translationX = (pressCenter.x - 0.5f) * press * 4.2f
             }
             .pointerInput(motionOn, selected, title) {
                 awaitEachGesture {
@@ -136,7 +143,6 @@ fun AnimatedSettingsFrostTile(
                             pressAnim.animateTo(0.78f, spring(dampingRatio = 0.66f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
                         }
                     }
-                    var shouldClick = true
                     while (true) {
                         val event = awaitPointerEvent()
                         val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
@@ -146,7 +152,7 @@ fun AnimatedSettingsFrostTile(
                         }
                         if (event.changes.none { it.pressed }) break
                     }
-                    if (shouldClick) onClick()
+                    onClick()
                     if (motionOn) {
                         scope.launch {
                             pressAnim.stop()
@@ -156,8 +162,8 @@ fun AnimatedSettingsFrostTile(
                         }
                         scope.launch {
                             afterglowAnim.stop()
-                            afterglowAnim.snapTo(0.72f)
-                            afterglowAnim.animateTo(0f, tween(760, easing = FastOutSlowInEasing))
+                            afterglowAnim.snapTo(0.88f)
+                            afterglowAnim.animateTo(0f, tween(860, easing = FastOutSlowInEasing))
                         }
                     }
                 }
@@ -168,8 +174,8 @@ fun AnimatedSettingsFrostTile(
         FrostInfoGlassPanel(
             radius = radius,
             backdropAlpha = 1f,
-            frostAlpha = 0.080f + energy * 0.030f,
-            dimAlpha = 0.006f + press * 0.020f,
+            frostAlpha = 0.095f + energy * 0.040f,
+            dimAlpha = 0.004f + press * 0.018f,
             modifier = Modifier.fillMaxSize()
         ) {}
         SettingsTilePrismSurface(
@@ -177,12 +183,14 @@ fun AnimatedSettingsFrostTile(
             selected = selected,
             energy = energy,
             selectedPulse = selectedPulse,
+            slowBreath = slowBreath,
             press = press,
             recoil = recoil,
             afterglow = afterglow,
             center = pressCenter,
             phaseA = tA,
             phaseB = tB,
+            phaseC = tC,
             seed = seed,
             modifier = Modifier.fillMaxSize()
         )
@@ -208,17 +216,16 @@ private fun SettingsTileContent(
     energy: Float,
     modifier: Modifier = Modifier
 ) {
-    val iconAlpha = (if (selected) 0.74f else 0.54f) + energy * 0.18f
-    val titleAlpha = (0.91f + energy * 0.08f).coerceIn(0f, 1f)
-    val secondaryAlpha = ((if (selected) 0.56f else 0.46f) + energy * 0.10f).coerceIn(0f, 0.78f)
-    val valueAlpha = ((if (selected) 0.76f else 0.56f) + energy * 0.14f).coerceIn(0f, 0.96f)
+    val iconAlpha = (if (selected) 0.84f else 0.58f) + energy * 0.14f
+    val titleAlpha = (0.92f + energy * 0.08f).coerceIn(0f, 1f)
+    val secondaryAlpha = ((if (selected) 0.66f else 0.48f) + energy * 0.10f).coerceIn(0f, 0.86f)
+    val valueAlpha = ((if (selected) 0.84f else 0.58f) + energy * 0.12f).coerceIn(0f, 0.98f)
 
     Column(
         modifier.padding(horizontal = 13.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -232,15 +239,15 @@ private fun SettingsTileContent(
                     textAlign = TextAlign.Center
                 )
             }
-            SettingsAnimatedTileHairline(Modifier.size(1.dp, 42.dp), alpha = if (selected) 0.23f + energy * 0.07f else 0.12f + energy * 0.05f)
+            SettingsAnimatedTileHairline(Modifier.size(1.dp, 42.dp), alpha = if (selected) 0.30f + energy * 0.10f else 0.14f + energy * 0.06f)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, color = Color.White.copy(alpha = titleAlpha), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(subtitle, color = Color.White.copy(alpha = secondaryAlpha), fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        SettingsAnimatedTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = if (selected) 0.18f + energy * 0.06f else 0.09f + energy * 0.03f)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("当前", color = Color.White.copy(alpha = 0.32f + energy * 0.06f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        SettingsAnimatedTileHairline(Modifier.height(1.dp), alpha = if (selected) 0.24f + energy * 0.08f else 0.10f + energy * 0.04f)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("当前", color = Color.White.copy(alpha = 0.34f + energy * 0.08f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Spacer(Modifier.weight(1f))
             Text(value, color = Color.White.copy(alpha = valueAlpha), fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
         }
@@ -260,12 +267,14 @@ private fun SettingsTilePrismSurface(
     selected: Boolean,
     energy: Float,
     selectedPulse: Float,
+    slowBreath: Float,
     press: Float,
     recoil: Float,
     afterglow: Float,
     center: Offset,
     phaseA: Float,
     phaseB: Float,
+    phaseC: Float,
     seed: Float,
     modifier: Modifier = Modifier
 ) {
@@ -277,14 +286,16 @@ private fun SettingsTilePrismSurface(
         val tau = (PI * 2.0).toFloat()
         val a = phaseA * tau
         val b = phaseB * tau
+        val c = phaseC * tau
         val selectedBase = if (selected) 1f else 0f
         val breath = ((sin(a + seed * 1.7f) + 1f) * 0.5f).coerceIn(0f, 1f)
-        val film = (0.50f + selectedBase * 0.55f + selectedPulse * selectedBase * 0.40f + press * 0.42f + afterglow * 0.28f).coerceIn(0f, 1.65f)
-        val driftX = (0.55f + 0.28f * cos(a + seed * 2.1f)).coerceIn(0.12f, 0.92f) * w
-        val driftY = (0.42f + 0.22f * sin(b * 0.82f + seed * 3.2f)).coerceIn(0.10f, 0.86f) * h
+        val film = (0.68f + selectedBase * 0.96f + selectedPulse * selectedBase * 0.74f + press * 0.58f + afterglow * 0.40f).coerceIn(0f, 2.30f)
+        val driftX = (0.55f + 0.30f * cos(a + seed * 2.1f)).coerceIn(0.08f, 0.94f) * w
+        val driftY = (0.42f + 0.25f * sin(b * 0.82f + seed * 3.2f)).coerceIn(0.08f, 0.88f) * h
         val cx = center.x.coerceIn(0.06f, 0.94f) * w
         val cy = center.y.coerceIn(0.08f, 0.92f) * h
         val sweep = (phaseA * 0.76f + phaseB * 0.24f + seed).let { it - it.toInt() }
+        val softSweep = (phaseC * 0.58f + seed * 0.42f).let { it - it.toInt() }
         val rimInset = 0.82.dp.toPx()
         val rimRadius = CornerRadius((radiusPx - rimInset).coerceAtLeast(0f), (radiusPx - rimInset).coerceAtLeast(0f))
         val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
@@ -292,54 +303,70 @@ private fun SettingsTilePrismSurface(
         drawRoundRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF8DF9EA).copy(alpha = 0.034f * film),
-                    Color(0xFF8B9DFF).copy(alpha = 0.030f * film),
+                    Color(0xFF8DF9EA).copy(alpha = 0.060f * film),
+                    Color(0xFF8B9DFF).copy(alpha = 0.054f * film),
+                    Color(0xFFFF7BE5).copy(alpha = 0.030f * film),
                     Color.Transparent
                 ),
                 center = Offset(driftX, driftY),
-                radius = maxOf(w, h) * (0.60f + breath * 0.18f)
+                radius = maxOf(w, h) * (0.62f + breath * 0.22f)
             ),
             size = Size(w, h),
             cornerRadius = r,
             blendMode = BlendMode.Screen
         )
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF75FFF0).copy(alpha = (0.110f + selectedPulse * 0.090f) * selectedBase),
+                    Color(0xFF9CA8FF).copy(alpha = (0.090f + slowBreath * 0.075f) * selectedBase),
+                    Color.Transparent
+                ),
+                center = Offset(w * (0.72f + 0.12f * cos(b)), h * (0.24f + 0.10f * sin(c))),
+                radius = maxOf(w, h) * (0.48f + slowBreath * 0.12f)
+            ),
+            size = Size(w, h),
+            cornerRadius = r,
+            blendMode = BlendMode.Plus
+        )
         if (selected || energy > 0.08f) {
             drawRoundRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.090f * energy),
-                        Color(0xFF91FFF2).copy(alpha = 0.085f * energy),
-                        Color(0xFFFF74D7).copy(alpha = 0.044f * energy),
+                        Color.White.copy(alpha = 0.145f * energy),
+                        Color(0xFF91FFF2).copy(alpha = 0.130f * energy),
+                        Color(0xFFFF74D7).copy(alpha = 0.080f * energy),
                         Color.Transparent
                     ),
                     center = Offset(cx, cy),
-                    radius = maxOf(w, h) * (0.42f + energy * 0.12f)
+                    radius = maxOf(w, h) * (0.42f + energy * 0.15f)
                 ),
                 size = Size(w, h),
                 cornerRadius = r,
                 blendMode = BlendMode.Screen
             )
-            drawRoundRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFFB8C8FF).copy(alpha = (0.070f + selectedPulse * 0.070f) * selectedBase),
-                        Color(0xFF8DF9EA).copy(alpha = (0.036f + selectedPulse * 0.042f) * selectedBase),
-                        Color.Transparent
-                    ),
-                    center = Offset(w * (0.72f + 0.08f * cos(b)), h * (0.20f + 0.06f * sin(a))),
-                    radius = maxOf(w, h) * 0.48f
-                ),
-                size = Size(w, h),
-                cornerRadius = r,
-                blendMode = BlendMode.Plus
-            )
         }
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFF6CFFF0).copy(alpha = 0.068f * film),
+                    Color(0xFF94A6FF).copy(alpha = 0.058f * film),
+                    Color.Transparent
+                ),
+                start = Offset(w * (softSweep - 0.36f), h * 0.02f),
+                end = Offset(w * (softSweep + 0.30f), h * 0.92f)
+            ),
+            size = Size(w, h),
+            cornerRadius = r,
+            blendMode = BlendMode.Screen
+        )
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.060f + selectedBase * 0.040f + energy * 0.035f),
+                    Color.White.copy(alpha = 0.085f + selectedBase * 0.070f + energy * 0.040f),
                     Color.Transparent,
-                    Color(0xFF030716).copy(alpha = 0.024f + press * 0.040f)
+                    Color(0xFF030716).copy(alpha = 0.020f + press * 0.038f)
                 )
             ),
             size = Size(w, h),
@@ -350,10 +377,10 @@ private fun SettingsTilePrismSurface(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF5ED8).copy(alpha = 0.052f * film),
-                    Color(0xFFFFE087).copy(alpha = 0.048f * film),
-                    Color(0xFF72FFF0).copy(alpha = 0.058f * film),
-                    Color(0xFF8DA2FF).copy(alpha = 0.047f * film),
+                    Color(0xFFFF5ED8).copy(alpha = 0.086f * film),
+                    Color(0xFFFFE087).copy(alpha = 0.078f * film),
+                    Color(0xFF72FFF0).copy(alpha = 0.094f * film),
+                    Color(0xFF8DA2FF).copy(alpha = 0.074f * film),
                     Color.Transparent
                 ),
                 start = Offset(w * (sweep - 0.62f), h * -0.16f),
@@ -362,16 +389,16 @@ private fun SettingsTilePrismSurface(
             topLeft = Offset(rimInset, rimInset),
             size = rimSize,
             cornerRadius = rimRadius,
-            style = Stroke(width = 0.92.dp.toPx() + energy * 0.52.dp.toPx()),
+            style = Stroke(width = 1.35.dp.toPx() + energy * 0.70.dp.toPx()),
             blendMode = BlendMode.Plus
         )
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.105f + selectedBase * 0.070f + press * 0.050f),
-                    Color(0xFF8DF9EA).copy(alpha = 0.030f + selectedBase * 0.050f),
+                    Color.White.copy(alpha = 0.160f + selectedBase * 0.120f + press * 0.060f),
+                    Color(0xFF8DF9EA).copy(alpha = 0.055f + selectedBase * 0.085f),
                     Color.Transparent,
-                    Color(0xFFFF88E8).copy(alpha = 0.020f + selectedBase * 0.035f + afterglow * 0.030f)
+                    Color(0xFFFF88E8).copy(alpha = 0.035f + selectedBase * 0.060f + afterglow * 0.045f)
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(w, h)
@@ -379,7 +406,7 @@ private fun SettingsTilePrismSurface(
             topLeft = Offset(1.45.dp.toPx(), 1.45.dp.toPx()),
             size = Size((w - 2.90.dp.toPx()).coerceAtLeast(1f), (h - 2.90.dp.toPx()).coerceAtLeast(1f)),
             cornerRadius = CornerRadius((radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f), (radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f)),
-            style = Stroke(width = 0.45.dp.toPx() + selectedBase * 0.20.dp.toPx()),
+            style = Stroke(width = 0.65.dp.toPx() + selectedBase * 0.42.dp.toPx() + energy * 0.16.dp.toPx()),
             blendMode = BlendMode.Screen
         )
     }
