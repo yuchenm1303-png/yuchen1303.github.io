@@ -148,7 +148,7 @@ private fun SettingsHeader() {
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
     GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 30, Modifier.fillMaxWidth(), SettingsOverviewRole) {
-        FrostInfoGlassPanel(radius = 17.44f, backdropAlpha = 1f, frostAlpha = 0f, dimAlpha = 0f, modifier = Modifier.fillMaxWidth().height(164.dp)) {
+        FrostInfoGlassPanel(radius = 17.44f, backdropAlpha = 1f, frostAlpha = 0.075f, dimAlpha = 0f, modifier = Modifier.fillMaxWidth().height(164.dp)) {
             Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -217,7 +217,7 @@ private fun SettingsTile(icon: String, title: String, subtitle: String, value: S
     FrostInfoGlassPanel(
         radius = 17.44f,
         backdropAlpha = 1f,
-        frostAlpha = 0f,
+        frostAlpha = 0.085f,
         dimAlpha = 0f,
         modifier = modifier
             .height(116.dp)
