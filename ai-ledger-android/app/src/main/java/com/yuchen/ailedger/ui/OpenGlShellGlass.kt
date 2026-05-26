@@ -22,9 +22,9 @@ enum class OpenGlShellMood {
 /**
  * Shared large-glass entry for deliberately promoted Shell surfaces.
  *
- * Performance rule: only the real large hero container may stay on Shell/OpenGL.
- * Smaller summary/list/settings surfaces are automatically downgraded to Card so
- * feature pages do not create multiple OpenGL-backed glass layers while scrolling.
+ * Performance rule: only the real large hero container uses Shell/OpenGL by default.
+ * Callers can explicitly opt in with forceOpenGl for short visual A/B checks without
+ * bringing the feature-page list cards back onto OpenGL.
  */
 @Composable
 fun OpenGlShellGlass(
@@ -34,12 +34,14 @@ fun OpenGlShellGlass(
     radius: Int,
     modifier: Modifier = Modifier,
     mood: OpenGlShellMood = OpenGlShellMood.Hero,
+    forceOpenGl: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val surfaceModifier = modifier.openGlShellMoodAura(mood = mood, motionIntensity = motionIntensity)
+    val useOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
 
-    if (mood == OpenGlShellMood.Hero) {
+    if (useOpenGlShell) {
         val interaction = remember { MutableInteractionSource() }
         val clickableModifier = if (onClick != null) {
             Modifier.clickable(
