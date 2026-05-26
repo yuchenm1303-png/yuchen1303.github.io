@@ -13,6 +13,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,11 +43,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -236,7 +243,6 @@ private fun QuickToolPillV2(title: String, subtitle: String, target: String, sta
 @Composable
 private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> Unit) {
     val title = displayToolTitleV2(tool.title)
-    val accent = toolAccentV2(title)
     val active = title == "账单中心"
     OpenGlShellGlass(
         quality = state.quality,
@@ -249,8 +255,20 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> 
         mood = OpenGlShellMood.List,
         onClick = onClick
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-            IlluminatedGlyph(text = toolGlyphV2(title), state = state, active = active, accent = accent)
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(34.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                ToolMinimalIconV2(
+                    title = title,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 Text(displayToolSubtitleV2(tool), color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -553,6 +571,88 @@ private fun SectionTitleV2(title: String, subtitle: String) {
         Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 12.sp, lineHeight = 16.sp)
     }
+}
+
+@Composable
+private fun ToolMinimalIconV2(title: String, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val color = Color.White.copy(alpha = 0.90f)
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = size.minDimension * 0.085f, cap = StrokeCap.Round)
+        when (displayToolTitleV2(title)) {
+            "账单中心" -> drawLedgerIcon(color, stroke, w, h)
+            "数据统计" -> drawStatsIcon(color, stroke, w, h)
+            "提醒闹钟" -> drawBellIcon(color, stroke, w, h)
+            "应用控制" -> drawAppControlIcon(color, stroke, w, h)
+            "快捷指令" -> drawShortcutIcon(color, stroke, w, h)
+            "任务记录" -> drawTaskRecordIcon(color, stroke, w, h)
+            else -> drawLedgerIcon(color, stroke, w, h)
+        }
+    }
+}
+
+private fun DrawScope.drawLedgerIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(w * 0.20f, h * 0.14f),
+        size = Size(w * 0.60f, h * 0.72f),
+        cornerRadius = CornerRadius(w * 0.08f, w * 0.08f),
+        style = stroke
+    )
+    drawLine(color, Offset(w * 0.32f, h * 0.36f), Offset(w * 0.68f, h * 0.36f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.32f, h * 0.52f), Offset(w * 0.68f, h * 0.52f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.32f, h * 0.68f), Offset(w * 0.56f, h * 0.68f), stroke.width, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawStatsIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawLine(color, Offset(w * 0.20f, h * 0.78f), Offset(w * 0.80f, h * 0.78f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.28f, h * 0.78f), Offset(w * 0.28f, h * 0.56f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.48f, h * 0.78f), Offset(w * 0.48f, h * 0.40f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.68f, h * 0.78f), Offset(w * 0.68f, h * 0.24f), stroke.width, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawBellIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    val path = Path().apply {
+        moveTo(w * 0.30f, h * 0.64f)
+        quadraticBezierTo(w * 0.30f, h * 0.34f, w * 0.50f, h * 0.26f)
+        quadraticBezierTo(w * 0.70f, h * 0.34f, w * 0.70f, h * 0.64f)
+    }
+    drawPath(path = path, color = color, style = stroke)
+    drawLine(color, Offset(w * 0.26f, h * 0.66f), Offset(w * 0.74f, h * 0.66f), stroke.width, cap = StrokeCap.Round)
+    drawCircle(color = color, radius = w * 0.04f, center = Offset(w * 0.50f, h * 0.76f))
+    drawLine(color, Offset(w * 0.50f, h * 0.18f), Offset(w * 0.50f, h * 0.24f), stroke.width, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawAppControlIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    val side = w * 0.17f
+    val corner = CornerRadius(w * 0.035f, w * 0.035f)
+    drawRoundRect(color, Offset(w * 0.21f, h * 0.23f), Size(side, side), corner, style = stroke)
+    drawRoundRect(color, Offset(w * 0.56f, h * 0.23f), Size(side, side), corner, style = stroke)
+    drawRoundRect(color, Offset(w * 0.21f, h * 0.57f), Size(side, side), corner, style = stroke)
+    drawRoundRect(color, Offset(w * 0.56f, h * 0.57f), Size(side, side), corner, style = stroke)
+}
+
+private fun DrawScope.drawShortcutIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawLine(color, Offset(w * 0.28f, h * 0.70f), Offset(w * 0.72f, h * 0.28f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.50f, h * 0.28f), Offset(w * 0.72f, h * 0.28f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.72f, h * 0.28f), Offset(w * 0.72f, h * 0.50f), stroke.width, cap = StrokeCap.Round)
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(w * 0.22f, h * 0.42f),
+        size = Size(w * 0.27f, h * 0.27f),
+        cornerRadius = CornerRadius(w * 0.05f, w * 0.05f),
+        style = stroke
+    )
+}
+
+private fun DrawScope.drawTaskRecordIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawCircle(color = color, radius = w * 0.11f, center = Offset(w * 0.30f, h * 0.34f), style = stroke)
+    drawLine(color, Offset(w * 0.30f, h * 0.34f), Offset(w * 0.30f, h * 0.28f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.30f, h * 0.34f), Offset(w * 0.36f, h * 0.39f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.48f, h * 0.30f), Offset(w * 0.78f, h * 0.30f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.24f, h * 0.56f), Offset(w * 0.78f, h * 0.56f), stroke.width, cap = StrokeCap.Round)
+    drawLine(color, Offset(w * 0.24f, h * 0.72f), Offset(w * 0.64f, h * 0.72f), stroke.width, cap = StrokeCap.Round)
 }
 
 private fun Modifier.toolGlyphGlow(glow: Float, accent: Color): Modifier = drawWithCache {
