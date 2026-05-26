@@ -87,7 +87,7 @@ private fun GlassLabFoldout(
     Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         PressableGlass(
             quality = state.quality,
-            intensity = state.glassIntensity * if (expanded) 0.94f else 0.76f,
+            glassIntensity = state.glassIntensity * if (expanded) 0.94f else 0.76f,
             motionIntensity = state.motionIntensity,
             radius = 24,
             modifier = Modifier.fillMaxWidth().height(58.dp),
@@ -149,7 +149,7 @@ private fun LabActionButton(
 ) {
     PressableGlass(
         quality = state.quality,
-        intensity = state.glassIntensity * 0.78f,
+        glassIntensity = state.glassIntensity * 0.78f,
         motionIntensity = state.motionIntensity,
         radius = 22,
         modifier = modifier.height(56.dp),
