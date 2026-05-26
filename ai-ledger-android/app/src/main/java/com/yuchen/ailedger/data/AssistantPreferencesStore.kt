@@ -55,6 +55,7 @@ class AssistantPreferencesStore(private val context: Context) {
         .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
         .map { preferences ->
             val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
+            val preset = RainbowPrismStyle()
             AssistantPreferences(
                 quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage) ?: RenderQuality.Balanced,
                 showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
@@ -64,10 +65,10 @@ class AssistantPreferencesStore(private val context: Context) {
                 glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                 motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
                 rainbowPrismStyle = RainbowPrismStyle(
-                    overall = (preferences[Keys.rainbowOverall] ?: 1f).coerceIn(0f, 2f),
-                    edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: 1f).coerceIn(0f, 2f),
-                    diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: 1f).coerceIn(0f, 2f),
-                    rainbowHalo = (preferences[Keys.rainbowHalo] ?: 1f).coerceIn(0f, 2f)
+                    overall = (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f),
+                    edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight).coerceIn(0f, 2f),
+                    diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: preset.diagonalSweep).coerceIn(0f, 2f),
+                    rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo).coerceIn(0f, 2f)
                 )
             )
         }
