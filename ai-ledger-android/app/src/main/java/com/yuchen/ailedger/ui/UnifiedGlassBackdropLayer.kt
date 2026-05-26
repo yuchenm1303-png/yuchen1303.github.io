@@ -119,10 +119,14 @@ private fun DrawScope.drawGlassBody(
             alpha = (backdropAlpha * (0.76f + border.bodyAlpha.coerceIn(0f, 0.50f))).coerceIn(0.25f, 1f),
             blendMode = BlendMode.SrcOver
         )
-        drawRect(Color(0xFF72859A).copy(alpha = base * 0.22f), Offset(visibleRect.left, visibleRect.top), Size(visibleRect.width, visibleRect.height))
+        drawRect(
+            color = Color(0xFF72859A).copy(alpha = base * 0.22f),
+            topLeft = Offset(visibleRect.left, visibleRect.top),
+            size = Size(visibleRect.width, visibleRect.height)
+        )
         drawRect(
             brush = Brush.verticalGradient(
-                listOf(
+                colors = listOf(
                     Color.White.copy(alpha = milk * 0.34f),
                     Color(0xFFDCE5EF).copy(alpha = milk * 0.15f),
                     Color(0xFF172333).copy(alpha = base * 0.10f)
@@ -234,7 +238,15 @@ private fun DrawScope.drawFallbackLens(
     val srcY = ((sampleOffset.y + srcLocalY) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
     val srcW = (visibleRect.width * srcWLocal / w * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
     val srcH = (visibleRect.height * srcHLocal / h * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
-    drawImage(backdrop.image, IntOffset(srcX, srcY), IntSize(srcW, srcH), IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()), IntSize(dstW, dstH), alpha = alpha.coerceIn(0f, 0.34f), blendMode = BlendMode.SrcOver)
+    drawImage(
+        image = backdrop.image,
+        srcOffset = IntOffset(srcX, srcY),
+        srcSize = IntSize(srcW, srcH),
+        dstOffset = IntOffset(visibleRect.left.roundToInt(), visibleRect.top.roundToInt()),
+        dstSize = IntSize(dstW, dstH),
+        alpha = alpha.coerceIn(0f, 0.34f),
+        blendMode = BlendMode.SrcOver
+    )
 }
 
 private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: GlassBorderStyle) {
@@ -244,7 +256,15 @@ private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: G
     fun p(x: Float, y: Float) = Offset(itemRect.left + x, itemRect.top + y)
     fun s(width: Float, height: Float) = Size(width, height)
     drawRoundRect(
-        brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = border.topHighlightAlpha * 0.16f), Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.028f), Color.Transparent), itemRect.top, itemRect.top + h * 0.20f),
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = border.topHighlightAlpha * 0.16f),
+                Color(0xFFEAF3FF).copy(alpha = border.topHighlightAlpha * 0.028f),
+                Color.Transparent
+            ),
+            startY = itemRect.top,
+            endY = itemRect.top + h * 0.20f
+        ),
         topLeft = p(1.dp.toPx(), 1.dp.toPx()),
         size = s(w - 2.dp.toPx(), h - 2.dp.toPx()),
         cornerRadius = CornerRadius(corner, corner),
@@ -252,7 +272,16 @@ private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: G
         blendMode = BlendMode.Screen
     )
     drawRoundRect(
-        brush = Brush.linearGradient(listOf(Color.White.copy(alpha = (border.outerStrokeAlpha * 0.32f).coerceIn(0f, 0.22f)), Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.11f), Color.White.copy(alpha = border.outerStrokeAlpha * 0.026f), Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.040f)), p(0f, 0f), p(w, h)),
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = (border.outerStrokeAlpha * 0.32f).coerceIn(0f, 0.22f)),
+                Color(0xFFE8F4FF).copy(alpha = border.outerStrokeAlpha * 0.11f),
+                Color.White.copy(alpha = border.outerStrokeAlpha * 0.026f),
+                Color(0xFFFFD9E5).copy(alpha = border.outerStrokeAlpha * 0.040f)
+            ),
+            start = p(0f, 0f),
+            end = p(w, h)
+        ),
         topLeft = p(0.65.dp.toPx(), 0.65.dp.toPx()),
         size = s(w - 1.3.dp.toPx(), h - 1.3.dp.toPx()),
         cornerRadius = CornerRadius(corner, corner),
@@ -260,7 +289,16 @@ private fun DrawScope.drawGlassHighlights(itemRect: Rect, radius: Int, border: G
         blendMode = BlendMode.Screen
     )
     drawRoundRect(
-        brush = Brush.linearGradient(listOf(Color.White.copy(alpha = border.innerStrokeAlpha * 0.22f), Color(0xFFB9D7FF).copy(alpha = border.innerStrokeAlpha * 0.052f), Color(0xFFFFE5F0).copy(alpha = border.innerStrokeAlpha * 0.050f), Color.Transparent), p(0f, h * 0.05f), p(w, h)),
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = border.innerStrokeAlpha * 0.22f),
+                Color(0xFFB9D7FF).copy(alpha = border.innerStrokeAlpha * 0.052f),
+                Color(0xFFFFE5F0).copy(alpha = border.innerStrokeAlpha * 0.050f),
+                Color.Transparent
+            ),
+            start = p(0f, h * 0.05f),
+            end = p(w, h)
+        ),
         topLeft = p(2.dp.toPx(), 2.dp.toPx()),
         size = s(w - 4.dp.toPx(), h - 4.dp.toPx()),
         cornerRadius = CornerRadius((corner - 2.dp.toPx()).coerceAtLeast(0f), (corner - 2.dp.toPx()).coerceAtLeast(0f)),
@@ -292,5 +330,29 @@ float sdRoundRect(float2 p, float2 b, float r) {
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 }
 
-float edgeMaskFromDistance(float dist, float edgeWidth) {
-    float inner = smoothstep(edgeWidth, 0.0, dist);
+float edgeMaskFromDistance(float distInside, float edgeWidthValue) {
+    return smoothstep(edgeWidthValue, 0.0, distInside);
+}
+
+half4 main(float2 fragCoord) {
+    float2 local = fragCoord - itemPos;
+    float2 halfSize = itemSize * 0.5;
+    float2 centered = local - halfSize;
+    float dist = sdRoundRect(centered, halfSize, radius);
+    float distInside = max(0.0, -dist);
+    float rimMask = edgeMaskFromDistance(distInside, max(edgeWidth, 1.0));
+    float2 fromCenter = normalize(centered + float2(0.0001, 0.0001));
+    float pull = edgePull * rimMask * 0.22;
+    float2 sampleCoord = (sampleOffset + local - fromCenter * pull) * backdropScale;
+    half4 blurColor = backdropBlur.eval(sampleCoord);
+    half4 lensColor = backdropLens.eval(sampleCoord);
+    half3 mixedColor = mix(blurColor.rgb, lensColor.rgb, half(lensMix * rimMask));
+    float lum = dot(float3(mixedColor), float3(0.299, 0.587, 0.114));
+    float3 saturated = mix(float3(lum), float3(mixedColor), edgeSaturation);
+    saturated = (saturated - 0.5) * edgeContrast + 0.5;
+    saturated *= edgeBrightness;
+    half3 finalColor = half3(saturated) + half3(0.025, 0.035, 0.055) * half(rimMask * bandStrength);
+    finalColor += half3(diagnosticTint, 0.0, 0.0) * half(rimMask);
+    return half4(finalColor, half(edgeAlpha * rimMask));
+}
+"""
