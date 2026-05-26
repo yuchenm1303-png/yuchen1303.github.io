@@ -137,7 +137,7 @@ private fun ToolsHeaderV2() {
 
 @Composable
 private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
-    PressableGlass(
+    OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
         motionIntensity = state.motionIntensity,
@@ -145,7 +145,7 @@ private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(174.dp),
-        role = GlassRole.Shell,
+        mood = OpenGlShellMood.Hero,
         onClick = { onOpenTool("账单中心") }
     ) {
         Column(
@@ -223,7 +223,7 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> 
     val title = displayToolTitleV2(tool.title)
     val accent = toolAccentV2(title)
     val active = title == "账单中心"
-    PressableGlass(
+    OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * if (active) 1.02f else 0.92f,
         motionIntensity = state.motionIntensity,
@@ -232,9 +232,7 @@ private fun ToolCardV2(tool: ToolEntry, state: AssistantUiState, onClick: () -> 
             .fillMaxWidth()
             .height(76.dp)
             .toolCardGlow(glow = if (active) 0.34f else 0.14f, accent = accent),
-        // These are the outer tool-category containers shown in the feature page.
-        // Promote the container itself to Shell/OpenGL, while its icon glyph remains Chip/Floating.
-        role = GlassRole.Shell,
+        mood = OpenGlShellMood.List,
         onClick = onClick
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
@@ -291,16 +289,16 @@ private fun LedgerSummaryV2(state: AssistantUiState) {
     val todayExpense = state.ledgerRecords.filter { it.dateLabel == "今天" && it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }.toFloat()
     val budget = state.ledgerBudgetText.toFloatOrNull() ?: 0f
     val remain = budget - monthExpense
-    PressableGlass(
-        state.quality,
-        state.glassIntensity * 1.04f,
-        state.motionIntensity,
-        28,
-        Modifier
+    OpenGlShellGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 1.04f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier
             .fillMaxWidth()
             .height(148.dp)
             .toolCardGlow(0.62f, Color(0xFF8DF9EA)),
-        GlassRole.Shell
+        mood = OpenGlShellMood.Summary
     ) {
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
