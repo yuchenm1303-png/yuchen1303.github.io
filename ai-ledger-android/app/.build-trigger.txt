@@ -1,7 +1,6 @@
 Manual APK build trigger
-Purpose: force Build Compose Android APK after sweep range SettingsPolishedScreen fix.
-Reason: previous visible run was built from old code that still referenced diagonalSweep.
+Purpose: test whether ChatGPT GitHub commits trigger Build Compose Android APK.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
-Workflow paths matched: ai-ledger-android/**
+Workflow paths matched: ai-ledger-android/app/**
 App source code remains unchanged by this trigger commit.
-Triggered at: 2026-05-26T20:12:00+08:00
+Triggered at: 2026-05-26T19:42:00+08:00
