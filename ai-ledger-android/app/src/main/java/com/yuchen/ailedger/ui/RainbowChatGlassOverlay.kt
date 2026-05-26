@@ -16,6 +16,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.sin
 
@@ -23,6 +24,7 @@ import kotlin.math.sin
 fun RainbowChatGlassOverlay(
     quality: RenderQuality,
     motionIntensity: Float,
+    style: RainbowPrismStyle,
     modifier: Modifier = Modifier
 ) {
     val motionEnabled = quality.enableMotion && motionIntensity > 0.02f
@@ -41,7 +43,12 @@ fun RainbowChatGlassOverlay(
     )
     val p = if (motionEnabled) phase else 0.22f
     val s = if (motionEnabled) sweep else 0.48f
-    val strength = (0.98f + motionIntensity.coerceIn(0f, 1.4f) * 0.22f).coerceIn(0.82f, 1.26f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val edge = style.edgeHighlight.coerceIn(0f, 2f)
+    val diagonal = style.diagonalSweep.coerceIn(0f, 2f)
+    val top = style.topCoating.coerceIn(0f, 2f)
+    val halo = style.rainbowHalo.coerceIn(0f, 2f)
+    val strength = (0.98f + motionIntensity.coerceIn(0f, 1.4f) * 0.22f).coerceIn(0.82f, 1.26f) * overall
 
     Canvas(modifier = modifier) {
         val w = size.width.coerceAtLeast(1f)
@@ -51,14 +58,13 @@ fun RainbowChatGlassOverlay(
         val x = -0.36f + s * 1.72f
         val x2 = 1.20f - s * 1.58f
 
-        // Broad rainbow coating. This is a film, not a second outline.
         drawRoundRect(
             brush = Brush.radialGradient(
                 listOf(
-                    Color(0xFFFF66DF).copy(alpha = 0.118f * strength),
-                    Color(0xFFFFD75F).copy(alpha = 0.082f * strength),
-                    Color(0xFF42FFF0).copy(alpha = 0.112f * strength),
-                    Color(0xFF7C95FF).copy(alpha = 0.084f * strength),
+                    Color(0xFFFF66DF).copy(alpha = 0.118f * strength * halo),
+                    Color(0xFFFFD75F).copy(alpha = 0.082f * strength * halo),
+                    Color(0xFF42FFF0).copy(alpha = 0.112f * strength * halo),
+                    Color(0xFF7C95FF).copy(alpha = 0.084f * strength * halo),
                     Color.Transparent
                 ),
                 center = Offset(w * (0.14f + 0.14f * wave), h * 0.07f),
@@ -69,15 +75,14 @@ fun RainbowChatGlassOverlay(
             blendMode = BlendMode.Screen
         )
 
-        // Main diagonal prism sweep across the coating body.
         drawRoundRect(
             brush = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFFFF4EE1).copy(alpha = 0.112f * strength),
-                    Color(0xFFFFD05D).copy(alpha = 0.094f * strength),
-                    Color(0xFF42FFF0).copy(alpha = 0.126f * strength),
-                    Color(0xFF85A0FF).copy(alpha = 0.098f * strength),
+                    Color(0xFFFF4EE1).copy(alpha = 0.112f * strength * diagonal),
+                    Color(0xFFFFD05D).copy(alpha = 0.094f * strength * diagonal),
+                    Color(0xFF42FFF0).copy(alpha = 0.126f * strength * diagonal),
+                    Color(0xFF85A0FF).copy(alpha = 0.098f * strength * diagonal),
                     Color.Transparent
                 ),
                 start = Offset(w * (x - 0.42f), h * -0.14f),
@@ -88,14 +93,13 @@ fun RainbowChatGlassOverlay(
             blendMode = BlendMode.Screen
         )
 
-        // Soft film band across the glass body, not only the edge.
         drawRoundRect(
             brush = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFFFF77E6).copy(alpha = 0.078f * strength),
-                    Color(0xFFFFE58A).copy(alpha = 0.064f * strength),
-                    Color(0xFF68FFF0).copy(alpha = 0.084f * strength),
+                    Color(0xFFFF77E6).copy(alpha = 0.078f * strength * diagonal),
+                    Color(0xFFFFE58A).copy(alpha = 0.064f * strength * diagonal),
+                    Color(0xFF68FFF0).copy(alpha = 0.084f * strength * diagonal),
                     Color.Transparent
                 ),
                 start = Offset(w * (x - 0.18f), h * 0.02f),
@@ -106,14 +110,13 @@ fun RainbowChatGlassOverlay(
             blendMode = BlendMode.Screen
         )
 
-        // Counter-sweep as a soft coating reflection instead of an inner border.
         drawRoundRect(
             brush = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF54FFF0).copy(alpha = 0.070f * strength),
-                    Color(0xFFFFF09A).copy(alpha = 0.058f * strength),
-                    Color(0xFFFF67D8).copy(alpha = 0.064f * strength),
+                    Color(0xFF54FFF0).copy(alpha = 0.070f * strength * edge),
+                    Color(0xFFFFF09A).copy(alpha = 0.058f * strength * edge),
+                    Color(0xFFFF67D8).copy(alpha = 0.064f * strength * edge),
                     Color.Transparent
                 ),
                 start = Offset(w * (x2 - 0.26f), h * 0.04f),
@@ -124,13 +127,12 @@ fun RainbowChatGlassOverlay(
             blendMode = BlendMode.Screen
         )
 
-        // Top coated film: cold white + cyan + gold, filled softly so it won't create a double rim.
         drawRoundRect(
             brush = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.086f * strength),
-                    Color(0xFFFFE88B).copy(alpha = 0.058f * strength),
-                    Color(0xFF7CFFF3).copy(alpha = 0.074f * strength),
+                    Color.White.copy(alpha = 0.086f * strength * top),
+                    Color(0xFFFFE88B).copy(alpha = 0.058f * strength * top),
+                    Color(0xFF7CFFF3).copy(alpha = 0.074f * strength * top),
                     Color.Transparent
                 ),
                 startY = 0f,
@@ -141,14 +143,13 @@ fun RainbowChatGlassOverlay(
             blendMode = BlendMode.Screen
         )
 
-        // Lower-right lens halo, to make the rainbow readable at rest.
         drawRoundRect(
             brush = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.055f * strength),
-                    Color(0xFF70FFF1).copy(alpha = 0.082f * strength),
-                    Color(0xFFFF78DF).copy(alpha = 0.058f * strength),
-                    Color(0xFF7C96FF).copy(alpha = 0.048f * strength),
+                    Color.White.copy(alpha = 0.055f * strength * halo),
+                    Color(0xFF70FFF1).copy(alpha = 0.082f * strength * halo),
+                    Color(0xFFFF78DF).copy(alpha = 0.058f * strength * halo),
+                    Color(0xFF7C96FF).copy(alpha = 0.048f * strength * halo),
                     Color.Transparent
                 ),
                 center = Offset(w * 0.78f, h * (0.68f + 0.08f * wave)),
