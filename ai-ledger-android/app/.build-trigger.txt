@@ -1,5 +1,5 @@
-Rollback target: 768e51cda2589ff23cf13b09125d23a05727ae43
-Purpose: trigger Build Compose Android APK after latest source update from parallel window.
-Latest observed source change: ai-ledger-android/app/src/main/java/com/yuchen/ailedger/BuildStamp.kt
-Trigger method: normal update_file on ai-ledger-android/app/** path.
-Triggered at: 2026-05-26T11:05:00Z
+Manual APK build trigger
+Purpose: trigger Build Compose Android APK after latest code changes.
+Trigger method: update ai-ledger-android/app/** path so workflow paths filter matches.
+App source code remains unchanged by this trigger commit.
+Triggered at: 2026-05-26T19:30:00+08:00
