@@ -11,6 +11,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +44,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -206,16 +211,98 @@ private fun SettingsDashboardGrid(state: AssistantUiState, aiEndpoint: String, s
 
 @Composable
 private fun SettingsTile(icon: String, title: String, subtitle: String, value: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    AnimatedSettingsFrostTile(
-        icon = icon,
-        title = title,
-        subtitle = subtitle,
-        value = value,
-        selected = selected,
-        state = state,
-        modifier = modifier,
-        onClick = onClick
-    )
+    val clickSource = remember { MutableInteractionSource() }
+    FrostInfoGlassPanel(
+        radius = 17.44f,
+        backdropAlpha = 1f,
+        frostAlpha = if (selected) 0.105f else 0.085f,
+        dimAlpha = 0f,
+        modifier = modifier
+            .height(116.dp)
+            .clickable(interactionSource = clickSource, indication = null, onClick = onClick)
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SettingsMinimalTileIcon(icon = icon, selected = selected)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            SettingsTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = if (selected) 0.20f else 0.10f)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("当前", color = Color.White.copy(alpha = 0.34f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                Text(value, color = Color.White.copy(alpha = if (selected) 0.86f else 0.62f), fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMinimalTileIcon(icon: String, selected: Boolean, modifier: Modifier = Modifier) {
+    val tint = Color.White.copy(alpha = if (selected) 0.90f else 0.68f)
+    Canvas(modifier.size(38.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = 2.15.dp.toPx()
+        fun line(x1: Float, y1: Float, x2: Float, y2: Float) {
+            drawLine(tint, Offset(w * x1, h * y1), Offset(w * x2, h * y2), strokeWidth = stroke, cap = StrokeCap.Round)
+        }
+        fun dot(x: Float, y: Float, r: Float = 0.042f) {
+            drawCircle(tint, radius = w * r, center = Offset(w * x, h * y))
+        }
+        when (icon) {
+            "景" -> {
+                line(0.20f, 0.30f, 0.80f, 0.30f)
+                line(0.20f, 0.50f, 0.80f, 0.50f)
+                line(0.20f, 0.70f, 0.80f, 0.70f)
+                dot(0.30f, 0.30f, 0.05f)
+                dot(0.70f, 0.70f, 0.05f)
+            }
+            "璃" -> {
+                line(0.24f, 0.26f, 0.62f, 0.26f)
+                line(0.62f, 0.26f, 0.76f, 0.40f)
+                line(0.76f, 0.40f, 0.76f, 0.76f)
+                line(0.76f, 0.76f, 0.38f, 0.76f)
+                line(0.38f, 0.76f, 0.24f, 0.62f)
+                line(0.24f, 0.62f, 0.24f, 0.26f)
+                line(0.34f, 0.42f, 0.66f, 0.42f)
+                line(0.36f, 0.58f, 0.64f, 0.58f)
+            }
+            "助" -> {
+                line(0.50f, 0.18f, 0.50f, 0.82f)
+                line(0.18f, 0.50f, 0.82f, 0.50f)
+                line(0.28f, 0.28f, 0.72f, 0.72f)
+                line(0.72f, 0.28f, 0.28f, 0.72f)
+                dot(0.50f, 0.50f, 0.045f)
+            }
+            "账" -> {
+                dot(0.22f, 0.28f, 0.045f)
+                dot(0.22f, 0.50f, 0.045f)
+                dot(0.22f, 0.72f, 0.045f)
+                line(0.34f, 0.28f, 0.78f, 0.28f)
+                line(0.34f, 0.50f, 0.68f, 0.50f)
+                line(0.34f, 0.72f, 0.80f, 0.72f)
+            }
+            "云" -> {
+                line(0.26f, 0.60f, 0.74f, 0.60f)
+                line(0.30f, 0.60f, 0.38f, 0.48f)
+                line(0.38f, 0.48f, 0.50f, 0.42f)
+                line(0.50f, 0.42f, 0.62f, 0.48f)
+                line(0.62f, 0.48f, 0.70f, 0.60f)
+                line(0.36f, 0.72f, 0.64f, 0.72f)
+            }
+            else -> {
+                line(0.20f, 0.30f, 0.80f, 0.30f)
+                line(0.20f, 0.50f, 0.80f, 0.50f)
+                line(0.20f, 0.70f, 0.80f, 0.70f)
+                dot(0.36f, 0.30f, 0.055f)
+                dot(0.64f, 0.50f, 0.055f)
+                dot(0.46f, 0.70f, 0.055f)
+            }
+        }
+    }
 }
 
 @Composable
