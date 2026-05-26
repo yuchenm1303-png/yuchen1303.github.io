@@ -9,11 +9,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,20 +32,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,7 +57,6 @@ import kotlin.math.roundToInt
 
 private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Debug }
 private val SettingsOverviewRole = GlassRole.Shell
-private val SettingsTileRole = GlassRole.Flex
 private val SettingsDetailRole = GlassRole.Flex
 private val SettingsChipRole = GlassRole.Chip
 private val SettingsFloatingRole = GlassRole.Floating
@@ -99,7 +89,7 @@ fun SettingsPolishedScreen(
     ) {
         item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
         item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
-        item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "用入口卡片快速扫读，详情只在需要时打开。") } }
+        item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
         item { SettingsEntrance(104, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
         item {
             SettingsEntrance(140, 22, 0.965f) {
@@ -216,77 +206,16 @@ private fun SettingsDashboardGrid(state: AssistantUiState, aiEndpoint: String, s
 
 @Composable
 private fun SettingsTile(icon: String, title: String, subtitle: String, value: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val scale by animateFloatAsState(if (selected) 1.018f else 1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow), label = "settings-tile-scale-$title")
-    val clickSource = remember { MutableInteractionSource() }
-    FrostInfoGlassPanel(
-        radius = 17.44f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.085f,
-        dimAlpha = 0f,
-        modifier = modifier
-            .height(116.dp)
-            .settingsTileAccent(selected)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(interactionSource = clickSource, indication = null, onClick = onClick)
-    ) {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 13.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        icon,
-                        color = Color.White.copy(alpha = if (selected) 0.90f else 0.60f),
-                        fontSize = if (icon.length > 1) 14.sp else 21.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        textAlign = TextAlign.Center
-                    )
-                }
-                SettingsTileHairline(Modifier.size(1.dp, 42.dp), alpha = if (selected) 0.22f else 0.12f)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        title,
-                        color = Color.White.copy(alpha = 0.96f),
-                        fontSize = 20.sp,
-                        lineHeight = 23.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        subtitle,
-                        color = Color.White.copy(alpha = 0.52f),
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            SettingsTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = if (selected) 0.20f else 0.10f)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("当前", color = Color.White.copy(alpha = 0.34f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    value,
-                    color = Color.White.copy(alpha = if (selected) 0.86f else 0.62f),
-                    fontSize = 13.sp,
-                    lineHeight = 16.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End
-                )
-            }
-        }
-    }
+    AnimatedSettingsFrostTile(
+        icon = icon,
+        title = title,
+        subtitle = subtitle,
+        value = value,
+        selected = selected,
+        state = state,
+        modifier = modifier,
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -294,21 +223,9 @@ private fun SettingsTileHairline(modifier: Modifier = Modifier, alpha: Float = 0
     Box(
         modifier.drawWithContent {
             drawContent()
-            drawRect(
-                color = Color.White.copy(alpha = alpha),
-                size = size,
-                blendMode = BlendMode.Screen
-            )
+            drawRect(color = Color.White.copy(alpha = alpha), size = size, blendMode = BlendMode.Screen)
         }
     )
-}
-
-private fun Modifier.settingsTileAccent(selected: Boolean): Modifier = drawWithContent {
-    drawContent()
-    if (!selected) return@drawWithContent
-    val w = size.width.coerceAtLeast(1f)
-    val h = size.height.coerceAtLeast(1f)
-    drawRoundRect(Brush.linearGradient(listOf(Color.Transparent, Color(0xFF8DF9EA).copy(alpha = 0.18f), Color.White.copy(alpha = 0.10f), Color.Transparent), Offset(-w * 0.12f, 0f), Offset(w * 0.94f, h)), Offset(0.8.dp.toPx(), 0.8.dp.toPx()), Size(w - 1.6.dp.toPx(), h - 1.6.dp.toPx()), CornerRadius(25.dp.toPx(), 25.dp.toPx()), style = Stroke(width = 1.1.dp.toPx()), blendMode = BlendMode.Plus)
 }
 
 @Composable
@@ -389,41 +306,142 @@ private fun DataContent(state: AssistantUiState) {
 }
 
 @Composable
-private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) { SettingInfoRow("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint, state); SettingInfoRow("执行模式", "本地动作优先，复杂问题后续交给云端", state) }
-@Composable
-private fun AdvancedContent(state: AssistantUiState) { SettingInfoRow("玻璃渲染", "设置页仅运行概览大卡使用 OpenGL", state); SettingInfoRow("普通控件", "Card / Chip / Nav / Floating / Flex 完全隔离", state); SettingInfoRow("调试入口", "底部玻璃实验室可调整底层参数", state) }
-@Composable
-private fun SettingsLabEntry(state: AssistantUiState, selected: Boolean, onClick: () -> Unit) { PressableGlass(state.quality, state.glassIntensity * if (selected) 0.92f else 0.76f, state.motionIntensity, 26, Modifier.fillMaxWidth().height(62.dp).settingsTileAccent(selected), SettingsTileRole, onClick) { Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { SettingsIconBadge("⚗", state, selected); Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) { Text("玻璃实验室", color = Color.White.copy(alpha = 0.90f), fontSize = 17.sp, fontWeight = FontWeight.Black, maxLines = 1); Text("高级调试与实验功能", color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1) }; Text(if (selected) "已打开" else "进入", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) } } }
-@Composable
-private fun SectionTitleInline(title: String) { Text(title, color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, fontWeight = FontWeight.Black) }
-@Composable
-private fun SettingsIconBadge(text: String, state: AssistantUiState, active: Boolean) { GlassPanel(state.quality, state.glassIntensity * if (active) 0.96f else 0.70f, state.motionIntensity, 17, Modifier.size(42.dp), if (active) SettingsFloatingRole else SettingsChipRole) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.66f), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center) } } }
+private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
+    SettingInfoRow("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint, state)
+    SettingInfoRow("执行模式", "本地动作优先，复杂问题后续交给云端", state)
+}
 
 @Composable
-private fun <T> SettingChipGrid(items: List<T>, selected: T, label: (T) -> String, state: AssistantUiState, onSelected: (T) -> Unit) { items.chunked(2).forEach { row -> Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) { row.forEach { item -> val active = item == selected; PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.weight(1f).height(42.dp), if (active) SettingsFloatingRole else SettingsChipRole, onClick = { onSelected(item) }) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label(item), color = Color.White.copy(alpha = if (active) 0.96f else 0.62f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) } } }; if (row.size == 1) Spacer(Modifier.weight(1f)) } } }
+private fun AdvancedContent(state: AssistantUiState) {
+    SettingInfoRow("玻璃渲染", "设置页仅运行概览大卡使用 OpenGL", state)
+    SettingInfoRow("普通控件", "Card / Chip / Nav / Floating / Flex 完全隔离", state)
+    SettingInfoRow("调试入口", "底部玻璃实验室可调整底层参数", state)
+}
+
+@Composable
+private fun SettingsLabEntry(state: AssistantUiState, selected: Boolean, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity * if (selected) 0.92f else 0.76f, state.motionIntensity, 26, Modifier.fillMaxWidth().height(62.dp), SettingsChipRole, onClick) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsIconBadge("⚗", state, selected)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text("玻璃实验室", color = Color.White.copy(alpha = 0.90f), fontSize = 17.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("高级调试与实验功能", color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Text(if (selected) "已打开" else "进入", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SectionTitleInline(title: String) { Text(title, color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, fontWeight = FontWeight.Black) }
+
+@Composable
+private fun SettingsIconBadge(text: String, state: AssistantUiState, active: Boolean) {
+    GlassPanel(state.quality, state.glassIntensity * if (active) 0.96f else 0.70f, state.motionIntensity, 17, Modifier.size(42.dp), if (active) SettingsFloatingRole else SettingsChipRole) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.66f), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+private fun <T> SettingChipGrid(items: List<T>, selected: T, label: (T) -> String, state: AssistantUiState, onSelected: (T) -> Unit) {
+    items.chunked(2).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            row.forEach { item ->
+                val active = item == selected
+                PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.weight(1f).height(42.dp), if (active) SettingsFloatingRole else SettingsChipRole, onClick = { onSelected(item) }) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(label(item), color = Color.White.copy(alpha = if (active) 0.96f else 0.62f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    }
+                }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
 
 @Composable
 private fun SliderSettingRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, state: AssistantUiState, onValueChange: (Float) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(label, color = Color.White.copy(alpha = 0.74f), fontSize = 14.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("${value.formatSettingValue()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = Color.White.copy(alpha = 0.74f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Text("${value.formatSettingValue()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
         Slider(value = value, onValueChange = onValueChange, valueRange = range)
     }
 }
 
 @Composable
-private fun SettingActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) { PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 23, modifier.height(58.dp), SettingsChipRole, onClick = onClick) { Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1); Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) } } }
-@Composable
-private fun SettingInfoRow(title: String, value: String, state: AssistantUiState) { PressableGlass(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(52.dp), SettingsChipRole) { Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) { Text(title, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1); Spacer(Modifier.weight(1f)); Text(value, color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) } } }
-@Composable
-private fun MiniSettingMetric(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) { GlassPanel(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 20, modifier.height(54.dp), SettingsChipRole) { Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) { Text(label, color = Color.White.copy(alpha = 0.50f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1); Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis) } } }
-@Composable
-private fun SettingsStatusBadge(text: String, state: AssistantUiState) { PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.height(36.dp), SettingsFloatingRole) { Box(Modifier.padding(horizontal = 13.dp).fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) } } }
-@Composable
-private fun SettingsValuePill(text: String, state: AssistantUiState, selected: Boolean) { GlassPanel(state.quality, state.glassIntensity * if (selected) 0.72f else 0.56f, state.motionIntensity, 999, Modifier.height(28.dp).widthIn(min = 54.dp, max = 128.dp), if (selected) SettingsFloatingRole else SettingsChipRole) { Box(Modifier.padding(horizontal = 10.dp).fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = if (selected) 0.82f else 0.60f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) } } }
+private fun SettingActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 23, modifier.height(58.dp), SettingsChipRole, onClick = onClick) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
 
-private fun panelTitle(panel: SettingsPanel): String = when (panel) { SettingsPanel.Appearance -> "外观"; SettingsPanel.Glass -> "玻璃"; SettingsPanel.Assistant -> "助手"; SettingsPanel.Data -> "数据"; SettingsPanel.Service -> "服务"; SettingsPanel.Advanced -> "高级"; SettingsPanel.Debug -> "玻璃实验室" }
-private fun panelSubtitle(panel: SettingsPanel): String = when (panel) { SettingsPanel.Appearance -> "背景、主题和自定义图片。"; SettingsPanel.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"; SettingsPanel.Assistant -> "模型、联网和首页展示。"; SettingsPanel.Data -> "账单状态、预算和本地数据。"; SettingsPanel.Service -> "AI Worker、云端接口和执行模式。"; SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"; SettingsPanel.Debug -> "高级玻璃参数与实验入口。" }
-private fun qualityLabel(quality: RenderQuality): String = when (quality) { RenderQuality.Smooth -> "流畅"; RenderQuality.Balanced -> "均衡"; RenderQuality.Experimental -> "高画质" }
-private fun glassPresetLabel(preset: GlassPreset): String = when (preset) { GlassPreset.Basic -> "基础"; GlassPreset.Blur -> "模糊"; GlassPreset.Liquid -> "液态"; GlassPreset.Safe -> "安全" }
-private fun themeLabel(theme: BackgroundTheme): String = when (theme) { BackgroundTheme.Aurora -> "极光"; BackgroundTheme.Jade -> "翡翠"; BackgroundTheme.Sunset -> "暮色"; BackgroundTheme.Dawn -> "晨雾" }
+@Composable
+private fun SettingInfoRow(title: String, value: String, state: AssistantUiState) {
+    PressableGlass(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(52.dp), SettingsChipRole) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = Color.White.copy(alpha = 0.72f), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Spacer(Modifier.weight(1f))
+            Text(value, color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun MiniSettingMetric(label: String, value: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    GlassPanel(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 20, modifier.height(54.dp), SettingsChipRole) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.White.copy(alpha = 0.50f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+private fun panelTitle(panel: SettingsPanel): String = when (panel) {
+    SettingsPanel.Appearance -> "外观"
+    SettingsPanel.Glass -> "玻璃"
+    SettingsPanel.Assistant -> "助手"
+    SettingsPanel.Data -> "数据"
+    SettingsPanel.Service -> "服务"
+    SettingsPanel.Advanced -> "高级"
+    SettingsPanel.Debug -> "玻璃实验室"
+}
+
+private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
+    SettingsPanel.Appearance -> "背景、主题和自定义图片。"
+    SettingsPanel.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"
+    SettingsPanel.Assistant -> "模型、联网和首页展示。"
+    SettingsPanel.Data -> "账单状态、预算和本地数据。"
+    SettingsPanel.Service -> "AI Worker、云端接口和执行模式。"
+    SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
+    SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
+}
+
+private fun qualityLabel(quality: RenderQuality): String = when (quality) {
+    RenderQuality.Smooth -> "流畅"
+    RenderQuality.Balanced -> "均衡"
+    RenderQuality.Experimental -> "高画质"
+}
+
+private fun glassPresetLabel(preset: GlassPreset): String = when (preset) {
+    GlassPreset.Basic -> "基础"
+    GlassPreset.Blur -> "模糊"
+    GlassPreset.Liquid -> "液态"
+    GlassPreset.Safe -> "安全"
+}
+
+private fun themeLabel(theme: BackgroundTheme): String = when (theme) {
+    BackgroundTheme.Aurora -> "极光"
+    BackgroundTheme.Jade -> "翡翠"
+    BackgroundTheme.Sunset -> "暮色"
+    BackgroundTheme.Dawn -> "晨雾"
+}
+
 private fun Float.formatSettingValue(): String = (this * 100).roundToInt().div(100f).toString()
