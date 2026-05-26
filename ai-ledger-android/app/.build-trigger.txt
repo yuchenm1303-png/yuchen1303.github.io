@@ -1,5 +1,5 @@
 Manual APK build trigger
-Purpose: trigger Build Compose Android APK after latest code changes.
-Trigger method: update ai-ledger-android/app/** path so workflow paths filter matches.
+Purpose: verify assistant/API push can trigger Build Compose Android APK after broadening paths.
+Trigger method: update ai-ledger-android/** path so workflow paths filter matches.
 App source code remains unchanged by this trigger commit.
-Triggered at: 2026-05-26T19:30:00+08:00
+Triggered at: 2026-05-26T19:58:00+08:00
