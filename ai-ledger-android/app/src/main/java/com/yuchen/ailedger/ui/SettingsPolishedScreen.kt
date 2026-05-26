@@ -220,22 +220,83 @@ private fun SettingsTile(icon: String, title: String, subtitle: String, value: S
         frostAlpha = 0f,
         dimAlpha = 0f,
         modifier = modifier
-            .height(104.dp)
+            .height(116.dp)
             .settingsTileAccent(selected)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clickable(interactionSource = clickSource, indication = null, onClick = onClick)
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(icon, color = Color.White.copy(alpha = if (selected) 0.86f else 0.58f), fontSize = if (icon.length > 1) 13.sp else 18.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.54f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 13.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        icon,
+                        color = Color.White.copy(alpha = if (selected) 0.90f else 0.60f),
+                        fontSize = if (icon.length > 1) 14.sp else 21.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                SettingsTileHairline(Modifier.size(1.dp, 42.dp), alpha = if (selected) 0.22f else 0.12f)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        title,
+                        color = Color.White.copy(alpha = 0.96f),
+                        fontSize = 20.sp,
+                        lineHeight = 23.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        subtitle,
+                        color = Color.White.copy(alpha = 0.52f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
-            Text(value, color = Color.White.copy(alpha = if (selected) 0.82f else 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            SettingsTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = if (selected) 0.20f else 0.10f)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("当前", color = Color.White.copy(alpha = 0.34f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    value,
+                    color = Color.White.copy(alpha = if (selected) 0.86f else 0.62f),
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun SettingsTileHairline(modifier: Modifier = Modifier, alpha: Float = 0.12f) {
+    Box(
+        modifier.drawWithContent {
+            drawContent()
+            drawRect(
+                color = Color.White.copy(alpha = alpha),
+                size = size,
+                blendMode = BlendMode.Screen
+            )
+        }
+    )
 }
 
 private fun Modifier.settingsTileAccent(selected: Boolean): Modifier = drawWithContent {
