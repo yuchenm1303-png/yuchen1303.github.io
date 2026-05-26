@@ -2,6 +2,12 @@ name: Build Compose Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch or commit SHA to build"
+        required: true
+        default: "dev-update-1"
+        type: string
   push:
     branches:
       - dev-update-1
@@ -18,8 +24,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout source ref
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref || github.ref }}
 
       - name: Set up JDK
         uses: actions/setup-java@v4
