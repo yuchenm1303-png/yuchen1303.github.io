@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
@@ -58,6 +59,7 @@ class BackdropCoordinateSource {
 
 class GlassCoordinateSource {
     private var wasAttached = false
+    private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -71,8 +73,10 @@ class GlassCoordinateSource {
     private fun syncPlacementVersion(current: LayoutCoordinates?) {
         val attached = current?.isAttached == true
         val size = if (attached) current?.size ?: IntSize.Zero else IntSize.Zero
-        if (wasAttached != attached || lastSize != size) {
+        val rootOffset = if (attached) current?.localToRoot(Offset.Zero) else null
+        if (wasAttached != attached || lastRootOffset != rootOffset || lastSize != size) {
             wasAttached = attached
+            lastRootOffset = rootOffset
             lastSize = size
             placementVersion = System.nanoTime()
         }
@@ -129,7 +133,20 @@ fun SyncGlassBackdropToScroll(listState: LazyListState) {
     LaunchedEffect(listState, ticker) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect {
-                ticker.requestFrame()
+                ticker.requestFrame(force = true)
+            }
+    }
+    LaunchedEffect(listState, ticker) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { isScrolling ->
+                if (isScrolling) {
+                    while (listState.isScrollInProgress) {
+                        withFrameNanos { frameTimeNanos ->
+                            ticker.requestFrame(nowNanos = frameTimeNanos, force = true)
+                        }
+                    }
+                    ticker.requestFrame(force = true)
+                }
             }
     }
 }
