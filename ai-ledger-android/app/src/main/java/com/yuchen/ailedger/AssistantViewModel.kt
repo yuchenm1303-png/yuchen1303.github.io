@@ -179,7 +179,15 @@ class AssistantViewModel(
     fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) { setGlassBorderStyle(block(uiState.glassBorderStyle)) }
 
     fun setRainbowPrismStyle(style: RainbowPrismStyle) {
-        val clamped = RainbowPrismStyle(style.overall.coerceIn(0f, 2f), style.edgeHighlight.coerceIn(0f, 2f), style.diagonalSweep.coerceIn(0f, 2f), style.rainbowHalo.coerceIn(0f, 2f))
+        val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+        val maxValue = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+        val clamped = RainbowPrismStyle(
+            overall = style.overall.coerceIn(0f, 2f),
+            edgeHighlight = style.edgeHighlight.coerceIn(0f, 2f),
+            sweepMin = minValue,
+            sweepMax = maxValue,
+            rainbowHalo = style.rainbowHalo.coerceIn(0f, 2f)
+        )
         uiState = uiState.copy(rainbowPrismStyle = clamped)
         viewModelScope.launch { preferencesStore.setRainbowPrismStyle(clamped) }
     }
