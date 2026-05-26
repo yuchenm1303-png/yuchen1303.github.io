@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.GlassPreset
+import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -29,7 +30,8 @@ data class AssistantPreferences(
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
-    val motionIntensity: Float = 1f
+    val motionIntensity: Float = 1f,
+    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle()
 )
 
 class AssistantPreferencesStore(
@@ -45,6 +47,11 @@ class AssistantPreferencesStore(
         val customBackgroundPath = stringPreferencesKey("custom_background_path")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
+        val rainbowOverall = floatPreferencesKey("rainbow_overall")
+        val rainbowEdgeHighlight = floatPreferencesKey("rainbow_edge_highlight")
+        val rainbowDiagonalSweep = floatPreferencesKey("rainbow_diagonal_sweep")
+        val rainbowTopCoating = floatPreferencesKey("rainbow_top_coating")
+        val rainbowHalo = floatPreferencesKey("rainbow_halo")
     }
 
     val preferencesFlow: Flow<AssistantPreferences> =
@@ -64,7 +71,14 @@ class AssistantPreferencesStore(
                         ?: BackgroundTheme.Aurora,
                     customBackgroundPath = customPath,
                     glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
-                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f)
+                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
+                    rainbowPrismStyle = RainbowPrismStyle(
+                        overall = (preferences[Keys.rainbowOverall] ?: 1f).coerceIn(0f, 2f),
+                        edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: 0f).coerceIn(0f, 2f),
+                        diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: 1f).coerceIn(0f, 2f),
+                        topCoating = (preferences[Keys.rainbowTopCoating] ?: 1f).coerceIn(0f, 2f),
+                        rainbowHalo = (preferences[Keys.rainbowHalo] ?: 1f).coerceIn(0f, 2f)
+                    )
                 )
             }
 
@@ -107,6 +121,16 @@ class AssistantPreferencesStore(
     suspend fun setMotionIntensity(motionIntensity: Float) {
         context.assistantPreferencesDataStore.edit {
             it[Keys.motionIntensity] = motionIntensity.coerceIn(0f, 1.4f)
+        }
+    }
+
+    suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
+        context.assistantPreferencesDataStore.edit {
+            it[Keys.rainbowOverall] = style.overall.coerceIn(0f, 2f)
+            it[Keys.rainbowEdgeHighlight] = style.edgeHighlight.coerceIn(0f, 2f)
+            it[Keys.rainbowDiagonalSweep] = style.diagonalSweep.coerceIn(0f, 2f)
+            it[Keys.rainbowTopCoating] = style.topCoating.coerceIn(0f, 2f)
+            it[Keys.rainbowHalo] = style.rainbowHalo.coerceIn(0f, 2f)
         }
     }
 }
