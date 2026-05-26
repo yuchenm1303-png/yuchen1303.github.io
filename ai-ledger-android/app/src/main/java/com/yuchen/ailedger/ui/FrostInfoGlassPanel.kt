@@ -1,9 +1,17 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,9 +29,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,8 +45,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -47,6 +61,11 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.ui.gl.DropletGlassStyle
 import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+
+private val DropletPressEasing = CubicBezierEasing(0.12f, 0.00f, 0.08f, 1.00f)
+private val DropletLightEasing = CubicBezierEasing(0.18f, 0.00f, 0.12f, 1.00f)
+private val DropletReleaseEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
 
 @Composable
 fun GlassPanelLabSection(state: AssistantUiState, modifier: Modifier = Modifier) {
@@ -225,7 +244,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 横向水滴", "真实 OpenGL 水滴样本：清晰背景源 → 体积折射 → 边缘捕光。")
+        GlassLabMiniTitle("OpenGL 横向水滴", "按住点亮，松手带余波；轻点可锁定 / 关闭内部入射光。")
         OpenGlLargeDropletPreview(
             style = dropletStyle,
             shadowAlpha = dropletShadowAlpha,
@@ -236,12 +255,12 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
             backgroundGlow = dropletBackgroundGlow,
             outerGlow = dropletOuterGlow,
             warmGlow = dropletWarmGlow,
-            modifier = Modifier.fillMaxWidth().height(96.dp)
+            modifier = Modifier.fillMaxWidth().height(104.dp)
         )
         GlassPanelSlider("选中发光", "整条内部光路的总能量", dropletActiveGlow, 0f..1.5f) { dropletActiveGlow = it }
         GlassPanelSlider("体积折射", "内部光源被水滴体积连续扭曲的强度", dropletActiveRefraction, 0f..4f) { dropletActiveRefraction = it }
         GlassPanelSlider("边缘折射", "边缘捕获入射光的强度", dropletActiveRimRefraction, 0f..4f) { dropletActiveRimRefraction = it }
-        GlassPanelSlider("入光方向", "沿水滴外圈旋转：左、上、右、下都可入射", dropletActiveLightX, 0f..1f) { dropletActiveLightX = it }
+        GlassPanelSlider("入光方向", "按压位置也会临时控制入光点", dropletActiveLightX, 0f..1f) { dropletActiveLightX = it }
         GlassPanelSlider("入光宽度", "从局部一束光扩展到大面积边缘入光", dropletActiveLightSpread, 0f..1f) { dropletActiveLightSpread = it }
         GlassPanelSlider("入光半径", "入光点离中心的距离，越大越贴近外边缘", dropletActiveLightY, 0.45f..1.25f) { dropletActiveLightY = it }
         GlassPanelSlider("入光高度", "入射光源进入水滴内部后的独立高度，不等同于入光半径", dropletActiveEntryHeight, 0f..0.55f) { dropletActiveEntryHeight = it }
@@ -288,32 +307,179 @@ private fun OpenGlLargeDropletPreview(
     modifier: Modifier = Modifier
 ) {
     val coordinates = remember { GlassCoordinateSource() }
+    val pressAnim = remember { Animatable(0f) }
+    val latchAnim = remember { Animatable(0f) }
+    val afterglowAnim = remember { Animatable(0f) }
+    val breathAnim = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var locked by rememberSaveable { mutableStateOf(false) }
+    var capsuleSize by remember { mutableStateOf(Size(1f, 1f)) }
+    var interactionLightX by remember { mutableStateOf(style.activeLightX.coerceIn(0.04f, 0.96f)) }
+
+    LaunchedEffect(locked) {
+        if (locked) {
+            latchAnim.stop()
+            if (latchAnim.value < 0.16f) latchAnim.snapTo(0.16f)
+            latchAnim.animateTo(0.64f, tween(180, easing = DropletLightEasing))
+            latchAnim.animateTo(1f, spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow))
+        } else {
+            latchAnim.stop()
+            latchAnim.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
+        }
+    }
+
+    val pressValue = pressAnim.value.coerceIn(-0.18f, 1.15f)
+    val pressPositive = pressValue.coerceAtLeast(0f)
+    val latchValue = latchAnim.value.coerceIn(0f, 1f)
+    val afterglowValue = afterglowAnim.value.coerceIn(0f, 1f)
+    val activeForBreath = locked || pressPositive > 0.05f
+
+    LaunchedEffect(activeForBreath) {
+        if (activeForBreath) {
+            while (true) {
+                breathAnim.animateTo(1f, tween(760, easing = FastOutSlowInEasing))
+                breathAnim.animateTo(0f, tween(920, easing = FastOutSlowInEasing))
+            }
+        } else {
+            breathAnim.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
+        }
+    }
+
+    val breathValue = breathAnim.value.coerceIn(0f, 1f)
+    val breathEnergy = 0.92f + breathValue * 0.14f
+    val holdEnergy = maxOf(pressPositive, latchValue)
+    val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.46f).coerceIn(0f, 1.18f)
+    val refractionEnergy = (holdEnergy * (0.88f + breathValue * 0.10f) + afterglowValue * 0.32f).coerceIn(0f, 1.08f)
     val debug = style.debugMaskAlpha.coerceIn(0f, 1f)
+    val animatedStyle = style.copy(
+        bodyBulgePx = style.bodyBulgePx + pressPositive * 8.0f + latchValue * 3.0f - afterglowValue * 1.5f,
+        edgePullPx = style.edgePullPx + pressPositive * 18.0f + latchValue * 8.0f + afterglowValue * 6.0f,
+        edgeWidthPx = style.edgeWidthPx + pressPositive * 3.4f + latchValue * 1.8f,
+        bottomGlow = style.bottomGlow * (0.78f + lightEnergy * 0.26f),
+        topGloss = style.topGloss + lightEnergy * 0.22f,
+        cornerGloss = style.cornerGloss + lightEnergy * 0.18f,
+        innerDark = (style.innerDark + pressPositive * 0.06f - lightEnergy * 0.05f).coerceIn(0f, 1f),
+        alpha = (style.alpha + lightEnergy * 0.09f).coerceIn(0f, 1f),
+        activeGlow = style.activeGlow * lightEnergy,
+        activeRefraction = style.activeRefraction * refractionEnergy,
+        activeRimRefraction = style.activeRimRefraction * refractionEnergy,
+        activeLightX = dropletLerp(style.activeLightX.coerceIn(0f, 1f), interactionLightX, holdEnergy.coerceIn(0f, 1f)),
+        activeLightSpread = (style.activeLightSpread * (0.55f + lightEnergy * 0.45f) + pressPositive * 0.08f).coerceIn(0f, 1f),
+        activeLightThickness = (style.activeLightThickness * (0.62f + lightEnergy * 0.46f)).coerceIn(0.015f, 0.42f),
+        activeHotspot = style.activeHotspot * (lightEnergy + breathValue * holdEnergy * 0.12f),
+        activeEntryPearl = style.activeEntryPearl * (lightEnergy + pressPositive * 0.10f),
+        activeRimPearl = style.activeRimPearl * lightEnergy,
+        activeCenterClear = (style.activeCenterClear + lightEnergy * 0.16f).coerceIn(0f, 1f),
+        activeVolumeWarmth = style.activeVolumeWarmth * (0.42f + lightEnergy * 0.58f),
+        activeRimGather = style.activeRimGather * (lightEnergy + afterglowValue * 0.16f),
+        activeRimFlow = style.activeRimFlow * (0.45f + lightEnergy * 0.70f)
+    )
+    val animatedActiveGlow = activeGlow * lightEnergy
+    val animatedBackgroundGlow = backgroundGlow * lightEnergy
+    val animatedOuterGlow = outerGlow * (lightEnergy + afterglowValue * 0.18f).coerceIn(0f, 1.2f)
+    val animatedWarmGlow = warmGlow * (lightEnergy + pressPositive * 0.10f).coerceIn(0f, 1.2f)
+    val contentAlpha = if (debug <= 0.001f) (0.58f + lightEnergy * 0.34f).coerceIn(0.48f, 0.96f) else 0f
+    val statusLabel = if (locked) "锁定点亮" else "按住点亮 · 轻点锁定"
+
     Box(modifier = modifier.padding(horizontal = 12.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         if (debug <= 0.001f) {
-            DropletBackgroundGlow(activeGlow, backgroundGlow, outerGlow, warmGlow, Modifier.fillMaxWidth().height(78.dp))
-            DropletContactShadow(shadowAlpha, shadowOffsetX, shadowOffsetY, shadowSoftness, Modifier.fillMaxWidth().height(70.dp))
+            DropletBackgroundGlow(animatedActiveGlow, animatedBackgroundGlow, animatedOuterGlow, animatedWarmGlow, Modifier.fillMaxWidth().height(82.dp))
+            DropletContactShadow(
+                alpha = shadowAlpha * (0.78f + pressPositive * 0.34f + afterglowValue * 0.22f),
+                offsetX = shadowOffsetX + pressPositive * 1.2f,
+                offsetY = shadowOffsetY + pressPositive * 2.4f,
+                softness = shadowSoftness + lightEnergy * 3.5f,
+                modifier = Modifier.fillMaxWidth().height(74.dp)
+            )
         }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
+                .height(64.dp)
                 .padding(vertical = 3.dp)
+                .onSizeChanged { capsuleSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
                 .onGloballyPositioned { coordinates.coordinates = it }
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(interactionLightX.coerceIn(0f, 1f), 0.50f)
+                    scaleX = 1f + pressPositive * 0.025f + latchValue * 0.006f - afterglowValue * 0.004f
+                    scaleY = 1f - pressPositive * 0.034f + afterglowValue * 0.008f
+                    translationY = pressPositive * 2.8f - afterglowValue * 0.7f
+                }
+                .pointerInput(style) {
+                    awaitEachGesture {
+                        fun updateLight(position: Offset) {
+                            interactionLightX = (position.x / capsuleSize.width.coerceAtLeast(1f)).coerceIn(0.04f, 0.96f)
+                        }
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        updateLight(down.position)
+                        scope.launch {
+                            afterglowAnim.stop()
+                            afterglowAnim.snapTo(0f)
+                        }
+                        scope.launch {
+                            pressAnim.stop()
+                            if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
+                            pressAnim.animateTo(1f, tween(170, easing = DropletPressEasing))
+                            pressAnim.animateTo(0.88f, spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow))
+                        }
+                        var releasedAt = down.uptimeMillis
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                            if (tracked != null) {
+                                updateLight(tracked.position)
+                                if (!tracked.pressed) {
+                                    releasedAt = tracked.uptimeMillis
+                                    break
+                                }
+                            }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                        val wasTap = releasedAt - down.uptimeMillis < 260L
+                        if (wasTap) locked = !locked
+                        scope.launch {
+                            pressAnim.stop()
+                            pressAnim.animateTo(-0.10f, tween(145, easing = DropletReleaseEasing))
+                            pressAnim.animateTo(0f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow))
+                        }
+                        scope.launch {
+                            afterglowAnim.stop()
+                            afterglowAnim.snapTo(if (wasTap && locked) 0.34f else 0.62f)
+                            afterglowAnim.animateTo(0f, tween(if (locked) 420 else 720, easing = FastOutSlowInEasing))
+                        }
+                    }
+                }
                 .clip(RoundedCornerShape(999.dp)),
             contentAlignment = Alignment.Center
         ) {
-            OpenGLDropletGlassLayer(radius = 999, coordinateSource = coordinates, style = style, modifier = Modifier.fillMaxSize())
+            OpenGLDropletGlassLayer(radius = 999, coordinateSource = coordinates, style = animatedStyle, modifier = Modifier.fillMaxSize())
             if (debug <= 0.001f) {
-                DropletActiveOverlay(activeGlow, warmGlow, Modifier.fillMaxSize())
+                DropletActiveOverlay(animatedActiveGlow, animatedWarmGlow, Modifier.fillMaxSize())
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-                    Text("🎙", color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                    Text("🎙", color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.width(10.dp))
-                    Text("语音输入", color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("语音输入", color = Color.White.copy(alpha = contentAlpha), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                Text(
+                    text = statusLabel,
+                    color = Color.White.copy(alpha = 0.44f + lightEnergy * 0.16f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 6.dp)
+                        .background(Color.Black.copy(alpha = 0.16f + lightEnergy * 0.08f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                )
             }
         }
     }
+}
+
+private fun dropletLerp(start: Float, end: Float, fraction: Float): Float {
+    val t = fraction.coerceIn(0f, 1f)
+    return start + (end - start) * t
 }
 
 @Composable
