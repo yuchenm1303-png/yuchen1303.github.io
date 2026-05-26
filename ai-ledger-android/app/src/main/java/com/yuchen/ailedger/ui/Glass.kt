@@ -75,9 +75,6 @@ private val ShellPressPreloadEasing = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.0
 private val ShellPressSinkEasing = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1.00f)
 private val ShellPressReleaseEasing = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 private val ShellPressPulseEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
-private val OrdinaryPressEasing = CubicBezierEasing(0.12f, 0.00f, 0.08f, 1.00f)
-private val OrdinarySinkEasing = CubicBezierEasing(0.10f, 0.00f, 0.08f, 1.00f)
-private val OrdinaryReleaseEasing = CubicBezierEasing(0.14f, 0.00f, 0.12f, 1.00f)
 
 /**
  * Root OpenGL gate.
@@ -129,24 +126,6 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
 private fun glassSmoothStep(value: Float): Float {
     val x = value.coerceIn(0f, 1f)
     return x * x * (3f - 2f * x)
-}
-
-private fun ordinaryGlassElasticity(role: GlassRole, size: Size): Float {
-    if (role == GlassRole.Shell) return 0f
-    val w = size.width.coerceAtLeast(1f)
-    val h = size.height.coerceAtLeast(1f)
-    val maxSide = maxOf(w, h)
-    val maxSideDamp = ((720f - maxSide) / 520f).coerceIn(0.24f, 1f)
-    val heightDamp = ((360f - h) / 260f).coerceIn(0.50f, 1f)
-    val roleGain = when (role) {
-        GlassRole.Chip -> 1.00f
-        GlassRole.Floating -> 0.94f
-        GlassRole.Flex -> 0.82f
-        GlassRole.Card -> 0.66f
-        GlassRole.Nav -> 0.52f
-        GlassRole.Shell -> 0f
-    }
-    return (maxSideDamp * heightDamp * roleGain).coerceIn(0.14f, 1f)
 }
 
 @Composable
@@ -447,23 +426,17 @@ fun PressableGlass(
 ) {
     val effectiveRadius = effectiveGlassRadius(radius, role)
     val interaction = remember { MutableInteractionSource() }
-    val pressScope = rememberCoroutineScope()
-    val ordinaryPress = remember { Animatable(0f) }
-    val ordinaryLens = remember { Animatable(0f) }
-    val ordinarySweep = remember { Animatable(0f) }
-    var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
-    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
-    val motion = motionIntensity.coerceIn(0f, 1f)
-    val ordinaryPressEnabled = role != GlassRole.Shell && motion > 0.02f
-    val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * motion else 0f
-    val pressValue = if (ordinaryPressEnabled) ordinaryPress.value.coerceIn(-0.20f, 1.28f) else 0f
-    val positivePress = pressValue.coerceAtLeast(0f)
-    val rebound = glassSmoothStep((-pressValue / 0.18f).coerceIn(0f, 1f))
-    val pressCompression = glassSmoothStep((positivePress / 0.94f).coerceIn(0f, 1f))
-    val lensValue = if (ordinaryPressEnabled) ordinaryLens.value.coerceIn(0f, 1.08f) else 0f
-    val sweepValue = if (ordinaryPressEnabled) ordinarySweep.value.coerceIn(0f, 1.12f) else 0f
-    val opticsPress = maxOf(positivePress, lensValue * 0.74f, rebound * 0.20f)
-    val pressedIntensity = glassIntensity * (1f + pressCompression * (0.036f + 0.120f * elasticity))
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.975f else 1f,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        label = "glass-press-scale"
+    )
+    val lift by animateFloatAsState(
+        targetValue = if (pressed) 0.28f else 0f,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        label = "glass-press-lift"
+    )
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
@@ -471,6 +444,7 @@ fun PressableGlass(
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val key = remember { Any() }
+    val pressedIntensity = if (pressed) glassIntensity * 1.06f else glassIntensity
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
     val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
     val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
@@ -497,78 +471,12 @@ fun PressableGlass(
 
     Box(
         modifier = modifier
-            .onSizeChanged { size ->
-                pressSize = Size(
-                    width = size.width.coerceAtLeast(1).toFloat(),
-                    height = size.height.coerceAtLeast(1).toFloat()
-                )
-            }
-            .pointerInput(ordinaryPressEnabled, motionIntensity, role) {
-                if (!ordinaryPressEnabled) return@pointerInput
-                awaitEachGesture {
-                    fun updatePressCenter(position: Offset) {
-                        pressCenter = Offset(
-                            x = (position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                            y = (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                        )
-                    }
-
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    updatePressCenter(down.position)
-                    pressScope.launch {
-                        ordinaryPress.stop()
-                        if (ordinaryPress.value < 0.18f) ordinaryPress.snapTo(0.18f)
-                        ordinaryPress.animateTo(0.82f, tween(durationMillis = 130, easing = OrdinaryPressEasing))
-                        ordinaryPress.animateTo(1.02f, tween(durationMillis = 210, easing = OrdinarySinkEasing))
-                        ordinaryPress.animateTo(0.88f, spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow))
-                    }
-                    pressScope.launch {
-                        ordinaryLens.stop()
-                        if (ordinaryLens.value < 0.14f) ordinaryLens.snapTo(0.14f)
-                        ordinaryLens.animateTo(0.68f, tween(durationMillis = 150, easing = OrdinaryPressEasing))
-                        ordinaryLens.animateTo(0.92f, tween(durationMillis = 300, easing = FastOutSlowInEasing))
-                    }
-                    pressScope.launch {
-                        ordinarySweep.stop()
-                        ordinarySweep.snapTo(0f)
-                        ordinarySweep.animateTo(1.08f, tween(durationMillis = 500, easing = FastOutSlowInEasing))
-                    }
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
-                        if (tracked != null) {
-                            updatePressCenter(tracked.position)
-                            if (!tracked.pressed) break
-                        }
-                        if (event.changes.none { it.pressed }) break
-                    }
-
-                    pressScope.launch {
-                        ordinaryPress.stop()
-                        ordinaryPress.animateTo(-0.120f, tween(durationMillis = 126, easing = OrdinaryReleaseEasing))
-                        ordinaryPress.animateTo(0.050f, spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow))
-                        ordinaryPress.animateTo(0f, spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessLow))
-                    }
-                    pressScope.launch {
-                        ordinaryLens.stop()
-                        ordinaryLens.animateTo(0.32f, tween(durationMillis = 170, easing = OrdinaryReleaseEasing))
-                        ordinaryLens.animateTo(0f, tween(durationMillis = 420, easing = FastOutSlowInEasing))
-                    }
-                    pressScope.launch {
-                        ordinarySweep.stop()
-                        ordinarySweep.animateTo(0.16f, tween(durationMillis = 250, easing = FastOutSlowInEasing))
-                        ordinarySweep.animateTo(0f, tween(durationMillis = 360, easing = FastOutSlowInEasing))
-                    }
-                }
-            }
             .onPlaced { coordinates.coordinates = it }
             .graphicsLayer {
-                transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-                scaleX = 1f + pressCompression * (0.006f + 0.045f * elasticity) - rebound * 0.014f * elasticity
-                scaleY = 1f - pressCompression * (0.010f + 0.058f * elasticity) + rebound * 0.024f * elasticity
-                translationY = pressCompression * (0.60f + 3.35f * elasticity) - rebound * 1.20f * elasticity
-                shadowElevation = pressCompression * (0.14f + 0.56f * elasticity)
+                scaleX = scale
+                scaleY = scale
+                translationY = lift
+                shadowElevation = if (pressed) 0.18f else 0f
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
@@ -608,7 +516,7 @@ fun PressableGlass(
                     .glassSkin(
                         quality = quality,
                         radius = effectiveRadius,
-                        shimmer = shimmer + 0.028f * pressCompression,
+                        shimmer = shimmer + if (pressed) 0.024f else 0f,
                         breathe = breathe,
                         glassIntensity = pressedIntensity,
                         includeShadow = false
@@ -616,148 +524,6 @@ fun PressableGlass(
             )
         }
         content()
-        if (ordinaryPressEnabled && opticsPress > 0.001f) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .ordinaryPressSurfaceOptics(
-                        press = opticsPress,
-                        sweep = sweepValue,
-                        radius = effectiveRadius,
-                        pressCenter = pressCenter,
-                        role = role,
-                        elasticity = elasticity
-                    )
-            )
-        }
-    }
-}
-
-private fun Modifier.ordinaryPressSurfaceOptics(
-    press: Float,
-    sweep: Float,
-    radius: Int,
-    pressCenter: Offset,
-    role: GlassRole,
-    elasticity: Float
-): Modifier {
-    return this.drawWithContent {
-        val e = elasticity.coerceIn(0.08f, 1f)
-        val safePress = press.coerceIn(0f, 1.18f)
-        if (safePress < 0.001f || role == GlassRole.Shell) {
-            drawContent()
-            return@drawWithContent
-        }
-        val w = size.width.coerceAtLeast(1f)
-        val h = size.height.coerceAtLeast(1f)
-        val maxSide = maxOf(w, h)
-        val centerNorm = Offset(pressCenter.x.coerceIn(0f, 1f), pressCenter.y.coerceIn(0f, 1f))
-        val center = Offset(centerNorm.x * w, centerNorm.y * h)
-        val p = glassSmoothStep((safePress / 0.92f).coerceIn(0f, 1f)) * e
-        val rimFlow = glassSmoothStep(sweep.coerceIn(0f, 1.12f) / 1.12f)
-        val chroma = when (role) {
-            GlassRole.Chip -> 1.08f
-            GlassRole.Floating -> 1.00f
-            GlassRole.Flex -> 0.88f
-            GlassRole.Card -> 0.72f
-            GlassRole.Nav -> 0.60f
-            GlassRole.Shell -> 0f
-        }
-        val optical = (0.10f + p * 1.10f).coerceIn(0f, 1.18f)
-        val rimInset = 0.62.dp.toPx()
-        val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-        val sweepX = -0.34f + rimFlow * 1.60f
-
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.046f * optical),
-                    Color(0xFFFFF0A8).copy(alpha = 0.070f * optical * chroma),
-                    Color(0xFF76FFF1).copy(alpha = 0.082f * optical * chroma),
-                    Color(0xFFFF7FE2).copy(alpha = 0.058f * optical * chroma),
-                    Color.Transparent
-                ),
-                center = center,
-                radius = maxSide * (0.46f + 0.24f * p)
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFF04112A).copy(alpha = 0.014f * optical),
-                    Color(0xFF00030A).copy(alpha = 0.058f * p)
-                ),
-                center = center,
-                radius = maxSide * (0.76f + 0.18f * p)
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Multiply
-        )
-
-        drawContent()
-
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.100f * p),
-                    Color(0xFFFFF0A8).copy(alpha = 0.090f * p * chroma),
-                    Color(0xFF9DFFF1).copy(alpha = 0.105f * p * chroma),
-                    Color(0xFFFF8FE7).copy(alpha = 0.078f * p * chroma),
-                    Color.Transparent
-                ),
-                center = center,
-                radius = maxSide * (0.30f + 0.10f * p)
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFFFF5FD7).copy(alpha = 0.40f * p * chroma),
-                    Color(0xFFFFF0A8).copy(alpha = 0.35f * p * chroma),
-                    Color(0xFF65FFF0).copy(alpha = 0.45f * p * chroma),
-                    Color(0xFF8EA2FF).copy(alpha = 0.35f * p * chroma),
-                    Color.Transparent
-                ),
-                start = Offset(w * (sweepX - 0.24f), h * 0.00f),
-                end = Offset(w * (sweepX + 0.30f), h * 0.98f)
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 0.58.dp.toPx() + 1.08.dp.toPx() * p),
-            blendMode = BlendMode.Plus
-        )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.066f + 0.054f * p),
-                    Color(0xFFFFF0A8).copy(alpha = 0.030f + 0.066f * p * chroma),
-                    Color(0xFFE9FFFF).copy(alpha = 0.022f + 0.058f * p),
-                    Color.Transparent,
-                    Color(0xFF000819).copy(alpha = 0.028f + 0.054f * p)
-                ),
-                startY = 0f,
-                endY = h
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(width = 0.44.dp.toPx() + 0.62.dp.toPx() * p),
-            blendMode = BlendMode.Screen
-        )
     }
 }
 
@@ -1022,8 +788,6 @@ fun Modifier.glassSkin(
         val w = size.width
         val h = size.height
         val drift = safeShimmer - 0.5f
-        val prism = (material.rim * 0.92f).coerceIn(0.026f, 0.142f)
-        val activePrism = (prism * (0.95f + safeShimmer * 0.62f)).coerceIn(0.020f, 0.180f)
         val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
         val rimInset = 0.62.dp.toPx()
         val innerInset = 1.85.dp.toPx()
@@ -1034,8 +798,8 @@ fun Modifier.glassSkin(
 
         val frostedNeutralVeil = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.frost * 0.24f * pulse),
-                Color.White.copy(alpha = material.frost * 0.08f),
+                Color.White.copy(alpha = material.frost * 0.28f * pulse),
+                Color.White.copy(alpha = material.frost * 0.10f),
                 Color.Transparent,
                 Color.Black.copy(alpha = material.depthShadow * 0.11f)
             ),
@@ -1044,14 +808,12 @@ fun Modifier.glassSkin(
         )
         val topLens = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.topHighlight * 0.30f * pulse),
-                Color(0xFFFFE88A).copy(alpha = prism * 0.82f),
-                Color(0xFF72FFF1).copy(alpha = prism * 1.00f),
-                Color(0xFFFF72D8).copy(alpha = prism * 0.76f),
+                Color.White.copy(alpha = material.topHighlight * 0.48f * pulse),
+                Color.White.copy(alpha = material.topHighlight * 0.055f),
                 Color.Transparent
             ),
             startY = 0f,
-            endY = h * 0.28f
+            endY = h * 0.22f
         )
         val lowerShade = Brush.verticalGradient(
             colors = listOf(
@@ -1064,39 +826,30 @@ fun Modifier.glassSkin(
         )
         val mainRim = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.rim * 0.34f),
-                Color(0xFFFFE77A).copy(alpha = activePrism * 1.04f),
-                Color(0xFF62FFF0).copy(alpha = activePrism * 1.28f),
-                Color(0xFF8EA2FF).copy(alpha = activePrism * 0.98f),
-                Color(0xFFFF74DC).copy(alpha = activePrism * 0.82f),
+                Color.White.copy(alpha = material.rim * 0.58f),
+                Color.White.copy(alpha = material.rim * 0.048f),
                 Color.Transparent,
                 Color.Black.copy(alpha = material.depthShadow * 0.14f),
-                Color(0xFFFF8FDC).copy(alpha = activePrism * 0.62f),
-                Color.White.copy(alpha = material.rim * 0.008f)
+                Color.White.copy(alpha = material.rim * 0.016f)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
-        val topHairline = Brush.linearGradient(
+        val topHairline = Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.rim * 0.24f),
-                Color(0xFFFFF06A).copy(alpha = prism * 1.24f),
-                Color(0xFF58FFF0).copy(alpha = prism * 1.38f),
-                Color(0xFFFF64D7).copy(alpha = prism * 1.08f),
+                Color.White.copy(alpha = material.rim * 0.42f),
+                Color.White.copy(alpha = material.rim * 0.030f),
                 Color.Transparent
             ),
-            start = Offset(w * (safeShimmer - 0.18f), 0f),
-            end = Offset(w * (safeShimmer + 0.28f), h * 0.20f)
+            startY = 0f,
+            endY = h * 0.18f
         )
         val innerSoftRim = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.rim * 0.012f),
-                Color(0xFFFFF0A8).copy(alpha = prism * 0.38f),
-                Color(0xFFBFFFF8).copy(alpha = prism * 0.54f),
+                Color.White.copy(alpha = material.rim * 0.022f),
                 Color.Transparent,
                 Color.Black.copy(alpha = material.depthShadow * 0.10f),
-                Color(0xFFFF8FE7).copy(alpha = prism * 0.34f),
-                Color.White.copy(alpha = material.rim * 0.004f)
+                Color.White.copy(alpha = material.rim * 0.008f)
             ),
             start = Offset(w * 0.10f, 0f),
             end = Offset(w * 0.94f, h)
@@ -1113,25 +866,20 @@ fun Modifier.glassSkin(
         val movingEdgeGlint = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = material.motionGlint * 0.62f),
-                Color(0xFFFFF06A).copy(alpha = activePrism * 0.50f),
-                Color(0xFF58FFF0).copy(alpha = activePrism * 0.68f),
-                Color(0xFFFF64D7).copy(alpha = activePrism * 0.50f),
+                Color.White.copy(alpha = material.motionGlint),
                 Color.Transparent
             ),
-            start = Offset(w * (safeShimmer - 0.30f), 0f),
-            end = Offset(w * (safeShimmer + 0.18f), h * 0.22f)
+            start = Offset(w * (safeShimmer - 0.28f), 0f),
+            end = Offset(w * (safeShimmer + 0.16f), h * 0.20f)
         )
         val cornerCatchlight = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = material.cornerHighlight * 0.56f),
-                Color(0xFFFFF06A).copy(alpha = prism * 0.58f),
-                Color(0xFF58FFF0).copy(alpha = prism * 0.54f),
-                Color(0xFFFF64D7).copy(alpha = prism * 0.48f),
+                Color.White.copy(alpha = material.cornerHighlight),
+                Color.White.copy(alpha = material.cornerHighlight * 0.08f),
                 Color.Transparent
             ),
             center = Offset(w * (0.035f + drift * 0.010f), h * 0.020f),
-            radius = w * 0.29f
+            radius = w * 0.26f
         )
 
         onDrawWithContent {
@@ -1139,14 +887,14 @@ fun Modifier.glassSkin(
             drawRect(topLens, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
             drawContent()
-            drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.40.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.15.dp.toPx()), blendMode = BlendMode.Screen)
-            drawRoundRect(brush = innerSoftRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.12.dp.toPx()), blendMode = BlendMode.SrcOver)
+            drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.32.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = innerSoftRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.SrcOver)
             drawRoundRect(brush = bottomShadow, topLeft = Offset(bottomInset, bottomInset), size = bottomSize, cornerRadius = cornerRadius, style = Stroke(width = 0.10.dp.toPx()), blendMode = BlendMode.Multiply)
             if (quality.enableMotion) {
-                drawRoundRect(brush = movingEdgeGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.11.dp.toPx()), blendMode = BlendMode.Plus)
+                drawRoundRect(brush = movingEdgeGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.07.dp.toPx()), blendMode = BlendMode.Plus)
             }
-            drawRoundRect(brush = cornerCatchlight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.15.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = cornerCatchlight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(width = 0.13.dp.toPx()), blendMode = BlendMode.Screen)
         }
     }
 }
