@@ -1,4 +1,5 @@
 Rollback target: 768e51cda2589ff23cf13b09125d23a05727ae43
-Purpose: trigger Build Compose Android APK after rollback.
-App source code remains at the rollback baseline.
-Triggered at: 2026-05-26T00:00:00Z
+Purpose: trigger Build Compose Android APK after adding the glass panel lab below the glass debug foldout.
+Latest source commit: 0baaba990c7d8ca86c1980423f4bb37e24ae4174
+Trigger method: normal update_file on ai-ledger-android/app/** path.
+Triggered at: 2026-05-26T10:55:00Z
