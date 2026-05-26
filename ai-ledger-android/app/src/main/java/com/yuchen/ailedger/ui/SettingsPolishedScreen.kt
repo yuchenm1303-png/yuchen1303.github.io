@@ -1,6 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,6 +10,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -15,7 +21,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +43,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -81,11 +94,20 @@ fun SettingsPolishedScreen(
     val listState = rememberLazyListState()
     SyncGlassBackdropToScroll(listState)
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
         item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
         item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
         item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "用入口卡片快速扫读，详情只在需要时打开。") } }
-        item { SettingsEntrance(104, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
+        item {
+            SettingsEntrance(104, 20, 0.965f) {
+                SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it }
+            }
+        }
         item {
             SettingsEntrance(140, 22, 0.965f) {
                 SettingsDetailPanel(
@@ -113,11 +135,37 @@ fun SettingsPolishedScreen(
 @Composable
 private fun SettingsEntrance(delayMs: Long, initialOffsetY: Int = 24, initialScale: Float = 0.96f, content: @Composable () -> Unit) {
     var visible by rememberSaveable(delayMs) { mutableStateOf(false) }
-    LaunchedEffect(delayMs) { if (!visible) { if (delayMs > 0L) delay(delayMs); visible = true } }
+    LaunchedEffect(delayMs) {
+        if (!visible) {
+            if (delayMs > 0L) delay(delayMs)
+            visible = true
+        }
+    }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } + scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+            slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+    ) { content() }
+}
+
+@Composable
+private fun SettingsTileEntrance(modifier: Modifier = Modifier, delayMs: Long, content: @Composable () -> Unit) {
+    var visible by rememberSaveable(delayMs) { mutableStateOf(false) }
+    LaunchedEffect(delayMs) {
+        if (!visible) {
+            if (delayMs > 0L) delay(delayMs)
+            visible = true
+        }
+    }
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(260, easing = FastOutSlowInEasing)) +
+            slideInVertically(tween(360, easing = FastOutSlowInEasing)) { it / 3 } +
+            scaleIn(initialScale = 0.88f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(90)) + scaleOut(targetScale = 0.98f, animationSpec = tween(90))
     ) { content() }
 }
 
@@ -132,7 +180,12 @@ private fun SettingsHeader() {
 
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 30, Modifier.fillMaxWidth(), SettingsOverviewRole) {
+    val pop by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-overview-pop"
+    )
+    GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 30, Modifier.fillMaxWidth().graphicsLayer { scaleX = pop; scaleY = pop }, SettingsOverviewRole) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -167,24 +220,66 @@ private fun SettingsSectionTitle(title: String, subtitle: String) {
 private fun SettingsDashboardGrid(state: AssistantUiState, aiEndpoint: String, selectedPanel: SettingsPanel, onSelected: (SettingsPanel) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            SettingsTile("景", "外观", "背景与主题", themeLabel(state.backgroundTheme), selectedPanel == SettingsPanel.Appearance, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Appearance) }
-            SettingsTile("璃", "玻璃", "质感与流畅度", "${qualityLabel(state.quality)} · ${glassPresetLabel(state.glassPreset)}", selectedPanel == SettingsPanel.Glass, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Glass) }
+            SettingsTileEntrance(Modifier.weight(1f), 0) {
+                SettingsTile("景", "外观", "背景与主题", themeLabel(state.backgroundTheme), selectedPanel == SettingsPanel.Appearance, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Appearance) }
+            }
+            SettingsTileEntrance(Modifier.weight(1f), 36) {
+                SettingsTile("璃", "玻璃", "质感与流畅度", "${qualityLabel(state.quality)} · ${glassPresetLabel(state.glassPreset)}", selectedPanel == SettingsPanel.Glass, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Glass) }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            SettingsTile("助", "助手", "模型与首页", state.selectedModelLabel, selectedPanel == SettingsPanel.Assistant, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Assistant) }
-            SettingsTile("账", "数据", "预算与账单", "${state.ledgerRecords.size} 笔", selectedPanel == SettingsPanel.Data, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Data) }
+            SettingsTileEntrance(Modifier.weight(1f), 72) {
+                SettingsTile("助", "助手", "模型与首页", state.selectedModelLabel, selectedPanel == SettingsPanel.Assistant, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Assistant) }
+            }
+            SettingsTileEntrance(Modifier.weight(1f), 108) {
+                SettingsTile("账", "数据", "预算与账单", "${state.ledgerRecords.size} 笔", selectedPanel == SettingsPanel.Data, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Data) }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            SettingsTile("云", "服务", "AI Worker", if (aiEndpoint.isBlank()) "未配置" else "已连接", selectedPanel == SettingsPanel.Service, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Service) }
-            SettingsTile("GL", "高级", "渲染边界", "OpenGL 隔离", selectedPanel == SettingsPanel.Advanced, state, Modifier.weight(1f)) { onSelected(SettingsPanel.Advanced) }
+            SettingsTileEntrance(Modifier.weight(1f), 144) {
+                SettingsTile("云", "服务", "AI Worker", if (aiEndpoint.isBlank()) "未配置" else "已连接", selectedPanel == SettingsPanel.Service, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Service) }
+            }
+            SettingsTileEntrance(Modifier.weight(1f), 180) {
+                SettingsTile("GL", "高级", "渲染边界", "OpenGL 隔离", selectedPanel == SettingsPanel.Advanced, state, Modifier.fillMaxWidth()) { onSelected(SettingsPanel.Advanced) }
+            }
         }
     }
 }
 
 @Composable
 private fun SettingsTile(icon: String, title: String, subtitle: String, value: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val pop by animateFloatAsState(if (selected) 1.012f else 1f, spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow), label = "settings-tile-pop-$title")
-    PressableGlass(state.quality, state.glassIntensity * if (selected) 1.02f else 0.86f, state.motionIntensity, 26, modifier.height(104.dp).graphicsLayer { scaleX = pop; scaleY = pop }, SettingsTileRole, onClick) {
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.024f else 1f,
+        animationSpec = spring(dampingRatio = 0.60f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-tile-scale-$title"
+    )
+    val lift by animateFloatAsState(
+        targetValue = if (selected) -3f else 0f,
+        animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-tile-lift-$title"
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.90f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "settings-tile-alpha-$title"
+    )
+    PressableGlass(
+        state.quality,
+        state.glassIntensity * if (selected) 1.02f else 0.86f,
+        state.motionIntensity,
+        26,
+        modifier
+            .height(104.dp)
+            .settingsTileAccent(selected)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationY = lift
+                this.alpha = alpha
+            },
+        SettingsTileRole,
+        onClick
+    ) {
         Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 SettingsIconBadge(icon, state, selected)
@@ -196,6 +291,30 @@ private fun SettingsTile(icon: String, title: String, subtitle: String, value: S
             SettingsValuePill(value, state, selected)
         }
     }
+}
+
+private fun Modifier.settingsTileAccent(selected: Boolean): Modifier = drawWithContent {
+    drawContent()
+    if (!selected) return@drawWithContent
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFF8DF9EA).copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.10f),
+                Color.Transparent
+            ),
+            start = Offset(-w * 0.12f, 0f),
+            end = Offset(w * 0.94f, h)
+        ),
+        topLeft = Offset(0.8.dp.toPx(), 0.8.dp.toPx()),
+        size = Size(w - 1.6.dp.toPx(), h - 1.6.dp.toPx()),
+        cornerRadius = CornerRadius(25.dp.toPx(), 25.dp.toPx()),
+        style = Stroke(width = 1.1.dp.toPx()),
+        blendMode = BlendMode.Plus
+    )
 }
 
 @Composable
@@ -216,18 +335,45 @@ private fun SettingsDetailPanel(
     onClearCustomBackgroundClick: () -> Unit
 ) {
     GlassPanel(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 28, Modifier.fillMaxWidth(), SettingsDetailRole) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            DetailHeader(panelTitle(panel), panelSubtitle(panel))
-            AnimatedVisibility(visible = true, enter = fadeIn(tween(160)) + expandVertically(tween(180)) + scaleIn(initialScale = 0.98f, animationSpec = tween(180)), exit = fadeOut(tween(100)) + shrinkVertically(tween(120)) + scaleOut(targetScale = 0.99f, animationSpec = tween(120))) {
+        AnimatedContent(
+            targetState = panel,
+            transitionSpec = {
+                (fadeIn(tween(180, easing = FastOutSlowInEasing)) +
+                    slideInVertically(tween(230, easing = FastOutSlowInEasing)) { it / 5 } +
+                    scaleIn(initialScale = 0.965f, animationSpec = spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)))
+                    .togetherWith(
+                        fadeOut(tween(100)) +
+                            slideOutVertically(tween(120, easing = FastOutSlowInEasing)) { -it / 10 } +
+                            scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+                    )
+                    .using(SizeTransform(clip = false))
+            },
+            label = "settings-detail-panel-switch"
+        ) { targetPanel ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { transformOrigin = TransformOrigin(0.5f, 0f) }
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DetailHeader(panelTitle(targetPanel), panelSubtitle(targetPanel))
                 Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                    when (panel) {
+                    when (targetPanel) {
                         SettingsPanel.Appearance -> AppearanceContent(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
                         SettingsPanel.Glass -> GlassContent(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange, onRainbowPrismChange)
                         SettingsPanel.Assistant -> AssistantContent(state, onPreviewConversationChange)
                         SettingsPanel.Data -> DataContent(state)
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
                         SettingsPanel.Advanced -> AdvancedContent(state)
-                        SettingsPanel.Debug -> GlassDebugFloatingPanel(state, onBackdropChange, onBorderChange, onUploadBackgroundClick, onClearCustomBackgroundClick, Modifier.fillMaxWidth())
+                        SettingsPanel.Debug -> GlassDebugFloatingPanel(
+                            state = state,
+                            onBackdropChange = onBackdropChange,
+                            onBorderChange = onBorderChange,
+                            onUploadBackgroundClick = onUploadBackgroundClick,
+                            onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
@@ -253,14 +399,7 @@ private fun AppearanceContent(state: AssistantUiState, onBackgroundThemeChange: 
 }
 
 @Composable
-private fun GlassContent(
-    state: AssistantUiState,
-    onQualityChange: (RenderQuality) -> Unit,
-    onGlassPresetChange: (GlassPreset) -> Unit,
-    onGlassIntensityChange: (Float) -> Unit,
-    onMotionIntensityChange: (Float) -> Unit,
-    onRainbowPrismChange: (RainbowPrismStyle) -> Unit
-) {
+private fun GlassContent(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit) {
     val prism = state.rainbowPrismStyle
     SettingChipGrid(RenderQuality.entries, state.quality, { qualityLabel(it) }, state, onQualityChange)
     SettingChipGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabel(it) }, state, onGlassPresetChange)
@@ -312,7 +451,20 @@ private fun AdvancedContent(state: AssistantUiState) {
 
 @Composable
 private fun SettingsLabEntry(state: AssistantUiState, selected: Boolean, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * if (selected) 0.92f else 0.76f, state.motionIntensity, 26, Modifier.fillMaxWidth().height(62.dp), SettingsTileRole, onClick) {
+    val scale by animateFloatAsState(if (selected) 1.012f else 1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow), label = "settings-lab-scale")
+    PressableGlass(
+        state.quality,
+        state.glassIntensity * if (selected) 0.92f else 0.76f,
+        state.motionIntensity,
+        26,
+        Modifier
+            .fillMaxWidth()
+            .height(62.dp)
+            .settingsTileAccent(selected)
+            .graphicsLayer { scaleX = scale; scaleY = scale },
+        SettingsTileRole,
+        onClick
+    ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsIconBadge("⚗", state, selected)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
@@ -329,8 +481,11 @@ private fun SectionTitleInline(title: String) { Text(title, color = Color.White.
 
 @Composable
 private fun SettingsIconBadge(text: String, state: AssistantUiState, active: Boolean) {
-    GlassPanel(state.quality, state.glassIntensity * if (active) 0.96f else 0.70f, state.motionIntensity, 17, Modifier.size(42.dp), if (active) SettingsFloatingRole else SettingsChipRole) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.66f), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center) }
+    val scale by animateFloatAsState(if (active) 1.08f else 1f, spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessMediumLow), label = "settings-icon-badge-$text")
+    GlassPanel(state.quality, state.glassIntensity * if (active) 0.96f else 0.70f, state.motionIntensity, 17, Modifier.size(42.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (active) SettingsFloatingRole else SettingsChipRole) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.66f), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -340,8 +495,11 @@ private fun <T> SettingChipGrid(items: List<T>, selected: T, label: (T) -> Strin
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             row.forEach { item ->
                 val active = item == selected
-                PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.weight(1f).height(42.dp), if (active) SettingsFloatingRole else SettingsChipRole, onClick = { onSelected(item) }) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label(item), color = Color.White.copy(alpha = if (active) 0.96f else 0.62f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
+                val scale by animateFloatAsState(if (active) 1.018f else 1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow), label = "settings-chip-${label(item)}")
+                PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, Modifier.weight(1f).height(42.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (active) SettingsFloatingRole else SettingsChipRole, onClick = { onSelected(item) }) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(label(item), color = Color.White.copy(alpha = if (active) 0.96f else 0.62f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    }
                 }
             }
             if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -401,7 +559,8 @@ private fun SettingsStatusBadge(text: String, state: AssistantUiState) {
 
 @Composable
 private fun SettingsValuePill(text: String, state: AssistantUiState, selected: Boolean) {
-    GlassPanel(state.quality, state.glassIntensity * if (selected) 0.72f else 0.56f, state.motionIntensity, 999, Modifier.height(28.dp).widthIn(min = 54.dp, max = 128.dp), if (selected) SettingsFloatingRole else SettingsChipRole) {
+    val scale by animateFloatAsState(if (selected) 1.035f else 1f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow), label = "settings-value-pill-$text")
+    GlassPanel(state.quality, state.glassIntensity * if (selected) 0.72f else 0.56f, state.motionIntensity, 999, Modifier.height(28.dp).widthIn(min = 54.dp, max = 128.dp).graphicsLayer { scaleX = scale; scaleY = scale }, if (selected) SettingsFloatingRole else SettingsChipRole) {
         Box(Modifier.padding(horizontal = 10.dp).fillMaxSize(), contentAlignment = Alignment.Center) { Text(text, color = Color.White.copy(alpha = if (selected) 0.82f else 0.60f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
     }
 }
