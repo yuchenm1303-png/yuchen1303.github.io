@@ -70,6 +70,7 @@ fun GlassDebugFloatingPanel(
             initiallyExpanded = true,
             state = state
         ) {
+            AnimatedFrostInfoGlassPreview(state, Modifier.fillMaxWidth())
             FrostInfoGlassLab(state)
         }
     }
