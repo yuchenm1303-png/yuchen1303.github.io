@@ -62,6 +62,7 @@ import com.yuchen.ailedger.ui.gl.DropletGlassStyle
 import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.random.Random
 import kotlinx.coroutines.launch
 
 private const val DropletPrismTau = 6.2831855f
@@ -170,6 +171,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletBackgroundGlow by rememberSaveable { mutableStateOf(0.38f) }
     var dropletOuterGlow by rememberSaveable { mutableStateOf(0.46f) }
     var dropletWarmGlow by rememberSaveable { mutableStateOf(0.54f) }
+    var dropletPrismStrength by rememberSaveable { mutableStateOf(1.85f) }
 
     val dropletStyle = DropletGlassStyle(
         bodyBulgePx = dropletBodyBulge,
@@ -246,7 +248,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 横向水滴", "按住会大幅胶囊压缩、棱彩点亮并带回弹抖动；轻点锁定 / 关闭。")
+        GlassLabMiniTitle("OpenGL 横向水滴", "按住后棱彩光会慢速漂移，入光点会在按压位置附近随机游动。")
         OpenGlLargeDropletPreview(
             style = dropletStyle,
             shadowAlpha = dropletShadowAlpha,
@@ -257,8 +259,10 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
             backgroundGlow = dropletBackgroundGlow,
             outerGlow = dropletOuterGlow,
             warmGlow = dropletWarmGlow,
+            prismStrength = dropletPrismStrength,
             modifier = Modifier.fillMaxWidth().height(112.dp)
         )
+        GlassPanelSlider("棱彩强度", "控制彩虹扫光、内部多色折射和外圈彩虹辉光", dropletPrismStrength, 0f..3f) { dropletPrismStrength = it }
         GlassPanelSlider("选中发光", "整条内部光路的总能量", dropletActiveGlow, 0f..1.5f) { dropletActiveGlow = it }
         GlassPanelSlider("体积折射", "内部光源被水滴体积连续扭曲的强度", dropletActiveRefraction, 0f..4f) { dropletActiveRefraction = it }
         GlassPanelSlider("边缘折射", "边缘捕获入射光的强度", dropletActiveRimRefraction, 0f..4f) { dropletActiveRimRefraction = it }
@@ -306,6 +310,7 @@ private fun OpenGlLargeDropletPreview(
     backgroundGlow: Float,
     outerGlow: Float,
     warmGlow: Float,
+    prismStrength: Float,
     modifier: Modifier = Modifier
 ) {
     val coordinates = remember { GlassCoordinateSource() }
@@ -313,6 +318,8 @@ private fun OpenGlLargeDropletPreview(
     val latchAnim = remember { Animatable(0f) }
     val afterglowAnim = remember { Animatable(0f) }
     val breathAnim = remember { Animatable(0f) }
+    val driftAnim = remember { Animatable(0f) }
+    val shimmerAnim = remember { Animatable(0.35f) }
     val scope = rememberCoroutineScope()
     var locked by rememberSaveable { mutableStateOf(false) }
     var capsuleSize by remember { mutableStateOf(Size(1f, 1f)) }
@@ -340,50 +347,75 @@ private fun OpenGlLargeDropletPreview(
     LaunchedEffect(activeForBreath) {
         if (activeForBreath) {
             while (true) {
-                breathAnim.animateTo(1f, tween(620, easing = FastOutSlowInEasing))
-                breathAnim.animateTo(0f, tween(760, easing = FastOutSlowInEasing))
+                val target = Random.nextFloat()
+                val duration = 950 + Random.nextInt(850)
+                breathAnim.animateTo(target, tween(duration, easing = FastOutSlowInEasing))
             }
         } else {
-            breathAnim.animateTo(0f, tween(260, easing = FastOutSlowInEasing))
+            breathAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
+        }
+    }
+
+    LaunchedEffect(activeForBreath) {
+        if (activeForBreath) {
+            while (true) {
+                driftAnim.animateTo(Random.nextFloat() * 0.34f - 0.17f, tween(1200 + Random.nextInt(1300), easing = FastOutSlowInEasing))
+            }
+        } else {
+            driftAnim.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
+        }
+    }
+
+    LaunchedEffect(activeForBreath) {
+        if (activeForBreath) {
+            while (true) {
+                shimmerAnim.animateTo(0.22f + Random.nextFloat() * 0.78f, tween(520 + Random.nextInt(980), easing = FastOutSlowInEasing))
+            }
+        } else {
+            shimmerAnim.animateTo(0.18f, tween(360, easing = FastOutSlowInEasing))
         }
     }
 
     val breathValue = breathAnim.value.coerceIn(0f, 1f)
-    val breathEnergy = 0.90f + breathValue * 0.18f
+    val driftValue = driftAnim.value.coerceIn(-0.22f, 0.22f)
+    val shimmerValue = shimmerAnim.value.coerceIn(0f, 1f)
+    val prismAmount = prismStrength.coerceIn(0f, 3f)
+    val breathEnergy = 0.88f + breathValue * 0.14f + shimmerValue * 0.08f
     val holdEnergy = maxOf(pressPositive, latchValue)
-    val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.52f).coerceIn(0f, 1.25f)
-    val refractionEnergy = (holdEnergy * (0.92f + breathValue * 0.13f) + afterglowValue * 0.36f).coerceIn(0f, 1.14f)
-    val prismPhase = interactionLightX * 0.58f + breathValue * 0.22f + lightEnergy * 0.12f + afterglowValue * 0.10f
-    val prismMix = lightEnergy.coerceIn(0f, 1f)
-    val prismRed = 0.48f + dropletPrismChannel(prismPhase + 0.00f) * 0.52f
-    val prismGreen = 0.54f + dropletPrismChannel(prismPhase + 0.34f) * 0.46f
-    val prismBlue = 0.66f + dropletPrismChannel(prismPhase + 0.68f) * 0.34f
-    val warmRed = 0.88f + dropletPrismChannel(prismPhase + 0.08f) * 0.12f
-    val warmGreen = 0.40f + dropletPrismChannel(prismPhase + 0.28f) * 0.42f
-    val warmBlue = 0.70f + dropletPrismChannel(prismPhase + 0.58f) * 0.30f
+    val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.55f).coerceIn(0f, 1.30f)
+    val refractionEnergy = (holdEnergy * (0.92f + breathValue * 0.10f + shimmerValue * 0.08f) + afterglowValue * 0.40f).coerceIn(0f, 1.18f)
+    val effectiveLightX = (interactionLightX + driftValue * holdEnergy).coerceIn(0.04f, 0.96f)
+    val prismPhase = effectiveLightX * 0.80f + breathValue * 0.21f + shimmerValue * 0.19f + afterglowValue * 0.17f
+    val prismMix = (lightEnergy * prismAmount * 0.70f).coerceIn(0f, 1f)
+    val prismRed = 0.36f + dropletPrismChannel(prismPhase + 0.00f) * 0.64f
+    val prismGreen = 0.38f + dropletPrismChannel(prismPhase + 0.34f) * 0.62f
+    val prismBlue = 0.50f + dropletPrismChannel(prismPhase + 0.68f) * 0.50f
+    val warmRed = 0.70f + dropletPrismChannel(prismPhase + 0.08f) * 0.30f
+    val warmGreen = 0.30f + dropletPrismChannel(prismPhase + 0.28f) * 0.62f
+    val warmBlue = 0.58f + dropletPrismChannel(prismPhase + 0.58f) * 0.42f
     val debug = style.debugMaskAlpha.coerceIn(0f, 1f)
     val animatedStyle = style.copy(
         bodyBulgePx = style.bodyBulgePx + pressPositive * 14.0f + latchValue * 5.0f - afterglowValue * 3.0f,
         edgePullPx = style.edgePullPx + pressPositive * 32.0f + latchValue * 12.0f + afterglowValue * 9.0f,
         edgeWidthPx = style.edgeWidthPx + pressPositive * 5.8f + latchValue * 2.8f,
         bottomGlow = style.bottomGlow * (0.70f + lightEnergy * 0.38f),
-        topGloss = style.topGloss + lightEnergy * 0.42f,
-        cornerGloss = style.cornerGloss + lightEnergy * 0.34f,
+        topGloss = style.topGloss + lightEnergy * 0.42f + prismAmount * lightEnergy * 0.10f,
+        cornerGloss = style.cornerGloss + lightEnergy * 0.34f + prismAmount * shimmerValue * lightEnergy * 0.10f,
         innerDark = (style.innerDark + pressPositive * 0.10f - lightEnergy * 0.08f).coerceIn(0f, 1f),
         alpha = (style.alpha + lightEnergy * 0.13f).coerceIn(0f, 1f),
-        activeGlow = style.activeGlow * lightEnergy,
+        activeGlow = style.activeGlow * lightEnergy * (1f + prismAmount * 0.16f),
         activeRefraction = style.activeRefraction * refractionEnergy,
-        activeRimRefraction = style.activeRimRefraction * refractionEnergy,
-        activeLightX = dropletLerp(style.activeLightX.coerceIn(0f, 1f), interactionLightX, holdEnergy.coerceIn(0f, 1f)),
-        activeLightSpread = (style.activeLightSpread * (0.50f + lightEnergy * 0.52f) + pressPositive * 0.12f).coerceIn(0f, 1f),
-        activeLightThickness = (style.activeLightThickness * (0.58f + lightEnergy * 0.56f)).coerceIn(0.015f, 0.42f),
-        activeHotspot = style.activeHotspot * (lightEnergy + breathValue * holdEnergy * 0.18f),
-        activeEntryPearl = style.activeEntryPearl * (lightEnergy + pressPositive * 0.18f),
-        activeRimPearl = style.activeRimPearl * (lightEnergy + breathValue * holdEnergy * 0.10f),
+        activeRimRefraction = style.activeRimRefraction * refractionEnergy * (1f + prismAmount * 0.10f),
+        activeLightX = dropletLerp(style.activeLightX.coerceIn(0f, 1f), effectiveLightX, holdEnergy.coerceIn(0f, 1f)),
+        activeLightSpread = (style.activeLightSpread * (0.50f + lightEnergy * 0.52f) + pressPositive * 0.12f + prismAmount * 0.035f).coerceIn(0f, 1f),
+        activeLightThickness = (style.activeLightThickness * (0.58f + lightEnergy * 0.56f + prismAmount * 0.04f)).coerceIn(0.015f, 0.42f),
+        activeHotspot = style.activeHotspot * (lightEnergy + shimmerValue * holdEnergy * 0.22f),
+        activeEntryPearl = style.activeEntryPearl * (lightEnergy + pressPositive * 0.18f + prismAmount * shimmerValue * 0.12f),
+        activeRimPearl = style.activeRimPearl * (lightEnergy + shimmerValue * holdEnergy * 0.16f),
         activeCenterClear = (style.activeCenterClear + lightEnergy * 0.22f).coerceIn(0f, 1f),
-        activeVolumeWarmth = style.activeVolumeWarmth * (0.36f + lightEnergy * 0.70f),
-        activeRimGather = style.activeRimGather * (lightEnergy + afterglowValue * 0.22f),
-        activeRimFlow = style.activeRimFlow * (0.42f + lightEnergy * 0.88f),
+        activeVolumeWarmth = style.activeVolumeWarmth * (0.36f + lightEnergy * 0.70f + prismAmount * 0.09f),
+        activeRimGather = style.activeRimGather * (lightEnergy + afterglowValue * 0.22f + prismAmount * shimmerValue * 0.07f),
+        activeRimFlow = style.activeRimFlow * (0.42f + lightEnergy * 0.88f + prismAmount * 0.08f),
         accentRed = dropletLerp(style.accentRed, prismRed, prismMix),
         accentGreen = dropletLerp(style.accentGreen, prismGreen, prismMix),
         accentBlue = dropletLerp(style.accentBlue, prismBlue, prismMix),
@@ -391,19 +423,19 @@ private fun OpenGlLargeDropletPreview(
         warmGreen = dropletLerp(style.warmGreen, warmGreen, prismMix),
         warmBlue = dropletLerp(style.warmBlue, warmBlue, prismMix)
     )
-    val animatedActiveGlow = activeGlow * lightEnergy
-    val animatedBackgroundGlow = backgroundGlow * (lightEnergy + recoilValue * 0.35f).coerceIn(0f, 1.25f)
-    val animatedOuterGlow = outerGlow * (lightEnergy + afterglowValue * 0.28f + recoilValue * 0.30f).coerceIn(0f, 1.35f)
-    val animatedWarmGlow = warmGlow * (lightEnergy + pressPositive * 0.18f).coerceIn(0f, 1.35f)
-    val contentAlpha = if (debug <= 0.001f) (0.52f + lightEnergy * 0.38f + recoilValue * 0.10f).coerceIn(0.46f, 0.98f) else 0f
+    val animatedActiveGlow = activeGlow * lightEnergy * (1f + prismAmount * 0.20f)
+    val animatedBackgroundGlow = backgroundGlow * (lightEnergy + recoilValue * 0.35f + prismAmount * lightEnergy * 0.16f).coerceIn(0f, 1.8f)
+    val animatedOuterGlow = outerGlow * (lightEnergy + afterglowValue * 0.28f + recoilValue * 0.30f + prismAmount * lightEnergy * 0.22f).coerceIn(0f, 1.9f)
+    val animatedWarmGlow = warmGlow * (lightEnergy + pressPositive * 0.18f + prismAmount * lightEnergy * 0.14f).coerceIn(0f, 1.8f)
+    val contentAlpha = if (debug <= 0.001f) (0.50f + lightEnergy * 0.36f + recoilValue * 0.10f).coerceIn(0.44f, 0.98f) else 0f
     val statusLabel = if (locked) "锁定棱彩" else "按住点亮 · 轻点锁定"
 
     Box(modifier = modifier.padding(horizontal = 10.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         if (debug <= 0.001f) {
-            DropletBackgroundGlow(animatedActiveGlow, animatedBackgroundGlow, animatedOuterGlow, animatedWarmGlow, Modifier.fillMaxWidth().height(90.dp))
+            DropletBackgroundGlow(animatedActiveGlow, animatedBackgroundGlow, animatedOuterGlow, animatedWarmGlow, prismAmount, prismPhase, Modifier.fillMaxWidth().height(90.dp))
             DropletContactShadow(
                 alpha = shadowAlpha * (0.72f + pressPositive * 0.62f + afterglowValue * 0.32f),
-                offsetX = shadowOffsetX + pressPositive * 2.2f + recoilValue * if (interactionLightX > 0.5f) 1.2f else -1.2f,
+                offsetX = shadowOffsetX + pressPositive * 2.2f + recoilValue * if (effectiveLightX > 0.5f) 1.2f else -1.2f,
                 offsetY = shadowOffsetY + pressPositive * 4.4f - recoilValue * 1.1f,
                 softness = shadowSoftness + lightEnergy * 5.5f + recoilValue * 4.0f,
                 modifier = Modifier.fillMaxWidth().height(82.dp)
@@ -417,12 +449,12 @@ private fun OpenGlLargeDropletPreview(
                 .onSizeChanged { capsuleSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
                 .onGloballyPositioned { coordinates.coordinates = it }
                 .graphicsLayer {
-                    transformOrigin = TransformOrigin(interactionLightX.coerceIn(0f, 1f), 0.50f)
+                    transformOrigin = TransformOrigin(effectiveLightX.coerceIn(0f, 1f), 0.50f)
                     scaleX = 1f + pressPositive * 0.066f + latchValue * 0.018f - afterglowValue * 0.006f - recoilValue * 0.020f
                     scaleY = 1f - pressPositive * 0.074f + afterglowValue * 0.014f + recoilValue * 0.026f
-                    translationX = (interactionLightX - 0.5f) * pressPositive * 5.8f + recoilValue * if (interactionLightX > 0.5f) 3.0f else -3.0f
+                    translationX = (effectiveLightX - 0.5f) * pressPositive * 5.8f + recoilValue * if (effectiveLightX > 0.5f) 3.0f else -3.0f
                     translationY = pressPositive * 5.2f - afterglowValue * 1.1f - recoilValue * 1.8f
-                    rotationZ = (interactionLightX - 0.5f) * pressPositive * 0.72f + recoilValue * if (interactionLightX > 0.5f) 0.36f else -0.36f
+                    rotationZ = (effectiveLightX - 0.5f) * pressPositive * 0.72f + recoilValue * if (effectiveLightX > 0.5f) 0.36f else -0.36f
                 }
                 .pointerInput(style) {
                     awaitEachGesture {
@@ -475,7 +507,7 @@ private fun OpenGlLargeDropletPreview(
             OpenGLDropletGlassLayer(radius = 999, coordinateSource = coordinates, style = animatedStyle, modifier = Modifier.fillMaxSize())
             if (debug <= 0.001f) {
                 DropletActiveOverlay(animatedActiveGlow, animatedWarmGlow, Modifier.fillMaxSize())
-                DropletPrismOverlay(animatedActiveGlow, lightEnergy, prismPhase, Modifier.fillMaxSize())
+                DropletPrismOverlay(animatedActiveGlow, lightEnergy, prismPhase, prismAmount, effectiveLightX, shimmerValue, Modifier.fillMaxSize())
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
                     Text("🎙", color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.width(10.dp))
@@ -483,14 +515,14 @@ private fun OpenGlLargeDropletPreview(
                 }
                 Text(
                     text = statusLabel,
-                    color = Color.White.copy(alpha = 0.42f + lightEnergy * 0.18f),
+                    color = Color.White.copy(alpha = 0.40f + lightEnergy * 0.18f),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 12.dp, bottom = 6.dp)
-                        .background(Color.Black.copy(alpha = 0.14f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
+                        .background(Color.Black.copy(alpha = 0.13f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
                         .padding(horizontal = 7.dp, vertical = 2.dp)
                 )
             }
@@ -510,17 +542,18 @@ private fun dropletPrismChannel(phase: Float): Float {
 }
 
 @Composable
-private fun DropletBackgroundGlow(activeGlow: Float, backgroundGlow: Float, outerGlow: Float, warmGlow: Float, modifier: Modifier = Modifier) {
+private fun DropletBackgroundGlow(activeGlow: Float, backgroundGlow: Float, outerGlow: Float, warmGlow: Float, prismStrength: Float, phase: Float, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val active = activeGlow.coerceIn(0f, 2f)
         val bg = backgroundGlow.coerceIn(0f, 2f)
         val outer = outerGlow.coerceIn(0f, 2f)
         val warm = warmGlow.coerceIn(0f, 2f)
+        val prism = prismStrength.coerceIn(0f, 3f)
         val pillHeight = size.height * 0.58f
         val pillTop = size.height * 0.20f
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.22f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.09f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.42f), size.width * 0.62f), Offset(size.width * 0.02f, pillTop - size.height * 0.14f), Size(size.width * 0.96f, pillHeight + size.height * 0.28f), CornerRadius(size.height * 0.44f, size.height * 0.44f), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.24f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.10f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.42f), size.width * 0.62f), Offset(size.width * 0.02f, pillTop - size.height * 0.14f), Size(size.width * 0.96f, pillHeight + size.height * 0.28f), CornerRadius(size.height * 0.44f, size.height * 0.44f), blendMode = BlendMode.Screen)
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF72B7).copy(alpha = warm * active * 0.22f), Color(0xFFFFB56F).copy(alpha = warm * active * 0.08f), Color.Transparent), Offset(size.width * 0.46f, size.height * 0.76f), size.width * 0.48f), Offset(size.width * 0.05f, size.height * 0.42f), Size(size.width * 0.90f, size.height * 0.54f), CornerRadius(size.height * 0.32f, size.height * 0.32f), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFB47CFF).copy(alpha = outer * active * 0.13f), Color(0xFF80FFD8).copy(alpha = outer * active * 0.07f), Color.Transparent), Offset(size.width * 0.76f, size.height * 0.28f), size.width * 0.52f), Offset(size.width * 0.02f, size.height * 0.10f), Size(size.width * 0.96f, size.height * 0.82f), CornerRadius(size.height * 0.40f, size.height * 0.40f), blendMode = BlendMode.Plus)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF4FA7).copy(alpha = outer * active * prism * 0.10f), Color(0xFF80FFD8).copy(alpha = outer * active * prism * 0.08f), Color(0xFF78A8FF).copy(alpha = outer * active * prism * 0.06f), Color.Transparent), Offset(size.width * (0.36f + dropletPrismChannel(phase) * 0.32f), size.height * 0.32f), size.width * 0.72f), Offset(size.width * 0.01f, size.height * 0.04f), Size(size.width * 0.98f, size.height * 0.90f), CornerRadius(size.height * 0.46f, size.height * 0.46f), blendMode = BlendMode.Plus)
     }
 }
 
@@ -530,44 +563,64 @@ private fun DropletActiveOverlay(activeGlow: Float, warmGlow: Float, modifier: M
         val active = activeGlow.coerceIn(0f, 2f)
         val warm = warmGlow.coerceIn(0f, 2f)
         val radius = size.height / 2f
-        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = active * 0.21f), Color.White.copy(alpha = active * 0.038f), Color.Transparent)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF73C5).copy(alpha = active * warm * 0.20f), Color(0xFFFFB06C).copy(alpha = active * warm * 0.055f), Color.Transparent), Offset(size.width * 0.50f, size.height * 1.03f), size.width * 0.42f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = active * 0.18f), Color.White.copy(alpha = active * 0.030f), Color.Transparent)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF73C5).copy(alpha = active * warm * 0.12f), Color(0xFFFFB06C).copy(alpha = active * warm * 0.040f), Color.Transparent), Offset(size.width * 0.50f, size.height * 1.03f), size.width * 0.42f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
     }
 }
 
 @Composable
-private fun DropletPrismOverlay(activeGlow: Float, energy: Float, phase: Float, modifier: Modifier = Modifier) {
+private fun DropletPrismOverlay(activeGlow: Float, energy: Float, phase: Float, prismStrength: Float, lightX: Float, shimmer: Float, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val active = activeGlow.coerceIn(0f, 2f)
-        val e = energy.coerceIn(0f, 1.25f)
-        if (active <= 0.001f || e <= 0.001f) return@Canvas
+        val e = energy.coerceIn(0f, 1.35f)
+        val prism = prismStrength.coerceIn(0f, 3f)
+        if (active <= 0.001f || e <= 0.001f || prism <= 0.001f) return@Canvas
         val radius = size.height / 2f
-        val shift = (phase - phase.toInt()) * size.width * 0.52f
+        val sweep = (phase - phase.toInt()) * size.width * 0.72f
+        val alpha = (active * e * prism).coerceIn(0f, 4f)
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFFFF4FA7).copy(alpha = active * e * 0.12f),
-                    Color(0xFFFFD46A).copy(alpha = active * e * 0.09f),
-                    Color(0xFF75FFD8).copy(alpha = active * e * 0.12f),
-                    Color(0xFF78A8FF).copy(alpha = active * e * 0.10f),
-                    Color(0xFFC77DFF).copy(alpha = active * e * 0.12f)
+                    Color(0xFFFF2E93).copy(alpha = alpha * 0.105f),
+                    Color(0xFFFFD84D).copy(alpha = alpha * 0.090f),
+                    Color(0xFF55FFD6).copy(alpha = alpha * 0.115f),
+                    Color(0xFF4F89FF).copy(alpha = alpha * 0.110f),
+                    Color(0xFFC05CFF).copy(alpha = alpha * 0.125f)
                 ),
-                start = Offset(-size.width * 0.32f + shift, 0f),
-                end = Offset(size.width * 0.98f + shift, size.height)
+                start = Offset(-size.width * 0.52f + sweep, -size.height * 0.12f),
+                end = Offset(size.width * 1.12f + sweep, size.height * 1.08f)
             ),
             cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Plus
         )
         drawRoundRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color.Transparent, Color.White.copy(alpha = active * e * 0.18f), Color.Transparent),
-                start = Offset(size.width * (0.10f + shift / size.width), 0f),
-                end = Offset(size.width * (0.74f + shift / size.width), size.height * 0.30f)
+                colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * (0.13f + shimmer * 0.07f)), Color(0xFF9EFFF0).copy(alpha = alpha * 0.060f), Color.Transparent),
+                start = Offset(size.width * (lightX - 0.36f), size.height * 0.02f),
+                end = Offset(size.width * (lightX + 0.34f), size.height * 0.34f)
             ),
-            topLeft = Offset(size.width * 0.08f, size.height * 0.08f),
-            size = Size(size.width * 0.84f, size.height * 0.42f),
+            topLeft = Offset(size.width * 0.05f, size.height * 0.06f),
+            size = Size(size.width * 0.90f, size.height * 0.46f),
             cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White.copy(alpha = alpha * 0.11f), Color(0xFFFF4FA7).copy(alpha = alpha * 0.070f), Color(0xFF57FFE2).copy(alpha = alpha * 0.052f), Color.Transparent),
+                center = Offset(size.width * lightX, size.height * (0.34f + shimmer * 0.30f)),
+                radius = size.width * (0.18f + shimmer * 0.30f)
+            ),
+            cornerRadius = CornerRadius(radius, radius),
+            blendMode = BlendMode.Plus
+        )
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFF0A8).copy(alpha = alpha * 0.035f), Color.Transparent, Color(0xFF69FFE8).copy(alpha = alpha * 0.045f), Color.Transparent),
+                start = Offset(size.width * 0.08f, size.height * 0.92f),
+                end = Offset(size.width * 0.92f, size.height * 0.08f)
+            ),
+            cornerRadius = CornerRadius(radius, radius),
+            blendMode = BlendMode.Plus
         )
     }
 }
