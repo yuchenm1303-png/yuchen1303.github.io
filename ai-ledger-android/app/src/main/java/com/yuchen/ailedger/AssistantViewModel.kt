@@ -37,14 +37,7 @@ class AssistantViewModel(
     private val aiWorkerClient: AiWorkerClient,
     private val customBackgroundStore: CustomBackgroundStore
 ) : AndroidViewModel(application) {
-
-    constructor(application: Application) : this(
-        application = application,
-        repository = PreviewAssistantRepository(),
-        preferencesStore = AssistantPreferencesStore(application),
-        aiWorkerClient = AiWorkerClient(),
-        customBackgroundStore = CustomBackgroundStore(application)
-    )
+    constructor(application: Application) : this(application, PreviewAssistantRepository(), AssistantPreferencesStore(application), AiWorkerClient(), CustomBackgroundStore(application))
 
     var uiState by mutableStateOf(repository.initialState())
         private set
@@ -66,8 +59,7 @@ class AssistantViewModel(
         }
     }
 
-    val aiEndpoint: String
-        get() = aiWorkerClient.endpoint
+    val aiEndpoint: String get() = aiWorkerClient.endpoint
 
     fun selectTab(tab: AppTab) { uiState = uiState.copy(currentTab = tab) }
     fun openTool(title: String) { uiState = uiState.copy(selectedToolTitle = title) }
@@ -82,25 +74,13 @@ class AssistantViewModel(
         val amount = uiState.ledgerDraftAmount.toFloatOrNull() ?: return
         val title = uiState.ledgerDraftTitle.trim().ifBlank { if (uiState.ledgerDraftType == LedgerRecordType.Income) "未命名收入" else "未命名支出" }
         if (amount <= 0f) return
-        val record = LedgerRecord(
-            id = "record-${System.currentTimeMillis()}",
-            title = title.take(24),
-            amount = amount,
-            type = uiState.ledgerDraftType,
-            category = uiState.ledgerDraftCategory,
-            dateLabel = "今天"
-        )
-        uiState = uiState.copy(
-            ledgerRecords = listOf(record) + uiState.ledgerRecords,
-            ledgerDraftTitle = "",
-            ledgerDraftAmount = ""
-        )
+        val record = LedgerRecord("record-${System.currentTimeMillis()}", title.take(24), amount, uiState.ledgerDraftType, uiState.ledgerDraftCategory, "今天")
+        uiState = uiState.copy(ledgerRecords = listOf(record) + uiState.ledgerRecords, ledgerDraftTitle = "", ledgerDraftAmount = "")
         appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。", source = "local_ledger")
     }
 
     fun deleteLedgerRecord(id: String) { uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id }) }
     fun updateComposer(text: String) { uiState = uiState.copy(composerText = text) }
-
     fun submitComposer() {
         val text = uiState.composerText.trim()
         if (text.isBlank() || uiState.isSending) return
@@ -110,17 +90,9 @@ class AssistantViewModel(
     fun sendUserCommand(text: String) {
         val cleanText = text.trim()
         if (cleanText.isBlank() || uiState.isSending) return
-
         val now = System.currentTimeMillis()
         val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
-        val pendingMessage = ChatMessage(
-            id = "assistant-${now + 1}",
-            text = "正在思考…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "cloud_ai",
-            modelLabel = uiState.selectedModel.label
-        )
+        val pendingMessage = ChatMessage(id = "assistant-${now + 1}", text = "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         val requestMessages = uiState.messages + userMessage
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages, pendingMessage)
@@ -132,14 +104,7 @@ class AssistantViewModel(
         if (assistantIndex <= 0) return
         val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() } ?: return
         val requestMessages = uiState.messages.take(assistantIndex)
-        val pendingMessage = ChatMessage(
-            id = "assistant-${System.currentTimeMillis()}",
-            text = "正在重新生成…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "cloud_ai",
-            modelLabel = uiState.selectedModel.label
-        )
+        val pendingMessage = ChatMessage(id = "assistant-${System.currentTimeMillis()}", text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage)
     }
@@ -148,44 +113,18 @@ class AssistantViewModel(
         val selectedModel = uiState.selectedModel
         val onlineEnabled = uiState.onlineEnabled
         viewModelScope.launch {
-            val result = runCatching {
-                withContext(Dispatchers.IO) {
-                    aiWorkerClient.sendChat(messages = requestMessages, modelPreference = selectedModel, onlineEnabled = onlineEnabled)
-                }
-            }
-
+            val result = runCatching { withContext(Dispatchers.IO) { aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled) } }
             result.onSuccess { response ->
-                replaceMessage(
-                    id = pendingMessage.id,
-                    next = pendingMessage.copy(
-                        text = response.reply,
-                        status = MessageStatus.Sent,
-                        source = response.source,
-                        model = response.model,
-                        modelLabel = response.modelLabel ?: selectedModel.label,
-                        version = response.version,
-                        errorText = null
-                    )
-                )
+                replaceMessage(pendingMessage.id, pendingMessage.copy(text = response.reply, status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null))
             }.onFailure { error ->
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
-                replaceMessage(
-                    id = pendingMessage.id,
-                    next = pendingMessage.copy(
-                        text = friendly,
-                        status = MessageStatus.Failed,
-                        source = "cloud_fetch_failed",
-                        modelLabel = selectedModel.label,
-                        errorText = friendly
-                    )
-                )
+                replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
             }
             uiState = uiState.copy(isSending = false)
         }
     }
 
     fun insertCommandDraft(text: String) { uiState = uiState.copy(composerText = text) }
-
     fun cycleModel() {
         if (uiState.isSending) return
         val next = when (uiState.selectedModel) {
@@ -197,73 +136,32 @@ class AssistantViewModel(
         }
         selectModel(next)
     }
-
     fun selectModel(model: ChatModel) {
         if (uiState.isSending) return
         uiState = uiState.copy(selectedModel = model, selectedModelLabel = model.label)
         appendAssistantNotice("已切换为 ${model.label}。", source = "local")
     }
-
     fun toggleOnline() {
         if (uiState.isSending) return
         val enabled = !uiState.onlineEnabled
         uiState = uiState.copy(onlineEnabled = enabled)
-        appendAssistantNotice(text = if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
+        appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
     }
-
-    fun clearChat() {
-        if (uiState.isSending) return
-        uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false)
-    }
-
-    fun onImagePickedForAssistant(uri: Uri?) {
-        if (uri == null) return
-        appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local")
-    }
-
+    fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false) }
+    fun onImagePickedForAssistant(uri: Uri?) { if (uri != null) appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local") }
     fun appendAssistantNotice(text: String, source: String? = null) {
-        uiState = uiState.copy(
-            messages = uiState.messages + ChatMessage(
-                id = "assistant-${System.currentTimeMillis()}",
-                text = text,
-                role = MessageRole.Assistant,
-                source = source,
-                modelLabel = sourceLabel(source)
-            )
-        )
+        uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = "assistant-${System.currentTimeMillis()}", text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
     }
-
-    private fun replaceMessage(id: String, next: ChatMessage) {
-        uiState = uiState.copy(messages = uiState.messages.map { message -> if (message.id == id) next else message })
-    }
-
-    private fun sourceLabel(source: String?): String? = when (source) {
-        "local" -> "本地"
-        "local_ledger" -> "本地记账"
-        "cloud_fetch_failed" -> "云端连接失败"
-        else -> null
-    }
-
+    private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
+    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
 
-    fun selectQuality(quality: RenderQuality) {
-        uiState = uiState.copy(quality = quality)
-        viewModelScope.launch { preferencesStore.setRenderQuality(quality) }
-    }
-
-    fun setShowPreviewConversation(showPreviewConversation: Boolean) {
-        uiState = uiState.copy(showPreviewConversation = showPreviewConversation)
-        viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) }
-    }
-
+    fun selectQuality(quality: RenderQuality) { uiState = uiState.copy(quality = quality); viewModelScope.launch { preferencesStore.setRenderQuality(quality) } }
+    fun setShowPreviewConversation(showPreviewConversation: Boolean) { uiState = uiState.copy(showPreviewConversation = showPreviewConversation); viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) } }
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
         uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = BUILTIN_THEME_BACKGROUND_PATH)
-        viewModelScope.launch {
-            preferencesStore.setBackgroundTheme(backgroundTheme)
-            preferencesStore.setCustomBackgroundPath(null)
-        }
+        viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme); preferencesStore.setCustomBackgroundPath(null) }
     }
-
     fun importCustomBackground(uri: Uri) {
         viewModelScope.launch {
             val savedPath = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }
@@ -271,28 +169,17 @@ class AssistantViewModel(
             preferencesStore.setCustomBackgroundPath(savedPath)
         }
     }
-
     fun clearCustomBackground() {
         uiState = uiState.copy(customBackgroundPath = null)
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }
-            preferencesStore.setCustomBackgroundPath(null)
-        }
+        viewModelScope.launch { withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }; preferencesStore.setCustomBackgroundPath(null) }
     }
-
     fun setBackdropDebugParams(params: BackdropDebugParams) { uiState = uiState.copy(backdropParams = params) }
     fun updateBackdropDebugParams(block: (BackdropDebugParams) -> BackdropDebugParams) { setBackdropDebugParams(block(uiState.backdropParams)) }
     fun setGlassBorderStyle(style: GlassBorderStyle) { uiState = uiState.copy(glassBorderStyle = style) }
     fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) { setGlassBorderStyle(block(uiState.glassBorderStyle)) }
 
     fun setRainbowPrismStyle(style: RainbowPrismStyle) {
-        val clamped = RainbowPrismStyle(
-            overall = style.overall.coerceIn(0f, 2f),
-            edgeHighlight = style.edgeHighlight.coerceIn(0f, 2f),
-            diagonalSweep = style.diagonalSweep.coerceIn(0f, 2f),
-            topCoating = style.topCoating.coerceIn(0f, 2f),
-            rainbowHalo = style.rainbowHalo.coerceIn(0f, 2f)
-        )
+        val clamped = RainbowPrismStyle(style.overall.coerceIn(0f, 2f), style.edgeHighlight.coerceIn(0f, 2f), style.diagonalSweep.coerceIn(0f, 2f), style.rainbowHalo.coerceIn(0f, 2f))
         uiState = uiState.copy(rainbowPrismStyle = clamped)
         viewModelScope.launch { preferencesStore.setRainbowPrismStyle(clamped) }
     }
@@ -302,27 +189,14 @@ class AssistantViewModel(
         uiState = uiState.copy(glassIntensity = clamped, glassPreset = detectPreset(clamped, uiState.motionIntensity))
         viewModelScope.launch { preferencesStore.setGlassIntensity(clamped) }
     }
-
     fun setMotionIntensity(value: Float) {
         val clamped = value.coerceIn(0f, 1.4f)
         uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped))
         viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) }
     }
-
     fun setGlassPreset(preset: GlassPreset) {
         uiState = uiState.copy(glassPreset = preset, glassIntensity = preset.glassIntensity, motionIntensity = preset.motionIntensity)
-        viewModelScope.launch {
-            preferencesStore.setGlassPreset(preset)
-            preferencesStore.setGlassIntensity(preset.glassIntensity)
-            preferencesStore.setMotionIntensity(preset.motionIntensity)
-        }
+        viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) }
     }
-
-    private fun detectPreset(glass: Float, motion: Float): GlassPreset {
-        return GlassPreset.entries.minByOrNull {
-            val dg = glass - it.glassIntensity
-            val dm = motion - it.motionIntensity
-            dg * dg + dm * dm
-        } ?: GlassPreset.Liquid
-    }
+    private fun detectPreset(glass: Float, motion: Float): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
 }
