@@ -148,27 +148,31 @@ private fun SettingsHeader() {
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
     GlassPanel(state.quality, state.glassIntensity * 0.98f, state.motionIntensity, 30, Modifier.fillMaxWidth(), SettingsOverviewRole) {
-        FrostInfoGlassPanel(radius = 17.44f, backdropAlpha = 1f, frostAlpha = 0.075f, dimAlpha = 0f, modifier = Modifier.fillMaxWidth().height(164.dp)) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("当前状态", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                            Text("接口、画质和关键外观集中展示。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        Text(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        FrostInfoGlassPanel(radius = 17.44f, backdropAlpha = 1f, frostAlpha = 0.075f, dimAlpha = 0f, modifier = Modifier.fillMaxWidth().height(176.dp)) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("当前状态", color = Color.White, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                        Text("服务、画质与关键外观集中展示。", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Text(if (aiEndpoint.isBlank()) "本地优先" else "云端已配置", color = Color.White.copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                SettingsTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = 0.12f)
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         SettingsFrostMetric("服务", if (aiEndpoint.isBlank()) "本地" else "已连接", Modifier.weight(1f))
-                        SettingsFrostMetric("画质", qualityLabel(state.quality), Modifier.weight(1f))
-                        SettingsFrostMetric("背景", themeLabel(state.backgroundTheme), Modifier.weight(1f))
+                        SettingsTileHairline(Modifier.size(1.dp, 38.dp), alpha = 0.10f)
+                        SettingsFrostMetric("画质", qualityLabel(state.quality), Modifier.weight(1f).padding(start = 10.dp))
+                        SettingsTileHairline(Modifier.size(1.dp, 38.dp), alpha = 0.10f)
+                        SettingsFrostMetric("背景", themeLabel(state.backgroundTheme), Modifier.weight(1f).padding(start = 10.dp))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    SettingsTileHairline(Modifier.fillMaxWidth().height(1.dp), alpha = 0.08f)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         SettingsFrostMetric("玻璃", glassPresetLabel(state.glassPreset), Modifier.weight(1f))
-                        SettingsFrostMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
-                        SettingsFrostMetric("OpenGL", "隔离", Modifier.weight(1f))
+                        SettingsTileHairline(Modifier.size(1.dp, 38.dp), alpha = 0.10f)
+                        SettingsFrostMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f).padding(start = 10.dp))
+                        SettingsTileHairline(Modifier.size(1.dp, 38.dp), alpha = 0.10f)
+                        SettingsFrostMetric("OpenGL", "隔离", Modifier.weight(1f).padding(start = 10.dp))
                     }
                 }
             }
@@ -178,9 +182,9 @@ private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
 
 @Composable
 private fun SettingsFrostMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(label, color = Color.White.copy(alpha = 0.50f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(modifier.height(40.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(value, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, lineHeight = 21.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
