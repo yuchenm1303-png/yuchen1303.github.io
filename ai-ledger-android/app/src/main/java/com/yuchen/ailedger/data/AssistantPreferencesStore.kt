@@ -34,9 +34,7 @@ data class AssistantPreferences(
     val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle()
 )
 
-class AssistantPreferencesStore(
-    private val context: Context
-) {
+class AssistantPreferencesStore(private val context: Context) {
     private var pendingThemeSelection = false
 
     private object Keys {
@@ -50,37 +48,29 @@ class AssistantPreferencesStore(
         val rainbowOverall = floatPreferencesKey("rainbow_overall")
         val rainbowEdgeHighlight = floatPreferencesKey("rainbow_edge_highlight")
         val rainbowDiagonalSweep = floatPreferencesKey("rainbow_diagonal_sweep")
-        val rainbowTopCoating = floatPreferencesKey("rainbow_top_coating")
         val rainbowHalo = floatPreferencesKey("rainbow_halo")
     }
 
-    val preferencesFlow: Flow<AssistantPreferences> =
-        context.assistantPreferencesDataStore.data
-            .catch { error ->
-                if (error is IOException) emit(emptyPreferences()) else throw error
-            }
-            .map { preferences ->
-                val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
-                AssistantPreferences(
-                    quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
-                        ?: RenderQuality.Balanced,
-                    showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
-                    glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage)
-                        ?: GlassPreset.Liquid,
-                    backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
-                        ?: BackgroundTheme.Aurora,
-                    customBackgroundPath = customPath,
-                    glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
-                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
-                    rainbowPrismStyle = RainbowPrismStyle(
-                        overall = (preferences[Keys.rainbowOverall] ?: 1f).coerceIn(0f, 2f),
-                        edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: 0f).coerceIn(0f, 2f),
-                        diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: 1f).coerceIn(0f, 2f),
-                        topCoating = (preferences[Keys.rainbowTopCoating] ?: 1f).coerceIn(0f, 2f),
-                        rainbowHalo = (preferences[Keys.rainbowHalo] ?: 1f).coerceIn(0f, 2f)
-                    )
+    val preferencesFlow: Flow<AssistantPreferences> = context.assistantPreferencesDataStore.data
+        .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+        .map { preferences ->
+            val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
+            AssistantPreferences(
+                quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage) ?: RenderQuality.Balanced,
+                showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
+                glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage) ?: GlassPreset.Liquid,
+                backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage) ?: BackgroundTheme.Aurora,
+                customBackgroundPath = customPath,
+                glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
+                motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
+                rainbowPrismStyle = RainbowPrismStyle(
+                    overall = (preferences[Keys.rainbowOverall] ?: 1f).coerceIn(0f, 2f),
+                    edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: 1f).coerceIn(0f, 2f),
+                    diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: 1f).coerceIn(0f, 2f),
+                    rainbowHalo = (preferences[Keys.rainbowHalo] ?: 1f).coerceIn(0f, 2f)
                 )
-            }
+            )
+        }
 
     suspend fun setRenderQuality(quality: RenderQuality) {
         context.assistantPreferencesDataStore.edit { it[Keys.renderQuality] = quality.storageValue }
@@ -113,15 +103,11 @@ class AssistantPreferencesStore(
     }
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
-        context.assistantPreferencesDataStore.edit {
-            it[Keys.glassIntensity] = glassIntensity.coerceIn(0.6f, 1.4f)
-        }
+        context.assistantPreferencesDataStore.edit { it[Keys.glassIntensity] = glassIntensity.coerceIn(0.6f, 1.4f) }
     }
 
     suspend fun setMotionIntensity(motionIntensity: Float) {
-        context.assistantPreferencesDataStore.edit {
-            it[Keys.motionIntensity] = motionIntensity.coerceIn(0f, 1.4f)
-        }
+        context.assistantPreferencesDataStore.edit { it[Keys.motionIntensity] = motionIntensity.coerceIn(0f, 1.4f) }
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
@@ -129,7 +115,6 @@ class AssistantPreferencesStore(
             it[Keys.rainbowOverall] = style.overall.coerceIn(0f, 2f)
             it[Keys.rainbowEdgeHighlight] = style.edgeHighlight.coerceIn(0f, 2f)
             it[Keys.rainbowDiagonalSweep] = style.diagonalSweep.coerceIn(0f, 2f)
-            it[Keys.rainbowTopCoating] = style.topCoating.coerceIn(0f, 2f)
             it[Keys.rainbowHalo] = style.rainbowHalo.coerceIn(0f, 2f)
         }
     }
