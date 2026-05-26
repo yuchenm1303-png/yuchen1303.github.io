@@ -117,11 +117,7 @@ private fun ToolsHomeV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
         item { AnimatedAppear(delayMs = 0) { ToolsHeaderV2() } }
         item { AnimatedAppear(delayMs = 55) { ToolsHeroV2(state, onOpenTool) } }
         item { AnimatedAppear(delayMs = 100) { PrimaryToolRowV2(state, onOpenTool) } }
-        itemsIndexed(toolEntriesV2(state), key = { _, item -> item.title }) { index, tool ->
-            AnimatedAppear(delayMs = 145L + index * 42L) {
-                ToolCardV2(tool = tool, state = state, onClick = { onOpenTool(displayToolTitleV2(tool.title)) })
-            }
-        }
+        item { AnimatedAppear(delayMs = 145) { ToolListShellV2(state, onOpenTool) } }
     }
 }
 
@@ -187,6 +183,33 @@ private fun PrimaryToolRowV2(state: AssistantUiState, onOpenTool: (String) -> Un
         QuickToolPillV2("账单", "明细", "账单中心", state, Modifier.weight(1f), onOpenTool)
         QuickToolPillV2("提醒", "待接入", "提醒闹钟", state, Modifier.weight(1f), onOpenTool)
         QuickToolPillV2("应用", "打开", "应用控制", state, Modifier.weight(1f), onOpenTool)
+    }
+}
+
+@Composable
+private fun ToolListShellV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
+    val tools = toolEntriesV2(state)
+    OpenGlShellGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.96f,
+        motionIntensity = state.motionIntensity,
+        radius = 32,
+        modifier = Modifier.fillMaxWidth(),
+        mood = OpenGlShellMood.List,
+        forceOpenGl = true
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            tools.forEachIndexed { index, tool ->
+                AnimatedAppear(delayMs = index * 36L) {
+                    ToolCardV2(tool = tool, state = state, onClick = { onOpenTool(displayToolTitleV2(tool.title)) })
+                }
+            }
+        }
     }
 }
 
