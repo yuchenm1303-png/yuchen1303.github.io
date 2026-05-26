@@ -47,7 +47,9 @@ class AssistantPreferencesStore(private val context: Context) {
         val motionIntensity = floatPreferencesKey("motion_intensity")
         val rainbowOverall = floatPreferencesKey("rainbow_overall")
         val rainbowEdgeHighlight = floatPreferencesKey("rainbow_edge_highlight")
-        val rainbowDiagonalSweep = floatPreferencesKey("rainbow_diagonal_sweep")
+        val rainbowSweepMin = floatPreferencesKey("rainbow_sweep_min")
+        val rainbowSweepMax = floatPreferencesKey("rainbow_sweep_max")
+        val legacyRainbowDiagonalSweep = floatPreferencesKey("rainbow_diagonal_sweep")
         val rainbowHalo = floatPreferencesKey("rainbow_halo")
     }
 
@@ -56,6 +58,11 @@ class AssistantPreferencesStore(private val context: Context) {
         .map { preferences ->
             val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
             val preset = RainbowPrismStyle()
+            val legacySweep = preferences[Keys.legacyRainbowDiagonalSweep]
+            val rawMin = preferences[Keys.rainbowSweepMin] ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) } ?: preset.sweepMin
+            val rawMax = preferences[Keys.rainbowSweepMax] ?: legacySweep?.let { it.coerceIn(0f, 2f) } ?: preset.sweepMax
+            val sweepMin = minOf(rawMin, rawMax).coerceIn(0f, 2f)
+            val sweepMax = maxOf(rawMin, rawMax).coerceIn(0f, 2f)
             AssistantPreferences(
                 quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage) ?: RenderQuality.Balanced,
                 showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
@@ -67,7 +74,8 @@ class AssistantPreferencesStore(private val context: Context) {
                 rainbowPrismStyle = RainbowPrismStyle(
                     overall = (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f),
                     edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight).coerceIn(0f, 2f),
-                    diagonalSweep = (preferences[Keys.rainbowDiagonalSweep] ?: preset.diagonalSweep).coerceIn(0f, 2f),
+                    sweepMin = sweepMin,
+                    sweepMax = sweepMax,
                     rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo).coerceIn(0f, 2f)
                 )
             )
@@ -112,10 +120,13 @@ class AssistantPreferencesStore(private val context: Context) {
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
+        val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+        val maxValue = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
         context.assistantPreferencesDataStore.edit {
             it[Keys.rainbowOverall] = style.overall.coerceIn(0f, 2f)
             it[Keys.rainbowEdgeHighlight] = style.edgeHighlight.coerceIn(0f, 2f)
-            it[Keys.rainbowDiagonalSweep] = style.diagonalSweep.coerceIn(0f, 2f)
+            it[Keys.rainbowSweepMin] = minValue
+            it[Keys.rainbowSweepMax] = maxValue
             it[Keys.rainbowHalo] = style.rainbowHalo.coerceIn(0f, 2f)
         }
     }
