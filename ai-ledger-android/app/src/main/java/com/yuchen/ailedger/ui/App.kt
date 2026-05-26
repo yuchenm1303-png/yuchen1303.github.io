@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -82,7 +85,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
-                LocalGlassItemRegistry provides glassRegistry
+                LocalGlassItemRegistry provides glassRegistry,
+                LocalRainbowPrismStyle provides state.rainbowPrismStyle
             ) {
                 Box(Modifier.fillMaxSize()) {
                     WeatherNightBackground(
@@ -131,6 +135,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onBackgroundThemeChange = viewModel::setBackgroundTheme,
                                     onGlassIntensityChange = viewModel::setGlassIntensity,
                                     onMotionIntensityChange = viewModel::setMotionIntensity,
+                                    onRainbowPrismChange = viewModel::setRainbowPrismStyle,
                                     onBackdropChange = viewModel::setBackdropDebugParams,
                                     onBorderChange = viewModel::setGlassBorderStyle,
                                     onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
