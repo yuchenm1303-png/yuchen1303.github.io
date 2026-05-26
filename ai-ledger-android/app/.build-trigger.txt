@@ -1,5 +1,7 @@
 Manual APK build trigger
-Purpose: verify assistant/API push can trigger Build Compose Android APK after broadening paths.
-Trigger method: update ai-ledger-android/** path so workflow paths filter matches.
+Purpose: force Build Compose Android APK after sweep range SettingsPolishedScreen fix.
+Reason: previous visible run was built from old code that still referenced diagonalSweep.
+Trigger path: ai-ledger-android/app/.build-trigger.txt
+Workflow paths matched: ai-ledger-android/**
 App source code remains unchanged by this trigger commit.
-Triggered at: 2026-05-26T19:58:00+08:00
+Triggered at: 2026-05-26T20:12:00+08:00
