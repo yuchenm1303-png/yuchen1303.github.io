@@ -13,6 +13,8 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
 
+private const val GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS = 33_000_000L
+
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
@@ -55,7 +57,7 @@ class BackdropCoordinateSource {
 }
 
 class GlassCoordinateSource {
-    private var lastRootOffset: Offset? = null
+    private var wasAttached = false
     private var lastSize: IntSize = IntSize.Zero
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -67,18 +69,10 @@ class GlassCoordinateSource {
         }
 
     private fun syncPlacementVersion(current: LayoutCoordinates?) {
-        if (current == null || !current.isAttached) {
-            if (lastRootOffset != null || lastSize != IntSize.Zero) {
-                lastRootOffset = null
-                lastSize = IntSize.Zero
-                placementVersion = System.nanoTime()
-            }
-            return
-        }
-        val rootOffset = current.localToRoot(Offset.Zero)
-        val size = current.size
-        if (lastRootOffset != rootOffset || lastSize != size) {
-            lastRootOffset = rootOffset
+        val attached = current?.isAttached == true
+        val size = if (attached) current?.size ?: IntSize.Zero else IntSize.Zero
+        if (wasAttached != attached || lastSize != size) {
+            wasAttached = attached
             lastSize = size
             placementVersion = System.nanoTime()
         }
@@ -117,7 +111,16 @@ class GlassCoordinateSource {
 }
 
 class BackdropFrameTicker {
+    private var lastFrameNanos = 0L
     var frameNanos by mutableLongStateOf(0L)
+        private set
+
+    fun requestFrame(nowNanos: Long = System.nanoTime(), force: Boolean = false) {
+        if (force || nowNanos - lastFrameNanos >= GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS) {
+            lastFrameNanos = nowNanos
+            frameNanos = nowNanos
+        }
+    }
 }
 
 @Composable
@@ -126,7 +129,7 @@ fun SyncGlassBackdropToScroll(listState: LazyListState) {
     LaunchedEffect(listState, ticker) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect {
-                ticker.frameNanos = System.nanoTime()
+                ticker.requestFrame()
             }
     }
 }
