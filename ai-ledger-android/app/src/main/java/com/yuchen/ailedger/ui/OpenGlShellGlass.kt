@@ -38,8 +38,12 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val surfaceModifier = modifier.openGlShellMoodAura(mood = mood, motionIntensity = motionIntensity)
     val useOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
+    val surfaceModifier = if (mood == OpenGlShellMood.List) {
+        modifier
+    } else {
+        modifier.openGlShellMoodAura(mood = mood, motionIntensity = motionIntensity)
+    }
 
     if (useOpenGlShell) {
         val interaction = remember { MutableInteractionSource() }
