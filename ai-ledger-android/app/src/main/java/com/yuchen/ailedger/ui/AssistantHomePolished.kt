@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,10 +73,10 @@ import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
-import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -202,10 +203,20 @@ private fun ModelAndNetworkPanel(
         }
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-                expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) +
-                scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
-            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.97f, animationSpec = tween(150))
+            enter = fadeIn(tween(100)) +
+                expandVertically(spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow), expandFrom = Alignment.Top) +
+                scaleIn(
+                    initialScale = 0.90f,
+                    transformOrigin = TransformOrigin(0.82f, 0f),
+                    animationSpec = spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessMediumLow)
+                ),
+            exit = fadeOut(tween(120)) +
+                shrinkVertically(tween(170, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) +
+                scaleOut(
+                    targetScale = 0.94f,
+                    transformOrigin = TransformOrigin(0.82f, 0f),
+                    animationSpec = tween(170, easing = FastOutSlowInEasing)
+                )
         ) {
             ModelChooserSheet(
                 state = state,
@@ -220,28 +231,167 @@ private fun ModelAndNetworkPanel(
 
 @Composable
 private fun ModelSelectorChip(state: AssistantUiState, expanded: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val arrowRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-arrow-bounce"
+    val transition = rememberInfiniteTransition(label = "model-folder-stack-loop")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(5200, easing = LinearEasing), RepeatMode.Restart),
+        label = "model-folder-stack-phase"
+    )
+    val expandedProgress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-folder-stack-expand"
     )
     PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Chip, onClick = onClick) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            Text("AI", color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("模型", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(state.selectedModel.label, color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (state.isSending) {
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
-            } else {
-                Text("⌄", color = Color.White.copy(alpha = 0.62f), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.graphicsLayer { rotationZ = arrowRotation })
+        Box(Modifier.fillMaxSize()) {
+            ModelSelectorChipOptics(phase, expandedProgress, state.motionIntensity)
+            Row(
+                Modifier.fillMaxSize().padding(start = 14.dp, end = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Text("AI", color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text("模型", color = Color.White.copy(alpha = 0.46f + expandedProgress * 0.10f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(state.selectedModel.label, color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (state.isSending) {
+                    ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
+                } else {
+                    FoldedModelCardStack(
+                        models = ChatModel.entries,
+                        selected = state.selectedModel,
+                        expandedProgress = expandedProgress,
+                        phase = phase
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ModelSelectorChipOptics(phase: Float, expandedProgress: Float, motionIntensity: Float) {
+    Canvas(Modifier.fillMaxSize()) {
+        val w = size.width.coerceAtLeast(1f)
+        val h = size.height.coerceAtLeast(1f)
+        val motion = motionIntensity.coerceIn(0f, 1.2f)
+        val cycle = phase * 2f * PI.toFloat()
+        val corner = CornerRadius(h / 2f, h / 2f)
+        val power = (0.70f + expandedProgress * 0.66f) * motion
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF8DF9EA).copy(alpha = 0.045f * power),
+                    Color(0xFF8CA0FF).copy(alpha = 0.038f * power),
+                    Color.Transparent
+                ),
+                center = Offset(w * (0.78f + 0.08f * sin(cycle)), h * (0.42f + 0.12f * cos(cycle * 0.7f))),
+                radius = w * 0.42f
+            ),
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFFF72DC).copy(alpha = 0.040f * power),
+                    Color(0xFFFFE08A).copy(alpha = 0.036f * power),
+                    Color(0xFF7DFFF0).copy(alpha = 0.050f * power),
+                    Color.Transparent
+                ),
+                start = Offset(w * (phase - 0.52f), -h * 0.2f),
+                end = Offset(w * (phase + 0.36f), h * 1.15f)
+            ),
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Plus
+        )
+    }
+}
+
+@Composable
+private fun FoldedModelCardStack(models: List<ChatModel>, selected: ChatModel, expandedProgress: Float, phase: Float) {
+    val pulse = ((sin(phase * 2f * PI.toFloat()) + 1f) * 0.5f).coerceIn(0f, 1f)
+    Box(
+        modifier = Modifier
+            .size(width = 42.dp, height = 34.dp)
+            .graphicsLayer {
+                scaleX = 1f + pulse * 0.022f + expandedProgress * 0.060f
+                scaleY = 1f + pulse * 0.018f - expandedProgress * 0.030f
+                translationY = expandedProgress * 3.0f
+                rotationZ = expandedProgress * 4.0f
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        val preview = buildList {
+            add(selected)
+            models.filter { it != selected }.take(3).forEach { add(it) }
+        }
+        preview.take(4).reversed().forEachIndexed { reversedIndex, model ->
+            val stackIndex = 3 - reversedIndex
+            val offsetX = (stackIndex * -3).dp
+            val offsetY = (stackIndex * 2).dp
+            val alpha = 0.42f + stackIndex * 0.14f
+            MiniStackCard(
+                model = model,
+                selected = model == selected,
+                alpha = alpha,
+                modifier = Modifier
+                    .size(width = 30.dp, height = 23.dp)
+                    .graphicsLayer {
+                        translationX = offsetX.toPx()
+                        translationY = offsetY.toPx()
+                        rotationZ = -5f + stackIndex * 2.8f + expandedProgress * (stackIndex - 1.5f) * 4f
+                    }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MiniStackCard(model: ChatModel, selected: Boolean, alpha: Float, modifier: Modifier) {
+    Box(modifier.clip(RoundedCornerShape(8.dp))) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width.coerceAtLeast(1f)
+            val h = size.height.coerceAtLeast(1f)
+            val corner = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    colors = if (selected) listOf(
+                        Color(0xFF8DF9EA).copy(alpha = 0.42f * alpha),
+                        Color(0xFF9FA8FF).copy(alpha = 0.34f * alpha),
+                        Color(0xFFFF82DF).copy(alpha = 0.22f * alpha)
+                    ) else listOf(
+                        Color.White.copy(alpha = 0.18f * alpha),
+                        Color(0xFF8096FF).copy(alpha = 0.20f * alpha),
+                        Color(0xFF101A42).copy(alpha = 0.52f * alpha)
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h)
+                ),
+                size = Size(w, h),
+                cornerRadius = corner,
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = if (selected) 0.25f else 0.12f),
+                size = Size(w, h),
+                cornerRadius = corner,
+                style = Stroke(width = 0.7.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
+        }
+        Text(
+            text = model.shortLabel.take(1),
+            color = Color.White.copy(alpha = if (selected) 0.88f else 0.54f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 
@@ -265,55 +415,189 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
 
 @Composable
 private fun ModelChooserSheet(state: AssistantUiState, onSelected: (ChatModel) -> Unit) {
+    val transition = rememberInfiniteTransition(label = "model-folder-sheet-loop")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(6800, easing = LinearEasing), RepeatMode.Restart),
+        label = "model-folder-sheet-phase"
+    )
     GlassPanel(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("选择模型", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Text("点一下立即切换，发送时会使用当前模型。", color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, maxLines = 1)
-                }
-                Text(if (state.onlineEnabled) "联网模式" else "本地/云端默认", color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            ChatModel.entries.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    row.forEach { model ->
-                        ModelOptionCard(model = model, selected = model == state.selectedModel, state = state, modifier = Modifier.weight(1f)) { onSelected(model) }
+        Box(Modifier.fillMaxWidth().modelChooserSurfaceOptics(phase, state.motionIntensity)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("选择模型", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        Text("折叠卡片展开成模型气泡，点一下立即切换。", color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                    Text(if (state.onlineEnabled) "联网模式" else "本地/云端默认", color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                ChatModel.entries.chunked(2).forEachIndexed { rowIndex, row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        row.forEachIndexed { columnIndex, model ->
+                            val index = rowIndex * 2 + columnIndex
+                            ModelOptionCard(
+                                model = model,
+                                selected = model == state.selectedModel,
+                                index = index,
+                                state = state,
+                                modifier = Modifier.weight(1f)
+                            ) { onSelected(model) }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun ModelOptionCard(model: ChatModel, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val pop by animateFloatAsState(
-        targetValue = if (selected) 1.0f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow),
-        label = "model-option-pop"
+private fun Modifier.modelChooserSurfaceOptics(phase: Float, motionIntensity: Float): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val motion = motionIntensity.coerceIn(0f, 1.2f)
+    val cycle = phase * 2f * PI.toFloat()
+    val corner = CornerRadius(26.dp.toPx(), 26.dp.toPx())
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF8DF9EA).copy(alpha = 0.050f * motion),
+                Color(0xFF7D8DFF).copy(alpha = 0.038f * motion),
+                Color.Transparent
+            ),
+            center = Offset(w * (0.78f + 0.08f * cos(cycle)), h * (0.24f + 0.10f * sin(cycle))),
+            radius = maxOf(w, h) * 0.54f
+        ),
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
     )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF72DC).copy(alpha = 0.040f * motion),
+                Color(0xFFFFE08A).copy(alpha = 0.034f * motion),
+                Color(0xFF7DFFF0).copy(alpha = 0.052f * motion),
+                Color.Transparent
+            ),
+            start = Offset(w * (phase - 0.60f), -h * 0.12f),
+            end = Offset(w * (phase + 0.38f), h * 1.10f)
+        ),
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Plus
+    )
+    drawContent()
+}
+
+@Composable
+private fun ModelOptionCard(model: ChatModel, selected: Boolean, index: Int, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
+    var visible by remember(model) { mutableStateOf(false) }
+    LaunchedEffect(model) {
+        delay(48L * index)
+        visible = true
+    }
+    val reveal by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-option-folder-reveal"
+    )
+    val transition = rememberInfiniteTransition(label = "model-option-${model.id}")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(if (selected) 2600 else 4600, easing = LinearEasing), RepeatMode.Restart),
+        label = "model-option-phase-${model.id}"
+    )
+    val pulse = if (selected) ((sin(phase * 2f * PI.toFloat()) + 1f) * 0.5f).coerceIn(0f, 1f) else 0f
+    val settle = reveal.coerceIn(0f, 1f)
+    val overshoot = ((reveal - 1f) / 0.10f).coerceIn(0f, 1f)
+    val flyX = if (index % 2 == 0) 92f else 32f
+    val flyY = -76f + index * 9f
     PressableGlass(
         state.quality,
-        state.glassIntensity * if (selected) 1.08f else 0.92f,
+        state.glassIntensity * if (selected) 1.10f else 0.92f,
         state.motionIntensity,
         22,
-        modifier.height(58.dp).graphicsLayer { scaleX = pop; scaleY = pop },
+        modifier
+            .height(58.dp)
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(0.86f, 0.12f)
+                alpha = settle
+                translationX = (1f - settle) * flyX
+                translationY = (1f - settle) * flyY - pulse * 0.8f
+                scaleX = 0.62f + settle * 0.38f + overshoot * 0.032f + pulse * 0.010f
+                scaleY = 0.60f + settle * 0.40f - overshoot * 0.020f + pulse * 0.008f
+                rotationZ = (1f - settle) * (if (index % 2 == 0) 8f else -5f)
+            },
         if (selected) GlassRole.Floating else GlassRole.Chip,
         onClick = onClick
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                Modifier
-                    .size(if (selected) 9.dp else 7.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.34f))
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(model.id, color = Color.White.copy(alpha = 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.fillMaxSize().modelOptionPrism(selected, pulse, state.motionIntensity)) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val dot = if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.34f)
+                        drawCircle(
+                            color = dot.copy(alpha = if (selected) 0.86f + pulse * 0.14f else 0.42f),
+                            radius = size.minDimension * if (selected) (0.34f + pulse * 0.08f) else 0.25f,
+                            center = Offset(size.width / 2f, size.height / 2f),
+                            blendMode = BlendMode.Screen
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.98f else 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(model.id, color = Color.White.copy(alpha = if (selected) 0.48f else 0.36f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
+    }
+}
+
+private fun Modifier.modelOptionPrism(selected: Boolean, pulse: Float, motionIntensity: Float): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val motion = motionIntensity.coerceIn(0f, 1.2f)
+    val corner = CornerRadius(22.dp.toPx(), 22.dp.toPx())
+    if (selected) {
+        val power = (0.78f + pulse * 0.46f) * motion
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF8DFFF3).copy(alpha = 0.085f * power),
+                    Color(0xFFFF78E2).copy(alpha = 0.045f * power),
+                    Color.Transparent
+                ),
+                center = Offset(w * 0.78f, h * 0.36f),
+                radius = maxOf(w, h) * 0.56f
+            ),
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+    }
+    drawContent()
+    if (selected) {
+        val power = (0.80f + pulse * 0.46f) * motion
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.18f * power),
+                    Color(0xFF8DF9EA).copy(alpha = 0.13f * power),
+                    Color.Transparent,
+                    Color(0xFFFF8BE8).copy(alpha = 0.060f * power)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
+            ),
+            topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
+            size = Size(w - 2.dp.toPx(), h - 2.dp.toPx()),
+            cornerRadius = corner,
+            style = Stroke(width = 0.82.dp.toPx() + pulse * 0.42.dp.toPx()),
+            blendMode = BlendMode.Plus
+        )
     }
 }
 
@@ -325,10 +609,9 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
         Box(Modifier.fillMaxSize()) {
-            ChatShellRainbowBackplate(
+            RainbowChatGlassOverlay(
                 quality = state.quality,
                 motionIntensity = state.motionIntensity,
-                style = state.rainbowPrismStyle,
                 modifier = Modifier.matchParentSize()
             )
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -347,194 +630,69 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                 }
             }
-            ChatShellRainbowRim(
-                quality = state.quality,
-                motionIntensity = state.motionIntensity,
-                style = state.rainbowPrismStyle,
-                modifier = Modifier.matchParentSize()
-            )
         }
     }
 }
 
 @Composable
-private fun ChatShellRainbowBackplate(
+private fun RainbowChatGlassOverlay(
     quality: RenderQuality,
     motionIntensity: Float,
-    style: RainbowPrismStyle,
     modifier: Modifier = Modifier
 ) {
-    val transition = rememberInfiniteTransition(label = "chat-shell-rainbow-backplate")
+    val transition = rememberInfiniteTransition(label = "chat-rainbow-glass-overlay")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(9600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "chat-shell-rainbow-backplate-phase"
+        animationSpec = infiniteRepeatable(animation = tween(7200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "chat-rainbow-overlay-phase"
     )
-    val breathPhase by transition.animateFloat(
-        initialValue = 0.37f,
-        targetValue = 1.37f,
-        animationSpec = infiniteRepeatable(animation = tween(16800, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "chat-shell-rainbow-breath-phase"
-    )
-    val motionOn = quality.enableMotion && motionIntensity > 0.02f
-    val t = if (motionOn) phase else 0.18f
-    val b = if (motionOn) breathPhase else 0.42f
-    val cycle = t * 2f * PI.toFloat()
-    val breath = chatRainbowSmoothStep(((sin(b * 2f * PI.toFloat()) + 1f) * 0.5f).coerceIn(0f, 1f))
-    val motion = motionIntensity.coerceIn(0f, 1f)
-    val overall = style.overall.coerceIn(0f, 2f)
-    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-    val sweep = minSweep + (maxSweep - minSweep) * breath
-    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
-    val halo = style.rainbowHalo.coerceIn(0f, 2f)
-    val bodyLoad = (motion * overall * (0.62f + 0.18f * sweepPower)).coerceIn(0f, 1.65f)
-    val haloLoad = (motion * overall * halo * (0.48f + 0.20f * sweepPower)).coerceIn(0f, 1.85f)
-
-    Canvas(modifier = modifier) {
-        val w = size.width.coerceAtLeast(1f)
-        val h = size.height.coerceAtLeast(1f)
-        val corner = CornerRadius(30.dp.toPx(), 30.dp.toPx())
-        val glowCenterA = Offset(w * (0.50f + 0.22f * sin(cycle)), h * (0.42f + 0.10f * sin(cycle + 1.4f)))
-        val glowCenterB = Offset(w * (0.60f + 0.18f * sin(cycle + 2.2f)), h * (0.64f + 0.08f * sin(cycle + 0.6f)))
-        val sweepX = 0.50f + 0.36f * sin(cycle + 0.8f)
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFFFF6FD6).copy(alpha = 0.050f * bodyLoad),
-                    Color(0xFFFFE08A).copy(alpha = 0.030f * bodyLoad),
-                    Color(0xFF6DFFF0).copy(alpha = 0.054f * bodyLoad),
-                    Color(0xFF91A3FF).copy(alpha = 0.038f * bodyLoad),
-                    Color.Transparent
-                ),
-                center = glowCenterA,
-                radius = maxOf(w, h) * 0.86f
-            ),
-            size = Size(w, h),
-            cornerRadius = corner,
-            blendMode = BlendMode.Screen
-        )
-        if (haloLoad > 0.001f) {
-            drawRoundRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.040f * haloLoad),
-                        Color(0xFFFFA6E7).copy(alpha = 0.056f * haloLoad),
-                        Color(0xFF77FFF2).copy(alpha = 0.050f * haloLoad),
-                        Color(0xFF9CA7FF).copy(alpha = 0.036f * haloLoad),
-                        Color.Transparent
-                    ),
-                    center = glowCenterB,
-                    radius = maxOf(w, h) * 0.58f
-                ),
-                size = Size(w, h),
-                cornerRadius = corner,
-                blendMode = BlendMode.Screen
-            )
-        }
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFFFFF0A8).copy(alpha = 0.020f * bodyLoad * sweepPower),
-                    Color(0xFF76FFF1).copy(alpha = 0.035f * bodyLoad * sweepPower),
-                    Color(0xFFFF72D2).copy(alpha = 0.024f * bodyLoad * sweepPower),
-                    Color.Transparent
-                ),
-                start = Offset(w * (sweepX - 0.52f), -h * 0.10f),
-                end = Offset(w * (sweepX + 0.52f), h * 1.10f)
-            ),
-            size = Size(w, h),
-            cornerRadius = corner,
-            blendMode = BlendMode.Screen
-        )
-    }
+    val activePhase = if (quality.enableMotion && motionIntensity > 0.02f) phase else 0.16f
+    Box(modifier.chatPanelPrismOverlay(activePhase, motionIntensity))
 }
 
-@Composable
-private fun ChatShellRainbowRim(
-    quality: RenderQuality,
-    motionIntensity: Float,
-    style: RainbowPrismStyle,
-    modifier: Modifier = Modifier
-) {
-    val transition = rememberInfiniteTransition(label = "chat-shell-rainbow-rim")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(9600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "chat-shell-rainbow-rim-phase"
-    )
-    val breathPhase by transition.animateFloat(
-        initialValue = 0.71f,
-        targetValue = 1.71f,
-        animationSpec = infiniteRepeatable(animation = tween(16800, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "chat-shell-rainbow-rim-breath-phase"
-    )
-    val motionOn = quality.enableMotion && motionIntensity > 0.02f
-    val t = if (motionOn) phase else 0.18f
-    val b = if (motionOn) breathPhase else 0.42f
-    val cycle = t * 2f * PI.toFloat()
-    val breath = chatRainbowSmoothStep(((sin(b * 2f * PI.toFloat()) + 1f) * 0.5f).coerceIn(0f, 1f))
+private fun Modifier.chatPanelPrismOverlay(phase: Float, motionIntensity: Float): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
     val motion = motionIntensity.coerceIn(0f, 1f)
-    val overall = style.overall.coerceIn(0f, 2f)
-    val edge = style.edgeHighlight.coerceIn(0f, 2f)
-    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-    val sweep = minSweep + (maxSweep - minSweep) * breath
-    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
-    val rimLoad = (motion * overall * (0.42f + edge * 0.30f + sweepPower * 0.32f)).coerceIn(0f, 1.9f)
-
-    Canvas(modifier = modifier) {
-        val w = size.width.coerceAtLeast(1f)
-        val h = size.height.coerceAtLeast(1f)
-        val inset = 0.74.dp.toPx()
-        val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
-        val corner = CornerRadius((30.dp.toPx() - inset).coerceAtLeast(1f), (30.dp.toPx() - inset).coerceAtLeast(1f))
-        val sweepX = 0.50f + 0.42f * sin(cycle)
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFFFF64D8).copy(alpha = 0.120f * rimLoad),
-                    Color(0xFFFFE27A).copy(alpha = 0.088f * rimLoad),
-                    Color(0xFF67FFF0).copy(alpha = 0.135f * rimLoad),
-                    Color(0xFF9CA7FF).copy(alpha = 0.090f * rimLoad),
-                    Color.Transparent
-                ),
-                start = Offset(w * (sweepX - 0.34f), h * -0.04f),
-                end = Offset(w * (sweepX + 0.40f), h * 1.02f)
+    val cycle = phase * 2f * PI.toFloat()
+    val sweepX = 0.50f + 0.32f * sin(cycle)
+    val glowY = 0.44f + 0.08f * sin(cycle + 1.4f)
+    val corner = CornerRadius(30.dp.toPx(), 30.dp.toPx())
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF65FFF0).copy(alpha = 0.018f * motion),
+                Color(0xFFFF8FE7).copy(alpha = 0.014f * motion),
+                Color.Transparent
             ),
-            topLeft = Offset(inset, inset),
-            size = rimSize,
-            cornerRadius = corner,
-            style = Stroke(width = 0.92.dp.toPx() + 0.46.dp.toPx() * sweepPower),
-            blendMode = BlendMode.Plus
-        )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.060f * rimLoad),
-                    Color(0xFFFFDFF7).copy(alpha = 0.030f * rimLoad),
-                    Color.Transparent,
-                    Color(0xFF000817).copy(alpha = 0.030f * rimLoad)
-                ),
-                startY = 0f,
-                endY = h
+            center = Offset(w * 0.74f, h * glowY),
+            radius = maxOf(w, h) * 0.54f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFFF0A8).copy(alpha = 0.010f * motion),
+                Color(0xFF76FFF1).copy(alpha = 0.018f * motion),
+                Color(0xFFFF72D2).copy(alpha = 0.012f * motion),
+                Color.Transparent
             ),
-            topLeft = Offset(inset, inset),
-            size = rimSize,
-            cornerRadius = corner,
-            style = Stroke(width = 0.56.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
-    }
-}
-
-private fun chatRainbowSmoothStep(value: Float): Float {
-    val x = value.coerceIn(0f, 1f)
-    return x * x * (3f - 2f * x)
+            start = Offset(w * (sweepX - 0.24f), 0f),
+            end = Offset(w * (sweepX + 0.18f), h * 0.72f)
+        ),
+        topLeft = Offset(0.72.dp.toPx(), 0.72.dp.toPx()),
+        size = Size(w - 1.44.dp.toPx(), h - 1.44.dp.toPx()),
+        cornerRadius = corner,
+        style = Stroke(width = 0.48.dp.toPx()),
+        blendMode = BlendMode.Plus
+    )
+    drawContent()
 }
 
 @Composable
