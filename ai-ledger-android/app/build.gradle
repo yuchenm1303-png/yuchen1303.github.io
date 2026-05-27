@@ -69,6 +69,8 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
         } else if (text.contains(oldBlock)) {
             home.setText(text.replace(oldBlock, newBlock), 'UTF-8')
             println('Patched AssistantHomePolished NetworkChipV2 to use NetworkDropletCapsule.')
+        } else if (text.contains('private fun ModelStackSelector(') || text.contains('private fun ModelStackCard(')) {
+            println('AssistantHomePolished now uses stacked model cards; skipped legacy NetworkChipV2 droplet replacement.')
         } else {
             throw new GradleException('Target NetworkChipV2 block was not found; refusing to build stale online toggle.')
         }
