@@ -1,0 +1,153 @@
+tasks.register('patchAssistantChatBubblePolish') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        if (!text.contains('import androidx.compose.ui.draw.clipToBounds')) {
+            text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
+        }
+
+        def oldList = '''                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 3.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                }
+'''
+        def newList = '''                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                ) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                        item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                    }
+                }
+'''
+        if (text.contains(oldList)) {
+            text = text.replace(oldList, newList)
+        } else if (!text.contains('.clipToBounds()')) {
+            throw new GradleException('Chat list block not found for clipping patch.')
+        }
+
+        def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
+        def badgeStart = text.indexOf('@Composable\nprivate fun MessageBadgeV2')
+        if (bubbleStart < 0 || badgeStart < bubbleStart) {
+            throw new GradleException('Message bubble block not found.')
+        }
+        def bubble = '''@Composable
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+    val fromUser = message.role == MessageRole.User
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
+    ) {
+        MessageBubbleV2(message, state)
+    }
+}
+
+@Composable
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+    val fromUser = message.role == MessageRole.User
+    val sending = message.status == MessageStatus.Sending && !fromUser
+    val bubbleRadius = if (fromUser) 26 else 28
+    val loop = rememberInfiniteTransition(label = "message-bubble-prism-loop")
+    val phase by loop.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(if (sending) 1680 else 3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "message-bubble-prism-phase"
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
+        GlassPanel(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * if (fromUser) 1.03f else if (sending) 1.01f else 0.94f,
+            motionIntensity = state.motionIntensity,
+            radius = bubbleRadius,
+            modifier = Modifier.fillMaxWidth(if (fromUser) 0.76f else 0.90f),
+            role = if (fromUser) GlassRole.Floating else GlassRole.Card
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .chatBubblePrismSurface(
+                        phase = phase,
+                        fromUser = fromUser,
+                        sending = sending,
+                        failed = message.status == MessageStatus.Failed,
+                        motionIntensity = state.motionIntensity,
+                        radiusDp = bubbleRadius
+                    )
+            ) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (sending) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                            ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
+                        }
+                    } else {
+                        Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
+                    }
+                    if (!fromUser) MessageBadgeV2(message)
+                }
+            }
+        }
+    }
+}
+
+'''
+        text = text.substring(0, bubbleStart) + bubble + text.substring(badgeStart)
+
+        def thinkingStart = text.indexOf('@Composable\nprivate fun ThinkingDotsV2')
+        def pulseStart = text.indexOf('@Composable\nprivate fun PulseDotV2')
+        if (thinkingStart < 0 || pulseStart < thinkingStart) {
+            throw new GradleException('Thinking dots block not found.')
+        }
+        def thinking = '''@Composable
+private fun ThinkingDotsV2(size: Int, color: Color) {
+    val transition = rememberInfiniteTransition(label = "thinking-glass-pearls-v2")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1060, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "thinking-glass-pearls-phase"
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        repeat(3) { index ->
+            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.34f) + 1f) / 2f).coerceIn(0f, 1f)
+            val pulse = ((sin(phase * 2f * PI.toFloat() + index * 1.34f - 0.74f) + 1f) / 2f).coerceIn(0f, 1f)
+            Box(
+                Modifier
+                    .size(size.dp)
+                    .graphicsLayer {
+                        translationY = -5.6f * wave
+                        alpha = 0.54f + 0.46f * wave
+                        scaleX = 0.76f + 0.42f * wave
+                        scaleY = 0.72f + 0.30f * pulse
+                    }
+                    .thinkingPearlSurface(color = color, wave = wave, index = index)
+            )
+        }
+    }
+}
+
+'''
+        text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
+        home.setText(text, 'UTF-8')
+        println('Applied focused chat bubble polish patch.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchAssistantChatBubblePolish')
+}
