@@ -111,31 +111,34 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
     LaunchedEffect(message.id) { visible = true }
     val appear by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
-        label = "message-light-bubble-appear"
+        animationSpec = spring(
+            dampingRatio = 0.48f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "message-light-bubble-q-appear"
     )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 1.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        Box(
-            Modifier.graphicsLayer {
-                val p = appear.coerceIn(0f, 1f)
-                alpha = p
-                scaleX = 0.982f + 0.018f * p
-                scaleY = 0.968f + 0.032f * p
-                translationY = (1f - p) * 8f
-            }
-        ) {
-            MessageBubbleV2(message, state, chatPhase)
-        }
+        MessageBubbleV2(
+            message = message,
+            state = state,
+            chatPhase = chatPhase,
+            appear = appear
+        )
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatPhase: State<Float>) {
+private fun MessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    chatPhase: State<Float>,
+    appear: Float = 1f
+) {
     val fromUser = message.role == MessageRole.User
     val sending = message.status == MessageStatus.Sending && !fromUser
     val bubbleRadius = if (fromUser) 26 else 28
@@ -146,6 +149,21 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatP
         Box(
             modifier = Modifier
                 .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
+                .graphicsLayer {
+                    val raw = appear.coerceIn(0f, 1.18f)
+                    val settled = raw.coerceIn(0f, 1f)
+                    val overshoot = ((raw - 1f) / 0.18f).coerceIn(0f, 1f)
+                    alpha = settled
+                    transformOrigin = if (fromUser) {
+                        androidx.compose.ui.graphics.TransformOrigin(0.96f, 0.82f)
+                    } else {
+                        androidx.compose.ui.graphics.TransformOrigin(0.04f, 0.22f)
+                    }
+                    scaleX = 0.72f + settled * 0.30f + overshoot * 0.030f
+                    scaleY = 0.58f + settled * 0.45f - overshoot * 0.024f
+                    translationY = (1f - settled) * 14f
+                    translationX = (1f - settled) * if (fromUser) 12f else -12f
+                }
                 .clip(RoundedCornerShape(bubbleRadius.dp))
                 .chatBubblePrismSurface(
                     phase = phase,
@@ -210,7 +228,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied lightweight animated chat bubble polish patch with shell-level clipping.')
+        println('Applied lightweight Q-bouncy chat bubble entrance patch with shell-level clipping.')
     }
 }
 
