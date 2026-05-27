@@ -1,0 +1,1 @@
+Apply source-level chat rainbow mist overlay patch.
