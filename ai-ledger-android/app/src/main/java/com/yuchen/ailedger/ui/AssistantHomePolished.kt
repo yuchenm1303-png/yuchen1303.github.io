@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -316,22 +317,15 @@ private fun ModelStackCard(
     val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
     val curveT = eased.coerceIn(0f, 1f)
     val speedPulse = modelStackSpeedPulse(cardProgress)
-    val gatherPulse = modelStackGatherPulse(cardProgress)
-
     val unitX = dx / distance
     val unitY = dy / distance
-    val perpendicularX = -unitY
-    val perpendicularY = unitX
-    val gatherPx = with(density) { (10.dp + (staggerRank * 1.2f).dp).toPx() } * gatherPulse
-    val sWave = sin(curveT * 2f * PI.toFloat())
-    val sAmplitude = with(density) { (9.dp + (staggerRank * 1.4f).dp).toPx() }
-    val sinkPx = with(density) { 7.dp.toPx() } * speedPulse
+    val liftPx = -with(density) { (9.dp + (staggerRank * 0.9f).dp).toPx() } * speedPulse
 
-    val curveX = startX + dx * curveT - unitX * gatherPx + perpendicularX * sAmplitude * sWave
-    val curveY = startY + dy * curveT - unitY * gatherPx + perpendicularY * sAmplitude * sWave + sinkPx
+    val curveX = startX + dx * curveT
+    val curveY = startY + dy * curveT + liftPx
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 1.4.dp.toPx() } * brake - with(density) { 1.0.dp.toPx() } * returnBrake
+    val overshootPx = with(density) { 1.2.dp.toPx() } * brake - with(density) { 0.8.dp.toPx() } * returnBrake
     val tx = curveX + unitX * overshootPx
     val ty = curveY + unitY * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
@@ -379,12 +373,6 @@ private fun modelStackMotionEase(progress: Float): Float {
 private fun modelStackSpeedPulse(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
-}
-
-private fun modelStackGatherPulse(progress: Float): Float {
-    val p = progress.coerceIn(0f, 1f)
-    val center = (p - 0.12f) / 0.12f
-    return (1f - center * center).coerceIn(0f, 1f)
 }
 
 private fun modelStackArrivalBrake(progress: Float): Float {
@@ -479,9 +467,9 @@ private fun LightweightModelCapsule(
             .background(
                 Color.White.copy(
                     alpha = (
-                        0.064f +
-                            selectedEnergy * 0.030f +
-                            moving * 0.012f +
+                        0.060f +
+                            selectedEnergy * 0.026f +
+                            moving * 0.010f +
                             pressProgress * 0.014f
                         ) * maxOf(stackEnergy, 0.58f)
                 )
@@ -498,6 +486,13 @@ private fun LightweightModelCapsule(
             expansionProgress = expansionProgress,
             moving = moving + pressProgress * 0.45f,
             stackEnergy = stackEnergy,
+            shape = shape
+        )
+        ModelCapsulePrismOverlay(
+            selected = selected,
+            expansionProgress = expansionProgress,
+            moving = moving,
+            pressProgress = pressProgress,
             shape = shape
         )
         if (showContent) {
@@ -533,7 +528,7 @@ private fun ModelCapsuleChrome(
                 } else {
                     Color.White.copy(
                         alpha = (
-                            0.30f +
+                            0.28f +
                                 0.12f * expansionProgress +
                                 0.05f * moving
                             ) * stackEnergy
@@ -549,9 +544,53 @@ private fun ModelCapsuleChrome(
             .clip(shape)
             .background(
                 Color.White.copy(
-                    alpha = 0.020f +
-                        selectedEnergy * 0.026f +
-                        moving * 0.008f
+                    alpha = 0.018f +
+                        selectedEnergy * 0.024f +
+                        moving * 0.007f
+                )
+            )
+    )
+}
+
+@Composable
+private fun ModelCapsulePrismOverlay(
+    selected: Boolean,
+    expansionProgress: Float,
+    moving: Float,
+    pressProgress: Float,
+    shape: RoundedCornerShape
+) {
+    val base = if (selected) 0.075f else 0.044f
+    val prism = (base + 0.018f * expansionProgress + 0.014f * moving + 0.018f * pressProgress).coerceIn(0f, 0.13f)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(1.dp)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF8DF9EA).copy(alpha = prism * 0.10f),
+                        Color(0xFFB8A4FF).copy(alpha = prism * 0.42f),
+                        Color.White.copy(alpha = prism * 0.58f),
+                        Color(0xFFFFB3E6).copy(alpha = prism * 0.34f),
+                        Color.Transparent
+                    )
+                )
+            )
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 2.dp, vertical = 1.dp)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = prism * 0.26f),
+                        Color.Transparent,
+                        Color(0xFF8DF9EA).copy(alpha = prism * 0.18f)
+                    )
                 )
             )
     )
