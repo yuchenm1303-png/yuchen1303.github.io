@@ -68,14 +68,19 @@ fun RainbowChatGlassOverlay(
     val radians1 = (t1 * 2f * PI).toFloat()
     val radians2 = (t2 * 2f * PI).toFloat()
     val radians3 = (t3 * 2f * PI).toFloat()
-    val motion = motionIntensity.coerceIn(0f, 1.2f)
-    val base = (0.66f + motion * 0.13f).coerceIn(0.58f, 0.86f) * style.overall.coerceIn(0f, 1.55f)
-    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 1.55f)
-    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 1.55f)
+
+    val motion = motionIntensity.coerceIn(0f, 1.25f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val edge = style.edgeHighlight.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
     val breath01 = rainbowSmoothStep(((sin(radians3) + 1f) * 0.5f).coerceIn(0f, 1f))
-    val sweep = (minSweep + (maxSweep - minSweep) * breath01).coerceIn(0f, 1.16f)
-    val sweepPower = rainbowSmoothStep(sweep / 1.16f) * 1.16f
-    val halo = style.rainbowHalo.coerceIn(0f, 1.35f)
+    val sweep = (minSweep + (maxSweep - minSweep) * breath01).coerceIn(0f, 1.46f)
+    val sweepPower = rainbowSmoothStep(sweep / 1.46f)
+    val base = (0.58f + motion * 0.15f).coerceIn(0.52f, 0.82f) * overall
+    val bodyLoad = (base * (0.52f + sweepPower * 0.72f)).coerceIn(0f, 1.72f)
+    val beamLoad = (base * (0.55f + sweepPower * 0.86f) * (0.72f + edge * 0.16f)).coerceIn(0f, 1.92f)
+    val halo = style.rainbowHalo.coerceIn(0f, 2f)
 
     Canvas(modifier = modifier) {
         val w = size.width.coerceAtLeast(1f)
@@ -83,12 +88,11 @@ fun RainbowChatGlassOverlay(
         val c = CornerRadius(30f, 30f)
         val slowWave = rainbowSmoothStep(((sin(radians1 + radians2 * 0.37f) + 1f) * 0.5f).coerceIn(0f, 1f))
         val ax = 0.50f + 0.32f * cos(radians1)
-        val ay = 0.28f + 0.16f * sin(radians1 * 0.73f + 0.80f)
-        val bx = 0.54f + 0.28f * cos(radians2 + 1.70f)
-        val by = 0.56f + 0.26f * sin(radians2 * 0.82f + 2.20f)
-        val cx = 0.50f + 0.34f * cos(radians1 * 0.58f + radians2 * 0.32f)
-        val cy = 0.50f + 0.30f * sin(radians2 * 0.64f + 1.10f)
-        val load = base * sweepPower
+        val ay = 0.28f + 0.17f * sin(radians1 * 0.73f + 0.80f)
+        val bx = 0.54f + 0.30f * cos(radians2 + 1.70f)
+        val by = 0.56f + 0.28f * sin(radians2 * 0.82f + 2.20f)
+        val cx = 0.50f + 0.38f * cos(radians1 * 0.58f + radians2 * 0.32f)
+        val cy = 0.50f + 0.32f * sin(radians2 * 0.64f + 1.10f)
 
         fun film(brush: Brush, enabled: Boolean = true) {
             if (enabled) {
@@ -104,57 +108,57 @@ fun RainbowChatGlassOverlay(
         film(
             Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFFFF62D8).copy(alpha = 0.044f * load),
-                    Color(0xFFFFD86E).copy(alpha = 0.030f * load),
-                    Color(0xFF55FFF0).copy(alpha = 0.042f * load),
+                    Color(0xFFFF62D8).copy(alpha = 0.064f * bodyLoad),
+                    Color(0xFFFFD86E).copy(alpha = 0.044f * bodyLoad),
+                    Color(0xFF55FFF0).copy(alpha = 0.060f * bodyLoad),
                     Color.Transparent
                 ),
-                center = Offset(w * ax.coerceIn(0.10f, 0.90f), h * ay.coerceIn(0.08f, 0.68f)),
-                radius = maxOf(w, h) * (0.68f + 0.16f * slowWave)
+                center = Offset(w * ax.coerceIn(0.08f, 0.92f), h * ay.coerceIn(0.06f, 0.70f)),
+                radius = maxOf(w, h) * (0.78f + 0.18f * slowWave)
             ),
-            enabled = load > 0.001f
+            enabled = bodyLoad > 0.001f
         )
         film(
             Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF62FFF0).copy(alpha = 0.032f * load),
-                    Color(0xFF7F95FF).copy(alpha = 0.030f * load),
-                    Color(0xFFFF78E4).copy(alpha = 0.020f * load),
+                    Color(0xFF62FFF0).copy(alpha = 0.046f * bodyLoad),
+                    Color(0xFF7F95FF).copy(alpha = 0.043f * bodyLoad),
+                    Color(0xFFFF78E4).copy(alpha = 0.030f * bodyLoad),
                     Color.Transparent
                 ),
-                center = Offset(w * bx.coerceIn(0.12f, 0.88f), h * by.coerceIn(0.20f, 0.90f)),
-                radius = maxOf(w, h) * 0.74f
+                center = Offset(w * bx.coerceIn(0.10f, 0.90f), h * by.coerceIn(0.18f, 0.92f)),
+                radius = maxOf(w, h) * 0.82f
             ),
-            enabled = load > 0.001f
+            enabled = bodyLoad > 0.001f
         )
         film(
             Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFFE58A).copy(alpha = 0.017f * load),
-                    Color(0xFF76FFF2).copy(alpha = 0.024f * load),
-                    Color(0xFFFF7BE5).copy(alpha = 0.015f * load),
+                    Color(0xFFFFE58A).copy(alpha = 0.032f * beamLoad),
+                    Color(0xFF76FFF2).copy(alpha = 0.048f * beamLoad),
+                    Color(0xFFFF7BE5).copy(alpha = 0.030f * beamLoad),
                     Color.Transparent
                 ),
-                start = Offset(w * (cx - 0.38f).coerceIn(-0.16f, 0.78f), h * (cy - 0.36f).coerceIn(-0.12f, 0.72f)),
-                end = Offset(w * (cx + 0.40f).coerceIn(0.22f, 1.16f), h * (cy + 0.40f).coerceIn(0.28f, 1.14f))
+                start = Offset(w * (cx - 0.46f).coerceIn(-0.22f, 0.78f), h * (cy - 0.42f).coerceIn(-0.16f, 0.72f)),
+                end = Offset(w * (cx + 0.48f).coerceIn(0.22f, 1.22f), h * (cy + 0.46f).coerceIn(0.26f, 1.18f))
             ),
-            enabled = load > 0.001f
+            enabled = beamLoad > 0.001f
         )
 
         if (halo > 0.001f) {
-            val haloLoad = base * halo.coerceIn(0f, 1.20f)
+            val haloLoad = (base * halo * (0.56f + sweepPower * 0.24f)).coerceIn(0f, 1.68f)
             film(
                 Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.026f * haloLoad),
-                        Color(0xFF72FFF2).copy(alpha = 0.040f * haloLoad),
-                        Color(0xFFFF76DE).copy(alpha = 0.030f * haloLoad),
-                        Color(0xFF7B95FF).copy(alpha = 0.024f * haloLoad),
+                        Color.White.copy(alpha = 0.040f * haloLoad),
+                        Color(0xFF72FFF2).copy(alpha = 0.064f * haloLoad),
+                        Color(0xFFFF76DE).copy(alpha = 0.046f * haloLoad),
+                        Color(0xFF7B95FF).copy(alpha = 0.038f * haloLoad),
                         Color.Transparent
                     ),
-                    center = Offset(w * (0.74f + 0.04f * cos(radians3)), h * (0.62f + 0.06f * slowWave)),
-                    radius = maxOf(w, h) * (0.50f + 0.06f * breath01)
+                    center = Offset(w * (0.74f + 0.05f * cos(radians3)), h * (0.62f + 0.08f * slowWave)),
+                    radius = maxOf(w, h) * (0.60f + 0.08f * breath01)
                 )
             )
         }
