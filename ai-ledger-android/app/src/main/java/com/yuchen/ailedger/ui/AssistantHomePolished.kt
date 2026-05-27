@@ -409,11 +409,6 @@ private fun ModelFrostCapsule(
         onClick = onClick
     ) {
         Box(Modifier.fillMaxSize().clip(shape)) {
-            RainbowChatGlassOverlay(
-                quality = state.quality,
-                motionIntensity = state.motionIntensity * (0.62f + selectedEnergy * 0.18f + moving * 0.20f),
-                modifier = Modifier.matchParentSize()
-            )
             Box(
                 Modifier
                     .fillMaxSize()
