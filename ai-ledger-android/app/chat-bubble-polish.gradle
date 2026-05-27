@@ -7,7 +7,12 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
         if (!text.contains('import androidx.compose.runtime.State')) {
-            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.State\n')
+            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
+        } else if (!text.contains('import androidx.compose.runtime.SideEffect')) {
+            text = text.replace('import androidx.compose.runtime.State\n', 'import androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
+        }
+        if (!text.contains('import androidx.compose.ui.layout.onGloballyPositioned')) {
+            text = text.replace('import androidx.compose.ui.graphics.graphicsLayer\n', 'import androidx.compose.ui.graphics.graphicsLayer\nimport androidx.compose.ui.layout.onGloballyPositioned\n')
         }
 
         def oldClock = '''    val listState = rememberLazyListState()
@@ -17,6 +22,9 @@ tasks.register('patchAssistantChatBubblePolish') {
 '''
         def newClock = '''    val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
+    val bubbleLayerState = rememberChatBubbleLayerState()
+    val activeMessageIds = remember(state.messages) { state.messages.map { it.id }.toSet() }
+    SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
@@ -24,8 +32,8 @@ tasks.register('patchAssistantChatBubblePolish') {
 '''
         if (text.contains(oldClock)) {
             text = text.replace(oldClock, newClock)
-        } else if (!text.contains('val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)')) {
-            throw new GradleException('ChatPanelV2 clock block not found for shared motion patch.')
+        } else if (!text.contains('val bubbleLayerState = rememberChatBubbleLayerState()')) {
+            throw new GradleException('ChatPanelV2 clock block not found for parent bubble layer patch.')
         }
 
         def oldShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -37,11 +45,14 @@ tasks.register('patchAssistantChatBubblePolish') {
                 .fillMaxSize()
                 .clip(RoundedCornerShape(30.dp))
                 .clipToBounds()
+                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }
         ) {
 '''
         if (text.contains(oldShellBox)) {
             text = text.replace(oldShellBox, newShellBox)
-        } else if (!text.contains('.clip(RoundedCornerShape(30.dp))')) {
+        } else if (text.contains('.clip(RoundedCornerShape(30.dp))') && !text.contains('bubbleLayerState.updateRoot')) {
+            text = text.replace('.clip(RoundedCornerShape(30.dp))\n                .clipToBounds()', '.clip(RoundedCornerShape(30.dp))\n                .clipToBounds()\n                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }')
+        } else if (!text.contains('bubbleLayerState.updateRoot')) {
             throw new GradleException('Chat shell content clip target not found.')
         }
 
@@ -61,21 +72,29 @@ tasks.register('patchAssistantChatBubblePolish') {
                         .fillMaxWidth()
                         .clipToBounds()
                 ) {
+                    ChatBubbleMaterialLayer(
+                        layerState = bubbleLayerState,
+                        phase = chatPhase.value,
+                        motionIntensity = state.motionIntensity,
+                        modifier = Modifier.matchParentSize()
+                    )
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, chatPhase) }
+                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, chatPhase, bubbleLayerState) }
                         item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                     }
                 }
 '''
         if (text.contains(oldList)) {
             text = text.replace(oldList, newList)
-        } else if (!text.contains(newList)) {
-            throw new GradleException('Chat list block not found for shared-clock viewport clipping patch.')
+        } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('AnimatedMessageBubbleV2(message, state, chatPhase, bubbleLayerState)')) {
+            println('Parent chat bubble layer list already patched.')
+        } else {
+            throw new GradleException('Chat list block not found for parent layer patch.')
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
@@ -105,7 +124,12 @@ private fun phaseSpeedForMessage(id: String): Float {
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatPhase: State<Float>) {
+private fun AnimatedMessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    chatPhase: State<Float>,
+    bubbleLayerState: ChatBubbleLayerState
+) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
@@ -127,6 +151,7 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
             message = message,
             state = state,
             chatPhase = chatPhase,
+            bubbleLayerState = bubbleLayerState,
             appear = appear
         )
     }
@@ -137,6 +162,7 @@ private fun MessageBubbleV2(
     message: ChatMessage,
     state: AssistantUiState,
     chatPhase: State<Float>,
+    bubbleLayerState: ChatBubbleLayerState,
     appear: Float = 1f
 ) {
     val fromUser = message.role == MessageRole.User
@@ -144,7 +170,6 @@ private fun MessageBubbleV2(
     val bubbleRadius = if (fromUser) 26 else 28
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
-    val phase = ((chatPhase.value * if (sending) 2.85f else speedFactor) + phaseOffset) % 1f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
         Box(
             modifier = Modifier
@@ -165,14 +190,18 @@ private fun MessageBubbleV2(
                     translationX = (1f - settled) * if (fromUser) 12f else -12f
                 }
                 .clip(RoundedCornerShape(bubbleRadius.dp))
-                .chatBubblePrismSurface(
-                    phase = phase,
-                    fromUser = fromUser,
-                    sending = sending,
-                    failed = message.status == MessageStatus.Failed,
-                    motionIntensity = state.motionIntensity,
-                    radiusDp = bubbleRadius
-                )
+                .onGloballyPositioned {
+                    bubbleLayerState.updateBubble(
+                        id = message.id,
+                        coordinates = it,
+                        fromUser = fromUser,
+                        status = message.status,
+                        appear = appear.coerceIn(0f, 1f),
+                        phaseOffset = phaseOffset,
+                        speedFactor = speedFactor,
+                        radiusDp = bubbleRadius
+                    )
+                }
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (sending) {
@@ -228,7 +257,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied lightweight Q-bouncy chat bubble entrance patch with shell-level clipping.')
+        println('Applied parent-layer chat bubble material patch with Q-bouncy text bubbles.')
     }
 }
 
