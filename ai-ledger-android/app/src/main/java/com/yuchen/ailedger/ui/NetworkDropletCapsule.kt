@@ -30,8 +30,9 @@ import com.yuchen.ailedger.ui.gl.DropletGlassStyle
 import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 
 @Composable
-fun NetworkDropletCapsule(state: AssistantUiState, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+fun NetworkDropletCapsule(state: AssistantUiState, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: Any) {
     val coordinates = remember { GlassCoordinateSource() }
+    val clickAction = remember(onClick) { (onClick as? () -> Unit) ?: {} }
     val on = state.onlineEnabled
     val p = if (on) 1f else 0f
     val style = DropletGlassStyle(
@@ -68,7 +69,7 @@ fun NetworkDropletCapsule(state: AssistantUiState, modifier: Modifier = Modifier
         warmBlue = if (on) 0.86f else 0.78f
     )
     Box(
-        modifier = modifier.height(44.dp).onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(999.dp)).clickable(enabled = enabled, interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+        modifier = modifier.height(44.dp).onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(999.dp)).clickable(enabled = enabled, interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = clickAction),
         contentAlignment = Alignment.Center
     ) {
         OpenGLDropletGlassLayer(radius = 999, coordinateSource = coordinates, style = style, modifier = Modifier.fillMaxSize())
