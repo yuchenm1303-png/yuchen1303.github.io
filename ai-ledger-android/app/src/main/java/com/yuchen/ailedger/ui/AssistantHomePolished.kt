@@ -236,6 +236,13 @@ private fun ModelStackSelector(
             val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
             val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
             val collapsedAlpha = if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.080f
+            val staggerRank = when (index) {
+                0 -> 0
+                2 -> 1
+                1 -> 2
+                3 -> 3
+                else -> 4
+            }
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
@@ -243,6 +250,7 @@ private fun ModelStackSelector(
                 state = state,
                 expanded = expanded,
                 index = index,
+                staggerRank = staggerRank,
                 expandedX = expandedX,
                 expandedY = expandedY,
                 expandedWidth = expandedWidth,
@@ -267,6 +275,7 @@ private fun ModelStackCard(
     state: AssistantUiState,
     expanded: Boolean,
     index: Int,
+    staggerRank: Int,
     expandedX: Dp,
     expandedY: Dp,
     expandedWidth: Dp,
@@ -284,17 +293,15 @@ private fun ModelStackCard(
     val cardProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (expanded) 680 else 520,
-            delayMillis = if (expanded) index * 46 else (ChatModel.entries.lastIndex - index) * 30,
+            durationMillis = if (expanded) 680 else 420,
+            delayMillis = if (expanded) staggerRank * 46 else (ChatModel.entries.lastIndex - staggerRank) * 24,
             easing = FastOutSlowInEasing
         ),
-        label = "model-card-sequential-progress-${model.id}"
+        label = "model-card-spatial-arc-progress-${model.id}"
     )
     val eased = modelStackMotionEase(cardProgress)
     val currentWidth = lerpDp(collapsedWidth, expandedWidth, eased)
     val currentHeight = lerpDp(collapsedHeight, expandedHeight, eased)
-    val currentX = lerpDp(collapsedX, expandedX, eased)
-    val currentY = lerpDp(collapsedY, expandedY, eased)
     val currentAlpha = lerpFloat(collapsedAlpha, 1f, eased)
 
     val startX = with(density) { collapsedX.toPx() }
@@ -304,18 +311,25 @@ private fun ModelStackCard(
     val dx = endX - startX
     val dy = endY - startY
     val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-    val travelWave = sin(cardProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+    val curveT = eased.coerceIn(0f, 1f)
+    val inverse = 1f - curveT
+    val arcDepth = with(density) { (32.dp + (staggerRank * 2).dp).toPx() }
+    val controlX = startX + dx * 0.38f
+    val controlY = maxOf(startY, endY) + arcDepth
+    val curveX = inverse * inverse * startX + 2f * inverse * curveT * controlX + curveT * curveT * endX
+    val curveY = inverse * inverse * startY + 2f * inverse * curveT * controlY + curveT * curveT * endY
+    val speedPulse = modelStackSpeedPulse(cardProgress)
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 6.2.dp.toPx() } * brake - with(density) { 3.6.dp.toPx() } * returnBrake
-    val tx = with(density) { currentX.toPx() } + dx / distance * overshootPx
-    val ty = with(density) { currentY.toPx() } + dy / distance * overshootPx - with(density) { 1.8.dp.toPx() } * travelWave
+    val overshootPx = with(density) { 2.6.dp.toPx() } * brake - with(density) { 1.8.dp.toPx() } * returnBrake
+    val tx = curveX + dx / distance * overshootPx
+    val ty = curveY + dy / distance * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
     val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
     val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settled) 1.010f else 1f,
-        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settled) 1.008f else 1f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
@@ -328,7 +342,7 @@ private fun ModelStackCard(
             scaleX = capsuleScaleX * selectedPulse
             scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
-            shadowElevation = if (settled && selected) 0.36f else 0.08f + 0.10f * travelWave
+            shadowElevation = if (settled && selected) 0.34f else 0.06f + 0.16f * speedPulse
         }
 
     ModelFrostCapsule(
@@ -349,37 +363,40 @@ private fun lerpFloat(start: Float, end: Float, fraction: Float): Float = start 
 
 private fun modelStackMotionEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    val smooth = p * p * (3f - 2f * p)
-    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.035f * (1f - kotlin.math.abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
-    return (smooth + elastic).coerceIn(0f, 1f)
+    return p * p * (3f - 2f * p)
+}
+
+private fun modelStackSpeedPulse(progress: Float): Float {
+    val p = progress.coerceIn(0f, 1f)
+    return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
 private fun modelStackArrivalBrake(progress: Float): Float {
-    val p = ((progress - 0.68f) / 0.32f).coerceIn(0f, 1f)
+    val p = ((progress - 0.78f) / 0.22f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
 private fun modelStackReturnBrake(progress: Float): Float {
-    val p = ((0.30f - progress) / 0.30f).coerceIn(0f, 1f)
+    val p = ((0.24f - progress) / 0.24f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
 private fun modelStackCapsuleScaleX(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     if (p < 0.025f || p > 0.985f) return 1f
-    val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
+    val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f + 0.026f * travel + 0.018f * arrive - 0.012f * back
+    return 1f - 0.070f * speed + 0.030f * arrive + 0.014f * back
 }
 
 private fun modelStackCapsuleScaleY(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     if (p < 0.025f || p > 0.985f) return 1f
-    val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
+    val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.050f * travel + 0.024f * arrive + 0.012f * back
+    return 1f - 0.115f * speed + 0.040f * arrive + 0.018f * back
 }
 
 @Composable
