@@ -340,33 +340,20 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
 }
 
 @Composable
-private fun rememberMessageBubblePhase(active: Boolean): Float {
-    if (!active) return 0.18f
-    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1680, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "message-bubble-optics-phase"
-    )
-    return phase
-}
-
-@Composable
 private fun MessageBubbleV2'''
 
-        def bubblePattern = /(?s)@Composable\nprivate fun AnimatedMessageBubbleV2\(message: ChatMessage, state: AssistantUiState\) \{.*?\n\}\n\n@Composable\nprivate fun MessageBubbleV2/
+        def bubblePattern = /(?s)@Composable\nprivate fun AnimatedMessageBubbleV2\(message: ChatMessage, state: AssistantUiState\) \{.*?\n\}\n(?:\n\n@Composable\nprivate fun rememberMessageBubblePhase\(active: Boolean\): Float \{.*?\n\})?\n\n@Composable\nprivate fun MessageBubbleV2/
         def bubbleMatcher = text =~ bubblePattern
         if (bubbleMatcher.size() == 1) {
             text = bubbleMatcher.replaceFirst(staticAnimatedBubble)
-            println('Replaced message bubble enter/exit transform with static clipped row.')
-        } else if (text.contains('private fun rememberMessageBubblePhase(active: Boolean): Float')) {
-            println('Message bubble transform already removed.')
+            println('Replaced message bubble enter/exit transform with static clipped row while keeping bubble prism animation.')
+        } else if (text.contains('MessageBubbleV2(message, state, revealProgress = 1f)') && !text.contains('private fun rememberMessageBubblePhase(active: Boolean): Float')) {
+            println('Message bubble transform already removed and history prism animation retained.')
         } else {
             throw new GradleException("Target AnimatedMessageBubbleV2 block was not found; matches=${bubbleMatcher.size()}")
         }
 
-        def oldPhaseBlock = '''    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
+        def fullHistoryPhaseBlock = '''    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -374,13 +361,13 @@ private fun MessageBubbleV2'''
         label = "message-bubble-optics-phase"
     )
 '''
-        def newPhaseBlock = '''    val phase = rememberMessageBubblePhase(sending)
+        def sendingOnlyPhaseBlock = '''    val phase = rememberMessageBubblePhase(sending)
 '''
-        if (text.contains(oldPhaseBlock)) {
-            text = text.replace(oldPhaseBlock, newPhaseBlock)
-            println('Disabled per-history-message infinite bubble animation.')
-        } else if (text.contains('val phase = rememberMessageBubblePhase(sending)')) {
-            println('Message bubble phase is already sending-only.')
+        if (text.contains(sendingOnlyPhaseBlock)) {
+            text = text.replace(sendingOnlyPhaseBlock, fullHistoryPhaseBlock)
+            println('Restored per-message infinite prism animation for historical chat bubbles.')
+        } else if (text.contains(fullHistoryPhaseBlock)) {
+            println('Historical chat bubble prism animation is already enabled.')
         } else {
             throw new GradleException('Target message bubble phase block was not found.')
         }
