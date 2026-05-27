@@ -1,0 +1,1 @@
+Apply rainbow canvas visibility patch.
