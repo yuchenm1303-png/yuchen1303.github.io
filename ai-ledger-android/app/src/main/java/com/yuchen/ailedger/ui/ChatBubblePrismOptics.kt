@@ -24,33 +24,33 @@ fun Modifier.chatBubblePrismSurface(
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val motion = motionIntensity.coerceIn(0f, 1f)
-    val active = if (sending) 1f else 0.62f
+    val active = if (sending) 1f else 0.58f
     val cycle = phase * 2f * PI.toFloat()
-    val sweep = if (fromUser) 1f - phase else phase
-    val sweepX = -0.40f + sweep * 1.80f
+    val sweepWave = 0.50f + 0.42f * sin(cycle)
+    val satinWave = 0.50f + 0.28f * sin(cycle + 1.35f)
     val radiusPx = radiusDp.dp.toPx()
     val corner = CornerRadius(radiusPx, radiusPx)
     val accentA = if (failed) Color(0xFFFF9A9A) else if (fromUser) Color(0xFF9EB7FF) else Color(0xFF8DF9EA)
     val accentB = if (failed) Color(0xFFFFD166) else if (fromUser) Color(0xFFFF8FE7) else Color(0xFFFFF0A8)
     val accentC = if (fromUser) Color(0xFF76FFF1) else Color(0xFFFF72D2)
 
-    val materialLoad = if (fromUser) 1.10f else 1.00f
+    val materialLoad = if (fromUser) 1.08f else 1.0f
     drawRoundRect(
-        color = Color(0xFF07183F).copy(alpha = 0.100f * materialLoad),
+        color = Color(0xFF07183F).copy(alpha = 0.090f * materialLoad),
         size = Size(w, h),
         cornerRadius = corner
     )
     drawRoundRect(
         brush = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = 0.070f * materialLoad),
-                Color(0xFF8DF9EA).copy(alpha = 0.032f * materialLoad),
-                Color(0xFF6E7BFF).copy(alpha = 0.030f * materialLoad),
-                Color(0xFFFF7AD8).copy(alpha = 0.022f * materialLoad),
-                Color(0xFF010A24).copy(alpha = 0.050f * materialLoad)
+            colors = listOf(
+                Color.White.copy(alpha = 0.058f * materialLoad),
+                Color(0xFF86FFF0).copy(alpha = 0.026f * materialLoad),
+                Color(0xFF6675FF).copy(alpha = 0.026f * materialLoad),
+                Color(0xFFFF7AD8).copy(alpha = 0.018f * materialLoad),
+                Color(0xFF010A24).copy(alpha = 0.046f * materialLoad)
             ),
             start = Offset(0f, 0f),
-            end = Offset(w, h * 1.05f)
+            end = Offset(w, h * 1.10f)
         ),
         size = Size(w, h),
         cornerRadius = corner,
@@ -58,11 +58,11 @@ fun Modifier.chatBubblePrismSurface(
     )
     drawRoundRect(
         brush = Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.078f),
-                Color.White.copy(alpha = 0.024f),
+            colors = listOf(
+                Color.White.copy(alpha = 0.064f),
+                Color.White.copy(alpha = 0.020f),
                 Color.Transparent,
-                Color(0xFF00091F).copy(alpha = 0.050f)
+                Color(0xFF00091F).copy(alpha = 0.046f)
             ),
             startY = 0f,
             endY = h
@@ -72,21 +72,21 @@ fun Modifier.chatBubblePrismSurface(
         blendMode = BlendMode.SrcOver
     )
 
-    val softGlowCenter = if (fromUser) {
-        Offset(w * (0.78f - 0.10f * sin(cycle * 0.83f)), h * 0.36f)
+    val glowCenter = if (fromUser) {
+        Offset(w * (0.72f - 0.08f * sin(cycle * 0.72f)), h * 0.30f)
     } else {
-        Offset(w * (0.24f + 0.12f * sin(cycle * 0.87f)), h * 0.30f)
+        Offset(w * (0.28f + 0.08f * sin(cycle * 0.78f)), h * 0.30f)
     }
     drawRoundRect(
         brush = Brush.radialGradient(
-            listOf(
-                Color.White.copy(alpha = 0.050f * motion),
-                accentA.copy(alpha = 0.070f * motion),
-                accentB.copy(alpha = 0.032f * motion),
+            colors = listOf(
+                Color.White.copy(alpha = 0.036f * motion),
+                accentA.copy(alpha = 0.052f * motion),
+                accentB.copy(alpha = 0.024f * motion),
                 Color.Transparent
             ),
-            center = softGlowCenter,
-            radius = maxOf(w, h) * 0.58f
+            center = glowCenter,
+            radius = maxOf(w, h) * 0.56f
         ),
         size = Size(w, h),
         cornerRadius = corner,
@@ -94,20 +94,19 @@ fun Modifier.chatBubblePrismSurface(
     )
 
     if (sending) {
-        val bandX = -0.86f + phase * 2.38f + 0.070f * sin(cycle * 1.70f)
+        val bandX = 0.50f + 0.46f * sin(cycle * 1.18f)
         drawRoundRect(
             brush = Brush.linearGradient(
-                listOf(
+                colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF58D2).copy(alpha = 0.070f * motion),
-                    Color(0xFFFFF0A8).copy(alpha = 0.130f * motion),
-                    Color(0xFF62FFF0).copy(alpha = 0.185f * motion),
-                    Color(0xFF8EA2FF).copy(alpha = 0.116f * motion),
-                    Color(0xFFFF82E4).copy(alpha = 0.080f * motion),
+                    Color(0xFFFF58D2).copy(alpha = 0.048f * motion),
+                    Color(0xFFFFF0A8).copy(alpha = 0.095f * motion),
+                    Color(0xFF62FFF0).copy(alpha = 0.130f * motion),
+                    Color(0xFF8EA2FF).copy(alpha = 0.082f * motion),
                     Color.Transparent
                 ),
-                start = Offset(w * (bandX - 0.70f), h * 1.18f),
-                end = Offset(w * (bandX + 0.52f), -h * 0.24f)
+                start = Offset(w * (bandX - 0.56f), h * 1.10f),
+                end = Offset(w * (bandX + 0.44f), -h * 0.18f)
             ),
             size = Size(w, h),
             cornerRadius = corner,
@@ -120,16 +119,15 @@ fun Modifier.chatBubblePrismSurface(
     val inset = 0.74.dp.toPx()
     val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
     val rimCorner = CornerRadius((radiusPx - inset).coerceAtLeast(1f), (radiusPx - inset).coerceAtLeast(1f))
-    val pulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else 0.52f
-    val prismPower = (0.38f + 0.45f * active + 0.22f * pulse) * motion
+    val prismPower = (0.44f + 0.46f * active) * motion
 
     drawRoundRect(
         brush = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = if (sending) 0.28f else 0.20f),
-                accentA.copy(alpha = if (sending) 0.22f else 0.145f),
-                Color.Transparent,
-                Color(0xFF000A28).copy(alpha = 0.090f)
+            colors = listOf(
+                Color.White.copy(alpha = if (sending) 0.220f else 0.155f),
+                accentA.copy(alpha = if (sending) 0.125f else 0.090f),
+                Color(0xFF000A28).copy(alpha = 0.070f),
+                Color.White.copy(alpha = if (sending) 0.095f else 0.058f)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
@@ -137,64 +135,65 @@ fun Modifier.chatBubblePrismSurface(
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 1.05.dp.toPx() else 0.78.dp.toPx()),
+        style = Stroke(width = if (sending) 0.96.dp.toPx() else 0.72.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
     drawRoundRect(
         brush = Brush.linearGradient(
-            listOf(
+            colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = 0.34f * prismPower),
-                Color(0xFFFFF0A8).copy(alpha = 0.30f * prismPower),
-                Color.White.copy(alpha = 0.24f * prismPower),
-                accentB.copy(alpha = 0.34f * prismPower),
-                accentA.copy(alpha = 0.25f * prismPower),
+                accentC.copy(alpha = 0.190f * prismPower),
+                Color(0xFFFFF0A8).copy(alpha = 0.165f * prismPower),
+                Color.White.copy(alpha = 0.150f * prismPower),
+                accentB.copy(alpha = 0.190f * prismPower),
+                accentA.copy(alpha = 0.125f * prismPower),
                 Color.Transparent
             ),
-            start = Offset(w * (sweepX - 0.44f), -h * 0.18f),
-            end = Offset(w * (sweepX + 0.48f), h * 1.18f)
+            start = Offset(w * (sweepWave - 0.36f), -h * 0.12f),
+            end = Offset(w * (sweepWave + 0.40f), h * 1.12f)
         ),
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 5.20.dp.toPx() else 3.80.dp.toPx()),
+        style = Stroke(width = if (sending) 2.85.dp.toPx() else 2.05.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
     drawRoundRect(
         brush = Brush.linearGradient(
-            listOf(
+            colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = 0.52f * prismPower),
-                Color.White.copy(alpha = 0.42f * prismPower),
-                accentB.copy(alpha = 0.52f * prismPower),
+                accentC.copy(alpha = 0.340f * prismPower),
+                Color.White.copy(alpha = 0.410f * prismPower),
+                accentB.copy(alpha = 0.350f * prismPower),
                 Color.Transparent
             ),
-            start = Offset(w * (sweepX - 0.24f), -h * 0.05f),
-            end = Offset(w * (sweepX + 0.30f), h * 1.05f)
+            start = Offset(w * (sweepWave - 0.18f), -h * 0.03f),
+            end = Offset(w * (sweepWave + 0.23f), h * 1.03f)
         ),
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 2.10.dp.toPx() else 1.55.dp.toPx()),
+        style = Stroke(width = if (sending) 1.24.dp.toPx() else 0.92.dp.toPx()),
         blendMode = BlendMode.Plus
     )
 
     drawRoundRect(
-        brush = Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.110f),
+        brush = Brush.linearGradient(
+            colors = listOf(
                 Color.Transparent,
-                Color(0xFF000817).copy(alpha = 0.055f)
+                Color.White.copy(alpha = 0.112f),
+                Color(0xFF8DF9EA).copy(alpha = 0.064f),
+                Color.Transparent
             ),
-            startY = 0f,
-            endY = h
+            start = Offset(w * (satinWave - 0.30f), 0f),
+            end = Offset(w * (satinWave + 0.20f), h * 0.36f)
         ),
-        topLeft = Offset(inset * 1.25f, inset * 1.25f),
-        size = Size((w - inset * 2.5f).coerceAtLeast(1f), (h - inset * 2.5f).coerceAtLeast(1f)),
-        cornerRadius = CornerRadius((radiusPx - inset * 1.25f).coerceAtLeast(1f), (radiusPx - inset * 1.25f).coerceAtLeast(1f)),
-        style = Stroke(width = 0.56.dp.toPx()),
+        topLeft = Offset(inset * 1.15f, inset * 1.15f),
+        size = Size((w - inset * 2.3f).coerceAtLeast(1f), (h - inset * 2.3f).coerceAtLeast(1f)),
+        cornerRadius = CornerRadius((radiusPx - inset * 1.15f).coerceAtLeast(1f), (radiusPx - inset * 1.15f).coerceAtLeast(1f)),
+        style = Stroke(width = 0.50.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 }
@@ -210,7 +209,7 @@ fun Modifier.thinkingPearlSurface(color: Color, wave: Float, index: Int): Modifi
     }
     drawRoundRect(
         brush = Brush.radialGradient(
-            listOf(
+            colors = listOf(
                 Color.White.copy(alpha = 0.42f + 0.20f * wave),
                 color.copy(alpha = 0.28f + 0.18f * wave),
                 accent.copy(alpha = 0.30f + 0.26f * wave),
@@ -225,7 +224,7 @@ fun Modifier.thinkingPearlSurface(color: Color, wave: Float, index: Int): Modifi
     )
     drawRoundRect(
         brush = Brush.linearGradient(
-            listOf(
+            colors = listOf(
                 Color.Transparent,
                 Color.White.copy(alpha = 0.32f + 0.16f * wave),
                 accent.copy(alpha = 0.38f + 0.24f * wave),
