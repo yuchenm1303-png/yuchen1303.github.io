@@ -441,12 +441,31 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
 @Composable
 private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
+    val rainbowTransition = rememberInfiniteTransition(label = "chat-shell-rainbow")
+    val rainbowPhase by rainbowTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(7600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "chat-shell-rainbow-phase"
+    )
+    val responsePulse by animateFloatAsState(
+        targetValue = if (state.isSending) 1f else 0.42f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessLow),
+        label = "chat-shell-rainbow-response"
+    )
     LaunchedEffect(state.messages.size, state.isSending) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier, GlassRole.Shell) {
-        Box(Modifier.fillMaxSize()) {
-            RainbowChatGlassOverlay(state.quality, state.motionIntensity, Modifier.fillMaxSize())
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .chatShellRainbowOptics(
+                    phase = rainbowPhase,
+                    activity = responsePulse,
+                    motionIntensity = state.motionIntensity
+                )
+        ) {
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
@@ -456,7 +475,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(top = 5.dp, bottom = 18.dp),
+                    contentPadding = PaddingValues(vertical = 3.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
@@ -467,6 +486,165 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
     }
 }
 
+private fun Modifier.chatShellRainbowOptics(
+    phase: Float,
+    activity: Float,
+    motionIntensity: Float
+): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val t = if (motionIntensity > 0.02f) phase - phase.toInt() else 0.18f
+    val active = (0.38f + activity.coerceIn(0f, 1f) * 0.62f).coerceIn(0f, 1f)
+    val radiusPx = 30.dp.toPx()
+    val corner = CornerRadius(radiusPx, radiusPx)
+    val shimmerX = -0.32f + t * 1.64f
+    val reverseX = 1.28f - t * 1.54f
+    val glowCenter = Offset(w * (0.16f + 0.68f * t), h * (0.18f + 0.08f * sin(t * 2f * PI.toFloat())))
+    val prismCenter = Offset(w * (0.76f - 0.42f * t), h * (0.78f - 0.16f * sin((t + 0.25f) * 2f * PI.toFloat())))
+    val baseAlpha = (0.090f + 0.052f * active).coerceIn(0f, 0.18f)
+    val rimAlpha = (0.155f + 0.120f * active).coerceIn(0f, 0.34f)
+    val lensAlpha = (0.045f + 0.110f * active).coerceIn(0f, 0.20f)
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFF8BD9).copy(alpha = baseAlpha * 0.52f),
+                Color(0xFF8DFFF3).copy(alpha = baseAlpha * 0.36f),
+                Color.Transparent
+            ),
+            center = glowCenter,
+            radius = maxOf(w, h) * 0.92f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFFF0A8).copy(alpha = lensAlpha * 0.56f),
+                Color(0xFF74FFF1).copy(alpha = lensAlpha * 0.42f),
+                Color(0xFFAEB7FF).copy(alpha = lensAlpha * 0.28f),
+                Color.Transparent
+            ),
+            center = prismCenter,
+            radius = maxOf(w, h) * (0.62f + 0.18f * active)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF6FD6).copy(alpha = 0.048f * active),
+                Color(0xFFFFE08A).copy(alpha = 0.036f * active),
+                Color(0xFF6DFFF0).copy(alpha = 0.052f * active),
+                Color(0xFF91A3FF).copy(alpha = 0.040f * active),
+                Color.Transparent
+            ),
+            start = Offset(w * (shimmerX - 0.56f), -h * 0.08f),
+            end = Offset(w * (shimmerX + 0.52f), h * 1.08f)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFF000713).copy(alpha = 0.018f + 0.018f * active),
+                Color(0xFF00040D).copy(alpha = 0.052f + 0.038f * active)
+            ),
+            center = Offset(w * 0.52f, h * 0.52f),
+            radius = maxOf(w, h) * 1.06f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Multiply
+    )
+
+    drawContent()
+
+    val inset = 0.74.dp.toPx()
+    val rimSize = Size(w - inset * 2f, h - inset * 2f)
+    val rimCorner = CornerRadius((radiusPx - inset).coerceAtLeast(0f), (radiusPx - inset).coerceAtLeast(0f))
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF64D8).copy(alpha = rimAlpha * 0.92f),
+                Color(0xFFFFE27A).copy(alpha = rimAlpha * 0.68f),
+                Color(0xFF67FFF0).copy(alpha = rimAlpha * 0.96f),
+                Color(0xFF9CA7FF).copy(alpha = rimAlpha * 0.72f),
+                Color.Transparent
+            ),
+            start = Offset(w * (shimmerX - 0.30f), h * -0.04f),
+            end = Offset(w * (shimmerX + 0.36f), h * 1.02f)
+        ),
+        topLeft = Offset(inset, inset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(width = 1.22.dp.toPx() + 0.42.dp.toPx() * active),
+        blendMode = BlendMode.Plus
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.145f * active),
+                Color(0xFFB9FFF8).copy(alpha = 0.078f * active),
+                Color.Transparent
+            ),
+            start = Offset(w * (reverseX - 0.24f), 0f),
+            end = Offset(w * (reverseX + 0.20f), h * 0.30f)
+        ),
+        topLeft = Offset(inset * 1.6f, inset * 1.6f),
+        size = Size(w - inset * 3.2f, h - inset * 3.2f),
+        cornerRadius = rimCorner,
+        style = Stroke(width = 0.72.dp.toPx()),
+        blendMode = BlendMode.Plus
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.102f * active),
+                Color(0xFFFFA6E7).copy(alpha = 0.050f * active),
+                Color(0xFF77FFF2).copy(alpha = 0.036f * active),
+                Color.Transparent
+            ),
+            center = glowCenter,
+            radius = maxOf(w, h) * 0.40f
+        ),
+        topLeft = Offset(inset, inset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.070f + 0.060f * active),
+                Color(0xFFFFDFF7).copy(alpha = 0.022f + 0.026f * active),
+                Color.Transparent,
+                Color(0xFF000817).copy(alpha = 0.046f + 0.030f * active)
+            ),
+            startY = 0f,
+            endY = h
+        ),
+        topLeft = Offset(inset, inset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(width = 0.64.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+}
 @Composable
 private fun RainbowChatGlassOverlay(quality: RenderQuality, motionIntensity: Float, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "chat-rainbow-glass-overlay")
