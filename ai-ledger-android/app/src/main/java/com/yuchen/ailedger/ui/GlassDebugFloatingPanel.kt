@@ -76,7 +76,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "模型卡同款透明胶囊 / 棱彩镀膜 / 按压响应",
+            subtitle = "模型卡同款透明胶囊 / 边缘高光 / 按压响应",
             initiallyExpanded = true,
             state = state
         ) {
@@ -161,16 +161,15 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     var innerSelectedBoost by rememberSaveable { mutableFloatStateOf(0.024f) }
     var innerMovingBoost by rememberSaveable { mutableFloatStateOf(0.007f) }
 
-    var prismSelectedBase by rememberSaveable { mutableFloatStateOf(0.075f) }
-    var prismNormalBase by rememberSaveable { mutableFloatStateOf(0.044f) }
-    var prismProgressBoost by rememberSaveable { mutableFloatStateOf(0.018f) }
-    var prismMovingBoost by rememberSaveable { mutableFloatStateOf(0.014f) }
-    var prismPressBoost by rememberSaveable { mutableFloatStateOf(0.018f) }
-    var prismMax by rememberSaveable { mutableFloatStateOf(0.13f) }
-    var prismWhiteWeight by rememberSaveable { mutableFloatStateOf(0.58f) }
-    var prismPurpleWeight by rememberSaveable { mutableFloatStateOf(0.42f) }
-    var prismPinkWeight by rememberSaveable { mutableFloatStateOf(0.34f) }
-    var prismCyanWeight by rememberSaveable { mutableFloatStateOf(0.18f) }
+    var topHighlightAlpha by rememberSaveable { mutableFloatStateOf(0.22f) }
+    var topHighlightHeight by rememberSaveable { mutableFloatStateOf(16f) }
+    var sideHighlightAlpha by rememberSaveable { mutableFloatStateOf(0.14f) }
+    var sideHighlightWidth by rememberSaveable { mutableFloatStateOf(5f) }
+    var innerStrokeAlpha by rememberSaveable { mutableFloatStateOf(0.11f) }
+    var centerMistAlpha by rememberSaveable { mutableFloatStateOf(0.032f) }
+    var bottomDepthAlpha by rememberSaveable { mutableFloatStateOf(0.060f) }
+    var edgeGlowBoost by rememberSaveable { mutableFloatStateOf(0.10f) }
+    var surfaceBrightBoost by rememberSaveable { mutableFloatStateOf(0.035f) }
 
     var pressScaleX by rememberSaveable { mutableFloatStateOf(0.012f) }
     var pressScaleY by rememberSaveable { mutableFloatStateOf(0.020f) }
@@ -187,8 +186,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         (normalBorderAlpha + borderProgressBoost * expansionProgress + borderMovingBoost * movingValue) * stackEnergy
     }
     val inner = innerAlpha + selectedEnergy * innerSelectedBoost + movingValue * innerMovingBoost
-    val prismBase = if (selected) prismSelectedBase else prismNormalBase
-    val prism = (prismBase + prismProgressBoost * expansionProgress + prismMovingBoost * movingValue + prismPressBoost * pressValue).coerceIn(0f, prismMax)
+    val highlightEnergy = (1f + selectedEnergy * 0.35f + movingValue * 0.18f + pressValue * 0.28f).coerceIn(0f, 1.9f)
 
     SectionTitleInline("预览状态")
     LightweightGlassPreview(
@@ -197,11 +195,14 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         borderAlpha = borderAlpha,
         borderWidth = if (selected) selectedBorderWidth else normalBorderWidth,
         innerAlpha = inner,
-        prism = prism,
-        prismWhiteWeight = prismWhiteWeight,
-        prismPurpleWeight = prismPurpleWeight,
-        prismPinkWeight = prismPinkWeight,
-        prismCyanWeight = prismCyanWeight,
+        topHighlightAlpha = topHighlightAlpha * highlightEnergy,
+        topHighlightHeight = topHighlightHeight,
+        sideHighlightAlpha = sideHighlightAlpha * highlightEnergy,
+        sideHighlightWidth = sideHighlightWidth,
+        innerStrokeAlpha = innerStrokeAlpha * highlightEnergy,
+        centerMistAlpha = centerMistAlpha + surfaceBrightBoost * selectedEnergy + pressValue * 0.018f,
+        bottomDepthAlpha = bottomDepthAlpha,
+        edgeGlowBoost = edgeGlowBoost * highlightEnergy,
         pressScaleX = pressScaleX * pressValue,
         pressScaleY = pressScaleY * pressValue,
         pressTranslateY = pressTranslateY * pressValue,
@@ -211,7 +212,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     )
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         LabToggleButton(if (selected) "选中态" else "普通态", "影响青色边框", state, Modifier.weight(1f)) { selected = !selected }
-        LabToggleButton(if (moving) "移动中" else "静止态", "影响镀膜亮度", state, Modifier.weight(1f)) { moving = !moving }
+        LabToggleButton(if (moving) "移动中" else "静止态", "影响高光亮度", state, Modifier.weight(1f)) { moving = !moving }
         LabToggleButton(if (pressed) "按压中" else "未按压", "影响胶囊压缩", state, Modifier.weight(1f)) { pressed = !pressed }
     }
 
@@ -234,17 +235,16 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     LabSlider("选中白雾增益", "选中时内部白雾增强", innerSelectedBoost, 0f..0.08f) { innerSelectedBoost = it }
     LabSlider("移动白雾增益", "移动时内部白雾增强", innerMovingBoost, 0f..0.04f) { innerMovingBoost = it }
 
-    SectionTitleInline("棱彩镀膜")
-    LabSlider("选中棱彩基础", "选中态镀膜底强度", prismSelectedBase, 0f..0.18f) { prismSelectedBase = it }
-    LabSlider("普通棱彩基础", "普通态镀膜底强度", prismNormalBase, 0f..0.14f) { prismNormalBase = it }
-    LabSlider("展开棱彩增益", "展开进度带来的棱彩增强", prismProgressBoost, 0f..0.08f) { prismProgressBoost = it }
-    LabSlider("移动棱彩增益", "移动中镀膜增强", prismMovingBoost, 0f..0.08f) { prismMovingBoost = it }
-    LabSlider("按压棱彩增益", "点击时镀膜增强", prismPressBoost, 0f..0.10f) { prismPressBoost = it }
-    LabSlider("棱彩强度上限", "限制镀膜最大透明度", prismMax, 0.02f..0.30f) { prismMax = it }
-    LabSlider("白色高光权重", "镀膜中央白光强度", prismWhiteWeight, 0f..1.2f) { prismWhiteWeight = it }
-    LabSlider("紫色权重", "紫色镀膜强度", prismPurpleWeight, 0f..1.2f) { prismPurpleWeight = it }
-    LabSlider("粉色权重", "粉色镀膜强度", prismPinkWeight, 0f..1.2f) { prismPinkWeight = it }
-    LabSlider("青色边光权重", "青色第二层边光强度", prismCyanWeight, 0f..1.2f) { prismCyanWeight = it }
+    SectionTitleInline("边缘高光与深度")
+    LabSlider("顶部高光", "上沿玻璃折边亮度", topHighlightAlpha, 0f..0.8f) { topHighlightAlpha = it }
+    LabSlider("顶部高光高度", "上沿高光扩散高度 dp", topHighlightHeight, 2f..32f) { topHighlightHeight = it }
+    LabSlider("侧边高光", "左右边缘细光强度", sideHighlightAlpha, 0f..0.6f) { sideHighlightAlpha = it }
+    LabSlider("侧边高光宽度", "左右边缘光带宽度 dp", sideHighlightWidth, 1f..14f) { sideHighlightWidth = it }
+    LabSlider("内描边", "内部第二层细边", innerStrokeAlpha, 0f..0.5f) { innerStrokeAlpha = it }
+    LabSlider("中心雾光", "卡片中心柔亮感", centerMistAlpha, 0f..0.18f) { centerMistAlpha = it }
+    LabSlider("底部压边", "下沿暗部深度", bottomDepthAlpha, 0f..0.25f) { bottomDepthAlpha = it }
+    LabSlider("边缘光增益", "按压/移动时边缘额外增强", edgeGlowBoost, 0f..0.35f) { edgeGlowBoost = it }
+    LabSlider("表面提亮", "选中态表面柔光增益", surfaceBrightBoost, 0f..0.14f) { surfaceBrightBoost = it }
 
     SectionTitleInline("点击胶囊动画")
     LabSlider("按压横向展开", "按下时横向 scale 增量", pressScaleX, 0f..0.06f) { pressScaleX = it }
@@ -259,11 +259,14 @@ private fun LightweightGlassPreview(
     borderAlpha: Float,
     borderWidth: Float,
     innerAlpha: Float,
-    prism: Float,
-    prismWhiteWeight: Float,
-    prismPurpleWeight: Float,
-    prismPinkWeight: Float,
-    prismCyanWeight: Float,
+    topHighlightAlpha: Float,
+    topHighlightHeight: Float,
+    sideHighlightAlpha: Float,
+    sideHighlightWidth: Float,
+    innerStrokeAlpha: Float,
+    centerMistAlpha: Float,
+    bottomDepthAlpha: Float,
+    edgeGlowBoost: Float,
     pressScaleX: Float,
     pressScaleY: Float,
     pressTranslateY: Float,
@@ -287,6 +290,60 @@ private fun LightweightGlassPreview(
         Box(
             Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = centerMistAlpha.coerceIn(0f, 0.24f)),
+                            Color.Transparent,
+                            Color(0xFF020618).copy(alpha = bottomDepthAlpha.coerceIn(0f, 0.35f))
+                        )
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(topHighlightHeight.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = topHighlightAlpha.coerceIn(0f, 1f)),
+                            Color(0xFF8DF9EA).copy(alpha = (topHighlightAlpha * 0.20f + edgeGlowBoost * 0.25f).coerceIn(0f, 0.6f)),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .size(sideHighlightWidth.dp, 84.dp)
+                .align(Alignment.CenterStart)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = (sideHighlightAlpha + edgeGlowBoost).coerceIn(0f, 1f)),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .size(sideHighlightWidth.dp, 84.dp)
+                .align(Alignment.CenterEnd)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = (sideHighlightAlpha * 0.72f + edgeGlowBoost * 0.50f).coerceIn(0f, 1f))
+                        )
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
                 .border(
                     width = borderWidth.dp,
                     color = if (selected) Color(0xFF8DF9EA).copy(alpha = borderAlpha.coerceIn(0f, 1f)) else Color.White.copy(alpha = borderAlpha.coerceIn(0f, 1f)),
@@ -298,39 +355,8 @@ private fun LightweightGlassPreview(
                 .fillMaxSize()
                 .padding(1.dp)
                 .clip(shape)
+                .border(1.dp, Color.White.copy(alpha = innerStrokeAlpha.coerceIn(0f, 0.8f)), shape)
                 .background(Color.White.copy(alpha = innerAlpha.coerceIn(0f, 0.22f)))
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(1.dp)
-                .clip(shape)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF8DF9EA).copy(alpha = prism * 0.10f),
-                            Color(0xFFB8A4FF).copy(alpha = prism * prismPurpleWeight),
-                            Color.White.copy(alpha = prism * prismWhiteWeight),
-                            Color(0xFFFFB3E6).copy(alpha = prism * prismPinkWeight),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 2.dp, vertical = 1.dp)
-                .clip(shape)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = prism * 0.26f),
-                            Color.Transparent,
-                            Color(0xFF8DF9EA).copy(alpha = prism * prismCyanWeight)
-                        )
-                    )
-                )
         )
         Row(Modifier.fillMaxSize().padding(horizontal = 15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
             Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.48f)))
