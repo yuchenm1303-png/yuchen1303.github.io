@@ -1,4 +1,4 @@
-Rollback target: 1333b30f347ad58c4f87dca5f85d75114eb2598a
-Purpose: trigger Build Compose Android APK after force-resetting dev-update-1 to the requested baseline.
-App source code remains at the rollback baseline.
+Rollback target: 6a0db5af062824609259785fdb5a35273e5c4450
+Purpose: trigger Build Compose Android APK after reverting the second performance pass.
+App source code remains at the first lightweight-flight baseline.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
