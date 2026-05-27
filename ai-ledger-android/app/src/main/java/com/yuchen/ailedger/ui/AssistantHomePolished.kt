@@ -21,6 +21,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -342,7 +344,7 @@ private fun ModelStackCard(
             scaleX = capsuleScaleX * selectedPulse
             scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
-            shadowElevation = if (settled && selected) 0.34f else 0.06f + 0.16f * speedPulse
+            shadowElevation = if (settled && selected) 0.24f else 0.03f + 0.06f * speedPulse
         }
 
     ModelFrostCapsule(
@@ -415,42 +417,117 @@ private fun ModelFrostCapsule(
     val moving = if (settled) 0f else 1f
     val selectedEnergy = if (selected) 1f else 0f
     val stackEnergy = if (stackRank > 0) 0.42f else 1f
-    val role = if (selected) GlassRole.Floating else GlassRole.Card
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * (0.92f + selectedEnergy * 0.16f + moving * 0.08f),
-        motionIntensity = state.motionIntensity,
-        radius = radius,
-        modifier = modifier,
-        role = role,
-        onClick = onClick
+    val expandedSettled = settled && expansionProgress > 0.985f
+    val collapsedTopSettled = settled && expansionProgress < 0.025f && selected
+    val useFullGlass = expandedSettled || collapsedTopSettled
+
+    if (useFullGlass) {
+        val role = if (selected) GlassRole.Floating else GlassRole.Card
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * (0.92f + selectedEnergy * 0.16f),
+            motionIntensity = state.motionIntensity,
+            radius = radius,
+            modifier = modifier,
+            role = role,
+            onClick = onClick
+        ) {
+            Box(Modifier.fillMaxSize().clip(shape)) {
+                ModelCapsuleChrome(
+                    selected = selected,
+                    expansionProgress = expansionProgress,
+                    moving = 0f,
+                    stackEnergy = stackEnergy,
+                    shape = shape
+                )
+                ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+            }
+        }
+    } else {
+        LightweightModelCapsule(
+            model = model,
+            selected = selected,
+            state = state,
+            modifier = modifier,
+            expansionProgress = expansionProgress,
+            moving = moving,
+            stackEnergy = stackEnergy,
+            shape = shape,
+            showContent = selected || expansionProgress > 0.035f,
+            onClick = onClick
+        )
+    }
+}
+
+@Composable
+private fun LightweightModelCapsule(
+    model: ChatModel,
+    selected: Boolean,
+    state: AssistantUiState,
+    modifier: Modifier,
+    expansionProgress: Float,
+    moving: Float,
+    stackEnergy: Float,
+    shape: RoundedCornerShape,
+    showContent: Boolean,
+    onClick: () -> Unit
+) {
+    val selectedEnergy = if (selected) 1f else 0f
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = (0.042f + selectedEnergy * 0.018f + moving * 0.010f) * maxOf(stackEnergy, 0.58f)))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = !state.isSending,
+                onClick = onClick
+            )
     ) {
-        Box(Modifier.fillMaxSize().clip(shape)) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .border(
-                        width = if (selected) 1.22.dp else 0.86.dp,
-                        color = if (selected) {
-                            Color(0xFF8DF9EA).copy(alpha = 0.48f + 0.18f * expansionProgress + 0.12f * moving)
-                        } else {
-                            Color.White.copy(alpha = (0.18f + 0.10f * expansionProgress + 0.08f * moving) * stackEnergy)
-                        },
-                        shape = shape
-                    )
-            )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(1.dp)
-                    .clip(shape)
-                    .background(
-                        Color.White.copy(alpha = 0.010f + selectedEnergy * 0.018f + moving * 0.012f)
-                    )
-            )
+        ModelCapsuleChrome(
+            selected = selected,
+            expansionProgress = expansionProgress,
+            moving = moving,
+            stackEnergy = stackEnergy,
+            shape = shape
+        )
+        if (showContent) {
             ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
         }
     }
+}
+
+@Composable
+private fun ModelCapsuleChrome(
+    selected: Boolean,
+    expansionProgress: Float,
+    moving: Float,
+    stackEnergy: Float,
+    shape: RoundedCornerShape
+) {
+    val selectedEnergy = if (selected) 1f else 0f
+    Box(
+        Modifier
+            .fillMaxSize()
+            .border(
+                width = if (selected) 1.22.dp else 0.86.dp,
+                color = if (selected) {
+                    Color(0xFF8DF9EA).copy(alpha = 0.48f + 0.18f * expansionProgress + 0.07f * moving)
+                } else {
+                    Color.White.copy(alpha = (0.18f + 0.10f * expansionProgress + 0.04f * moving) * stackEnergy)
+                },
+                shape = shape
+            )
+    )
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(1.dp)
+            .clip(shape)
+            .background(
+                Color.White.copy(alpha = 0.010f + selectedEnergy * 0.018f + moving * 0.006f)
+            )
+    )
 }
 
 @Composable
