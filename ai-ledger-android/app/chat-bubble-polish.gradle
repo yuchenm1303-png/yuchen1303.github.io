@@ -45,14 +45,13 @@ tasks.register('patchAssistantChatBubblePolish') {
                 .fillMaxSize()
                 .clip(RoundedCornerShape(30.dp))
                 .clipToBounds()
-                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }
         ) {
 '''
         if (text.contains(oldShellBox)) {
             text = text.replace(oldShellBox, newShellBox)
-        } else if (text.contains('.clip(RoundedCornerShape(30.dp))') && !text.contains('bubbleLayerState.updateRoot')) {
-            text = text.replace('.clip(RoundedCornerShape(30.dp))\n                .clipToBounds()', '.clip(RoundedCornerShape(30.dp))\n                .clipToBounds()\n                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }')
-        } else if (!text.contains('bubbleLayerState.updateRoot')) {
+        } else if (text.contains('bubbleLayerState.updateRoot')) {
+            text = text.replace('\n                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }', '')
+        } else if (!text.contains('.clip(RoundedCornerShape(30.dp))')) {
             throw new GradleException('Chat shell content clip target not found.')
         }
 
@@ -257,7 +256,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied parent-layer chat bubble material patch with Q-bouncy text bubbles.')
+        println('Applied parent-layer chat bubble material patch with canvas-local coordinates.')
     }
 }
 
