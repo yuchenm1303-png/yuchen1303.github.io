@@ -32,8 +32,8 @@ kotlin {
 
 def patchPolishedOnlineDroplet = tasks.register('patchPolishedOnlineDroplet') {
     doLast {
-        def target = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
-        def text = target.getText('UTF-8')
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
         def oldBlock = '''@Composable
 private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
     val accent = if (state.onlineEnabled) Color(0xFF8DF9EA) else Color(0xFF9EB7FF)
@@ -64,13 +64,25 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
 '''
         if (text.contains(newBlock)) {
             println('NetworkChipV2 already uses NetworkDropletCapsule.')
-            return
-        }
-        if (!text.contains(oldBlock)) {
+        } else if (text.contains(oldBlock)) {
+            home.setText(text.replace(oldBlock, newBlock), 'UTF-8')
+            println('Patched AssistantHomePolished NetworkChipV2 to use NetworkDropletCapsule.')
+        } else {
             throw new GradleException('Target NetworkChipV2 block was not found; refusing to build stale online toggle.')
         }
-        target.setText(text.replace(oldBlock, newBlock), 'UTF-8')
-        println('Patched AssistantHomePolished NetworkChipV2 to use NetworkDropletCapsule.')
+
+        def droplet = file('src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt')
+        def dropletText = droplet.getText('UTF-8')
+        def oldHeight = 'Box(modifier = modifier.height(68.dp), contentAlignment = Alignment.Center)'
+        def newHeight = 'Box(modifier = modifier.height(54.dp), contentAlignment = Alignment.Center)'
+        if (dropletText.contains(oldHeight)) {
+            droplet.setText(dropletText.replace(oldHeight, newHeight), 'UTF-8')
+            println('Shrunk online sample droplet from 68dp to 54dp.')
+        } else if (dropletText.contains(newHeight)) {
+            println('Online sample droplet already uses 54dp height.')
+        } else {
+            throw new GradleException('Target NetworkDropletCapsule height block was not found.')
+        }
     }
 }
 
