@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -28,9 +29,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,7 +80,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "2.0 光学分层：轮廓 / 受光 / 内腔 / 彩虹 / 联动",
+            subtitle = "2.1 轻量假发光：单 Canvas / 无 blur / 无 shadow / 无 OpenGL",
             initiallyExpanded = true,
             state = state
         ) {
@@ -138,33 +144,33 @@ private fun GlassLabFoldout(
 
 @Composable
 private fun LightweightGlassLab(state: AssistantUiState) {
-    var selected by rememberSaveable { mutableStateOf(true) }
+    var selected by rememberSaveable { mutableStateOf(false) }
     var moving by rememberSaveable { mutableStateOf(true) }
     var pressed by rememberSaveable { mutableStateOf(false) }
     var rainbowEnabled by rememberSaveable { mutableStateOf(true) }
 
-    var radius by rememberSaveable { mutableFloatStateOf(30f) }
-    var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.050f) }
-    var outerContourAlpha by rememberSaveable { mutableFloatStateOf(0.62f) }
-    var outerContourWidth by rememberSaveable { mutableFloatStateOf(1.25f) }
-    var outerHaloAlpha by rememberSaveable { mutableFloatStateOf(0.090f) }
-    var outerHaloWidth by rememberSaveable { mutableFloatStateOf(5.0f) }
-    var innerContourAlpha by rememberSaveable { mutableFloatStateOf(0.18f) }
-    var innerContourInset by rememberSaveable { mutableFloatStateOf(2.0f) }
+    var radius by rememberSaveable { mutableFloatStateOf(32.4f) }
+    var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var outerContourAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var outerContourWidth by rememberSaveable { mutableFloatStateOf(0.40f) }
+    var outerHaloAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var outerHaloWidth by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var innerContourAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var innerContourInset by rememberSaveable { mutableFloatStateOf(0.0f) }
 
-    var topRimAlpha by rememberSaveable { mutableFloatStateOf(0.42f) }
+    var topRimAlpha by rememberSaveable { mutableFloatStateOf(0.36f) }
     var topRimHeight by rememberSaveable { mutableFloatStateOf(9.0f) }
-    var topRimFocus by rememberSaveable { mutableFloatStateOf(0.38f) }
-    var sideGlanceAlpha by rememberSaveable { mutableFloatStateOf(0.20f) }
-    var sideGlanceWidth by rememberSaveable { mutableFloatStateOf(4.0f) }
+    var topRimFocus by rememberSaveable { mutableFloatStateOf(0.41f) }
+    var sideGlanceAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var sideGlanceWidth by rememberSaveable { mutableFloatStateOf(1.0f) }
 
-    var cavityMistAlpha by rememberSaveable { mutableFloatStateOf(0.030f) }
-    var cavityMistHeight by rememberSaveable { mutableFloatStateOf(0.58f) }
-    var bottomDepthAlpha by rememberSaveable { mutableFloatStateOf(0.050f) }
-    var bottomDepthHeight by rememberSaveable { mutableFloatStateOf(18.0f) }
-    var surfaceBrightAlpha by rememberSaveable { mutableFloatStateOf(0.026f) }
+    var cavityMistAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var cavityMistHeight by rememberSaveable { mutableFloatStateOf(0.20f) }
+    var bottomDepthAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
+    var bottomDepthHeight by rememberSaveable { mutableFloatStateOf(2.0f) }
+    var surfaceBrightAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }
 
-    var rainbowEdgeAlpha by rememberSaveable { mutableFloatStateOf(0.78f) }
+    var rainbowEdgeAlpha by rememberSaveable { mutableFloatStateOf(0.86f) }
     var rainbowEdgeWidth by rememberSaveable { mutableFloatStateOf(1.35f) }
     var rainbowHaloAlpha by rememberSaveable { mutableFloatStateOf(0.16f) }
     var rainbowHaloWidth by rememberSaveable { mutableFloatStateOf(7.0f) }
@@ -189,6 +195,8 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     val rainbowEnergy = if (rainbowEnabled) 1f else 0f
     val stateEnergy = (1f + selectedEnergy * selectedGain + movingEnergy * movingGain + pressEnergy * pressGain).coerceIn(0.35f, 2.2f)
     val layerEnergy = if (selected) 1f else backLayerFade
+    val movingCostGate = if (moving) 0.62f else 1f
+    val highCostGate = if (moving) 0.46f else 1f
     val rainbowStateEnergy = rainbowEnergy * stateEnergy * layerEnergy
 
     LightweightGlassPreview(
@@ -212,12 +220,12 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         rainbowEnabled = rainbowEnabled,
         rainbowEdgeAlpha = rainbowEdgeAlpha * rainbowStateEnergy,
         rainbowEdgeWidth = rainbowEdgeWidth,
-        rainbowHaloAlpha = rainbowHaloAlpha * rainbowStateEnergy,
+        rainbowHaloAlpha = rainbowHaloAlpha * rainbowStateEnergy * movingCostGate,
         rainbowHaloWidth = rainbowHaloWidth,
         rainbowSaturation = rainbowSaturation,
-        rainbowSweepAlpha = rainbowSweepAlpha * rainbowStateEnergy,
+        rainbowSweepAlpha = rainbowSweepAlpha * rainbowStateEnergy * highCostGate,
         rainbowSweepWidth = rainbowSweepWidth,
-        rainbowCornerGlow = rainbowCornerGlow * rainbowStateEnergy,
+        rainbowCornerGlow = rainbowCornerGlow * rainbowStateEnergy * highCostGate,
         rainbowBottomGlow = rainbowBottomGlow * rainbowStateEnergy,
         pressScaleX = pressScaleX * pressEnergy,
         pressScaleY = pressScaleY * pressEnergy,
@@ -227,18 +235,19 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         pressed = pressed
     )
 
-    LightGlassControlGroup("状态预览", "切换选中、移动、按压，观察光学层联动", state, initiallyExpanded = true) {
+    LightGlassControlGroup("状态预览", "默认复现你的低参数基线；移动态自动压低高成本光效", state, initiallyExpanded = true) {
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LabToggleButton(if (selected) "选中态" else "普通态", "边缘能量", state, Modifier.weight(1f)) { selected = !selected }
-            LabToggleButton(if (moving) "移动中" else "静止态", "高光联动", state, Modifier.weight(1f)) { moving = !moving }
+            LabToggleButton(if (moving) "移动中" else "静止态", "高光开销", state, Modifier.weight(1f)) { moving = !moving }
             LabToggleButton(if (pressed) "按压中" else "未按压", "胶囊压缩", state, Modifier.weight(1f)) { pressed = !pressed }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LabToggleButton(if (rainbowEnabled) "彩虹开启" else "彩虹关闭", "只控制假发光层", state, Modifier.weight(1f)) { rainbowEnabled = !rainbowEnabled }
         }
+        Text("性能策略：预览层已改为单 Canvas 合并绘制；不使用 blur、shadowElevation、贴图或 OpenGL。移动中会自动降低外晕、扫光、角落爆光。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
 
-    LightGlassControlGroup("结构轮廓", "决定玻璃厚度，不再只是单线描边", state, initiallyExpanded = true) {
+    LightGlassControlGroup("结构轮廓", "低参数基线：去掉实体底和多余描边，只保留彩色边缘空间", state, initiallyExpanded = true) {
         LabSlider("圆角半径", "胶囊整体圆润程度", radius, 18f..42f) { radius = it }
         LabSlider("表面透明底", "中间透明蓝白底色", surfaceAlpha, 0f..0.14f) { surfaceAlpha = it }
         LabSlider("外轮廓亮度", "最外层受光强度", outerContourAlpha, 0f..1.2f) { outerContourAlpha = it }
@@ -249,7 +258,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         LabSlider("内轮廓内缩", "内轮廓离外边距离", innerContourInset, 0f..7f) { innerContourInset = it }
     }
 
-    LightGlassControlGroup("受光层", "顶部折边与左右擦光，负责高级受光", state, initiallyExpanded = false) {
+    LightGlassControlGroup("受光层", "顶部折边保留，左右擦光默认关闭，避免多余泛白", state, initiallyExpanded = true) {
         LabSlider("顶部折边光", "上沿最亮的一层折射光", topRimAlpha, 0f..1.0f) { topRimAlpha = it }
         LabSlider("顶部光厚度", "顶部亮带高度", topRimHeight, 2f..26f) { topRimHeight = it }
         LabSlider("顶部集中度", "高光越集中越像锋利折边", topRimFocus, 0f..1f) { topRimFocus = it }
@@ -257,7 +266,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         LabSlider("侧边光宽度", "圆头侧光宽度", sideGlanceWidth, 1f..16f) { sideGlanceWidth = it }
     }
 
-    LightGlassControlGroup("内腔深度", "透明但不空，保留玻璃内部空气感", state, initiallyExpanded = false) {
+    LightGlassControlGroup("内腔深度", "默认清空内部雾和暗边，让玻璃更透明轻盈", state, initiallyExpanded = false) {
         LabSlider("内腔雾感", "中心柔亮雾层", cavityMistAlpha, 0f..0.16f) { cavityMistAlpha = it }
         LabSlider("雾感高度", "雾层占胶囊高度比例", cavityMistHeight, 0.2f..1.0f) { cavityMistHeight = it }
         LabSlider("底部深度", "下沿暗部压边", bottomDepthAlpha, 0f..0.20f) { bottomDepthAlpha = it }
@@ -265,7 +274,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         LabSlider("表面提亮", "选中态中心额外亮度", surfaceBrightAlpha, 0f..0.12f) { surfaceBrightAlpha = it }
     }
 
-    LightGlassControlGroup("彩虹发光", "用渐变假发光模拟棱彩，不使用 blur 或贴图", state, initiallyExpanded = true) {
+    LightGlassControlGroup("彩虹发光", "用少量渐变笔触做局部爆光，优先边缘，不堆 Box", state, initiallyExpanded = true) {
         LabSlider("彩虹边缘强度", "彩色边缘发光亮度", rainbowEdgeAlpha, 0f..1.4f) { rainbowEdgeAlpha = it }
         LabSlider("彩虹边缘宽度", "彩色边缘厚度", rainbowEdgeWidth, 0.4f..3.4f) { rainbowEdgeWidth = it }
         LabSlider("彩虹光晕强度", "外侧彩色空气光", rainbowHaloAlpha, 0f..0.42f) { rainbowHaloAlpha = it }
@@ -334,244 +343,299 @@ private fun LightweightGlassPreview(
     val rainbowSweep = rainbowSweepAlpha.coerceIn(0f, 0.55f)
     val rainbowCorner = rainbowCornerGlow.coerceIn(0f, 0.55f)
     val rainbowBottom = rainbowBottomGlow.coerceIn(0f, 0.45f)
-    val softWhite = 1f - rainbowSat * 0.35f
-    val rainbowEdgeBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFF58F7FF).copy(alpha = rainbowEdge * (0.88f * rainbowSat + 0.12f)),
-            Color(0xFFFF5FE7).copy(alpha = rainbowEdge * rainbowSat),
-            Color(0xFFFFE96A).copy(alpha = rainbowEdge * rainbowSat),
-            Color(0xFF62FF8A).copy(alpha = rainbowEdge * rainbowSat),
-            Color(0xFF6CA2FF).copy(alpha = rainbowEdge * (0.82f * rainbowSat + 0.10f)),
-            Color.White.copy(alpha = rainbowEdge * 0.22f * softWhite)
-        )
-    )
-    val quietEdgeBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFF8DF9EA).copy(alpha = outerContourAlpha.coerceIn(0f, 1f)),
-            Color.White.copy(alpha = (outerContourAlpha * 0.72f).coerceIn(0f, 1f))
-        )
-    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(92.dp)
+            .height(102.dp)
             .graphicsLayer {
                 scaleX = 1f + pressScaleX
                 scaleY = 1f - pressScaleY
                 translationY = pressTranslateY
             }
     ) {
-        if (rainbowEnabled && rainbowHalo > 0f) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding((rainbowHaloWidth * 0.20f).dp)
-                    .clip(shape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF00E5FF).copy(alpha = rainbowHalo * 0.75f * rainbowSat),
-                                Color(0xFFFF4FD8).copy(alpha = rainbowHalo * rainbowSat),
-                                Color(0xFFFFD54A).copy(alpha = rainbowHalo * 0.90f * rainbowSat),
-                                Color(0xFF40FF88).copy(alpha = rainbowHalo * 0.70f * rainbowSat),
-                                Color.Transparent
-                            )
-                        )
-                    )
+        Canvas(Modifier.fillMaxSize()) {
+            val padX = 8.dp.toPx()
+            val padY = 12.dp.toPx()
+            val w = size.width - padX * 2f
+            val h = size.height - padY * 2f
+            val bodyTopLeft = Offset(padX, padY)
+            val bodySize = Size(w.coerceAtLeast(1f), h.coerceAtLeast(1f))
+            val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+            val haloGrow = (rainbowHaloWidth + outerHaloWidth).dp.toPx().coerceIn(2.dp.toPx(), 28.dp.toPx())
+            val edgeGrow = (rainbowEdgeWidth * 1.4f).dp.toPx().coerceIn(1.dp.toPx(), 8.dp.toPx())
+            val bodyLeft = bodyTopLeft.x
+            val bodyTop = bodyTopLeft.y
+            val bodyRight = bodyTopLeft.x + bodySize.width
+            val bodyBottom = bodyTopLeft.y + bodySize.height
+
+            if (rainbowEnabled && rainbowHalo > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF65F7FF).copy(alpha = rainbowHalo * 0.34f * rainbowSat),
+                            Color(0xFFFF58D2).copy(alpha = rainbowHalo * 0.20f * rainbowSat),
+                            Color.Transparent
+                        ),
+                        center = Offset(bodyLeft + bodySize.width * 0.14f, bodyTop + bodySize.height * 0.45f),
+                        radius = bodySize.width * 0.42f + haloGrow
+                    ),
+                    topLeft = Offset(bodyLeft - haloGrow * 0.70f, bodyTop - haloGrow * 0.20f),
+                    size = Size(bodySize.width + haloGrow * 1.40f, bodySize.height + haloGrow * 0.70f),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Plus
+                )
+                drawRoundRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFFE56B).copy(alpha = rainbowHalo * 0.26f * rainbowSat),
+                            Color(0xFF62FF91).copy(alpha = rainbowHalo * 0.18f * rainbowSat),
+                            Color.Transparent
+                        ),
+                        center = Offset(bodyRight - bodySize.width * 0.16f, bodyBottom - bodySize.height * 0.22f),
+                        radius = bodySize.width * 0.36f + haloGrow
+                    ),
+                    topLeft = Offset(bodyLeft - haloGrow * 0.30f, bodyTop - haloGrow * 0.10f),
+                    size = Size(bodySize.width + haloGrow * 1.10f, bodySize.height + haloGrow * 0.92f),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Plus
+                )
+            }
+
+            if (outerHaloAlpha > 0.002f) {
+                drawRoundRect(
+                    color = Color(0xFF9FC8FF).copy(alpha = outerHaloAlpha.coerceIn(0f, 0.45f)),
+                    topLeft = Offset(bodyLeft - haloGrow * 0.34f, bodyTop - haloGrow * 0.18f),
+                    size = Size(bodySize.width + haloGrow * 0.68f, bodySize.height + haloGrow * 0.36f),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = (surfaceAlpha + cavityMistAlpha * 0.70f).coerceIn(0f, 0.32f)),
+                        Color(0xFFC8E6FF).copy(alpha = (surfaceAlpha * 0.58f + cavityMistAlpha * cavityMistHeight * 0.22f).coerceIn(0f, 0.16f)),
+                        Color.Transparent
+                    ),
+                    startY = bodyTop,
+                    endY = bodyBottom
+                ),
+                topLeft = bodyTopLeft,
+                size = bodySize,
+                cornerRadius = corner,
+                blendMode = BlendMode.Screen
             )
+
+            if (bottomDepthAlpha > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color(0xFF020618).copy(alpha = bottomDepthAlpha.coerceIn(0f, 0.30f))
+                        ),
+                        startY = bodyBottom - bottomDepthHeight.dp.toPx(),
+                        endY = bodyBottom
+                    ),
+                    topLeft = bodyTopLeft,
+                    size = bodySize,
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Multiply
+                )
+            }
+
+            if (rainbowEnabled && rainbowBottom > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0xFF00E5FF).copy(alpha = rainbowBottom * 0.45f * rainbowSat),
+                            Color(0xFFFF4FD8).copy(alpha = rainbowBottom * 0.60f * rainbowSat),
+                            Color(0xFFFFD54A).copy(alpha = rainbowBottom * 0.52f * rainbowSat),
+                            Color(0xFF40FF88).copy(alpha = rainbowBottom * 0.40f * rainbowSat)
+                        ),
+                        startX = bodyLeft,
+                        endX = bodyRight
+                    ),
+                    topLeft = Offset(bodyLeft + bodySize.width * 0.06f, bodyBottom - 13.dp.toPx()),
+                    size = Size(bodySize.width * 0.88f, 11.dp.toPx()),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Plus
+                )
+            }
+
+            if (rainbowEnabled && rainbowSweep > 0.002f) {
+                val sweepSpread = rainbowSweepWidth.coerceIn(0.12f, 0.9f)
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color(0xFF5BFFF4).copy(alpha = rainbowSweep * 0.25f * rainbowSat),
+                            Color.White.copy(alpha = rainbowSweep * 0.40f),
+                            Color(0xFFFF64DD).copy(alpha = rainbowSweep * 0.30f * rainbowSat),
+                            Color.Transparent
+                        ),
+                        start = Offset(bodyLeft + bodySize.width * (0.05f - sweepSpread), bodyBottom),
+                        end = Offset(bodyLeft + bodySize.width * (0.58f + sweepSpread), bodyTop)
+                    ),
+                    topLeft = bodyTopLeft,
+                    size = bodySize,
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            if (topRimAlpha > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = topRimAlpha.coerceIn(0f, 1f)),
+                            Color(0xFF8DF9EA).copy(alpha = (topRimAlpha * topRimFocus * 0.50f).coerceIn(0f, 0.60f)),
+                            Color.Transparent
+                        ),
+                        startY = bodyTop,
+                        endY = bodyTop + topRimHeight.dp.toPx()
+                    ),
+                    topLeft = Offset(bodyLeft + 5.dp.toPx(), bodyTop + 1.dp.toPx()),
+                    size = Size(bodySize.width - 10.dp.toPx(), topRimHeight.dp.toPx()),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            if (sideGlanceAlpha > 0.002f) {
+                val glanceW = sideGlanceWidth.dp.toPx().coerceAtLeast(1f)
+                drawRoundRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = sideGlanceAlpha.coerceIn(0f, 1f)),
+                            Color(0xFF8DF9EA).copy(alpha = (sideGlanceAlpha * 0.45f).coerceIn(0f, 0.45f)),
+                            Color.Transparent
+                        )
+                    ),
+                    topLeft = Offset(bodyLeft + 1.dp.toPx(), bodyTop + 4.dp.toPx()),
+                    size = Size(glanceW, bodySize.height - 8.dp.toPx()),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Screen
+                )
+                drawRoundRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = (sideGlanceAlpha * 0.78f).coerceIn(0f, 1f))
+                        )
+                    ),
+                    topLeft = Offset(bodyRight - glanceW - 1.dp.toPx(), bodyTop + 4.dp.toPx()),
+                    size = Size(glanceW, bodySize.height - 8.dp.toPx()),
+                    cornerRadius = corner,
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            if (outerContourAlpha > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF8DF9EA).copy(alpha = outerContourAlpha.coerceIn(0f, 1f)),
+                            Color.White.copy(alpha = (outerContourAlpha * 0.72f).coerceIn(0f, 1f))
+                        ),
+                        start = Offset(bodyLeft, bodyTop),
+                        end = Offset(bodyRight, bodyBottom)
+                    ),
+                    topLeft = bodyTopLeft,
+                    size = bodySize,
+                    cornerRadius = corner,
+                    style = Stroke(width = outerContourWidth.dp.toPx()),
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            if (rainbowEnabled && rainbowEdge > 0.002f) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF58F7FF).copy(alpha = rainbowEdge * (0.92f * rainbowSat + 0.08f)),
+                            Color(0xFFFF5FE7).copy(alpha = rainbowEdge * rainbowSat),
+                            Color(0xFFFFE96A).copy(alpha = rainbowEdge * rainbowSat),
+                            Color(0xFF62FF8A).copy(alpha = rainbowEdge * rainbowSat),
+                            Color(0xFF6CA2FF).copy(alpha = rainbowEdge * (0.82f * rainbowSat + 0.10f))
+                        ),
+                        start = Offset(bodyLeft - edgeGrow, bodyTop),
+                        end = Offset(bodyRight + edgeGrow, bodyBottom)
+                    ),
+                    topLeft = Offset(bodyLeft - edgeGrow * 0.20f, bodyTop - edgeGrow * 0.12f),
+                    size = Size(bodySize.width + edgeGrow * 0.40f, bodySize.height + edgeGrow * 0.24f),
+                    cornerRadius = corner,
+                    style = Stroke(width = rainbowEdgeWidth.dp.toPx()),
+                    blendMode = BlendMode.Plus
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = rainbowEdge * 0.11f),
+                    topLeft = Offset(bodyLeft + 0.8.dp.toPx(), bodyTop + 0.8.dp.toPx()),
+                    size = Size(bodySize.width - 1.6.dp.toPx(), bodySize.height - 1.6.dp.toPx()),
+                    cornerRadius = corner,
+                    style = Stroke(width = 0.72.dp.toPx()),
+                    blendMode = BlendMode.Screen
+                )
+            }
+
+            if (rainbowEnabled && rainbowCorner > 0.002f) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = rainbowCorner * 0.32f),
+                            Color(0xFFFFE96A).copy(alpha = rainbowCorner * 0.24f * rainbowSat),
+                            Color(0xFFFF5FE7).copy(alpha = rainbowCorner * 0.18f * rainbowSat),
+                            Color.Transparent
+                        ),
+                        center = Offset(bodyRight - bodySize.width * 0.14f, bodyTop + bodySize.height * 0.18f),
+                        radius = bodySize.height * 0.92f
+                    ),
+                    radius = bodySize.height * 0.92f,
+                    center = Offset(bodyRight - bodySize.width * 0.14f, bodyTop + bodySize.height * 0.18f),
+                    blendMode = BlendMode.Plus
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF58F7FF).copy(alpha = rainbowCorner * 0.20f * rainbowSat),
+                            Color(0xFF6CA2FF).copy(alpha = rainbowCorner * 0.12f * rainbowSat),
+                            Color.Transparent
+                        ),
+                        center = Offset(bodyLeft + bodySize.width * 0.10f, bodyBottom - bodySize.height * 0.18f),
+                        radius = bodySize.height * 0.74f
+                    ),
+                    radius = bodySize.height * 0.74f,
+                    center = Offset(bodyLeft + bodySize.width * 0.10f, bodyBottom - bodySize.height * 0.18f),
+                    blendMode = BlendMode.Plus
+                )
+            }
+
+            if (innerContourAlpha > 0.002f) {
+                val inset = innerContourInset.dp.toPx()
+                drawRoundRect(
+                    color = Color.White.copy(alpha = innerContourAlpha.coerceIn(0f, 0.9f)),
+                    topLeft = Offset(bodyLeft + inset, bodyTop + inset),
+                    size = Size((bodySize.width - inset * 2f).coerceAtLeast(1f), (bodySize.height - inset * 2f).coerceAtLeast(1f)),
+                    cornerRadius = corner,
+                    style = Stroke(width = 1.dp.toPx()),
+                    blendMode = BlendMode.Screen
+                )
+            }
         }
-        Box(
+
+        Row(
             Modifier
                 .fillMaxSize()
-                .padding((outerHaloWidth * 0.5f + rainbowHaloWidth * 0.25f).dp)
                 .clip(shape)
-                .background(Color(0xFF9FC8FF).copy(alpha = outerHaloAlpha.coerceIn(0f, 0.45f)))
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding((outerHaloWidth + rainbowHaloWidth * 0.35f).dp)
-                .clip(shape)
-                .background(Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.32f)))
+                .padding(horizontal = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(11.dp)
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = cavityMistAlpha.coerceIn(0f, 0.22f)),
-                                Color.White.copy(alpha = (cavityMistAlpha * cavityMistHeight).coerceIn(0f, 0.14f)),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-            if (rainbowEnabled && rainbowSweep > 0f) {
-                val mid = rainbowSweepWidth.coerceIn(0.12f, 0.9f)
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color(0xFF5BFFF4).copy(alpha = rainbowSweep * 0.35f * rainbowSat),
-                                    Color.White.copy(alpha = rainbowSweep * 0.52f),
-                                    Color(0xFFFF64DD).copy(alpha = rainbowSweep * 0.42f * rainbowSat),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .graphicsLayer {
-                            alpha = 0.55f + mid * 0.45f
-                            rotationZ = -8f
-                            scaleX = 1.0f + mid * 0.22f
-                        }
-                )
-            }
-            if (rainbowEnabled && rainbowCorner > 0f) {
-                Box(
-                    Modifier
-                        .size(90.dp)
-                        .align(Alignment.TopEnd)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = rainbowCorner * 0.34f),
-                                    Color(0xFFFF5FE7).copy(alpha = rainbowCorner * 0.26f * rainbowSat),
-                                    Color(0xFFFFE96A).copy(alpha = rainbowCorner * 0.20f * rainbowSat),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
-                Box(
-                    Modifier
-                        .size(76.dp)
-                        .align(Alignment.BottomStart)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    Color(0xFF58F7FF).copy(alpha = rainbowCorner * 0.22f * rainbowSat),
-                                    Color(0xFF6CA2FF).copy(alpha = rainbowCorner * 0.14f * rainbowSat),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(bottomDepthHeight.dp)
-                    .align(Alignment.BottomCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0xFF020618).copy(alpha = bottomDepthAlpha.coerceIn(0f, 0.30f))
-                            )
-                        )
-                    )
-            )
-            if (rainbowEnabled && rainbowBottom > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                        .align(Alignment.BottomCenter)
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color(0xFF00E5FF).copy(alpha = rainbowBottom * 0.50f * rainbowSat),
-                                    Color(0xFFFF4FD8).copy(alpha = rainbowBottom * 0.62f * rainbowSat),
-                                    Color(0xFFFFD54A).copy(alpha = rainbowBottom * 0.54f * rainbowSat),
-                                    Color(0xFF40FF88).copy(alpha = rainbowBottom * 0.42f * rainbowSat)
-                                )
-                            )
-                        )
-                )
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(topRimHeight.dp)
-                    .align(Alignment.TopCenter)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = topRimAlpha.coerceIn(0f, 1f)),
-                                Color(0xFF8DF9EA).copy(alpha = (topRimAlpha * topRimFocus * 0.55f).coerceIn(0f, 0.60f)),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-            Box(
-                Modifier
-                    .size(sideGlanceWidth.dp, 86.dp)
-                    .align(Alignment.CenterStart)
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = sideGlanceAlpha.coerceIn(0f, 1f)),
-                                Color(0xFF8DF9EA).copy(alpha = (sideGlanceAlpha * 0.45f).coerceIn(0f, 0.45f)),
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-            Box(
-                Modifier
-                    .size(sideGlanceWidth.dp, 86.dp)
-                    .align(Alignment.CenterEnd)
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.White.copy(alpha = (sideGlanceAlpha * 0.78f).coerceIn(0f, 1f))
-                            )
-                        )
-                    )
-            )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .border(
-                        width = outerContourWidth.dp,
-                        brush = quietEdgeBrush,
-                        shape = shape
-                    )
-            )
-            if (rainbowEnabled && rainbowEdge > 0f) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .border(
-                            width = rainbowEdgeWidth.dp,
-                            brush = rainbowEdgeBrush,
-                            shape = shape
-                        )
-                )
-            }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerContourInset.dp)
-                    .clip(shape)
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = innerContourAlpha.coerceIn(0f, 0.9f)),
-                        shape = shape
-                    )
-            )
-            Row(Modifier.fillMaxSize().padding(horizontal = 15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.48f)))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text("轻量玻璃 / Rainbow Capsule", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (pressed) "按压" else "松手", if (rainbowEnabled) "彩虹" else "冷色").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                }
+            Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.48f)))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text("轻量玻璃 / Rainbow Capsule", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (pressed) "按压" else "松手", if (rainbowEnabled) "彩虹" else "冷色").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
