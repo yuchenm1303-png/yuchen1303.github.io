@@ -49,8 +49,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +71,7 @@ import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.sin
@@ -340,6 +349,67 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
 }
 
 @Composable
+private fun RainbowChatGlassOverlay(
+    quality: RenderQuality,
+    motionIntensity: Float,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "chat-rainbow-glass-overlay")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(7200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "chat-rainbow-overlay-phase"
+    )
+    val activePhase = if (quality.enableMotion && motionIntensity > 0.02f) phase else 0.16f
+    Box(modifier.chatPanelPrismOverlay(activePhase, motionIntensity))
+}
+
+private fun Modifier.chatPanelPrismOverlay(phase: Float, motionIntensity: Float): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val motion = motionIntensity.coerceIn(0f, 1f)
+    val cycle = phase * 2f * PI.toFloat()
+    val sweepX = 0.50f + 0.32f * sin(cycle)
+    val glowY = 0.44f + 0.08f * sin(cycle + 1.4f)
+    val corner = CornerRadius(30.dp.toPx(), 30.dp.toPx())
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF65FFF0).copy(alpha = 0.018f * motion),
+                Color(0xFFFF8FE7).copy(alpha = 0.014f * motion),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.74f, h * glowY),
+            radius = maxOf(w, h) * 0.54f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFFF0A8).copy(alpha = 0.010f * motion),
+                Color(0xFF76FFF1).copy(alpha = 0.018f * motion),
+                Color(0xFFFF72D2).copy(alpha = 0.012f * motion),
+                Color.Transparent
+            ),
+            start = Offset(w * (sweepX - 0.24f), 0f),
+            end = Offset(w * (sweepX + 0.18f), h * 0.72f)
+        ),
+        topLeft = Offset(0.72.dp.toPx(), 0.72.dp.toPx()),
+        size = Size(w - 1.44.dp.toPx(), h - 1.44.dp.toPx()),
+        cornerRadius = corner,
+        style = Stroke(width = 0.48.dp.toPx()),
+        blendMode = BlendMode.Plus
+    )
+    drawContent()
+}
+
+@Composable
 private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     AnimatedVisibility(
         visible = !state.isSending && state.messages.size <= 2,
@@ -362,35 +432,72 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInHorizontally(spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)) { width -> if (fromUser) width / 3 else -width / 3 } +
-            scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
+    val reveal by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = if (fromUser) 0.54f else 0.66f, stiffness = Spring.StiffnessMediumLow),
+        label = "message-bubble-prism-reveal"
+    )
+    val sendingPulse by animateFloatAsState(
+        targetValue = if (message.status == MessageStatus.Sending && !fromUser) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessLow),
+        label = "message-bubble-sending-pulse"
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                val safeReveal = reveal.coerceIn(0f, 1.18f)
+                val settle = safeReveal.coerceIn(0f, 1f)
+                transformOrigin = if (fromUser) TransformOrigin(0.92f, 0.86f) else TransformOrigin(0.08f, 0.18f)
+                alpha = settle
+                scaleX = 0.70f + safeReveal * if (fromUser) 0.34f else 0.31f + sendingPulse * 0.010f
+                scaleY = 0.62f + safeReveal * if (fromUser) 0.41f else 0.38f + sendingPulse * 0.014f
+                translationX = (1f - settle) * if (fromUser) 56f else -34f
+                translationY = (1f - settle) * if (fromUser) 24f else -10f
+            },
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        MessageBubbleV2(message, state)
+        MessageBubbleV2(message, state, revealProgress = reveal.coerceIn(0f, 1.18f))
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, revealProgress: Float) {
     val fromUser = message.role == MessageRole.User
     val fill = if (fromUser) 0.76f else 0.90f
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
-        GlassPanel(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * if (fromUser) 1.03f else 0.94f,
-            motionIntensity = state.motionIntensity,
-            radius = 22,
-            modifier = Modifier.fillMaxWidth(fill),
-            role = if (fromUser) GlassRole.Floating else GlassRole.Card
+    val sending = message.status == MessageStatus.Sending && !fromUser
+    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(if (sending) 1680 else 3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "message-bubble-optics-phase"
+    )
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * if (fromUser) 1.03f else if (sending) 1.01f else 0.94f,
+        motionIntensity = state.motionIntensity,
+        radius = 22,
+        modifier = Modifier.fillMaxWidth(fill),
+        role = if (fromUser) GlassRole.Floating else GlassRole.Card
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .messageBubblePrismOptics(
+                    reveal = revealProgress,
+                    phase = phase,
+                    fromUser = fromUser,
+                    sending = sending,
+                    failed = message.status == MessageStatus.Failed,
+                    motionIntensity = state.motionIntensity
+                )
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (message.status == MessageStatus.Sending && !fromUser) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
-                        ThinkingDotsV2(size = 6, color = Color(0xFF8DF9EA).copy(alpha = 0.88f))
+                if (sending) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
                     }
                 } else {
                     Text(
@@ -404,6 +511,218 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
                 if (!fromUser) MessageBadgeV2(message)
             }
         }
+    }
+}
+
+private fun Modifier.messageBubblePrismOptics(
+    reveal: Float,
+    phase: Float,
+    fromUser: Boolean,
+    sending: Boolean,
+    failed: Boolean,
+    motionIntensity: Float
+): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val r = reveal.coerceIn(0f, 1.18f)
+    val revealGlow = (1f - ((r - 0.82f) / 0.36f).coerceIn(0f, 1f)).coerceIn(0f, 1f)
+    val motion = motionIntensity.coerceIn(0f, 1f)
+    val active = if (sending) 1f else revealGlow
+    val cycle = phase * 2f * PI.toFloat()
+    val sweep = if (fromUser) 1f - phase else phase
+    val sweepX = -0.30f + sweep * 1.58f
+    val center = if (fromUser) {
+        Offset(w * (0.82f - 0.08f * sin(cycle)), h * 0.70f)
+    } else {
+        Offset(w * (0.16f + 0.08f * sin(cycle)), h * (0.25f + 0.10f * sin(cycle + 1.4f)))
+    }
+    val corner = CornerRadius(22.dp.toPx(), 22.dp.toPx())
+    val accentA = if (failed) Color(0xFFFF9A9A) else if (fromUser) Color(0xFF9EB7FF) else Color(0xFF8DF9EA)
+    val accentB = if (failed) Color(0xFFFFD166) else if (fromUser) Color(0xFFFF8FE7) else Color(0xFFFFF0A8)
+    val accentC = if (fromUser) Color(0xFF76FFF1) else Color(0xFFFF72D2)
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = (0.040f + 0.050f * active) * motion),
+                accentA.copy(alpha = (0.040f + 0.100f * active) * motion),
+                accentB.copy(alpha = (0.018f + 0.072f * active) * motion),
+                Color.Transparent
+            ),
+            center = center,
+            radius = maxOf(w, h) * (0.34f + 0.18f * active)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFF000817).copy(alpha = 0.018f + 0.036f * active),
+                Color(0xFF00030A).copy(alpha = 0.030f + 0.042f * if (sending) 1f else 0f)
+            ),
+            center = Offset(w * 0.50f, h * 0.60f),
+            radius = maxOf(w, h) * 0.92f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Multiply
+    )
+
+    if (sending) {
+        val flow = phase - phase.toInt()
+        val bandX = -0.74f + flow * 2.18f + 0.055f * sin(cycle * 1.70f)
+        val bandY = 0.50f + 0.08f * sin(cycle * 1.13f + 0.90f)
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFFF58D2).copy(alpha = 0.040f * motion),
+                    Color(0xFFFFF0A8).copy(alpha = 0.086f * motion),
+                    Color(0xFF62FFF0).copy(alpha = 0.128f * motion),
+                    Color(0xFF8EA2FF).copy(alpha = 0.082f * motion),
+                    Color(0xFFFF82E4).copy(alpha = 0.052f * motion),
+                    Color.Transparent
+                ),
+                start = Offset(w * (bandX - 0.62f), h * (1.16f + bandY * 0.06f)),
+                end = Offset(w * (bandX + 0.44f), -h * (0.22f + bandY * 0.06f))
+            ),
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.026f * motion),
+                    Color(0xFF8DFFF3).copy(alpha = 0.116f * motion),
+                    Color(0xFFFFF0A8).copy(alpha = 0.064f * motion),
+                    Color.Transparent
+                ),
+                start = Offset(w * (bandX - 0.28f), h * 1.06f),
+                end = Offset(w * (bandX + 0.18f), -h * 0.10f)
+            ),
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Plus
+        )
+    }
+
+    drawContent()
+
+    val rimInset = 0.68.dp.toPx()
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    val cornerPulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else revealGlow
+    val cornerPower = (0.16f + 0.32f * active + 0.12f * cornerPulse) * motion
+    val cornerRadius = maxOf(w, h) * 0.32f
+
+    fun drawCornerCatchlight(anchor: Offset, first: Color, second: Color, extra: Float) {
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = (0.16f + extra) * cornerPower),
+                    first.copy(alpha = (0.24f + extra) * cornerPower),
+                    second.copy(alpha = 0.18f * cornerPower),
+                    Color.Transparent
+                ),
+                center = anchor,
+                radius = cornerRadius
+            ),
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = corner,
+            style = Stroke(width = 0.96.dp.toPx() + 0.86.dp.toPx() * active),
+            blendMode = BlendMode.Plus
+        )
+    }
+
+    drawCornerCatchlight(Offset(rimInset, rimInset), accentB, accentA, 0.05f)
+    drawCornerCatchlight(Offset(w - rimInset, rimInset), accentC, Color(0xFFFFF0A8), 0.03f)
+    drawCornerCatchlight(Offset(rimInset, h - rimInset), Color(0xFF8EA2FF), accentC, 0.00f)
+    drawCornerCatchlight(Offset(w - rimInset, h - rimInset), accentA, accentB, 0.04f)
+
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.050f * motion),
+                accentB.copy(alpha = 0.110f * cornerPower),
+                accentC.copy(alpha = 0.150f * cornerPower),
+                Color.Transparent,
+                accentA.copy(alpha = 0.116f * cornerPower),
+                Color.White.copy(alpha = 0.030f * motion)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.54.dp.toPx() + 0.36.dp.toPx() * active),
+        blendMode = BlendMode.Screen
+    )
+
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                accentC.copy(alpha = (0.18f + 0.30f * active) * motion),
+                Color.White.copy(alpha = (0.11f + 0.24f * active) * motion),
+                accentB.copy(alpha = (0.15f + 0.24f * active) * motion),
+                Color.Transparent
+            ),
+            start = Offset(w * (sweepX - 0.22f), 0f),
+            end = Offset(w * (sweepX + 0.28f), h)
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.62.dp.toPx() + 0.92.dp.toPx() * active),
+        blendMode = BlendMode.Plus
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.070f + 0.080f * active),
+                accentA.copy(alpha = 0.026f + 0.046f * active),
+                Color.Transparent,
+                Color(0xFF000819).copy(alpha = 0.036f + 0.036f * active)
+            ),
+            startY = 0f,
+            endY = h
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(width = 0.46.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    if (sending) {
+        val breathing = ((sin(cycle) + 1f) * 0.50f).coerceIn(0f, 1f)
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFF8DF9EA).copy(alpha = 0.12f + 0.10f * breathing),
+                    Color(0xFFFFF0A8).copy(alpha = 0.08f + 0.08f * breathing),
+                    Color(0xFFFF72D2).copy(alpha = 0.07f + 0.06f * breathing),
+                    Color.Transparent
+                ),
+                start = Offset(w * (0.08f + 0.16f * breathing), 0f),
+                end = Offset(w * (0.92f - 0.18f * breathing), h * 0.18f)
+            ),
+            topLeft = Offset(rimInset * 1.6f, rimInset * 1.6f),
+            size = Size(w - rimInset * 3.2f, h - rimInset * 3.2f),
+            cornerRadius = corner,
+            style = Stroke(width = 0.66.dp.toPx()),
+            blendMode = BlendMode.Plus
+        )
     }
 }
 
@@ -494,30 +813,74 @@ private fun ChatStatusV2(text: String) {
 
 @Composable
 private fun ThinkingDotsV2(size: Int, color: Color) {
-    val transition = rememberInfiniteTransition(label = "thinking-dots-v2")
+    val transition = rememberInfiniteTransition(label = "thinking-glass-pearls-v2")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(920, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "thinking-phase-v2"
+        animationSpec = infiniteRepeatable(animation = tween(1060, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "thinking-glass-pearls-phase"
     )
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.45f) + 1f) / 2f).coerceIn(0f, 1f)
+            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.34f) + 1f) / 2f).coerceIn(0f, 1f)
+            val pulse = ((sin(phase * 2f * PI.toFloat() + index * 1.34f - 0.74f) + 1f) / 2f).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .size(size.dp)
                     .graphicsLayer {
-                        translationY = -6f * wave
-                        alpha = 0.32f + 0.68f * wave
-                        scaleX = 0.72f + 0.34f * wave
-                        scaleY = 0.72f + 0.34f * wave
+                        translationY = -5.6f * wave
+                        alpha = 0.54f + 0.46f * wave
+                        scaleX = 0.76f + 0.42f * wave
+                        scaleY = 0.72f + 0.30f * pulse
                     }
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(color)
+                    .thinkingPearlOptics(color = color, wave = wave, index = index)
             )
         }
     }
+}
+
+private fun Modifier.thinkingPearlOptics(color: Color, wave: Float, index: Int): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val corner = CornerRadius(w * 0.50f, h * 0.50f)
+    val accent = when (index % 3) {
+        0 -> Color(0xFF8DF9EA)
+        1 -> Color(0xFFFFF0A8)
+        else -> Color(0xFFFF8FE7)
+    }
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.42f + 0.20f * wave),
+                color.copy(alpha = 0.28f + 0.18f * wave),
+                accent.copy(alpha = 0.30f + 0.26f * wave),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.34f, h * 0.26f),
+            radius = maxOf(w, h) * 0.86f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.32f + 0.16f * wave),
+                accent.copy(alpha = 0.38f + 0.24f * wave),
+                Color.Transparent
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        ),
+        topLeft = Offset(0.45.dp.toPx(), 0.45.dp.toPx()),
+        size = Size(w - 0.90.dp.toPx(), h - 0.90.dp.toPx()),
+        cornerRadius = corner,
+        style = Stroke(width = 0.55.dp.toPx()),
+        blendMode = BlendMode.Plus
+    )
 }
 
 @Composable
