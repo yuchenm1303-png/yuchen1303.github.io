@@ -296,8 +296,8 @@ private fun ModelStackCard(
     val cardProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (expanded) 680 else 420,
-            delayMillis = if (expanded) staggerRank * 46 else (ChatModel.entries.lastIndex - staggerRank) * 24,
+            durationMillis = if (expanded) 560 else 330,
+            delayMillis = if (expanded) staggerRank * 34 else (ChatModel.entries.lastIndex - staggerRank) * 16,
             easing = FastOutSlowInEasing
         ),
         label = "model-card-spatial-arc-progress-${model.id}"
@@ -315,18 +315,25 @@ private fun ModelStackCard(
     val dy = endY - startY
     val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
     val curveT = eased.coerceIn(0f, 1f)
-    val inverse = 1f - curveT
-    val arcDepth = with(density) { (32.dp + (staggerRank * 2).dp).toPx() }
-    val controlX = startX + dx * 0.38f
-    val controlY = maxOf(startY, endY) + arcDepth
-    val curveX = inverse * inverse * startX + 2f * inverse * curveT * controlX + curveT * curveT * endX
-    val curveY = inverse * inverse * startY + 2f * inverse * curveT * controlY + curveT * curveT * endY
     val speedPulse = modelStackSpeedPulse(cardProgress)
+    val gatherPulse = modelStackGatherPulse(cardProgress)
+
+    val unitX = dx / distance
+    val unitY = dy / distance
+    val perpendicularX = -unitY
+    val perpendicularY = unitX
+    val gatherPx = with(density) { (10.dp + (staggerRank * 1.2f).dp).toPx() } * gatherPulse
+    val sWave = sin(curveT * 2f * PI.toFloat())
+    val sAmplitude = with(density) { (9.dp + (staggerRank * 1.4f).dp).toPx() }
+    val sinkPx = with(density) { 7.dp.toPx() } * speedPulse
+
+    val curveX = startX + dx * curveT - unitX * gatherPx + perpendicularX * sAmplitude * sWave
+    val curveY = startY + dy * curveT - unitY * gatherPx + perpendicularY * sAmplitude * sWave + sinkPx
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 2.6.dp.toPx() } * brake - with(density) { 1.8.dp.toPx() } * returnBrake
-    val tx = curveX + dx / distance * overshootPx
-    val ty = curveY + dy / distance * overshootPx
+    val overshootPx = with(density) { 1.4.dp.toPx() } * brake - with(density) { 1.0.dp.toPx() } * returnBrake
+    val tx = curveX + unitX * overshootPx
+    val ty = curveY + unitY * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
     val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
     val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
@@ -345,7 +352,7 @@ private fun ModelStackCard(
             scaleX = capsuleScaleX * selectedPulse
             scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
-            shadowElevation = if (settled && selected) 0.18f else 0.02f + 0.04f * speedPulse
+            shadowElevation = 0f
         }
 
     ModelFrostCapsule(
@@ -372,6 +379,12 @@ private fun modelStackMotionEase(progress: Float): Float {
 private fun modelStackSpeedPulse(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
+}
+
+private fun modelStackGatherPulse(progress: Float): Float {
+    val p = progress.coerceIn(0f, 1f)
+    val center = (p - 0.12f) / 0.12f
+    return (1f - center * center).coerceIn(0f, 1f)
 }
 
 private fun modelStackArrivalBrake(progress: Float): Float {
@@ -417,7 +430,6 @@ private fun ModelFrostCapsule(
     val shape = RoundedCornerShape(radius.dp)
     val moving = if (settled) 0f else 1f
     val stackEnergy = if (stackRank > 0) 0.42f else 1f
-
     LightweightModelCapsule(
         model = model,
         selected = selected,
@@ -448,7 +460,6 @@ private fun LightweightModelCapsule(
     val selectedEnergy = if (selected) 1f else 0f
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-
     val pressProgress by animateFloatAsState(
         targetValue = if (pressed && !state.isSending) 1f else 0f,
         animationSpec = spring(
@@ -457,7 +468,6 @@ private fun LightweightModelCapsule(
         ),
         label = "model-fake-glass-press-${model.id}"
     )
-
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -469,10 +479,10 @@ private fun LightweightModelCapsule(
             .background(
                 Color.White.copy(
                     alpha = (
-                        0.046f +
-                            selectedEnergy * 0.022f +
-                            moving * 0.010f +
-                            pressProgress * 0.012f
+                        0.064f +
+                            selectedEnergy * 0.030f +
+                            moving * 0.012f +
+                            pressProgress * 0.014f
                         ) * maxOf(stackEnergy, 0.58f)
                 )
             )
@@ -490,7 +500,6 @@ private fun LightweightModelCapsule(
             stackEnergy = stackEnergy,
             shape = shape
         )
-
         if (showContent) {
             ModelStackCardContent(
                 model = model,
@@ -510,7 +519,6 @@ private fun ModelCapsuleChrome(
     shape: RoundedCornerShape
 ) {
     val selectedEnergy = if (selected) 1f else 0f
-
     Box(
         Modifier
             .fillMaxSize()
@@ -518,15 +526,15 @@ private fun ModelCapsuleChrome(
                 width = if (selected) 1.22.dp else 0.86.dp,
                 color = if (selected) {
                     Color(0xFF8DF9EA).copy(
-                        alpha = 0.50f +
+                        alpha = 0.60f +
                             0.18f * expansionProgress +
                             0.08f * moving
                     )
                 } else {
                     Color.White.copy(
                         alpha = (
-                            0.20f +
-                                0.10f * expansionProgress +
+                            0.30f +
+                                0.12f * expansionProgress +
                                 0.05f * moving
                             ) * stackEnergy
                     )
@@ -534,7 +542,6 @@ private fun ModelCapsuleChrome(
                 shape = shape
             )
     )
-
     Box(
         Modifier
             .fillMaxSize()
@@ -542,9 +549,9 @@ private fun ModelCapsuleChrome(
             .clip(shape)
             .background(
                 Color.White.copy(
-                    alpha = 0.012f +
-                        selectedEnergy * 0.020f +
-                        moving * 0.007f
+                    alpha = 0.020f +
+                        selectedEnergy * 0.026f +
+                        moving * 0.008f
                 )
             )
     )
