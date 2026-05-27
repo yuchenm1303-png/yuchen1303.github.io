@@ -7,6 +7,23 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
 
+        def oldShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
+        Box(Modifier.fillMaxSize()) {
+'''
+        def newShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(30.dp))
+                .clipToBounds()
+        ) {
+'''
+        if (text.contains(oldShellBox)) {
+            text = text.replace(oldShellBox, newShellBox)
+        } else if (!text.contains('.clip(RoundedCornerShape(30.dp))')) {
+            throw new GradleException('Chat shell content clip target not found.')
+        }
+
         def oldList = '''                LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -36,8 +53,8 @@ tasks.register('patchAssistantChatBubblePolish') {
 '''
         if (text.contains(oldList)) {
             text = text.replace(oldList, newList)
-        } else if (!text.contains('.clipToBounds()')) {
-            throw new GradleException('Chat list block not found for clipping patch.')
+        } else if (!text.contains(newList)) {
+            throw new GradleException('Chat list block not found for viewport clipping patch.')
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
@@ -144,7 +161,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied focused chat bubble polish patch.')
+        println('Applied focused chat bubble polish patch with shell-level clipping.')
     }
 }
 
