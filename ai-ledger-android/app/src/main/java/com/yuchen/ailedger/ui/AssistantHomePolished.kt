@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,6 +75,8 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
@@ -529,8 +532,6 @@ private fun Modifier.messageBubblePrismOptics(
     val motion = motionIntensity.coerceIn(0f, 1f)
     val active = if (sending) 1f else revealGlow
     val cycle = phase * 2f * PI.toFloat()
-    val sweep = if (fromUser) 1f - phase else phase
-    val sweepX = -0.30f + sweep * 1.58f
     val center = if (fromUser) {
         Offset(w * (0.82f - 0.08f * sin(cycle)), h * 0.70f)
     } else {
@@ -617,92 +618,131 @@ private fun Modifier.messageBubblePrismOptics(
 
     drawContent()
 
-    val rimInset = 0.68.dp.toPx()
-    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-    val cornerPulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else revealGlow
-    val cornerPower = (0.16f + 0.32f * active + 0.12f * cornerPulse) * motion
-    val cornerRadius = maxOf(w, h) * 0.32f
+    val rimInset = 0.72.dp.toPx()
+    val rimW = (w - rimInset * 2f).coerceAtLeast(1f)
+    val rimH = (h - rimInset * 2f).coerceAtLeast(1f)
+    val baseRadius = 22.dp.toPx()
+    val pathRadius = minOf(baseRadius - rimInset, rimW * 0.50f, rimH * 0.50f).coerceAtLeast(1f)
+    val left = rimInset
+    val top = rimInset
+    val right = w - rimInset
+    val bottom = h - rimInset
+    val topLen = (rimW - pathRadius * 2f).coerceAtLeast(0f)
+    val sideLen = (rimH - pathRadius * 2f).coerceAtLeast(0f)
+    val arcLen = (PI.toFloat() * pathRadius * 0.50f).coerceAtLeast(1f)
+    val totalLen = (topLen + sideLen) * 2f + arcLen * 4f
+    val edgeProgress = if (fromUser) 1f - phase else phase
+    val edgeBand = if (sending) 0.180f else 0.135f
+    val edgeActivity = (0.18f + 0.82f * active).coerceIn(0f, 1f) * motion
 
-    fun drawCornerCatchlight(anchor: Offset, first: Color, second: Color, extra: Float) {
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = (0.16f + extra) * cornerPower),
-                    first.copy(alpha = (0.24f + extra) * cornerPower),
-                    second.copy(alpha = 0.18f * cornerPower),
-                    Color.Transparent
-                ),
-                center = anchor,
-                radius = cornerRadius
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = corner,
-            style = Stroke(width = 0.96.dp.toPx() + 0.86.dp.toPx() * active),
-            blendMode = BlendMode.Plus
-        )
+    fun pointOnRoundedPath(progress: Float): Offset {
+        var distance = ((progress % 1f + 1f) % 1f) * totalLen
+        if (distance <= topLen) {
+            return Offset(left + pathRadius + distance, top)
+        }
+        distance -= topLen
+        if (distance <= arcLen) {
+            val angle = -PI.toFloat() * 0.50f + (distance / arcLen) * PI.toFloat() * 0.50f
+            return Offset(right - pathRadius + cos(angle) * pathRadius, top + pathRadius + sin(angle) * pathRadius)
+        }
+        distance -= arcLen
+        if (distance <= sideLen) {
+            return Offset(right, top + pathRadius + distance)
+        }
+        distance -= sideLen
+        if (distance <= arcLen) {
+            val angle = (distance / arcLen) * PI.toFloat() * 0.50f
+            return Offset(right - pathRadius + cos(angle) * pathRadius, bottom - pathRadius + sin(angle) * pathRadius)
+        }
+        distance -= arcLen
+        if (distance <= topLen) {
+            return Offset(right - pathRadius - distance, bottom)
+        }
+        distance -= topLen
+        if (distance <= arcLen) {
+            val angle = PI.toFloat() * 0.50f + (distance / arcLen) * PI.toFloat() * 0.50f
+            return Offset(left + pathRadius + cos(angle) * pathRadius, bottom - pathRadius + sin(angle) * pathRadius)
+        }
+        distance -= arcLen
+        if (distance <= sideLen) {
+            return Offset(left, bottom - pathRadius - distance)
+        }
+        distance -= sideLen
+        val angle = PI.toFloat() + (distance / arcLen) * PI.toFloat() * 0.50f
+        return Offset(left + pathRadius + cos(angle) * pathRadius, top + pathRadius + sin(angle) * pathRadius)
     }
 
-    drawCornerCatchlight(Offset(rimInset, rimInset), accentB, accentA, 0.05f)
-    drawCornerCatchlight(Offset(w - rimInset, rimInset), accentC, Color(0xFFFFF0A8), 0.03f)
-    drawCornerCatchlight(Offset(rimInset, h - rimInset), Color(0xFF8EA2FF), accentC, 0.00f)
-    drawCornerCatchlight(Offset(w - rimInset, h - rimInset), accentA, accentB, 0.04f)
+    fun wrappedDistance(a: Float, b: Float): Float {
+        val raw = abs(a - b)
+        return minOf(raw, 1f - raw)
+    }
 
+    fun prismColor(local: Float, alpha: Float): Color {
+        val l = local.coerceIn(0f, 1f)
+        return when {
+            l < 0.18f -> accentC.copy(alpha = alpha * 0.82f)
+            l < 0.34f -> Color.White.copy(alpha = alpha * 0.78f)
+            l < 0.52f -> accentB.copy(alpha = alpha * 0.92f)
+            l < 0.72f -> accentA.copy(alpha = alpha * 1.00f)
+            else -> Color(0xFF8EA2FF).copy(alpha = alpha * 0.78f)
+        }
+    }
+
+    val rimBaseAlpha = (0.035f + 0.040f * edgeActivity).coerceIn(0f, 0.10f)
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.050f * motion),
-                accentB.copy(alpha = 0.110f * cornerPower),
-                accentC.copy(alpha = 0.150f * cornerPower),
+                Color.White.copy(alpha = rimBaseAlpha),
+                accentB.copy(alpha = rimBaseAlpha * 0.78f),
+                accentC.copy(alpha = rimBaseAlpha * 1.12f),
                 Color.Transparent,
-                accentA.copy(alpha = 0.116f * cornerPower),
-                Color.White.copy(alpha = 0.030f * motion)
+                accentA.copy(alpha = rimBaseAlpha * 0.86f),
+                Color.White.copy(alpha = rimBaseAlpha * 0.52f)
             ),
-            start = Offset(0f, 0f),
-            end = Offset(w, h)
+            start = Offset(left, top),
+            end = Offset(right, bottom)
         ),
         topLeft = Offset(rimInset, rimInset),
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(width = 0.54.dp.toPx() + 0.36.dp.toPx() * active),
+        size = Size(rimW, rimH),
+        cornerRadius = CornerRadius(pathRadius, pathRadius),
+        style = Stroke(width = 0.56.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                accentC.copy(alpha = (0.18f + 0.30f * active) * motion),
-                Color.White.copy(alpha = (0.11f + 0.24f * active) * motion),
-                accentB.copy(alpha = (0.15f + 0.24f * active) * motion),
-                Color.Transparent
-            ),
-            start = Offset(w * (sweepX - 0.22f), 0f),
-            end = Offset(w * (sweepX + 0.28f), h)
-        ),
-        topLeft = Offset(rimInset, rimInset),
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(width = 0.62.dp.toPx() + 0.92.dp.toPx() * active),
-        blendMode = BlendMode.Plus
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.070f + 0.080f * active),
-                accentA.copy(alpha = 0.026f + 0.046f * active),
-                Color.Transparent,
-                Color(0xFF000819).copy(alpha = 0.036f + 0.036f * active)
-            ),
-            startY = 0f,
-            endY = h
-        ),
-        topLeft = Offset(rimInset, rimInset),
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(width = 0.46.dp.toPx()),
-        blendMode = BlendMode.Screen
-    )
+    if (edgeActivity > 0.015f) {
+        val samples = 42
+        val step = 0.0048f + edgeBand / samples
+        repeat(samples) { index ->
+            val local = index / (samples - 1f)
+            val offset = (local - 0.50f) * edgeBand
+            val progress = (edgeProgress + offset + 1f) % 1f
+            val strength = (1f - wrappedDistance(progress, edgeProgress) / (edgeBand * 0.50f)).coerceIn(0f, 1f)
+            val shaped = strength * strength * (3f - 2f * strength)
+            if (shaped > 0.01f) {
+                val p1 = pointOnRoundedPath(progress)
+                val p2 = pointOnRoundedPath(progress + step)
+                drawLine(
+                    color = prismColor(local, (0.14f + 0.54f * shaped) * edgeActivity),
+                    start = p1,
+                    end = p2,
+                    strokeWidth = 0.98.dp.toPx() + 1.14.dp.toPx() * shaped,
+                    cap = StrokeCap.Round,
+                    blendMode = BlendMode.Plus
+                )
+                if (sending && index % 3 == 0) {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.065f * shaped * motion),
+                        start = p1,
+                        end = p2,
+                        strokeWidth = 2.25.dp.toPx() + 1.10.dp.toPx() * shaped,
+                        cap = StrokeCap.Round,
+                        blendMode = BlendMode.Screen
+                    )
+                }
+            }
+        }
+    }
+
     if (sending) {
         val breathing = ((sin(cycle) + 1f) * 0.50f).coerceIn(0f, 1f)
         drawRoundRect(
@@ -719,7 +759,7 @@ private fun Modifier.messageBubblePrismOptics(
             ),
             topLeft = Offset(rimInset * 1.6f, rimInset * 1.6f),
             size = Size(w - rimInset * 3.2f, h - rimInset * 3.2f),
-            cornerRadius = corner,
+            cornerRadius = CornerRadius(pathRadius, pathRadius),
             style = Stroke(width = 0.66.dp.toPx()),
             blendMode = BlendMode.Plus
         )
