@@ -1,4 +1,5 @@
-Rainbow restore target: fe2b687629968bc4da03ba35516ae2fa1a6ae570
-Restore commit: dddb8367b202141fa0ccf4bc9e50562f45d0771c
-Purpose: trigger Build Compose Android APK after restoring chat rainbow files.
+Chat bubble polish restore: 0f48450f229b178002eb6ecf882e95d93e5988c2
+Added helper: ChatBubblePrismOptics.kt
+Added script: chat-bubble-polish.gradle
+Purpose: trigger Build Compose Android APK after restoring clipped animated chat bubble polish.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
