@@ -1,15 +1,14 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -25,6 +24,12 @@ import kotlin.math.sin
 
 val LocalRainbowPrismStyle = compositionLocalOf { RainbowPrismStyle() }
 
+private const val NANOS_PER_SECOND = 1_000_000_000.0
+private const val RAINBOW_PHASE_A_SECONDS = 9.2
+private const val RAINBOW_PHASE_B_SECONDS = 13.7
+private const val RAINBOW_PHASE_C_SECONDS = 11.1
+private const val RAINBOW_TAU = PI * 2.0
+
 @Composable
 fun RainbowChatGlassOverlay(
     quality: RenderQuality,
@@ -32,46 +37,43 @@ fun RainbowChatGlassOverlay(
     modifier: Modifier = Modifier,
     style: RainbowPrismStyle = LocalRainbowPrismStyle.current
 ) {
-    val transition = rememberInfiniteTransition(label = "rainbow-chat-glass")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(9200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rainbow-continuous-phase"
-    )
-    val phase2 by transition.animateFloat(
-        initialValue = 0.37f,
-        targetValue = 1.37f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(13700, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rainbow-continuous-phase-2"
-    )
-    val phase3 by transition.animateFloat(
-        initialValue = 0.71f,
-        targetValue = 1.71f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(11100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rainbow-continuous-phase-3"
-    )
-
     val motionOn = quality.enableMotion && motionIntensity > 0.02f
-    val t1 = if (motionOn) phase else 0.42f
-    val t2 = if (motionOn) phase2 else 0.58f
-    val t3 = if (motionOn) phase3 else 0.30f
-    val radians1 = (t1 * 2f * PI).toFloat()
-    val radians2 = (t2 * 2f * PI).toFloat()
-    val radians3 = (t3 * 2f * PI).toFloat()
+    var elapsedNanos by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(motionOn) {
+        if (!motionOn) {
+            elapsedNanos = 0L
+            return@LaunchedEffect
+        }
+        val startNanos = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { frameNanos ->
+                elapsedNanos = (frameNanos - startNanos).coerceAtLeast(0L)
+            }
+        }
+    }
+
+    val elapsedSeconds = elapsedNanos / NANOS_PER_SECOND
+    val radians1 = if (motionOn) {
+        elapsedSeconds / RAINBOW_PHASE_A_SECONDS * RAINBOW_TAU
+    } else {
+        0.42 * RAINBOW_TAU
+    }
+    val radians2 = if (motionOn) {
+        (elapsedSeconds / RAINBOW_PHASE_B_SECONDS + 0.37) * RAINBOW_TAU
+    } else {
+        0.58 * RAINBOW_TAU
+    }
+    val radians3 = if (motionOn) {
+        (elapsedSeconds / RAINBOW_PHASE_C_SECONDS + 0.71) * RAINBOW_TAU
+    } else {
+        0.30 * RAINBOW_TAU
+    }
+
     val base = (0.88f + motionIntensity.coerceIn(0f, 1.4f) * 0.16f).coerceIn(0.76f, 1.12f) * style.overall.coerceIn(0f, 2f)
     val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
     val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-    val breath01 = ((sin(radians3) + 1f) * 0.5f).coerceIn(0f, 1f)
+    val breath01 = unitWave(radians3)
     val sweep = minSweep + (maxSweep - minSweep) * breath01
     val halo = style.rainbowHalo.coerceIn(0f, 2f)
 
@@ -79,13 +81,13 @@ fun RainbowChatGlassOverlay(
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
         val c = CornerRadius(30f, 30f)
-        val slowWave = ((sin(radians1 + radians2 * 0.37f) + 1f) * 0.5f).coerceIn(0f, 1f)
-        val ax = 0.50f + 0.34f * cos(radians1)
-        val ay = 0.28f + 0.18f * sin(radians1 * 0.73f + 0.80f)
-        val bx = 0.54f + 0.32f * cos(radians2 + 1.70f)
-        val by = 0.56f + 0.30f * sin(radians2 * 0.82f + 2.20f)
-        val cx = 0.50f + 0.38f * cos(radians1 * 0.58f + radians2 * 0.32f)
-        val cy = 0.50f + 0.34f * sin(radians2 * 0.64f + 1.10f)
+        val slowWave = unitWave(radians1 + radians2 * 0.37)
+        val ax = 0.50f + 0.34f * cosFloat(radians1)
+        val ay = 0.28f + 0.18f * sinFloat(radians1 * 0.73 + 0.80)
+        val bx = 0.54f + 0.32f * cosFloat(radians2 + 1.70)
+        val by = 0.56f + 0.30f * sinFloat(radians2 * 0.82 + 2.20)
+        val cx = 0.50f + 0.38f * cosFloat(radians1 * 0.58 + radians2 * 0.32)
+        val cy = 0.50f + 0.34f * sinFloat(radians2 * 0.64 + 1.10)
 
         fun film(brush: Brush, alpha: Float = 1f) {
             if (alpha > 0.001f) {
@@ -148,10 +150,16 @@ fun RainbowChatGlassOverlay(
                     Color(0xFF7B95FF).copy(alpha = 0.044f * base * halo),
                     Color.Transparent
                 ),
-                center = Offset(w * (0.74f + 0.05f * cos(radians3)), h * (0.62f + 0.08f * slowWave)),
-                radius = maxOf(w, h) * (0.62f + 0.08f * ((sin(radians3) + 1f) * 0.5f))
+                center = Offset(w * (0.74f + 0.05f * cosFloat(radians3)), h * (0.62f + 0.08f * slowWave)),
+                radius = maxOf(w, h) * (0.62f + 0.08f * unitWave(radians3))
             ),
             halo
         )
     }
 }
+
+private fun sinFloat(value: Double): Float = sin(value).toFloat()
+
+private fun cosFloat(value: Double): Float = cos(value).toFloat()
+
+private fun unitWave(value: Double): Float = ((sin(value) + 1.0) * 0.5).toFloat().coerceIn(0f, 1f)
