@@ -7,9 +7,14 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
         if (!text.contains('import androidx.compose.runtime.State')) {
-            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
-        } else if (!text.contains('import androidx.compose.runtime.SideEffect')) {
-            text = text.replace('import androidx.compose.runtime.State\n', 'import androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
+            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.DisposableEffect\nimport androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
+        } else {
+            if (!text.contains('import androidx.compose.runtime.DisposableEffect')) {
+                text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.DisposableEffect\n')
+            }
+            if (!text.contains('import androidx.compose.runtime.SideEffect')) {
+                text = text.replace('import androidx.compose.runtime.State\n', 'import androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
+            }
         }
         if (!text.contains('import androidx.compose.ui.layout.onGloballyPositioned')) {
             text = text.replace('import androidx.compose.ui.graphics.graphicsLayer\n', 'import androidx.compose.ui.graphics.graphicsLayer\nimport androidx.compose.ui.layout.onGloballyPositioned\n')
@@ -169,6 +174,9 @@ private fun MessageBubbleV2(
     val bubbleRadius = if (fromUser) 26 else 28
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
+    DisposableEffect(message.id) {
+        onDispose { bubbleLayerState.removeBubble(message.id) }
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
         Box(
             modifier = Modifier
@@ -256,7 +264,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied parent-layer chat bubble material patch with canvas-local coordinates.')
+        println('Applied parent-layer chat bubble patch with disposal cleanup.')
     }
 }
 
