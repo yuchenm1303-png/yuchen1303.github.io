@@ -1,6 +1,5 @@
-Manual APK build trigger
-Purpose: test whether normal ChatGPT GitHub commits trigger Build Compose Android APK again.
+Rollback target: 78ece7469fc11cf9604464f5b6f123cf95b8cb42
+Purpose: trigger Build Compose Android APK after rolling back the model selector animation step.
+App source code remains at the rollback baseline.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
-Workflow paths matched: ai-ledger-android/app/**
-App source code remains unchanged by this trigger commit.
-Triggered at: 2026-05-26T20:55:00+08:00
+Triggered at: 2026-05-27T00:08:00+08:00
