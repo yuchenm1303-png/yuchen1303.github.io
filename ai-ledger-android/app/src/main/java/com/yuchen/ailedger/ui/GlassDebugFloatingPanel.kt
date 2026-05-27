@@ -1,6 +1,12 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,7 +48,9 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -78,7 +86,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "2.3 连续玻璃轮廓：圆角 / 彩虹 / 单 drawWithCache",
+            subtitle = "2.4 动态彩虹预览：选中静止样本 / 共享慢速相位",
             initiallyExpanded = true,
             state = state
         ) {
@@ -142,20 +150,21 @@ private fun GlassLabFoldout(
 
 @Composable
 private fun LightweightGlassLab(state: AssistantUiState) {
-    var selected by rememberSaveable { mutableStateOf(false) }
-    var moving by rememberSaveable { mutableStateOf(true) }
+    var selected by rememberSaveable { mutableStateOf(true) }
+    var moving by rememberSaveable { mutableStateOf(false) }
     var rainbowEnabled by rememberSaveable { mutableStateOf(true) }
+    var dynamicPreview by rememberSaveable { mutableStateOf(true) }
 
     var radius by rememberSaveable { mutableFloatStateOf(32.4f) }
-    var rainbowEdgeAlpha by rememberSaveable { mutableFloatStateOf(1.10f) }
-    var rainbowEdgeWidth by rememberSaveable { mutableFloatStateOf(1.32f) }
-    var rainbowHaloAlpha by rememberSaveable { mutableFloatStateOf(0.26f) }
-    var rainbowHaloWidth by rememberSaveable { mutableFloatStateOf(9.6f) }
-    var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.92f) }
-    var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.11f) }
-    var rainbowSweepWidth by rememberSaveable { mutableFloatStateOf(0.28f) }
-    var rainbowCornerGlow by rememberSaveable { mutableFloatStateOf(0.28f) }
-    var rainbowBottomGlow by rememberSaveable { mutableFloatStateOf(0.16f) }
+    var rainbowEdgeAlpha by rememberSaveable { mutableFloatStateOf(1.40f) }
+    var rainbowEdgeWidth by rememberSaveable { mutableFloatStateOf(0.69f) }
+    var rainbowHaloAlpha by rememberSaveable { mutableFloatStateOf(0.42f) }
+    var rainbowHaloWidth by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.40f) }
+    var rainbowSweepWidth by rememberSaveable { mutableFloatStateOf(0.90f) }
+    var rainbowCornerGlow by rememberSaveable { mutableFloatStateOf(0.42f) }
+    var rainbowBottomGlow by rememberSaveable { mutableFloatStateOf(0.0f) }
 
     val selectedEnergy = if (selected) 1.13f else 1f
     val motionGate = if (moving) 0.76f else 1f
@@ -176,24 +185,28 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         rainbowSweepWidth = rainbowSweepWidth,
         rainbowCornerGlow = rainbowCornerGlow * rainbowEnergy * highCostEnergy,
         rainbowBottomGlow = rainbowBottomGlow * rainbowEnergy * edgeEnergy,
+        dynamicPreview = dynamicPreview && selected && !moving,
         selected = selected,
         moving = moving
     )
 
-    LightGlassControlGroup("状态预览", "普通/选中、移动/静止只影响彩虹光效强弱，不再控制胶囊动画", state, initiallyExpanded = true) {
+    LightGlassControlGroup("状态预览", "默认预览：选中静止卡开启共享慢速动态；移动中自动关闭动态", state, initiallyExpanded = true) {
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LabToggleButton(if (selected) "选中态" else "普通态", "彩边增强", state, Modifier.weight(1f)) { selected = !selected }
             LabToggleButton(if (moving) "移动中" else "静止态", "自动降级", state, Modifier.weight(1f)) { moving = !moving }
             LabToggleButton(if (rainbowEnabled) "彩虹开启" else "彩虹关闭", "假发光层", state, Modifier.weight(1f)) { rainbowEnabled = !rainbowEnabled }
         }
-        Text("绘制策略：连续基础轮廓不断线，局部彩光只做能量增强；仍然不使用 blur、shadowElevation、贴图、OpenGL 或点击形变。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            LabToggleButton(if (dynamicPreview) "动态预览" else "静态预览", "慢速共享相位", state, Modifier.weight(1f)) { dynamicPreview = !dynamicPreview }
+        }
+        Text("当前只在样本里演示动态：外圈空气光、内部彩虹光晕和薄膜扫光共用一个低频相位；正式首页后续只建议给选中静止卡开启。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
 
     LightGlassControlGroup("结构轮廓", "只保留圆角半径，其它结构层固定为 0", state, initiallyExpanded = true) {
         LabSlider("圆角半径", "胶囊整体圆润程度", radius, 18f..42f) { radius = it }
     }
 
-    LightGlassControlGroup("彩虹发光", "连续轮廓 + 局部能量：左青蓝 / 上粉紫 / 右下黄绿 / 底部暖光", state, initiallyExpanded = true) {
+    LightGlassControlGroup("彩虹发光", "已按截图预设：边缘 1.4 / 宽度 0.69 / 光晕 0.42 / 扫光 0.4", state, initiallyExpanded = true) {
         LabSlider("彩虹边缘强度", "彩色边缘发光亮度", rainbowEdgeAlpha, 0f..1.4f) { rainbowEdgeAlpha = it }
         LabSlider("彩虹边缘宽度", "彩色边缘厚度", rainbowEdgeWidth, 0.4f..3.4f) { rainbowEdgeWidth = it }
         LabSlider("彩虹光晕强度", "外侧彩色空气光", rainbowHaloAlpha, 0f..0.42f) { rainbowHaloAlpha = it }
@@ -219,9 +232,24 @@ private fun LightweightGlassPreview(
     rainbowSweepWidth: Float,
     rainbowCornerGlow: Float,
     rainbowBottomGlow: Float,
+    dynamicPreview: Boolean,
     selected: Boolean,
     moving: Boolean
 ) {
+    val motion = rememberInfiniteTransition(label = "lightweight-rainbow-preview-motion")
+    val phase by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(6200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "lightweight-rainbow-preview-phase"
+    )
+    val cycle = phase.toDouble() * PI * 2.0
+    val wave = ((sin(cycle) + 1.0) * 0.5).toFloat()
+    val driftA = sin(cycle).toFloat()
+    val driftB = sin(cycle + PI * 0.72).toFloat()
+    val driftC = sin(cycle + PI * 1.36).toFloat()
+    val dynamicLevel = if (dynamicPreview && rainbowEnabled) 1f else 0f
+
     val shape = RoundedCornerShape(radius.dp)
     val rainbowSat = rainbowSaturation.coerceIn(0f, 1f)
     val rainbowEdge = if (rainbowEnabled) rainbowEdgeAlpha.coerceIn(0f, 1.4f) else 0f
@@ -250,41 +278,46 @@ private fun LightweightGlassPreview(
                 val centerY = top + bodySize.height * 0.50f
                 val haloGrow = rainbowHaloWidth.dp.toPx().coerceIn(1.dp.toPx(), 28.dp.toPx())
                 val edgeWidthPx = rainbowEdgeWidth.dp.toPx().coerceIn(0.5.dp.toPx(), 5.dp.toPx())
-                val airyFill = a(0.014f + rainbowHalo * 0.042f + rainbowEdge * 0.012f)
-                val lowerShade = a(rainbowEdge * 0.026f + rainbowBottom * 0.060f)
+                val breathe = dynamicLevel * wave
+                val driftX = dynamicLevel * driftA
+                val driftY = dynamicLevel * driftB
+                val driftZ = dynamicLevel * driftC
+                val airyFill = a(0.014f + rainbowHalo * 0.050f + rainbowEdge * 0.014f + breathe * 0.012f)
+                val lowerShade = a(rainbowEdge * 0.030f + rainbowBottom * 0.060f)
+                val sweepCenter = if (dynamicLevel > 0.001f) phase else 0.34f
 
                 val leftHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF44F6FF).copy(alpha = a(rainbowHalo * 0.52f * rainbowSat)),
-                        Color(0xFF6D8CFF).copy(alpha = a(rainbowHalo * 0.16f * rainbowSat)),
+                        Color(0xFF44F6FF).copy(alpha = a(rainbowHalo * (0.50f + breathe * 0.18f) * rainbowSat)),
+                        Color(0xFF6D8CFF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * 0.10f, centerY),
-                    radius = bodySize.width * 0.27f + haloGrow * 1.12f
+                    center = Offset(left + bodySize.width * (0.10f + driftX * 0.025f), centerY + bodySize.height * driftY * 0.055f),
+                    radius = bodySize.width * (0.27f + breathe * 0.030f) + haloGrow * 1.12f
                 )
                 val topHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFFF56DE).copy(alpha = a(rainbowHalo * 0.36f * rainbowSat)),
-                        Color(0xFFFFE584).copy(alpha = a(rainbowHalo * 0.17f * rainbowSat)),
+                        Color(0xFFFF56DE).copy(alpha = a(rainbowHalo * (0.36f + breathe * 0.16f) * rainbowSat)),
+                        Color(0xFFFFE584).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * 0.46f, top + bodySize.height * 0.04f),
-                    radius = bodySize.width * 0.34f + haloGrow * 0.92f
+                    center = Offset(left + bodySize.width * (0.46f + driftY * 0.035f), top + bodySize.height * (0.04f + driftX * 0.020f)),
+                    radius = bodySize.width * (0.34f + breathe * 0.025f) + haloGrow * 0.92f
                 )
                 val rightHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFFFEA61).copy(alpha = a(rainbowHalo * 0.42f * rainbowSat)),
-                        Color(0xFF55FF8D).copy(alpha = a(rainbowHalo * 0.32f * rainbowSat)),
+                        Color(0xFFFFEA61).copy(alpha = a(rainbowHalo * (0.42f + breathe * 0.14f) * rainbowSat)),
+                        Color(0xFF55FF8D).copy(alpha = a(rainbowHalo * (0.32f + breathe * 0.10f) * rainbowSat)),
                         Color(0xFF5AE8FF).copy(alpha = a(rainbowHalo * 0.12f * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(right - bodySize.width * 0.10f, bottom - bodySize.height * 0.22f),
-                    radius = bodySize.width * 0.25f + haloGrow * 1.08f
+                    center = Offset(right - bodySize.width * (0.10f + driftZ * 0.020f), bottom - bodySize.height * (0.22f + driftY * 0.040f)),
+                    radius = bodySize.width * (0.25f + breathe * 0.030f) + haloGrow * 1.08f
                 )
                 val bodyBrush = Brush.verticalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = airyFill),
-                        Color(0xFF7CEBFF).copy(alpha = airyFill * 0.30f),
+                        Color(0xFF7CEBFF).copy(alpha = airyFill * (0.32f + breathe * 0.10f)),
                         Color(0xFF0B1B4A).copy(alpha = airyFill * 0.10f),
                         Color.Transparent
                     ),
@@ -298,33 +331,33 @@ private fun LightweightGlassPreview(
                 )
                 val outerAuraBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF4EFAFF).copy(alpha = a(rainbowHalo * 0.40f * rainbowSat)),
+                        Color(0xFF4EFAFF).copy(alpha = a(rainbowHalo * (0.40f + breathe * 0.14f) * rainbowSat)),
                         Color(0xFF7D92FF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
-                        Color(0xFFFF5FE7).copy(alpha = a(rainbowHalo * 0.30f * rainbowSat)),
+                        Color(0xFFFF5FE7).copy(alpha = a(rainbowHalo * (0.30f + breathe * 0.12f) * rainbowSat)),
                         Color(0xFFFFEF71).copy(alpha = a(rainbowHalo * 0.28f * rainbowSat)),
-                        Color(0xFF5BFF94).copy(alpha = a(rainbowHalo * 0.34f * rainbowSat)),
+                        Color(0xFF5BFF94).copy(alpha = a(rainbowHalo * (0.34f + breathe * 0.10f) * rainbowSat)),
                         Color(0xFF62CFFF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat))
                     ),
-                    start = Offset(left, top),
-                    end = Offset(right, bottom)
+                    start = Offset(left + bodySize.width * driftX * 0.035f, top),
+                    end = Offset(right + bodySize.width * driftY * 0.035f, bottom)
                 )
                 val baseEdgeBrush = Brush.linearGradient(
                     colors = listOf(
                         Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * (0.70f * rainbowSat + 0.10f))),
                         Color(0xFF76F4FF).copy(alpha = a(rainbowEdge * 0.44f * rainbowSat)),
-                        Color(0xFFFF62E6).copy(alpha = a(rainbowEdge * 0.78f * rainbowSat)),
+                        Color(0xFFFF62E6).copy(alpha = a(rainbowEdge * (0.78f + breathe * 0.08f) * rainbowSat)),
                         Color(0xFFFFF16C).copy(alpha = a(rainbowEdge * 0.58f * rainbowSat)),
-                        Color(0xFF5DFF94).copy(alpha = a(rainbowEdge * 0.76f * rainbowSat)),
+                        Color(0xFF5DFF94).copy(alpha = a(rainbowEdge * (0.76f + breathe * 0.08f) * rainbowSat)),
                         Color(0xFF6DA2FF).copy(alpha = a(rainbowEdge * 0.48f * rainbowSat)),
                         Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * 0.56f * rainbowSat))
                     ),
-                    start = Offset(left, top + bodySize.height * 0.08f),
-                    end = Offset(right, bottom - bodySize.height * 0.04f)
+                    start = Offset(left + bodySize.width * driftX * 0.050f, top + bodySize.height * 0.08f),
+                    end = Offset(right + bodySize.width * driftY * 0.050f, bottom - bodySize.height * 0.04f)
                 )
                 val innerEdgeBrush = Brush.linearGradient(
                     colors = listOf(
                         Color.White.copy(alpha = a(rainbowEdge * 0.13f)),
-                        Color(0xFFBDFEFF).copy(alpha = a(rainbowEdge * 0.18f * rainbowSat)),
+                        Color(0xFFBDFEFF).copy(alpha = a(rainbowEdge * (0.18f + breathe * 0.04f) * rainbowSat)),
                         Color.White.copy(alpha = a(rainbowEdge * 0.08f)),
                         Color(0xFFFFD9F5).copy(alpha = a(rainbowEdge * 0.12f * rainbowSat)),
                         Color.White.copy(alpha = a(rainbowEdge * 0.10f))
@@ -335,13 +368,13 @@ private fun LightweightGlassPreview(
                 val sweepBrush = Brush.linearGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0xFF6BFFF2).copy(alpha = a(rainbowSweep * 0.16f * rainbowSat)),
-                        Color.White.copy(alpha = a(rainbowSweep * 0.24f)),
+                        Color(0xFF6BFFF2).copy(alpha = a(rainbowSweep * (0.15f + breathe * 0.08f) * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowSweep * (0.22f + breathe * 0.10f))),
                         Color(0xFFFF72DD).copy(alpha = a(rainbowSweep * 0.16f * rainbowSat)),
                         Color.Transparent
                     ),
-                    start = Offset(left + bodySize.width * (0.08f - rainbowSweepWidth * 0.58f), bottom),
-                    end = Offset(left + bodySize.width * (0.64f + rainbowSweepWidth * 0.42f), top)
+                    start = Offset(left + bodySize.width * (sweepCenter - 0.58f - rainbowSweepWidth * 0.28f), bottom),
+                    end = Offset(left + bodySize.width * (sweepCenter + 0.22f + rainbowSweepWidth * 0.30f), top)
                 )
                 val bottomBrush = Brush.horizontalGradient(
                     colors = listOf(
@@ -355,23 +388,23 @@ private fun LightweightGlassPreview(
                 )
                 val hotCornerBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = a(rainbowCorner * 0.34f)),
-                        Color(0xFFFFEC7A).copy(alpha = a(rainbowCorner * 0.30f * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowCorner * (0.34f + breathe * 0.16f))),
+                        Color(0xFFFFEC7A).copy(alpha = a(rainbowCorner * (0.30f + breathe * 0.10f) * rainbowSat)),
                         Color(0xFFFF65E8).copy(alpha = a(rainbowCorner * 0.14f * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(right - bodySize.width * 0.11f, top + bodySize.height * 0.16f),
-                    radius = bodySize.height * 0.88f
+                    center = Offset(right - bodySize.width * (0.11f + driftZ * 0.020f), top + bodySize.height * (0.16f + driftX * 0.030f)),
+                    radius = bodySize.height * (0.88f + breathe * 0.10f)
                 )
                 val coolCornerBrush = Brush.radialGradient(
                     colors = listOf(
                         Color.White.copy(alpha = a(rainbowCorner * 0.12f)),
-                        Color(0xFF53F8FF).copy(alpha = a(rainbowCorner * 0.24f * rainbowSat)),
+                        Color(0xFF53F8FF).copy(alpha = a(rainbowCorner * (0.24f + breathe * 0.08f) * rainbowSat)),
                         Color(0xFF6C98FF).copy(alpha = a(rainbowCorner * 0.14f * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * 0.10f, bottom - bodySize.height * 0.18f),
-                    radius = bodySize.height * 0.80f
+                    center = Offset(left + bodySize.width * (0.10f + driftY * 0.020f), bottom - bodySize.height * (0.18f + driftZ * 0.030f)),
+                    radius = bodySize.height * (0.80f + breathe * 0.08f)
                 )
 
                 onDrawBehind {
@@ -469,7 +502,7 @@ private fun LightweightGlassPreview(
             Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.48f)))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Text("轻量玻璃 / Rainbow Capsule", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (rainbowEnabled) "彩虹" else "冷色").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (dynamicPreview && selected && !moving) "动态" else "静态", if (rainbowEnabled) "彩虹" else "冷色").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
