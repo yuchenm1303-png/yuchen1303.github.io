@@ -1,0 +1,57 @@
+name: Chat Rainbow Sync
+
+on:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - ai-ledger-android/app/.restore-original-chat-rainbow.txt
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+          fetch-depth: 0
+      - name: Sync chat rainbow section
+        run: |
+          python3 <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          path = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+          rel = 'ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt'
+          original_commit = 'f83e61c392fc5ef804adb041f084068187253340'
+
+          current = path.read_text(encoding='utf-8')
+          original = subprocess.check_output(['git', 'show', f'{original_commit}:{rel}'], text=True)
+
+          pattern = re.compile(
+              r'@Composable\nprivate fun ChatPanelV2\(state: AssistantUiState, modifier: Modifier, onDraftCommand: \(String\) -> Unit, onPickImage: \(\) -> Unit\) \{.*?@Composable\nprivate fun StarterSuggestionsV2\(state: AssistantUiState, onDraftCommand: \(String\) -> Unit, onPickImage: \(\) -> Unit\) \{',
+              re.S
+          )
+          original_match = pattern.search(original)
+          if not original_match:
+              raise SystemExit('original section not found')
+
+          new_text, count = pattern.subn(original_match.group(0), current, count=1)
+          if count != 1:
+              raise SystemExit(f'current section count={count}')
+
+          path.write_text(new_text, encoding='utf-8')
+          Path('.github/workflows/chat-rainbow-sync.yml').unlink(missing_ok=True)
+          Path('ai-ledger-android/app/.restore-original-chat-rainbow.txt').unlink(missing_ok=True)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt .github/workflows/chat-rainbow-sync.yml ai-ledger-android/app/.restore-original-chat-rainbow.txt
+          git diff --cached --check
+          git commit -m "Restore original chat rainbow sweep section"
+          git push
