@@ -312,8 +312,8 @@ private fun ModelStackCard(
     val tx = with(density) { currentX.toPx() } + dx / distance * overshootPx
     val ty = with(density) { currentY.toPx() } + dy / distance * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
-    val scaleX = modelStackCapsuleScaleX(cardProgress)
-    val scaleY = modelStackCapsuleScaleY(cardProgress)
+    val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
+    val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
         targetValue = if (selected && settled) 1.006f else 1f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
@@ -326,8 +326,8 @@ private fun ModelStackCard(
         .graphicsLayer {
             translationX = tx
             translationY = ty
-            scaleX = scaleX * selectedPulse
-            scaleY = scaleY * selectedPulse
+            scaleX = capsuleScaleX * selectedPulse
+            scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
             shadowElevation = if (settled && selected) 0.28f else 0.04f
         }
