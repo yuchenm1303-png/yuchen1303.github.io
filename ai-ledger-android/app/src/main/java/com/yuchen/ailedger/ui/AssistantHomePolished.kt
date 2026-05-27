@@ -26,6 +26,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -567,7 +568,7 @@ private fun ModelCapsuleChrome(
 }
 
 @Composable
-private fun ModelCapsulePrismOverlay(
+private fun BoxScope.ModelCapsulePrismOverlay(
     selected: Boolean,
     expansionProgress: Float,
     moving: Float,
