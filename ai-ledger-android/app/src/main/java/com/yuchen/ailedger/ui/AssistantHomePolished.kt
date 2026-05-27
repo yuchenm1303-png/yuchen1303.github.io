@@ -337,8 +337,8 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 3.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(top = 5.dp, bottom = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
@@ -434,7 +434,7 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
     LaunchedEffect(message.id) { visible = true }
     val reveal by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(dampingRatio = if (fromUser) 0.54f else 0.66f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = if (fromUser) 0.56f else 0.70f, stiffness = Spring.StiffnessMediumLow),
         label = "message-bubble-prism-reveal"
     )
     val sendingPulse by animateFloatAsState(
@@ -445,19 +445,25 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                val safeReveal = reveal.coerceIn(0f, 1.18f)
-                val settle = safeReveal.coerceIn(0f, 1f)
-                transformOrigin = if (fromUser) TransformOrigin(0.92f, 0.86f) else TransformOrigin(0.08f, 0.18f)
-                alpha = settle
-                scaleX = 0.70f + safeReveal * if (fromUser) 0.34f else 0.31f + sendingPulse * 0.010f
-                scaleY = 0.62f + safeReveal * if (fromUser) 0.41f else 0.38f + sendingPulse * 0.014f
-                translationX = (1f - settle) * if (fromUser) 56f else -34f
-                translationY = (1f - settle) * if (fromUser) 24f else -10f
-            },
+            .padding(horizontal = 5.dp, vertical = 5.dp),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        MessageBubbleV2(message, state, revealProgress = reveal.coerceIn(0f, 1.18f))
+        Box(
+            modifier = Modifier.graphicsLayer {
+                val rawReveal = reveal.coerceIn(0f, 1.10f)
+                val settle = rawReveal.coerceIn(0f, 1f)
+                val overshoot = ((rawReveal - 1f) / 0.10f).coerceIn(0f, 1f)
+                val capsuleStretch = overshoot * if (fromUser) 1f else 0.72f
+                transformOrigin = if (fromUser) TransformOrigin(0.92f, 0.82f) else TransformOrigin(0.08f, 0.22f)
+                alpha = settle
+                scaleX = 0.76f + settle * 0.24f + capsuleStretch * 0.018f + sendingPulse * 0.004f
+                scaleY = 0.64f + settle * 0.36f - capsuleStretch * 0.020f + sendingPulse * 0.006f
+                translationX = (1f - settle) * if (fromUser) 34f else -26f
+                translationY = (1f - settle) * if (fromUser) 14f else -8f
+            }
+        ) {
+            MessageBubbleV2(message, state, revealProgress = reveal.coerceIn(0f, 1.18f))
+        }
     }
 }
 
