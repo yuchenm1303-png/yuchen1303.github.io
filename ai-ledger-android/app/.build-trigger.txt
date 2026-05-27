@@ -1,4 +1,4 @@
-Q-bouncy chat bubble entrance: 36703991306e40bc9a00e6a1e9476ff4b66a5043
-Changes: stronger capsule pop-in animation with controlled scaleX/scaleY overshoot, keeps lightweight mist bubble and shell clipping.
-Purpose: trigger Build Compose Android APK after improving chat bubble appearance animation.
+Rollback target: 1333b30f347ad58c4f87dca5f85d75114eb2598a
+Purpose: trigger Build Compose Android APK after force-resetting dev-update-1 to the requested baseline.
+App source code remains at the rollback baseline.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
