@@ -1,6 +1,5 @@
-Parent chat bubble material layer optimization: 8bd169b2a15dcf956220e384e579bb8581272ea6
-Draw helper update: da60650b7f0c2e012cd5a362813372c46ceaa7d1
-Layer helper: 8ba91472b76ab0ee2a14834ba71ab46d57594c36
-Changes: parent Canvas draws bubble material/prism for visible bubbles; message items only report bounds and draw text.
-Purpose: trigger Build Compose Android APK after parent-layer chat bubble optimization.
+Chat bubble parent layer coordinate fix.
+Source commits:
+- 0a5be41491f9b6d4b3afa8ed21e33087b4d83f96
+- 31d90774312f5b445d30c78894d5839d686eaf5d
 Trigger path: ai-ledger-android/app/.build-trigger.txt
