@@ -1,0 +1,72 @@
+name: Patch polished online droplet once
+
+on:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - .github/workflows/patch-network-droplet-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+      - name: Patch AssistantHomePolished network chip
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+          text = path.read_text(encoding='utf-8')
+          old = '''@Composable
+private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
+    val accent = if (state.onlineEnabled) Color(0xFF8DF9EA) else Color(0xFF9EB7FF)
+    PressableGlass(state.quality, state.glassIntensity * 0.95f, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Chip, onClick = onClick) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PulseDotV2(active = state.onlineEnabled || state.isSending, color = accent)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text("联网", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(if (state.onlineEnabled) "已开启" else "已关闭", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            }
+        }
+    }
+}
+'''
+          new = '''@Composable
+private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
+    NetworkDropletCapsule(
+        state = state,
+        modifier = modifier,
+        enabled = !state.isSending,
+        onClick = onClick
+    )
+}
+'''
+          if new in text:
+              print('NetworkChipV2 already patched.')
+          elif old in text:
+              path.write_text(text.replace(old, new), encoding='utf-8')
+              print('Patched NetworkChipV2 to use NetworkDropletCapsule.')
+          else:
+              raise SystemExit('Target NetworkChipV2 block not found; refusing to modify file.')
+          PY
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt
+          git commit -m "Use sample droplet for polished online toggle"
+          git push
