@@ -74,7 +74,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "2.0 光学分层：轮廓 / 受光 / 内腔 / 联动",
+            subtitle = "2.0 光学分层：轮廓 / 受光 / 内腔 / 彩虹 / 联动",
             initiallyExpanded = true,
             state = state
         ) {
@@ -141,6 +141,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     var selected by rememberSaveable { mutableStateOf(true) }
     var moving by rememberSaveable { mutableStateOf(true) }
     var pressed by rememberSaveable { mutableStateOf(false) }
+    var rainbowEnabled by rememberSaveable { mutableStateOf(true) }
 
     var radius by rememberSaveable { mutableFloatStateOf(30f) }
     var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.050f) }
@@ -163,6 +164,16 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     var bottomDepthHeight by rememberSaveable { mutableFloatStateOf(18.0f) }
     var surfaceBrightAlpha by rememberSaveable { mutableFloatStateOf(0.026f) }
 
+    var rainbowEdgeAlpha by rememberSaveable { mutableFloatStateOf(0.78f) }
+    var rainbowEdgeWidth by rememberSaveable { mutableFloatStateOf(1.35f) }
+    var rainbowHaloAlpha by rememberSaveable { mutableFloatStateOf(0.16f) }
+    var rainbowHaloWidth by rememberSaveable { mutableFloatStateOf(7.0f) }
+    var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.74f) }
+    var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.13f) }
+    var rainbowSweepWidth by rememberSaveable { mutableFloatStateOf(0.42f) }
+    var rainbowCornerGlow by rememberSaveable { mutableFloatStateOf(0.18f) }
+    var rainbowBottomGlow by rememberSaveable { mutableFloatStateOf(0.10f) }
+
     var selectedGain by rememberSaveable { mutableFloatStateOf(0.32f) }
     var movingGain by rememberSaveable { mutableFloatStateOf(0.14f) }
     var pressGain by rememberSaveable { mutableFloatStateOf(0.22f) }
@@ -175,8 +186,10 @@ private fun LightweightGlassLab(state: AssistantUiState) {
     val selectedEnergy = if (selected) 1f else 0f
     val movingEnergy = if (moving) 1f else 0f
     val pressEnergy = if (pressed) 1f else 0f
+    val rainbowEnergy = if (rainbowEnabled) 1f else 0f
     val stateEnergy = (1f + selectedEnergy * selectedGain + movingEnergy * movingGain + pressEnergy * pressGain).coerceIn(0.35f, 2.2f)
     val layerEnergy = if (selected) 1f else backLayerFade
+    val rainbowStateEnergy = rainbowEnergy * stateEnergy * layerEnergy
 
     LightweightGlassPreview(
         radius = radius,
@@ -196,6 +209,16 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         cavityMistHeight = cavityMistHeight,
         bottomDepthAlpha = bottomDepthAlpha,
         bottomDepthHeight = bottomDepthHeight,
+        rainbowEnabled = rainbowEnabled,
+        rainbowEdgeAlpha = rainbowEdgeAlpha * rainbowStateEnergy,
+        rainbowEdgeWidth = rainbowEdgeWidth,
+        rainbowHaloAlpha = rainbowHaloAlpha * rainbowStateEnergy,
+        rainbowHaloWidth = rainbowHaloWidth,
+        rainbowSaturation = rainbowSaturation,
+        rainbowSweepAlpha = rainbowSweepAlpha * rainbowStateEnergy,
+        rainbowSweepWidth = rainbowSweepWidth,
+        rainbowCornerGlow = rainbowCornerGlow * rainbowStateEnergy,
+        rainbowBottomGlow = rainbowBottomGlow * rainbowStateEnergy,
         pressScaleX = pressScaleX * pressEnergy,
         pressScaleY = pressScaleY * pressEnergy,
         pressTranslateY = pressTranslateY * pressEnergy,
@@ -209,6 +232,9 @@ private fun LightweightGlassLab(state: AssistantUiState) {
             LabToggleButton(if (selected) "选中态" else "普通态", "边缘能量", state, Modifier.weight(1f)) { selected = !selected }
             LabToggleButton(if (moving) "移动中" else "静止态", "高光联动", state, Modifier.weight(1f)) { moving = !moving }
             LabToggleButton(if (pressed) "按压中" else "未按压", "胶囊压缩", state, Modifier.weight(1f)) { pressed = !pressed }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            LabToggleButton(if (rainbowEnabled) "彩虹开启" else "彩虹关闭", "只控制假发光层", state, Modifier.weight(1f)) { rainbowEnabled = !rainbowEnabled }
         }
     }
 
@@ -237,6 +263,18 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         LabSlider("底部深度", "下沿暗部压边", bottomDepthAlpha, 0f..0.20f) { bottomDepthAlpha = it }
         LabSlider("底部深度高度", "暗部向上扩散高度", bottomDepthHeight, 2f..36f) { bottomDepthHeight = it }
         LabSlider("表面提亮", "选中态中心额外亮度", surfaceBrightAlpha, 0f..0.12f) { surfaceBrightAlpha = it }
+    }
+
+    LightGlassControlGroup("彩虹发光", "用渐变假发光模拟棱彩，不使用 blur 或贴图", state, initiallyExpanded = true) {
+        LabSlider("彩虹边缘强度", "彩色边缘发光亮度", rainbowEdgeAlpha, 0f..1.4f) { rainbowEdgeAlpha = it }
+        LabSlider("彩虹边缘宽度", "彩色边缘厚度", rainbowEdgeWidth, 0.4f..3.4f) { rainbowEdgeWidth = it }
+        LabSlider("彩虹光晕强度", "外侧彩色空气光", rainbowHaloAlpha, 0f..0.42f) { rainbowHaloAlpha = it }
+        LabSlider("彩虹光晕宽度", "外晕扩散宽度", rainbowHaloWidth, 1f..16f) { rainbowHaloWidth = it }
+        LabSlider("彩虹饱和度", "控制彩色光的浓度", rainbowSaturation, 0f..1f) { rainbowSaturation = it }
+        LabSlider("棱彩扫光", "卡片表面斜向高光", rainbowSweepAlpha, 0f..0.40f) { rainbowSweepAlpha = it }
+        LabSlider("扫光宽度", "扫光在表面的扩散", rainbowSweepWidth, 0.12f..0.90f) { rainbowSweepWidth = it }
+        LabSlider("角落爆光", "右上/左下彩色亮点", rainbowCornerGlow, 0f..0.42f) { rainbowCornerGlow = it }
+        LabSlider("底部彩光", "下沿彩色反射", rainbowBottomGlow, 0f..0.35f) { rainbowBottomGlow = it }
     }
 
     LightGlassControlGroup("状态联动", "选中、移动、按压共同改变整套光学层", state, initiallyExpanded = false) {
@@ -272,6 +310,16 @@ private fun LightweightGlassPreview(
     cavityMistHeight: Float,
     bottomDepthAlpha: Float,
     bottomDepthHeight: Float,
+    rainbowEnabled: Boolean,
+    rainbowEdgeAlpha: Float,
+    rainbowEdgeWidth: Float,
+    rainbowHaloAlpha: Float,
+    rainbowHaloWidth: Float,
+    rainbowSaturation: Float,
+    rainbowSweepAlpha: Float,
+    rainbowSweepWidth: Float,
+    rainbowCornerGlow: Float,
+    rainbowBottomGlow: Float,
     pressScaleX: Float,
     pressScaleY: Float,
     pressTranslateY: Float,
@@ -280,27 +328,69 @@ private fun LightweightGlassPreview(
     pressed: Boolean
 ) {
     val shape = RoundedCornerShape(radius.dp)
+    val rainbowSat = rainbowSaturation.coerceIn(0f, 1f)
+    val rainbowEdge = rainbowEdgeAlpha.coerceIn(0f, 1.4f)
+    val rainbowHalo = rainbowHaloAlpha.coerceIn(0f, 0.55f)
+    val rainbowSweep = rainbowSweepAlpha.coerceIn(0f, 0.55f)
+    val rainbowCorner = rainbowCornerGlow.coerceIn(0f, 0.55f)
+    val rainbowBottom = rainbowBottomGlow.coerceIn(0f, 0.45f)
+    val softWhite = 1f - rainbowSat * 0.35f
+    val rainbowEdgeBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF58F7FF).copy(alpha = rainbowEdge * (0.88f * rainbowSat + 0.12f)),
+            Color(0xFFFF5FE7).copy(alpha = rainbowEdge * rainbowSat),
+            Color(0xFFFFE96A).copy(alpha = rainbowEdge * rainbowSat),
+            Color(0xFF62FF8A).copy(alpha = rainbowEdge * rainbowSat),
+            Color(0xFF6CA2FF).copy(alpha = rainbowEdge * (0.82f * rainbowSat + 0.10f)),
+            Color.White.copy(alpha = rainbowEdge * 0.22f * softWhite)
+        )
+    )
+    val quietEdgeBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF8DF9EA).copy(alpha = outerContourAlpha.coerceIn(0f, 1f)),
+            Color.White.copy(alpha = (outerContourAlpha * 0.72f).coerceIn(0f, 1f))
+        )
+    )
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(86.dp)
+            .height(92.dp)
             .graphicsLayer {
                 scaleX = 1f + pressScaleX
                 scaleY = 1f - pressScaleY
                 translationY = pressTranslateY
             }
     ) {
+        if (rainbowEnabled && rainbowHalo > 0f) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding((rainbowHaloWidth * 0.20f).dp)
+                    .clip(shape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF00E5FF).copy(alpha = rainbowHalo * 0.75f * rainbowSat),
+                                Color(0xFFFF4FD8).copy(alpha = rainbowHalo * rainbowSat),
+                                Color(0xFFFFD54A).copy(alpha = rainbowHalo * 0.90f * rainbowSat),
+                                Color(0xFF40FF88).copy(alpha = rainbowHalo * 0.70f * rainbowSat),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize()
-                .padding((outerHaloWidth * 0.5f).dp)
+                .padding((outerHaloWidth * 0.5f + rainbowHaloWidth * 0.25f).dp)
                 .clip(shape)
                 .background(Color(0xFF9FC8FF).copy(alpha = outerHaloAlpha.coerceIn(0f, 0.45f)))
         )
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(outerHaloWidth.dp)
+                .padding((outerHaloWidth + rainbowHaloWidth * 0.35f).dp)
                 .clip(shape)
                 .background(Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.32f)))
         ) {
@@ -317,6 +407,60 @@ private fun LightweightGlassPreview(
                         )
                     )
             )
+            if (rainbowEnabled && rainbowSweep > 0f) {
+                val mid = rainbowSweepWidth.coerceIn(0.12f, 0.9f)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0xFF5BFFF4).copy(alpha = rainbowSweep * 0.35f * rainbowSat),
+                                    Color.White.copy(alpha = rainbowSweep * 0.52f),
+                                    Color(0xFFFF64DD).copy(alpha = rainbowSweep * 0.42f * rainbowSat),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .graphicsLayer {
+                            alpha = 0.55f + mid * 0.45f
+                            rotationZ = -8f
+                            scaleX = 1.0f + mid * 0.22f
+                        }
+                )
+            }
+            if (rainbowEnabled && rainbowCorner > 0f) {
+                Box(
+                    Modifier
+                        .size(90.dp)
+                        .align(Alignment.TopEnd)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = rainbowCorner * 0.34f),
+                                    Color(0xFFFF5FE7).copy(alpha = rainbowCorner * 0.26f * rainbowSat),
+                                    Color(0xFFFFE96A).copy(alpha = rainbowCorner * 0.20f * rainbowSat),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                Box(
+                    Modifier
+                        .size(76.dp)
+                        .align(Alignment.BottomStart)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF58F7FF).copy(alpha = rainbowCorner * 0.22f * rainbowSat),
+                                    Color(0xFF6CA2FF).copy(alpha = rainbowCorner * 0.14f * rainbowSat),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -331,6 +475,24 @@ private fun LightweightGlassPreview(
                         )
                     )
             )
+            if (rainbowEnabled && rainbowBottom > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFF00E5FF).copy(alpha = rainbowBottom * 0.50f * rainbowSat),
+                                    Color(0xFFFF4FD8).copy(alpha = rainbowBottom * 0.62f * rainbowSat),
+                                    Color(0xFFFFD54A).copy(alpha = rainbowBottom * 0.54f * rainbowSat),
+                                    Color(0xFF40FF88).copy(alpha = rainbowBottom * 0.42f * rainbowSat)
+                                )
+                            )
+                        )
+                )
+            }
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -378,10 +540,21 @@ private fun LightweightGlassPreview(
                     .fillMaxSize()
                     .border(
                         width = outerContourWidth.dp,
-                        color = if (selected) Color(0xFF8DF9EA).copy(alpha = outerContourAlpha.coerceIn(0f, 1f)) else Color.White.copy(alpha = (outerContourAlpha * 0.72f).coerceIn(0f, 1f)),
+                        brush = quietEdgeBrush,
                         shape = shape
                     )
             )
+            if (rainbowEnabled && rainbowEdge > 0f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .border(
+                            width = rainbowEdgeWidth.dp,
+                            brush = rainbowEdgeBrush,
+                            shape = shape
+                        )
+                )
+            }
             Box(
                 Modifier
                     .fillMaxSize()
@@ -396,8 +569,8 @@ private fun LightweightGlassPreview(
             Row(Modifier.fillMaxSize().padding(horizontal = 15.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.48f)))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text("轻量玻璃 / Optical Capsule", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (pressed) "按压" else "松手").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("轻量玻璃 / Rainbow Capsule", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(listOf(if (selected) "选中" else "普通", if (moving) "移动" else "静止", if (pressed) "按压" else "松手", if (rainbowEnabled) "彩虹" else "冷色").joinToString(" · "), color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
         }
