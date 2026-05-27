@@ -1,0 +1,1 @@
+Apply chat shell rainbow layer performance patch.
