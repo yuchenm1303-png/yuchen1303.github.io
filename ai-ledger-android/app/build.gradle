@@ -86,8 +86,151 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
     }
 }
 
+def patchChatRainbowOverlay = tasks.register('patchChatRainbowOverlay') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+        def newBlock = '''@Composable
+private fun RainbowChatGlassOverlay(
+    quality: RenderQuality,
+    motionIntensity: Float,
+    modifier: Modifier = Modifier
+) {
+    val style = LocalRainbowPrismStyle.current
+    val transition = rememberInfiniteTransition(label = "chat-rainbow-glass-overlay")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(9600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "chat-rainbow-overlay-phase"
+    )
+    val breathPhase by transition.animateFloat(
+        initialValue = 0.37f,
+        targetValue = 1.37f,
+        animationSpec = infiniteRepeatable(animation = tween(16800, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "chat-rainbow-overlay-breath"
+    )
+    val motionOn = quality.enableMotion && motionIntensity > 0.02f
+    val t = if (motionOn) phase else 0.18f
+    val b = if (motionOn) breathPhase else 0.42f
+    val cycle = t * 2f * PI.toFloat()
+    val breath = chatRainbowSmoothStep(((sin(b * 2f * PI.toFloat()) + 1f) * 0.5f).coerceIn(0f, 1f))
+    val motion = motionIntensity.coerceIn(0f, 1f)
+    val visualPresence = (0.42f + motion * 0.58f).coerceIn(0.42f, 1f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val edge = style.edgeHighlight.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val sweep = minSweep + (maxSweep - minSweep) * breath
+    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
+    val halo = style.rainbowHalo.coerceIn(0f, 2f)
+    val bodyLoad = (visualPresence * overall * (0.72f + 0.22f * sweepPower)).coerceIn(0f, 1.90f)
+    val haloLoad = (visualPresence * overall * halo * (0.54f + 0.22f * sweepPower)).coerceIn(0f, 1.95f)
+    val rimLoad = (visualPresence * overall * (0.42f + edge * 0.30f + sweepPower * 0.32f)).coerceIn(0f, 1.90f)
+
+    Canvas(modifier = modifier) {
+        val w = size.width.coerceAtLeast(1f)
+        val h = size.height.coerceAtLeast(1f)
+        val corner = CornerRadius(30.dp.toPx(), 30.dp.toPx())
+        val glowCenterA = Offset(w * (0.50f + 0.22f * sin(cycle)), h * (0.42f + 0.10f * sin(cycle + 1.4f)))
+        val glowCenterB = Offset(w * (0.60f + 0.18f * sin(cycle + 2.2f)), h * (0.64f + 0.08f * sin(cycle + 0.6f)))
+        val sweepX = 0.50f + 0.36f * sin(cycle + 0.8f)
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFFFF6FD6).copy(alpha = 0.062f * bodyLoad),
+                    Color(0xFFFFE08A).copy(alpha = 0.038f * bodyLoad),
+                    Color(0xFF6DFFF0).copy(alpha = 0.066f * bodyLoad),
+                    Color(0xFF91A3FF).copy(alpha = 0.046f * bodyLoad),
+                    Color.Transparent
+                ),
+                center = glowCenterA,
+                radius = maxOf(w, h) * 0.86f
+            ),
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.SrcOver
+        )
+        if (haloLoad > 0.001f) {
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.046f * haloLoad),
+                        Color(0xFFFFA6E7).copy(alpha = 0.064f * haloLoad),
+                        Color(0xFF77FFF2).copy(alpha = 0.058f * haloLoad),
+                        Color(0xFF9CA7FF).copy(alpha = 0.042f * haloLoad),
+                        Color.Transparent
+                    ),
+                    center = glowCenterB,
+                    radius = maxOf(w, h) * 0.58f
+                ),
+                size = Size(w, h),
+                cornerRadius = corner,
+                blendMode = BlendMode.SrcOver
+            )
+        }
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFFFF0A8).copy(alpha = 0.026f * bodyLoad * sweepPower),
+                    Color(0xFF76FFF1).copy(alpha = 0.044f * bodyLoad * sweepPower),
+                    Color(0xFFFF72D2).copy(alpha = 0.030f * bodyLoad * sweepPower),
+                    Color.Transparent
+                ),
+                start = Offset(w * (sweepX - 0.52f), -h * 0.10f),
+                end = Offset(w * (sweepX + 0.52f), h * 1.10f)
+            ),
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.SrcOver
+        )
+        val inset = 0.74.dp.toPx()
+        val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFFF64D8).copy(alpha = 0.120f * rimLoad),
+                    Color(0xFFFFE27A).copy(alpha = 0.088f * rimLoad),
+                    Color(0xFF67FFF0).copy(alpha = 0.135f * rimLoad),
+                    Color(0xFF9CA7FF).copy(alpha = 0.090f * rimLoad),
+                    Color.Transparent
+                ),
+                start = Offset(w * (sweepX - 0.34f), h * -0.04f),
+                end = Offset(w * (sweepX + 0.40f), h * 1.02f)
+            ),
+            topLeft = Offset(inset, inset),
+            size = rimSize,
+            cornerRadius = CornerRadius((30.dp.toPx() - inset).coerceAtLeast(1f), (30.dp.toPx() - inset).coerceAtLeast(1f)),
+            style = Stroke(width = 0.92.dp.toPx() + 0.46.dp.toPx() * sweepPower),
+            blendMode = BlendMode.Plus
+        )
+    }
+}
+
+private fun chatRainbowSmoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+'''
+        if (text.contains(newBlock)) {
+            println('RainbowChatGlassOverlay already uses slider-driven Canvas implementation.')
+            return
+        }
+        def pattern = /(?s)@Composable\nprivate fun RainbowChatGlassOverlay\(\n    quality: RenderQuality,\n    motionIntensity: Float,\n    modifier: Modifier = Modifier\n\) \{.*?\n\}\n\nprivate fun Modifier\.chatPanelPrismOverlay\(phase: Float, motionIntensity: Float\): Modifier = drawWithContent \{.*?\n\}\n/
+        def matcher = text =~ pattern
+        if (matcher.size() != 1) {
+            throw new GradleException("Target RainbowChatGlassOverlay block was not found; matches=${matcher.size()}")
+        }
+        home.setText(matcher.replaceFirst(newBlock), 'UTF-8')
+        println('Patched AssistantHomePolished RainbowChatGlassOverlay to slider-driven Canvas implementation.')
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn patchPolishedOnlineDroplet
+    dependsOn patchChatRainbowOverlay
 }
 
 dependencies {
