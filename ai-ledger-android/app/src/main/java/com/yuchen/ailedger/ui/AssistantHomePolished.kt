@@ -187,7 +187,7 @@ private fun ModelAndNetworkPanel(
     var expanded by remember { mutableStateOf(false) }
     val panelHeight by animateDpAsState(
         targetValue = if (expanded) 224.dp else 58.dp,
-        animationSpec = spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
     ModelStackSelector(
@@ -297,8 +297,8 @@ private fun ModelStackCard(
     val cardProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (expanded) 560 else 330,
-            delayMillis = if (expanded) staggerRank * 34 else (ChatModel.entries.lastIndex - staggerRank) * 16,
+            durationMillis = if (expanded) 460 else 280,
+            delayMillis = if (expanded) staggerRank * 24 else (ChatModel.entries.lastIndex - staggerRank) * 12,
             easing = FastOutSlowInEasing
         ),
         label = "model-card-spatial-arc-progress-${model.id}"
@@ -319,21 +319,21 @@ private fun ModelStackCard(
     val speedPulse = modelStackSpeedPulse(cardProgress)
     val unitX = dx / distance
     val unitY = dy / distance
-    val liftPx = -with(density) { (9.dp + (staggerRank * 0.9f).dp).toPx() } * speedPulse
+    val liftPx = -with(density) { (7.dp + (staggerRank * 0.7f).dp).toPx() } * speedPulse
 
     val curveX = startX + dx * curveT
     val curveY = startY + dy * curveT + liftPx
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 1.2.dp.toPx() } * brake - with(density) { 0.8.dp.toPx() } * returnBrake
+    val overshootPx = with(density) { 4.6.dp.toPx() } * brake - with(density) { 2.6.dp.toPx() } * returnBrake
     val tx = curveX + unitX * overshootPx
     val ty = curveY + unitY * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
     val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
     val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settled) 1.008f else 1f,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settled) 1.010f else 1f,
+        animationSpec = spring(dampingRatio = 0.60f, stiffness = Spring.StiffnessMediumLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
@@ -355,6 +355,8 @@ private fun ModelStackCard(
         state = state,
         modifier = transformModifier,
         expansionProgress = cardProgress.coerceIn(0f, 1f),
+        moving = speedPulse,
+        stopPulse = (brake + returnBrake).coerceIn(0f, 1f),
         settled = settled,
         stackRank = stackRank,
         onClick = onClick
@@ -367,7 +369,9 @@ private fun lerpFloat(start: Float, end: Float, fraction: Float): Float = start 
 
 private fun modelStackMotionEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    return p * p * (3f - 2f * p)
+    val smooth = p * p * (3f - 2f * p)
+    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.026f * (1f - kotlin.math.abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
+    return (smooth + elastic).coerceIn(0f, 1f)
 }
 
 private fun modelStackSpeedPulse(progress: Float): Float {
@@ -376,12 +380,12 @@ private fun modelStackSpeedPulse(progress: Float): Float {
 }
 
 private fun modelStackArrivalBrake(progress: Float): Float {
-    val p = ((progress - 0.78f) / 0.22f).coerceIn(0f, 1f)
+    val p = ((progress - 0.70f) / 0.30f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
 private fun modelStackReturnBrake(progress: Float): Float {
-    val p = ((0.24f - progress) / 0.24f).coerceIn(0f, 1f)
+    val p = ((0.28f - progress) / 0.28f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
@@ -391,7 +395,7 @@ private fun modelStackCapsuleScaleX(progress: Float): Float {
     val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.070f * speed + 0.030f * arrive + 0.014f * back
+    return 1f + 0.034f * speed + 0.026f * arrive - 0.012f * back
 }
 
 private fun modelStackCapsuleScaleY(progress: Float): Float {
@@ -400,7 +404,7 @@ private fun modelStackCapsuleScaleY(progress: Float): Float {
     val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.115f * speed + 0.040f * arrive + 0.018f * back
+    return 1f - 0.068f * speed + 0.034f * arrive + 0.014f * back
 }
 
 @Composable
@@ -410,13 +414,14 @@ private fun ModelFrostCapsule(
     state: AssistantUiState,
     modifier: Modifier,
     expansionProgress: Float,
+    moving: Float,
+    stopPulse: Float,
     settled: Boolean,
     stackRank: Int,
     onClick: () -> Unit
 ) {
     val radius = 30
     val shape = RoundedCornerShape(radius.dp)
-    val moving = if (settled) 0f else 1f
     val stackEnergy = if (stackRank > 0) 0.42f else 1f
     LightweightModelCapsule(
         model = model,
@@ -425,6 +430,7 @@ private fun ModelFrostCapsule(
         modifier = modifier,
         expansionProgress = expansionProgress,
         moving = moving,
+        stopPulse = stopPulse,
         stackEnergy = stackEnergy,
         shape = shape,
         showContent = selected || expansionProgress > 0.035f || settled,
@@ -440,6 +446,7 @@ private fun LightweightModelCapsule(
     modifier: Modifier,
     expansionProgress: Float,
     moving: Float,
+    stopPulse: Float,
     stackEnergy: Float,
     shape: RoundedCornerShape,
     showContent: Boolean,
@@ -451,7 +458,7 @@ private fun LightweightModelCapsule(
     val pressProgress by animateFloatAsState(
         targetValue = if (pressed && !state.isSending) 1f else 0f,
         animationSpec = spring(
-            dampingRatio = 0.58f,
+            dampingRatio = 0.50f,
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "model-fake-glass-press-${model.id}"
@@ -459,9 +466,9 @@ private fun LightweightModelCapsule(
     Box(
         modifier = modifier
             .graphicsLayer {
-                scaleX = 1f + 0.012f * pressProgress
-                scaleY = 1f - 0.020f * pressProgress
-                translationY = 1.2f * pressProgress
+                scaleX = 1f + 0.020f * pressProgress
+                scaleY = 1f - 0.032f * pressProgress
+                translationY = 1.8f * pressProgress
             }
             .clip(shape)
             .background(
@@ -469,8 +476,9 @@ private fun LightweightModelCapsule(
                     alpha = (
                         0.060f +
                             selectedEnergy * 0.026f +
-                            moving * 0.010f +
-                            pressProgress * 0.014f
+                            moving * 0.014f +
+                            stopPulse * 0.012f +
+                            pressProgress * 0.018f
                         ) * maxOf(stackEnergy, 0.58f)
                 )
             )
@@ -484,7 +492,8 @@ private fun LightweightModelCapsule(
         ModelCapsuleChrome(
             selected = selected,
             expansionProgress = expansionProgress,
-            moving = moving + pressProgress * 0.45f,
+            moving = moving + pressProgress * 0.42f,
+            stopPulse = stopPulse,
             stackEnergy = stackEnergy,
             shape = shape
         )
@@ -492,6 +501,7 @@ private fun LightweightModelCapsule(
             selected = selected,
             expansionProgress = expansionProgress,
             moving = moving,
+            stopPulse = stopPulse,
             pressProgress = pressProgress,
             shape = shape
         )
@@ -510,6 +520,7 @@ private fun ModelCapsuleChrome(
     selected: Boolean,
     expansionProgress: Float,
     moving: Float,
+    stopPulse: Float,
     stackEnergy: Float,
     shape: RoundedCornerShape
 ) {
@@ -518,19 +529,21 @@ private fun ModelCapsuleChrome(
         Modifier
             .fillMaxSize()
             .border(
-                width = if (selected) 1.22.dp else 0.86.dp,
+                width = if (selected) 1.28.dp else 0.92.dp,
                 color = if (selected) {
                     Color(0xFF8DF9EA).copy(
-                        alpha = 0.60f +
-                            0.18f * expansionProgress +
-                            0.08f * moving
+                        alpha = 0.62f +
+                            0.16f * expansionProgress +
+                            0.08f * moving +
+                            0.12f * stopPulse
                     )
                 } else {
                     Color.White.copy(
                         alpha = (
-                            0.28f +
-                                0.12f * expansionProgress +
-                                0.05f * moving
+                            0.30f +
+                                0.10f * expansionProgress +
+                                0.05f * moving +
+                                0.08f * stopPulse
                             ) * stackEnergy
                     )
                 },
@@ -546,7 +559,8 @@ private fun ModelCapsuleChrome(
                 Color.White.copy(
                     alpha = 0.018f +
                         selectedEnergy * 0.024f +
-                        moving * 0.007f
+                        moving * 0.008f +
+                        stopPulse * 0.010f
                 )
             )
     )
@@ -557,23 +571,80 @@ private fun ModelCapsulePrismOverlay(
     selected: Boolean,
     expansionProgress: Float,
     moving: Float,
+    stopPulse: Float,
     pressProgress: Float,
     shape: RoundedCornerShape
 ) {
-    val base = if (selected) 0.075f else 0.044f
-    val prism = (base + 0.018f * expansionProgress + 0.014f * moving + 0.018f * pressProgress).coerceIn(0f, 0.13f)
+    val selectedBoost = if (selected) 1f else 0.54f
+    val motionBoost = (moving * 0.78f + stopPulse * 0.95f + pressProgress * 0.92f).coerceIn(0f, 1.8f)
+    val prism = (0.038f + 0.020f * expansionProgress + 0.060f * motionBoost).coerceIn(0f, 0.158f)
+    val sweepTransition = rememberInfiniteTransition(label = "model-prism-sweep")
+    val sweepPhase by sweepTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(2800, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "model-prism-sweep-phase"
+    )
+    val sweepWave = ((sin((sweepPhase + expansionProgress * 0.25f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
+    val sweepX = (-42f + 96f * sweepWave) + 10f * pressProgress - 8f * stopPulse
+
     Box(
         Modifier
-            .fillMaxSize()
-            .padding(1.dp)
+            .fillMaxWidth()
+            .height(9.dp)
+            .align(Alignment.TopCenter)
+            .padding(horizontal = 4.dp)
             .clip(shape)
             .background(
                 Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF8DF9EA).copy(alpha = prism * 0.10f),
-                        Color(0xFFB8A4FF).copy(alpha = prism * 0.42f),
-                        Color.White.copy(alpha = prism * 0.58f),
-                        Color(0xFFFFB3E6).copy(alpha = prism * 0.34f),
+                        Color.Transparent,
+                        Color(0xFFFF6FD6).copy(alpha = prism * 0.45f * selectedBoost),
+                        Color(0xFFFFD66B).copy(alpha = prism * 0.32f * selectedBoost),
+                        Color(0xFF68FFE8).copy(alpha = prism * 0.56f * selectedBoost),
+                        Color.Transparent
+                    )
+                )
+            )
+    )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(7.dp)
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = 5.dp)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFF76FFF2).copy(alpha = prism * 0.32f * selectedBoost),
+                        Color(0xFFA994FF).copy(alpha = prism * 0.30f * selectedBoost),
+                        Color(0xFFFF82D8).copy(alpha = prism * 0.24f * selectedBoost),
+                        Color.Transparent
+                    )
+                )
+            )
+    )
+    Box(
+        Modifier
+            .align(Alignment.CenterStart)
+            .width(34.dp)
+            .height(104.dp)
+            .graphicsLayer {
+                translationX = sweepX
+                rotationZ = -18f
+                alpha = 0.22f + 0.58f * motionBoost.coerceIn(0f, 1f)
+                scaleX = 0.82f + 0.18f * pressProgress
+            }
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = prism * 0.90f),
+                        Color(0xFFFFD66B).copy(alpha = prism * 0.50f),
+                        Color(0xFF68FFE8).copy(alpha = prism * 0.62f),
+                        Color(0xFFFF72D8).copy(alpha = prism * 0.42f),
                         Color.Transparent
                     )
                 )
@@ -582,16 +653,12 @@ private fun ModelCapsulePrismOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 2.dp, vertical = 1.dp)
+            .padding(1.dp)
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = prism * 0.26f),
-                        Color.Transparent,
-                        Color(0xFF8DF9EA).copy(alpha = prism * 0.18f)
-                    )
-                )
+            .border(
+                width = 0.72.dp + 0.24.dp * motionBoost.coerceIn(0f, 1f),
+                color = Color(0xFF8DFFF3).copy(alpha = prism * 0.44f * selectedBoost + 0.020f * stopPulse),
+                shape = shape
             )
     )
 }
