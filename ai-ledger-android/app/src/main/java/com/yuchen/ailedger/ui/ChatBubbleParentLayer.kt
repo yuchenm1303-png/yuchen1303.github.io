@@ -21,23 +21,10 @@ class ChatBubbleLayerState {
 
     fun updateRoot(coordinates: LayoutCoordinates) {
         val nextRoot = coordinates.boundsInRoot().topLeft
-        val dx = nextRoot.x - rootInWindow.x
-        val dy = nextRoot.y - rootInWindow.y
-        if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
+        if (abs(nextRoot.x - rootInWindow.x) > 0.5f || abs(nextRoot.y - rootInWindow.y) > 0.5f) {
             rootInWindow = nextRoot
-            if (bubbles.isNotEmpty()) {
-                bubbles.entries.toList().forEach { entry ->
-                    val r = entry.value.rect
-                    bubbles[entry.key] = entry.value.copy(
-                        rect = Rect(
-                            left = r.left - dx,
-                            top = r.top - dy,
-                            right = r.right - dx,
-                            bottom = r.bottom - dy
-                        )
-                    )
-                }
-            }
+            // Do not translate cached bubble rects here. Any visible bubble will report its fresh
+            // bounds through onGloballyPositioned; stale off-screen bubbles are removed on dispose.
         }
     }
 
@@ -76,6 +63,10 @@ class ChatBubbleLayerState {
                 radiusDp = radiusDp
             )
         }
+    }
+
+    fun removeBubble(id: String) {
+        bubbles.remove(id)
     }
 
     fun removeMissing(activeIds: Set<String>) {
