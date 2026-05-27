@@ -1,5 +1,6 @@
-Rollback target: 78ece7469fc11cf9604464f5b6f123cf95b8cb42
-Purpose: trigger Build Compose Android APK after rolling back the model selector animation step.
-App source code remains at the rollback baseline.
+Rollback target: none
+Purpose: trigger Build Compose Android APK after latest UI updates.
+App source code remains unchanged; this file only forces a paths-matched workflow run.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
-Triggered at: 2026-05-27T00:08:00+08:00
+Latest source commit before trigger: f955cc26123f4c169a4f960ec7e7d1da93bac4e8
+Triggered at: 2026-05-27T04:05:00Z
