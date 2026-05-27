@@ -21,8 +21,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -184,8 +182,8 @@ private fun ModelAndNetworkPanel(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val panelHeight by animateDpAsState(
-        targetValue = if (expanded) 214.dp else 56.dp,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (expanded) 224.dp else 58.dp,
+        animationSpec = spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessLow),
         label = "model-stack-panel-height"
     )
     ModelStackSelector(
@@ -213,11 +211,11 @@ private fun ModelStackSelector(
     BoxWithConstraints(modifier = modifier) {
         val models = ChatModel.entries
         val gap = 10.dp
-        val rowStep = 72.dp
-        val collapsedHeight = 54.dp
-        val expandedHeight = 62.dp
+        val rowStep = 74.dp
+        val collapsedHeight = 56.dp
+        val expandedHeight = 64.dp
         val reservedGap = 8.dp
-        val collapsedWidth = (maxWidth - reservedGap) * 0.622f
+        val collapsedWidth = (maxWidth - reservedGap) * 0.642f
         val halfWidth = (maxWidth - gap) / 2f
         val selectedModel = state.selectedModel
         val behindModels = models.filter { it != selectedModel }
@@ -235,9 +233,9 @@ private fun ModelStackSelector(
                 else -> 0.dp
             }
             val expandedWidth = if (index == 4) maxWidth else halfWidth
-            val collapsedX = if (selected) 0.dp else (stackRank * 4).dp
-            val collapsedY = if (selected) 0.dp else (stackRank * 1).dp
-            val collapsedAlpha = if (selected) 1f else 0.44f + (4 - stackRank).coerceAtLeast(0) * 0.070f
+            val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
+            val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
+            val collapsedAlpha = if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.080f
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
@@ -286,8 +284,8 @@ private fun ModelStackCard(
     val cardProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (expanded) 560 else 460,
-            delayMillis = if (expanded) index * 54 else (ChatModel.entries.lastIndex - index) * 34,
+            durationMillis = if (expanded) 680 else 520,
+            delayMillis = if (expanded) index * 46 else (ChatModel.entries.lastIndex - index) * 30,
             easing = FastOutSlowInEasing
         ),
         label = "model-card-sequential-progress-${model.id}"
@@ -306,17 +304,18 @@ private fun ModelStackCard(
     val dx = endX - startX
     val dy = endY - startY
     val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+    val travelWave = sin(cardProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 2.8.dp.toPx() } * (brake - returnBrake)
+    val overshootPx = with(density) { 6.2.dp.toPx() } * brake - with(density) { 3.6.dp.toPx() } * returnBrake
     val tx = with(density) { currentX.toPx() } + dx / distance * overshootPx
-    val ty = with(density) { currentY.toPx() } + dy / distance * overshootPx
+    val ty = with(density) { currentY.toPx() } + dy / distance * overshootPx - with(density) { 1.8.dp.toPx() } * travelWave
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
     val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
     val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settled) 1.006f else 1f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settled) 1.010f else 1f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
@@ -329,7 +328,7 @@ private fun ModelStackCard(
             scaleX = capsuleScaleX * selectedPulse
             scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
-            shadowElevation = if (settled && selected) 0.28f else 0.04f
+            shadowElevation = if (settled && selected) 0.36f else 0.08f + 0.10f * travelWave
         }
 
     ModelFrostCapsule(
@@ -350,16 +349,18 @@ private fun lerpFloat(start: Float, end: Float, fraction: Float): Float = start 
 
 private fun modelStackMotionEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    return p * p * (3f - 2f * p)
+    val smooth = p * p * (3f - 2f * p)
+    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.035f * (1f - kotlin.math.abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
+    return (smooth + elastic).coerceIn(0f, 1f)
 }
 
 private fun modelStackArrivalBrake(progress: Float): Float {
-    val p = ((progress - 0.76f) / 0.24f).coerceIn(0f, 1f)
+    val p = ((progress - 0.68f) / 0.32f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
 private fun modelStackReturnBrake(progress: Float): Float {
-    val p = ((0.24f - progress) / 0.24f).coerceIn(0f, 1f)
+    val p = ((0.30f - progress) / 0.30f).coerceIn(0f, 1f)
     return sin(p * PI.toFloat()).coerceAtLeast(0f)
 }
 
@@ -369,7 +370,7 @@ private fun modelStackCapsuleScaleX(progress: Float): Float {
     val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.010f * travel + 0.012f * arrive + 0.006f * back
+    return 1f + 0.026f * travel + 0.018f * arrive - 0.012f * back
 }
 
 private fun modelStackCapsuleScaleY(progress: Float): Float {
@@ -378,7 +379,7 @@ private fun modelStackCapsuleScaleY(progress: Float): Float {
     val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.032f * travel + 0.016f * arrive + 0.008f * back
+    return 1f - 0.050f * travel + 0.024f * arrive + 0.012f * back
 }
 
 @Composable
@@ -392,47 +393,51 @@ private fun ModelFrostCapsule(
     stackRank: Int,
     onClick: () -> Unit
 ) {
-    val radius = 30f
+    val radius = 30
     val shape = RoundedCornerShape(radius.dp)
     val moving = if (settled) 0f else 1f
     val selectedEnergy = if (selected) 1f else 0f
-    val stackBackdrop = if (settled && stackRank > 0) 0.34f else if (settled) 0.84f else 0.54f
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = !state.isSending,
-                onClick = onClick
-            )
+    val stackEnergy = if (stackRank > 0) 0.42f else 1f
+    val role = if (selected) GlassRole.Floating else GlassRole.Card
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * (0.92f + selectedEnergy * 0.16f + moving * 0.08f),
+        motionIntensity = state.motionIntensity,
+        radius = radius,
+        modifier = modifier,
+        role = role,
+        onClick = onClick
     ) {
-        FrostInfoGlassPanel(
-            radius = radius,
-            backdropAlpha = stackBackdrop,
-            frostAlpha = 0.115f + selectedEnergy * 0.028f + moving * 0.018f,
-            dimAlpha = 0.026f + moving * 0.016f + if (!selected && stackRank > 0) 0.020f else 0f,
-            modifier = Modifier.fillMaxSize()
-        ) {}
-        Box(
-            Modifier
-                .fillMaxSize()
-                .border(
-                    width = if (selected) 1.10.dp else 0.82.dp,
-                    color = if (selected) Color(0xFF8DF9EA).copy(alpha = 0.38f + 0.12f * expansionProgress) else Color.White.copy(alpha = 0.16f + 0.05f * expansionProgress),
-                    shape = shape
-                )
-        )
-        if (selected) {
+        Box(Modifier.fillMaxSize().clip(shape)) {
+            RainbowChatGlassOverlay(
+                quality = state.quality,
+                motionIntensity = state.motionIntensity * (0.62f + selectedEnergy * 0.18f + moving * 0.20f),
+                modifier = Modifier.matchParentSize()
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = if (selected) 1.22.dp else 0.86.dp,
+                        color = if (selected) {
+                            Color(0xFF8DF9EA).copy(alpha = 0.48f + 0.18f * expansionProgress + 0.12f * moving)
+                        } else {
+                            Color.White.copy(alpha = (0.18f + 0.10f * expansionProgress + 0.08f * moving) * stackEnergy)
+                        },
+                        shape = shape
+                    )
+            )
             Box(
                 Modifier
                     .fillMaxSize()
                     .padding(1.dp)
                     .clip(shape)
-                    .background(Color.White.copy(alpha = 0.010f + 0.018f * (1f - moving)))
+                    .background(
+                        Color.White.copy(alpha = 0.010f + selectedEnergy * 0.018f + moving * 0.012f)
+                    )
             )
+            ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
         }
-        ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
     }
 }
 
