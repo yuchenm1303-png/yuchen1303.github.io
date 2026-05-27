@@ -1,6 +1,4 @@
-Rollback target: none
-Purpose: trigger Build Compose Android APK after latest UI updates.
-App source code remains unchanged; this file only forces a paths-matched workflow run.
+Rainbow restore target: fe2b687629968bc4da03ba35516ae2fa1a6ae570
+Restore commit: dddb8367b202141fa0ccf4bc9e50562f45d0771c
+Purpose: trigger Build Compose Android APK after restoring chat rainbow files.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
-Latest source commit before trigger: f955cc26123f4c169a4f960ec7e7d1da93bac4e8
-Triggered at: 2026-05-27T04:05:00Z
