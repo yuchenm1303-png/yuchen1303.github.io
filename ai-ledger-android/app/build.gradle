@@ -75,6 +75,21 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
             throw new GradleException('Target NetworkChipV2 block was not found; refusing to build stale online toggle.')
         }
 
+        text = home.getText('UTF-8')
+        def oldHeroActions = '''        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            RoundIconButtonV2("▦", state, onClick = onOpenTools)
+            RoundIconButtonV2("⚙", state, onClick = onOpenSettings)
+        }
+'''
+        if (text.contains(oldHeroActions)) {
+            home.setText(text.replace(oldHeroActions, ''), 'UTF-8')
+            println('Removed top-right hero shortcut buttons from AssistantHomePolished.')
+        } else if (text.contains('RoundIconButtonV2("▦", state, onClick = onOpenTools)') || text.contains('RoundIconButtonV2("⚙", state, onClick = onOpenSettings)')) {
+            throw new GradleException('AssistantHeroV2 shortcut button block changed; refusing to leave partial top-right buttons.')
+        } else {
+            println('Top-right hero shortcut buttons already removed.')
+        }
+
         def droplet = file('src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt')
         def dropletText = droplet.getText('UTF-8')
         def oldHeight = 'Box(modifier = modifier.height(68.dp), contentAlignment = Alignment.Center)'
