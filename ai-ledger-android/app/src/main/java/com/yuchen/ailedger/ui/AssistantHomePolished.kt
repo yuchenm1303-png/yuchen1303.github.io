@@ -19,8 +19,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,14 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -250,7 +244,7 @@ private fun ModelStackSelector(
             val targetY = if (expanded) gridY else collapsedY
             val targetWidth = if (expanded) gridWidth else collapsedWidth
             val targetHeight = if (expanded) expandedHeight else collapsedHeight
-            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.075f
+            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.44f + (4 - stackRank).coerceAtLeast(0) * 0.070f
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
@@ -263,6 +257,7 @@ private fun ModelStackSelector(
                 y = targetY,
                 alpha = targetAlpha,
                 zIndex = z,
+                stackRank = stackRank,
                 delayMillis = if (expanded) index * 24 else (models.lastIndex - index) * 12,
                 onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
             )
@@ -282,6 +277,7 @@ private fun ModelStackCard(
     y: Dp,
     alpha: Float,
     zIndex: Float,
+    stackRank: Int,
     delayMillis: Int,
     onClick: () -> Unit
 ) {
@@ -341,6 +337,7 @@ private fun ModelStackCard(
         modifier = transformModifier,
         expansionProgress = expansionProgress.coerceIn(0f, 1f),
         settled = settled,
+        stackRank = stackRank,
         onClick = onClick
     )
 }
@@ -375,13 +372,14 @@ private fun ModelFrostCapsule(
     modifier: Modifier,
     expansionProgress: Float,
     settled: Boolean,
+    stackRank: Int,
     onClick: () -> Unit
 ) {
     val radius = 30f
-    val rich = if (settled) 1f else 0.28f
-    val selectedEnergy = if (selected) 1f else 0f
-    val moving = if (settled) 0f else 1f
     val shape = RoundedCornerShape(radius.dp)
+    val moving = if (settled) 0f else 1f
+    val selectedEnergy = if (selected) 1f else 0f
+    val stackBackdrop = if (settled && stackRank > 0) 0.34f else if (settled) 0.84f else 0.54f
     Box(
         modifier = modifier
             .clip(shape)
@@ -389,94 +387,30 @@ private fun ModelFrostCapsule(
     ) {
         FrostInfoGlassPanel(
             radius = radius,
-            backdropAlpha = if (settled) 1f else 0.72f,
-            frostAlpha = 0.080f + selectedEnergy * 0.036f + rich * 0.020f,
-            dimAlpha = 0.010f + moving * 0.010f,
+            backdropAlpha = stackBackdrop,
+            frostAlpha = 0.115f + selectedEnergy * 0.028f + moving * 0.018f,
+            dimAlpha = 0.026f + moving * 0.016f + if (!selected && stackRank > 0) 0.020f else 0f,
             modifier = Modifier.fillMaxSize()
         ) {}
-        ModelFrostCapsuleSurface(
-            selected = selected,
-            rich = rich,
-            progress = expansionProgress,
-            modifier = Modifier.fillMaxSize()
-        )
-        ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
-    }
-}
-
-@Composable
-private fun ModelFrostCapsuleSurface(selected: Boolean, rich: Float, progress: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val w = size.width.coerceAtLeast(1f)
-        val h = size.height.coerceAtLeast(1f)
-        val radius = h / 2f
-        val r = CornerRadius(radius, radius)
-        val selectedBase = if (selected) 1f else 0f
-        val film = (0.42f + selectedBase * 0.62f + rich * 0.58f).coerceIn(0f, 1.80f)
-        val p = progress.coerceIn(0f, 1f)
-
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.062f + selectedBase * 0.030f + rich * 0.030f),
-                    Color.White.copy(alpha = 0.014f + rich * 0.010f),
-                    Color(0xFF030716).copy(alpha = 0.028f)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .border(
+                    width = if (selected) 1.10.dp else 0.82.dp,
+                    color = if (selected) Color(0xFF8DF9EA).copy(alpha = 0.38f + 0.12f * expansionProgress) else Color.White.copy(alpha = 0.16f + 0.05f * expansionProgress),
+                    shape = shape
                 )
-            ),
-            size = Size(w, h),
-            cornerRadius = r,
-            blendMode = BlendMode.Screen
         )
-
-        if (rich > 0.45f) {
-            drawRoundRect(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF8DF9EA).copy(alpha = 0.070f * film),
-                        Color(0xFF8B9DFF).copy(alpha = 0.052f * film),
-                        Color.Transparent
-                    ),
-                    center = Offset(w * (0.22f + 0.48f * p), h * 0.24f),
-                    radius = maxOf(w, h) * 0.68f
-                ),
-                size = Size(w, h),
-                cornerRadius = r,
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                brush = Brush.linearGradient(
-                    listOf(
-                        Color.Transparent,
-                        Color(0xFF77FFF0).copy(alpha = 0.070f * film),
-                        Color(0xFFFF8CE8).copy(alpha = 0.038f * film),
-                        Color.Transparent
-                    ),
-                    start = Offset(w * (p - 0.42f), 0f),
-                    end = Offset(w * (p + 0.30f), h)
-                ),
-                size = Size(w, h),
-                cornerRadius = r,
-                blendMode = BlendMode.Plus
+        if (selected) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(1.dp)
+                    .clip(shape)
+                    .background(Color.White.copy(alpha = 0.010f + 0.018f * (1f - moving)))
             )
         }
-
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.150f + selectedBase * 0.115f + rich * 0.050f),
-                    Color(0xFF8DF9EA).copy(alpha = 0.060f + selectedBase * 0.090f),
-                    Color.Transparent,
-                    Color(0xFFFF88E8).copy(alpha = 0.032f + selectedBase * 0.052f + rich * 0.018f)
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(w, h)
-            ),
-            topLeft = Offset(1.15.dp.toPx(), 1.15.dp.toPx()),
-            size = Size((w - 2.30.dp.toPx()).coerceAtLeast(1f), (h - 2.30.dp.toPx()).coerceAtLeast(1f)),
-            cornerRadius = CornerRadius((radius - 1.15.dp.toPx()).coerceAtLeast(0f), (radius - 1.15.dp.toPx()).coerceAtLeast(0f)),
-            style = Stroke(width = 0.72.dp.toPx() + selectedBase * 0.34.dp.toPx() + rich * 0.12.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
+        ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
     }
 }
 
