@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -344,7 +345,7 @@ private fun ModelStackCard(
             scaleX = capsuleScaleX * selectedPulse
             scaleY = capsuleScaleY * selectedPulse
             alpha = currentAlpha
-            shadowElevation = if (settled && selected) 0.24f else 0.03f + 0.06f * speedPulse
+            shadowElevation = if (settled && selected) 0.18f else 0.02f + 0.04f * speedPulse
         }
 
     ModelFrostCapsule(
@@ -415,48 +416,20 @@ private fun ModelFrostCapsule(
     val radius = 30
     val shape = RoundedCornerShape(radius.dp)
     val moving = if (settled) 0f else 1f
-    val selectedEnergy = if (selected) 1f else 0f
     val stackEnergy = if (stackRank > 0) 0.42f else 1f
-    val expandedSettled = settled && expansionProgress > 0.985f
-    val collapsedTopSettled = settled && expansionProgress < 0.025f && selected
-    val useFullGlass = expandedSettled || collapsedTopSettled
 
-    if (useFullGlass) {
-        val role = if (selected) GlassRole.Floating else GlassRole.Card
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * (0.92f + selectedEnergy * 0.16f),
-            motionIntensity = state.motionIntensity,
-            radius = radius,
-            modifier = modifier,
-            role = role,
-            onClick = onClick
-        ) {
-            Box(Modifier.fillMaxSize().clip(shape)) {
-                ModelCapsuleChrome(
-                    selected = selected,
-                    expansionProgress = expansionProgress,
-                    moving = 0f,
-                    stackEnergy = stackEnergy,
-                    shape = shape
-                )
-                ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
-            }
-        }
-    } else {
-        LightweightModelCapsule(
-            model = model,
-            selected = selected,
-            state = state,
-            modifier = modifier,
-            expansionProgress = expansionProgress,
-            moving = moving,
-            stackEnergy = stackEnergy,
-            shape = shape,
-            showContent = selected || expansionProgress > 0.035f,
-            onClick = onClick
-        )
-    }
+    LightweightModelCapsule(
+        model = model,
+        selected = selected,
+        state = state,
+        modifier = modifier,
+        expansionProgress = expansionProgress,
+        moving = moving,
+        stackEnergy = stackEnergy,
+        shape = shape,
+        showContent = selected || expansionProgress > 0.035f || settled,
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -473,12 +446,38 @@ private fun LightweightModelCapsule(
     onClick: () -> Unit
 ) {
     val selectedEnergy = if (selected) 1f else 0f
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed && !state.isSending) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.58f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "model-fake-glass-press-${model.id}"
+    )
+
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = 1f + 0.012f * pressProgress
+                scaleY = 1f - 0.020f * pressProgress
+                translationY = 1.2f * pressProgress
+            }
             .clip(shape)
-            .background(Color.White.copy(alpha = (0.042f + selectedEnergy * 0.018f + moving * 0.010f) * maxOf(stackEnergy, 0.58f)))
+            .background(
+                Color.White.copy(
+                    alpha = (
+                        0.046f +
+                            selectedEnergy * 0.022f +
+                            moving * 0.010f +
+                            pressProgress * 0.012f
+                        ) * maxOf(stackEnergy, 0.58f)
+                )
+            )
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 enabled = !state.isSending,
                 onClick = onClick
@@ -487,12 +486,17 @@ private fun LightweightModelCapsule(
         ModelCapsuleChrome(
             selected = selected,
             expansionProgress = expansionProgress,
-            moving = moving,
+            moving = moving + pressProgress * 0.45f,
             stackEnergy = stackEnergy,
             shape = shape
         )
+
         if (showContent) {
-            ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+            ModelStackCardContent(
+                model = model,
+                selected = selected,
+                expansionProgress = expansionProgress
+            )
         }
     }
 }
@@ -506,26 +510,42 @@ private fun ModelCapsuleChrome(
     shape: RoundedCornerShape
 ) {
     val selectedEnergy = if (selected) 1f else 0f
+
     Box(
         Modifier
             .fillMaxSize()
             .border(
                 width = if (selected) 1.22.dp else 0.86.dp,
                 color = if (selected) {
-                    Color(0xFF8DF9EA).copy(alpha = 0.48f + 0.18f * expansionProgress + 0.07f * moving)
+                    Color(0xFF8DF9EA).copy(
+                        alpha = 0.50f +
+                            0.18f * expansionProgress +
+                            0.08f * moving
+                    )
                 } else {
-                    Color.White.copy(alpha = (0.18f + 0.10f * expansionProgress + 0.04f * moving) * stackEnergy)
+                    Color.White.copy(
+                        alpha = (
+                            0.20f +
+                                0.10f * expansionProgress +
+                                0.05f * moving
+                            ) * stackEnergy
+                    )
                 },
                 shape = shape
             )
     )
+
     Box(
         Modifier
             .fillMaxSize()
             .padding(1.dp)
             .clip(shape)
             .background(
-                Color.White.copy(alpha = 0.010f + selectedEnergy * 0.018f + moving * 0.006f)
+                Color.White.copy(
+                    alpha = 0.012f +
+                        selectedEnergy * 0.020f +
+                        moving * 0.007f
+                )
             )
     )
 }
