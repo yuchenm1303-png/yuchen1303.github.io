@@ -1,5 +1,4 @@
-Thicker chat bubble prism band: b705289ec68679269518673505da8d287b5c5bf9
-Script update: 012aa5ac8ae00671ab5d5d528bd8d160bf7652a3
-Changes: thicken prism stroke, strengthen prism alpha, keep lightweight mist bubble and subtle entrance animation.
-Purpose: trigger Build Compose Android APK after making chat bubble prism band more visible.
+Q-bouncy chat bubble entrance: 36703991306e40bc9a00e6a1e9476ff4b66a5043
+Changes: stronger capsule pop-in animation with controlled scaleX/scaleY overshoot, keeps lightweight mist bubble and shell clipping.
+Purpose: trigger Build Compose Android APK after improving chat bubble appearance animation.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
