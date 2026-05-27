@@ -107,11 +107,30 @@ private fun phaseSpeedForMessage(id: String): Float {
 @Composable
 private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatPhase: State<Float>) {
     val fromUser = message.role == MessageRole.User
+    var visible by remember(message.id) { mutableStateOf(false) }
+    LaunchedEffect(message.id) { visible = true }
+    val appear by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        label = "message-light-bubble-appear"
+    )
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp, vertical = 1.dp),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        MessageBubbleV2(message, state, chatPhase)
+        Box(
+            Modifier.graphicsLayer {
+                val p = appear.coerceIn(0f, 1f)
+                alpha = p
+                scaleX = 0.982f + 0.018f * p
+                scaleY = 0.968f + 0.032f * p
+                translationY = (1f - p) * 8f
+            }
+        ) {
+            MessageBubbleV2(message, state, chatPhase)
+        }
     }
 }
 
@@ -124,37 +143,29 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatP
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val phase = ((chatPhase.value * if (sending) 2.85f else speedFactor) + phaseOffset) % 1f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
-        GlassPanel(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * if (fromUser) 1.03f else if (sending) 1.01f else 0.94f,
-            motionIntensity = state.motionIntensity,
-            radius = bubbleRadius,
-            modifier = Modifier.fillMaxWidth(if (fromUser) 0.76f else 0.90f),
-            role = if (fromUser) GlassRole.Floating else GlassRole.Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
+                .clip(RoundedCornerShape(bubbleRadius.dp))
+                .chatBubblePrismSurface(
+                    phase = phase,
+                    fromUser = fromUser,
+                    sending = sending,
+                    failed = message.status == MessageStatus.Failed,
+                    motionIntensity = state.motionIntensity,
+                    radiusDp = bubbleRadius
+                )
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .chatBubblePrismSurface(
-                        phase = phase,
-                        fromUser = fromUser,
-                        sending = sending,
-                        failed = message.status == MessageStatus.Failed,
-                        motionIntensity = state.motionIntensity,
-                        radiusDp = bubbleRadius
-                    )
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (sending) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
-                            ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
-                        }
-                    } else {
-                        Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (sending) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
                     }
-                    if (!fromUser) MessageBadgeV2(message)
+                } else {
+                    Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
                 }
+                if (!fromUser) MessageBadgeV2(message)
             }
         }
     }
@@ -199,7 +210,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied shared-clock chat bubble polish patch with shell-level clipping.')
+        println('Applied lightweight animated chat bubble polish patch with shell-level clipping.')
     }
 }
 
