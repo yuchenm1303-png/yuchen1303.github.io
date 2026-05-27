@@ -1,0 +1,94 @@
+name: Apply Rainbow Visible Patch
+
+on:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - ai-ledger-android/app/.rainbow-visible-patch-trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+      - name: Patch rainbow canvas compositing
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+          text = path.read_text(encoding='utf-8')
+
+          old_backplate = '''    val motion = motionIntensity.coerceIn(0f, 1f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val sweep = minSweep + (maxSweep - minSweep) * breath
+    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
+    val halo = style.rainbowHalo.coerceIn(0f, 2f)
+    val bodyLoad = (motion * overall * (0.62f + 0.18f * sweepPower)).coerceIn(0f, 1.65f)
+    val haloLoad = (motion * overall * halo * (0.48f + 0.20f * sweepPower)).coerceIn(0f, 1.85f)
+'''
+          new_backplate = '''    val motion = motionIntensity.coerceIn(0f, 1f)
+    val visualPresence = (0.42f + motion * 0.58f).coerceIn(0.42f, 1f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val sweep = minSweep + (maxSweep - minSweep) * breath
+    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
+    val halo = style.rainbowHalo.coerceIn(0f, 2f)
+    val bodyLoad = (visualPresence * overall * (0.72f + 0.22f * sweepPower)).coerceIn(0f, 1.90f)
+    val haloLoad = (visualPresence * overall * halo * (0.54f + 0.22f * sweepPower)).coerceIn(0f, 1.95f)
+'''
+          if old_backplate not in text:
+              raise SystemExit('Backplate load block not found')
+          text = text.replace(old_backplate, new_backplate, 1)
+
+          old_rim = '''    val motion = motionIntensity.coerceIn(0f, 1f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val edge = style.edgeHighlight.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val sweep = minSweep + (maxSweep - minSweep) * breath
+    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
+    val rimLoad = (motion * overall * (0.42f + edge * 0.30f + sweepPower * 0.32f)).coerceIn(0f, 1.9f)
+'''
+          new_rim = '''    val motion = motionIntensity.coerceIn(0f, 1f)
+    val visualPresence = (0.42f + motion * 0.58f).coerceIn(0.42f, 1f)
+    val overall = style.overall.coerceIn(0f, 2f)
+    val edge = style.edgeHighlight.coerceIn(0f, 2f)
+    val minSweep = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val maxSweep = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
+    val sweep = minSweep + (maxSweep - minSweep) * breath
+    val sweepPower = chatRainbowSmoothStep((sweep / 2f).coerceIn(0f, 1f))
+    val rimLoad = (visualPresence * overall * (0.42f + edge * 0.30f + sweepPower * 0.32f)).coerceIn(0f, 1.9f)
+'''
+          if old_rim not in text:
+              raise SystemExit('Rim load block not found')
+          text = text.replace(old_rim, new_rim, 1)
+
+          # Independent Canvas layers should use normal source-over compositing for broad color film.
+          first = text.find('private fun ChatShellRainbowBackplate')
+          second = text.find('private fun ChatShellRainbowRim')
+          if first == -1 or second == -1:
+              raise SystemExit('Rainbow layer functions not found')
+          backplate = text[first:second].replace('blendMode = BlendMode.Screen', 'blendMode = BlendMode.SrcOver')
+          text = text[:first] + backplate + text[second:]
+
+          path.write_text(text, encoding='utf-8')
+          Path('.github/workflows/apply-rainbow-visible-patch.yml').unlink(missing_ok=True)
+          Path('ai-ledger-android/app/.rainbow-visible-patch-trigger.txt').unlink(missing_ok=True)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt .github/workflows/apply-rainbow-visible-patch.yml ai-ledger-android/app/.rainbow-visible-patch-trigger.txt
+          git diff --cached --check
+          git commit -m "Fix chat rainbow canvas visibility"
+          git push
