@@ -228,9 +228,119 @@ private fun chatRainbowSmoothStep(value: Float): Float {
     }
 }
 
+def patchChatBubbleViewportClipping = tasks.register('patchChatBubbleViewportClipping') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        def clipImport = 'import androidx.compose.ui.draw.clipToBounds\n'
+        if (!text.contains('import androidx.compose.ui.draw.clipToBounds')) {
+            text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\n' + clipImport)
+        }
+
+        def oldListBlock = '''                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(top = 5.dp, bottom = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                }
+'''
+        def newListBlock = '''                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                ) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                        item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                    }
+                }
+'''
+        if (text.contains(oldListBlock)) {
+            text = text.replace(oldListBlock, newListBlock)
+            println('Wrapped chat LazyColumn in clipToBounds viewport.')
+        } else if (text.contains('.clipToBounds()') && text.contains('modifier = Modifier.fillMaxSize()')) {
+            println('Chat LazyColumn viewport clipping already patched.')
+        } else {
+            throw new GradleException('Target chat LazyColumn block was not found; refusing to build unclipped bubbles.')
+        }
+
+        def staticAnimatedBubble = '''@Composable
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+    val fromUser = message.role == MessageRole.User
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp, vertical = 1.dp),
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
+    ) {
+        MessageBubbleV2(message, state, revealProgress = 1f)
+    }
+}
+
+@Composable
+private fun rememberMessageBubblePhase(active: Boolean): Float {
+    if (!active) return 0.18f
+    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1680, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "message-bubble-optics-phase"
+    )
+    return phase
+}
+
+@Composable
+private fun MessageBubbleV2'''
+
+        def bubblePattern = /(?s)@Composable\nprivate fun AnimatedMessageBubbleV2\(message: ChatMessage, state: AssistantUiState\) \{.*?\n\}\n\n@Composable\nprivate fun MessageBubbleV2/
+        def bubbleMatcher = text =~ bubblePattern
+        if (bubbleMatcher.size() == 1) {
+            text = bubbleMatcher.replaceFirst(staticAnimatedBubble)
+            println('Replaced message bubble enter/exit transform with static clipped row.')
+        } else if (text.contains('private fun rememberMessageBubblePhase(active: Boolean): Float')) {
+            println('Message bubble transform already removed.')
+        } else {
+            throw new GradleException("Target AnimatedMessageBubbleV2 block was not found; matches=${bubbleMatcher.size()}")
+        }
+
+        def oldPhaseBlock = '''    val transition = rememberInfiniteTransition(label = "message-bubble-optics-loop")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(if (sending) 1680 else 3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "message-bubble-optics-phase"
+    )
+'''
+        def newPhaseBlock = '''    val phase = rememberMessageBubblePhase(sending)
+'''
+        if (text.contains(oldPhaseBlock)) {
+            text = text.replace(oldPhaseBlock, newPhaseBlock)
+            println('Disabled per-history-message infinite bubble animation.')
+        } else if (text.contains('val phase = rememberMessageBubblePhase(sending)')) {
+            println('Message bubble phase is already sending-only.')
+        } else {
+            throw new GradleException('Target message bubble phase block was not found.')
+        }
+
+        home.setText(text, 'UTF-8')
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn patchPolishedOnlineDroplet
     dependsOn patchChatRainbowOverlay
+    dependsOn patchChatBubbleViewportClipping
 }
 
 dependencies {
