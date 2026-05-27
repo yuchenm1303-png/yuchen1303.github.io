@@ -1,52 +1,56 @@
-name: Apply Chat Rainbow Source Patch
+name: Restore Original Chat Rainbow Section
 
 on:
   push:
     branches:
       - dev-update-1
     paths:
-      - ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt
+      - ai-ledger-android/app/.restore-original-chat-rainbow.txt
 
 permissions:
   contents: write
 
 jobs:
-  patch:
+  restore:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: dev-update-1
-      - name: Patch AssistantHomePolished rainbow overlay source
+          fetch-depth: 0
+      - name: Restore original chat rainbow section only
         run: |
           python3 <<'PY'
           import re
+          import subprocess
           from pathlib import Path
 
-          path = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
-          text = path.read_text(encoding='utf-8')
+          target = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+          original_commit = 'f83e61c392fc5ef804adb041f084068187253340'
+          file_path = 'ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt'
+          current = target.read_text(encoding='utf-8')
+          original = subprocess.check_output(['git', 'show', f'{original_commit}:{file_path}'], text=True)
 
-          new_block = '''@Composable
-private fun RainbowChatGlassOverlay(quality: RenderQuality, motionIntensity: Float, modifier: Modifier = Modifier) {
-    MistRainbowChatGlassOverlay(quality = quality, motionIntensity = motionIntensity, modifier = modifier)
-}
-'''
-
-          pattern = re.compile(
-              r'@Composable\nprivate fun RainbowChatGlassOverlay\(quality: RenderQuality, motionIntensity: Float, modifier: Modifier = Modifier\) \{.*?\n\}',
+          block_pattern = re.compile(
+              r'@Composable\nprivate fun ChatPanelV2\(state: AssistantUiState, modifier: Modifier, onDraftCommand: \(String\) -> Unit, onPickImage: \(\) -> Unit\) \{.*?@Composable\nprivate fun StarterSuggestionsV2\(state: AssistantUiState, onDraftCommand: \(String\) -> Unit, onPickImage: \(\) -> Unit\) \{',
               re.S
           )
-          new_text, count = pattern.subn(new_block, text, count=1)
-          if count != 1:
-              raise SystemExit(f'Patch failed: expected one RainbowChatGlassOverlay block, got {count}')
+          match = block_pattern.search(original)
+          if not match:
+              raise SystemExit('Original ChatPanelV2 rainbow section not found')
+          original_block = match.group(0)
 
-          path.write_text(new_text, encoding='utf-8')
-          Path('ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt').unlink(missing_ok=True)
+          restored, count = block_pattern.subn(original_block, current, count=1)
+          if count != 1:
+              raise SystemExit(f'Current ChatPanelV2 section match count: {count}')
+
+          target.write_text(restored, encoding='utf-8')
+          Path('ai-ledger-android/app/.restore-original-chat-rainbow.txt').unlink(missing_ok=True)
           PY
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt
+          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt ai-ledger-android/app/.restore-original-chat-rainbow.txt
           git diff --cached --check
-          git commit -m "Delegate chat rainbow overlay to mist source"
+          git commit -m "Restore original chat rainbow sweep section"
           git push origin dev-update-1
