@@ -1,0 +1,52 @@
+name: Apply Chat Rainbow Source Patch
+
+on:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+      - name: Patch AssistantHomePolished rainbow overlay source
+        run: |
+          python3 <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+          text = path.read_text(encoding='utf-8')
+
+          new_block = '''@Composable
+private fun RainbowChatGlassOverlay(quality: RenderQuality, motionIntensity: Float, modifier: Modifier = Modifier) {
+    MistRainbowChatGlassOverlay(quality = quality, motionIntensity = motionIntensity, modifier = modifier)
+}
+'''
+
+          pattern = re.compile(
+              r'@Composable\nprivate fun RainbowChatGlassOverlay\(quality: RenderQuality, motionIntensity: Float, modifier: Modifier = Modifier\) \{.*?\n\}',
+              re.S
+          )
+          new_text, count = pattern.subn(new_block, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Patch failed: expected one RainbowChatGlassOverlay block, got {count}')
+
+          path.write_text(new_text, encoding='utf-8')
+          Path('ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt').unlink(missing_ok=True)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt ai-ledger-android/app/.chat-rainbow-source-patch-trigger.txt
+          git diff --cached --check
+          git commit -m "Delegate chat rainbow overlay to mist source"
+          git push origin dev-update-1
