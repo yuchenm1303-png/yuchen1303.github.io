@@ -24,59 +24,33 @@ fun Modifier.chatBubblePrismSurface(
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val motion = motionIntensity.coerceIn(0f, 1f)
-    val active = if (sending) 1f else 0.58f
+    val active = if (sending) 1f else 0.52f
     val cycle = phase * 2f * PI.toFloat()
     val sweep = if (fromUser) 1f - phase else phase
-    val sweepX = -0.30f + sweep * 1.58f
+    val sweepX = -0.32f + sweep * 1.62f
     val radiusPx = radiusDp.dp.toPx()
     val corner = CornerRadius(radiusPx, radiusPx)
     val accentA = if (failed) Color(0xFFFF9A9A) else if (fromUser) Color(0xFF9EB7FF) else Color(0xFF8DF9EA)
     val accentB = if (failed) Color(0xFFFFD166) else if (fromUser) Color(0xFFFF8FE7) else Color(0xFFFFF0A8)
     val accentC = if (fromUser) Color(0xFF76FFF1) else Color(0xFFFF72D2)
-    val center = if (fromUser) {
-        Offset(w * (0.82f - 0.08f * sin(cycle)), h * 0.70f)
-    } else {
-        Offset(w * (0.16f + 0.08f * sin(cycle)), h * (0.25f + 0.10f * sin(cycle + 1.4f)))
-    }
+
+    val mistAlpha = if (fromUser) 0.060f else 0.048f
     drawRoundRect(
-        brush = Brush.radialGradient(
-            listOf(
-                Color.White.copy(alpha = (0.035f + 0.050f * active) * motion),
-                accentA.copy(alpha = (0.040f + 0.095f * active) * motion),
-                accentB.copy(alpha = (0.018f + 0.062f * active) * motion),
-                Color.Transparent
-            ),
-            center = center,
-            radius = maxOf(w, h) * (0.34f + 0.18f * active)
-        ),
+        color = Color.White.copy(alpha = mistAlpha * (0.72f + 0.28f * motion)),
         size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen
+        cornerRadius = corner
     )
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            listOf(
-                Color.Transparent,
-                Color(0xFF000817).copy(alpha = 0.018f + 0.026f * active),
-                Color(0xFF00030A).copy(alpha = 0.025f + 0.036f * if (sending) 1f else 0f)
-            ),
-            center = Offset(w * 0.50f, h * 0.60f),
-            radius = maxOf(w, h) * 0.92f
-        ),
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Multiply
-    )
+
     if (sending) {
-        val bandX = -0.74f + phase * 2.18f + 0.055f * sin(cycle * 1.70f)
+        val bandX = -0.76f + phase * 2.22f + 0.055f * sin(cycle * 1.70f)
         drawRoundRect(
             brush = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFFFF58D2).copy(alpha = 0.040f * motion),
-                    Color(0xFFFFF0A8).copy(alpha = 0.086f * motion),
-                    Color(0xFF62FFF0).copy(alpha = 0.128f * motion),
-                    Color(0xFF8EA2FF).copy(alpha = 0.082f * motion),
+                    Color(0xFFFF58D2).copy(alpha = 0.034f * motion),
+                    Color(0xFFFFF0A8).copy(alpha = 0.078f * motion),
+                    Color(0xFF62FFF0).copy(alpha = 0.112f * motion),
+                    Color(0xFF8EA2FF).copy(alpha = 0.070f * motion),
                     Color.Transparent
                 ),
                 start = Offset(w * (bandX - 0.62f), h * 1.16f),
@@ -87,47 +61,40 @@ fun Modifier.chatBubblePrismSurface(
             blendMode = BlendMode.Screen
         )
     }
+
     drawContent()
+
     val inset = 0.68.dp.toPx()
     val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
     val rimCorner = CornerRadius((radiusPx - inset).coerceAtLeast(1f), (radiusPx - inset).coerceAtLeast(1f))
-    val pulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else 0.42f
-    val prismPower = (0.18f + 0.38f * active + 0.12f * pulse) * motion
+    val borderAlpha = if (sending) 0.225f else 0.145f
     drawRoundRect(
-        brush = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = 0.050f * motion),
-                accentB.copy(alpha = 0.110f * prismPower),
-                accentC.copy(alpha = 0.150f * prismPower),
-                Color.Transparent,
-                accentA.copy(alpha = 0.116f * prismPower),
-                Color.White.copy(alpha = 0.030f * motion)
-            ),
-            start = Offset(0f, 0f),
-            end = Offset(w, h)
-        ),
+        color = Color.White.copy(alpha = borderAlpha),
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = 0.58.dp.toPx() + 0.34.dp.toPx() * active),
-        blendMode = BlendMode.Screen
+        style = Stroke(width = if (sending) 0.88.dp.toPx() else 0.62.dp.toPx())
     )
+
+    val pulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else 0.44f
+    val prismPower = (0.24f + 0.38f * active + 0.14f * pulse) * motion
     drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
                 Color.Transparent,
-                accentC.copy(alpha = (0.18f + 0.30f * active) * motion),
-                Color.White.copy(alpha = (0.11f + 0.24f * active) * motion),
-                accentB.copy(alpha = (0.15f + 0.24f * active) * motion),
+                accentC.copy(alpha = (0.16f + 0.24f * active) * prismPower),
+                Color.White.copy(alpha = (0.10f + 0.18f * active) * prismPower),
+                accentB.copy(alpha = (0.14f + 0.22f * active) * prismPower),
+                accentA.copy(alpha = (0.08f + 0.12f * active) * prismPower),
                 Color.Transparent
             ),
-            start = Offset(w * (sweepX - 0.22f), 0f),
-            end = Offset(w * (sweepX + 0.28f), h)
+            start = Offset(w * (sweepX - 0.30f), 0f),
+            end = Offset(w * (sweepX + 0.34f), h)
         ),
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = 0.62.dp.toPx() + 0.70.dp.toPx() * active),
+        style = Stroke(width = if (sending) 1.30.dp.toPx() else 0.86.dp.toPx()),
         blendMode = BlendMode.Plus
     )
 }
