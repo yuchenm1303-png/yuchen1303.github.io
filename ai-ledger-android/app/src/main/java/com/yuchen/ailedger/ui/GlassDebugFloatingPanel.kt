@@ -367,6 +367,18 @@ private fun LabToggleButton(
 }
 
 @Composable
+private fun SectionTitleInline(title: String) {
+    Text(
+        title,
+        color = Color.White.copy(alpha = 0.82f),
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Black,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
 private fun LabSlider(
     title: String,
     subtitle: String,
