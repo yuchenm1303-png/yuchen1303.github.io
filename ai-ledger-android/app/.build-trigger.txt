@@ -1,4 +1,4 @@
-Rollback target: 6a0db5af062824609259785fdb5a35273e5c4450
-Purpose: trigger Build Compose Android APK after reverting the second performance pass.
-App source code remains at the first lightweight-flight baseline.
+Richer chat bubble prism material: b8b5cd183090962e3ed30a78eb04997bce46a95c
+Changes: wider prism glow band, brighter core line, blue-violet translucent material base, inner soft highlight, stronger rainbow depth.
+Purpose: trigger Build Compose Android APK after improving chat bubble material and prism visibility.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
