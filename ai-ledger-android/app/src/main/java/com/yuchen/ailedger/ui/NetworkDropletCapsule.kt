@@ -75,8 +75,8 @@ fun NetworkDropletCapsule(state: AssistantUiState, modifier: Modifier = Modifier
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             NetworkDropDot(active = on)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("Online", color = Color.White.copy(alpha = if (on) 0.74f else 0.50f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(if (on) "On" else "Off", color = Color.White.copy(alpha = if (on) 0.96f else 0.76f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("联网", color = Color.White.copy(alpha = if (on) 0.74f else 0.50f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(if (on) "已开启" else "已关闭", color = Color.White.copy(alpha = if (on) 0.96f else 0.76f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
