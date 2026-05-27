@@ -73,6 +73,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 @Composable
 fun AssistantScreenV2(
@@ -184,7 +185,7 @@ private fun ModelAndNetworkPanel(
     var expanded by remember { mutableStateOf(false) }
     val panelHeight by animateDpAsState(
         targetValue = if (expanded) 214.dp else 56.dp,
-        animationSpec = spring(dampingRatio = 0.54f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
     ModelStackSelector(
@@ -209,11 +210,6 @@ private fun ModelStackSelector(
     onToggleExpanded: () -> Unit,
     onSelected: (ChatModel) -> Unit
 ) {
-    val progress by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessLow),
-        label = "model-stack-progress"
-    )
     BoxWithConstraints(modifier = modifier) {
         val models = ChatModel.entries
         val gap = 10.dp
@@ -229,37 +225,37 @@ private fun ModelStackSelector(
         models.forEachIndexed { index, model ->
             val selected = model == selectedModel
             val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
-            val gridX = when (index) {
+            val expandedX = when (index) {
                 1, 3 -> halfWidth + gap
                 else -> 0.dp
             }
-            val gridY = when (index) {
+            val expandedY = when (index) {
                 2, 3 -> rowStep
                 4 -> rowStep * 2f
                 else -> 0.dp
             }
-            val gridWidth = if (index == 4) maxWidth else halfWidth
+            val expandedWidth = if (index == 4) maxWidth else halfWidth
             val collapsedX = if (selected) 0.dp else (stackRank * 4).dp
             val collapsedY = if (selected) 0.dp else (stackRank * 1).dp
-            val targetX = if (expanded) gridX else collapsedX
-            val targetY = if (expanded) gridY else collapsedY
-            val targetWidth = if (expanded) gridWidth else collapsedWidth
-            val targetHeight = if (expanded) expandedHeight else collapsedHeight
-            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.44f + (4 - stackRank).coerceAtLeast(0) * 0.070f
+            val collapsedAlpha = if (selected) 1f else 0.44f + (4 - stackRank).coerceAtLeast(0) * 0.070f
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
                 selected = selected,
                 state = state,
-                expansionProgress = progress,
-                width = targetWidth,
-                height = targetHeight,
-                x = targetX,
-                y = targetY,
-                alpha = targetAlpha,
+                expanded = expanded,
+                index = index,
+                expandedX = expandedX,
+                expandedY = expandedY,
+                expandedWidth = expandedWidth,
+                expandedHeight = expandedHeight,
+                collapsedX = collapsedX,
+                collapsedY = collapsedY,
+                collapsedWidth = collapsedWidth,
+                collapsedHeight = collapsedHeight,
+                collapsedAlpha = collapsedAlpha,
                 zIndex = z,
                 stackRank = stackRank,
-                delayMillis = if (expanded) index * 24 else (models.lastIndex - index) * 12,
                 onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
             )
         }
@@ -271,64 +267,69 @@ private fun ModelStackCard(
     model: ChatModel,
     selected: Boolean,
     state: AssistantUiState,
-    expansionProgress: Float,
-    width: Dp,
-    height: Dp,
-    x: Dp,
-    y: Dp,
-    alpha: Float,
+    expanded: Boolean,
+    index: Int,
+    expandedX: Dp,
+    expandedY: Dp,
+    expandedWidth: Dp,
+    expandedHeight: Dp,
+    collapsedX: Dp,
+    collapsedY: Dp,
+    collapsedWidth: Dp,
+    collapsedHeight: Dp,
+    collapsedAlpha: Float,
     zIndex: Float,
     stackRank: Int,
-    delayMillis: Int,
     onClick: () -> Unit
 ) {
     val density = LocalDensity.current
-    val animatedX by animateDpAsState(
-        targetValue = x,
-        animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-card-x-${model.id}"
+    val cardProgress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (expanded) 560 else 460,
+            delayMillis = if (expanded) index * 54 else (ChatModel.entries.lastIndex - index) * 34,
+            easing = FastOutSlowInEasing
+        ),
+        label = "model-card-sequential-progress-${model.id}"
     )
-    val animatedY by animateDpAsState(
-        targetValue = y,
-        animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-card-y-${model.id}"
-    )
-    val animatedWidth by animateDpAsState(
-        targetValue = width,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-card-width-${model.id}"
-    )
-    val animatedHeight by animateDpAsState(
-        targetValue = height,
-        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-card-height-${model.id}"
-    )
-    val animatedAlpha by animateFloatAsState(
-        targetValue = alpha,
-        animationSpec = tween(durationMillis = 220, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
-        label = "model-card-alpha-${model.id}"
-    )
-    val tx = with(density) { animatedX.toPx() }
-    val ty = with(density) { animatedY.toPx() }
-    val settled = expansionProgress < 0.035f || expansionProgress > 0.965f
-    val elasticScaleX = modelStackElasticScaleX(expansionProgress, delayMillis)
-    val elasticScaleY = modelStackElasticScaleY(expansionProgress, delayMillis)
+    val eased = modelStackMotionEase(cardProgress)
+    val currentWidth = lerpDp(collapsedWidth, expandedWidth, eased)
+    val currentHeight = lerpDp(collapsedHeight, expandedHeight, eased)
+    val currentX = lerpDp(collapsedX, expandedX, eased)
+    val currentY = lerpDp(collapsedY, expandedY, eased)
+    val currentAlpha = lerpFloat(collapsedAlpha, 1f, eased)
+
+    val startX = with(density) { collapsedX.toPx() }
+    val startY = with(density) { collapsedY.toPx() }
+    val endX = with(density) { expandedX.toPx() }
+    val endY = with(density) { expandedY.toPx() }
+    val dx = endX - startX
+    val dy = endY - startY
+    val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+    val brake = modelStackArrivalBrake(cardProgress)
+    val returnBrake = modelStackReturnBrake(cardProgress)
+    val overshootPx = with(density) { 2.8.dp.toPx() } * (brake - returnBrake)
+    val tx = with(density) { currentX.toPx() } + dx / distance * overshootPx
+    val ty = with(density) { currentY.toPx() } + dy / distance * overshootPx
+    val settled = cardProgress < 0.025f || cardProgress > 0.985f
+    val scaleX = modelStackCapsuleScaleX(cardProgress)
+    val scaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settled) 1.014f else 1f,
-        animationSpec = spring(dampingRatio = 0.50f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settled) 1.006f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
-        .width(animatedWidth)
-        .height(animatedHeight)
+        .width(currentWidth)
+        .height(currentHeight)
         .zIndex(zIndex)
         .graphicsLayer {
             translationX = tx
             translationY = ty
-            scaleX = elasticScaleX * selectedPulse
-            scaleY = elasticScaleY * selectedPulse
-            this.alpha = animatedAlpha
-            shadowElevation = if (settled && selected) 0.34f else 0.06f
+            scaleX = scaleX * selectedPulse
+            scaleY = scaleY * selectedPulse
+            alpha = currentAlpha
+            shadowElevation = if (settled && selected) 0.28f else 0.04f
         }
 
     ModelFrostCapsule(
@@ -336,33 +337,48 @@ private fun ModelStackCard(
         selected = selected,
         state = state,
         modifier = transformModifier,
-        expansionProgress = expansionProgress.coerceIn(0f, 1f),
+        expansionProgress = cardProgress.coerceIn(0f, 1f),
         settled = settled,
         stackRank = stackRank,
         onClick = onClick
     )
 }
 
-private fun modelStackElasticScaleX(progress: Float, delayMillis: Int): Float {
+private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
+
+private fun lerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
+
+private fun modelStackMotionEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    if (p < 0.018f || p > 0.982f) return 1f
-    val phase = delayMillis / 70f
-    val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
-    val arriveBrake = sin(((p - 0.72f) / 0.26f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-    val returnBrake = sin(((0.28f - p) / 0.26f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-    val rubberRipple = sin((p * 5.6f + phase) * PI.toFloat()) * travel
-    return 1f - 0.040f * travel + 0.052f * arriveBrake + 0.034f * returnBrake + 0.010f * rubberRipple
+    return p * p * (3f - 2f * p)
 }
 
-private fun modelStackElasticScaleY(progress: Float, delayMillis: Int): Float {
+private fun modelStackArrivalBrake(progress: Float): Float {
+    val p = ((progress - 0.76f) / 0.24f).coerceIn(0f, 1f)
+    return sin(p * PI.toFloat()).coerceAtLeast(0f)
+}
+
+private fun modelStackReturnBrake(progress: Float): Float {
+    val p = ((0.24f - progress) / 0.24f).coerceIn(0f, 1f)
+    return sin(p * PI.toFloat()).coerceAtLeast(0f)
+}
+
+private fun modelStackCapsuleScaleX(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    if (p < 0.018f || p > 0.982f) return 1f
-    val phase = delayMillis / 76f
+    if (p < 0.025f || p > 0.985f) return 1f
     val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
-    val arriveBrake = sin(((p - 0.72f) / 0.26f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-    val returnBrake = sin(((0.28f - p) / 0.26f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-    val rubberRipple = sin((p * 5.2f + phase) * PI.toFloat()) * travel
-    return 1f - 0.110f * travel + 0.078f * arriveBrake + 0.052f * returnBrake - 0.012f * rubberRipple
+    val arrive = modelStackArrivalBrake(p)
+    val back = modelStackReturnBrake(p)
+    return 1f - 0.010f * travel + 0.012f * arrive + 0.006f * back
+}
+
+private fun modelStackCapsuleScaleY(progress: Float): Float {
+    val p = progress.coerceIn(0f, 1f)
+    if (p < 0.025f || p > 0.985f) return 1f
+    val travel = sin(p * PI.toFloat()).coerceAtLeast(0f)
+    val arrive = modelStackArrivalBrake(p)
+    val back = modelStackReturnBrake(p)
+    return 1f - 0.032f * travel + 0.016f * arrive + 0.008f * back
 }
 
 @Composable
