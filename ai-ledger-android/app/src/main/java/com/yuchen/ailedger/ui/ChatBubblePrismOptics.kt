@@ -38,7 +38,6 @@ fun Modifier.chatBubblePrismSurface(
     } else {
         Offset(w * (0.16f + 0.08f * sin(cycle)), h * (0.25f + 0.10f * sin(cycle + 1.4f)))
     }
-
     drawRoundRect(
         brush = Brush.radialGradient(
             listOf(
@@ -54,7 +53,6 @@ fun Modifier.chatBubblePrismSurface(
         cornerRadius = corner,
         blendMode = BlendMode.Screen
     )
-
     drawRoundRect(
         brush = Brush.radialGradient(
             listOf(
@@ -69,7 +67,6 @@ fun Modifier.chatBubblePrismSurface(
         cornerRadius = corner,
         blendMode = BlendMode.Multiply
     )
-
     if (sending) {
         val bandX = -0.74f + phase * 2.18f + 0.055f * sin(cycle * 1.70f)
         drawRoundRect(
@@ -90,15 +87,12 @@ fun Modifier.chatBubblePrismSurface(
             blendMode = BlendMode.Screen
         )
     }
-
     drawContent()
-
     val inset = 0.68.dp.toPx()
     val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
     val rimCorner = CornerRadius((radiusPx - inset).coerceAtLeast(1f), (radiusPx - inset).coerceAtLeast(1f))
     val pulse = if (sending) ((sin(cycle * 0.92f) + 1f) * 0.50f).coerceIn(0f, 1f) else 0.42f
     val prismPower = (0.18f + 0.38f * active + 0.12f * pulse) * motion
-
     drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
@@ -118,7 +112,6 @@ fun Modifier.chatBubblePrismSurface(
         style = Stroke(width = 0.58.dp.toPx() + 0.34.dp.toPx() * active),
         blendMode = BlendMode.Screen
     )
-
     drawRoundRect(
         brush = Brush.linearGradient(
             listOf(
@@ -135,6 +128,49 @@ fun Modifier.chatBubblePrismSurface(
         size = rimSize,
         cornerRadius = rimCorner,
         style = Stroke(width = 0.62.dp.toPx() + 0.70.dp.toPx() * active),
+        blendMode = BlendMode.Plus
+    )
+}
+
+fun Modifier.thinkingPearlSurface(color: Color, wave: Float, index: Int): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val corner = CornerRadius(w * 0.50f, h * 0.50f)
+    val accent = when (index % 3) {
+        0 -> Color(0xFF8DF9EA)
+        1 -> Color(0xFFFFF0A8)
+        else -> Color(0xFFFF8FE7)
+    }
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = 0.42f + 0.20f * wave),
+                color.copy(alpha = 0.28f + 0.18f * wave),
+                accent.copy(alpha = 0.30f + 0.26f * wave),
+                Color.Transparent
+            ),
+            center = Offset(w * 0.34f, h * 0.26f),
+            radius = maxOf(w, h) * 0.86f
+        ),
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.32f + 0.16f * wave),
+                accent.copy(alpha = 0.38f + 0.24f * wave),
+                Color.Transparent
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        ),
+        topLeft = Offset(0.45.dp.toPx(), 0.45.dp.toPx()),
+        size = Size(w - 0.90.dp.toPx(), h - 0.90.dp.toPx()),
+        cornerRadius = corner,
+        style = Stroke(width = 0.55.dp.toPx()),
         blendMode = BlendMode.Plus
     )
 }
