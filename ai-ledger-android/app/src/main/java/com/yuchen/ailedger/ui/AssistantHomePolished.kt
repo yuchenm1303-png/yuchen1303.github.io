@@ -19,6 +19,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,8 +52,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -181,8 +188,8 @@ private fun ModelAndNetworkPanel(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val panelHeight by animateDpAsState(
-        targetValue = if (expanded) 210.dp else 56.dp,
-        animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (expanded) 214.dp else 56.dp,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
     ModelStackSelector(
@@ -209,7 +216,7 @@ private fun ModelStackSelector(
 ) {
     val progress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(durationMillis = if (expanded) 430 else 300, easing = FastOutSlowInEasing),
+        animationSpec = spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-progress"
     )
     BoxWithConstraints(modifier = modifier) {
@@ -218,6 +225,8 @@ private fun ModelStackSelector(
         val rowStep = 72.dp
         val collapsedHeight = 54.dp
         val expandedHeight = 62.dp
+        val reservedGap = 8.dp
+        val collapsedWidth = (maxWidth - reservedGap) * 0.622f
         val halfWidth = (maxWidth - gap) / 2f
         val selectedModel = state.selectedModel
         val behindModels = models.filter { it != selectedModel }
@@ -235,13 +244,13 @@ private fun ModelStackSelector(
                 else -> 0.dp
             }
             val gridWidth = if (index == 4) maxWidth else halfWidth
-            val collapsedX = if (selected) 0.dp else (stackRank * 7).dp
+            val collapsedX = if (selected) 0.dp else (stackRank * 4).dp
             val collapsedY = if (selected) 0.dp else (stackRank * 1).dp
             val targetX = if (expanded) gridX else collapsedX
             val targetY = if (expanded) gridY else collapsedY
-            val targetWidth = if (expanded) gridWidth else maxWidth
+            val targetWidth = if (expanded) gridWidth else collapsedWidth
             val targetHeight = if (expanded) expandedHeight else collapsedHeight
-            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.46f + (4 - stackRank).coerceAtLeast(0) * 0.08f
+            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.075f
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
@@ -254,7 +263,7 @@ private fun ModelStackSelector(
                 y = targetY,
                 alpha = targetAlpha,
                 zIndex = z,
-                delayMillis = if (expanded) index * 28 else (models.lastIndex - index) * 14,
+                delayMillis = if (expanded) index * 24 else (models.lastIndex - index) * 12,
                 onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
             )
         }
@@ -287,6 +296,16 @@ private fun ModelStackCard(
         animationSpec = tween(durationMillis = 390, delayMillis = delayMillis, easing = FastOutSlowInEasing),
         label = "model-card-y-${model.id}"
     )
+    val animatedWidth by animateDpAsState(
+        targetValue = width,
+        animationSpec = tween(durationMillis = 360, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        label = "model-card-width-${model.id}"
+    )
+    val animatedHeight by animateDpAsState(
+        targetValue = height,
+        animationSpec = tween(durationMillis = 300, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
+        label = "model-card-height-${model.id}"
+    )
     val animatedAlpha by animateFloatAsState(
         targetValue = alpha,
         animationSpec = tween(durationMillis = 220, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
@@ -294,16 +313,16 @@ private fun ModelStackCard(
     )
     val tx = with(density) { animatedX.toPx() }
     val ty = with(density) { animatedY.toPx() }
-    val settledGlass = expansionProgress < 0.025f || expansionProgress > 0.975f
-    val flightScale = modelStackFlightScale(expansionProgress)
+    val settled = expansionProgress < 0.035f || expansionProgress > 0.965f
+    val flightScale = modelStackElasticScale(expansionProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settledGlass) 1.012f else 1f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settled) 1.014f else 1f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
-        .width(width)
-        .height(height)
+        .width(animatedWidth)
+        .height(animatedHeight)
         .zIndex(zIndex)
         .graphicsLayer {
             translationX = tx
@@ -311,64 +330,139 @@ private fun ModelStackCard(
             scaleX = flightScale * selectedPulse
             scaleY = flightScale * selectedPulse
             this.alpha = animatedAlpha
-            shadowElevation = if (settledGlass && selected) 0.42f else 0.08f
+            shadowElevation = if (settled && selected) 0.34f else 0.06f
         }
 
-    if (settledGlass) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * if (selected) 1.08f else 0.90f,
-            motionIntensity = state.motionIntensity,
-            radius = 30,
-            modifier = transformModifier,
-            role = if (selected) GlassRole.Floating else GlassRole.Chip,
-            onClick = onClick
-        ) {
-            ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
-        }
-    } else {
-        LightweightModelCapsule(
-            model = model,
-            selected = selected,
-            state = state,
-            modifier = transformModifier,
-            expansionProgress = expansionProgress,
-            onClick = onClick
-        )
-    }
+    ModelFrostCapsule(
+        model = model,
+        selected = selected,
+        state = state,
+        modifier = transformModifier,
+        expansionProgress = expansionProgress.coerceIn(0f, 1f),
+        settled = settled,
+        onClick = onClick
+    )
 }
 
-private fun modelStackFlightScale(progress: Float): Float {
-    if (progress < 0.025f || progress > 0.975f) return 1f
-    val settle = ((progress - 0.74f) / 0.235f).coerceIn(0f, 1f)
-    val lift = (progress / 0.16f).coerceIn(0f, 1f)
-    return 0.90f - 0.025f * lift + 0.125f * settle
+private fun modelStackElasticScale(progress: Float): Float {
+    val p = progress.coerceIn(0f, 1f)
+    if (p < 0.025f || p > 0.975f) return 1f
+    val travelDip = sin(p * PI.toFloat()).coerceAtLeast(0f)
+    val arrivePop = sin(((p - 0.76f) / 0.22f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+    val collapsePop = sin(((0.24f - p) / 0.22f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+    return 1f - 0.115f * travelDip + 0.060f * maxOf(arrivePop, collapsePop)
 }
 
 @Composable
-private fun LightweightModelCapsule(
+private fun ModelFrostCapsule(
     model: ChatModel,
     selected: Boolean,
     state: AssistantUiState,
     modifier: Modifier,
     expansionProgress: Float,
+    settled: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(30.dp)
+    val radius = 30f
+    val rich = if (settled) 1f else 0.28f
+    val selectedEnergy = if (selected) 1f else 0f
+    val moving = if (settled) 0f else 1f
+    val shape = RoundedCornerShape(radius.dp)
     Box(
         modifier = modifier
             .clip(shape)
-            .background(Color(0xFF172556).copy(alpha = if (selected) 0.62f else 0.42f))
             .clickable(enabled = !state.isSending, onClick = onClick)
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(1.dp)
-                .clip(shape)
-                .background(Color.White.copy(alpha = if (selected) 0.045f else 0.026f))
+        FrostInfoGlassPanel(
+            radius = radius,
+            backdropAlpha = if (settled) 1f else 0.72f,
+            frostAlpha = 0.080f + selectedEnergy * 0.036f + rich * 0.020f,
+            dimAlpha = 0.010f + moving * 0.010f,
+            modifier = Modifier.fillMaxSize()
+        ) {}
+        ModelFrostCapsuleSurface(
+            selected = selected,
+            rich = rich,
+            progress = expansionProgress,
+            modifier = Modifier.fillMaxSize()
         )
         ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+    }
+}
+
+@Composable
+private fun ModelFrostCapsuleSurface(selected: Boolean, rich: Float, progress: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width.coerceAtLeast(1f)
+        val h = size.height.coerceAtLeast(1f)
+        val radius = h / 2f
+        val r = CornerRadius(radius, radius)
+        val selectedBase = if (selected) 1f else 0f
+        val film = (0.42f + selectedBase * 0.62f + rich * 0.58f).coerceIn(0f, 1.80f)
+        val p = progress.coerceIn(0f, 1f)
+
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.062f + selectedBase * 0.030f + rich * 0.030f),
+                    Color.White.copy(alpha = 0.014f + rich * 0.010f),
+                    Color(0xFF030716).copy(alpha = 0.028f)
+                )
+            ),
+            size = Size(w, h),
+            cornerRadius = r,
+            blendMode = BlendMode.Screen
+        )
+
+        if (rich > 0.45f) {
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF8DF9EA).copy(alpha = 0.070f * film),
+                        Color(0xFF8B9DFF).copy(alpha = 0.052f * film),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * (0.22f + 0.48f * p), h * 0.24f),
+                    radius = maxOf(w, h) * 0.68f
+                ),
+                size = Size(w, h),
+                cornerRadius = r,
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color(0xFF77FFF0).copy(alpha = 0.070f * film),
+                        Color(0xFFFF8CE8).copy(alpha = 0.038f * film),
+                        Color.Transparent
+                    ),
+                    start = Offset(w * (p - 0.42f), 0f),
+                    end = Offset(w * (p + 0.30f), h)
+                ),
+                size = Size(w, h),
+                cornerRadius = r,
+                blendMode = BlendMode.Plus
+            )
+        }
+
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.150f + selectedBase * 0.115f + rich * 0.050f),
+                    Color(0xFF8DF9EA).copy(alpha = 0.060f + selectedBase * 0.090f),
+                    Color.Transparent,
+                    Color(0xFFFF88E8).copy(alpha = 0.032f + selectedBase * 0.052f + rich * 0.018f)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(w, h)
+            ),
+            topLeft = Offset(1.15.dp.toPx(), 1.15.dp.toPx()),
+            size = Size((w - 2.30.dp.toPx()).coerceAtLeast(1f), (h - 2.30.dp.toPx()).coerceAtLeast(1f)),
+            cornerRadius = CornerRadius((radius - 1.15.dp.toPx()).coerceAtLeast(0f), (radius - 1.15.dp.toPx()).coerceAtLeast(0f)),
+            style = Stroke(width = 0.72.dp.toPx() + selectedBase * 0.34.dp.toPx() + rich * 0.12.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
     }
 }
 
