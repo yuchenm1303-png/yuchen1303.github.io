@@ -153,7 +153,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletShadowOffsetX by rememberSaveable { mutableStateOf(3.0f) }
     var dropletShadowOffsetY by rememberSaveable { mutableStateOf(7.0f) }
     var dropletShadowSoftness by rememberSaveable { mutableStateOf(18f) }
-    var dropletActiveGlow by rememberSaveable { mutableStateOf(0.73f) }
+    var dropletActiveGlow by rememberSaveable { mutableStateOf(0.53f) }
     var dropletActiveRefraction by rememberSaveable { mutableStateOf(4.0f) }
     var dropletActiveRimRefraction by rememberSaveable { mutableStateOf(3.16f) }
     var dropletActiveLightX by rememberSaveable { mutableStateOf(1.0f) }
@@ -171,8 +171,8 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
     var dropletBackgroundGlow by rememberSaveable { mutableStateOf(0.38f) }
     var dropletOuterGlow by rememberSaveable { mutableStateOf(0.46f) }
     var dropletWarmGlow by rememberSaveable { mutableStateOf(0.54f) }
-    var dropletPrismStrength by rememberSaveable { mutableStateOf(1.85f) }
-    var dropletPurpleWhiteLight by rememberSaveable { mutableStateOf(0.62f) }
+    var dropletPrismStrength by rememberSaveable { mutableStateOf(2.76f) }
+    var dropletPurpleWhiteLight by rememberSaveable { mutableStateOf(0.67f) }
 
     val dropletStyle = DropletGlassStyle(
         bodyBulgePx = dropletBodyBulge,
@@ -249,7 +249,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("底部压暗", "让凹槽底面与外部弱分离", insetFloorDim, 0f..0.60f) { insetFloorDim = it }
 
         GlassLabDivider()
-        GlassLabMiniTitle("OpenGL 横向水滴", "紫白底光和棱彩光分开控制；局部亮斑已改为斜切棱彩与月牙边缘光。")
+        GlassLabMiniTitle("OpenGL 横向水滴", "按住点亮；棱彩只保留雾化光泽，不画曲线、直线或外圈霓虹。")
         OpenGlLargeDropletPreview(
             style = dropletStyle,
             shadowAlpha = dropletShadowAlpha,
@@ -264,7 +264,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
             purpleWhiteLight = dropletPurpleWhiteLight,
             modifier = Modifier.fillMaxWidth().height(112.dp)
         )
-        GlassPanelSlider("棱彩强度", "控制彩虹扫光、内部多色折射和外圈彩虹辉光", dropletPrismStrength, 0f..3f) { dropletPrismStrength = it }
+        GlassPanelSlider("棱彩强度", "控制柔和彩虹扫光、内部多色折射和低强度外圈辉光", dropletPrismStrength, 0f..3f) { dropletPrismStrength = it }
         GlassPanelSlider("紫白底光", "控制原来的紫白入射光和白色表面高光", dropletPurpleWhiteLight, 0f..1.5f) { dropletPurpleWhiteLight = it }
         GlassPanelSlider("选中发光", "整条内部光路的总能量", dropletActiveGlow, 0f..1.5f) { dropletActiveGlow = it }
         GlassPanelSlider("体积折射", "内部光源被水滴体积连续扭曲的强度", dropletActiveRefraction, 0f..4f) { dropletActiveRefraction = it }
@@ -272,12 +272,12 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
         GlassPanelSlider("入光方向", "按压位置也会临时控制入光点", dropletActiveLightX, 0f..1f) { dropletActiveLightX = it }
         GlassPanelSlider("入光宽度", "从局部一束光扩展到大面积边缘入光", dropletActiveLightSpread, 0f..1f) { dropletActiveLightSpread = it }
         GlassPanelSlider("入光半径", "入光点离中心的距离，越大越贴近外边缘", dropletActiveLightY, 0.45f..1.25f) { dropletActiveLightY = it }
-        GlassPanelSlider("入光高度", "入射光源进入水滴内部后的独立高度，不等同于入光半径", dropletActiveEntryHeight, 0f..0.55f) { dropletActiveEntryHeight = it }
+        GlassPanelSlider("入光高度", "入射光源进入水滴内部后的独立高度", dropletActiveEntryHeight, 0f..0.55f) { dropletActiveEntryHeight = it }
         GlassPanelSlider("光源厚度", "入射光束本身的厚度", dropletActiveLightThickness, 0.025f..0.30f) { dropletActiveLightThickness = it }
         GlassPanelSlider("入光强度", "入射点核心亮度", dropletActiveHotspot, 0f..2f) { dropletActiveHotspot = it }
-        GlassPanelSlider("入光辉光", "入射点外缘的水珠式月牙辉光", dropletActiveEntryPearl, 0f..3f) { dropletActiveEntryPearl = it }
-        GlassPanelSlider("边缘珠光", "暂时关闭输出，保留滑块占位", dropletActiveRimPearl, 0f..3f) { dropletActiveRimPearl = it }
-        GlassPanelSlider("中心通透", "压住中部均匀染紫，让中心更清透", dropletActiveCenterClear, 0f..1f) { dropletActiveCenterClear = it }
+        GlassPanelSlider("入光辉光", "入射点外缘的水珠式辉光", dropletActiveEntryPearl, 0f..3f) { dropletActiveEntryPearl = it }
+        GlassPanelSlider("边缘珠光", "边缘柔光参数", dropletActiveRimPearl, 0f..3f) { dropletActiveRimPearl = it }
+        GlassPanelSlider("中心通透", "压住中部泛白，让中心更清透", dropletActiveCenterClear, 0f..1f) { dropletActiveCenterClear = it }
         GlassPanelSlider("体积染色", "中部暖色透射雾感", dropletActiveVolumeWarmth, 0f..1.2f) { dropletActiveVolumeWarmth = it }
         GlassPanelSlider("边缘捕光", "入射光被厚边吸住的可见强度", dropletActiveRimGather, 0f..2.5f) { dropletActiveRimGather = it }
         GlassPanelSlider("边缘流动", "入射光沿左右圆角流动的范围", dropletActiveRimFlow, 0f..1.5f) { dropletActiveRimFlow = it }
@@ -351,9 +351,7 @@ private fun OpenGlLargeDropletPreview(
     LaunchedEffect(activeForBreath) {
         if (activeForBreath) {
             while (true) {
-                val target = Random.nextFloat()
-                val duration = 950 + Random.nextInt(850)
-                breathAnim.animateTo(target, tween(duration, easing = FastOutSlowInEasing))
+                breathAnim.animateTo(Random.nextFloat(), tween(950 + Random.nextInt(850), easing = FastOutSlowInEasing))
             }
         } else {
             breathAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
@@ -556,11 +554,11 @@ private fun DropletBackgroundGlow(activeGlow: Float, backgroundGlow: Float, oute
         val outer = outerGlow.coerceIn(0f, 2f)
         val warm = warmGlow.coerceIn(0f, 2f)
         val prism = prismStrength.coerceIn(0f, 3f)
-        val pillHeight = size.height * 0.58f
-        val pillTop = size.height * 0.20f
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.20f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.08f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.42f), size.width * 0.62f), Offset(size.width * 0.02f, pillTop - size.height * 0.14f), Size(size.width * 0.96f, pillHeight + size.height * 0.28f), CornerRadius(size.height * 0.44f, size.height * 0.44f), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF72B7).copy(alpha = warm * active * 0.11f), Color(0xFFFFB56F).copy(alpha = warm * active * 0.04f), Color.Transparent), Offset(size.width * 0.46f, size.height * 0.76f), size.width * 0.48f), Offset(size.width * 0.05f, size.height * 0.42f), Size(size.width * 0.90f, size.height * 0.54f), CornerRadius(size.height * 0.32f, size.height * 0.32f), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF4FA7).copy(alpha = outer * active * prism * 0.11f), Color(0xFF80FFD8).copy(alpha = outer * active * prism * 0.09f), Color(0xFF78A8FF).copy(alpha = outer * active * prism * 0.07f), Color.Transparent), Offset(size.width * (0.36f + dropletPrismChannel(phase) * 0.32f), size.height * 0.32f), size.width * 0.72f), Offset(size.width * 0.01f, size.height * 0.04f), Size(size.width * 0.98f, size.height * 0.90f), CornerRadius(size.height * 0.46f, size.height * 0.46f), blendMode = BlendMode.Plus)
+        val radius = size.height * 0.46f
+        val drift = dropletPrismChannel(phase)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.18f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.06f), Color.Transparent), Offset(size.width * 0.50f, size.height * 0.42f), size.width * 0.62f), Offset(size.width * 0.02f, size.height * 0.08f), Size(size.width * 0.96f, size.height * 0.80f), CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF72B7).copy(alpha = warm * active * 0.08f), Color(0xFFFFB56F).copy(alpha = warm * active * 0.025f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.78f), size.width * 0.44f), Offset(size.width * 0.08f, size.height * 0.42f), Size(size.width * 0.84f, size.height * 0.42f), CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF4FA7).copy(alpha = outer * active * prism * 0.035f), Color(0xFF80FFD8).copy(alpha = outer * active * prism * 0.028f), Color(0xFF78A8FF).copy(alpha = outer * active * prism * 0.020f), Color.Transparent), Offset(size.width * (0.34f + drift * 0.32f), size.height * 0.34f), size.width * 0.68f), Offset(size.width * 0.03f, size.height * 0.10f), Size(size.width * 0.94f, size.height * 0.74f), CornerRadius(radius, radius), blendMode = BlendMode.Plus)
     }
 }
 
@@ -584,73 +582,50 @@ private fun DropletPrismOverlay(activeGlow: Float, energy: Float, phase: Float, 
         val prism = prismStrength.coerceIn(0f, 3f)
         if (active <= 0.001f || e <= 0.001f || prism <= 0.001f) return@Canvas
         val radius = size.height / 2f
-        val sweep = (phase - phase.toInt()) * size.width * 0.72f
-        val alpha = (active * e * prism).coerceIn(0f, 4.4f)
+        val sweep = (phase - phase.toInt()) * size.width * 0.66f
+        val alpha = (active * e * prism).coerceIn(0f, 4.2f)
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFFFF2E93).copy(alpha = alpha * 0.115f),
-                    Color(0xFFFFD84D).copy(alpha = alpha * 0.098f),
-                    Color(0xFF55FFD6).copy(alpha = alpha * 0.128f),
-                    Color(0xFF4F89FF).copy(alpha = alpha * 0.120f),
-                    Color(0xFFC05CFF).copy(alpha = alpha * 0.132f)
+                    Color(0xFFFF2E93).copy(alpha = alpha * 0.045f),
+                    Color(0xFFFFD84D).copy(alpha = alpha * 0.038f),
+                    Color(0xFF55FFD6).copy(alpha = alpha * 0.050f),
+                    Color(0xFF4F89FF).copy(alpha = alpha * 0.046f),
+                    Color(0xFFC05CFF).copy(alpha = alpha * 0.052f)
                 ),
-                start = Offset(-size.width * 0.52f + sweep, -size.height * 0.12f),
-                end = Offset(size.width * 1.12f + sweep, size.height * 1.08f)
+                start = Offset(-size.width * 0.42f + sweep, 0f),
+                end = Offset(size.width * 1.04f + sweep, size.height)
             ),
             cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Plus
         )
         drawRoundRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * (0.12f + shimmer * 0.05f)), Color(0xFF9EFFF0).copy(alpha = alpha * 0.075f), Color.Transparent),
-                start = Offset(size.width * (lightX - 0.42f), size.height * 0.00f),
-                end = Offset(size.width * (lightX + 0.38f), size.height * 0.34f)
+                colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * (0.05f + shimmer * 0.02f)), Color(0xFF9EFFF0).copy(alpha = alpha * 0.03f), Color.Transparent),
+                start = Offset(size.width * (lightX - 0.42f), size.height * 0.02f),
+                end = Offset(size.width * (lightX + 0.40f), size.height * 0.28f)
             ),
-            topLeft = Offset(size.width * 0.05f, size.height * 0.06f),
-            size = Size(size.width * 0.90f, size.height * 0.42f),
+            topLeft = Offset(size.width * 0.06f, size.height * 0.06f),
+            size = Size(size.width * 0.88f, size.height * 0.24f),
             cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Screen
         )
-        val crescentW = size.width * (0.26f + shimmer * 0.16f)
-        val crescentH = size.height * (0.62f + shimmer * 0.18f)
-        val crescentCx = size.width * lightX
-        val crescentCy = size.height * (0.45f + (shimmer - 0.5f) * 0.12f)
-        drawArc(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFFFF2A8).copy(alpha = alpha * 0.16f),
-                    Color(0xFF78FFE3).copy(alpha = alpha * 0.13f),
-                    Color(0xFF8A7DFF).copy(alpha = alpha * 0.10f),
-                    Color.Transparent
-                ),
-                start = Offset(crescentCx - crescentW * 0.5f, crescentCy - crescentH * 0.4f),
-                end = Offset(crescentCx + crescentW * 0.5f, crescentCy + crescentH * 0.5f)
+        val edgeX = if (lightX > 0.5f) (lightX + 0.06f).coerceAtMost(0.92f) else (lightX - 0.06f).coerceAtLeast(0.08f)
+        val edgeY = 0.42f + (shimmer - 0.5f) * 0.08f
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White.copy(alpha = alpha * 0.060f), Color(0xFFFFF4B5).copy(alpha = alpha * 0.045f), Color(0xFF63FFE4).copy(alpha = alpha * 0.040f), Color.Transparent),
+                center = Offset(size.width * edgeX, size.height * edgeY),
+                radius = size.width * (0.18f + shimmer * 0.10f)
             ),
-            startAngle = if (lightX > 0.5f) 138f else -42f,
-            sweepAngle = if (lightX > 0.5f) 86f else -86f,
-            useCenter = false,
-            topLeft = Offset(crescentCx - crescentW * 0.5f, crescentCy - crescentH * 0.5f),
-            size = Size(crescentW, crescentH),
-            style = Stroke(width = size.height * (0.030f + shimmer * 0.018f)),
+            cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Plus
-        )
-        drawLine(
-            brush = Brush.linearGradient(
-                colors = listOf(Color.Transparent, Color(0xFFFFF7C8).copy(alpha = alpha * 0.14f), Color(0xFF61FFE4).copy(alpha = alpha * 0.12f), Color.Transparent),
-                start = Offset(size.width * (lightX - 0.24f), size.height * 0.18f),
-                end = Offset(size.width * (lightX + 0.28f), size.height * 0.78f)
-            ),
-            start = Offset(size.width * (lightX - 0.20f), size.height * (0.18f + shimmer * 0.10f)),
-            end = Offset(size.width * (lightX + 0.24f), size.height * (0.72f - shimmer * 0.08f)),
-            strokeWidth = size.height * (0.018f + shimmer * 0.010f),
-            blendMode = BlendMode.Screen
         )
         drawRoundRect(
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFFF0A8).copy(alpha = alpha * 0.040f), Color.Transparent, Color(0xFF69FFE8).copy(alpha = alpha * 0.052f), Color.Transparent),
-                start = Offset(size.width * 0.08f, size.height * 0.92f),
-                end = Offset(size.width * 0.92f, size.height * 0.08f)
+                colors = listOf(Color.Transparent, Color(0xFFFFF0A8).copy(alpha = alpha * 0.020f), Color(0xFF69FFE8).copy(alpha = alpha * 0.028f), Color.Transparent),
+                start = Offset(size.width * 0.10f, size.height * 0.88f),
+                end = Offset(size.width * 0.90f, size.height * 0.18f)
             ),
             cornerRadius = CornerRadius(radius, radius),
             blendMode = BlendMode.Plus
