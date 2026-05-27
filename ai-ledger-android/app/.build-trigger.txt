@@ -1,5 +1,4 @@
-Chat bubble polish restore: 0f48450f229b178002eb6ecf882e95d93e5988c2
-Added helper: ChatBubblePrismOptics.kt
-Added script: chat-bubble-polish.gradle
-Purpose: trigger Build Compose Android APK after restoring clipped animated chat bubble polish.
+Chat shell clip fix: 585fc6f119e3e0f08d36b84ee4d3f1b73d8e66fa
+Root cause: Shell content layer needed rounded clipping in addition to LazyColumn viewport clipping.
+Purpose: trigger Build Compose Android APK after fixing chat bubble overflow outside OpenGL glass.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
