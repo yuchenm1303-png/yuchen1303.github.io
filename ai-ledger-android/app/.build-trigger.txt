@@ -1,5 +1,6 @@
-Chat bubble parent layer coordinate fix.
+Chat bubble parent layer stale cache cleanup.
 Source commits:
-- 0a5be41491f9b6d4b3afa8ed21e33087b4d83f96
-- 31d90774312f5b445d30c78894d5839d686eaf5d
+- 2c42a971d30f3adb8dddea00e08a6677fcf50637
+- 4358947b4caa78ca32ecc61c0beebf6bfd34d5e0
+Fix: remove bubble rects from parent Canvas cache when LazyColumn disposes off-screen message items.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
