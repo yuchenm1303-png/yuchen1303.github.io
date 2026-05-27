@@ -8,22 +8,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.yuchen.ailedger.model.MessageStatus
 import kotlin.math.abs
 
 @Stable
 class ChatBubbleLayerState {
     private val bubbles = mutableStateMapOf<String, ChatBubbleLayerItem>()
-    var rootInWindow: Offset = Offset.Zero
-        private set
+    private var rootInWindow: Offset = Offset.Zero
 
     fun updateRoot(coordinates: LayoutCoordinates) {
-        val root = coordinates.boundsInRoot().topLeft
-        if (abs(root.x - rootInWindow.x) > 0.5f || abs(root.y - rootInWindow.y) > 0.5f) {
-            rootInWindow = root
+        val nextRoot = coordinates.boundsInRoot().topLeft
+        val dx = nextRoot.x - rootInWindow.x
+        val dy = nextRoot.y - rootInWindow.y
+        if (abs(dx) > 0.5f || abs(dy) > 0.5f) {
+            rootInWindow = nextRoot
+            if (bubbles.isNotEmpty()) {
+                bubbles.entries.toList().forEach { entry ->
+                    val r = entry.value.rect
+                    bubbles[entry.key] = entry.value.copy(
+                        rect = Rect(
+                            left = r.left - dx,
+                            top = r.top - dy,
+                            right = r.right - dx,
+                            bottom = r.bottom - dy
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -43,7 +57,14 @@ class ChatBubbleLayerState {
             size = bounds.size
         )
         val current = bubbles[id]
-        if (current == null || current.rect != local || current.appear != appear || current.status != status) {
+        if (
+            current == null ||
+            current.rect != local ||
+            current.appear != appear ||
+            current.status != status ||
+            current.fromUser != fromUser ||
+            current.radiusDp != radiusDp
+        ) {
             bubbles[id] = ChatBubbleLayerItem(
                 id = id,
                 rect = local,
@@ -58,9 +79,7 @@ class ChatBubbleLayerState {
     }
 
     fun removeMissing(activeIds: Set<String>) {
-        val iterator = bubbles.keys.toList().iterator()
-        while (iterator.hasNext()) {
-            val id = iterator.next()
+        bubbles.keys.toList().forEach { id ->
             if (!activeIds.contains(id)) bubbles.remove(id)
         }
     }
@@ -90,13 +109,19 @@ fun ChatBubbleMaterialLayer(
     motionIntensity: Float,
     modifier: Modifier = Modifier
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(
+        modifier = modifier.onGloballyPositioned { layerState.updateRoot(it) }
+    ) {
+        val viewportWidth = size.width
+        val viewportHeight = size.height
         layerState.items().forEach { item ->
-            if (item.rect.width > 1f && item.rect.height > 1f) {
+            val r = item.rect
+            val intersectsViewport = r.right > 0f && r.left < viewportWidth && r.bottom > 0f && r.top < viewportHeight
+            if (intersectsViewport && r.width > 1f && r.height > 1f) {
                 val sending = item.status == MessageStatus.Sending && !item.fromUser
                 val itemPhase = ((phase * if (sending) 2.85f else item.speedFactor) + item.phaseOffset) % 1f
                 drawChatBubblePrismMaterial(
-                    rect = item.rect,
+                    rect = r,
                     phase = itemPhase,
                     fromUser = item.fromUser,
                     sending = sending,
