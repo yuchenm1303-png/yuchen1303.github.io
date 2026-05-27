@@ -1,4 +1,5 @@
-Chat shell clip fix: 585fc6f119e3e0f08d36b84ee4d3f1b73d8e66fa
-Root cause: Shell content layer needed rounded clipping in addition to LazyColumn viewport clipping.
-Purpose: trigger Build Compose Android APK after fixing chat bubble overflow outside OpenGL glass.
+Lightweight chat bubble optimization: 012aa5ac8ae00671ab5d5d528bd8d160bf7652a3
+Prism helper: b705289ec68679269518673505da8d287b5c5bf9
+Changes: remove full GlassPanel per message, keep transparent white mist, fixed border, prism band, subtle entrance animation.
+Purpose: trigger Build Compose Android APK after optimizing chat bubble rendering.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
