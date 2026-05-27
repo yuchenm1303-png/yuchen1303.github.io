@@ -6,6 +6,27 @@ tasks.register('patchAssistantChatBubblePolish') {
         if (!text.contains('import androidx.compose.ui.draw.clipToBounds')) {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
+        if (!text.contains('import androidx.compose.runtime.State')) {
+            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.State\n')
+        }
+
+        def oldClock = '''    val listState = rememberLazyListState()
+    LaunchedEffect(state.messages.size, state.isSending) {
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    }
+'''
+        def newClock = '''    val listState = rememberLazyListState()
+    val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
+    val lastMessageId = state.messages.lastOrNull()?.id
+    LaunchedEffect(lastMessageId) {
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    }
+'''
+        if (text.contains(oldClock)) {
+            text = text.replace(oldClock, newClock)
+        } else if (!text.contains('val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)')) {
+            throw new GradleException('ChatPanelV2 clock block not found for shared motion patch.')
+        }
 
         def oldShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
         Box(Modifier.fillMaxSize()) {
@@ -46,7 +67,7 @@ tasks.register('patchAssistantChatBubblePolish') {
                         contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, chatPhase) }
                         item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                     }
                 }
@@ -54,7 +75,7 @@ tasks.register('patchAssistantChatBubblePolish') {
         if (text.contains(oldList)) {
             text = text.replace(oldList, newList)
         } else if (!text.contains(newList)) {
-            throw new GradleException('Chat list block not found for viewport clipping patch.')
+            throw new GradleException('Chat list block not found for shared-clock viewport clipping patch.')
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
@@ -63,28 +84,45 @@ tasks.register('patchAssistantChatBubblePolish') {
             throw new GradleException('Message bubble block not found.')
         }
         def bubble = '''@Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
+    if (motionIntensity <= 0.02f) return remember { mutableStateOf(0f) }
+    val transition = rememberInfiniteTransition(label = "shared-chat-motion-clock")
+    return transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(7200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "shared-chat-motion-phase"
+    )
+}
+
+private fun phaseOffsetForMessage(id: String): Float {
+    return ((id.hashCode() ushr 1) % 997) / 997f
+}
+
+private fun phaseSpeedForMessage(id: String): Float {
+    val bucket = (id.hashCode() ushr 2) % 7
+    return 0.82f + bucket * 0.055f
+}
+
+@Composable
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatPhase: State<Float>) {
     val fromUser = message.role == MessageRole.User
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 1.dp),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        MessageBubbleV2(message, state)
+        MessageBubbleV2(message, state, chatPhase)
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, chatPhase: State<Float>) {
     val fromUser = message.role == MessageRole.User
     val sending = message.status == MessageStatus.Sending && !fromUser
     val bubbleRadius = if (fromUser) 26 else 28
-    val loop = rememberInfiniteTransition(label = "message-bubble-prism-loop")
-    val phase by loop.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(if (sending) 1680 else 3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "message-bubble-prism-phase"
-    )
+    val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
+    val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
+    val phase = ((chatPhase.value * if (sending) 2.85f else speedFactor) + phaseOffset) % 1f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
         GlassPanel(
             quality = state.quality,
@@ -161,7 +199,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied focused chat bubble polish patch with shell-level clipping.')
+        println('Applied shared-clock chat bubble polish patch with shell-level clipping.')
     }
 }
 
