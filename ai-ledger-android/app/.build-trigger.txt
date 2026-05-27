@@ -1,4 +1,5 @@
-Richer chat bubble prism material: b8b5cd183090962e3ed30a78eb04997bce46a95c
-Changes: wider prism glow band, brighter core line, blue-violet translucent material base, inner soft highlight, stronger rainbow depth.
-Purpose: trigger Build Compose Android APK after improving chat bubble material and prism visibility.
+Metallic continuous chat bubble prism sweep: a39000cd62392446b0147f4436056325a093b135
+Changes: replace sawtooth prism sweep with sine ping-pong motion, reduce double-edge thickness, restore metallic narrow glow and bright core highlight.
+Clock: chat bubbles use one shared chat motion clock plus per-message phase offsets.
+Purpose: trigger Build Compose Android APK after refining prism highlight motion and material.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
