@@ -20,6 +20,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,7 +31,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -180,8 +181,8 @@ private fun ModelAndNetworkPanel(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val panelHeight by animateDpAsState(
-        targetValue = if (expanded) 210.dp else 66.dp,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (expanded) 210.dp else 56.dp,
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
     ModelStackSelector(
@@ -208,15 +209,16 @@ private fun ModelStackSelector(
 ) {
     val progress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(durationMillis = if (expanded) 470 else 330, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = if (expanded) 430 else 300, easing = FastOutSlowInEasing),
         label = "model-stack-progress"
     )
     BoxWithConstraints(modifier = modifier) {
         val models = ChatModel.entries
         val gap = 10.dp
         val rowStep = 72.dp
+        val collapsedHeight = 54.dp
+        val expandedHeight = 62.dp
         val halfWidth = (maxWidth - gap) / 2f
-        val peekWidth = maxWidth * 0.28f
         val selectedModel = state.selectedModel
         val behindModels = models.filter { it != selectedModel }
 
@@ -233,30 +235,26 @@ private fun ModelStackSelector(
                 else -> 0.dp
             }
             val gridWidth = if (index == 4) maxWidth else halfWidth
-            val collapsedX = if (selected) 0.dp else maxWidth - peekWidth - (stackRank * 8).dp
-            val collapsedY = if (selected) 0.dp else (7 - stackRank * 2).dp
-            val collapsedWidth = if (selected) maxWidth else peekWidth
+            val collapsedX = if (selected) 0.dp else (stackRank * 7).dp
+            val collapsedY = if (selected) 0.dp else (stackRank * 1).dp
             val targetX = if (expanded) gridX else collapsedX
             val targetY = if (expanded) gridY else collapsedY
-            val targetWidth = if (expanded) gridWidth else collapsedWidth
-            val targetHeight = if (expanded) 62.dp else if (selected) 62.dp else 48.dp
-            val targetScale = if (expanded) 1f else if (selected) 1f else 0.94f - stackRank * 0.035f
-            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.42f + (4 - stackRank).coerceAtLeast(0) * 0.07f
-            val z = if (expanded) 30f - index else if (selected) 20f else 30f - stackRank
+            val targetWidth = if (expanded) gridWidth else maxWidth
+            val targetHeight = if (expanded) expandedHeight else collapsedHeight
+            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.46f + (4 - stackRank).coerceAtLeast(0) * 0.08f
+            val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
                 model = model,
                 selected = selected,
                 state = state,
-                collapsedPeek = !expanded && !selected,
                 expansionProgress = progress,
                 width = targetWidth,
                 height = targetHeight,
                 x = targetX,
                 y = targetY,
-                scale = targetScale,
                 alpha = targetAlpha,
                 zIndex = z,
-                delayMillis = if (expanded) index * 34 else (models.lastIndex - index) * 18,
+                delayMillis = if (expanded) index * 28 else (models.lastIndex - index) * 14,
                 onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
             )
         }
@@ -268,97 +266,128 @@ private fun ModelStackCard(
     model: ChatModel,
     selected: Boolean,
     state: AssistantUiState,
-    collapsedPeek: Boolean,
     expansionProgress: Float,
     width: Dp,
     height: Dp,
     x: Dp,
     y: Dp,
-    scale: Float,
     alpha: Float,
     zIndex: Float,
     delayMillis: Int,
     onClick: () -> Unit
 ) {
+    val density = LocalDensity.current
     val animatedX by animateDpAsState(
         targetValue = x,
-        animationSpec = tween(durationMillis = 430, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 390, delayMillis = delayMillis, easing = FastOutSlowInEasing),
         label = "model-card-x-${model.id}"
     )
     val animatedY by animateDpAsState(
         targetValue = y,
-        animationSpec = tween(durationMillis = 430, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 390, delayMillis = delayMillis, easing = FastOutSlowInEasing),
         label = "model-card-y-${model.id}"
-    )
-    val animatedWidth by animateDpAsState(
-        targetValue = width,
-        animationSpec = tween(durationMillis = 410, delayMillis = delayMillis, easing = FastOutSlowInEasing),
-        label = "model-card-width-${model.id}"
-    )
-    val animatedHeight by animateDpAsState(
-        targetValue = height,
-        animationSpec = tween(durationMillis = 360, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
-        label = "model-card-height-${model.id}"
-    )
-    val animatedScale by animateFloatAsState(
-        targetValue = scale,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-card-scale-${model.id}"
     )
     val animatedAlpha by animateFloatAsState(
         targetValue = alpha,
-        animationSpec = tween(durationMillis = 260, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 220, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
         label = "model-card-alpha-${model.id}"
     )
+    val tx = with(density) { animatedX.toPx() }
+    val ty = with(density) { animatedY.toPx() }
+    val settledGlass = expansionProgress < 0.025f || expansionProgress > 0.975f
+    val flightScale = modelStackFlightScale(expansionProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected) 1.015f else 1f,
-        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow),
+        targetValue = if (selected && settledGlass) 1.012f else 1f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow),
         label = "model-card-selected-pulse-${model.id}"
     )
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * when {
-            selected -> 1.08f
-            collapsedPeek -> 0.82f
-            else -> 0.94f
-        },
-        motionIntensity = state.motionIntensity,
-        radius = 30,
-        modifier = Modifier
-            .offset(x = animatedX, y = animatedY)
-            .width(animatedWidth)
-            .height(animatedHeight)
-            .zIndex(zIndex)
-            .graphicsLayer {
-                scaleX = animatedScale * selectedPulse
-                scaleY = animatedScale * selectedPulse
-                this.alpha = animatedAlpha
-                shadowElevation = if (selected) 0.42f else 0.18f
-            },
-        role = if (selected) GlassRole.Floating else GlassRole.Chip,
-        onClick = onClick
+    val transformModifier = Modifier
+        .width(width)
+        .height(height)
+        .zIndex(zIndex)
+        .graphicsLayer {
+            translationX = tx
+            translationY = ty
+            scaleX = flightScale * selectedPulse
+            scaleY = flightScale * selectedPulse
+            this.alpha = animatedAlpha
+            shadowElevation = if (settledGlass && selected) 0.42f else 0.08f
+        }
+
+    if (settledGlass) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * if (selected) 1.08f else 0.90f,
+            motionIntensity = state.motionIntensity,
+            radius = 30,
+            modifier = transformModifier,
+            role = if (selected) GlassRole.Floating else GlassRole.Chip,
+            onClick = onClick
+        ) {
+            ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+        }
+    } else {
+        LightweightModelCapsule(
+            model = model,
+            selected = selected,
+            state = state,
+            modifier = transformModifier,
+            expansionProgress = expansionProgress,
+            onClick = onClick
+        )
+    }
+}
+
+private fun modelStackFlightScale(progress: Float): Float {
+    if (progress < 0.025f || progress > 0.975f) return 1f
+    val settle = ((progress - 0.74f) / 0.235f).coerceIn(0f, 1f)
+    val lift = (progress / 0.16f).coerceIn(0f, 1f)
+    return 0.90f - 0.025f * lift + 0.125f * settle
+}
+
+@Composable
+private fun LightweightModelCapsule(
+    model: ChatModel,
+    selected: Boolean,
+    state: AssistantUiState,
+    modifier: Modifier,
+    expansionProgress: Float,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(30.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color(0xFF172556).copy(alpha = if (selected) 0.62f else 0.42f))
+            .clickable(enabled = !state.isSending, onClick = onClick)
     ) {
-        if (collapsedPeek) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(model.shortLabel.take(1), color = Color.White.copy(alpha = 0.78f), fontSize = 19.sp, fontWeight = FontWeight.Black)
-            }
-        } else {
-            Row(
-                Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    Modifier
-                        .size(if (selected) 9.dp else 7.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.34f + 0.20f * expansionProgress))
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.78f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(model.id, color = Color.White.copy(alpha = if (selected) 0.54f else 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(1.dp)
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (selected) 0.045f else 0.026f))
+        )
+        ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+    }
+}
+
+@Composable
+private fun ModelStackCardContent(model: ChatModel, selected: Boolean, expansionProgress: Float) {
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            Modifier
+                .size(if (selected) 9.dp else 7.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.32f + 0.20f * expansionProgress))
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.78f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(model.id, color = Color.White.copy(alpha = if (selected) 0.54f else 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
