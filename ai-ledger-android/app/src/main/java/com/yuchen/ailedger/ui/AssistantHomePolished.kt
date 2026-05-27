@@ -1,12 +1,10 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -14,6 +12,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -23,6 +22,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,8 +30,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -56,8 +58,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -175,132 +179,185 @@ private fun ModelAndNetworkPanel(
     onToggleOnline: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            ModelSelectorChip(
-                state = state,
-                expanded = expanded,
-                modifier = Modifier.weight(1.35f),
-                onClick = { if (!state.isSending) expanded = !expanded }
-            )
-            NetworkChipV2(
-                state = state,
-                modifier = Modifier.weight(0.82f),
-                onClick = { if (!state.isSending) onToggleOnline() }
-            )
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-                expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) +
-                scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
-            exit = fadeOut(tween(120)) + shrinkVertically(tween(150)) + scaleOut(targetScale = 0.97f, animationSpec = tween(150))
-        ) {
-            ModelChooserSheet(
-                state = state,
-                onSelected = { model ->
-                    onModelSelected(model)
-                    expanded = false
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModelSelectorChip(state: AssistantUiState, expanded: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val arrowRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-arrow-bounce"
+    val panelHeight by animateDpAsState(
+        targetValue = if (expanded) 210.dp else 66.dp,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-stack-panel-height"
     )
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Chip, onClick = onClick) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            Text("AI", color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("模型", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(state.selectedModel.label, color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    ModelStackSelector(
+        state = state,
+        expanded = expanded,
+        modifier = Modifier.fillMaxWidth().height(panelHeight),
+        onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+        onSelected = { model ->
+            if (!state.isSending) {
+                onModelSelected(model)
+                expanded = false
             }
-            if (state.isSending) {
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
-            } else {
-                Text("⌄", color = Color.White.copy(alpha = 0.62f), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.graphicsLayer { rotationZ = arrowRotation })
+        }
+    )
+}
+
+@Composable
+private fun ModelStackSelector(
+    state: AssistantUiState,
+    expanded: Boolean,
+    modifier: Modifier,
+    onToggleExpanded: () -> Unit,
+    onSelected: (ChatModel) -> Unit
+) {
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(durationMillis = if (expanded) 470 else 330, easing = FastOutSlowInEasing),
+        label = "model-stack-progress"
+    )
+    BoxWithConstraints(modifier = modifier) {
+        val models = ChatModel.entries
+        val gap = 10.dp
+        val rowStep = 72.dp
+        val halfWidth = (maxWidth - gap) / 2f
+        val peekWidth = maxWidth * 0.28f
+        val selectedModel = state.selectedModel
+        val behindModels = models.filter { it != selectedModel }
+
+        models.forEachIndexed { index, model ->
+            val selected = model == selectedModel
+            val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
+            val gridX = when (index) {
+                1, 3 -> halfWidth + gap
+                else -> 0.dp
             }
+            val gridY = when (index) {
+                2, 3 -> rowStep
+                4 -> rowStep * 2f
+                else -> 0.dp
+            }
+            val gridWidth = if (index == 4) maxWidth else halfWidth
+            val collapsedX = if (selected) 0.dp else maxWidth - peekWidth - (stackRank * 8).dp
+            val collapsedY = if (selected) 0.dp else (7 - stackRank * 2).dp
+            val collapsedWidth = if (selected) maxWidth else peekWidth
+            val targetX = if (expanded) gridX else collapsedX
+            val targetY = if (expanded) gridY else collapsedY
+            val targetWidth = if (expanded) gridWidth else collapsedWidth
+            val targetHeight = if (expanded) 62.dp else if (selected) 62.dp else 48.dp
+            val targetScale = if (expanded) 1f else if (selected) 1f else 0.94f - stackRank * 0.035f
+            val targetAlpha = if (expanded) 1f else if (selected) 1f else 0.42f + (4 - stackRank).coerceAtLeast(0) * 0.07f
+            val z = if (expanded) 30f - index else if (selected) 20f else 30f - stackRank
+            ModelStackCard(
+                model = model,
+                selected = selected,
+                state = state,
+                collapsedPeek = !expanded && !selected,
+                expansionProgress = progress,
+                width = targetWidth,
+                height = targetHeight,
+                x = targetX,
+                y = targetY,
+                scale = targetScale,
+                alpha = targetAlpha,
+                zIndex = z,
+                delayMillis = if (expanded) index * 34 else (models.lastIndex - index) * 18,
+                onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
+            )
         }
     }
 }
 
 @Composable
-private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val accent = if (state.onlineEnabled) Color(0xFF8DF9EA) else Color(0xFF9EB7FF)
-    PressableGlass(state.quality, state.glassIntensity * 0.95f, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Chip, onClick = onClick) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            PulseDotV2(active = state.onlineEnabled || state.isSending, color = accent)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("联网", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text(if (state.onlineEnabled) "已开启" else "已关闭", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelChooserSheet(state: AssistantUiState, onSelected: (ChatModel) -> Unit) {
-    GlassPanel(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("选择模型", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Text("点一下立即切换，发送时会使用当前模型。", color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, maxLines = 1)
-                }
-                Text(if (state.onlineEnabled) "联网模式" else "本地/云端默认", color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            }
-            ChatModel.entries.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    row.forEach { model ->
-                        ModelOptionCard(model = model, selected = model == state.selectedModel, state = state, modifier = Modifier.weight(1f)) { onSelected(model) }
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelOptionCard(model: ChatModel, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    val pop by animateFloatAsState(
-        targetValue = if (selected) 1.0f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessLow),
-        label = "model-option-pop"
+private fun ModelStackCard(
+    model: ChatModel,
+    selected: Boolean,
+    state: AssistantUiState,
+    collapsedPeek: Boolean,
+    expansionProgress: Float,
+    width: Dp,
+    height: Dp,
+    x: Dp,
+    y: Dp,
+    scale: Float,
+    alpha: Float,
+    zIndex: Float,
+    delayMillis: Int,
+    onClick: () -> Unit
+) {
+    val animatedX by animateDpAsState(
+        targetValue = x,
+        animationSpec = tween(durationMillis = 430, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        label = "model-card-x-${model.id}"
+    )
+    val animatedY by animateDpAsState(
+        targetValue = y,
+        animationSpec = tween(durationMillis = 430, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        label = "model-card-y-${model.id}"
+    )
+    val animatedWidth by animateDpAsState(
+        targetValue = width,
+        animationSpec = tween(durationMillis = 410, delayMillis = delayMillis, easing = FastOutSlowInEasing),
+        label = "model-card-width-${model.id}"
+    )
+    val animatedHeight by animateDpAsState(
+        targetValue = height,
+        animationSpec = tween(durationMillis = 360, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
+        label = "model-card-height-${model.id}"
+    )
+    val animatedScale by animateFloatAsState(
+        targetValue = scale,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-card-scale-${model.id}"
+    )
+    val animatedAlpha by animateFloatAsState(
+        targetValue = alpha,
+        animationSpec = tween(durationMillis = 260, delayMillis = delayMillis / 2, easing = FastOutSlowInEasing),
+        label = "model-card-alpha-${model.id}"
+    )
+    val selectedPulse by animateFloatAsState(
+        targetValue = if (selected) 1.015f else 1f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow),
+        label = "model-card-selected-pulse-${model.id}"
     )
     PressableGlass(
-        state.quality,
-        state.glassIntensity * if (selected) 1.08f else 0.92f,
-        state.motionIntensity,
-        22,
-        modifier.height(58.dp).graphicsLayer { scaleX = pop; scaleY = pop },
-        if (selected) GlassRole.Floating else GlassRole.Chip,
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * when {
+            selected -> 1.08f
+            collapsedPeek -> 0.82f
+            else -> 0.94f
+        },
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier
+            .offset(x = animatedX, y = animatedY)
+            .width(animatedWidth)
+            .height(animatedHeight)
+            .zIndex(zIndex)
+            .graphicsLayer {
+                scaleX = animatedScale * selectedPulse
+                scaleY = animatedScale * selectedPulse
+                this.alpha = animatedAlpha
+                shadowElevation = if (selected) 0.42f else 0.18f
+            },
+        role = if (selected) GlassRole.Floating else GlassRole.Chip,
         onClick = onClick
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                Modifier
-                    .size(if (selected) 9.dp else 7.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.34f))
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.72f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(model.id, color = Color.White.copy(alpha = 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (collapsedPeek) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(model.shortLabel.take(1), color = Color.White.copy(alpha = 0.78f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(if (selected) 9.dp else 7.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.34f + 0.20f * expansionProgress))
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.78f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(model.id, color = Color.White.copy(alpha = if (selected) 0.54f else 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
