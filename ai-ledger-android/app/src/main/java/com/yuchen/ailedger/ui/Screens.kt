@@ -128,12 +128,10 @@ private fun AssistantTopBar(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             ModelChip(state, Modifier.weight(1f), if (allowSwitch) onModelClick else {})
-            StatusChip(
-                label = "联网",
-                value = if (state.onlineEnabled) "已开启" else "已关闭",
-                accent = if (state.onlineEnabled) Color(0xFF8DF9EA) else Color(0xFF9EB7FF),
+            NetworkDropletCapsule(
                 state = state,
                 modifier = Modifier.weight(0.72f),
+                enabled = allowSwitch,
                 onClick = if (allowSwitch) onToggleOnline else {}
             )
         }
