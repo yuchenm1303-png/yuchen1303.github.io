@@ -3,10 +3,10 @@ package com.yuchen.ailedger.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -25,9 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -64,14 +62,15 @@ internal fun UnifiedParentModelStackSelector(
 ) {
     BoxWithConstraints(modifier = modifier) {
         val density = LocalDensity.current
+        val parentMaxWidth = maxWidth
         val models = ChatModel.entries
         val gap = 10.dp
         val rowStep = 74.dp
         val collapsedHeight = 56.dp
         val expandedHeight = 64.dp
         val reservedGap = 8.dp
-        val collapsedWidth = (maxWidth - reservedGap) * 0.642f
-        val halfWidth = (maxWidth - gap) / 2f
+        val collapsedWidth = (parentMaxWidth - reservedGap) * 0.642f
+        val halfWidth = (parentMaxWidth - gap) / 2f
         val selectedModel = state.selectedModel
         val behindModels = models.filter { it != selectedModel }
         val visuals = mutableListOf<UnifiedModelCardVisual>()
@@ -86,7 +85,7 @@ internal fun UnifiedParentModelStackSelector(
                 val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
                 val expandedX = when (index) { 1, 3 -> halfWidth + gap else -> 0.dp }
                 val expandedY = when (index) { 2, 3 -> rowStep; 4 -> rowStep * 2f; else -> 0.dp }
-                val expandedWidth = if (index == 4) maxWidth else halfWidth
+                val expandedWidth = if (index == 4) parentMaxWidth else halfWidth
                 val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
                 val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
                 val collapsedAlpha = if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.080f
@@ -173,9 +172,7 @@ internal fun UnifiedParentModelStackSelector(
                         selected = selected,
                         stackEnergy = energy,
                         press = pressProgress,
-                        sweep = releaseSweep.value,
-                        moving = speedPulse,
-                        stopPulse = (brake + returnBrake).coerceIn(0f, 1f)
+                        sweep = releaseSweep.value
                     )
                 )
                 Box(
@@ -214,15 +211,18 @@ private data class UnifiedModelCardVisual(
     val selected: Boolean,
     val stackEnergy: Float,
     val press: Float,
-    val sweep: Float,
-    val moving: Float,
-    val stopPulse: Float
+    val sweep: Float
 )
 
 @Composable
 private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, expansionProgress: Float) {
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(if (selected) 9.dp else 7.dp).graphicsLayer { alpha = if (selected) 1f else 0.52f + 0.22f * expansionProgress })
+        Box(
+            Modifier
+                .size(if (selected) 9.dp else 7.dp)
+                .graphicsLayer { alpha = if (selected) 1f else 0.52f + 0.22f * expansionProgress }
+                .background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
             Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.78f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(model.id, color = Color.White.copy(alpha = if (selected) 0.54f else 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -325,8 +325,6 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val sweepT = prismSmooth(sweep.coerceIn(0f, 1f))
             val sweepX = -0.28f + sweepT * 1.56f
             val rimBandPower = spec.rainbowRimAlpha.coerceIn(0f, 1f) * energy * alpha * (0.72f + 0.18f * selectedEnergy)
-            val topNear = press
-            val pressBandBoost = press
             fun prismBandBrush(start: Offset, end: Offset, strength: Float): Brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
@@ -380,9 +378,9 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
                 Offset(v.width * 0.10f, v.height * 0.10f),
                 maxSide * 0.24f
             )
-            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.22f), v.height * -0.06f), Offset(v.width * (sweepX + 0.28f), v.height * 1.04f), rimBandPower * (0.72f + 0.28f * pressBandBoost))
-            val rimBandCounter = prismBandBrush(Offset(v.width * (1.12f - sweepX), v.height * 0.02f), Offset(v.width * (0.54f - sweepX), v.height * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost))
-            val rimBandTop = prismBandBrush(Offset(v.width * (sweepX - 0.18f), v.height * 0.02f), Offset(v.width * (sweepX + 0.34f), v.height * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * topNear))
+            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.22f), v.height * -0.06f), Offset(v.width * (sweepX + 0.28f), v.height * 1.04f), rimBandPower * (0.72f + 0.28f * press))
+            val rimBandCounter = prismBandBrush(Offset(v.width * (1.12f - sweepX), v.height * 0.02f), Offset(v.width * (0.54f - sweepX), v.height * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * press))
+            val rimBandTop = prismBandBrush(Offset(v.width * (sweepX - 0.18f), v.height * 0.02f), Offset(v.width * (sweepX + 0.34f), v.height * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * press))
             val prismLocalEdge = prismBandBrush(Offset(v.width * 0.25f, v.height * -0.16f), Offset(v.width * 0.74f, v.height * 1.08f), spec.rainbowPressEdge * press * energy * alpha)
             val prismSweep = prismBandBrush(Offset(v.width * (sweepX - 0.24f), v.height * -0.04f), Offset(v.width * (sweepX + 0.30f), v.height * 1.04f), spec.rainbowSweepAlpha.coerceIn(0f, 1f) * sweep * energy * alpha + spec.pressSweep.coerceIn(0f, 1f) * 0.12f * sweep * energy * alpha)
 
