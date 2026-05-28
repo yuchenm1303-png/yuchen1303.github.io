@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -9,13 +11,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,13 +28,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -43,9 +52,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.sign
 import kotlin.math.sin
+import kotlin.random.Random
 
 @Composable
 fun PrismaticCapsuleBottomBar(
@@ -61,11 +73,23 @@ fun PrismaticCapsuleBottomBar(
     val currentIndex = tabs.indexOf(currentTab).coerceAtLeast(0)
     val animatedIndex by animateFloatAsState(
         targetValue = currentIndex.toFloat(),
-        animationSpec = spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow),
-        label = "bottom-nav-capsule-index"
+        animationSpec = spring(dampingRatio = 0.36f, stiffness = Spring.StiffnessMediumLow),
+        label = "bottom-nav-droplet-index"
     )
     val indexDelta = abs(animatedIndex - currentIndex.toFloat()).coerceIn(0f, 2f)
-    val travelEnergy = (indexDelta / 0.92f).coerceIn(0f, 1f) * motionIntensity.coerceIn(0f, 1f)
+    val travelEnergy = (indexDelta / 0.82f).coerceIn(0f, 1f) * motionIntensity.coerceIn(0f, 1f)
+    val travelDirection = sign(currentIndex.toFloat() - animatedIndex).coerceIn(-1f, 1f)
+    val arrivalPulse = remember { Animatable(0f) }
+    var edgeSeed by remember { mutableFloatStateOf(0.37f) }
+
+    LaunchedEffect(currentIndex) {
+        edgeSeed = Random.nextFloat()
+        arrivalPulse.snapTo(0f)
+        delay(150)
+        arrivalPulse.animateTo(1f, tween(88, easing = FastOutSlowInEasing))
+        arrivalPulse.animateTo(0f, spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessLow))
+    }
+
     val interactionSources = remember(tabs) { tabs.map { MutableInteractionSource() } }
     val pressedStates = interactionSources.map { it.collectIsPressedAsState().value }
     val selectedPressed = pressedStates.getOrNull(currentIndex) == true
@@ -81,6 +105,7 @@ fun PrismaticCapsuleBottomBar(
         animationSpec = infiniteRepeatable(animation = tween(3600, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "bottom-nav-prism-phase-value"
     )
+    val stopEnergy = arrivalPulse.value.coerceIn(0f, 1f) * motionIntensity.coerceIn(0f, 1f)
 
     GlassPanel(
         quality = quality,
@@ -93,9 +118,12 @@ fun PrismaticCapsuleBottomBar(
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 7.dp)) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
-            val selectorWidthPx = slotWidthPx * (0.74f + 0.13f * travelEnergy + 0.08f * pressEnergy).coerceIn(0.70f, 0.96f)
+            val stretch = 0.72f + 0.23f * travelEnergy + 0.08f * pressEnergy - 0.04f * stopEnergy
+            val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.66f, 1.04f)
             val selectorWidth = with(density) { selectorWidthPx.toDp() }
-            val selectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f
+            val leadPx = travelDirection * slotWidthPx * 0.040f * travelEnergy
+            val selectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
+            val heightDp = 52.dp + 6.dp * stopEnergy - 10.dp * travelEnergy - 4.dp * pressEnergy
             val selectorShape = RoundedCornerShape(999.dp)
             val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
@@ -103,32 +131,37 @@ fun PrismaticCapsuleBottomBar(
                 Modifier
                     .align(Alignment.CenterStart)
                     .width(selectorWidth)
-                    .height(52.dp)
+                    .height(heightDp)
                     .graphicsLayer {
                         translationX = selectorX
-                        translationY = 1.2f * pressEnergy - 4.2f * travelEnergy
-                        scaleX = 1f + 0.18f * travelEnergy + 0.055f * pressEnergy
-                        scaleY = 1f - 0.16f * travelEnergy - 0.075f * pressEnergy
-                        shadowElevation = 0.28f + 0.52f * (travelEnergy + pressEnergy).coerceIn(0f, 1f)
+                        translationY = 1.8f * pressEnergy - 4.8f * travelEnergy - 2.2f * stopEnergy
+                        scaleX = 1f + 0.17f * travelEnergy + 0.045f * pressEnergy - 0.045f * stopEnergy
+                        scaleY = 1f - 0.18f * travelEnergy - 0.070f * pressEnergy + 0.135f * stopEnergy
+                        shadowElevation = 0.25f + 0.62f * (travelEnergy + pressEnergy + stopEnergy).coerceIn(0f, 1f)
                     }
                     .clip(selectorShape)
             ) {
                 GlassPanel(
                     quality = quality,
-                    glassIntensity = glassIntensity * (1.05f + 0.18f * travelEnergy + 0.10f * pressEnergy),
+                    glassIntensity = glassIntensity * (1.04f + 0.18f * travelEnergy + 0.10f * pressEnergy + 0.08f * stopEnergy),
                     motionIntensity = motionIntensity,
                     radius = 999,
                     modifier = Modifier.fillMaxSize(),
                     role = GlassRole.Floating
                 ) {
-                    Box(Modifier.fillMaxSize().clip(selectorShape)) {
-                        PrismaticBottomSliderOptics(
-                            phase = phase,
-                            energy = (0.34f + 0.66f * travelEnergy + 0.42f * pressEnergy).coerceIn(0f, 1.36f),
-                            drift = selectedDrift,
-                            shape = selectorShape
-                        )
-                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .clip(selectorShape)
+                            .bottomSliderPrismOptics(
+                                phase = phase,
+                                energy = (0.28f + 0.72f * travelEnergy + 0.36f * pressEnergy + 0.48f * stopEnergy).coerceIn(0f, 1.45f),
+                                drift = selectedDrift,
+                                edgeSeed = edgeSeed,
+                                stopEnergy = stopEnergy,
+                                travelDirection = travelDirection
+                            )
+                    )
                 }
             }
 
@@ -162,7 +195,7 @@ fun PrismaticCapsuleBottomBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.graphicsLayer {
-                                translationY = -2.8f * selectedPop + 1.5f * tabPress
+                                translationY = -2.8f * selectedPop + 1.5f * tabPress - 1.6f * stopEnergy * selectedPop
                                 scaleX = 1f + 0.08f * selectedPop + 0.035f * tabPress
                                 scaleY = 1f + 0.05f * selectedPop - 0.025f * tabPress
                                 alpha = 0.50f + 0.50f * selectedPop
@@ -191,93 +224,116 @@ fun PrismaticCapsuleBottomBar(
     }
 }
 
-@Composable
-private fun BoxScope.PrismaticBottomSliderOptics(
+private fun Modifier.bottomSliderPrismOptics(
     phase: Float,
     energy: Float,
     drift: Float,
-    shape: RoundedCornerShape
-) {
-    val safeEnergy = energy.coerceIn(0f, 1.42f)
-    val sweep = ((sin((phase * 1.15f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
-    val sweepX = -56f + 122f * sweep + 12f * drift
-    Box(
-        Modifier
-            .fillMaxSize()
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.060f + 0.060f * safeEnergy),
-                        Color(0xFFFF8AD8).copy(alpha = 0.060f * safeEnergy),
-                        Color(0xFFFFD76A).copy(alpha = 0.044f * safeEnergy),
-                        Color(0xFF6DFFF0).copy(alpha = 0.066f * safeEnergy),
-                        Color(0xFF9CA8FF).copy(alpha = 0.050f * safeEnergy),
-                        Color.White.copy(alpha = 0.028f + 0.040f * safeEnergy)
-                    )
-                )
-            )
+    edgeSeed: Float,
+    stopEnergy: Float,
+    travelDirection: Float
+): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val e = energy.coerceIn(0f, 1.45f)
+    val corner = CornerRadius(h / 2f, h / 2f)
+    val sweep = ((sin((phase * 1.08f + edgeSeed * 0.31f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
+    val sweepCenter = -0.38f + 1.76f * sweep + 0.06f * drift + 0.08f * travelDirection * e
+    val edgeA = ((sin((phase * 0.73f + edgeSeed) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
+    val edgeB = ((sin((phase * 0.57f + edgeSeed + 0.41f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
+
+    drawContent()
+
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.040f + 0.056f * e),
+                Color(0xFFFF7AD6).copy(alpha = 0.052f * e),
+                Color(0xFFFFD86E).copy(alpha = 0.040f * e),
+                Color(0xFF6DFFF0).copy(alpha = 0.060f * e),
+                Color(0xFFA796FF).copy(alpha = 0.044f * e),
+                Color.White.copy(alpha = 0.026f + 0.028f * e)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
     )
-    Box(
-        Modifier
-            .align(Alignment.TopCenter)
-            .fillMaxWidth()
-            .height(9.dp)
-            .padding(horizontal = 8.dp)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0xFFFF75D8).copy(alpha = 0.16f * safeEnergy),
-                        Color.White.copy(alpha = 0.24f * safeEnergy),
-                        Color(0xFF76FFF2).copy(alpha = 0.20f * safeEnergy),
-                        Color.Transparent
-                    )
-                )
-            )
+
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.18f * e),
+                Color(0xFFFFE17A).copy(alpha = 0.092f * e),
+                Color(0xFF67FFF0).copy(alpha = 0.135f * e),
+                Color(0xFFFF75D4).copy(alpha = 0.090f * e),
+                Color.Transparent
+            ),
+            start = Offset(w * (sweepCenter - 0.44f), -h * 0.36f),
+            end = Offset(w * (sweepCenter + 0.44f), h * 1.36f)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Plus
     )
-    Box(
-        Modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .height(8.dp)
-            .padding(horizontal = 10.dp)
-            .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0xFF63FFF0).copy(alpha = 0.16f * safeEnergy),
-                        Color(0xFFA794FF).copy(alpha = 0.14f * safeEnergy),
-                        Color(0xFFFF82D4).copy(alpha = 0.12f * safeEnergy),
-                        Color.Transparent
-                    )
-                )
-            )
+
+    val inset = 0.72.dp.toPx()
+    val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
+    val rimCorner = CornerRadius((h - inset * 2f) / 2f, (h - inset * 2f) / 2f)
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.16f + 0.10f * e),
+                Color(0xFFFF7AD6).copy(alpha = 0.09f * e),
+                Color(0xFFFFD86E).copy(alpha = 0.07f * e),
+                Color(0xFF6DFFF0).copy(alpha = 0.11f * e),
+                Color(0xFFA796FF).copy(alpha = 0.08f * e),
+                Color.White.copy(alpha = 0.10f + 0.05f * e)
+            ),
+            start = Offset(w * (edgeA - 0.55f), -h * 0.08f),
+            end = Offset(w * (edgeA + 0.55f), h * 1.08f)
+        ),
+        topLeft = Offset(inset, inset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(width = 1.10.dp.toPx() + 0.62.dp.toPx() * e),
+        blendMode = BlendMode.Screen
     )
-    Box(
-        Modifier
-            .align(Alignment.CenterStart)
-            .width(42.dp)
-            .height(110.dp)
-            .graphicsLayer {
-                translationX = sweepX
-                rotationZ = -18f
-                alpha = 0.24f + 0.60f * safeEnergy.coerceIn(0f, 1f)
-                scaleX = 0.82f + 0.20f * safeEnergy.coerceIn(0f, 1f)
-            }
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.White.copy(alpha = 0.28f * safeEnergy),
-                        Color(0xFFFFDA76).copy(alpha = 0.18f * safeEnergy),
-                        Color(0xFF6DFFF0).copy(alpha = 0.24f * safeEnergy),
-                        Color(0xFFFF72D8).copy(alpha = 0.16f * safeEnergy),
-                        Color.Transparent
-                    )
-                )
-            )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF68D0).copy(alpha = 0.30f * e),
+                Color.White.copy(alpha = (0.36f + 0.28f * stopEnergy) * e),
+                Color(0xFF6FFFF2).copy(alpha = 0.34f * e),
+                Color.Transparent
+            ),
+            start = Offset(w * (edgeB - 0.30f), h * -0.03f),
+            end = Offset(w * (edgeB + 0.26f), h * 0.30f)
+        ),
+        topLeft = Offset(inset * 1.45f, inset * 1.45f),
+        size = Size((w - inset * 2.90f).coerceAtLeast(1f), (h - inset * 2.90f).coerceAtLeast(1f)),
+        cornerRadius = rimCorner,
+        style = Stroke(width = 0.72.dp.toPx() + 0.42.dp.toPx() * e),
+        blendMode = BlendMode.Plus
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.040f + 0.072f * e + 0.060f * stopEnergy),
+                Color(0xFF7FFFF2).copy(alpha = 0.036f * e),
+                Color.Transparent
+            ),
+            center = Offset(w * (0.50f + 0.10f * drift), h * 0.36f),
+            radius = maxOf(w, h) * 0.42f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
     )
 }
