@@ -77,7 +77,7 @@ fun PrismaticCapsuleBottomBar(
     )
     val indexDelta = abs(animatedIndex - currentIndex.toFloat()).coerceIn(0f, 2f)
     val travelEnergy = (indexDelta / 0.84f).coerceIn(0f, 1f) * motion
-    val edgeSafeTravel = travelEnergy * (1f - 0.46f * edgeTarget)
+    val edgeSafeTravel = travelEnergy * (1f - 0.36f * edgeTarget)
     val travelDirection = sign(currentIndex.toFloat() - animatedIndex).coerceIn(-1f, 1f)
     val arrivalPulse = remember { Animatable(0f) }
     val prismPhase = remember { Animatable(0f) }
@@ -136,14 +136,14 @@ fun PrismaticCapsuleBottomBar(
         ) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
-            val maxStretch = 0.98f - 0.055f * edgeTarget
-            val stretch = 0.72f + 0.16f * edgeSafeTravel + 0.055f * pressEnergy - 0.026f * stopEnergy
+            val maxStretch = 0.995f - 0.040f * edgeTarget
+            val stretch = 0.72f + 0.205f * edgeSafeTravel + 0.082f * pressEnergy - 0.026f * stopEnergy
             val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, maxStretch)
             val selectorWidth = with(density) { selectorWidthPx.toDp() }
-            val leadPx = travelDirection * slotWidthPx * 0.024f * edgeSafeTravel
+            val leadPx = travelDirection * slotWidthPx * 0.026f * edgeSafeTravel
             val rawSelectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
             val selectorX = rawSelectorX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
-            val heightDp = 52.dp + 3.2.dp * stopEnergy - 5.2.dp * edgeSafeTravel - 3.0.dp * pressEnergy
+            val heightDp = 52.dp + 3.2.dp * stopEnergy - 6.5.dp * edgeSafeTravel - 4.2.dp * pressEnergy
             val selectorShape = RoundedCornerShape(999.dp)
             val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
@@ -154,9 +154,9 @@ fun PrismaticCapsuleBottomBar(
                     .height(heightDp)
                     .graphicsLayer {
                         translationX = selectorX
-                        translationY = 1.25f * pressEnergy - 2.35f * edgeSafeTravel - 1.00f * stopEnergy
-                        scaleX = 1f + 0.082f * edgeSafeTravel + 0.036f * pressEnergy - 0.022f * stopEnergy
-                        scaleY = 1f - 0.090f * edgeSafeTravel - 0.052f * pressEnergy + 0.060f * stopEnergy
+                        translationY = 1.45f * pressEnergy - 2.65f * edgeSafeTravel - 1.00f * stopEnergy
+                        scaleX = 1f + 0.128f * edgeSafeTravel + 0.058f * pressEnergy - 0.022f * stopEnergy
+                        scaleY = 1f - 0.136f * edgeSafeTravel - 0.074f * pressEnergy + 0.060f * stopEnergy
                         shadowElevation = 0.24f + 0.42f * activeEnergy.coerceIn(0f, 1f)
                     }
                     .clip(selectorShape)
