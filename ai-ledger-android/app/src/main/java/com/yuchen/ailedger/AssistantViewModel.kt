@@ -23,6 +23,7 @@ import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
@@ -177,6 +178,7 @@ class AssistantViewModel(
     fun updateBackdropDebugParams(block: (BackdropDebugParams) -> BackdropDebugParams) { setBackdropDebugParams(block(uiState.backdropParams)) }
     fun setGlassBorderStyle(style: GlassBorderStyle) { uiState = uiState.copy(glassBorderStyle = style) }
     fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) { setGlassBorderStyle(block(uiState.glassBorderStyle)) }
+    fun setModelCardGlassStyle(style: ModelCardGlassStyle) { uiState = uiState.copy(modelCardGlassStyle = style) }
 
     fun setRainbowPrismStyle(style: RainbowPrismStyle) {
         val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
