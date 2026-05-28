@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
@@ -112,10 +113,26 @@ fun PrismaticCapsuleBottomBar(
         glassIntensity = glassIntensity * 1.02f,
         motionIntensity = motionIntensity,
         radius = 999,
-        modifier = modifier.fillMaxWidth().height(72.dp),
+        modifier = modifier
+            .zIndex(300f)
+            .fillMaxWidth()
+            .height(72.dp),
         role = GlassRole.Nav
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 7.dp)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxSize()
+                .bottomNavBasePrismOptics(
+                    phase = phase,
+                    animatedIndex = animatedIndex,
+                    tabCount = tabs.size,
+                    edgeSeed = edgeSeed,
+                    travelEnergy = travelEnergy,
+                    pressEnergy = pressEnergy,
+                    stopEnergy = stopEnergy
+                )
+                .padding(horizontal = 8.dp, vertical = 7.dp)
+        ) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
             val stretch = 0.72f + 0.23f * travelEnergy + 0.08f * pressEnergy - 0.04f * stopEnergy
@@ -222,6 +239,85 @@ fun PrismaticCapsuleBottomBar(
             }
         }
     }
+}
+
+private fun Modifier.bottomNavBasePrismOptics(
+    phase: Float,
+    animatedIndex: Float,
+    tabCount: Int,
+    edgeSeed: Float,
+    travelEnergy: Float,
+    pressEnergy: Float,
+    stopEnergy: Float
+): Modifier = drawWithContent {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val count = tabCount.coerceAtLeast(1)
+    val slot = w / count
+    val selectorCenterX = slot * (animatedIndex + 0.5f).coerceIn(0f, count.toFloat())
+    val corner = CornerRadius(h / 2f, h / 2f)
+    val energy = (0.30f + travelEnergy * 0.48f + pressEnergy * 0.22f + stopEnergy * 0.60f).coerceIn(0f, 1.32f)
+    val edgePhase = ((sin((phase * 0.64f + edgeSeed) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
+    val rimCenter = w * (0.12f + 0.76f * edgePhase)
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.020f + 0.034f * energy),
+                Color(0xFFFF7FD8).copy(alpha = 0.028f * energy),
+                Color(0xFF6EFFF0).copy(alpha = 0.034f * energy),
+                Color.Transparent
+            ),
+            center = Offset(selectorCenterX, h * 0.48f),
+            radius = slot * (1.14f + 0.38f * energy)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.048f + 0.042f * energy),
+                Color(0xFFFFD872).copy(alpha = 0.028f * energy),
+                Color(0xFF76FFF2).copy(alpha = 0.048f * energy),
+                Color.Transparent
+            ),
+            start = Offset(selectorCenterX - slot * 0.58f, 0f),
+            end = Offset(selectorCenterX + slot * 0.58f, h)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+
+    drawContent()
+
+    val inset = 1.0.dp.toPx()
+    val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
+    val rimCorner = CornerRadius((h - inset * 2f) / 2f, (h - inset * 2f) / 2f)
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF7AD6).copy(alpha = 0.070f * energy),
+                Color.White.copy(alpha = 0.102f + 0.060f * stopEnergy),
+                Color(0xFF6DFFF0).copy(alpha = 0.092f * energy),
+                Color.Transparent
+            ),
+            start = Offset(rimCenter - slot * 0.70f, 0f),
+            end = Offset(rimCenter + slot * 0.70f, h)
+        ),
+        topLeft = Offset(inset, inset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(width = 0.72.dp.toPx() + 0.28.dp.toPx() * energy),
+        blendMode = BlendMode.Plus
+    )
 }
 
 private fun Modifier.bottomSliderPrismOptics(
