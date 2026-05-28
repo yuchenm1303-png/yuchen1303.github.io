@@ -23,8 +23,8 @@ class ChatBubbleLayerState {
         val nextRoot = coordinates.boundsInRoot().topLeft
         if (abs(nextRoot.x - rootInWindow.x) > 0.5f || abs(nextRoot.y - rootInWindow.y) > 0.5f) {
             rootInWindow = nextRoot
-            // Do not translate cached bubble rects here. Any visible bubble will report its fresh
-            // bounds through onGloballyPositioned; stale off-screen bubbles are removed on dispose.
+            // Visible bubbles will report fresh bounds through onGloballyPositioned.
+            // Off-screen bubbles are removed by DisposableEffect in the LazyColumn item.
         }
     }
 
@@ -110,7 +110,11 @@ fun ChatBubbleMaterialLayer(
             val intersectsViewport = r.right > 0f && r.left < viewportWidth && r.bottom > 0f && r.top < viewportHeight
             if (intersectsViewport && r.width > 1f && r.height > 1f) {
                 val sending = item.status == MessageStatus.Sending && !item.fromUser
-                val itemPhase = ((phase * if (sending) 2.85f else item.speedFactor) + item.phaseOffset) % 1f
+                val itemPhase = if (sending) {
+                    ((phase * 3f) + item.phaseOffset) % 1f
+                } else {
+                    (phase + item.phaseOffset) % 1f
+                }
                 drawChatBubblePrismMaterial(
                     rect = r,
                     phase = itemPhase,
