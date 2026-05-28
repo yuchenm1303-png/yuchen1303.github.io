@@ -23,7 +23,7 @@ class ChatBubbleLayerState {
         val nextRoot = coordinates.boundsInRoot().topLeft
         if (abs(nextRoot.x - rootInWindow.x) > 0.5f || abs(nextRoot.y - rootInWindow.y) > 0.5f) {
             rootInWindow = nextRoot
-            // Visible bubbles will report fresh bounds through onGloballyPositioned.
+            // Visible bubbles report fresh bounds through onGloballyPositioned.
             // Off-screen bubbles are removed by DisposableEffect in the LazyColumn item.
         }
     }
@@ -65,6 +65,14 @@ class ChatBubbleLayerState {
         }
     }
 
+    fun updateBubbleAppearance(id: String, appear: Float) {
+        val current = bubbles[id] ?: return
+        val next = appear.coerceIn(0f, 1.18f)
+        if (abs(current.appear - next) > 0.001f) {
+            bubbles[id] = current.copy(appear = next)
+        }
+    }
+
     fun removeBubble(id: String) {
         bubbles.remove(id)
     }
@@ -90,6 +98,42 @@ data class ChatBubbleLayerItem(
     val radiusDp: Int
 )
 
+@Stable
+data class ChatBubbleVisualTransform(
+    val alpha: Float,
+    val scaleX: Float,
+    val scaleY: Float,
+    val translationX: Float,
+    val translationY: Float,
+    val originX: Float,
+    val originY: Float
+)
+
+fun chatBubbleVisualTransform(appear: Float, fromUser: Boolean): ChatBubbleVisualTransform {
+    val raw = appear.coerceIn(0f, 1.18f)
+    val settled = raw.coerceIn(0f, 1f)
+    val overshoot = ((raw - 1f) / 0.18f).coerceIn(0f, 1f)
+    return ChatBubbleVisualTransform(
+        alpha = settled,
+        scaleX = 0.74f + settled * 0.26f + overshoot * 0.038f,
+        scaleY = 0.62f + settled * 0.38f - overshoot * 0.030f,
+        translationX = (1f - settled) * if (fromUser) 12f else -12f,
+        translationY = (1f - settled) * 14f,
+        originX = if (fromUser) 0.96f else 0.04f,
+        originY = if (fromUser) 0.82f else 0.22f
+    )
+}
+
+private fun Rect.transformedBy(transform: ChatBubbleVisualTransform): Rect {
+    val pivotX = left + width * transform.originX
+    val pivotY = top + height * transform.originY
+    val nextLeft = pivotX + (left - pivotX) * transform.scaleX + transform.translationX
+    val nextTop = pivotY + (top - pivotY) * transform.scaleY + transform.translationY
+    val nextRight = pivotX + (right - pivotX) * transform.scaleX + transform.translationX
+    val nextBottom = pivotY + (bottom - pivotY) * transform.scaleY + transform.translationY
+    return Rect(nextLeft, nextTop, nextRight, nextBottom)
+}
+
 @Composable
 fun rememberChatBubbleLayerState(): ChatBubbleLayerState = remember { ChatBubbleLayerState() }
 
@@ -106,7 +150,8 @@ fun ChatBubbleMaterialLayer(
         val viewportWidth = size.width
         val viewportHeight = size.height
         layerState.items().forEach { item ->
-            val r = item.rect
+            val transform = chatBubbleVisualTransform(item.appear, item.fromUser)
+            val r = item.rect.transformedBy(transform)
             val intersectsViewport = r.right > 0f && r.left < viewportWidth && r.bottom > 0f && r.top < viewportHeight
             if (intersectsViewport && r.width > 1f && r.height > 1f) {
                 val sending = item.status == MessageStatus.Sending && !item.fromUser
@@ -123,7 +168,7 @@ fun ChatBubbleMaterialLayer(
                     failed = item.status == MessageStatus.Failed,
                     motionIntensity = motionIntensity,
                     radiusDp = item.radiusDp,
-                    layerAlpha = item.appear
+                    layerAlpha = transform.alpha
                 )
             }
         }
