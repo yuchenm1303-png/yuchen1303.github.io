@@ -16,9 +16,6 @@ tasks.register('patchAssistantChatBubblePolish') {
                 text = text.replace('import androidx.compose.runtime.State\n', 'import androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
             }
         }
-        if (!text.contains('import androidx.compose.ui.layout.onGloballyPositioned')) {
-            text = text.replace('import androidx.compose.ui.graphics.graphicsLayer\n', 'import androidx.compose.ui.graphics.graphicsLayer\nimport androidx.compose.ui.layout.onGloballyPositioned\n')
-        }
 
         def oldClock = '''    val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size, state.isSending) {
@@ -88,6 +85,8 @@ tasks.register('patchAssistantChatBubblePolish') {
                 ) {
                     ChatBubbleMaterialLayer(
                         layerState = bubbleLayerState,
+                        listState = listState,
+                        messages = state.messages,
                         phase = chatPhase.value,
                         motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
@@ -107,10 +106,10 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace(oldList, newList)
         } else if (text.contains(compactList)) {
             text = text.replace(compactList, newList)
-        } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('AnimatedMessageBubbleV2(message, state, chatPhase, bubbleLayerState)')) {
-            println('Parent chat bubble layer list already patched.')
+        } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('listState = listState') && text.contains('messages = state.messages')) {
+            println('LazyListState-driven parent chat bubble layer list already patched.')
         } else {
-            throw new GradleException('Chat list block not found for parent layer patch.')
+            throw new GradleException('Chat list block not found for LazyListState parent layer patch.')
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
@@ -187,7 +186,17 @@ private fun MessageBubbleV2(
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
-    SideEffect { bubbleLayerState.updateBubbleAppearance(message.id, appear) }
+    SideEffect {
+        bubbleLayerState.updateBubbleVisual(
+            id = message.id,
+            fromUser = fromUser,
+            status = message.status,
+            appear = appear,
+            phaseOffset = phaseOffset,
+            speedFactor = speedFactor,
+            radiusDp = bubbleRadius
+        )
+    }
     DisposableEffect(message.id) {
         onDispose { bubbleLayerState.removeBubble(message.id) }
     }
@@ -204,18 +213,6 @@ private fun MessageBubbleV2(
                     translationY = visual.translationY
                 }
                 .clip(RoundedCornerShape(bubbleRadius.dp))
-                .onGloballyPositioned {
-                    bubbleLayerState.updateBubble(
-                        id = message.id,
-                        coordinates = it,
-                        fromUser = fromUser,
-                        status = message.status,
-                        appear = appear,
-                        phaseOffset = phaseOffset,
-                        speedFactor = speedFactor,
-                        radiusDp = bubbleRadius
-                    )
-                }
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (sending) {
@@ -271,7 +268,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied parent-layer chat bubble patch with shared visual transform.')
+        println('Applied LazyListState-driven parent chat bubble layer patch.')
     }
 }
 
