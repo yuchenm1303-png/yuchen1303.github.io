@@ -159,19 +159,16 @@ internal fun UnifiedParentModelStackSelector(
 
                 val pressAnim = remember(model.id) { Animatable(0f) }
                 val lensAnim = remember(model.id) { Animatable(0f) }
-                val releaseSweep = remember(model.id) { Animatable(0f) }
                 var pressCenter by remember(model.id) { mutableStateOf(Offset(0.50f, 0.50f)) }
                 var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
 
                 val pressRaw = pressAnim.value.coerceIn(0f, 1.16f)
                 val lensRaw = lensAnim.value.coerceIn(0f, 1.12f)
                 val pressProgress = unifiedModelStackSmooth(pressRaw.coerceIn(0f, 1f))
-                val sweepProgress = releaseSweep.value.coerceIn(0f, 1.30f)
-                val rebound = unifiedModelStackSmooth(((sweepProgress - 0.62f) / 0.58f).coerceIn(0f, 1f)) * (1f - pressProgress)
                 val pressElasticity = 0.88f
-                val pressScaleX = 1f + pressProgress * 0.018f * pressElasticity - rebound * 0.004f * pressElasticity
-                val pressScaleY = 1f - pressProgress * 0.026f * pressElasticity + rebound * 0.010f * pressElasticity
-                val pressShiftY = pressProgress * 1.70f * pressElasticity - rebound * 0.62f * pressElasticity
+                val pressScaleX = 1f + pressProgress * 0.018f * pressElasticity
+                val pressScaleY = 1f - pressProgress * 0.026f * pressElasticity
+                val pressShiftY = pressProgress * 1.70f * pressElasticity
 
                 fun updatePressCenter(position: Offset) {
                     pressCenter = Offset(
@@ -207,9 +204,7 @@ internal fun UnifiedParentModelStackSelector(
                         stackEnergy = energy,
                         press = pressRaw,
                         lens = lensRaw,
-                        sweep = sweepProgress,
-                        expansion = cardProgress.coerceIn(0f, 1f),
-                        pressCenter = pressCenter
+                        expansion = cardProgress.coerceIn(0f, 1f)
                     )
                 )
 
@@ -246,11 +241,6 @@ internal fun UnifiedParentModelStackSelector(
                                         lensAnim.animateTo(0.24f, tween(130, easing = FastOutSlowInEasing))
                                         lensAnim.animateTo(0.56f, tween(290, easing = FastOutSlowInEasing))
                                     }
-                                    scope.launch {
-                                        releaseSweep.stop()
-                                        releaseSweep.snapTo(0f)
-                                        releaseSweep.animateTo(0.58f, tween(520, easing = FastOutSlowInEasing))
-                                    }
                                 }
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -269,18 +259,12 @@ internal fun UnifiedParentModelStackSelector(
                                     }
                                     scope.launch {
                                         pressAnim.stop()
-                                        pressAnim.animateTo(0f, tween(430, easing = FastOutSlowInEasing))
+                                        pressAnim.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
                                     }
                                     scope.launch {
                                         lensAnim.stop()
                                         lensAnim.animateTo(0.14f, tween(160, easing = FastOutSlowInEasing))
-                                        lensAnim.animateTo(0f, tween(500, easing = FastOutSlowInEasing))
-                                    }
-                                    scope.launch {
-                                        releaseSweep.stop()
-                                        releaseSweep.animateTo(1.05f, tween(520, easing = FastOutSlowInEasing))
-                                        releaseSweep.animateTo(1.20f, tween(160, easing = FastOutSlowInEasing))
-                                        releaseSweep.snapTo(0f)
+                                        lensAnim.animateTo(0f, tween(420, easing = FastOutSlowInEasing))
                                     }
                                 }
                             }
@@ -303,9 +287,7 @@ private data class UnifiedModelCardVisual(
     val stackEnergy: Float,
     val press: Float,
     val lens: Float,
-    val sweep: Float,
-    val expansion: Float,
-    val pressCenter: Offset
+    val expansion: Float
 )
 
 @Composable
@@ -401,10 +383,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val bodySize = Size(v.width, v.height)
             val rimBleed = 3.2.dp.toPx()
             val bodyAlpha = energy * alpha
-            val pressCenter = Offset(
-                v.width * v.pressCenter.x.coerceIn(0f, 1f),
-                v.height * v.pressCenter.y.coerceIn(0f, 1f)
-            )
 
             val selectedRainbowAura = Brush.linearGradient(
                 listOf(
@@ -446,16 +424,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 center = Offset(v.width * 0.50f, v.height * 0.58f),
                 radius = maxSide * 0.78f
             )
-            val pressedLens = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.054f * press * bodyAlpha),
-                    Color(0xFFFF7BDA).copy(alpha = 0.026f * press * selectedPower * bodyAlpha),
-                    Color(0xFF8DFFF3).copy(alpha = 0.030f * press * bodyAlpha),
-                    Color.Transparent
-                ),
-                center = pressCenter,
-                radius = maxSide * (0.34f + 0.18f * press)
-            )
 
             withTransform({ translate(v.left, v.top) }) {
                 if (v.selected) {
@@ -470,9 +438,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 drawRoundRect(brush = bodyVeil, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(brush = surfaceClear, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
                 drawRoundRect(brush = cornerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-                if (press > 0.001f) {
-                    drawRoundRect(brush = pressedLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-                }
             }
         }
 
@@ -484,7 +449,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val selectedPower = if (v.selected) 1f else 0f
             val press = smooth(v.press.coerceIn(0f, 1f))
             val lens = smooth(v.lens.coerceIn(0f, 1f))
-            val sweep = smooth(v.sweep.coerceIn(0f, 1f))
             val maxSide = maxOf(v.width, v.height)
             val radius = minOf(v.height * 0.42f, 30.dp.toPx())
             val corner = CornerRadius(radius, radius)
@@ -493,12 +457,8 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val rimSize = Size((v.width - rimInset * 2f).coerceAtLeast(1f), (v.height - rimInset * 2f).coerceAtLeast(1f))
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
             val rimPower = energy * alpha
-            val selectedRim = (0.050f + selectedPower * 0.160f + press * 0.050f + lens * 0.020f) * rimPower
+            val selectedRim = (0.050f + selectedPower * 0.160f + lens * 0.020f) * rimPower
             val coolBias = 1f + selectedPower * 0.35f
-            val pressCenter = Offset(
-                v.width * v.pressCenter.x.coerceIn(0f, 1f),
-                v.height * v.pressCenter.y.coerceIn(0f, 1f)
-            )
 
             val outerRim = Brush.linearGradient(
                 listOf(
@@ -576,29 +536,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 center = Offset(v.width * 0.050f, v.height * 0.055f),
                 radius = maxSide * 0.18f
             )
-            val pressEdge = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.180f * press * rimPower),
-                    Color(0xFFFF7BDA).copy(alpha = 0.070f * press * selectedPower * rimPower),
-                    Color(0xFF8DFFF3).copy(alpha = 0.120f * press * rimPower),
-                    Color.Transparent
-                ),
-                center = pressCenter,
-                radius = maxSide * 0.36f
-            )
-            val sweepX = -0.18f + sweep * 1.38f
-            val releaseGlint = Brush.linearGradient(
-                listOf(
-                    Color.Transparent,
-                    Color(0xFF7DFFF0).copy(alpha = 0.095f * sweep * rimPower * coolBias),
-                    Color.White.copy(alpha = 0.230f * sweep * rimPower),
-                    Color(0xFFFF7BDA).copy(alpha = 0.074f * sweep * selectedPower * rimPower),
-                    Color(0xFFE9D8FF).copy(alpha = 0.064f * sweep * rimPower),
-                    Color.Transparent
-                ),
-                Offset(v.width * (sweepX - 0.15f), 0f),
-                Offset(v.width * (sweepX + 0.12f), v.height * 0.86f)
-            )
 
             withTransform({ translate(v.left, v.top) }) {
                 if (v.selected) {
@@ -624,12 +561,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 drawRoundRect(brush = innerDepth, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = bottomWeight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
                 drawRoundRect(brush = cornerCatch, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.08.dp.toPx()), blendMode = BlendMode.Screen)
-                if (sweep > 0.001f) {
-                    drawRoundRect(brush = releaseGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.86.dp.toPx()), blendMode = BlendMode.Plus)
-                }
-                if (press > 0.001f) {
-                    drawRoundRect(brush = pressEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.12.dp.toPx() + 0.30.dp.toPx() * press), blendMode = BlendMode.Screen)
-                }
             }
         }
 
