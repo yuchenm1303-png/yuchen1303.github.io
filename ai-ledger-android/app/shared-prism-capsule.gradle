@@ -3,32 +3,16 @@ tasks.register('patchSharedPrismCapsuleUsage') {
         def prism = file('src/main/java/com/yuchen/ailedger/ui/LightweightPrismCapsule.kt')
         def prismText = prism.getText('UTF-8')
         def prismDefaults = [
-            'val radius: Float = 32.4f,',
-            'val surfaceAlpha: Float = 0.050f,',
-            'val rimAlpha: Float = 0.78f,',
-            'val rimWidth: Float = 0.52f,',
-            'val topHighlight: Float = 0.075f,',
-            'val topHighlightHeight: Float = 0.16f,',
-            'val innerRimAlpha: Float = 0.45f,',
-            'val bottomDepth: Float = 0.018f,',
-            'val cornerCatchlight: Float = 0.42f,',
-            'val pressGlow: Float = 0.55f,',
-            'val pressEdgeBoost: Float = 0.70f,',
-            'val pressSweep: Float = 0.70f,',
-            'val pressDarken: Float = 0.22f,',
-            'val pressElasticity: Float = 1.20f,',
-            'val rainbowRimAlpha: Float = 0.70f,',
-            'val rainbowRimWidth: Float = 1.40f,',
-            'val rainbowPressEdge: Float = 0.80f,',
-            'val rainbowSweepAlpha: Float = 0.80f,',
-            'val rainbowCornerAlpha: Float = 0.38f,',
-            'val rainbowSaturation: Float = 1.00f'
+            radius: '32.4f', surfaceAlpha: '0.050f', rimAlpha: '0.78f', rimWidth: '0.52f',
+            topHighlight: '0.075f', topHighlightHeight: '0.16f', innerRimAlpha: '0.45f',
+            bottomDepth: '0.018f', cornerCatchlight: '0.42f', pressGlow: '0.55f',
+            pressEdgeBoost: '0.70f', pressSweep: '0.70f', pressDarken: '0.22f',
+            pressElasticity: '1.20f', rainbowRimAlpha: '0.70f', rainbowRimWidth: '1.40f',
+            rainbowPressEdge: '0.80f', rainbowSweepAlpha: '0.80f', rainbowCornerAlpha: '0.38f',
+            rainbowSaturation: '1.00f'
         ]
-        def defaultNames = ['radius','surfaceAlpha','rimAlpha','rimWidth','topHighlight','topHighlightHeight','innerRimAlpha','bottomDepth','cornerCatchlight','pressGlow','pressEdgeBoost','pressSweep','pressDarken','pressElasticity','rainbowRimAlpha','rainbowRimWidth','rainbowPressEdge','rainbowSweepAlpha','rainbowCornerAlpha','rainbowSaturation']
-        defaultNames.eachWithIndex { name, index ->
-            def line = prismDefaults[index]
-            def pattern = /val ${name}: Float = [0-9.]+f?,?/
-            prismText = prismText.replaceFirst(pattern, line)
+        prismDefaults.each { name, value ->
+            prismText = prismText.replaceFirst(/val ${name}: Float = [0-9.]+f?,?/, "val ${name}: Float = ${value}${name == 'rainbowSaturation' ? '' : ','}")
         }
         prism.setText(prismText, 'UTF-8')
         println('Synced shared prism capsule defaults to brighter mist baseline, stronger rim and fixed corner highlights.')
@@ -53,6 +37,58 @@ tasks.register('patchSharedPrismCapsuleUsage') {
         def unified = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
         if (unified.exists()) {
             def unifiedText = unified.getText('UTF-8')
+
+            unifiedText = unifiedText.replace(
+                'val expandedX = when (index) { 1, 3 -> halfWidth + gap else -> 0.dp }',
+                'val column = index % 2\n                val row = index / 2\n                val expandedX = if (column == 1) halfWidth + gap else 0.dp'
+            )
+            unifiedText = unifiedText.replace(
+                'val expandedY = when (index) { 2, 3 -> rowStep; 4 -> rowStep * 2f; else -> 0.dp }',
+                'val expandedY = rowStep * row.toFloat()'
+            )
+            unifiedText = unifiedText.replace(
+                'val expandedWidth = if (index == 4) parentMaxWidth else halfWidth',
+                'val expandedWidth = halfWidth'
+            )
+            unifiedText = unifiedText.replace(
+                'val staggerRank = when (index) { 0 -> 0; 2 -> 1; 1 -> 2; 3 -> 3; else -> 4 }',
+                'val staggerRank = index'
+            )
+            unifiedText = unifiedText.replace(
+                'if (expanded) onSelected(model) else onToggleExpanded()',
+                '''if (expanded) {
+                                        onSelected(model)
+                                        if (model == ChatModel.Auto) onToggleExpanded()
+                                    } else {
+                                        onToggleExpanded()
+                                    }'''
+            )
+            if (!unifiedText.contains('model-stack-blank-collapse-layer')) {
+                unifiedText = unifiedText.replace(
+                    '''        ) {
+            models.forEachIndexed { index, model ->''',
+                    '''        ) {
+            // model-stack-blank-collapse-layer
+            if (expanded) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(state.isSending, expanded) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                                if (!state.isSending) onToggleExpanded()
+                            }
+                        }
+                )
+            }
+            models.forEachIndexed { index, model ->'''
+                )
+            }
+
             def oldSurface = '''            val surface = Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
@@ -139,11 +175,36 @@ tasks.register('patchSharedPrismCapsuleUsage') {
                 )
             }
             unified.setText(unifiedText, 'UTF-8')
-            println('Synced unified home model card renderer with mist fill and fixed corner highlights.')
+            println('Synced unified home model card renderer, equal two-column layout and blank-area collapse behavior.')
         }
 
         def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
         def text = home.getText('UTF-8')
+
+        if (!text.contains('val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)')) {
+            text = text.replaceFirst(
+                /val panelHeight by animateDpAsState\(\n\s*targetValue = if \(expanded\) 224\.dp else 58\.dp,/, 
+                '''val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
+    val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
+    val panelHeight by animateDpAsState(
+        targetValue = if (expanded) expandedPanelHeight else 58.dp,'''
+            )
+        }
+        text = text.replace(
+            '''        onSelected = { model ->
+            if (!state.isSending) {
+                onModelSelected(model)
+                expanded = false
+            }
+        }
+''',
+            '''        onSelected = { model ->
+            if (!state.isSending) {
+                onModelSelected(model)
+            }
+        }
+'''
+        )
 
         def selectorStart = text.indexOf('@Composable\nprivate fun ModelStackSelector(')
         def selectorEnd = text.indexOf('@Composable\nprivate fun ModelStackCard(', selectorStart)
@@ -168,7 +229,6 @@ private fun ModelStackSelector(
 '''
             if (!text.substring(selectorStart, selectorEnd).contains('UnifiedParentModelStackSelector(')) {
                 text = text.substring(0, selectorStart) + newSelectorBlock + text.substring(selectorEnd)
-                home.setText(text, 'UTF-8')
                 println('Replaced model stack selector with parent-level unified prism drawing.')
             } else {
                 println('Model stack selector already uses parent-level unified prism drawing.')
@@ -178,6 +238,7 @@ private fun ModelStackSelector(
         } else {
             throw new GradleException('ModelStackSelector block not found for parent-level prism drawing patch.')
         }
+        home.setText(text, 'UTF-8')
 
         labText = lab.getText('UTF-8')
         def previewStart = labText.indexOf('@Composable\nprivate fun LightweightGlassPreview(')
