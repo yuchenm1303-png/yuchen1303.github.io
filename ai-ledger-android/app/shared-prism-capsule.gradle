@@ -1,256 +1,38 @@
 tasks.register('patchSharedPrismCapsuleUsage') {
     doLast {
         def prism = file('src/main/java/com/yuchen/ailedger/ui/LightweightPrismCapsule.kt')
-        def prismText = prism.getText('UTF-8')
-        def prismDefaults = [
-            radius: '32.4f', surfaceAlpha: '0.050f', rimAlpha: '0.78f', rimWidth: '0.52f',
-            topHighlight: '0.075f', topHighlightHeight: '0.16f', innerRimAlpha: '0.45f',
-            bottomDepth: '0.018f', cornerCatchlight: '0.42f', pressGlow: '0.55f',
-            pressEdgeBoost: '0.70f', pressSweep: '0.70f', pressDarken: '0.22f',
-            pressElasticity: '1.20f', rainbowRimAlpha: '0.70f', rainbowRimWidth: '1.40f',
-            rainbowPressEdge: '0.80f', rainbowSweepAlpha: '0.80f', rainbowCornerAlpha: '0.38f',
-            rainbowSaturation: '1.00f'
-        ]
-        prismDefaults.each { name, value ->
-            prismText = prismText.replaceFirst(/val ${name}: Float = [0-9.]+f?,?/, "val ${name}: Float = ${value}${name == 'rainbowSaturation' ? '' : ','}")
+        if (prism.exists()) {
+            def prismText = prism.getText('UTF-8')
+            def prismDefaults = [
+                radius: '32.4f', surfaceAlpha: '0.050f', rimAlpha: '0.78f', rimWidth: '0.52f',
+                topHighlight: '0.075f', topHighlightHeight: '0.16f', innerRimAlpha: '0.45f',
+                bottomDepth: '0.018f', cornerCatchlight: '0.42f', pressGlow: '0.55f',
+                pressEdgeBoost: '0.70f', pressSweep: '0.70f', pressDarken: '0.22f',
+                pressElasticity: '1.20f', rainbowRimAlpha: '0.70f', rainbowRimWidth: '1.40f',
+                rainbowPressEdge: '0.80f', rainbowSweepAlpha: '0.80f', rainbowCornerAlpha: '0.38f',
+                rainbowSaturation: '1.00f'
+            ]
+            prismDefaults.each { name, value ->
+                prismText = prismText.replaceFirst(/val ${name}: Float = [0-9.]+f?,?/, "val ${name}: Float = ${value}${name == 'rainbowSaturation' ? '' : ','}")
+            }
+            prism.setText(prismText, 'UTF-8')
+            println('Synced shared prism capsule defaults when matching targets exist.')
+        } else {
+            println('LightweightPrismCapsule.kt not found; skipped shared prism defaults sync.')
         }
-        prism.setText(prismText, 'UTF-8')
-        println('Synced shared prism capsule defaults to brighter mist baseline, stronger rim and fixed corner highlights.')
 
         def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
-        def labText = lab.getText('UTF-8')
-        def labDefaults = [
-            radius: '32.4f', surfaceAlpha: '0.050f', rimAlpha: '0.78f', rimWidth: '0.52f',
-            topHighlight: '0.075f', topHighlightHeight: '0.16f', innerRimAlpha: '0.45f',
-            bottomDepth: '0.018f', cornerCatchlight: '0.42f', pressGlow: '0.55f',
-            pressEdgeBoost: '0.70f', pressSweep: '0.70f', pressDarken: '0.22f',
-            pressElasticity: '1.20f', rainbowRimAlpha: '0.70f', rainbowRimWidth: '1.40f',
-            rainbowPressEdge: '0.80f', rainbowSweepAlpha: '0.80f', rainbowCornerAlpha: '0.38f',
-            rainbowSaturation: '1.0f'
-        ]
-        labDefaults.each { name, value ->
-            labText = labText.replaceFirst(/var ${name} by rememberSaveable \{ mutableFloatStateOf\([0-9.]+f\) \}/, "var ${name} by rememberSaveable { mutableFloatStateOf(${value}) }")
-        }
-        lab.setText(labText, 'UTF-8')
-        println('Synced lightweight glass lab slider defaults to brighter mist baseline and fixed corner highlights.')
-
-        def unified = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
-        if (unified.exists()) {
-            def unifiedText = unified.getText('UTF-8')
-
-            unifiedText = unifiedText.replace(
-                'val expandedX = when (index) { 1, 3 -> halfWidth + gap else -> 0.dp }',
-                'val column = index % 2\n                val row = index / 2\n                val expandedX = if (column == 1) halfWidth + gap else 0.dp'
-            )
-            unifiedText = unifiedText.replace(
-                'val expandedY = when (index) { 2, 3 -> rowStep; 4 -> rowStep * 2f; else -> 0.dp }',
-                'val expandedY = rowStep * row.toFloat()'
-            )
-            unifiedText = unifiedText.replace(
-                'val expandedWidth = if (index == 4) parentMaxWidth else halfWidth',
-                'val expandedWidth = halfWidth'
-            )
-            unifiedText = unifiedText.replace(
-                'val staggerRank = when (index) { 0 -> 0; 2 -> 1; 1 -> 2; 3 -> 3; else -> 4 }',
-                'val staggerRank = index'
-            )
-            unifiedText = unifiedText.replace(
-                'if (expanded) onSelected(model) else onToggleExpanded()',
-                '''if (expanded) {
-                                        onSelected(model)
-                                        if (model == ChatModel.Auto) onToggleExpanded()
-                                    } else {
-                                        onToggleExpanded()
-                                    }'''
-            )
-            if (!unifiedText.contains('model-stack-blank-collapse-layer')) {
-                unifiedText = unifiedText.replace(
-                    '''        ) {
-            models.forEachIndexed { index, model ->''',
-                    '''        ) {
-            // model-stack-blank-collapse-layer
-            if (expanded) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .pointerInput(state.isSending, expanded) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    if (event.changes.none { it.pressed }) break
-                                }
-                                if (!state.isSending) onToggleExpanded()
-                            }
-                        }
-                )
-            }
-            models.forEachIndexed { index, model ->'''
-                )
-            }
-
-            def oldSurface = '''            val surface = Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
-                    Color(0xFFCFEAFF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.28f),
-                    Color.Transparent,
-                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.42f)
-                ),
-                0f,
-                v.height
-            )
-'''
-            def newSurface = '''            val surface = Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
-                    Color(0xFFD9F1FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.52f),
-                    Color(0xFFEAF7FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.20f),
-                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.36f)
-                ),
-                0f,
-                v.height
-            )
-            val centerMist = Brush.radialGradient(
-                listOf(
-                    Color(0xFFEAF7FF).copy(alpha = (0.040f + surfaceAlpha * 0.70f).coerceIn(0f, 0.16f)),
-                    Color(0xFF9EDBFF).copy(alpha = (0.018f + surfaceAlpha * 0.22f).coerceIn(0f, 0.08f)),
-                    Color.Transparent
-                ),
-                Offset(v.width * 0.50f, v.height * 0.50f),
-                maxSide * 0.64f
-            )
-'''
-            if (unifiedText.contains(oldSurface)) unifiedText = unifiedText.replace(oldSurface, newSurface)
-            if (!unifiedText.contains('drawRoundRect(brush = centerMist')) {
-                unifiedText = unifiedText.replace(
-                    '                drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)',
-                    '                drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = centerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)'
-                )
-            }
-            unifiedText = unifiedText.replace(
-                'spec.rimAlpha * energy * alpha * 0.18f + spec.topHighlight * energy * alpha * 0.20f',
-                'spec.rimAlpha * energy * alpha * 0.26f + spec.topHighlight * energy * alpha * 0.24f'
-            ).replace(
-                'spec.topHighlight * energy * alpha * 0.34f',
-                'spec.rimAlpha * energy * alpha * 0.30f + spec.topHighlight * energy * alpha * 0.36f'
-            ).replace(
-                'spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f * energy * alpha',
-                'spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.70f * energy * alpha'
-            ).replace(
-                'spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f * energy * alpha',
-                'spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.22f * energy * alpha'
-            ).replace(
-                'spec.cornerCatchlight.coerceIn(0f, 0.5f) * energy * alpha',
-                'spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.90f * energy * alpha'
-            ).replace(
-                'spec.cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f * energy * alpha',
-                'spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.32f * energy * alpha'
-            )
-            def cornerBlock = '''            val rainbowCorner = Brush.radialGradient(
-'''
-            def extraCorners = '''            val rightCornerLight = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.58f * energy * alpha),
-                    Color(0xFFB7F7FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.22f * energy * alpha),
-                    Color.Transparent
-                ),
-                Offset(v.width * 0.94f, v.height * 0.10f),
-                maxSide * 0.24f
-            )
-            val lowerCornerLight = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.28f * energy * alpha),
-                    Color(0xFFC7E9FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.12f * energy * alpha),
-                    Color.Transparent
-                ),
-                Offset(v.width * 0.92f, v.height * 0.88f),
-                maxSide * 0.26f
-            )
-'''
-            if (!unifiedText.contains('val rightCornerLight = Brush.radialGradient')) unifiedText = unifiedText.replace(cornerBlock, extraCorners + cornerBlock)
-            if (!unifiedText.contains('drawRoundRect(brush = rightCornerLight')) {
-                unifiedText = unifiedText.replace(
-                    '                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.68.dp.toPx()), blendMode = BlendMode.Screen)',
-                    '                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.86.dp.toPx()), blendMode = BlendMode.Screen)\n                drawRoundRect(brush = rightCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx()), blendMode = BlendMode.Screen)\n                drawRoundRect(brush = lowerCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.62.dp.toPx()), blendMode = BlendMode.Screen)'
-                )
-            }
-            unified.setText(unifiedText, 'UTF-8')
-            println('Synced unified home model card renderer, equal two-column layout and blank-area collapse behavior.')
-        }
-
-        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
-        def text = home.getText('UTF-8')
-
-        if (!text.contains('val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)')) {
-            text = text.replaceFirst(
-                /val panelHeight by animateDpAsState\(\n\s*targetValue = if \(expanded\) 224\.dp else 58\.dp,/, 
-                '''val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
-    val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
-    val panelHeight by animateDpAsState(
-        targetValue = if (expanded) expandedPanelHeight else 58.dp,'''
-            )
-        }
-        text = text.replace(
-            '''        onSelected = { model ->
-            if (!state.isSending) {
-                onModelSelected(model)
-                expanded = false
-            }
-        }
-''',
-            '''        onSelected = { model ->
-            if (!state.isSending) {
-                onModelSelected(model)
-            }
-        }
-'''
-        )
-
-        def selectorStart = text.indexOf('@Composable\nprivate fun ModelStackSelector(')
-        def selectorEnd = text.indexOf('@Composable\nprivate fun ModelStackCard(', selectorStart)
-        if (selectorStart >= 0 && selectorEnd > selectorStart) {
-            def newSelectorBlock = '''@Composable
-private fun ModelStackSelector(
-    state: AssistantUiState,
-    expanded: Boolean,
-    modifier: Modifier,
-    onToggleExpanded: () -> Unit,
-    onSelected: (ChatModel) -> Unit
-) {
-    UnifiedParentModelStackSelector(
-        state = state,
-        expanded = expanded,
-        modifier = modifier,
-        onToggleExpanded = onToggleExpanded,
-        onSelected = onSelected
-    )
-}
-
-'''
-            if (!text.substring(selectorStart, selectorEnd).contains('UnifiedParentModelStackSelector(')) {
-                text = text.substring(0, selectorStart) + newSelectorBlock + text.substring(selectorEnd)
-                println('Replaced model stack selector with parent-level unified prism drawing.')
-            } else {
-                println('Model stack selector already uses parent-level unified prism drawing.')
-            }
-        } else if (text.contains('UnifiedParentModelStackSelector(')) {
-            println('Model stack selector already patched.')
-        } else {
-            throw new GradleException('ModelStackSelector block not found for parent-level prism drawing patch.')
-        }
-        home.setText(text, 'UTF-8')
-
-        labText = lab.getText('UTF-8')
-        def previewStart = labText.indexOf('@Composable\nprivate fun LightweightGlassPreview(')
-        def previewEnd = labText.indexOf('private fun Modifier.lightweightGlassLabSurface', previewStart)
-        if (previewStart < 0 || previewEnd < previewStart) {
-            if (labText.contains('LightweightPrismCapsuleLabPreview(')) {
+        if (lab.exists()) {
+            def labText = lab.getText('UTF-8')
+            if (labText.contains('ModelCardGlassLab(')) {
+                println('GlassDebugFloatingPanel now uses the model-card lab panel; skipped legacy lightweight preview patch.')
+            } else if (labText.contains('LightweightPrismCapsuleLabPreview(')) {
                 println('Lightweight glass lab already uses shared prism capsule preview.')
             } else {
-                throw new GradleException('LightweightGlassPreview block not found for shared prism capsule patch.')
-            }
-        } else {
-            def newPreviewBlock = '''@Composable
+                def previewStart = labText.indexOf('@Composable\nprivate fun LightweightGlassPreview(')
+                def previewEnd = labText.indexOf('private fun Modifier.lightweightGlassLabSurface', previewStart)
+                if (previewStart >= 0 && previewEnd > previewStart) {
+                    def newPreviewBlock = '''@Composable
 private fun LightweightGlassPreview(
     radius: Float,
     surfaceAlpha: Float,
@@ -299,9 +81,15 @@ private fun LightweightGlassPreview(
 }
 
 '''
-            labText = labText.substring(0, previewStart) + newPreviewBlock + labText.substring(previewEnd)
-            lab.setText(labText, 'UTF-8')
-            println('Replaced lab preview with shared prism capsule sample.')
+                    labText = labText.substring(0, previewStart) + newPreviewBlock + labText.substring(previewEnd)
+                    lab.setText(labText, 'UTF-8')
+                    println('Replaced legacy lightweight preview with shared prism capsule sample.')
+                } else {
+                    println('Legacy LightweightGlassPreview block not present; skipped safely.')
+                }
+            }
+        } else {
+            println('GlassDebugFloatingPanel.kt not found; skipped lab preview patch.')
         }
     }
 }
