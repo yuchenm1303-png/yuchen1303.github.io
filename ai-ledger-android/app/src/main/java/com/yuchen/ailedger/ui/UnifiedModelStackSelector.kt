@@ -246,7 +246,7 @@ internal fun UnifiedParentModelStackSelector(
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 updatePressCenter(down.position)
                                 if (!state.isSending) {
-                                    bandCount = if (Random.nextFloat() < 0.62f) 1 else 2
+                                    bandCount = 1
                                     bandSeedA = Random.nextFloat()
                                     bandSeedB = Random.nextFloat()
                                     bandAngleA = Random.nextFloat()
