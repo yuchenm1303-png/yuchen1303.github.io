@@ -107,16 +107,24 @@ fun PrismaticCapsuleBottomBar(
         label = "bottom-nav-prism-phase-value"
     )
     val stopEnergy = arrivalPulse.value.coerceIn(0f, 1f) * motionIntensity.coerceIn(0f, 1f)
+    val baseHeight = 72.dp + 3.dp * stopEnergy - 3.dp * travelEnergy
 
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity * 1.02f,
+        glassIntensity = glassIntensity * (1.02f + 0.06f * travelEnergy + 0.04f * stopEnergy),
         motionIntensity = motionIntensity,
         radius = 999,
         modifier = modifier
             .zIndex(300f)
             .fillMaxWidth()
-            .height(72.dp),
+            .height(baseHeight)
+            .graphicsLayer {
+                translationX = travelDirection * 3.6f * travelEnergy
+                translationY = 1.2f * pressEnergy - 2.8f * stopEnergy + 1.4f * travelEnergy
+                scaleX = 1f + 0.030f * travelEnergy + 0.010f * pressEnergy - 0.012f * stopEnergy
+                scaleY = 1f - 0.050f * travelEnergy - 0.018f * pressEnergy + 0.072f * stopEnergy
+                shadowElevation = 0.36f + 0.72f * (travelEnergy + pressEnergy + stopEnergy).coerceIn(0f, 1f)
+            },
         role = GlassRole.Nav
     ) {
         BoxWithConstraints(
@@ -129,7 +137,8 @@ fun PrismaticCapsuleBottomBar(
                     edgeSeed = edgeSeed,
                     travelEnergy = travelEnergy,
                     pressEnergy = pressEnergy,
-                    stopEnergy = stopEnergy
+                    stopEnergy = stopEnergy,
+                    travelDirection = travelDirection
                 )
                 .padding(horizontal = 8.dp, vertical = 7.dp)
         ) {
@@ -248,28 +257,30 @@ private fun Modifier.bottomNavBasePrismOptics(
     edgeSeed: Float,
     travelEnergy: Float,
     pressEnergy: Float,
-    stopEnergy: Float
+    stopEnergy: Float,
+    travelDirection: Float
 ): Modifier = drawWithContent {
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val count = tabCount.coerceAtLeast(1)
     val slot = w / count
     val selectorCenterX = slot * (animatedIndex + 0.5f).coerceIn(0f, count.toFloat())
+    val baseLeadX = selectorCenterX + slot * travelDirection * 0.20f * travelEnergy
     val corner = CornerRadius(h / 2f, h / 2f)
-    val energy = (0.30f + travelEnergy * 0.48f + pressEnergy * 0.22f + stopEnergy * 0.60f).coerceIn(0f, 1.32f)
+    val energy = (0.30f + travelEnergy * 0.52f + pressEnergy * 0.24f + stopEnergy * 0.72f).coerceIn(0f, 1.42f)
     val edgePhase = ((sin((phase * 0.64f + edgeSeed) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
     val rimCenter = w * (0.12f + 0.76f * edgePhase)
 
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.020f + 0.034f * energy),
-                Color(0xFFFF7FD8).copy(alpha = 0.028f * energy),
-                Color(0xFF6EFFF0).copy(alpha = 0.034f * energy),
+                Color.White.copy(alpha = 0.026f + 0.040f * energy),
+                Color(0xFFFF7FD8).copy(alpha = 0.036f * energy),
+                Color(0xFF6EFFF0).copy(alpha = 0.044f * energy),
                 Color.Transparent
             ),
-            center = Offset(selectorCenterX, h * 0.48f),
-            radius = slot * (1.14f + 0.38f * energy)
+            center = Offset(baseLeadX, h * (0.49f - 0.08f * travelEnergy + 0.06f * stopEnergy)),
+            radius = slot * (1.18f + 0.46f * energy)
         ),
         topLeft = Offset.Zero,
         size = Size(w, h),
@@ -281,13 +292,13 @@ private fun Modifier.bottomNavBasePrismOptics(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = 0.048f + 0.042f * energy),
-                Color(0xFFFFD872).copy(alpha = 0.028f * energy),
-                Color(0xFF76FFF2).copy(alpha = 0.048f * energy),
+                Color.White.copy(alpha = 0.056f + 0.050f * energy),
+                Color(0xFFFFD872).copy(alpha = 0.034f * energy),
+                Color(0xFF76FFF2).copy(alpha = 0.058f * energy),
                 Color.Transparent
             ),
-            start = Offset(selectorCenterX - slot * 0.58f, 0f),
-            end = Offset(selectorCenterX + slot * 0.58f, h)
+            start = Offset(baseLeadX - slot * (0.62f + 0.20f * travelEnergy), -h * 0.08f),
+            end = Offset(baseLeadX + slot * (0.62f + 0.20f * travelEnergy), h * 1.08f)
         ),
         topLeft = Offset.Zero,
         size = Size(w, h),
@@ -304,19 +315,34 @@ private fun Modifier.bottomNavBasePrismOptics(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color(0xFFFF7AD6).copy(alpha = 0.070f * energy),
-                Color.White.copy(alpha = 0.102f + 0.060f * stopEnergy),
-                Color(0xFF6DFFF0).copy(alpha = 0.092f * energy),
+                Color(0xFFFF7AD6).copy(alpha = 0.082f * energy),
+                Color.White.copy(alpha = 0.112f + 0.070f * stopEnergy),
+                Color(0xFF6DFFF0).copy(alpha = 0.110f * energy),
                 Color.Transparent
             ),
-            start = Offset(rimCenter - slot * 0.70f, 0f),
-            end = Offset(rimCenter + slot * 0.70f, h)
+            start = Offset(rimCenter - slot * (0.70f + 0.16f * travelEnergy), 0f),
+            end = Offset(rimCenter + slot * (0.70f + 0.16f * travelEnergy), h)
         ),
         topLeft = Offset(inset, inset),
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = 0.72.dp.toPx() + 0.28.dp.toPx() * energy),
+        style = Stroke(width = 0.72.dp.toPx() + 0.34.dp.toPx() * energy + 0.20.dp.toPx() * stopEnergy),
         blendMode = BlendMode.Plus
+    )
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF010615).copy(alpha = 0.020f * travelEnergy),
+                Color.Transparent
+            ),
+            center = Offset(baseLeadX, h * 1.12f),
+            radius = slot * 0.86f
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Multiply
     )
 }
 
