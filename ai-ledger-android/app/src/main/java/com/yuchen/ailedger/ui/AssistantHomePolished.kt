@@ -395,43 +395,46 @@ private fun LightweightModelCapsule(
     val pressed by interactionSource.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(
         targetValue = if (pressed && !state.isSending) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.50f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessLow),
         label = "model-prism-glass-press-${model.id}"
     )
     val selectedEnergy = if (selected) 1f else 0f
     val stackSafeEnergy = maxOf(stackEnergy, 0.44f)
-    val sweepEnergy = (stopPulse * 0.95f + moving * 0.26f + pressProgress * 0.18f).coerceIn(0f, 1.18f)
+    val settleSweep = smoothGlass(stopPulse) * 0.30f
+    val pressBloom = smoothGlass(pressProgress) * 0.42f
+    val flightGlow = smoothGlass(moving) * 0.08f
+    val sweepEnergy = (settleSweep + pressBloom + flightGlow).coerceIn(0f, 0.86f)
     Box(
         modifier = modifier
             .graphicsLayer {
-                scaleX = 1f + 0.020f * pressProgress
-                scaleY = 1f - 0.032f * pressProgress
-                translationY = 1.8f * pressProgress
+                scaleX = 1f + 0.014f * pressProgress
+                scaleY = 1f - 0.022f * pressProgress
+                translationY = 1.2f * pressProgress
             }
             .clip(shape)
             .modelPrismSampleSurface(
                 radius = 30f,
-                surfaceAlpha = (0.030f + 0.008f * selectedEnergy) * stackSafeEnergy,
-                rimAlpha = 0.08f * stackSafeEnergy,
-                rimWidth = if (selected) 0.95f else 0.78f,
-                topHighlight = (0.14f + 0.05f * selectedEnergy) * stackSafeEnergy,
-                topHighlightHeight = 0.22f,
-                innerRimAlpha = (0.10f + 0.03f * selectedEnergy) * stackSafeEnergy,
-                bottomDepth = 0.07f * stackSafeEnergy,
-                cornerCatchlight = (0.05f + 0.04f * selectedEnergy) * stackSafeEnergy,
+                surfaceAlpha = (0.038f + 0.010f * selectedEnergy) * stackSafeEnergy,
+                rimAlpha = 0.10f * stackSafeEnergy,
+                rimWidth = if (selected) 1.05f else 0.90f,
+                topHighlight = (0.17f + 0.06f * selectedEnergy) * stackSafeEnergy,
+                topHighlightHeight = 0.24f,
+                innerRimAlpha = (0.11f + 0.04f * selectedEnergy) * stackSafeEnergy,
+                bottomDepth = 0.08f * stackSafeEnergy,
+                cornerCatchlight = (0.06f + 0.05f * selectedEnergy) * stackSafeEnergy,
                 press = pressProgress,
                 sweep = sweepEnergy,
                 pressCenter = Offset(0.50f, 0.50f),
-                pressGlow = 0.34f * stackSafeEnergy,
-                pressEdgeBoost = 0.22f * stackSafeEnergy,
-                pressSweep = 0.22f * stackSafeEnergy,
-                pressDarken = 0.07f,
-                rainbowRimAlpha = (0.82f + 0.50f * selectedEnergy + 0.30f * expansionProgress + 0.30f * moving + 0.42f * stopPulse) * stackSafeEnergy,
-                rainbowRimWidth = 1.05f + 0.28f * selectedEnergy,
-                rainbowPressEdge = 0.92f + 0.26f * selectedEnergy,
-                rainbowSweepAlpha = 0.88f + 0.42f * selectedEnergy,
-                rainbowCornerAlpha = (0.14f + 0.08f * selectedEnergy) * stackSafeEnergy,
-                rainbowSaturation = 1.35f
+                pressGlow = 1.45f * stackSafeEnergy,
+                pressEdgeBoost = 1.10f * stackSafeEnergy,
+                pressSweep = 1.20f * stackSafeEnergy,
+                pressDarken = 0.08f,
+                rainbowRimAlpha = (2.20f + 0.70f * selectedEnergy + 0.24f * expansionProgress + 0.10f * moving + 0.18f * stopPulse) * stackSafeEnergy,
+                rainbowRimWidth = 2.10f + 0.28f * selectedEnergy,
+                rainbowPressEdge = 2.05f + 0.35f * selectedEnergy,
+                rainbowSweepAlpha = 2.10f + 0.38f * selectedEnergy,
+                rainbowCornerAlpha = (0.55f + 0.14f * selectedEnergy) * stackSafeEnergy,
+                rainbowSaturation = 2.20f
             )
             .clickable(interactionSource = interactionSource, indication = null, enabled = !state.isSending, onClick = onClick)
     ) {
@@ -480,16 +483,16 @@ private fun Modifier.modelPrismSampleSurface(
     val sweepT = smoothGlass(sweep.coerceIn(0f, 1f))
     val sweepX = -0.28f + sweepT * 1.56f
     val sat = rainbowSaturation.coerceIn(0f, 2.2f)
-    fun prism(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.22f + sat * 0.78f)).coerceIn(0f, 1f))
+    fun prism(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.18f + sat * 0.82f)).coerceIn(0f, 1f))
     fun prismBandBrush(start: Offset, end: Offset, strength: Float): Brush = Brush.linearGradient(
         colors = listOf(
             Color.Transparent,
-            prism(Color(0xFF68F7FF), strength * 0.24f),
-            prism(Color(0xFFFF7CE1), strength * 0.28f),
-            Color.White.copy(alpha = (strength * 0.18f).coerceIn(0f, 1f)),
-            prism(Color(0xFFFFE785), strength * 0.22f),
-            prism(Color(0xFF7BFF9E), strength * 0.20f),
-            prism(Color(0xFF6FA8FF), strength * 0.18f),
+            prism(Color(0xFF68F7FF), strength * 0.20f),
+            prism(Color(0xFFFF7CE1), strength * 0.24f),
+            Color.White.copy(alpha = (strength * 0.11f).coerceIn(0f, 0.62f)),
+            prism(Color(0xFFFFE785), strength * 0.20f),
+            prism(Color(0xFF7BFF9E), strength * 0.18f),
+            prism(Color(0xFF6FA8FF), strength * 0.16f),
             Color.Transparent
         ),
         start = start,
@@ -514,16 +517,16 @@ private fun Modifier.modelPrismSampleSurface(
     val topHairline = Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.18f + topHighlight * 0.20f), Color.White.copy(alpha = topHighlight * 0.34f), Color.Transparent), 0f, w)
     val innerRim = Brush.linearGradient(listOf(Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f), Color.Transparent, Color(0xFF00091E).copy(alpha = bottomDepth.coerceIn(0f, 0.45f) * 0.68f), Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f)), Offset(w * 0.08f, 0f), Offset(w * 0.92f, h))
     val cornerLight = Brush.radialGradient(listOf(Color.White.copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f)), Color(0xFFCFFFFF).copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f), Color.Transparent), Offset(w * 0.055f, h * 0.045f), maxSide * 0.30f)
-    val rainbowCorner = Brush.radialGradient(listOf(Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.8f) * 0.22f), prism(Color(0xFFFF87E5), rainbowCornerAlpha * 0.16f), prism(Color(0xFF79F8FF), rainbowCornerAlpha * 0.18f), Color.Transparent), Offset(w * 0.10f, h * 0.10f), maxSide * 0.24f)
+    val rainbowCorner = Brush.radialGradient(listOf(Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.8f) * 0.18f), prism(Color(0xFFFF87E5), rainbowCornerAlpha * 0.14f), prism(Color(0xFF79F8FF), rainbowCornerAlpha * 0.16f), Color.Transparent), Offset(w * 0.10f, h * 0.10f), maxSide * 0.24f)
     val pressureDark = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF071B3D).copy(alpha = pressDarken.coerceIn(0f, 0.4f) * 0.34f * press), Color(0xFF01040C).copy(alpha = pressDarken.coerceIn(0f, 0.4f) * press)), center, maxSide * (0.72f + 0.12f * press))
-    val prismPressLight = Brush.radialGradient(listOf(Color.White.copy(alpha = pressGlow.coerceIn(0f, 1.5f) * 0.20f * press), prism(Color(0xFF6AF7FF), pressGlow * 0.26f * press), prism(Color(0xFFFF7FE0), pressGlow * 0.24f * press), prism(Color(0xFFFFE789), pressGlow * 0.18f * press), prism(Color(0xFF7CFFA0), pressGlow * 0.16f * press), Color.Transparent), center, maxSide * (0.30f + 0.22f * press))
-    val prismLocalEdge = Brush.linearGradient(listOf(Color.Transparent, prism(Color(0xFF6BF7FF), rainbowPressEdge * 0.30f * press + pressEdgeBoost * 0.10f * press), prism(Color(0xFFFF7FE0), rainbowPressEdge * 0.28f * press), Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.10f * press), prism(Color(0xFFFFE889), rainbowPressEdge * 0.22f * press), prism(Color(0xFF7DFFA0), rainbowPressEdge * 0.20f * press), Color.Transparent), Offset(center.x - w * 0.24f, center.y - h * 0.74f), Offset(center.x + w * 0.22f, center.y + h * 0.74f))
-    val rimBandPower = rainbowRimAlpha.coerceIn(0f, 2.6f)
+    val prismPressLight = Brush.radialGradient(listOf(Color.White.copy(alpha = pressGlow.coerceIn(0f, 1.5f) * 0.10f * press), prism(Color(0xFF6AF7FF), pressGlow * 0.24f * press), prism(Color(0xFFFF7FE0), pressGlow * 0.22f * press), prism(Color(0xFFFFE789), pressGlow * 0.17f * press), prism(Color(0xFF7CFFA0), pressGlow * 0.15f * press), Color.Transparent), center, maxSide * (0.30f + 0.22f * press))
+    val prismLocalEdge = Brush.linearGradient(listOf(Color.Transparent, prism(Color(0xFF6BF7FF), rainbowPressEdge * 0.26f * press + pressEdgeBoost * 0.07f * press), prism(Color(0xFFFF7FE0), rainbowPressEdge * 0.24f * press), Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1.8f) * 0.055f * press), prism(Color(0xFFFFE889), rainbowPressEdge * 0.20f * press), prism(Color(0xFF7DFFA0), rainbowPressEdge * 0.18f * press), Color.Transparent), Offset(center.x - w * 0.24f, center.y - h * 0.74f), Offset(center.x + w * 0.22f, center.y + h * 0.74f))
+    val rimBandPower = rainbowRimAlpha.coerceIn(0f, 3.2f)
     val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
     val rimBandMain = prismBandBrush(Offset(w * (sweepX - 0.22f), h * -0.06f), Offset(w * (sweepX + 0.28f), h * 1.04f), rimBandPower * (0.72f + 0.28f * pressBandBoost))
     val rimBandCounter = prismBandBrush(Offset(w * (1.12f - sweepX), h * 0.02f), Offset(w * (0.54f - sweepX), h * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost))
     val rimBandTop = prismBandBrush(Offset(w * (sweepX - 0.18f), h * 0.02f), Offset(w * (sweepX + 0.34f), h * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * topNear))
-    val prismSweep = prismBandBrush(Offset(w * (sweepX - 0.24f), h * -0.04f), Offset(w * (sweepX + 0.30f), h * 1.04f), rainbowSweepAlpha.coerceIn(0f, 2.6f) * sweep + pressSweep.coerceIn(0f, 1f) * 0.12f * sweep)
+    val prismSweep = prismBandBrush(Offset(w * (sweepX - 0.24f), h * -0.04f), Offset(w * (sweepX + 0.30f), h * 1.04f), rainbowSweepAlpha.coerceIn(0f, 3.2f) * sweep + pressSweep.coerceIn(0f, 1.8f) * 0.10f * sweep)
     onDrawWithContent {
         drawRoundRect(surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         drawRoundRect(topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
