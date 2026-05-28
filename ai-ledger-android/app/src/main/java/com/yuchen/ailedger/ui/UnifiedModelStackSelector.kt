@@ -87,16 +87,35 @@ internal fun UnifiedParentModelStackSelector(
                 .fillMaxSize()
                 .drawUnifiedModelStackPrism(visuals)
         ) {
+            if (expanded) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(state.isSending, expanded) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                                if (!state.isSending) onToggleExpanded()
+                            }
+                        }
+                )
+            }
+
             models.forEachIndexed { index, model ->
                 val selected = model == selectedModel
                 val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
-                val expandedX = when (index) { 1, 3 -> halfWidth + gap else -> 0.dp }
-                val expandedY = when (index) { 2, 3 -> rowStep; 4 -> rowStep * 2f; else -> 0.dp }
-                val expandedWidth = if (index == 4) parentMaxWidth else halfWidth
+                val column = index % 2
+                val row = index / 2
+                val expandedX = if (column == 1) halfWidth + gap else 0.dp
+                val expandedY = rowStep * row.toFloat()
+                val expandedWidth = halfWidth
                 val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
                 val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
                 val collapsedAlpha = if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.080f
-                val staggerRank = when (index) { 0 -> 0; 2 -> 1; 1 -> 2; 3 -> 3; else -> 4 }
+                val staggerRank = index
                 val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
                 val cardProgress by animateFloatAsState(
                     targetValue = if (expanded) 1f else 0f,
@@ -142,14 +161,14 @@ internal fun UnifiedParentModelStackSelector(
                 val releaseSweep = remember(model.id) { Animatable(0f) }
                 var pressCenter by remember(model.id) { mutableStateOf(Offset(0.50f, 0.50f)) }
                 var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
-                val pressRaw = pressAnim.value.coerceIn(0f, 1.12f)
+                val pressRaw = pressAnim.value.coerceIn(0f, 1.14f)
                 val pressProgress = unifiedModelStackSmooth(pressRaw.coerceIn(0f, 1f))
-                val sweepProgress = releaseSweep.value.coerceIn(0f, 1.18f)
-                val rebound = unifiedModelStackSmooth(((sweepProgress - 0.68f) / 0.50f).coerceIn(0f, 1f)) * (1f - pressProgress)
-                val pressElasticity = spec.pressElasticity.coerceIn(0f, 1.2f)
-                val pressScaleX = 1f + pressProgress * 0.018f * pressElasticity - rebound * 0.004f * pressElasticity
-                val pressScaleY = 1f - pressProgress * 0.026f * pressElasticity + rebound * 0.010f * pressElasticity
-                val pressShiftY = pressProgress * 2.00f * pressElasticity - rebound * 0.70f * pressElasticity
+                val sweepProgress = releaseSweep.value.coerceIn(0f, 1.20f)
+                val rebound = unifiedModelStackSmooth(((sweepProgress - 0.62f) / 0.58f).coerceIn(0f, 1f)) * (1f - pressProgress)
+                val pressElasticity = spec.pressElasticity.coerceIn(0f, 1.25f)
+                val pressScaleX = 1f + pressProgress * 0.034f * pressElasticity - rebound * 0.007f * pressElasticity
+                val pressScaleY = 1f - pressProgress * 0.052f * pressElasticity + rebound * 0.017f * pressElasticity
+                val pressShiftY = pressProgress * 3.20f * pressElasticity - rebound * 1.05f * pressElasticity
 
                 fun updatePressCenter(position: Offset) {
                     pressCenter = Offset(
@@ -213,14 +232,14 @@ internal fun UnifiedParentModelStackSelector(
                                 if (!state.isSending) {
                                     scope.launch {
                                         pressAnim.stop()
-                                        if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
-                                        pressAnim.animateTo(0.92f, tween(132, easing = FastOutSlowInEasing))
-                                        pressAnim.animateTo(0.78f, spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow))
+                                        if (pressAnim.value < 0.20f) pressAnim.snapTo(0.20f)
+                                        pressAnim.animateTo(1.00f, tween(145, easing = FastOutSlowInEasing))
+                                        pressAnim.animateTo(0.82f, spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow))
                                     }
                                     scope.launch {
                                         releaseSweep.stop()
                                         releaseSweep.snapTo(0f)
-                                        releaseSweep.animateTo(0.42f, tween(180, easing = FastOutSlowInEasing))
+                                        releaseSweep.animateTo(0.34f, tween(210, easing = FastOutSlowInEasing))
                                     }
                                 }
                                 while (true) {
@@ -233,15 +252,20 @@ internal fun UnifiedParentModelStackSelector(
                                     if (event.changes.none { it.pressed }) break
                                 }
                                 if (!state.isSending) {
-                                    if (expanded) onSelected(model) else onToggleExpanded()
+                                    if (expanded) {
+                                        onSelected(model)
+                                        if (model == ChatModel.Auto) onToggleExpanded()
+                                    } else {
+                                        onToggleExpanded()
+                                    }
                                     scope.launch {
                                         pressAnim.stop()
-                                        pressAnim.animateTo(0f, tween(460, easing = FastOutSlowInEasing))
+                                        pressAnim.animateTo(0f, tween(500, easing = FastOutSlowInEasing))
                                     }
                                     scope.launch {
                                         releaseSweep.stop()
-                                        releaseSweep.animateTo(1.18f, tween(520, easing = FastOutSlowInEasing))
-                                        releaseSweep.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+                                        releaseSweep.animateTo(1.20f, tween(540, easing = FastOutSlowInEasing))
+                                        releaseSweep.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
                                     }
                                 }
                             }
@@ -308,17 +332,26 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val surface = Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
-                    Color(0xFFCFEAFF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.28f),
-                    Color.Transparent,
-                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.42f)
+                    Color(0xFFD9F1FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.52f),
+                    Color(0xFFEAF7FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.20f),
+                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.36f)
                 ),
                 0f,
                 v.height
             )
+            val centerMist = Brush.radialGradient(
+                listOf(
+                    Color(0xFFEAF7FF).copy(alpha = (0.036f + surfaceAlpha * 0.58f).coerceIn(0f, 0.14f)),
+                    Color(0xFFB7DBFF).copy(alpha = (0.014f + surfaceAlpha * 0.18f).coerceIn(0f, 0.07f)),
+                    Color.Transparent
+                ),
+                Offset(v.width * 0.50f, v.height * 0.52f),
+                maxSide * 0.62f
+            )
             val topLens = Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = topHighlight.coerceIn(0f, 0.5f)),
-                    Color(0xFFE8FFFF).copy(alpha = topHighlight.coerceIn(0f, 0.5f) * 0.22f),
+                    Color(0xFFE8FFFF).copy(alpha = topHighlight.coerceIn(0f, 0.5f) * 0.36f),
                     Color.Transparent
                 ),
                 0f,
@@ -332,31 +365,42 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val pressureDark = Brush.radialGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF071B3D).copy(alpha = spec.pressDarken.coerceIn(0f, 0.4f) * 0.34f * press * alpha),
-                    Color(0xFF01040C).copy(alpha = spec.pressDarken.coerceIn(0f, 0.4f) * press * alpha)
+                    Color(0xFF071B3D).copy(alpha = spec.pressDarken.coerceIn(0f, 0.4f) * 0.30f * press * alpha),
+                    Color(0xFF01040C).copy(alpha = spec.pressDarken.coerceIn(0f, 0.4f) * 0.78f * press * alpha)
                 ),
                 center,
-                maxSide * (0.72f + 0.12f * press)
+                maxSide * (0.58f + 0.10f * press)
             )
-            val prismPressLight = Brush.radialGradient(
+            val pressLens = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = spec.pressGlow.coerceIn(0f, 0.9f) * 0.20f * press * alpha),
-                    prismColor(Color(0xFF6AF7FF), spec.pressGlow * 0.26f * press * alpha, spec.rainbowSaturation),
-                    prismColor(Color(0xFFFF7FE0), spec.pressGlow * 0.24f * press * alpha, spec.rainbowSaturation),
-                    prismColor(Color(0xFFFFE789), spec.pressGlow * 0.18f * press * alpha, spec.rainbowSaturation),
-                    prismColor(Color(0xFF7CFFA0), spec.pressGlow * 0.16f * press * alpha, spec.rainbowSaturation),
+                    Color.White.copy(alpha = spec.pressGlow.coerceIn(0f, 0.9f) * 0.34f * press * alpha),
+                    Color(0xFFEFFFFF).copy(alpha = spec.pressGlow.coerceIn(0f, 0.9f) * 0.18f * press * alpha),
+                    prismColor(Color(0xFF73F7FF), spec.pressGlow * 0.11f * press * alpha, spec.rainbowSaturation),
+                    prismColor(Color(0xFFFF85DD), spec.pressGlow * 0.085f * press * alpha, spec.rainbowSaturation),
                     Color.Transparent
                 ),
-                center,
-                maxSide * (0.30f + 0.22f * press)
+                Offset(center.x, center.y - v.height * 0.07f),
+                maxSide * (0.18f + 0.08f * press)
+            )
+            val lensSheen = Brush.linearGradient(
+                listOf(
+                    Color.Transparent,
+                    Color.White.copy(alpha = spec.pressGlow.coerceIn(0f, 0.9f) * 0.18f * press * alpha),
+                    prismColor(Color(0xFF88F4FF), spec.pressGlow * 0.10f * press * alpha, spec.rainbowSaturation),
+                    Color.Transparent
+                ),
+                Offset(center.x - v.width * 0.20f, center.y - v.height * 0.44f),
+                Offset(center.x + v.width * 0.26f, center.y + v.height * 0.22f)
             )
             withTransform({ translate(v.left, v.top) }) {
                 drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                drawRoundRect(brush = centerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(brush = bottomShade, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
                 if (press > 0.001f) {
                     drawRoundRect(brush = pressureDark, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
-                    drawRoundRect(brush = prismPressLight, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = pressLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = lensSheen, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 }
             }
         }
@@ -373,7 +417,7 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val innerInset = 1.72.dp.toPx()
             val rimSize = Size((v.width - rimInset * 2f).coerceAtLeast(1f), (v.height - rimInset * 2f).coerceAtLeast(1f))
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
-            val sweep = v.sweep.coerceIn(0f, 1.18f)
+            val sweep = v.sweep.coerceIn(0f, 1.20f)
             val press = prismSmooth(v.press.coerceIn(0f, 1f))
             val center = Offset(v.width * v.pressCenter.x.coerceIn(0f, 1f), v.height * v.pressCenter.y.coerceIn(0f, 1f))
             val topNear = (1f - v.pressCenter.y / 0.42f).coerceIn(0f, 1f) * press
@@ -382,17 +426,17 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val rightNear = (1f - (1f - v.pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
             val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
             val sweepT = prismSmooth(sweep.coerceIn(0f, 1f))
-            val sweepX = -0.28f + sweepT * 1.56f
-            val rimBandPower = spec.rainbowRimAlpha.coerceIn(0f, 1f) * energy * alpha * (0.72f + 0.18f * selectedEnergy)
+            val sweepX = -0.32f + sweepT * 1.64f
+            val rimBandPower = spec.rainbowRimAlpha.coerceIn(0f, 1f) * energy * alpha * (0.58f + 0.16f * selectedEnergy)
+            val dynamicSweep = (press * 0.58f + sweep * 0.86f).coerceIn(0f, 1.18f)
             fun prismBandBrush(start: Offset, end: Offset, strength: Float): Brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    prismColor(Color(0xFF68F7FF), strength * 0.24f, spec.rainbowSaturation),
-                    prismColor(Color(0xFFFF7CE1), strength * 0.28f, spec.rainbowSaturation),
-                    Color.White.copy(alpha = (strength * 0.18f).coerceIn(0f, 1f)),
-                    prismColor(Color(0xFFFFE785), strength * 0.22f, spec.rainbowSaturation),
-                    prismColor(Color(0xFF7BFF9E), strength * 0.20f, spec.rainbowSaturation),
-                    prismColor(Color(0xFF6FA8FF), strength * 0.18f, spec.rainbowSaturation),
+                    prismColor(Color(0xFF68F7FF), strength * 0.26f, spec.rainbowSaturation),
+                    prismColor(Color(0xFFFF7CE1), strength * 0.24f, spec.rainbowSaturation),
+                    Color.White.copy(alpha = (strength * 0.16f).coerceIn(0f, 1f)),
+                    prismColor(Color(0xFFFFE785), strength * 0.20f, spec.rainbowSaturation),
+                    prismColor(Color(0xFF7BFF9E), strength * 0.18f, spec.rainbowSaturation),
                     Color.Transparent
                 ),
                 start = start,
@@ -401,8 +445,8 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val topHairline = Brush.horizontalGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFFDFFFFF).copy(alpha = (spec.rimAlpha * energy * alpha * 0.18f + spec.topHighlight * energy * alpha * 0.20f).coerceIn(0f, 1f)),
-                    Color.White.copy(alpha = (spec.topHighlight * energy * alpha * 0.34f).coerceIn(0f, 1f)),
+                    Color(0xFFDFFFFF).copy(alpha = (spec.rimAlpha * energy * alpha * 0.26f + spec.topHighlight * energy * alpha * 0.24f).coerceIn(0f, 1f)),
+                    Color.White.copy(alpha = (spec.rimAlpha * energy * alpha * 0.30f + spec.topHighlight * energy * alpha * 0.36f).coerceIn(0f, 1f)),
                     Color.Transparent
                 ),
                 0f,
@@ -410,49 +454,60 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             )
             val innerRim = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f * energy * alpha),
+                    Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.70f * energy * alpha),
                     Color.Transparent,
                     Color(0xFF00091E).copy(alpha = spec.bottomDepth.coerceIn(0f, 0.35f) * 0.68f * energy * alpha),
-                    Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f * energy * alpha)
+                    Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.22f * energy * alpha)
                 ),
                 Offset(v.width * 0.08f, 0f),
                 Offset(v.width * 0.92f, v.height)
             )
             val cornerLight = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.5f) * energy * alpha),
-                    Color(0xFFCFFFFF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f * energy * alpha),
+                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.90f * energy * alpha),
+                    Color(0xFFCFFFFF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.32f * energy * alpha),
                     Color.Transparent
                 ),
                 Offset(v.width * 0.055f, v.height * 0.045f),
                 maxSide * 0.30f
             )
-            val rainbowCorner = Brush.radialGradient(
+            val rightCornerLight = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = spec.rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.22f * energy * alpha),
-                    prismColor(Color(0xFFFF87E5), spec.rainbowCornerAlpha * 0.16f * energy * alpha, spec.rainbowSaturation),
-                    prismColor(Color(0xFF79F8FF), spec.rainbowCornerAlpha * 0.18f * energy * alpha, spec.rainbowSaturation),
+                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.58f * energy * alpha),
+                    Color(0xFFB7F7FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.22f * energy * alpha),
                     Color.Transparent
                 ),
-                Offset(v.width * 0.10f, v.height * 0.10f),
+                Offset(v.width * 0.94f, v.height * 0.10f),
                 maxSide * 0.24f
             )
-            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.22f), v.height * -0.06f), Offset(v.width * (sweepX + 0.28f), v.height * 1.04f), rimBandPower * (0.72f + 0.28f * pressBandBoost))
-            val rimBandCounter = prismBandBrush(Offset(v.width * (1.12f - sweepX), v.height * 0.02f), Offset(v.width * (0.54f - sweepX), v.height * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost))
-            val rimBandTop = prismBandBrush(Offset(v.width * (sweepX - 0.18f), v.height * 0.02f), Offset(v.width * (sweepX + 0.34f), v.height * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * topNear))
-            val prismLocalEdge = prismBandBrush(Offset(center.x - v.width * 0.24f, center.y - v.height * 0.74f), Offset(center.x + v.width * 0.22f, center.y + v.height * 0.74f), spec.rainbowPressEdge * press * energy * alpha)
-            val prismSweep = prismBandBrush(Offset(v.width * (sweepX - 0.24f), v.height * -0.04f), Offset(v.width * (sweepX + 0.30f), v.height * 1.04f), spec.rainbowSweepAlpha.coerceIn(0f, 1f) * sweep * energy * alpha + spec.pressSweep.coerceIn(0f, 1f) * 0.12f * sweep * energy * alpha)
+            val lowerCornerLight = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.28f * energy * alpha),
+                    Color(0xFFC7E9FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.12f * energy * alpha),
+                    Color.Transparent
+                ),
+                Offset(v.width * 0.92f, v.height * 0.88f),
+                maxSide * 0.26f
+            )
+            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.24f), v.height * -0.08f), Offset(v.width * (sweepX + 0.24f), v.height * 1.06f), rimBandPower * (0.56f + 0.18f * pressBandBoost))
+            val pressEdgeSweep = prismBandBrush(Offset(center.x - v.width * 0.30f, center.y - v.height * 0.82f), Offset(center.x + v.width * 0.24f, center.y + v.height * 0.82f), spec.rainbowPressEdge * press * energy * alpha * 0.95f)
+            val releaseSweep = prismBandBrush(Offset(v.width * (sweepX - 0.20f), v.height * -0.04f), Offset(v.width * (sweepX + 0.24f), v.height * 1.04f), (spec.rainbowSweepAlpha * 0.90f + spec.pressSweep * 0.18f) * dynamicSweep * energy * alpha)
+            val secondarySweep = prismBandBrush(Offset(v.width * (1.10f - sweepX), v.height * 0.02f), Offset(v.width * (0.62f - sweepX), v.height * 1.02f), spec.rainbowSweepAlpha * 0.28f * sweep * energy * alpha)
 
             withTransform({ translate(v.left, v.top) }) {
-                drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.55.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.68.dp.toPx()), blendMode = BlendMode.Screen)
-                if (spec.rainbowCornerAlpha > 0.001f) drawRoundRect(brush = rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = rimBandMain, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth + spec.rainbowRimWidth * 0.92f).dp.toPx()), blendMode = BlendMode.Plus)
-                drawRoundRect(brush = rimBandCounter, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth * 0.72f + spec.rainbowRimWidth * 0.58f).dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = rimBandTop, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth * 0.46f + spec.rainbowRimWidth * 0.42f).dp.toPx()), blendMode = BlendMode.Plus)
-                if (press > 0.001f) drawRoundRect(brush = prismLocalEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.76f + 0.96f * press).dp.toPx()), blendMode = BlendMode.Plus)
-                if (sweep > 0.001f) drawRoundRect(brush = prismSweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.58f + 0.68f * sweep).dp.toPx()), blendMode = BlendMode.Plus)
+                drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.78.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.86.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = rightCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = lowerCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.62.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = rimBandMain, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth + spec.rainbowRimWidth * 0.56f).dp.toPx()), blendMode = BlendMode.Screen)
+                if (press > 0.001f) {
+                    drawRoundRect(brush = pressEdgeSweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.86f + 1.18f * press).dp.toPx()), blendMode = BlendMode.Plus)
+                }
+                if (dynamicSweep > 0.001f) {
+                    drawRoundRect(brush = releaseSweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.54f + 0.74f * dynamicSweep).dp.toPx()), blendMode = BlendMode.Plus)
+                    drawRoundRect(brush = secondarySweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.38f + 0.42f * sweep).dp.toPx()), blendMode = BlendMode.Screen)
+                }
             }
         }
 
