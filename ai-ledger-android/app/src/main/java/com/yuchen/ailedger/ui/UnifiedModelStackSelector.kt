@@ -366,6 +366,7 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val selectedEnergy = if (v.selected) 1f else 0f
             val press = prismSmooth(v.press.coerceIn(0f, 1f))
             val lens = prismSmooth(v.lens.coerceIn(0f, 1f))
+            val sweep = prismSmooth(v.sweep.coerceIn(0f, 1f))
             val maxSide = maxOf(v.width, v.height)
             val corner = CornerRadius(v.height / 2f, v.height / 2f)
             val bodySize = Size(v.width, v.height)
@@ -380,35 +381,41 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
                 0f,
                 v.height
             )
-            val opticalDepth = Brush.radialGradient(
+            val pressureShade = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF071A3B).copy(alpha = (0.064f + 0.060f * press) * energy * alpha),
-                    Color(0xFF00040E).copy(alpha = (0.118f + 0.070f * press) * energy * alpha)
-                ),
-                center,
-                maxSide * (0.62f + 0.14f * press)
-            )
-            val softPressFog = Brush.radialGradient(
-                listOf(
-                    Color(0xFFE9FFFF).copy(alpha = 0.018f * lens * alpha),
-                    Color(0xFF66F7FF).copy(alpha = 0.064f * lens * alpha),
-                    Color(0xFFFF64DA).copy(alpha = 0.038f * lens * alpha),
-                    Color(0xFF6C7DFF).copy(alpha = 0.032f * lens * alpha),
+                    Color(0xFF071A3B).copy(alpha = (0.040f + 0.060f * press) * energy * alpha),
+                    Color(0xFF00040E).copy(alpha = (0.090f + 0.064f * press) * energy * alpha),
                     Color.Transparent
                 ),
-                Offset(center.x + v.width * 0.025f, center.y - v.height * 0.035f),
-                maxSide * (0.34f + 0.18f * lens)
+                Offset(center.x - v.width * 0.52f, center.y - v.height * 0.84f),
+                Offset(center.x + v.width * 0.46f, center.y + v.height * 0.86f)
             )
-            val softPressFogWide = Brush.radialGradient(
-                listOf(
-                    Color(0xFF77FAFF).copy(alpha = 0.028f * lens * alpha),
-                    Color(0xFFFF72E5).copy(alpha = 0.018f * lens * alpha),
-                    Color.Transparent
-                ),
-                Offset(center.x - v.width * 0.035f, center.y + v.height * 0.025f),
-                maxSide * (0.54f + 0.18f * lens)
-            )
+            val mistEnergy = (lens * 0.88f + press * 0.24f).coerceIn(0f, 1.10f) * energy * alpha
+            fun rainbowMist(seed: Float, angleSeed: Float, order: Int, strengthScale: Float): Brush {
+                val angle = (-0.60f + angleSeed * 1.20f) * PI.toFloat()
+                val dir = Offset(cos(angle), sin(angle))
+                val normal = Offset(-dir.y, dir.x)
+                val drift = (seed - 0.5f) * 0.50f + (sweep - 0.35f) * (0.20f + order * 0.06f)
+                val anchor = Offset(
+                    center.x + normal.x * v.width * drift + dir.x * v.width * 0.10f * order,
+                    center.y + normal.y * v.height * drift + dir.y * v.height * 0.10f * order
+                )
+                val halfLen = maxSide * (0.74f + 0.18f * order)
+                return Brush.linearGradient(
+                    listOf(
+                        Color.Transparent,
+                        prismColor(Color(0xFF66F7FF), 0.070f * mistEnergy * strengthScale),
+                        prismColor(Color(0xFFFF67DC), 0.060f * mistEnergy * strengthScale),
+                        Color.White.copy(alpha = (0.024f * mistEnergy * strengthScale).coerceIn(0f, 0.080f)),
+                        prismColor(Color(0xFFFFE56E), 0.034f * mistEnergy * strengthScale),
+                        prismColor(Color(0xFF798DFF), 0.042f * mistEnergy * strengthScale),
+                        Color.Transparent
+                    ),
+                    Offset(anchor.x - dir.x * halfLen, anchor.y - dir.y * halfLen),
+                    Offset(anchor.x + dir.x * halfLen, anchor.y + dir.y * halfLen)
+                )
+            }
             val topSubtleLens = Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = (0.030f + selectedEnergy * 0.012f) * energy * alpha),
@@ -420,11 +427,12 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             )
             withTransform({ translate(v.left, v.top) }) {
                 drawRoundRect(brush = bodySurface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-                drawRoundRect(brush = opticalDepth, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
+                drawRoundRect(brush = pressureShade, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
                 drawRoundRect(brush = topSubtleLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-                if (lens > 0.001f) {
-                    drawRoundRect(brush = softPressFogWide, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = softPressFog, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                if (mistEnergy > 0.001f) {
+                    drawRoundRect(brush = rainbowMist(v.bandSeedA, v.bandAngleA, 0, 1.00f), size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = rainbowMist(v.bandSeedB, v.bandAngleB, 1, 0.74f), size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = rainbowMist(v.bandSeedC, v.bandAngleC, 2, 0.52f), size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 }
             }
         }
