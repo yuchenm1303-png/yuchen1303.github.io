@@ -46,6 +46,7 @@ dependencies {
 }
 
 apply from: 'chat-bubble-polish.gradle'
+apply from: 'shared-prism-capsule.gradle'
 
 def patchPolishedOnlineDroplet = tasks.register('patchPolishedOnlineDroplet') {
     doLast {
