@@ -191,7 +191,7 @@ internal fun UnifiedParentModelStackSelector(
                 val drawHeight = flightHeight * pressScaleY
                 val contentScaleX = if (visualWidth > 0f) drawWidth / visualWidth else 1f
                 val contentScaleY = if (visualHeight > 0f) drawHeight / visualHeight else 1f
-                val energy = if (stackRank > 0) 0.46f else 1f
+                val energy = if (stackRank > 0) 0.50f else 1f
 
                 visuals.add(
                     UnifiedModelCardVisual(
@@ -301,7 +301,7 @@ private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, expansi
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
             Text(
                 model.shortLabel,
-                color = Color.White.copy(alpha = if (selected) 0.985f else 0.86f),
+                color = Color.White.copy(alpha = if (selected) 0.985f else 0.88f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
@@ -309,7 +309,7 @@ private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, expansi
             )
             Text(
                 model.id,
-                color = Color.White.copy(alpha = if (selected) 0.62f else 0.44f),
+                color = Color.White.copy(alpha = if (selected) 0.62f else 0.46f),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -397,29 +397,30 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             )
             val bodyVeil = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = (0.044f + selectedPower * 0.014f + lens * 0.012f) * bodyAlpha),
-                    Color(0xFFB8F7FF).copy(alpha = (0.017f + selectedPower * 0.010f) * bodyAlpha),
+                    Color.White.copy(alpha = (0.052f + selectedPower * 0.016f + lens * 0.012f) * bodyAlpha),
+                    Color(0xFFB8F7FF).copy(alpha = (0.020f + selectedPower * 0.010f) * bodyAlpha),
                     Color.Transparent,
-                    Color(0xFF000713).copy(alpha = (0.106f + press * 0.032f) * bodyAlpha)
+                    Color(0xFF000713).copy(alpha = (0.115f + press * 0.026f) * bodyAlpha)
                 ),
                 0f,
                 v.height
             )
             val cornerMist = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = (0.090f + selectedPower * 0.020f) * bodyAlpha),
-                    Color(0xFFEDEBFF).copy(alpha = (0.030f + selectedPower * 0.020f) * bodyAlpha),
-                    Color(0xFF9DFFF4).copy(alpha = (0.022f + selectedPower * 0.022f) * bodyAlpha),
+                    Color.White.copy(alpha = (0.125f + selectedPower * 0.026f) * bodyAlpha),
+                    Color(0xFFFFF3C8).copy(alpha = (0.034f + selectedPower * 0.020f) * bodyAlpha),
+                    Color(0xFFFF8FE5).copy(alpha = 0.020f * selectedPower * bodyAlpha),
+                    Color(0xFF9DFFF4).copy(alpha = (0.030f + selectedPower * 0.022f) * bodyAlpha),
                     Color.Transparent
                 ),
-                center = Offset(v.width * 0.030f, v.height * 0.018f),
-                radius = maxSide * 0.30f
+                center = Offset(v.width * 0.018f, v.height * 0.010f),
+                radius = maxSide * 0.215f
             )
             val surfaceClear = Brush.radialGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF031026).copy(alpha = 0.022f * bodyAlpha),
-                    Color(0xFF00040C).copy(alpha = 0.050f * bodyAlpha)
+                    Color(0xFF031026).copy(alpha = 0.024f * bodyAlpha),
+                    Color(0xFF00040C).copy(alpha = 0.056f * bodyAlpha)
                 ),
                 center = Offset(v.width * 0.50f, v.height * 0.58f),
                 radius = maxSide * 0.78f
@@ -462,35 +463,36 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
 
             val outerRim = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.245f * rimPower + selectedRim * 0.16f),
-                    Color(0xFFB7FFF7).copy(alpha = 0.092f * rimPower * coolBias),
-                    Color.White.copy(alpha = 0.054f * rimPower),
+                    Color.White.copy(alpha = 0.320f * rimPower + selectedRim * 0.18f),
+                    Color(0xFFF1FFFF).copy(alpha = 0.150f * rimPower),
+                    Color(0xFFB7FFF7).copy(alpha = 0.115f * rimPower * coolBias),
+                    Color.White.copy(alpha = 0.060f * rimPower),
                     Color.Transparent,
-                    Color(0xFF010817).copy(alpha = 0.205f * rimPower),
-                    Color.White.copy(alpha = 0.052f * rimPower)
+                    Color(0xFF010817).copy(alpha = 0.225f * rimPower),
+                    Color.White.copy(alpha = 0.062f * rimPower)
                 ),
                 Offset.Zero,
                 Offset(v.width, v.height)
             )
             val selectedRainbowRim = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.52f * selectedPower * alpha),
-                    Color.White.copy(alpha = 0.36f * selectedPower * alpha),
-                    Color(0xFFFF7BDA).copy(alpha = 0.34f * selectedPower * alpha),
-                    Color(0xFFFFE58A).copy(alpha = 0.22f * selectedPower * alpha),
-                    Color(0xFF8EA2FF).copy(alpha = 0.28f * selectedPower * alpha),
-                    Color(0xFF77FFF0).copy(alpha = 0.44f * selectedPower * alpha)
+                    Color(0xFF77FFF0).copy(alpha = 0.64f * selectedPower * alpha),
+                    Color.White.copy(alpha = 0.42f * selectedPower * alpha),
+                    Color(0xFFFF7BDA).copy(alpha = 0.36f * selectedPower * alpha),
+                    Color(0xFFFFE58A).copy(alpha = 0.20f * selectedPower * alpha),
+                    Color(0xFF8EA2FF).copy(alpha = 0.22f * selectedPower * alpha),
+                    Color.Transparent
                 ),
-                Offset(v.width * -0.08f, v.height * 0.02f),
-                Offset(v.width * 1.04f, v.height * 0.98f)
+                Offset(v.width * -0.06f, v.height * -0.02f),
+                Offset(v.width * 0.98f, v.height * 0.72f)
             )
             val selectedOuterRainbowHalo = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.105f * selectedPower * alpha),
-                    Color(0xFFFF7BDA).copy(alpha = 0.088f * selectedPower * alpha),
-                    Color(0xFFFFE58A).copy(alpha = 0.050f * selectedPower * alpha),
+                    Color(0xFF77FFF0).copy(alpha = 0.115f * selectedPower * alpha),
+                    Color(0xFFFF7BDA).copy(alpha = 0.074f * selectedPower * alpha),
+                    Color(0xFFFFE58A).copy(alpha = 0.044f * selectedPower * alpha),
                     Color.Transparent,
-                    Color(0xFF8EA2FF).copy(alpha = 0.068f * selectedPower * alpha)
+                    Color(0xFF8EA2FF).copy(alpha = 0.052f * selectedPower * alpha)
                 ),
                 Offset(v.width * -0.10f, v.height * -0.20f),
                 Offset(v.width * 1.06f, v.height * 1.10f)
@@ -498,9 +500,10 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val topHairline = Brush.horizontalGradient(
                 listOf(
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.230f * rimPower + selectedRim * 0.30f),
-                    Color(0xFFE9FFFF).copy(alpha = 0.165f * rimPower + selectedRim * 0.36f),
-                    Color.White.copy(alpha = 0.125f * rimPower),
+                    Color.White.copy(alpha = 0.395f * rimPower + selectedRim * 0.32f),
+                    Color(0xFFFFF3C8).copy(alpha = 0.090f * rimPower + selectedRim * 0.12f),
+                    Color(0xFFE9FFFF).copy(alpha = 0.200f * rimPower + selectedRim * 0.34f),
+                    Color.White.copy(alpha = 0.104f * rimPower),
                     Color.Transparent
                 ),
                 0f,
@@ -508,10 +511,10 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             )
             val innerDepth = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.060f * rimPower),
+                    Color.White.copy(alpha = 0.072f * rimPower),
                     Color.Transparent,
-                    Color(0xFF000713).copy(alpha = 0.215f * rimPower),
-                    Color(0xFF89FFF3).copy(alpha = 0.040f * rimPower + selectedRim * 0.16f)
+                    Color(0xFF000713).copy(alpha = 0.235f * rimPower),
+                    Color(0xFF89FFF3).copy(alpha = 0.044f * rimPower + selectedRim * 0.16f)
                 ),
                 Offset(v.width * 0.08f, 0f),
                 Offset(v.width * 0.92f, v.height)
@@ -520,21 +523,21 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 listOf(
                     Color.Transparent,
                     Color.Transparent,
-                    Color(0xFF00040C).copy(alpha = 0.280f * rimPower + 0.062f * press)
+                    Color(0xFF00040C).copy(alpha = 0.300f * rimPower + 0.056f * press)
                 ),
                 v.height * 0.42f,
                 v.height
             )
             val cornerCatch = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.205f * rimPower + selectedRim * 0.50f),
-                    Color(0xFFFFF0C9).copy(alpha = 0.060f * selectedPower * alpha),
-                    Color(0xFFFF8DE2).copy(alpha = 0.044f * selectedPower * alpha),
-                    Color(0xFF9DFFF4).copy(alpha = 0.075f * rimPower + selectedRim * 0.22f),
+                    Color.White.copy(alpha = 0.390f * rimPower + selectedRim * 0.42f),
+                    Color(0xFFFFF0C9).copy(alpha = 0.130f * rimPower + 0.064f * selectedPower * alpha),
+                    Color(0xFFFF8DE2).copy(alpha = 0.040f * selectedPower * alpha),
+                    Color(0xFF9DFFF4).copy(alpha = 0.105f * rimPower + selectedRim * 0.20f),
                     Color.Transparent
                 ),
-                center = Offset(v.width * 0.050f, v.height * 0.055f),
-                radius = maxSide * 0.18f
+                center = Offset(v.width * 0.040f, v.height * 0.035f),
+                radius = maxSide * 0.118f
             )
 
             withTransform({ translate(v.left, v.top) }) {
@@ -557,7 +560,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                     )
                 }
                 drawRoundRect(brush = outerRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.78.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerDepth, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = bottomWeight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
                 drawRoundRect(brush = cornerCatch, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.08.dp.toPx()), blendMode = BlendMode.Screen)
