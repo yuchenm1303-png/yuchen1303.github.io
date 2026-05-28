@@ -1,0 +1,148 @@
+tasks.register('patchModelCardPrismSample') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        def oldPressBlock = '''    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed && !state.isSending) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessLow),
+        label = "model-prism-glass-press-${model.id}"
+    )
+'''
+        def newPressBlock = '''    val interactionSource = remember { MutableInteractionSource() }
+    val pressProgress = 0f
+'''
+        if (text.contains(oldPressBlock)) {
+            text = text.replace(oldPressBlock, newPressBlock)
+            println('Disabled model card press animation for static prism sample preview.')
+        } else if (text.contains('val pressProgress = 0f')) {
+            println('Model card press animation is already disabled.')
+        } else {
+            throw new GradleException('Model card press animation block not found.')
+        }
+
+        def oldEnergyBlock = '''    val selectedEnergy = if (selected) 1f else 0f
+    val stackSafeEnergy = maxOf(stackEnergy, 0.44f)
+    val settleSweep = smoothGlass(stopPulse) * 0.30f
+    val pressBloom = smoothGlass(pressProgress) * 0.42f
+    val flightGlow = smoothGlass(moving) * 0.08f
+    val sweepEnergy = (settleSweep + pressBloom + flightGlow).coerceIn(0f, 0.86f)
+'''
+        def newEnergyBlock = '''    val sweepEnergy = 0f
+'''
+        if (text.contains(oldEnergyBlock)) {
+            text = text.replace(oldEnergyBlock, newEnergyBlock)
+            println('Disabled model card sweep motion for 1:1 lab sample preview.')
+        } else if (text.contains('val sweepEnergy = 0f')) {
+            println('Model card sweep motion is already disabled.')
+        } else {
+            throw new GradleException('Model card sweep energy block not found.')
+        }
+
+        def oldPressTransform = '''            .graphicsLayer {
+                scaleX = 1f + 0.014f * pressProgress
+                scaleY = 1f - 0.022f * pressProgress
+                translationY = 1.2f * pressProgress
+            }
+            .clip(shape)
+'''
+        def newPressTransform = '''            .clip(shape)
+'''
+        if (text.contains(oldPressTransform)) {
+            text = text.replace(oldPressTransform, newPressTransform)
+            println('Removed extra model card press transform for static sample preview.')
+        } else if (text.contains(newPressTransform)) {
+            println('Model card press transform already removed or not present.')
+        } else {
+            throw new GradleException('Model card press transform block not found.')
+        }
+
+        def oldParams = '''                radius = 30f,
+                surfaceAlpha = (0.038f + 0.010f * selectedEnergy) * stackSafeEnergy,
+                rimAlpha = 0.10f * stackSafeEnergy,
+                rimWidth = if (selected) 1.05f else 0.90f,
+                topHighlight = (0.17f + 0.06f * selectedEnergy) * stackSafeEnergy,
+                topHighlightHeight = 0.24f,
+                innerRimAlpha = (0.11f + 0.04f * selectedEnergy) * stackSafeEnergy,
+                bottomDepth = 0.08f * stackSafeEnergy,
+                cornerCatchlight = (0.06f + 0.05f * selectedEnergy) * stackSafeEnergy,
+                press = pressProgress,
+                sweep = sweepEnergy,
+                pressCenter = Offset(0.50f, 0.50f),
+                pressGlow = 1.45f * stackSafeEnergy,
+                pressEdgeBoost = 1.10f * stackSafeEnergy,
+                pressSweep = 1.20f * stackSafeEnergy,
+                pressDarken = 0.08f,
+                rainbowRimAlpha = (2.20f + 0.70f * selectedEnergy + 0.24f * expansionProgress + 0.10f * moving + 0.18f * stopPulse) * stackSafeEnergy,
+                rainbowRimWidth = 2.10f + 0.28f * selectedEnergy,
+                rainbowPressEdge = 2.05f + 0.35f * selectedEnergy,
+                rainbowSweepAlpha = 2.10f + 0.38f * selectedEnergy,
+                rainbowCornerAlpha = (0.55f + 0.14f * selectedEnergy) * stackSafeEnergy,
+                rainbowSaturation = 2.20f
+'''
+        def newParams = '''                radius = 30f,
+                surfaceAlpha = 0.030f,
+                rimAlpha = 0.10f,
+                rimWidth = 0.86f,
+                topHighlight = 0.145f,
+                topHighlightHeight = 0.22f,
+                innerRimAlpha = 0.105f,
+                bottomDepth = 0.070f,
+                cornerCatchlight = 0.062f,
+                press = 0f,
+                sweep = 0f,
+                pressCenter = Offset(0.50f, 0.50f),
+                pressGlow = 0.55f,
+                pressEdgeBoost = 0.70f,
+                pressSweep = 0.70f,
+                pressDarken = 0.22f,
+                rainbowRimAlpha = 0.70f,
+                rainbowRimWidth = 1.40f,
+                rainbowPressEdge = 0.80f,
+                rainbowSweepAlpha = 0.80f,
+                rainbowCornerAlpha = 0.30f,
+                rainbowSaturation = 1.00f
+'''
+        if (text.contains(oldParams)) {
+            text = text.replace(oldParams, newParams)
+            println('Replaced model card optics with 1:1 static lab sample max preset.')
+        } else if (text.contains('surfaceAlpha = 0.030f,') && text.contains('rainbowRimAlpha = 0.70f,') && text.contains('press = 0f,')) {
+            println('Model card optics already use 1:1 static lab sample preset.')
+        } else {
+            throw new GradleException('Model card prism sample parameter block not found.')
+        }
+
+        home.setText(text, 'UTF-8')
+
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
+        def labText = lab.getText('UTF-8')
+        def replacements = [
+            'var pressGlow by rememberSaveable { mutableFloatStateOf(0.26f) }': 'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }',
+            'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressSweep by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressDarken by rememberSaveable { mutableFloatStateOf(0.070f) }': 'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }',
+            'var pressElasticity by rememberSaveable { mutableFloatStateOf(0.82f) }': 'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.2f) }',
+            'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.56f) }': 'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }',
+            'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.38f) }': 'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.06f) }': 'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
+            'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.86f) }': 'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }'
+        ]
+        replacements.each { from, to ->
+            if (labText.contains(from)) {
+                labText = labText.replace(from, to)
+            } else if (!labText.contains(to)) {
+                throw new GradleException("Lightweight glass lab default not found: ${from}")
+            }
+        }
+        lab.setText(labText, 'UTF-8')
+        println('Set lightweight glass lab prism and press defaults to slider maximums.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelCardPrismSample')
+}
