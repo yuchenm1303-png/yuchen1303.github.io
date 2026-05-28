@@ -1,0 +1,119 @@
+tasks.register('patchSharedPrismCapsuleUsage') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+        def modelStart = text.indexOf('@Composable\nprivate fun LightweightModelCapsule(')
+        def modelEnd = text.indexOf('@Composable\nprivate fun ModelStackCardContent', modelStart)
+        if (modelStart < 0 || modelEnd < modelStart) {
+            if (text.contains('LightweightPrismCapsule(') && text.contains('private fun ModelStackCardContent')) {
+                println('AssistantHomePolished already uses shared prism capsule.')
+            } else {
+                throw new GradleException('LightweightModelCapsule block not found for shared prism capsule patch.')
+            }
+        } else {
+            def newModelBlock = '''@Composable
+private fun LightweightModelCapsule(
+    model: ChatModel,
+    selected: Boolean,
+    state: AssistantUiState,
+    modifier: Modifier,
+    expansionProgress: Float,
+    moving: Float,
+    stopPulse: Float,
+    stackEnergy: Float,
+    shape: RoundedCornerShape,
+    showContent: Boolean,
+    onClick: () -> Unit
+) {
+    LightweightPrismCapsule(
+        modifier = modifier,
+        spec = LightweightPrismCapsuleDefaults.LabMax,
+        enabled = !state.isSending,
+        onClick = onClick
+    ) { press ->
+        if (showContent) {
+            ModelStackCardContent(
+                model = model,
+                selected = selected,
+                expansionProgress = expansionProgress
+            )
+        }
+    }
+}
+
+'''
+            text = text.substring(0, modelStart) + newModelBlock + text.substring(modelEnd)
+            home.setText(text, 'UTF-8')
+            println('Replaced model cards with shared prism capsule sample, including press and release optics.')
+        }
+
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
+        def labText = lab.getText('UTF-8')
+        def previewStart = labText.indexOf('@Composable\nprivate fun LightweightGlassPreview(')
+        def previewEnd = labText.indexOf('private fun Modifier.lightweightGlassLabSurface', previewStart)
+        if (previewStart < 0 || previewEnd < previewStart) {
+            if (labText.contains('LightweightPrismCapsuleLabPreview(')) {
+                println('Lightweight glass lab already uses shared prism capsule preview.')
+            } else {
+                throw new GradleException('LightweightGlassPreview block not found for shared prism capsule patch.')
+            }
+        } else {
+            def newPreviewBlock = '''@Composable
+private fun LightweightGlassPreview(
+    radius: Float,
+    surfaceAlpha: Float,
+    rimAlpha: Float,
+    rimWidth: Float,
+    topHighlight: Float,
+    topHighlightHeight: Float,
+    innerRimAlpha: Float,
+    bottomDepth: Float,
+    cornerCatchlight: Float,
+    pressGlow: Float,
+    pressEdgeBoost: Float,
+    pressSweep: Float,
+    pressDarken: Float,
+    pressElasticity: Float,
+    rainbowRimAlpha: Float,
+    rainbowRimWidth: Float,
+    rainbowPressEdge: Float,
+    rainbowSweepAlpha: Float,
+    rainbowCornerAlpha: Float,
+    rainbowSaturation: Float
+) {
+    val spec = LightweightPrismCapsuleSpec(
+        radius = radius,
+        surfaceAlpha = surfaceAlpha,
+        rimAlpha = rimAlpha,
+        rimWidth = rimWidth,
+        topHighlight = topHighlight,
+        topHighlightHeight = topHighlightHeight,
+        innerRimAlpha = innerRimAlpha,
+        bottomDepth = bottomDepth,
+        cornerCatchlight = cornerCatchlight,
+        pressGlow = pressGlow,
+        pressEdgeBoost = pressEdgeBoost,
+        pressSweep = pressSweep,
+        pressDarken = pressDarken,
+        pressElasticity = pressElasticity,
+        rainbowRimAlpha = rainbowRimAlpha,
+        rainbowRimWidth = rainbowRimWidth,
+        rainbowPressEdge = rainbowPressEdge,
+        rainbowSweepAlpha = rainbowSweepAlpha,
+        rainbowCornerAlpha = rainbowCornerAlpha,
+        rainbowSaturation = rainbowSaturation
+    )
+    LightweightPrismCapsuleLabPreview(spec = spec)
+}
+
+'''
+            labText = labText.substring(0, previewStart) + newPreviewBlock + labText.substring(previewEnd)
+            lab.setText(labText, 'UTF-8')
+            println('Replaced lab preview with shared prism capsule sample.')
+        }
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchSharedPrismCapsuleUsage')
+}
