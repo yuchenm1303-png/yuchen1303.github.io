@@ -3,92 +3,144 @@ tasks.register('patchSharedPrismCapsuleUsage') {
         def prism = file('src/main/java/com/yuchen/ailedger/ui/LightweightPrismCapsule.kt')
         def prismText = prism.getText('UTF-8')
         def prismDefaults = [
-            'val radius: Float = 32.4f,': 'val radius: Float = 32.4f,',
-            'val surfaceAlpha: Float = 0.030f,': 'val surfaceAlpha: Float = 0.000f,',
-            'val rimAlpha: Float = 0.10f,': 'val rimAlpha: Float = 0.55f,',
-            'val rimWidth: Float = 0.86f,': 'val rimWidth: Float = 0.35f,',
-            'val topHighlight: Float = 0.145f,': 'val topHighlight: Float = 0.03f,',
-            'val topHighlightHeight: Float = 0.22f,': 'val topHighlightHeight: Float = 0.08f,',
-            'val innerRimAlpha: Float = 0.105f,': 'val innerRimAlpha: Float = 0.30f,',
-            'val bottomDepth: Float = 0.070f,': 'val bottomDepth: Float = 0.000f,',
-            'val cornerCatchlight: Float = 0.062f,': 'val cornerCatchlight: Float = 0.24f,',
-            'val pressGlow: Float = 0.26f,': 'val pressGlow: Float = 0.55f,',
-            'val pressGlow: Float = 0.55f,': 'val pressGlow: Float = 0.55f,',
-            'val pressEdgeBoost: Float = 0.18f,': 'val pressEdgeBoost: Float = 0.70f,',
-            'val pressEdgeBoost: Float = 0.70f,': 'val pressEdgeBoost: Float = 0.70f,',
-            'val pressSweep: Float = 0.18f,': 'val pressSweep: Float = 0.70f,',
-            'val pressSweep: Float = 0.70f,': 'val pressSweep: Float = 0.70f,',
-            'val pressDarken: Float = 0.070f,': 'val pressDarken: Float = 0.22f,',
-            'val pressDarken: Float = 0.22f,': 'val pressDarken: Float = 0.22f,',
-            'val pressElasticity: Float = 0.82f,': 'val pressElasticity: Float = 1.20f,',
-            'val pressElasticity: Float = 1.20f,': 'val pressElasticity: Float = 1.20f,',
-            'val rainbowRimAlpha: Float = 0.34f,': 'val rainbowRimAlpha: Float = 0.70f,',
-            'val rainbowRimAlpha: Float = 0.70f,': 'val rainbowRimAlpha: Float = 0.70f,',
-            'val rainbowRimWidth: Float = 0.56f,': 'val rainbowRimWidth: Float = 1.40f,',
-            'val rainbowRimWidth: Float = 1.40f,': 'val rainbowRimWidth: Float = 1.40f,',
-            'val rainbowPressEdge: Float = 0.38f,': 'val rainbowPressEdge: Float = 0.80f,',
-            'val rainbowPressEdge: Float = 0.80f,': 'val rainbowPressEdge: Float = 0.80f,',
-            'val rainbowSweepAlpha: Float = 0.34f,': 'val rainbowSweepAlpha: Float = 0.80f,',
-            'val rainbowSweepAlpha: Float = 0.80f,': 'val rainbowSweepAlpha: Float = 0.80f,',
-            'val rainbowCornerAlpha: Float = 0.06f,': 'val rainbowCornerAlpha: Float = 0.30f,',
-            'val rainbowCornerAlpha: Float = 0.30f,': 'val rainbowCornerAlpha: Float = 0.30f,',
-            'val rainbowSaturation: Float = 0.86f': 'val rainbowSaturation: Float = 1.00f',
-            'val rainbowSaturation: Float = 1.00f': 'val rainbowSaturation: Float = 1.00f'
+            'val radius: Float = 32.4f,',
+            'val surfaceAlpha: Float = 0.050f,',
+            'val rimAlpha: Float = 0.78f,',
+            'val rimWidth: Float = 0.52f,',
+            'val topHighlight: Float = 0.075f,',
+            'val topHighlightHeight: Float = 0.16f,',
+            'val innerRimAlpha: Float = 0.45f,',
+            'val bottomDepth: Float = 0.018f,',
+            'val cornerCatchlight: Float = 0.42f,',
+            'val pressGlow: Float = 0.55f,',
+            'val pressEdgeBoost: Float = 0.70f,',
+            'val pressSweep: Float = 0.70f,',
+            'val pressDarken: Float = 0.22f,',
+            'val pressElasticity: Float = 1.20f,',
+            'val rainbowRimAlpha: Float = 0.70f,',
+            'val rainbowRimWidth: Float = 1.40f,',
+            'val rainbowPressEdge: Float = 0.80f,',
+            'val rainbowSweepAlpha: Float = 0.80f,',
+            'val rainbowCornerAlpha: Float = 0.38f,',
+            'val rainbowSaturation: Float = 1.00f'
         ]
-        prismDefaults.each { from, to ->
-            if (prismText.contains(from)) {
-                prismText = prismText.replace(from, to)
-            } else if (!prismText.contains(to)) {
-                throw new GradleException("LightweightPrismCapsule default not found: ${from}")
-            }
+        def defaultNames = ['radius','surfaceAlpha','rimAlpha','rimWidth','topHighlight','topHighlightHeight','innerRimAlpha','bottomDepth','cornerCatchlight','pressGlow','pressEdgeBoost','pressSweep','pressDarken','pressElasticity','rainbowRimAlpha','rainbowRimWidth','rainbowPressEdge','rainbowSweepAlpha','rainbowCornerAlpha','rainbowSaturation']
+        defaultNames.eachWithIndex { name, index ->
+            def line = prismDefaults[index]
+            def pattern = /val ${name}: Float = [0-9.]+f?,?/
+            prismText = prismText.replaceFirst(pattern, line)
         }
         prism.setText(prismText, 'UTF-8')
-        println('Synced shared prism capsule defaults to tuned lab baseline and max prism/press optics.')
+        println('Synced shared prism capsule defaults to brighter mist baseline, stronger rim and fixed corner highlights.')
 
         def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
         def labText = lab.getText('UTF-8')
         def labDefaults = [
-            'var radius by rememberSaveable { mutableFloatStateOf(32.4f) }': 'var radius by rememberSaveable { mutableFloatStateOf(32.4f) }',
-            'var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.030f) }': 'var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }',
-            'var rimAlpha by rememberSaveable { mutableFloatStateOf(0.10f) }': 'var rimAlpha by rememberSaveable { mutableFloatStateOf(0.55f) }',
-            'var rimWidth by rememberSaveable { mutableFloatStateOf(0.86f) }': 'var rimWidth by rememberSaveable { mutableFloatStateOf(0.35f) }',
-            'var topHighlight by rememberSaveable { mutableFloatStateOf(0.145f) }': 'var topHighlight by rememberSaveable { mutableFloatStateOf(0.03f) }',
-            'var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.22f) }': 'var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.08f) }',
-            'var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.105f) }': 'var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
-            'var bottomDepth by rememberSaveable { mutableFloatStateOf(0.070f) }': 'var bottomDepth by rememberSaveable { mutableFloatStateOf(0.000f) }',
-            'var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.062f) }': 'var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.24f) }',
-            'var pressGlow by rememberSaveable { mutableFloatStateOf(0.26f) }': 'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }',
-            'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }': 'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }',
-            'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var pressSweep by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var pressDarken by rememberSaveable { mutableFloatStateOf(0.070f) }': 'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }',
-            'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }': 'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }',
-            'var pressElasticity by rememberSaveable { mutableFloatStateOf(0.82f) }': 'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }',
-            'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }': 'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }',
-            'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }',
-            'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.56f) }': 'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }',
-            'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }': 'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }',
-            'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.38f) }': 'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }',
-            'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }': 'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }',
-            'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }',
-            'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }': 'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }',
-            'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.06f) }': 'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
-            'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }': 'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
-            'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.86f) }': 'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }',
-            'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }': 'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }'
+            radius: '32.4f', surfaceAlpha: '0.050f', rimAlpha: '0.78f', rimWidth: '0.52f',
+            topHighlight: '0.075f', topHighlightHeight: '0.16f', innerRimAlpha: '0.45f',
+            bottomDepth: '0.018f', cornerCatchlight: '0.42f', pressGlow: '0.55f',
+            pressEdgeBoost: '0.70f', pressSweep: '0.70f', pressDarken: '0.22f',
+            pressElasticity: '1.20f', rainbowRimAlpha: '0.70f', rainbowRimWidth: '1.40f',
+            rainbowPressEdge: '0.80f', rainbowSweepAlpha: '0.80f', rainbowCornerAlpha: '0.38f',
+            rainbowSaturation: '1.0f'
         ]
-        labDefaults.each { from, to ->
-            if (labText.contains(from)) {
-                labText = labText.replace(from, to)
-            } else if (!labText.contains(to)) {
-                throw new GradleException("Lightweight glass lab default not found: ${from}")
-            }
+        labDefaults.each { name, value ->
+            labText = labText.replaceFirst(/var ${name} by rememberSaveable \{ mutableFloatStateOf\([0-9.]+f\) \}/, "var ${name} by rememberSaveable { mutableFloatStateOf(${value}) }")
         }
         lab.setText(labText, 'UTF-8')
-        println('Synced lightweight glass lab slider defaults to tuned baseline and max prism/press optics.')
+        println('Synced lightweight glass lab slider defaults to brighter mist baseline and fixed corner highlights.')
+
+        def unified = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (unified.exists()) {
+            def unifiedText = unified.getText('UTF-8')
+            def oldSurface = '''            val surface = Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
+                    Color(0xFFCFEAFF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.28f),
+                    Color.Transparent,
+                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.42f)
+                ),
+                0f,
+                v.height
+            )
+'''
+            def newSurface = '''            val surface = Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
+                    Color(0xFFD9F1FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.52f),
+                    Color(0xFFEAF7FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f) * 0.20f),
+                    Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.36f)
+                ),
+                0f,
+                v.height
+            )
+            val centerMist = Brush.radialGradient(
+                listOf(
+                    Color(0xFFEAF7FF).copy(alpha = (0.040f + surfaceAlpha * 0.70f).coerceIn(0f, 0.16f)),
+                    Color(0xFF9EDBFF).copy(alpha = (0.018f + surfaceAlpha * 0.22f).coerceIn(0f, 0.08f)),
+                    Color.Transparent
+                ),
+                Offset(v.width * 0.50f, v.height * 0.50f),
+                maxSide * 0.64f
+            )
+'''
+            if (unifiedText.contains(oldSurface)) unifiedText = unifiedText.replace(oldSurface, newSurface)
+            if (!unifiedText.contains('drawRoundRect(brush = centerMist')) {
+                unifiedText = unifiedText.replace(
+                    '                drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)',
+                    '                drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = centerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)\n                drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)'
+                )
+            }
+            unifiedText = unifiedText.replace(
+                'spec.rimAlpha * energy * alpha * 0.18f + spec.topHighlight * energy * alpha * 0.20f',
+                'spec.rimAlpha * energy * alpha * 0.26f + spec.topHighlight * energy * alpha * 0.24f'
+            ).replace(
+                'spec.topHighlight * energy * alpha * 0.34f',
+                'spec.rimAlpha * energy * alpha * 0.30f + spec.topHighlight * energy * alpha * 0.36f'
+            ).replace(
+                'spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f * energy * alpha',
+                'spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.70f * energy * alpha'
+            ).replace(
+                'spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f * energy * alpha',
+                'spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.22f * energy * alpha'
+            ).replace(
+                'spec.cornerCatchlight.coerceIn(0f, 0.5f) * energy * alpha',
+                'spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.90f * energy * alpha'
+            ).replace(
+                'spec.cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f * energy * alpha',
+                'spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.32f * energy * alpha'
+            )
+            def cornerBlock = '''            val rainbowCorner = Brush.radialGradient(
+'''
+            def extraCorners = '''            val rightCornerLight = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.58f * energy * alpha),
+                    Color(0xFFB7F7FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.22f * energy * alpha),
+                    Color.Transparent
+                ),
+                Offset(v.width * 0.94f, v.height * 0.10f),
+                maxSide * 0.24f
+            )
+            val lowerCornerLight = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.28f * energy * alpha),
+                    Color(0xFFC7E9FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.12f * energy * alpha),
+                    Color.Transparent
+                ),
+                Offset(v.width * 0.92f, v.height * 0.88f),
+                maxSide * 0.26f
+            )
+'''
+            if (!unifiedText.contains('val rightCornerLight = Brush.radialGradient')) unifiedText = unifiedText.replace(cornerBlock, extraCorners + cornerBlock)
+            if (!unifiedText.contains('drawRoundRect(brush = rightCornerLight')) {
+                unifiedText = unifiedText.replace(
+                    '                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.68.dp.toPx()), blendMode = BlendMode.Screen)',
+                    '                drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.86.dp.toPx()), blendMode = BlendMode.Screen)\n                drawRoundRect(brush = rightCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx()), blendMode = BlendMode.Screen)\n                drawRoundRect(brush = lowerCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.62.dp.toPx()), blendMode = BlendMode.Screen)'
+                )
+            }
+            unified.setText(unifiedText, 'UTF-8')
+            println('Synced unified home model card renderer with mist fill and fixed corner highlights.')
+        }
 
         def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
         def text = home.getText('UTF-8')
@@ -125,52 +177,6 @@ private fun ModelStackSelector(
             println('Model stack selector already patched.')
         } else {
             throw new GradleException('ModelStackSelector block not found for parent-level prism drawing patch.')
-        }
-
-        text = home.getText('UTF-8')
-        def modelStart = text.indexOf('@Composable\nprivate fun LightweightModelCapsule(')
-        def modelEnd = text.indexOf('@Composable\nprivate fun ModelStackCardContent', modelStart)
-        if (modelStart < 0 || modelEnd < modelStart) {
-            if (text.contains('LightweightPrismCapsule(') && text.contains('private fun ModelStackCardContent')) {
-                println('AssistantHomePolished already uses shared prism capsule.')
-            } else {
-                throw new GradleException('LightweightModelCapsule block not found for shared prism capsule patch.')
-            }
-        } else {
-            def newModelBlock = '''@Composable
-private fun LightweightModelCapsule(
-    model: ChatModel,
-    selected: Boolean,
-    state: AssistantUiState,
-    modifier: Modifier,
-    expansionProgress: Float,
-    moving: Float,
-    stopPulse: Float,
-    stackEnergy: Float,
-    shape: RoundedCornerShape,
-    showContent: Boolean,
-    onClick: () -> Unit
-) {
-    LightweightPrismCapsule(
-        modifier = modifier,
-        spec = LightweightPrismCapsuleDefaults.LabMax,
-        enabled = !state.isSending,
-        onClick = onClick
-    ) { press ->
-        if (showContent) {
-            ModelStackCardContent(
-                model = model,
-                selected = selected,
-                expansionProgress = expansionProgress
-            )
-        }
-    }
-}
-
-'''
-            text = text.substring(0, modelStart) + newModelBlock + text.substring(modelEnd)
-            home.setText(text, 'UTF-8')
-            println('Replaced model cards with shared prism capsule sample, including press and release optics.')
         }
 
         labText = lab.getText('UTF-8')
