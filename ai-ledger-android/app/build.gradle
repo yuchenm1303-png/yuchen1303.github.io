@@ -47,6 +47,7 @@ dependencies {
 
 apply from: 'chat-bubble-polish.gradle'
 apply from: 'shared-prism-capsule.gradle'
+apply from: 'model-glass-drawscope-fix.gradle'
 
 def patchPolishedOnlineDroplet = tasks.register('patchPolishedOnlineDroplet') {
     doLast {
@@ -118,69 +119,7 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
         } else {
             throw new GradleException('Target NetworkDropletCapsule height block was not found.')
         }
-
-        def oldBreath = 'breathAnim.animateTo(Random.nextFloat(), tween(950 + Random.nextInt(850), easing = FastOutSlowInEasing))'
-        def newBreath = 'breathAnim.animateTo(0.36f + Random.nextFloat() * 0.38f, tween(1600 + Random.nextInt(1400), easing = FastOutSlowInEasing))'
-        def oldDrift = 'driftAnim.animateTo(Random.nextFloat() * 0.34f - 0.17f, tween(1200 + Random.nextInt(1300), easing = FastOutSlowInEasing))'
-        def newDrift = 'driftAnim.animateTo(Random.nextFloat() * 0.14f - 0.07f, tween(2200 + Random.nextInt(1600), easing = FastOutSlowInEasing))'
-        def oldShimmer = 'shimmerAnim.animateTo(0.22f + Random.nextFloat() * 0.78f, tween(520 + Random.nextInt(980), easing = FastOutSlowInEasing))'
-        def newShimmer = 'shimmerAnim.animateTo(0.36f + Random.nextFloat() * 0.32f, tween(1800 + Random.nextInt(1200), easing = FastOutSlowInEasing))'
-        if (dropletText.contains(oldBreath)) dropletText = dropletText.replace(oldBreath, newBreath)
-        if (dropletText.contains(oldDrift)) dropletText = dropletText.replace(oldDrift, newDrift)
-        if (dropletText.contains(oldShimmer)) dropletText = dropletText.replace(oldShimmer, newShimmer)
-
-        def oldSweep = 'val sweep = (phase - phase.toInt()) * size.width * 0.66f'
-        def newSweep = 'val smoothPhase = 0.5f + 0.5f * sin((phase * 1.35f + shimmer * 0.25f) * NetworkInlineDropletTau)\n        val sweep = smoothPhase * size.width * 0.46f'
-        if (dropletText.contains(oldSweep)) {
-            dropletText = dropletText.replace(oldSweep, newSweep)
-            println('Replaced prism wrap reset with continuous sinusoidal drift.')
-        } else if (dropletText.contains('val smoothPhase = 0.5f + 0.5f * sin((phase * 1.35f + shimmer * 0.25f) * NetworkInlineDropletTau)')) {
-            println('Prism drift already uses continuous phase.')
-        } else {
-            throw new GradleException('Target prism sweep line was not found.')
-        }
         droplet.setText(dropletText, 'UTF-8')
-
-        def gl = file('src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt')
-        def glText = gl.getText('UTF-8')
-        def oldRim = '''                float rimDirection = bottomOptic * 1.00 + sideFacing * 0.62 + topFacing * 0.20;
-                float rimLight = rimSource * wideRim * (0.25 + 0.75 * thickness) * rimDirection * activeRimRefraction * rimGather;
-'''
-        def newRim = '''                float rimDirection = bottomOptic * 1.00 + sideFacing * 0.62 + topFacing * 0.20;
-                float joinDistance = abs(abs(coord.x - center.x) - halfLine);
-                float joinFade = mix(0.70, 1.0, smoothstep(0.0, max(radius * 0.30, 10.0), joinDistance));
-                float sideJoinFade = mix(1.0, joinFade, sideFacing * wideRim);
-                float rimLight = rimSource * wideRim * (0.25 + 0.75 * thickness) * rimDirection * activeRimRefraction * rimGather * sideJoinFade;
-'''
-        if (glText.contains(oldRim)) {
-            glText = glText.replace(oldRim, newRim)
-            println('Softened OpenGL droplet rim light at cap joins.')
-        } else if (glText.contains('float sideJoinFade = mix(1.0, joinFade, sideFacing * wideRim);')) {
-            println('OpenGL droplet rim join fade already patched.')
-        } else {
-            throw new GradleException('Target OpenGL rim light block was not found.')
-        }
-
-        def oldEntry = '''                float entryPin = exp(-dot(pinDelta, pinDelta) * 5.5) * sourceSideMask * sat(thinRim + innerRimLine * 0.55) * active * hotspotStrength * entryPearl;
-                float lowerArc = smoothstep(0.22, 0.96, softNormal.y);
-'''
-        def newEntry = '''                float entryPin = exp(-dot(pinDelta, pinDelta) * 5.5) * sourceSideMask * sat(thinRim + innerRimLine * 0.55) * active * hotspotStrength * entryPearl;
-                entryEdgeContact *= sideJoinFade;
-                entryEdgeWash *= sideJoinFade;
-                entryHalo *= sideJoinFade;
-                entryCrescent *= sideJoinFade;
-                entryPin *= sideJoinFade;
-                float lowerArc = smoothstep(0.22, 0.96, softNormal.y);
-'''
-        if (glText.contains(oldEntry)) {
-            glText = glText.replace(oldEntry, newEntry)
-            println('Faded OpenGL droplet entry optics at cap joins.')
-        } else if (glText.contains('entryEdgeContact *= sideJoinFade;')) {
-            println('OpenGL droplet entry join fade already patched.')
-        } else {
-            throw new GradleException('Target OpenGL entry optic block was not found.')
-        }
-        gl.setText(glText, 'UTF-8')
     }
 }
 
