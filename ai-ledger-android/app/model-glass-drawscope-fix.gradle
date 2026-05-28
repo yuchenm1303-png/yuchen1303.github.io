@@ -1,0 +1,29 @@
+tasks.register('patchModelGlassDrawScope') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        def oldFun = '    fun drawCardGlass(v: ModelCardVisual) {\n'
+        def newFun = '    fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCardGlass(v: ModelCardVisual) {\n'
+        if (text.contains(oldFun)) {
+            text = text.replace(oldFun, newFun)
+        } else if (!text.contains(newFun)) {
+            throw new GradleException('Model glass drawCardGlass function target was not found.')
+        }
+
+        def oldCall = '        visuals.sortedBy { it.zIndex }.forEach(::drawCardGlass)\n'
+        def newCall = '        visuals.sortedBy { it.zIndex }.forEach { drawCardGlass(it) }\n'
+        if (text.contains(oldCall)) {
+            text = text.replace(oldCall, newCall)
+        } else if (!text.contains(newCall)) {
+            throw new GradleException('Model glass drawCardGlass call target was not found.')
+        }
+
+        home.setText(text, 'UTF-8')
+        println('Patched model glass DrawScope receiver for drawRoundRect calls.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelGlassDrawScope')
+}
