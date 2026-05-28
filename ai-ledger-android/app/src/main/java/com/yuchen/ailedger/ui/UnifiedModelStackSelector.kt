@@ -7,9 +7,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,9 +22,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -35,9 +36,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +53,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatModel
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -62,6 +67,7 @@ internal fun UnifiedParentModelStackSelector(
 ) {
     BoxWithConstraints(modifier = modifier) {
         val density = LocalDensity.current
+        val scope = rememberCoroutineScope()
         val parentMaxWidth = maxWidth
         val models = ChatModel.entries
         val gap = 10.dp
@@ -74,6 +80,7 @@ internal fun UnifiedParentModelStackSelector(
         val selectedModel = state.selectedModel
         val behindModels = models.filter { it != selectedModel }
         val visuals = mutableListOf<UnifiedModelCardVisual>()
+        val spec = LightweightPrismCapsuleDefaults.LabMax
 
         Box(
             Modifier
@@ -130,37 +137,43 @@ internal fun UnifiedParentModelStackSelector(
                     animationSpec = spring(dampingRatio = 0.60f, stiffness = Spring.StiffnessMediumLow),
                     label = "unified-model-card-selected-pulse-${model.id}"
                 )
-                val interactionSource = remember(model.id) { MutableInteractionSource() }
-                val pressed by interactionSource.collectIsPressedAsState()
-                val pressProgress by animateFloatAsState(
-                    targetValue = if (pressed && !state.isSending) 1f else 0f,
-                    animationSpec = spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow),
-                    label = "unified-model-card-press-${model.id}"
-                )
+
+                val pressAnim = remember(model.id) { Animatable(0f) }
                 val releaseSweep = remember(model.id) { Animatable(0f) }
-                LaunchedEffect(pressed, state.isSending) {
-                    if (pressed && !state.isSending) {
-                        releaseSweep.stop()
-                        releaseSweep.snapTo(0f)
-                        releaseSweep.animateTo(0.42f, tween(180, easing = FastOutSlowInEasing))
-                    } else if (releaseSweep.value > 0.001f) {
-                        launch {
-                            releaseSweep.stop()
-                            releaseSweep.animateTo(1.18f, tween(520, easing = FastOutSlowInEasing))
-                            releaseSweep.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
-                        }
-                    }
+                var pressCenter by remember(model.id) { mutableStateOf(Offset(0.50f, 0.50f)) }
+                var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
+                val pressRaw = pressAnim.value.coerceIn(0f, 1.12f)
+                val pressProgress = unifiedModelStackSmooth(pressRaw.coerceIn(0f, 1f))
+                val sweepProgress = releaseSweep.value.coerceIn(0f, 1.18f)
+                val rebound = unifiedModelStackSmooth(((sweepProgress - 0.68f) / 0.50f).coerceIn(0f, 1f)) * (1f - pressProgress)
+                val pressElasticity = spec.pressElasticity.coerceIn(0f, 1.2f)
+                val pressScaleX = 1f + pressProgress * 0.018f * pressElasticity - rebound * 0.004f * pressElasticity
+                val pressScaleY = 1f - pressProgress * 0.026f * pressElasticity + rebound * 0.010f * pressElasticity
+                val pressShiftY = pressProgress * 2.00f * pressElasticity - rebound * 0.70f * pressElasticity
+
+                fun updatePressCenter(position: Offset) {
+                    pressCenter = Offset(
+                        (position.x / cardSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                        (position.y / cardSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    )
                 }
+
                 val visualLeft = tx
                 val visualTop = ty
                 val visualWidth = with(density) { currentWidth.toPx() }
                 val visualHeight = with(density) { currentHeight.toPx() }
-                val visualScaleX = capsuleScaleX * selectedPulse
-                val visualScaleY = capsuleScaleY * selectedPulse
-                val drawLeft = visualLeft + visualWidth * (1f - visualScaleX) * 0.5f
-                val drawTop = visualTop + visualHeight * (1f - visualScaleY) * 0.5f
-                val drawWidth = visualWidth * visualScaleX
-                val drawHeight = visualHeight * visualScaleY
+                val flightScaleX = capsuleScaleX * selectedPulse
+                val flightScaleY = capsuleScaleY * selectedPulse
+                val flightLeft = visualLeft + visualWidth * (1f - flightScaleX) * 0.5f
+                val flightTop = visualTop + visualHeight * (1f - flightScaleY) * 0.5f
+                val flightWidth = visualWidth * flightScaleX
+                val flightHeight = visualHeight * flightScaleY
+                val drawLeft = flightLeft + flightWidth * pressCenter.x * (1f - pressScaleX)
+                val drawTop = flightTop + flightHeight * pressCenter.y * (1f - pressScaleY) + pressShiftY
+                val drawWidth = flightWidth * pressScaleX
+                val drawHeight = flightHeight * pressScaleY
+                val contentScaleX = if (visualWidth > 0f) drawWidth / visualWidth else 1f
+                val contentScaleY = if (visualHeight > 0f) drawHeight / visualHeight else 1f
                 val energy = if (stackRank > 0) 0.42f else 1f
                 visuals.add(
                     UnifiedModelCardVisual(
@@ -171,8 +184,9 @@ internal fun UnifiedParentModelStackSelector(
                         alpha = currentAlpha,
                         selected = selected,
                         stackEnergy = energy,
-                        press = pressProgress,
-                        sweep = releaseSweep.value
+                        press = pressRaw,
+                        sweep = sweepProgress,
+                        pressCenter = pressCenter
                     )
                 )
                 Box(
@@ -181,19 +195,57 @@ internal fun UnifiedParentModelStackSelector(
                         .height(currentHeight)
                         .zIndex(z)
                         .graphicsLayer {
-                            translationX = tx
-                            translationY = ty
-                            scaleX = visualScaleX
-                            scaleY = visualScaleY
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            translationX = drawLeft
+                            translationY = drawTop
+                            scaleX = contentScaleX
+                            scaleY = contentScaleY
                             alpha = currentAlpha
                             shadowElevation = 0f
                         }
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null,
-                            enabled = !state.isSending,
-                            onClick = { if (expanded) onSelected(model) else onToggleExpanded() }
-                        )
+                        .onSizeChanged { size ->
+                            cardSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
+                        }
+                        .pointerInput(state.isSending, expanded, model.id) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                updatePressCenter(down.position)
+                                if (!state.isSending) {
+                                    scope.launch {
+                                        pressAnim.stop()
+                                        if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
+                                        pressAnim.animateTo(0.92f, tween(132, easing = FastOutSlowInEasing))
+                                        pressAnim.animateTo(0.78f, spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow))
+                                    }
+                                    scope.launch {
+                                        releaseSweep.stop()
+                                        releaseSweep.snapTo(0f)
+                                        releaseSweep.animateTo(0.42f, tween(180, easing = FastOutSlowInEasing))
+                                    }
+                                }
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                    if (tracked != null) {
+                                        updatePressCenter(tracked.position)
+                                        if (!tracked.pressed) break
+                                    }
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                                if (!state.isSending) {
+                                    if (expanded) onSelected(model) else onToggleExpanded()
+                                    scope.launch {
+                                        pressAnim.stop()
+                                        pressAnim.animateTo(0f, tween(460, easing = FastOutSlowInEasing))
+                                    }
+                                    scope.launch {
+                                        releaseSweep.stop()
+                                        releaseSweep.animateTo(1.18f, tween(520, easing = FastOutSlowInEasing))
+                                        releaseSweep.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+                                    }
+                                }
+                            }
+                        }
                 ) {
                     UnifiedModelCardContent(model = model, selected = selected, expansionProgress = cardProgress.coerceIn(0f, 1f))
                 }
@@ -211,7 +263,8 @@ private data class UnifiedModelCardVisual(
     val selected: Boolean,
     val stackEnergy: Float,
     val press: Float,
-    val sweep: Float
+    val sweep: Float,
+    val pressCenter: Offset
 )
 
 @Composable
@@ -251,7 +304,7 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val maxSide = maxOf(v.width, v.height)
             val corner = CornerRadius(spec.radius.dp.toPx(), spec.radius.dp.toPx())
             val bodySize = Size(v.width, v.height)
-            val center = Offset(v.width * 0.50f, v.height * 0.50f)
+            val center = Offset(v.width * v.pressCenter.x.coerceIn(0f, 1f), v.height * v.pressCenter.y.coerceIn(0f, 1f))
             val surface = Brush.verticalGradient(
                 listOf(
                     Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.20f)),
@@ -322,6 +375,12 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
             val sweep = v.sweep.coerceIn(0f, 1.18f)
             val press = prismSmooth(v.press.coerceIn(0f, 1f))
+            val center = Offset(v.width * v.pressCenter.x.coerceIn(0f, 1f), v.height * v.pressCenter.y.coerceIn(0f, 1f))
+            val topNear = (1f - v.pressCenter.y / 0.42f).coerceIn(0f, 1f) * press
+            val bottomNear = (1f - (1f - v.pressCenter.y) / 0.42f).coerceIn(0f, 1f) * press
+            val leftNear = (1f - v.pressCenter.x / 0.42f).coerceIn(0f, 1f) * press
+            val rightNear = (1f - (1f - v.pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
+            val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
             val sweepT = prismSmooth(sweep.coerceIn(0f, 1f))
             val sweepX = -0.28f + sweepT * 1.56f
             val rimBandPower = spec.rainbowRimAlpha.coerceIn(0f, 1f) * energy * alpha * (0.72f + 0.18f * selectedEnergy)
@@ -378,10 +437,10 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
                 Offset(v.width * 0.10f, v.height * 0.10f),
                 maxSide * 0.24f
             )
-            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.22f), v.height * -0.06f), Offset(v.width * (sweepX + 0.28f), v.height * 1.04f), rimBandPower * (0.72f + 0.28f * press))
-            val rimBandCounter = prismBandBrush(Offset(v.width * (1.12f - sweepX), v.height * 0.02f), Offset(v.width * (0.54f - sweepX), v.height * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * press))
-            val rimBandTop = prismBandBrush(Offset(v.width * (sweepX - 0.18f), v.height * 0.02f), Offset(v.width * (sweepX + 0.34f), v.height * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * press))
-            val prismLocalEdge = prismBandBrush(Offset(v.width * 0.25f, v.height * -0.16f), Offset(v.width * 0.74f, v.height * 1.08f), spec.rainbowPressEdge * press * energy * alpha)
+            val rimBandMain = prismBandBrush(Offset(v.width * (sweepX - 0.22f), v.height * -0.06f), Offset(v.width * (sweepX + 0.28f), v.height * 1.04f), rimBandPower * (0.72f + 0.28f * pressBandBoost))
+            val rimBandCounter = prismBandBrush(Offset(v.width * (1.12f - sweepX), v.height * 0.02f), Offset(v.width * (0.54f - sweepX), v.height * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost))
+            val rimBandTop = prismBandBrush(Offset(v.width * (sweepX - 0.18f), v.height * 0.02f), Offset(v.width * (sweepX + 0.34f), v.height * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * topNear))
+            val prismLocalEdge = prismBandBrush(Offset(center.x - v.width * 0.24f, center.y - v.height * 0.74f), Offset(center.x + v.width * 0.22f, center.y + v.height * 0.74f), spec.rainbowPressEdge * press * energy * alpha)
             val prismSweep = prismBandBrush(Offset(v.width * (sweepX - 0.24f), v.height * -0.04f), Offset(v.width * (sweepX + 0.30f), v.height * 1.04f), spec.rainbowSweepAlpha.coerceIn(0f, 1f) * sweep * energy * alpha + spec.pressSweep.coerceIn(0f, 1f) * 0.12f * sweep * energy * alpha)
 
             withTransform({ translate(v.left, v.top) }) {
@@ -405,10 +464,14 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
 
 private fun unifiedLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun unifiedLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
+private fun unifiedModelStackSmooth(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
 private fun unifiedModelStackEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
-    val smooth = p * p * (3f - 2f * p)
-    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.026f * (1f - kotlin.math.abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
+    val smooth = unifiedModelStackSmooth(p)
+    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.026f * (1f - abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
     return (smooth + elastic).coerceIn(0f, 1f)
 }
 private fun unifiedModelStackSpeedPulse(progress: Float): Float = sin(progress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
