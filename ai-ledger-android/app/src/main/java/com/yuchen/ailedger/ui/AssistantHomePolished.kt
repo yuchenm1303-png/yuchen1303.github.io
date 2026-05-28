@@ -546,7 +546,7 @@ private fun Modifier.drawParentBoundModelGlass(
 
     fun prism(color: Color, alpha: Float): Color = color.copy(alpha = alpha.coerceIn(0f, 1f))
 
-    fun drawCardGlass(v: ModelCardVisual) {
+    fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCardGlass(v: ModelCardVisual) {
         val alpha = v.alpha.coerceIn(0f, 1f)
         if (alpha <= 0.01f || v.width <= 1f || v.height <= 1f) return
         val energy = v.stackEnergy.coerceIn(0.35f, 1f)
@@ -701,7 +701,7 @@ private fun Modifier.drawParentBoundModelGlass(
             drawRect(ambientAura, blendMode = BlendMode.Screen)
             drawRect(ambientThread, blendMode = BlendMode.Plus)
         }
-        visuals.sortedBy { it.zIndex }.forEach(::drawCardGlass)
+        visuals.sortedBy { it.zIndex }.forEach { drawCardGlass(it) }
         drawContent()
     }
 }
