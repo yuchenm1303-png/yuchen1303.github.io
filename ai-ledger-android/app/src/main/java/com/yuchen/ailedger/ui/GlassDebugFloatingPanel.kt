@@ -92,7 +92,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "中性基底 + 局部按压高光 + 细边缘扫光",
+            subtitle = "中性基底 + 彩虹边缘 + 彩虹按压扫光",
             initiallyExpanded = true,
             state = state
         ) {
@@ -158,18 +158,24 @@ private fun GlassLabFoldout(
 private fun LightweightGlassLab(state: AssistantUiState) {
     var radius by rememberSaveable { mutableFloatStateOf(32.4f) }
     var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.030f) }
-    var rimAlpha by rememberSaveable { mutableFloatStateOf(0.245f) }
+    var rimAlpha by rememberSaveable { mutableFloatStateOf(0.210f) }
     var rimWidth by rememberSaveable { mutableFloatStateOf(0.86f) }
     var topHighlight by rememberSaveable { mutableFloatStateOf(0.145f) }
     var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.22f) }
     var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.105f) }
     var bottomDepth by rememberSaveable { mutableFloatStateOf(0.070f) }
-    var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.075f) }
-    var pressGlow by rememberSaveable { mutableFloatStateOf(0.215f) }
-    var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.265f) }
-    var pressSweep by rememberSaveable { mutableFloatStateOf(0.335f) }
+    var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.062f) }
+    var pressGlow by rememberSaveable { mutableFloatStateOf(0.205f) }
+    var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.245f) }
+    var pressSweep by rememberSaveable { mutableFloatStateOf(0.305f) }
     var pressDarken by rememberSaveable { mutableFloatStateOf(0.070f) }
     var pressElasticity by rememberSaveable { mutableFloatStateOf(0.82f) }
+    var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.285f) }
+    var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.42f) }
+    var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.32f) }
+    var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }
+    var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.075f) }
+    var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.84f) }
 
     LightweightGlassPreview(
         radius = radius,
@@ -185,17 +191,23 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         pressEdgeBoost = pressEdgeBoost,
         pressSweep = pressSweep,
         pressDarken = pressDarken,
-        pressElasticity = pressElasticity
+        pressElasticity = pressElasticity,
+        rainbowRimAlpha = rainbowRimAlpha,
+        rainbowRimWidth = rainbowRimWidth,
+        rainbowPressEdge = rainbowPressEdge,
+        rainbowSweepAlpha = rainbowSweepAlpha,
+        rainbowCornerAlpha = rainbowCornerAlpha,
+        rainbowSaturation = rainbowSaturation
     )
 
     LightGlassControlGroup(
         title = "状态预览",
-        subtitle = "按住样本可看局部高光、边缘增强和释放扫光",
+        subtitle = "按住样本可看彩虹局部高光、边缘增强和释放扫光",
         state = state,
         initiallyExpanded = true
     ) {
         Text(
-            "这版只借鉴大玻璃的按压光学：手指中心小范围白青高光、靠近边缘时局部边缘增强、松手后短扫光退场。没有 OpenGL、没有背景采样、没有常驻彩虹动态。",
+            "这版把大玻璃的白色光学层升级成彩虹光学层：玻璃本体仍然中性，彩色只出现在边缘、按压局部增强和松手扫光上。没有 OpenGL、没有背景采样、没有常驻彩虹动态。",
             color = Color.White.copy(alpha = 0.46f),
             fontSize = 10.sp,
             lineHeight = 14.sp,
@@ -205,7 +217,7 @@ private fun LightweightGlassLab(state: AssistantUiState) {
 
     LightGlassControlGroup(
         title = "基础玻璃片",
-        subtitle = "先把塑料感压掉：非均匀边框、顶部折边、底部暗边",
+        subtitle = "中性本体：非均匀边框、顶部折边、底部暗边",
         state = state,
         initiallyExpanded = true
     ) {
@@ -217,18 +229,32 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         LabSlider("顶部光高度", "顶部高光向下衰减范围", topHighlightHeight, 0.08f..0.45f) { topHighlightHeight = it }
         LabSlider("内侧细边", "内层玻璃折线", innerRimAlpha, 0f..0.30f) { innerRimAlpha = it }
         LabSlider("底部深度", "下沿轻微压暗", bottomDepth, 0f..0.22f) { bottomDepth = it }
-        LabSlider("角落高光", "左上角捕光点", cornerCatchlight, 0f..0.24f) { cornerCatchlight = it }
+        LabSlider("角落高光", "左上角白色捕光点", cornerCatchlight, 0f..0.24f) { cornerCatchlight = it }
+    }
+
+    LightGlassControlGroup(
+        title = "彩虹光效",
+        subtitle = "只染边缘和按压光，不染整块玻璃底",
+        state = state,
+        initiallyExpanded = true
+    ) {
+        LabSlider("彩虹边框强度", "连续彩色边缘亮度", rainbowRimAlpha, 0f..0.70f) { rainbowRimAlpha = it }
+        LabSlider("彩虹边框宽度", "彩色外沿厚度", rainbowRimWidth, 0f..1.40f) { rainbowRimWidth = it }
+        LabSlider("彩虹局部增强", "按压附近的彩色边缘", rainbowPressEdge, 0f..0.80f) { rainbowPressEdge = it }
+        LabSlider("棱彩扫光强度", "松手后的彩虹扫光", rainbowSweepAlpha, 0f..0.80f) { rainbowSweepAlpha = it }
+        LabSlider("彩虹角部捕光", "角落轻微彩色薄膜", rainbowCornerAlpha, 0f..0.30f) { rainbowCornerAlpha = it }
+        LabSlider("彩虹饱和度", "彩色光浓度", rainbowSaturation, 0f..1f) { rainbowSaturation = it }
     }
 
     LightGlassControlGroup(
         title = "按压光效",
         subtitle = "借鉴大玻璃按压层，但限制在轻量 Canvas 内",
         state = state,
-        initiallyExpanded = true
+        initiallyExpanded = false
     ) {
         LabSlider("中心高光", "手指附近白青压力光", pressGlow, 0f..0.55f) { pressGlow = it }
         LabSlider("边缘增亮", "靠近哪边哪边变亮", pressEdgeBoost, 0f..0.70f) { pressEdgeBoost = it }
-        LabSlider("释放扫光", "松手后的细彩色扫光", pressSweep, 0f..0.70f) { pressSweep = it }
+        LabSlider("释放扫光", "松手后的细白色扫光", pressSweep, 0f..0.70f) { pressSweep = it }
         LabSlider("压力暗场", "按压时内部轻微压暗", pressDarken, 0f..0.22f) { pressDarken = it }
         LabSlider("胶囊弹性", "按压形变幅度", pressElasticity, 0f..1.2f) { pressElasticity = it }
     }
@@ -249,7 +275,13 @@ private fun LightweightGlassPreview(
     pressEdgeBoost: Float,
     pressSweep: Float,
     pressDarken: Float,
-    pressElasticity: Float
+    pressElasticity: Float,
+    rainbowRimAlpha: Float,
+    rainbowRimWidth: Float,
+    rainbowPressEdge: Float,
+    rainbowSweepAlpha: Float,
+    rainbowCornerAlpha: Float,
+    rainbowSaturation: Float
 ) {
     val shape = RoundedCornerShape(radius.dp)
     val pressAnim = remember { Animatable(0f) }
@@ -335,7 +367,13 @@ private fun LightweightGlassPreview(
                 pressGlow = pressGlow,
                 pressEdgeBoost = pressEdgeBoost,
                 pressSweep = pressSweep,
-                pressDarken = pressDarken
+                pressDarken = pressDarken,
+                rainbowRimAlpha = rainbowRimAlpha,
+                rainbowRimWidth = rainbowRimWidth,
+                rainbowPressEdge = rainbowPressEdge,
+                rainbowSweepAlpha = rainbowSweepAlpha,
+                rainbowCornerAlpha = rainbowCornerAlpha,
+                rainbowSaturation = rainbowSaturation
             )
     ) {
         Row(
@@ -349,11 +387,11 @@ private fun LightweightGlassPreview(
                 Modifier
                     .size(7.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.48f + 0.34f * p))
+                    .background(Color(0xFF93FFF1).copy(alpha = 0.54f + 0.34f * p))
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Text("轻量玻璃 / Press Optics Lab", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("中性玻璃 · 按压高光 · 细扫光", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("轻量玻璃 / Rainbow Press Lab", color = Color.White.copy(alpha = 0.96f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("彩虹边缘 · 按压高光 · 棱彩扫光", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
     }
@@ -375,7 +413,13 @@ private fun Modifier.lightweightGlassLabSurface(
     pressGlow: Float,
     pressEdgeBoost: Float,
     pressSweep: Float,
-    pressDarken: Float
+    pressDarken: Float,
+    rainbowRimAlpha: Float,
+    rainbowRimWidth: Float,
+    rainbowPressEdge: Float,
+    rainbowSweepAlpha: Float,
+    rainbowCornerAlpha: Float,
+    rainbowSaturation: Float
 ): Modifier = drawWithCache {
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
@@ -392,6 +436,8 @@ private fun Modifier.lightweightGlassLabSurface(
     val leftNear = (1f - pressCenter.x / 0.42f).coerceIn(0f, 1f) * press
     val rightNear = (1f - (1f - pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
     val sweepX = -0.32f + smoothGlass(sweep.coerceIn(0f, 1f)) * 1.58f
+    val sat = rainbowSaturation.coerceIn(0f, 1f)
+    fun chroma(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.34f + sat * 0.66f)).coerceIn(0f, 1f))
 
     val surface = Brush.verticalGradient(
         listOf(
@@ -419,11 +465,35 @@ private fun Modifier.lightweightGlassLabSurface(
     )
     val mainRim = Brush.linearGradient(
         listOf(
-            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.72f + 0.32f * topNear)),
-            Color.White.copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.14f),
+            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.58f + 0.26f * topNear)),
+            Color.White.copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.10f),
             Color.Transparent,
             Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.50f),
-            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.18f + 0.32f * rightNear))
+            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.13f + 0.20f * rightNear))
+        ),
+        Offset(0f, 0f),
+        Offset(w, h)
+    )
+    val rainbowOuterRim = Brush.linearGradient(
+        listOf(
+            chroma(Color(0xFF66F7FF), rainbowRimAlpha * 0.46f),
+            chroma(Color(0xFF8EA7FF), rainbowRimAlpha * 0.26f),
+            chroma(Color(0xFFFF7FE6), rainbowRimAlpha * 0.40f),
+            chroma(Color(0xFFFFE879), rainbowRimAlpha * 0.34f),
+            chroma(Color(0xFF73FF99), rainbowRimAlpha * 0.42f),
+            chroma(Color(0xFF66F7FF), rainbowRimAlpha * 0.38f)
+        ),
+        Offset(0f, h * 0.06f),
+        Offset(w, h * 0.92f)
+    )
+    val rainbowCoreRim = Brush.linearGradient(
+        listOf(
+            chroma(Color(0xFF74F8FF), rainbowRimAlpha * 0.88f),
+            chroma(Color(0xFF8CB4FF), rainbowRimAlpha * 0.46f),
+            chroma(Color(0xFFFF7FE2), rainbowRimAlpha * 0.78f),
+            chroma(Color(0xFFFFEA7D), rainbowRimAlpha * 0.58f),
+            chroma(Color(0xFF78FF9B), rainbowRimAlpha * 0.74f),
+            chroma(Color(0xFF74F8FF), rainbowRimAlpha * 0.66f)
         ),
         Offset(0f, 0f),
         Offset(w, h)
@@ -431,8 +501,8 @@ private fun Modifier.lightweightGlassLabSurface(
     val topHairline = Brush.horizontalGradient(
         listOf(
             Color.Transparent,
-            Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.22f + topHighlight * 0.28f),
-            Color.White.copy(alpha = topHighlight * 0.40f),
+            Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.20f + topHighlight * 0.24f),
+            Color.White.copy(alpha = topHighlight * 0.36f),
             Color.Transparent
         ),
         0f,
@@ -457,11 +527,21 @@ private fun Modifier.lightweightGlassLabSurface(
         Offset(w * 0.055f, h * 0.045f),
         maxSide * 0.30f
     )
+    val rainbowCorner = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.34f),
+            chroma(Color(0xFFFF86E6), rainbowCornerAlpha * 0.18f),
+            chroma(Color(0xFF7CF8FF), rainbowCornerAlpha * 0.20f),
+            Color.Transparent
+        ),
+        Offset(w * 0.10f, h * 0.10f),
+        maxSide * 0.24f
+    )
     val pressureLight = Brush.radialGradient(
         listOf(
-            Color.White.copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.66f * press),
-            Color(0xFFBFFFF7).copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.28f * press),
-            Color(0xFFFFD8F4).copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.12f * press),
+            Color.White.copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.62f * press),
+            Color(0xFFBFFFF7).copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.26f * press),
+            chroma(Color(0xFFFFD8F4), pressGlow.coerceIn(0f, 0.9f) * 0.12f * press),
             Color.Transparent
         ),
         center,
@@ -479,24 +559,28 @@ private fun Modifier.lightweightGlassLabSurface(
     val localEdge = Brush.linearGradient(
         listOf(
             Color.Transparent,
-            Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.72f * press),
-            Color(0xFF95FFF3).copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.30f * press),
+            Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.54f * press),
+            Color(0xFF95FFF3).copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.22f * press),
+            chroma(Color(0xFFFF82E1), rainbowPressEdge * 0.30f * press),
+            chroma(Color(0xFFFFE98C), rainbowPressEdge * 0.22f * press),
+            chroma(Color(0xFF7CFF9C), rainbowPressEdge * 0.24f * press),
             Color.Transparent
         ),
-        Offset(center.x - w * 0.22f, center.y - h * 0.70f),
-        Offset(center.x + w * 0.20f, center.y + h * 0.70f)
+        Offset(center.x - w * 0.24f, center.y - h * 0.74f),
+        Offset(center.x + w * 0.22f, center.y + h * 0.74f)
     )
     val sweepBrush = Brush.linearGradient(
         listOf(
             Color.Transparent,
-            Color(0xFFFF7BDB).copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.24f * sweep),
-            Color.White.copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.58f * sweep),
-            Color(0xFFFFE68A).copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.22f * sweep),
-            Color(0xFF76FFF2).copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.30f * sweep),
+            chroma(Color(0xFF66F7FF), rainbowSweepAlpha * 0.24f * sweep),
+            Color.White.copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.46f * sweep + rainbowSweepAlpha * 0.18f * sweep),
+            chroma(Color(0xFFFF7BDB), rainbowSweepAlpha * 0.28f * sweep),
+            chroma(Color(0xFFFFE68A), rainbowSweepAlpha * 0.22f * sweep),
+            chroma(Color(0xFF76FFF2), rainbowSweepAlpha * 0.26f * sweep),
             Color.Transparent
         ),
-        Offset(w * (sweepX - 0.22f), h * -0.04f),
-        Offset(w * (sweepX + 0.26f), h * 1.04f)
+        Offset(w * (sweepX - 0.24f), h * -0.04f),
+        Offset(w * (sweepX + 0.28f), h * 1.04f)
     )
 
     onDrawWithContent {
@@ -509,9 +593,16 @@ private fun Modifier.lightweightGlassLabSurface(
         }
         drawContent()
         drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(rimWidth.dp.toPx()), blendMode = BlendMode.Screen)
+        if (rainbowRimAlpha > 0.001f) {
+            drawRoundRect(brush = rainbowOuterRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth + rainbowRimWidth * 1.35f).dp.toPx()), blendMode = BlendMode.Plus)
+            drawRoundRect(brush = rainbowCoreRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.72f + rainbowRimWidth * 0.52f).dp.toPx()), blendMode = BlendMode.Screen)
+        }
         drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.55.dp.toPx()), blendMode = BlendMode.Screen)
         drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
         drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.72.dp.toPx()), blendMode = BlendMode.Screen)
+        if (rainbowCornerAlpha > 0.001f) {
+            drawRoundRect(brush = rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.64.dp.toPx()), blendMode = BlendMode.Screen)
+        }
         if (press > 0.001f) {
             val localEdgeAlpha = (topNear + bottomNear + leftNear + rightNear).coerceIn(0.14f, 1f)
             drawRoundRect(brush = localEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.72f + 1.00f * localEdgeAlpha).dp.toPx()), blendMode = BlendMode.Plus)
