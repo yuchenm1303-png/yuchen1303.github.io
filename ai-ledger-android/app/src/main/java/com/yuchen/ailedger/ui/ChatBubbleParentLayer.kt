@@ -1,36 +1,25 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.dp
+import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
 import kotlin.math.abs
 
 @Stable
 class ChatBubbleLayerState {
-    private val bubbles = mutableStateMapOf<String, ChatBubbleLayerItem>()
-    private var rootInWindow: Offset = Offset.Zero
+    private val visuals = mutableStateMapOf<String, ChatBubbleLayerVisual>()
 
-    fun updateRoot(coordinates: LayoutCoordinates) {
-        val nextRoot = coordinates.boundsInRoot().topLeft
-        if (abs(nextRoot.x - rootInWindow.x) > 0.5f || abs(nextRoot.y - rootInWindow.y) > 0.5f) {
-            rootInWindow = nextRoot
-            // Visible bubbles report fresh bounds through onGloballyPositioned.
-            // Off-screen bubbles are removed by DisposableEffect in the LazyColumn item.
-        }
-    }
-
-    fun updateBubble(
+    fun updateBubbleVisual(
         id: String,
-        coordinates: LayoutCoordinates,
         fromUser: Boolean,
         status: MessageStatus,
         appear: Float,
@@ -38,26 +27,20 @@ class ChatBubbleLayerState {
         speedFactor: Float,
         radiusDp: Int
     ) {
-        val bounds = coordinates.boundsInRoot()
-        val local = Rect(
-            offset = bounds.topLeft - rootInWindow,
-            size = bounds.size
-        )
-        val current = bubbles[id]
+        val nextAppear = appear.coerceIn(0f, 1.18f)
+        val current = visuals[id]
         if (
             current == null ||
-            current.rect != local ||
-            current.appear != appear ||
+            abs(current.appear - nextAppear) > 0.001f ||
             current.status != status ||
             current.fromUser != fromUser ||
             current.radiusDp != radiusDp
         ) {
-            bubbles[id] = ChatBubbleLayerItem(
+            visuals[id] = ChatBubbleLayerVisual(
                 id = id,
-                rect = local,
                 fromUser = fromUser,
                 status = status,
-                appear = appear,
+                appear = nextAppear,
                 phaseOffset = phaseOffset,
                 speedFactor = speedFactor,
                 radiusDp = radiusDp
@@ -65,31 +48,32 @@ class ChatBubbleLayerState {
         }
     }
 
-    fun updateBubbleAppearance(id: String, appear: Float) {
-        val current = bubbles[id] ?: return
-        val next = appear.coerceIn(0f, 1.18f)
-        if (abs(current.appear - next) > 0.001f) {
-            bubbles[id] = current.copy(appear = next)
-        }
-    }
-
     fun removeBubble(id: String) {
-        bubbles.remove(id)
+        visuals.remove(id)
     }
 
     fun removeMissing(activeIds: Set<String>) {
-        bubbles.keys.toList().forEach { id ->
-            if (!activeIds.contains(id)) bubbles.remove(id)
+        visuals.keys.toList().forEach { id ->
+            if (!activeIds.contains(id)) visuals.remove(id)
         }
     }
 
-    fun items(): List<ChatBubbleLayerItem> = bubbles.values.toList()
+    fun visualFor(message: ChatMessage): ChatBubbleLayerVisual {
+        return visuals[message.id] ?: ChatBubbleLayerVisual(
+            id = message.id,
+            fromUser = message.role == MessageRole.User,
+            status = message.status,
+            appear = 1f,
+            phaseOffset = ((message.id.hashCode() ushr 1) % 997) / 997f,
+            speedFactor = 1f,
+            radiusDp = if (message.role == MessageRole.User) 26 else 28
+        )
+    }
 }
 
 @Stable
-data class ChatBubbleLayerItem(
+data class ChatBubbleLayerVisual(
     val id: String,
-    val rect: Rect,
     val fromUser: Boolean,
     val status: MessageStatus,
     val appear: Float,
@@ -140,34 +124,56 @@ fun rememberChatBubbleLayerState(): ChatBubbleLayerState = remember { ChatBubble
 @Composable
 fun ChatBubbleMaterialLayer(
     layerState: ChatBubbleLayerState,
+    listState: LazyListState,
+    messages: List<ChatMessage>,
     phase: Float,
     motionIntensity: Float,
     modifier: Modifier = Modifier
 ) {
-    Canvas(
-        modifier = modifier.onGloballyPositioned { layerState.updateRoot(it) }
-    ) {
+    Canvas(modifier = modifier) {
         val viewportWidth = size.width
         val viewportHeight = size.height
-        layerState.items().forEach { item ->
-            val transform = chatBubbleVisualTransform(item.appear, item.fromUser)
-            val r = item.rect.transformedBy(transform)
-            val intersectsViewport = r.right > 0f && r.left < viewportWidth && r.bottom > 0f && r.top < viewportHeight
-            if (intersectsViewport && r.width > 1f && r.height > 1f) {
-                val sending = item.status == MessageStatus.Sending && !item.fromUser
+        val horizontalPadding = 6.dp.toPx()
+        val verticalPadding = 3.dp.toPx()
+        val contentWidth = (viewportWidth - horizontalPadding * 2f).coerceAtLeast(1f)
+
+        listState.layoutInfo.visibleItemsInfo.forEach { item ->
+            val message = messages.getOrNull(item.index) ?: return@forEach
+            val visualInfo = layerState.visualFor(message)
+            val fromUser = message.role == MessageRole.User
+            val bubbleFraction = if (fromUser) 0.76f else 0.90f
+            val bubbleWidth = contentWidth * bubbleFraction
+            val bubbleLeft = if (fromUser) {
+                horizontalPadding + contentWidth - bubbleWidth
+            } else {
+                horizontalPadding
+            }
+            val bubbleTop = item.offset.toFloat() + verticalPadding
+            val bubbleHeight = (item.size.toFloat() - verticalPadding * 2f).coerceAtLeast(1f)
+            val rawRect = Rect(
+                left = bubbleLeft,
+                top = bubbleTop,
+                right = bubbleLeft + bubbleWidth,
+                bottom = bubbleTop + bubbleHeight
+            )
+            val transform = chatBubbleVisualTransform(visualInfo.appear, fromUser)
+            val rect = rawRect.transformedBy(transform)
+            val intersectsViewport = rect.right > 0f && rect.left < viewportWidth && rect.bottom > 0f && rect.top < viewportHeight
+            if (intersectsViewport && rect.width > 1f && rect.height > 1f) {
+                val sending = message.status == MessageStatus.Sending && !fromUser
                 val itemPhase = if (sending) {
-                    ((phase * 3f) + item.phaseOffset) % 1f
+                    ((phase * 3f) + visualInfo.phaseOffset) % 1f
                 } else {
-                    (phase + item.phaseOffset) % 1f
+                    (phase + visualInfo.phaseOffset) % 1f
                 }
                 drawChatBubblePrismMaterial(
-                    rect = r,
+                    rect = rect,
                     phase = itemPhase,
-                    fromUser = item.fromUser,
+                    fromUser = fromUser,
                     sending = sending,
-                    failed = item.status == MessageStatus.Failed,
+                    failed = message.status == MessageStatus.Failed,
                     motionIntensity = motionIntensity,
-                    radiusDp = item.radiusDp,
+                    radiusDp = visualInfo.radiusDp,
                     layerAlpha = transform.alpha
                 )
             }
