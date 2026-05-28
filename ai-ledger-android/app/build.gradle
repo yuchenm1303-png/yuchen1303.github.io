@@ -287,7 +287,7 @@ def patchSettingsFrostParentLayer = tasks.register('patchSettingsFrostParentLaye
         item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
     }
 '''
-        def newState = '''    val listState = rememberLazyListState()
+        def previousState = '''    val listState = rememberLazyListState()
     SyncGlassBackdropToScroll(listState)
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
     val frostParentLayer = rememberSettingsFrostParentLayerState()
@@ -328,12 +328,57 @@ def patchSettingsFrostParentLayer = tasks.register('patchSettingsFrostParentLaye
         }
     }
 '''
+        def newState = '''    val listState = rememberLazyListState()
+    SyncGlassBackdropToScroll(listState)
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
+    val frostParentLayer = rememberSettingsFrostParentLayerState()
+
+    Box(Modifier.fillMaxSize()) {
+        SettingsFrostParentLayer(frostParentLayer, Modifier.fillMaxSize())
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
+            item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
+            item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
+            item { SettingsEntrance(104, 20, 0.965f) { SettingsFrostParentScope(frostParentLayer) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } } }
+            item {
+                SettingsEntrance(140, 22, 0.965f) {
+                    SettingsDetailPanel(
+                        panel = selectedPanel,
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        onQualityChange = onQualityChange,
+                        onPreviewConversationChange = onPreviewConversationChange,
+                        onGlassPresetChange = onGlassPresetChange,
+                        onBackgroundThemeChange = onBackgroundThemeChange,
+                        onGlassIntensityChange = onGlassIntensityChange,
+                        onMotionIntensityChange = onMotionIntensityChange,
+                        onRainbowPrismChange = onRainbowPrismChange,
+                        onBackdropChange = onBackdropChange,
+                        onBorderChange = onBorderChange,
+                        onUploadBackgroundClick = onUploadBackgroundClick,
+                        onClearCustomBackgroundClick = onClearCustomBackgroundClick
+                    )
+                }
+            }
+            item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+        }
+    }
+'''
         if (text.contains(newState)) {
-            println('Settings page already uses parent frost layer for overview and dashboard cards.')
+            println('Settings page already uses parent frost layer only for dashboard cards; overview shell stays original.')
+        } else if (text.contains(previousState)) {
+            text = text.replace(previousState, newState)
+            settings.setText(text, 'UTF-8')
+            println('Removed parent frost delegation from overview Shell card; dashboard cards keep parent frost layer.')
         } else if (text.contains(oldState)) {
             text = text.replace(oldState, newState)
             settings.setText(text, 'UTF-8')
-            println('Patched SettingsPolishedScreen to host parent frost layer for the 7 visible frost cards.')
+            println('Patched SettingsPolishedScreen to host parent frost layer for the six dashboard cards only.')
         } else {
             throw new GradleException('SettingsPolishedScreen parent frost insertion point not found.')
         }
