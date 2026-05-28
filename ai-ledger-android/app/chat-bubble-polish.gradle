@@ -25,6 +25,9 @@ tasks.register('patchAssistantChatBubblePolish') {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
 '''
+        def compactClock = '''    val listState = rememberLazyListState()
+    LaunchedEffect(state.messages.size, state.isSending) { if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex) }
+'''
         def newClock = '''    val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
@@ -37,6 +40,8 @@ tasks.register('patchAssistantChatBubblePolish') {
 '''
         if (text.contains(oldClock)) {
             text = text.replace(oldClock, newClock)
+        } else if (text.contains(compactClock)) {
+            text = text.replace(compactClock, newClock)
         } else if (!text.contains('val bubbleLayerState = rememberChatBubbleLayerState()')) {
             throw new GradleException('ChatPanelV2 clock block not found for parent bubble layer patch.')
         }
@@ -70,6 +75,11 @@ tasks.register('patchAssistantChatBubblePolish') {
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                 }
 '''
+        def compactList = '''                LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                }
+'''
         def newList = '''                Box(
                     Modifier
                         .weight(1f)
@@ -95,6 +105,8 @@ tasks.register('patchAssistantChatBubblePolish') {
 '''
         if (text.contains(oldList)) {
             text = text.replace(oldList, newList)
+        } else if (text.contains(compactList)) {
+            text = text.replace(compactList, newList)
         } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('AnimatedMessageBubbleV2(message, state, chatPhase, bubbleLayerState)')) {
             println('Parent chat bubble layer list already patched.')
         } else {
