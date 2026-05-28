@@ -405,17 +405,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 0f,
                 v.height
             )
-            val cornerMist = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = (0.125f + selectedPower * 0.026f) * bodyAlpha),
-                    Color(0xFFFFF3C8).copy(alpha = (0.034f + selectedPower * 0.020f) * bodyAlpha),
-                    Color(0xFFFF8FE5).copy(alpha = 0.020f * selectedPower * bodyAlpha),
-                    Color(0xFF9DFFF4).copy(alpha = (0.030f + selectedPower * 0.022f) * bodyAlpha),
-                    Color.Transparent
-                ),
-                center = Offset(v.width * 0.018f, v.height * 0.010f),
-                radius = maxSide * 0.215f
-            )
             val surfaceClear = Brush.radialGradient(
                 listOf(
                     Color.Transparent,
@@ -438,7 +427,6 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 }
                 drawRoundRect(brush = bodyVeil, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(brush = surfaceClear, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
-                drawRoundRect(brush = cornerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
             }
         }
 
@@ -499,11 +487,11 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             )
             val topHairline = Brush.horizontalGradient(
                 listOf(
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.395f * rimPower + selectedRim * 0.32f),
-                    Color(0xFFFFF3C8).copy(alpha = 0.090f * rimPower + selectedRim * 0.12f),
-                    Color(0xFFE9FFFF).copy(alpha = 0.200f * rimPower + selectedRim * 0.34f),
-                    Color.White.copy(alpha = 0.104f * rimPower),
+                    Color.White.copy(alpha = 0.020f * rimPower),
+                    Color.White.copy(alpha = 0.470f * rimPower + selectedRim * 0.34f),
+                    Color(0xFFFFF3C8).copy(alpha = 0.125f * rimPower + selectedRim * 0.12f),
+                    Color(0xFFE9FFFF).copy(alpha = 0.210f * rimPower + selectedRim * 0.30f),
+                    Color.White.copy(alpha = 0.080f * rimPower),
                     Color.Transparent
                 ),
                 0f,
@@ -528,16 +516,15 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 v.height * 0.42f,
                 v.height
             )
-            val cornerCatch = Brush.radialGradient(
+            val cornerEdgeGlint = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.390f * rimPower + selectedRim * 0.42f),
-                    Color(0xFFFFF0C9).copy(alpha = 0.130f * rimPower + 0.064f * selectedPower * alpha),
-                    Color(0xFFFF8DE2).copy(alpha = 0.040f * selectedPower * alpha),
-                    Color(0xFF9DFFF4).copy(alpha = 0.105f * rimPower + selectedRim * 0.20f),
+                    Color.White.copy(alpha = 0.680f * rimPower + selectedRim * 0.28f),
+                    Color(0xFFEFFFFF).copy(alpha = 0.245f * rimPower + selectedRim * 0.16f),
+                    Color(0xFF9DFFF4).copy(alpha = 0.145f * rimPower + selectedRim * 0.16f),
                     Color.Transparent
                 ),
-                center = Offset(v.width * 0.040f, v.height * 0.035f),
-                radius = maxSide * 0.118f
+                center = Offset(v.width * 0.035f, -v.height * 0.085f),
+                radius = maxSide * 0.082f
             )
 
             withTransform({ translate(v.left, v.top) }) {
@@ -563,7 +550,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerDepth, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = bottomWeight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
-                drawRoundRect(brush = cornerCatch, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.08.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = cornerEdgeGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.22.dp.toPx()), blendMode = BlendMode.Screen)
             }
         }
 
