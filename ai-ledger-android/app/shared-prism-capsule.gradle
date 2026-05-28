@@ -1,5 +1,95 @@
 tasks.register('patchSharedPrismCapsuleUsage') {
     doLast {
+        def prism = file('src/main/java/com/yuchen/ailedger/ui/LightweightPrismCapsule.kt')
+        def prismText = prism.getText('UTF-8')
+        def prismDefaults = [
+            'val radius: Float = 32.4f,': 'val radius: Float = 32.4f,',
+            'val surfaceAlpha: Float = 0.030f,': 'val surfaceAlpha: Float = 0.000f,',
+            'val rimAlpha: Float = 0.10f,': 'val rimAlpha: Float = 0.55f,',
+            'val rimWidth: Float = 0.86f,': 'val rimWidth: Float = 0.35f,',
+            'val topHighlight: Float = 0.145f,': 'val topHighlight: Float = 0.03f,',
+            'val topHighlightHeight: Float = 0.22f,': 'val topHighlightHeight: Float = 0.08f,',
+            'val innerRimAlpha: Float = 0.105f,': 'val innerRimAlpha: Float = 0.30f,',
+            'val bottomDepth: Float = 0.070f,': 'val bottomDepth: Float = 0.000f,',
+            'val cornerCatchlight: Float = 0.062f,': 'val cornerCatchlight: Float = 0.24f,',
+            'val pressGlow: Float = 0.26f,': 'val pressGlow: Float = 0.55f,',
+            'val pressGlow: Float = 0.55f,': 'val pressGlow: Float = 0.55f,',
+            'val pressEdgeBoost: Float = 0.18f,': 'val pressEdgeBoost: Float = 0.70f,',
+            'val pressEdgeBoost: Float = 0.70f,': 'val pressEdgeBoost: Float = 0.70f,',
+            'val pressSweep: Float = 0.18f,': 'val pressSweep: Float = 0.70f,',
+            'val pressSweep: Float = 0.70f,': 'val pressSweep: Float = 0.70f,',
+            'val pressDarken: Float = 0.070f,': 'val pressDarken: Float = 0.22f,',
+            'val pressDarken: Float = 0.22f,': 'val pressDarken: Float = 0.22f,',
+            'val pressElasticity: Float = 0.82f,': 'val pressElasticity: Float = 1.20f,',
+            'val pressElasticity: Float = 1.20f,': 'val pressElasticity: Float = 1.20f,',
+            'val rainbowRimAlpha: Float = 0.34f,': 'val rainbowRimAlpha: Float = 0.70f,',
+            'val rainbowRimAlpha: Float = 0.70f,': 'val rainbowRimAlpha: Float = 0.70f,',
+            'val rainbowRimWidth: Float = 0.56f,': 'val rainbowRimWidth: Float = 1.40f,',
+            'val rainbowRimWidth: Float = 1.40f,': 'val rainbowRimWidth: Float = 1.40f,',
+            'val rainbowPressEdge: Float = 0.38f,': 'val rainbowPressEdge: Float = 0.80f,',
+            'val rainbowPressEdge: Float = 0.80f,': 'val rainbowPressEdge: Float = 0.80f,',
+            'val rainbowSweepAlpha: Float = 0.34f,': 'val rainbowSweepAlpha: Float = 0.80f,',
+            'val rainbowSweepAlpha: Float = 0.80f,': 'val rainbowSweepAlpha: Float = 0.80f,',
+            'val rainbowCornerAlpha: Float = 0.06f,': 'val rainbowCornerAlpha: Float = 0.30f,',
+            'val rainbowCornerAlpha: Float = 0.30f,': 'val rainbowCornerAlpha: Float = 0.30f,',
+            'val rainbowSaturation: Float = 0.86f': 'val rainbowSaturation: Float = 1.00f',
+            'val rainbowSaturation: Float = 1.00f': 'val rainbowSaturation: Float = 1.00f'
+        ]
+        prismDefaults.each { from, to ->
+            if (prismText.contains(from)) {
+                prismText = prismText.replace(from, to)
+            } else if (!prismText.contains(to)) {
+                throw new GradleException("LightweightPrismCapsule default not found: ${from}")
+            }
+        }
+        prism.setText(prismText, 'UTF-8')
+        println('Synced shared prism capsule defaults to tuned lab baseline and max prism/press optics.')
+
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
+        def labText = lab.getText('UTF-8')
+        def labDefaults = [
+            'var radius by rememberSaveable { mutableFloatStateOf(32.4f) }': 'var radius by rememberSaveable { mutableFloatStateOf(32.4f) }',
+            'var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.030f) }': 'var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.000f) }',
+            'var rimAlpha by rememberSaveable { mutableFloatStateOf(0.10f) }': 'var rimAlpha by rememberSaveable { mutableFloatStateOf(0.55f) }',
+            'var rimWidth by rememberSaveable { mutableFloatStateOf(0.86f) }': 'var rimWidth by rememberSaveable { mutableFloatStateOf(0.35f) }',
+            'var topHighlight by rememberSaveable { mutableFloatStateOf(0.145f) }': 'var topHighlight by rememberSaveable { mutableFloatStateOf(0.03f) }',
+            'var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.22f) }': 'var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.08f) }',
+            'var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.105f) }': 'var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
+            'var bottomDepth by rememberSaveable { mutableFloatStateOf(0.070f) }': 'var bottomDepth by rememberSaveable { mutableFloatStateOf(0.000f) }',
+            'var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.062f) }': 'var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.24f) }',
+            'var pressGlow by rememberSaveable { mutableFloatStateOf(0.26f) }': 'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }',
+            'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }': 'var pressGlow by rememberSaveable { mutableFloatStateOf(0.55f) }',
+            'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressSweep by rememberSaveable { mutableFloatStateOf(0.18f) }': 'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var pressSweep by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var pressDarken by rememberSaveable { mutableFloatStateOf(0.070f) }': 'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }',
+            'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }': 'var pressDarken by rememberSaveable { mutableFloatStateOf(0.22f) }',
+            'var pressElasticity by rememberSaveable { mutableFloatStateOf(0.82f) }': 'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }',
+            'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }': 'var pressElasticity by rememberSaveable { mutableFloatStateOf(1.20f) }',
+            'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }': 'var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.70f) }',
+            'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.56f) }': 'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }',
+            'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }': 'var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(1.40f) }',
+            'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.38f) }': 'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }': 'var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }': 'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }': 'var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.80f) }',
+            'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.06f) }': 'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
+            'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }': 'var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }',
+            'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.86f) }': 'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }',
+            'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }': 'var rainbowSaturation by rememberSaveable { mutableFloatStateOf(1.0f) }'
+        ]
+        labDefaults.each { from, to ->
+            if (labText.contains(from)) {
+                labText = labText.replace(from, to)
+            } else if (!labText.contains(to)) {
+                throw new GradleException("Lightweight glass lab default not found: ${from}")
+            }
+        }
+        lab.setText(labText, 'UTF-8')
+        println('Synced lightweight glass lab slider defaults to tuned baseline and max prism/press optics.')
+
         def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
         def text = home.getText('UTF-8')
 
@@ -83,8 +173,7 @@ private fun LightweightModelCapsule(
             println('Replaced model cards with shared prism capsule sample, including press and release optics.')
         }
 
-        def lab = file('src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt')
-        def labText = lab.getText('UTF-8')
+        labText = lab.getText('UTF-8')
         def previewStart = labText.indexOf('@Composable\nprivate fun LightweightGlassPreview(')
         def previewEnd = labText.indexOf('private fun Modifier.lightweightGlassLabSurface', previewStart)
         if (previewStart < 0 || previewEnd < previewStart) {
