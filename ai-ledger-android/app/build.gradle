@@ -46,7 +46,6 @@ dependencies {
 }
 
 apply from: 'chat-bubble-polish.gradle'
-apply from: 'model-card-prism-sample.gradle'
 
 def patchPolishedOnlineDroplet = tasks.register('patchPolishedOnlineDroplet') {
     doLast {
