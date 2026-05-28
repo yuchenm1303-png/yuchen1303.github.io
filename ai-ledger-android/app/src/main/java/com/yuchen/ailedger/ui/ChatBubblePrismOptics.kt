@@ -58,6 +58,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
     val cycle = phase * 2f * PI.toFloat()
     val sweepWave = 0.50f + 0.42f * sin(cycle)
     val satinWave = 0.50f + 0.28f * sin(cycle + 1.35f)
+    val glowWave = sin(cycle + if (fromUser) 0.72f else 1.08f)
     val radiusPx = radiusDp.dp.toPx()
     val corner = CornerRadius(radiusPx, radiusPx)
     val accentA = if (failed) Color(0xFFFF9A9A) else if (fromUser) Color(0xFF9EB7FF) else Color(0xFF8DF9EA)
@@ -108,9 +109,9 @@ fun DrawScope.drawChatBubblePrismMaterial(
     )
 
     val glowCenter = if (fromUser) {
-        Offset(l + w * (0.72f - 0.08f * sin(cycle * 0.72f)), t + h * 0.30f)
+        Offset(l + w * (0.72f - 0.08f * glowWave), t + h * 0.30f)
     } else {
-        Offset(l + w * (0.28f + 0.08f * sin(cycle * 0.78f)), t + h * 0.30f)
+        Offset(l + w * (0.28f + 0.08f * glowWave), t + h * 0.30f)
     }
     drawRoundRect(
         brush = Brush.radialGradient(
@@ -130,7 +131,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
     )
 
     if (sending) {
-        val bandX = 0.50f + 0.46f * sin(cycle * 1.18f)
+        val bandX = 0.50f + 0.46f * sin(cycle + 0.64f)
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
