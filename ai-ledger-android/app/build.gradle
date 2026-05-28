@@ -122,6 +122,228 @@ private fun NetworkChipV2(state: AssistantUiState, modifier: Modifier, onClick: 
     }
 }
 
+def patchSettingsParentGlassLayer = tasks.register('patchSettingsParentGlassLayer') {
+    doLast {
+        def settings = file('src/main/java/com/yuchen/ailedger/ui/SettingsPolishedScreen.kt')
+        def text = settings.getText('UTF-8')
+        if (!text.contains('import androidx.compose.runtime.CompositionLocalProvider')) {
+            text = text.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.CompositionLocalProvider\n')
+        }
+        def oldScreenBlock = '''    val listState = rememberLazyListState()
+    SyncGlassBackdropToScroll(listState)
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
+        item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
+        item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
+        item { SettingsEntrance(104, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
+        item {
+            SettingsEntrance(140, 22, 0.965f) {
+                SettingsDetailPanel(
+                    panel = selectedPanel,
+                    state = state,
+                    aiEndpoint = aiEndpoint,
+                    onQualityChange = onQualityChange,
+                    onPreviewConversationChange = onPreviewConversationChange,
+                    onGlassPresetChange = onGlassPresetChange,
+                    onBackgroundThemeChange = onBackgroundThemeChange,
+                    onGlassIntensityChange = onGlassIntensityChange,
+                    onMotionIntensityChange = onMotionIntensityChange,
+                    onRainbowPrismChange = onRainbowPrismChange,
+                    onBackdropChange = onBackdropChange,
+                    onBorderChange = onBorderChange,
+                    onUploadBackgroundClick = onUploadBackgroundClick,
+                    onClearCustomBackgroundClick = onClearCustomBackgroundClick
+                )
+            }
+        }
+        item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+    }
+'''
+        def newScreenBlock = '''    val listState = rememberLazyListState()
+    SyncGlassBackdropToScroll(listState)
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
+    val parentGlassLayer = rememberSettingsParentGlassLayerState()
+
+    Box(Modifier.fillMaxSize()) {
+        SettingsParentGlassLayer(parentGlassLayer, state, Modifier.fillMaxSize())
+        CompositionLocalProvider(LocalSettingsParentGlassLayer provides parentGlassLayer) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+                verticalArrangement = Arrangement.spacedBy(13.dp)
+            ) {
+                item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
+                item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
+                item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
+                item { SettingsEntrance(104, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
+                item {
+                    SettingsEntrance(140, 22, 0.965f) {
+                        SettingsDetailPanel(
+                            panel = selectedPanel,
+                            state = state,
+                            aiEndpoint = aiEndpoint,
+                            onQualityChange = onQualityChange,
+                            onPreviewConversationChange = onPreviewConversationChange,
+                            onGlassPresetChange = onGlassPresetChange,
+                            onBackgroundThemeChange = onBackgroundThemeChange,
+                            onGlassIntensityChange = onGlassIntensityChange,
+                            onMotionIntensityChange = onMotionIntensityChange,
+                            onRainbowPrismChange = onRainbowPrismChange,
+                            onBackdropChange = onBackdropChange,
+                            onBorderChange = onBorderChange,
+                            onUploadBackgroundClick = onUploadBackgroundClick,
+                            onClearCustomBackgroundClick = onClearCustomBackgroundClick
+                        )
+                    }
+                }
+                item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+            }
+        }
+    }
+'''
+        if (text.contains(newScreenBlock)) {
+            println('Settings screen already hosts parent glass layer.')
+        } else if (text.contains(oldScreenBlock)) {
+            text = text.replace(oldScreenBlock, newScreenBlock)
+            settings.setText(text, 'UTF-8')
+            println('Wrapped SettingsPolishedScreen with parent glass layer.')
+        } else {
+            throw new GradleException('SettingsPolishedScreen body changed; refusing to miss parent layer hookup.')
+        }
+
+        def glass = file('src/main/java/com/yuchen/ailedger/ui/Glass.kt')
+        def glassText = glass.getText('UTF-8')
+        def oldGlassPanel = '''    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+'''
+        def newGlassPanel = '''    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val settingsParentLayer = LocalSettingsParentGlassLayer.current
+    if (settingsParentLayer != null) {
+        val parentKey = remember { Any() }
+        DisposableEffect(settingsParentLayer, parentKey) { onDispose { settingsParentLayer.remove("glass-panel-${parentKey.hashCode()}") } }
+        Box(
+            modifier = modifier.registerSettingsParentGlass(
+                id = "glass-panel-${parentKey.hashCode()}",
+                layerState = settingsParentLayer,
+                radiusDp = effectiveRadius.toFloat(),
+                kind = when (role) {
+                    GlassRole.Shell -> SettingsParentGlassKind.Shell
+                    GlassRole.Floating -> SettingsParentGlassKind.Floating
+                    GlassRole.Chip -> SettingsParentGlassKind.Chip
+                    GlassRole.Nav -> SettingsParentGlassKind.Chip
+                    GlassRole.Flex -> SettingsParentGlassKind.Detail
+                    GlassRole.Card -> SettingsParentGlassKind.Metric
+                },
+                selected = role == GlassRole.Shell,
+                emphasis = glassIntensity
+            )
+        ) { content() }
+        return
+    }
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+'''
+        if (!glassText.contains('SettingsParentGlassKind') && glassText.contains(oldGlassPanel)) {
+            glassText = glassText.replace(oldGlassPanel, newGlassPanel)
+            println('Patched GlassPanel to delegate settings glass to parent layer.')
+        }
+        def oldPressable = '''    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val interaction = remember { MutableInteractionSource() }
+'''
+        def newPressable = '''    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val settingsParentLayer = LocalSettingsParentGlassLayer.current
+    if (settingsParentLayer != null) {
+        val parentKey = remember { Any() }
+        val parentInteraction = remember { MutableInteractionSource() }
+        DisposableEffect(settingsParentLayer, parentKey) { onDispose { settingsParentLayer.remove("pressable-glass-${parentKey.hashCode()}") } }
+        Box(
+            modifier = modifier
+                .clickable(interactionSource = parentInteraction, indication = null, onClick = onClick)
+                .registerSettingsParentGlass(
+                    id = "pressable-glass-${parentKey.hashCode()}",
+                    layerState = settingsParentLayer,
+                    radiusDp = effectiveRadius.toFloat(),
+                    kind = when (role) {
+                        GlassRole.Floating -> SettingsParentGlassKind.Floating
+                        GlassRole.Chip -> SettingsParentGlassKind.Chip
+                        GlassRole.Nav -> SettingsParentGlassKind.Chip
+                        GlassRole.Flex -> SettingsParentGlassKind.Detail
+                        GlassRole.Shell -> SettingsParentGlassKind.Shell
+                        GlassRole.Card -> SettingsParentGlassKind.Chip
+                    },
+                    selected = role == GlassRole.Floating,
+                    emphasis = glassIntensity
+                )
+        ) { content() }
+        return
+    }
+    val interaction = remember { MutableInteractionSource() }
+'''
+        if (glassText.contains(oldPressable)) {
+            glassText = glassText.replace(oldPressable, newPressable)
+            println('Patched PressableGlass to delegate settings glass to parent layer.')
+        }
+        glass.setText(glassText, 'UTF-8')
+
+        def frost = file('src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt')
+        def frostText = frost.getText('UTF-8')
+        def oldFrost = '''@Composable
+fun FrostInfoGlassPanel(modifier: Modifier = Modifier, radius: Float = 17.44f, backdropAlpha: Float = 1f, frostAlpha: Float = 0f, dimAlpha: Float = 0f, content: @Composable () -> Unit) {
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(modifier = modifier.onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
+        BackdropCrop(coordinates, backdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+        content()
+    }
+}
+'''
+        def newFrost = '''@Composable
+fun FrostInfoGlassPanel(modifier: Modifier = Modifier, radius: Float = 17.44f, backdropAlpha: Float = 1f, frostAlpha: Float = 0f, dimAlpha: Float = 0f, content: @Composable () -> Unit) {
+    val settingsParentLayer = LocalSettingsParentGlassLayer.current
+    if (settingsParentLayer != null) {
+        val parentKey = remember { Any() }
+        DisposableEffect(settingsParentLayer, parentKey) { onDispose { settingsParentLayer.remove("frost-info-${parentKey.hashCode()}") } }
+        Box(
+            modifier = modifier.registerSettingsParentGlass(
+                id = "frost-info-${parentKey.hashCode()}",
+                layerState = settingsParentLayer,
+                radiusDp = radius,
+                kind = SettingsParentGlassKind.Tile,
+                selected = frostAlpha > 0.10f,
+                emphasis = backdropAlpha + frostAlpha + dimAlpha
+            )
+        ) { content() }
+        return
+    }
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(modifier = modifier.onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
+        BackdropCrop(coordinates, backdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+        content()
+    }
+}
+'''
+        if (!frostText.contains('val settingsParentLayer = LocalSettingsParentGlassLayer.current') && frostText.contains(oldFrost)) {
+            frostText = frostText.replace(oldFrost, newFrost)
+            if (!frostText.contains('import androidx.compose.runtime.DisposableEffect')) {
+                frostText = frostText.replace('import androidx.compose.runtime.Composable\n', 'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.DisposableEffect\n')
+            }
+            frost.setText(frostText, 'UTF-8')
+            println('Patched FrostInfoGlassPanel to delegate settings frost to parent layer.')
+        }
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn patchPolishedOnlineDroplet
+    dependsOn patchSettingsParentGlassLayer
 }
