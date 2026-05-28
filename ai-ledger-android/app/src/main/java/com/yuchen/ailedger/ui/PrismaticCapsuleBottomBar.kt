@@ -69,6 +69,7 @@ fun PrismaticCapsuleBottomBar(
     val density = LocalDensity.current
     val currentIndex = tabs.indexOf(currentTab).coerceAtLeast(0)
     val motion = motionIntensity.coerceIn(0f, 1f)
+    val edgeTarget = if (currentIndex == 0 || currentIndex == tabs.lastIndex) 1f else 0f
     val animatedIndex by animateFloatAsState(
         targetValue = currentIndex.toFloat(),
         animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow),
@@ -76,6 +77,7 @@ fun PrismaticCapsuleBottomBar(
     )
     val indexDelta = abs(animatedIndex - currentIndex.toFloat()).coerceIn(0f, 2f)
     val travelEnergy = (indexDelta / 0.84f).coerceIn(0f, 1f) * motion
+    val edgeSafeTravel = travelEnergy * (1f - 0.46f * edgeTarget)
     val travelDirection = sign(currentIndex.toFloat() - animatedIndex).coerceIn(-1f, 1f)
     val arrivalPulse = remember { Animatable(0f) }
     val prismPhase = remember { Animatable(0f) }
@@ -113,7 +115,7 @@ fun PrismaticCapsuleBottomBar(
     }
 
     val stopEnergy = arrivalPulse.value.coerceIn(0f, 1f) * motion
-    val activeEnergy = maxOf(travelEnergy, pressEnergy, stopEnergy)
+    val activeEnergy = maxOf(edgeSafeTravel, pressEnergy, stopEnergy)
     val phase = prismPhase.value
 
     GlassPanel(
@@ -134,12 +136,14 @@ fun PrismaticCapsuleBottomBar(
         ) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
-            val stretch = 0.72f + 0.16f * travelEnergy + 0.055f * pressEnergy - 0.026f * stopEnergy
-            val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, 0.98f)
+            val maxStretch = 0.98f - 0.055f * edgeTarget
+            val stretch = 0.72f + 0.16f * edgeSafeTravel + 0.055f * pressEnergy - 0.026f * stopEnergy
+            val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, maxStretch)
             val selectorWidth = with(density) { selectorWidthPx.toDp() }
-            val leadPx = travelDirection * slotWidthPx * 0.032f * travelEnergy
-            val selectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
-            val heightDp = 52.dp + 3.2.dp * stopEnergy - 6.8.dp * travelEnergy - 3.0.dp * pressEnergy
+            val leadPx = travelDirection * slotWidthPx * 0.024f * edgeSafeTravel
+            val rawSelectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
+            val selectorX = rawSelectorX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
+            val heightDp = 52.dp + 3.2.dp * stopEnergy - 5.2.dp * edgeSafeTravel - 3.0.dp * pressEnergy
             val selectorShape = RoundedCornerShape(999.dp)
             val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
@@ -150,16 +154,16 @@ fun PrismaticCapsuleBottomBar(
                     .height(heightDp)
                     .graphicsLayer {
                         translationX = selectorX
-                        translationY = 1.25f * pressEnergy - 2.9f * travelEnergy - 1.00f * stopEnergy
-                        scaleX = 1f + 0.105f * travelEnergy + 0.036f * pressEnergy - 0.022f * stopEnergy
-                        scaleY = 1f - 0.114f * travelEnergy - 0.052f * pressEnergy + 0.060f * stopEnergy
+                        translationY = 1.25f * pressEnergy - 2.35f * edgeSafeTravel - 1.00f * stopEnergy
+                        scaleX = 1f + 0.082f * edgeSafeTravel + 0.036f * pressEnergy - 0.022f * stopEnergy
+                        scaleY = 1f - 0.090f * edgeSafeTravel - 0.052f * pressEnergy + 0.060f * stopEnergy
                         shadowElevation = 0.24f + 0.42f * activeEnergy.coerceIn(0f, 1f)
                     }
                     .clip(selectorShape)
             ) {
                 GlassPanel(
                     quality = quality,
-                    glassIntensity = glassIntensity * (1.035f + 0.11f * travelEnergy + 0.07f * pressEnergy + 0.045f * stopEnergy),
+                    glassIntensity = glassIntensity * (1.035f + 0.08f * edgeSafeTravel + 0.07f * pressEnergy + 0.045f * stopEnergy),
                     motionIntensity = motionIntensity,
                     radius = 999,
                     modifier = Modifier.fillMaxSize(),
@@ -171,7 +175,7 @@ fun PrismaticCapsuleBottomBar(
                             .clip(selectorShape)
                             .bottomSliderPrismOptics(
                                 phase = phase,
-                                energy = (0.18f + 0.58f * travelEnergy + 0.27f * pressEnergy + 0.34f * stopEnergy).coerceIn(0f, 1.22f),
+                                energy = (0.18f + 0.44f * edgeSafeTravel + 0.27f * pressEnergy + 0.34f * stopEnergy).coerceIn(0f, 1.12f),
                                 drift = selectedDrift,
                                 edgeSeed = edgeSeed,
                                 stopEnergy = stopEnergy,
@@ -253,7 +257,7 @@ private fun Modifier.bottomSliderPrismOptics(
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val active = activeEnergy.coerceIn(0f, 1f)
-    val e = energy.coerceIn(0f, 1.22f)
+    val e = energy.coerceIn(0f, 1.12f)
     val corner = CornerRadius(h / 2f, h / 2f)
 
     drawContent()
@@ -278,17 +282,17 @@ private fun Modifier.bottomSliderPrismOptics(
     }
 
     val sweep = ((sin((phase * 0.98f + edgeSeed * 0.31f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
-    val sweepCenter = -0.38f + 1.76f * sweep + 0.06f * drift + 0.060f * travelDirection * e
+    val sweepCenter = -0.38f + 1.76f * sweep + 0.06f * drift + 0.050f * travelDirection * e
 
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.036f + 0.048f * e),
-                Color(0xFFFF7AD6).copy(alpha = 0.044f * e),
-                Color(0xFFFFD86E).copy(alpha = 0.034f * e),
-                Color(0xFF6DFFF0).copy(alpha = 0.052f * e),
-                Color(0xFFA796FF).copy(alpha = 0.038f * e),
-                Color.White.copy(alpha = 0.024f + 0.026f * e)
+                Color.White.copy(alpha = 0.034f + 0.042f * e),
+                Color(0xFFFF7AD6).copy(alpha = 0.038f * e),
+                Color(0xFFFFD86E).copy(alpha = 0.030f * e),
+                Color(0xFF6DFFF0).copy(alpha = 0.046f * e),
+                Color(0xFFA796FF).copy(alpha = 0.034f * e),
+                Color.White.copy(alpha = 0.024f + 0.024f * e)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
@@ -303,10 +307,10 @@ private fun Modifier.bottomSliderPrismOptics(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = 0.142f * e),
-                Color(0xFFFFE17A).copy(alpha = 0.074f * e),
-                Color(0xFF67FFF0).copy(alpha = 0.108f * e),
-                Color(0xFFFF75D4).copy(alpha = 0.074f * e),
+                Color.White.copy(alpha = 0.122f * e),
+                Color(0xFFFFE17A).copy(alpha = 0.064f * e),
+                Color(0xFF67FFF0).copy(alpha = 0.094f * e),
+                Color(0xFFFF75D4).copy(alpha = 0.064f * e),
                 Color.Transparent
             ),
             start = Offset(w * (sweepCenter - 0.50f), -h * 0.36f),
@@ -321,8 +325,8 @@ private fun Modifier.bottomSliderPrismOptics(
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.036f + 0.058f * e + 0.034f * stopEnergy),
-                Color(0xFF7FFFF2).copy(alpha = 0.030f * e),
+                Color.White.copy(alpha = 0.034f + 0.050f * e + 0.030f * stopEnergy),
+                Color(0xFF7FFFF2).copy(alpha = 0.026f * e),
                 Color.Transparent
             ),
             center = Offset(w * (0.50f + 0.10f * drift), h * 0.36f),
