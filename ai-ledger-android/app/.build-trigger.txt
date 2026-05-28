@@ -1,6 +1,6 @@
-Chat bubble parent layer stale cache cleanup.
+Chat bubble prism continuous phase fix.
 Source commits:
-- 2c42a971d30f3adb8dddea00e08a6677fcf50637
-- 4358947b4caa78ca32ecc61c0beebf6bfd34d5e0
-Fix: remove bubble rects from parent Canvas cache when LazyColumn disposes off-screen message items.
+- 9c6171f1b4b441e538e309fb77083f950f77a60f
+- bd8d9071a2055dad9662a0b659a6936b9367a5e7
+Fix: remove non-integer phase multipliers that caused prism highlight jumps at loop restart.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
