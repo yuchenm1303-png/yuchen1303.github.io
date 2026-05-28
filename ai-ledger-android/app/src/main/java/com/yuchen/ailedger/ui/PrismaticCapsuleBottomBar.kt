@@ -119,7 +119,7 @@ fun PrismaticCapsuleBottomBar(
 
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity * (1.015f + 0.026f * activeEnergy),
+        glassIntensity = glassIntensity * 1.015f,
         motionIntensity = motionIntensity,
         radius = 999,
         modifier = modifier
@@ -131,16 +131,6 @@ fun PrismaticCapsuleBottomBar(
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .bottomNavBasePrismOptics(
-                    phase = phase,
-                    animatedIndex = animatedIndex,
-                    tabCount = tabs.size,
-                    edgeSeed = edgeSeed,
-                    travelEnergy = travelEnergy,
-                    pressEnergy = pressEnergy,
-                    stopEnergy = stopEnergy,
-                    travelDirection = travelDirection
-                )
                 .padding(horizontal = 8.dp, vertical = 7.dp)
         ) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
@@ -250,112 +240,6 @@ fun PrismaticCapsuleBottomBar(
             }
         }
     }
-}
-
-private fun Modifier.bottomNavBasePrismOptics(
-    phase: Float,
-    animatedIndex: Float,
-    tabCount: Int,
-    edgeSeed: Float,
-    travelEnergy: Float,
-    pressEnergy: Float,
-    stopEnergy: Float,
-    travelDirection: Float
-): Modifier = drawWithContent {
-    val w = size.width.coerceAtLeast(1f)
-    val h = size.height.coerceAtLeast(1f)
-    val count = tabCount.coerceAtLeast(1)
-    val slot = w / count
-    val selectorCenterX = slot * (animatedIndex + 0.5f).coerceIn(0f, count.toFloat())
-    val active = maxOf(travelEnergy, pressEnergy, stopEnergy)
-    val corner = CornerRadius(h / 2f, h / 2f)
-
-    if (active < 0.012f) {
-        drawContent()
-        val inset = 1.0.dp.toPx()
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.052f),
-                    Color(0xFF7FFFF2).copy(alpha = 0.034f),
-                    Color.Transparent
-                ),
-                start = Offset(w * 0.12f, 0f),
-                end = Offset(w * 0.88f, h)
-            ),
-            topLeft = Offset(inset, inset),
-            size = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f)),
-            cornerRadius = CornerRadius((h - inset * 2f) / 2f, (h - inset * 2f) / 2f),
-            style = Stroke(width = 0.62.dp.toPx()),
-            blendMode = BlendMode.Screen
-        )
-        return@drawWithContent
-    }
-
-    val baseLeadX = selectorCenterX + slot * travelDirection * 0.14f * travelEnergy
-    val energy = (0.22f + travelEnergy * 0.46f + pressEnergy * 0.18f + stopEnergy * 0.46f).coerceIn(0f, 1.12f)
-    val edgePhase = ((sin((phase * 0.58f + edgeSeed) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
-    val rimCenter = w * (0.12f + 0.76f * edgePhase)
-
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.022f + 0.034f * energy),
-                Color(0xFFFF7FD8).copy(alpha = 0.030f * energy),
-                Color(0xFF6EFFF0).copy(alpha = 0.038f * energy),
-                Color.Transparent
-            ),
-            center = Offset(baseLeadX, h * (0.50f - 0.054f * travelEnergy + 0.035f * stopEnergy)),
-            radius = slot * (1.12f + 0.46f * energy)
-        ),
-        topLeft = Offset.Zero,
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen
-    )
-
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.White.copy(alpha = 0.044f + 0.040f * energy),
-                Color(0xFFFFD872).copy(alpha = 0.028f * energy),
-                Color(0xFF76FFF2).copy(alpha = 0.048f * energy),
-                Color.Transparent
-            ),
-            start = Offset(baseLeadX - slot * (0.68f + 0.20f * travelEnergy), -h * 0.08f),
-            end = Offset(baseLeadX + slot * (0.68f + 0.20f * travelEnergy), h * 1.08f)
-        ),
-        topLeft = Offset.Zero,
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen
-    )
-
-    drawContent()
-
-    val inset = 1.0.dp.toPx()
-    val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
-    val rimCorner = CornerRadius((h - inset * 2f) / 2f, (h - inset * 2f) / 2f)
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color(0xFFFF7AD6).copy(alpha = 0.070f * energy),
-                Color.White.copy(alpha = 0.096f + 0.045f * stopEnergy),
-                Color(0xFF6DFFF0).copy(alpha = 0.092f * energy),
-                Color.Transparent
-            ),
-            start = Offset(rimCenter - slot * (0.70f + 0.16f * travelEnergy), 0f),
-            end = Offset(rimCenter + slot * (0.70f + 0.16f * travelEnergy), h)
-        ),
-        topLeft = Offset(inset, inset),
-        size = rimSize,
-        cornerRadius = rimCorner,
-        style = Stroke(width = 0.66.dp.toPx() + 0.24.dp.toPx() * energy + 0.10.dp.toPx() * stopEnergy),
-        blendMode = BlendMode.Plus
-    )
 }
 
 private fun Modifier.bottomSliderPrismOptics(
