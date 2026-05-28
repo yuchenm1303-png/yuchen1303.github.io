@@ -1,6 +1,6 @@
-Retry LazyListState-driven chat bubble parent layer build.
-Confirmed script now passes listState and messages into ChatBubbleMaterialLayer and removes updateBubble/updateBubbleAppearance coordinate calls.
+Retry Compose APK build after model glass DrawScope fix.
 Source commits:
-- cf4b9e4b6870ef9c9c82f67745dd4103951dd78e
-- b83ba3dc6a738c6316db0016f860995080699799
+- 79eeeeb03b5fd72132e0e09cf6637af1e3a0a363
+- 66cedd3d4f0302180bf99b631c6cd02c3ac58d19
+Fix: model stack glass drawCardGlass now has DrawScope receiver before calling drawRoundRect.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
