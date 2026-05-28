@@ -1,6 +1,6 @@
-LazyListState-driven chat bubble parent layer.
+Retry LazyListState-driven chat bubble parent layer build.
+Confirmed script now passes listState and messages into ChatBubbleMaterialLayer and removes updateBubble/updateBubbleAppearance coordinate calls.
 Source commits:
 - cf4b9e4b6870ef9c9c82f67745dd4103951dd78e
 - b83ba3dc6a738c6316db0016f860995080699799
-Fix: parent Canvas now computes visible bubble rects directly from LazyListState.layoutInfo.visibleItemsInfo instead of cached onGloballyPositioned rects.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
