@@ -1,6 +1,5 @@
-Retry Compose APK build after model glass DrawScope fix.
-Source commits:
-- 79eeeeb03b5fd72132e0e09cf6637af1e3a0a363
-- 66cedd3d4f0302180bf99b631c6cd02c3ac58d19
-Fix: model stack glass drawCardGlass now has DrawScope receiver before calling drawRoundRect.
+Thinking bubble sweep direction update.
+Source commit:
+- 59f1d623b02fa9c0b2fac9faf9759a7a1d19c4f7
+Change: sending/thinking bubble wide sweep now moves left-to-right only and restarts from off-screen left instead of ping-ponging.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
