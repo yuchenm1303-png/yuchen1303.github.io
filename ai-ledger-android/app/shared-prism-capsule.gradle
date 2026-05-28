@@ -2,6 +2,42 @@ tasks.register('patchSharedPrismCapsuleUsage') {
     doLast {
         def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
         def text = home.getText('UTF-8')
+
+        def selectorStart = text.indexOf('@Composable\nprivate fun ModelStackSelector(')
+        def selectorEnd = text.indexOf('@Composable\nprivate fun ModelStackCard(', selectorStart)
+        if (selectorStart >= 0 && selectorEnd > selectorStart) {
+            def newSelectorBlock = '''@Composable
+private fun ModelStackSelector(
+    state: AssistantUiState,
+    expanded: Boolean,
+    modifier: Modifier,
+    onToggleExpanded: () -> Unit,
+    onSelected: (ChatModel) -> Unit
+) {
+    UnifiedParentModelStackSelector(
+        state = state,
+        expanded = expanded,
+        modifier = modifier,
+        onToggleExpanded = onToggleExpanded,
+        onSelected = onSelected
+    )
+}
+
+'''
+            if (!text.substring(selectorStart, selectorEnd).contains('UnifiedParentModelStackSelector(')) {
+                text = text.substring(0, selectorStart) + newSelectorBlock + text.substring(selectorEnd)
+                home.setText(text, 'UTF-8')
+                println('Replaced model stack selector with parent-level unified prism drawing.')
+            } else {
+                println('Model stack selector already uses parent-level unified prism drawing.')
+            }
+        } else if (text.contains('UnifiedParentModelStackSelector(')) {
+            println('Model stack selector already patched.')
+        } else {
+            throw new GradleException('ModelStackSelector block not found for parent-level prism drawing patch.')
+        }
+
+        text = home.getText('UTF-8')
         def modelStart = text.indexOf('@Composable\nprivate fun LightweightModelCapsule(')
         def modelEnd = text.indexOf('@Composable\nprivate fun ModelStackCardContent', modelStart)
         if (modelStart < 0 || modelEnd < modelStart) {
