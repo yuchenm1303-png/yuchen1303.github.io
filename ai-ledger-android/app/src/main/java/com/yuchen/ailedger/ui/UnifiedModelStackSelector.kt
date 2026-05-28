@@ -36,7 +36,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -358,10 +357,6 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
         return x * x * (3f - 2f * x)
     }
     fun prismColor(color: Color, alpha: Float): Color = color.copy(alpha = alpha.coerceIn(0f, 1f))
-    fun wrap01(value: Float): Float {
-        val r = value % 1f
-        return if (r < 0f) r + 1f else r
-    }
 
     onDrawWithContent {
         fun drawCapsuleBody(v: UnifiedModelCardVisual) {
@@ -469,7 +464,7 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             val rightNear = (1f - (1f - v.pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
             val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
             val restingPower = (0.30f + 0.11f * selectedEnergy) * energy * alpha
-            val dynamicPower = (press * 0.54f + sweepAlpha * 0.96f + lens * 0.18f).coerceIn(0f, 1.22f) * energy * alpha
+            val dynamicPower = (press * 0.46f + sweepAlpha * 0.98f + lens * 0.16f).coerceIn(0f, 1.20f) * energy * alpha
             fun prismBandBrush(start: Offset, end: Offset, strength: Float): Brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
@@ -484,74 +479,31 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
                 start = start,
                 end = end
             )
-            fun capsulePointAndTangent(phaseRaw: Float): Pair<Offset, Offset> {
-                val phase = wrap01(phaseRaw)
-                val radius = (v.height / 2f - rimInset).coerceAtLeast(1f)
-                val cxLeft = v.height / 2f
-                val cxRight = v.width - v.height / 2f
-                val cy = v.height / 2f
-                val straight = (v.width - v.height).coerceAtLeast(1f)
-                return when {
-                    phase < 0.25f -> {
-                        val t = phase / 0.25f
-                        Offset(cxLeft + straight * t, rimInset) to Offset(1f, 0f)
-                    }
-                    phase < 0.50f -> {
-                        val t = (phase - 0.25f) / 0.25f
-                        val theta = -PI.toFloat() / 2f + t * PI.toFloat()
-                        val point = Offset(cxRight + cos(theta) * radius, cy + sin(theta) * radius)
-                        point to Offset(-sin(theta), cos(theta))
-                    }
-                    phase < 0.75f -> {
-                        val t = (phase - 0.50f) / 0.25f
-                        Offset(cxRight - straight * t, v.height - rimInset) to Offset(-1f, 0f)
-                    }
-                    else -> {
-                        val t = (phase - 0.75f) / 0.25f
-                        val theta = PI.toFloat() / 2f + t * PI.toFloat()
-                        val point = Offset(cxLeft + cos(theta) * radius, cy + sin(theta) * radius)
-                        point to Offset(-sin(theta), cos(theta))
-                    }
+            fun movingRimBrush(seed: Float, angleSeed: Float, order: Int, scale: Float): Brush {
+                val direction = if (angleSeed > 0.50f) 1f else -1f
+                val speed = 1.00f + seed * 0.34f + order * 0.12f
+                val seedShift = (seed - 0.5f) * 0.42f
+                val sweepX = if (direction > 0f) {
+                    -0.34f + seedShift + sweepPhase * speed * 1.34f
+                } else {
+                    1.34f + seedShift - sweepPhase * speed * 1.34f
                 }
-            }
-            fun edgePhaseFromPress(): Float {
-                val px = v.pressCenter.x.coerceIn(0f, 1f)
-                val py = v.pressCenter.y.coerceIn(0f, 1f)
-                val topDistance = py
-                val bottomDistance = 1f - py
-                val leftDistance = px
-                val rightDistance = 1f - px
-                val minDistance = minOf(topDistance, bottomDistance, leftDistance, rightDistance)
-                return when (minDistance) {
-                    topDistance -> 0.25f * px
-                    rightDistance -> 0.25f + 0.25f * py
-                    bottomDistance -> 0.50f + 0.25f * (1f - px)
-                    else -> 0.75f + 0.25f * (1f - py)
-                }
-            }
-            fun drawRimSpark(phase: Float, strength: Float, lengthScale: Float, strokeScale: Float) {
-                if (strength <= 0.001f) return
-                val (point, tangent) = capsulePointAndTangent(phase)
-                val halfLen = maxSide * lengthScale
-                val start = Offset(point.x - tangent.x * halfLen, point.y - tangent.y * halfLen)
-                val end = Offset(point.x + tangent.x * halfLen, point.y + tangent.y * halfLen)
-                drawLine(
-                    brush = prismBandBrush(start, end, strength),
-                    start = start,
-                    end = end,
-                    strokeWidth = (0.82f + 1.42f * strokeScale).dp.toPx(),
-                    cap = StrokeCap.Round,
-                    blendMode = BlendMode.Plus
+                val lane = ((seed * 4f).toInt() + order).coerceAtLeast(0) % 4
+                val bandStartY = when (lane) { 0 -> 0.01f; 1 -> 0.72f; 2 -> 0.08f; else -> 0.18f }
+                val bandEndY = when (lane) { 0 -> 0.28f; 1 -> 0.99f; 2 -> 0.94f; else -> 0.62f }
+                return prismBandBrush(
+                    Offset(v.width * (sweepX - 0.30f), v.height * bandStartY),
+                    Offset(v.width * (sweepX + 0.24f), v.height * bandEndY),
+                    dynamicPower * sweepAlpha * scale * (0.86f + 0.18f * pressBandBoost)
                 )
             }
-            fun drawTravellingBand(seed: Float, angleSeed: Float, order: Int, scale: Float) {
-                val direction = if (angleSeed > 0.50f) 1f else -1f
-                val speed = 0.82f + seed * 0.32f + order * 0.10f
-                val phase = wrap01(seed + direction * sweepPhase * speed + order * 0.075f)
-                val strength = dynamicPower * sweepAlpha * scale * (0.86f + 0.18f * pressBandBoost)
-                drawRimSpark(phase, strength, 0.090f + 0.018f * order, strength.coerceIn(0f, 1.25f))
-                drawRimSpark(phase - direction * 0.022f, strength * 0.42f, 0.060f + 0.012f * order, strength.coerceIn(0f, 1.05f))
-            }
+            fun prismHalo(power: Float, white: Float, cyan: Float): List<Color> = listOf(
+                Color.White.copy(alpha = white * power),
+                Color(0xFFFF7DE2).copy(alpha = 0.052f * power),
+                Color(0xFFFFE28A).copy(alpha = 0.036f * power),
+                Color(0xFF80FFF2).copy(alpha = cyan * power),
+                Color.Transparent
+            )
             val topHairline = Brush.horizontalGradient(
                 listOf(
                     Color.Transparent,
@@ -575,28 +527,34 @@ private fun Modifier.drawUnifiedModelStackPrism(visuals: List<UnifiedModelCardVi
             )
             val tinyCornerGlint = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.048f * restingPower + 0.060f * dynamicPower),
-                    Color(0xFF6AF7FF).copy(alpha = 0.046f * restingPower + 0.040f * dynamicPower),
+                    Color.White.copy(alpha = 0.048f * restingPower + 0.050f * dynamicPower),
+                    Color(0xFF6AF7FF).copy(alpha = 0.046f * restingPower + 0.036f * dynamicPower),
                     Color.Transparent
                 ),
                 Offset(v.width * 0.08f, v.height * 0.10f),
                 maxSide * 0.10f
             )
-            val localPressPhase = edgePhaseFromPress()
+            val localEdgeStroke = 0.92.dp.toPx() + 0.70.dp.toPx() * press
+            val topEdgeHalo = Brush.radialGradient(prismHalo(topNear, 0.20f, 0.072f), Offset(center.x, rimInset), maxSide * 0.34f)
+            val bottomEdgeHalo = Brush.radialGradient(prismHalo(bottomNear, 0.15f, 0.052f), Offset(center.x, v.height - rimInset), maxSide * 0.33f)
+            val leftEdgeHalo = Brush.radialGradient(prismHalo(leftNear, 0.17f, 0.058f), Offset(rimInset, center.y), maxSide * 0.32f)
+            val rightEdgeHalo = Brush.radialGradient(prismHalo(rightNear, 0.17f, 0.058f), Offset(v.width - rimInset, center.y), maxSide * 0.32f)
             withTransform({ translate(v.left, v.top) }) {
                 drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.60.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = tinyCornerGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
                 if (dynamicPower > 0.001f) {
-                    drawTravellingBand(v.bandSeedA, v.bandAngleA, 0, 1.00f)
-                    drawTravellingBand(v.bandSeedB, v.bandAngleB, 1, 0.78f)
-                    if (v.bandCount >= 3) drawTravellingBand(v.bandSeedC, v.bandAngleC, 2, 0.58f)
+                    drawRoundRect(brush = movingRimBrush(v.bandSeedA, v.bandAngleA, 0, 1.00f), topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.72.dp.toPx() + 0.48.dp.toPx() * dynamicPower.coerceIn(0f, 1.1f)), blendMode = BlendMode.Plus)
+                    drawRoundRect(brush = movingRimBrush(v.bandSeedB, v.bandAngleB, 1, 0.72f), topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx() + 0.40.dp.toPx() * dynamicPower.coerceIn(0f, 1.1f)), blendMode = BlendMode.Plus)
+                    if (v.bandCount >= 3) {
+                        drawRoundRect(brush = movingRimBrush(v.bandSeedC, v.bandAngleC, 2, 0.52f), topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.48.dp.toPx() + 0.32.dp.toPx() * dynamicPower.coerceIn(0f, 1.1f)), blendMode = BlendMode.Screen)
+                    }
                 }
                 if (press > 0.001f) {
-                    val localStrength = (0.78f + pressBandBoost * 0.86f) * press * energy * alpha
-                    drawRimSpark(localPressPhase, localStrength, 0.075f, localStrength.coerceIn(0f, 1.25f))
-                    drawRimSpark(localPressPhase + 0.018f, localStrength * 0.46f, 0.045f, localStrength.coerceIn(0f, 1.10f))
-                    drawRimSpark(localPressPhase - 0.018f, localStrength * 0.34f, 0.038f, localStrength.coerceIn(0f, 1.00f))
+                    drawRoundRect(brush = topEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = bottomEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = leftEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = rightEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
                 }
             }
         }
