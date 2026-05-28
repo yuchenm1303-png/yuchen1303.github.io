@@ -165,6 +165,26 @@ private fun GlassLabFoldout(
 @Composable
 private fun ModelCardGlassLab(state: AssistantUiState) {
     val style = ModelCardGlassLabState.style
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.72f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier.fillMaxWidth().height(242.dp),
+        role = GlassRole.Flex,
+        onClick = {}
+    ) {
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("实时样本", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                    Text("拖动下方滑块，Kimi 选中卡和未选中卡会立即变化", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("Preview", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            ModelCardGlassLabPreview(state = state, modifier = Modifier.fillMaxWidth().height(188.dp))
+        }
+    }
     ModelCardControlGroup("主体与轮廓", "透明底、圆角、未选中能量", state, true) {
         LabSlider("主体雾面", "卡片内部基础雾面强度", style.bodyAlpha, 0f..6f) { ModelCardGlassLabState.update(style.copy(bodyAlpha = it)) }
         LabSlider("圆角倍率", "模型卡圆角半径倍率", style.radiusScale, 0.2f..3f) { ModelCardGlassLabState.update(style.copy(radiusScale = it)) }
@@ -192,7 +212,7 @@ private fun ModelCardGlassLab(state: AssistantUiState) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         LabActionButton("重置模型卡", "恢复默认参数", state, Modifier.weight(1f)) { ModelCardGlassLabState.reset() }
-        LabActionButton("实时调试", "首页立即生效", state, Modifier.weight(1f)) { }
+        LabActionButton("实时调试", "样本已在上方", state, Modifier.weight(1f)) { }
     }
 }
 
