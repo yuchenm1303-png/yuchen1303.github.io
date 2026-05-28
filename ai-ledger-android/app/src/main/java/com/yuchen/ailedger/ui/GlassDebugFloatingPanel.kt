@@ -156,26 +156,16 @@ private fun GlassLabFoldout(
 
 @Composable
 private fun LightweightGlassLab(state: AssistantUiState) {
-    var radius by rememberSaveable { mutableFloatStateOf(32.4f) }
-    var surfaceAlpha by rememberSaveable { mutableFloatStateOf(0.030f) }
-    var rimAlpha by rememberSaveable { mutableFloatStateOf(0.210f) }
-    var rimWidth by rememberSaveable { mutableFloatStateOf(0.86f) }
-    var topHighlight by rememberSaveable { mutableFloatStateOf(0.145f) }
-    var topHighlightHeight by rememberSaveable { mutableFloatStateOf(0.22f) }
-    var innerRimAlpha by rememberSaveable { mutableFloatStateOf(0.105f) }
-    var bottomDepth by rememberSaveable { mutableFloatStateOf(0.070f) }
-    var cornerCatchlight by rememberSaveable { mutableFloatStateOf(0.062f) }
-    var pressGlow by rememberSaveable { mutableFloatStateOf(0.205f) }
-    var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.245f) }
-    var pressSweep by rememberSaveable { mutableFloatStateOf(0.305f) }
-    var pressDarken by rememberSaveable { mutableFloatStateOf(0.070f) }
-    var pressElasticity by rememberSaveable { mutableFloatStateOf(0.82f) }
-    var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.285f) }
-    var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.42f) }
-    var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.32f) }
-    var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.30f) }
-    var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.075f) }
-    var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.84f) }
+    var rimAlpha by rememberSaveable { mutableFloatStateOf(0.10f) }
+    var rainbowRimAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }
+var rainbowRimWidth by rememberSaveable { mutableFloatStateOf(0.56f) }
+var rainbowPressEdge by rememberSaveable { mutableFloatStateOf(0.38f) }
+var rainbowSweepAlpha by rememberSaveable { mutableFloatStateOf(0.34f) }
+var rainbowCornerAlpha by rememberSaveable { mutableFloatStateOf(0.06f) }
+var rainbowSaturation by rememberSaveable { mutableFloatStateOf(0.86f) }
+var pressGlow by rememberSaveable { mutableFloatStateOf(0.26f) }
+var pressEdgeBoost by rememberSaveable { mutableFloatStateOf(0.18f) }
+var pressSweep by rememberSaveable { mutableFloatStateOf(0.18f) }
 
     LightweightGlassPreview(
         radius = radius,
@@ -425,19 +415,58 @@ private fun Modifier.lightweightGlassLabSurface(
     val h = size.height.coerceAtLeast(1f)
     val maxSide = maxOf(w, h)
     val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+
     val rimInset = 0.62.dp.toPx()
     val innerInset = 1.72.dp.toPx()
+
     val bodySize = Size(w, h)
-    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-    val innerSize = Size((w - innerInset * 2f).coerceAtLeast(1f), (h - innerInset * 2f).coerceAtLeast(1f))
-    val center = Offset(pressCenter.x.coerceIn(0f, 1f) * w, pressCenter.y.coerceIn(0f, 1f) * h)
+    val rimSize = Size(
+        (w - rimInset * 2f).coerceAtLeast(1f),
+        (h - rimInset * 2f).coerceAtLeast(1f)
+    )
+    val innerSize = Size(
+        (w - innerInset * 2f).coerceAtLeast(1f),
+        (h - innerInset * 2f).coerceAtLeast(1f)
+    )
+
+    val center = Offset(
+        pressCenter.x.coerceIn(0f, 1f) * w,
+        pressCenter.y.coerceIn(0f, 1f) * h
+    )
+
     val topNear = (1f - pressCenter.y / 0.42f).coerceIn(0f, 1f) * press
     val bottomNear = (1f - (1f - pressCenter.y) / 0.42f).coerceIn(0f, 1f) * press
     val leftNear = (1f - pressCenter.x / 0.42f).coerceIn(0f, 1f) * press
     val rightNear = (1f - (1f - pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
-    val sweepX = -0.32f + smoothGlass(sweep.coerceIn(0f, 1f)) * 1.58f
+
+    val sweepT = smoothGlass(sweep.coerceIn(0f, 1f))
+    val sweepX = -0.28f + sweepT * 1.56f
     val sat = rainbowSaturation.coerceIn(0f, 1f)
-    fun chroma(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.34f + sat * 0.66f)).coerceIn(0f, 1f))
+
+    fun prism(color: Color, alpha: Float): Color {
+        return color.copy(alpha = (alpha * (0.32f + sat * 0.68f)).coerceIn(0f, 1f))
+    }
+
+    fun prismBandBrush(
+        start: Offset,
+        end: Offset,
+        strength: Float
+    ): Brush {
+        return Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                prism(Color(0xFF68F7FF), strength * 0.24f),
+                prism(Color(0xFFFF7CE1), strength * 0.28f),
+                Color.White.copy(alpha = strength * 0.18f),
+                prism(Color(0xFFFFE785), strength * 0.22f),
+                prism(Color(0xFF7BFF9E), strength * 0.20f),
+                prism(Color(0xFF6FA8FF), strength * 0.18f),
+                Color.Transparent
+            ),
+            start = start,
+            end = end
+        )
+    }
 
     val surface = Brush.verticalGradient(
         listOf(
@@ -449,6 +478,7 @@ private fun Modifier.lightweightGlassLabSurface(
         0f,
         h
     )
+
     val topLens = Brush.verticalGradient(
         listOf(
             Color.White.copy(alpha = topHighlight.coerceIn(0f, 0.5f)),
@@ -458,95 +488,60 @@ private fun Modifier.lightweightGlassLabSurface(
         0f,
         h * topHighlightHeight.coerceIn(0.05f, 0.60f)
     )
+
     val bottomShade = Brush.verticalGradient(
-        listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.35f))),
+        listOf(
+            Color.Transparent,
+            Color.Transparent,
+            Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.35f))
+        ),
         h * 0.52f,
         h
     )
-    val mainRim = Brush.linearGradient(
-        listOf(
-            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.58f + 0.26f * topNear)),
-            Color.White.copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.10f),
-            Color.Transparent,
-            Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.50f),
-            Color(0xFFEFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * (0.13f + 0.20f * rightNear))
-        ),
-        Offset(0f, 0f),
-        Offset(w, h)
-    )
-    val rainbowOuterRim = Brush.linearGradient(
-        listOf(
-            chroma(Color(0xFF66F7FF), rainbowRimAlpha * 0.46f),
-            chroma(Color(0xFF8EA7FF), rainbowRimAlpha * 0.26f),
-            chroma(Color(0xFFFF7FE6), rainbowRimAlpha * 0.40f),
-            chroma(Color(0xFFFFE879), rainbowRimAlpha * 0.34f),
-            chroma(Color(0xFF73FF99), rainbowRimAlpha * 0.42f),
-            chroma(Color(0xFF66F7FF), rainbowRimAlpha * 0.38f)
-        ),
-        Offset(0f, h * 0.06f),
-        Offset(w, h * 0.92f)
-    )
-    val rainbowCoreRim = Brush.linearGradient(
-        listOf(
-            chroma(Color(0xFF74F8FF), rainbowRimAlpha * 0.88f),
-            chroma(Color(0xFF8CB4FF), rainbowRimAlpha * 0.46f),
-            chroma(Color(0xFFFF7FE2), rainbowRimAlpha * 0.78f),
-            chroma(Color(0xFFFFEA7D), rainbowRimAlpha * 0.58f),
-            chroma(Color(0xFF78FF9B), rainbowRimAlpha * 0.74f),
-            chroma(Color(0xFF74F8FF), rainbowRimAlpha * 0.66f)
-        ),
-        Offset(0f, 0f),
-        Offset(w, h)
-    )
+
     val topHairline = Brush.horizontalGradient(
         listOf(
             Color.Transparent,
-            Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.20f + topHighlight * 0.24f),
-            Color.White.copy(alpha = topHighlight * 0.36f),
+            Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.18f + topHighlight * 0.20f),
+            Color.White.copy(alpha = topHighlight * 0.34f),
             Color.Transparent
         ),
         0f,
         w
     )
+
     val innerRim = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.64f),
+            Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f),
             Color.Transparent,
-            Color(0xFF00091E).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.70f),
-            Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.18f)
+            Color(0xFF00091E).copy(alpha = bottomDepth.coerceIn(0f, 0.35f) * 0.68f),
+            Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f)
         ),
         Offset(w * 0.08f, 0f),
         Offset(w * 0.92f, h)
     )
+
     val cornerLight = Brush.radialGradient(
         listOf(
             Color.White.copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f)),
-            Color(0xFFCFFFFF).copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f) * 0.22f),
+            Color(0xFFCFFFFF).copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f),
             Color.Transparent
         ),
         Offset(w * 0.055f, h * 0.045f),
         maxSide * 0.30f
     )
+
     val rainbowCorner = Brush.radialGradient(
         listOf(
-            Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.34f),
-            chroma(Color(0xFFFF86E6), rainbowCornerAlpha * 0.18f),
-            chroma(Color(0xFF7CF8FF), rainbowCornerAlpha * 0.20f),
+            Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.22f),
+            prism(Color(0xFFFF87E5), rainbowCornerAlpha * 0.16f),
+            prism(Color(0xFF79F8FF), rainbowCornerAlpha * 0.18f),
             Color.Transparent
         ),
         Offset(w * 0.10f, h * 0.10f),
         maxSide * 0.24f
     )
-    val pressureLight = Brush.radialGradient(
-        listOf(
-            Color.White.copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.62f * press),
-            Color(0xFFBFFFF7).copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.26f * press),
-            chroma(Color(0xFFFFD8F4), pressGlow.coerceIn(0f, 0.9f) * 0.12f * press),
-            Color.Transparent
-        ),
-        center,
-        maxSide * (0.34f + 0.20f * press)
-    )
+
     val pressureDark = Brush.radialGradient(
         listOf(
             Color.Transparent,
@@ -556,59 +551,187 @@ private fun Modifier.lightweightGlassLabSurface(
         center,
         maxSide * (0.72f + 0.12f * press)
     )
-    val localEdge = Brush.linearGradient(
+
+    val prismPressLight = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = pressGlow.coerceIn(0f, 0.9f) * 0.20f * press),
+            prism(Color(0xFF6AF7FF), pressGlow * 0.26f * press),
+            prism(Color(0xFFFF7FE0), pressGlow * 0.24f * press),
+            prism(Color(0xFFFFE789), pressGlow * 0.18f * press),
+            prism(Color(0xFF7CFFA0), pressGlow * 0.16f * press),
+            Color.Transparent
+        ),
+        center,
+        maxSide * (0.30f + 0.22f * press)
+    )
+
+    val prismLocalEdge = Brush.linearGradient(
         listOf(
             Color.Transparent,
-            Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.54f * press),
-            Color(0xFF95FFF3).copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.22f * press),
-            chroma(Color(0xFFFF82E1), rainbowPressEdge * 0.30f * press),
-            chroma(Color(0xFFFFE98C), rainbowPressEdge * 0.22f * press),
-            chroma(Color(0xFF7CFF9C), rainbowPressEdge * 0.24f * press),
+            prism(Color(0xFF6BF7FF), rainbowPressEdge * 0.30f * press + pressEdgeBoost * 0.10f * press),
+            prism(Color(0xFFFF7FE0), rainbowPressEdge * 0.28f * press),
+            Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1f) * 0.10f * press),
+            prism(Color(0xFFFFE889), rainbowPressEdge * 0.22f * press),
+            prism(Color(0xFF7DFFA0), rainbowPressEdge * 0.20f * press),
             Color.Transparent
         ),
         Offset(center.x - w * 0.24f, center.y - h * 0.74f),
         Offset(center.x + w * 0.22f, center.y + h * 0.74f)
     )
-    val sweepBrush = Brush.linearGradient(
-        listOf(
-            Color.Transparent,
-            chroma(Color(0xFF66F7FF), rainbowSweepAlpha * 0.24f * sweep),
-            Color.White.copy(alpha = pressSweep.coerceIn(0f, 1f) * 0.46f * sweep + rainbowSweepAlpha * 0.18f * sweep),
-            chroma(Color(0xFFFF7BDB), rainbowSweepAlpha * 0.28f * sweep),
-            chroma(Color(0xFFFFE68A), rainbowSweepAlpha * 0.22f * sweep),
-            chroma(Color(0xFF76FFF2), rainbowSweepAlpha * 0.26f * sweep),
-            Color.Transparent
-        ),
-        Offset(w * (sweepX - 0.24f), h * -0.04f),
-        Offset(w * (sweepX + 0.28f), h * 1.04f)
+
+    val rimBandPower = rainbowRimAlpha.coerceIn(0f, 1f)
+    val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
+
+    val rimBandMain = prismBandBrush(
+        start = Offset(w * (sweepX - 0.22f), h * -0.06f),
+        end = Offset(w * (sweepX + 0.28f), h * 1.04f),
+        strength = rimBandPower * (0.72f + 0.28f * pressBandBoost)
+    )
+
+    val rimBandCounter = prismBandBrush(
+        start = Offset(w * (1.12f - sweepX), h * 0.02f),
+        end = Offset(w * (0.54f - sweepX), h * 1.00f),
+        strength = rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost)
+    )
+
+    val rimBandTop = prismBandBrush(
+        start = Offset(w * (sweepX - 0.18f), h * 0.02f),
+        end = Offset(w * (sweepX + 0.34f), h * 0.26f),
+        strength = rimBandPower * 0.42f * (0.68f + 0.32f * topNear)
+    )
+
+    val prismSweep = prismBandBrush(
+        start = Offset(w * (sweepX - 0.24f), h * -0.04f),
+        end = Offset(w * (sweepX + 0.30f), h * 1.04f),
+        strength = rainbowSweepAlpha.coerceIn(0f, 1f) * sweep + pressSweep.coerceIn(0f, 1f) * 0.12f * sweep
     )
 
     onDrawWithContent {
-        drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-        drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
-        drawRoundRect(brush = bottomShade, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
+        drawRoundRect(
+            brush = surface,
+            size = bodySize,
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+
+        drawRoundRect(
+            brush = topLens,
+            size = bodySize,
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+
+        drawRoundRect(
+            brush = bottomShade,
+            size = bodySize,
+            cornerRadius = corner,
+            blendMode = BlendMode.Multiply
+        )
+
         if (press > 0.001f) {
-            drawRoundRect(brush = pressureDark, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
-            drawRoundRect(brush = pressureLight, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+            drawRoundRect(
+                brush = pressureDark,
+                size = bodySize,
+                cornerRadius = corner,
+                blendMode = BlendMode.Multiply
+            )
+            drawRoundRect(
+                brush = prismPressLight,
+                size = bodySize,
+                cornerRadius = corner,
+                blendMode = BlendMode.Screen
+            )
         }
+
         drawContent()
-        drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(rimWidth.dp.toPx()), blendMode = BlendMode.Screen)
-        if (rainbowRimAlpha > 0.001f) {
-            drawRoundRect(brush = rainbowOuterRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth + rainbowRimWidth * 1.35f).dp.toPx()), blendMode = BlendMode.Plus)
-            drawRoundRect(brush = rainbowCoreRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.72f + rainbowRimWidth * 0.52f).dp.toPx()), blendMode = BlendMode.Screen)
-        }
-        drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.55.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.72.dp.toPx()), blendMode = BlendMode.Screen)
+
+        drawRoundRect(
+            brush = topHairline,
+            topLeft = Offset(innerInset, innerInset),
+            size = innerSize,
+            cornerRadius = corner,
+            style = Stroke(0.55.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+
+        drawRoundRect(
+            brush = innerRim,
+            topLeft = Offset(innerInset, innerInset),
+            size = innerSize,
+            cornerRadius = corner,
+            style = Stroke(0.46.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+
+        drawRoundRect(
+            brush = cornerLight,
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = corner,
+            style = Stroke(0.68.dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+
         if (rainbowCornerAlpha > 0.001f) {
-            drawRoundRect(brush = rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.64.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(
+                brush = rainbowCorner,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = corner,
+                style = Stroke(0.58.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
         }
+
+        // 重新绘制边缘高光：3 条绑定的棱彩光带
+        drawRoundRect(
+            brush = rimBandMain,
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = corner,
+            style = Stroke((rimWidth + rainbowRimWidth * 0.92f).dp.toPx()),
+            blendMode = BlendMode.Plus
+        )
+
+        drawRoundRect(
+            brush = rimBandCounter,
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = corner,
+            style = Stroke((rimWidth * 0.72f + rainbowRimWidth * 0.58f).dp.toPx()),
+            blendMode = BlendMode.Screen
+        )
+
+        drawRoundRect(
+            brush = rimBandTop,
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = corner,
+            style = Stroke((rimWidth * 0.46f + rainbowRimWidth * 0.42f).dp.toPx()),
+            blendMode = BlendMode.Plus
+        )
+
         if (press > 0.001f) {
-            val localEdgeAlpha = (topNear + bottomNear + leftNear + rightNear).coerceIn(0.14f, 1f)
-            drawRoundRect(brush = localEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.72f + 1.00f * localEdgeAlpha).dp.toPx()), blendMode = BlendMode.Plus)
+            val localEdgeAlpha = (topNear + bottomNear + leftNear + rightNear).coerceIn(0.16f, 1f)
+            drawRoundRect(
+                brush = prismLocalEdge,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = corner,
+                style = Stroke((0.76f + 0.96f * localEdgeAlpha).dp.toPx()),
+                blendMode = BlendMode.Plus
+            )
         }
+
         if (sweep > 0.001f) {
-            drawRoundRect(brush = sweepBrush, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.50f + 0.62f * sweep).dp.toPx()), blendMode = BlendMode.Plus)
+            drawRoundRect(
+                brush = prismSweep,
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = corner,
+                style = Stroke((0.58f + 0.68f * sweep).dp.toPx()),
+                blendMode = BlendMode.Plus
+            )
         }
     }
 }
