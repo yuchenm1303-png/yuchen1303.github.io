@@ -8,6 +8,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -41,10 +44,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +73,8 @@ private val SettingsOverviewRole = GlassRole.Shell
 private val SettingsDetailRole = GlassRole.Flex
 private val SettingsChipRole = GlassRole.Chip
 private val SettingsFloatingRole = GlassRole.Floating
+private val SettingsDetailPressEasing = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
+private val SettingsDetailReleaseEasing = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 
 @Composable
 fun SettingsPolishedScreen(
@@ -317,22 +327,138 @@ private fun SettingsTileHairline(modifier: Modifier = Modifier, alpha: Float = 0
 
 @Composable
 private fun SettingsDetailPanel(panel: SettingsPanel, state: AssistantUiState, aiEndpoint: String, onQualityChange: (RenderQuality) -> Unit, onPreviewConversationChange: (Boolean) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit, onBackdropChange: (BackdropDebugParams) -> Unit, onBorderChange: (GlassBorderStyle) -> Unit, onUploadBackgroundClick: () -> Unit, onClearCustomBackgroundClick: () -> Unit) {
-    GlassPanel(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 28, Modifier.fillMaxWidth(), SettingsDetailRole) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            DetailHeader(panelTitle(panel), panelSubtitle(panel))
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                when (panel) {
-                    SettingsPanel.Appearance -> AppearanceContent(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
-                    SettingsPanel.Glass -> GlassContent(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange, onRainbowPrismChange)
-                    SettingsPanel.Assistant -> AssistantContent(state, onPreviewConversationChange)
-                    SettingsPanel.Data -> DataContent(state)
-                    SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
-                    SettingsPanel.Advanced -> AdvancedContent(state)
-                    SettingsPanel.Debug -> GlassDebugFloatingPanel(state, onBackdropChange, onBorderChange, onUploadBackgroundClick, onClearCustomBackgroundClick, Modifier.fillMaxWidth())
+    var visiblePanel by remember { mutableStateOf(panel) }
+    var contentVisible by remember { mutableStateOf(true) }
+    val reveal = remember { Animatable(0f) }
+    val motionEnabled = state.motionIntensity > 0.02f && state.quality.enableMotion
+
+    LaunchedEffect(panel) {
+        if (!motionEnabled) {
+            visiblePanel = panel
+            contentVisible = true
+            reveal.snapTo(0f)
+            return@LaunchedEffect
+        }
+        reveal.snapTo(0.94f)
+        if (panel != visiblePanel) {
+            contentVisible = false
+            delay(72)
+            visiblePanel = panel
+            contentVisible = true
+        }
+        reveal.animateTo(0f, tween(760, easing = FastOutSlowInEasing))
+    }
+
+    val revealValue = if (motionEnabled) reveal.value.coerceIn(0f, 1f) else 0f
+    GlassPanel(
+        state.quality,
+        state.glassIntensity * (0.82f + revealValue * 0.045f),
+        state.motionIntensity,
+        28,
+        Modifier
+            .fillMaxWidth()
+            .settingsDetailShellMotion(revealValue),
+        SettingsDetailRole
+    ) {
+        Box(Modifier.fillMaxWidth().settingsDetailRevealOptics(revealValue, visiblePanel)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                DetailHeader(panelTitle(visiblePanel), panelSubtitle(visiblePanel))
+                AnimatedVisibility(
+                    visible = contentVisible,
+                    enter = fadeIn(tween(170, delayMillis = 44, easing = FastOutSlowInEasing)) +
+                        expandVertically(expandFrom = Alignment.Top, animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)) +
+                        slideInVertically(tween(260, easing = SettingsDetailPressEasing)) { it / 5 } +
+                        scaleIn(initialScale = 0.984f, animationSpec = tween(240, easing = SettingsDetailPressEasing)),
+                    exit = fadeOut(tween(82, easing = SettingsDetailReleaseEasing)) +
+                        shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(128, easing = SettingsDetailReleaseEasing)) +
+                        scaleOut(targetScale = 0.992f, animationSpec = tween(112, easing = SettingsDetailReleaseEasing))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                        when (visiblePanel) {
+                            SettingsPanel.Appearance -> AppearanceContent(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
+                            SettingsPanel.Glass -> GlassContent(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange, onRainbowPrismChange)
+                            SettingsPanel.Assistant -> AssistantContent(state, onPreviewConversationChange)
+                            SettingsPanel.Data -> DataContent(state)
+                            SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
+                            SettingsPanel.Advanced -> AdvancedContent(state)
+                            SettingsPanel.Debug -> GlassDebugFloatingPanel(state, onBackdropChange, onBorderChange, onUploadBackgroundClick, onClearCustomBackgroundClick, Modifier.fillMaxWidth())
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun Modifier.settingsDetailShellMotion(reveal: Float): Modifier = graphicsLayer {
+    val p = reveal.coerceIn(0f, 1f)
+    scaleX = 1f + 0.010f * p
+    scaleY = 1f - 0.014f * p
+    translationY = 1.35f * p
+    shadowElevation = 0.40f * p
+}
+
+private fun Modifier.settingsDetailRevealOptics(reveal: Float, panel: SettingsPanel): Modifier = drawWithContent {
+    drawContent()
+    val p = reveal.coerceIn(0f, 1f)
+    if (p < 0.001f) return@drawWithContent
+
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val maxSide = maxOf(w, h)
+    val phase = (panel.ordinal % 6) / 6f
+    val sourceX = (0.18f + phase * 0.62f).coerceIn(0.16f, 0.84f)
+    val center = Offset(w * sourceX, h * 0.10f)
+    val corner = CornerRadius(28.dp.toPx(), 28.dp.toPx())
+    val rimInset = 0.70.dp.toPx()
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    val sink = p * p
+    val halo = Brush.radialGradient(
+        colors = listOf(
+            Color.White.copy(alpha = 0.104f * p),
+            Color(0xFF8DF9EA).copy(alpha = 0.046f * p),
+            Color(0xFFFF8FE7).copy(alpha = 0.028f * p),
+            Color.Transparent
+        ),
+        center = center,
+        radius = maxSide * (0.50f + 0.16f * p)
+    )
+    val depth = Brush.radialGradient(
+        colors = listOf(
+            Color.Transparent,
+            Color(0xFF06142F).copy(alpha = 0.018f * sink),
+            Color(0xFF01030A).copy(alpha = 0.054f * sink)
+        ),
+        center = Offset(w * sourceX, h * 0.62f),
+        radius = maxSide * 0.88f
+    )
+    val flowX = -0.20f + phase * 0.34f + p * 0.92f
+    val flow = Brush.linearGradient(
+        colors = listOf(
+            Color.Transparent,
+            Color(0xFFFF74D9).copy(alpha = 0.086f * p),
+            Color.White.copy(alpha = 0.164f * p),
+            Color(0xFFFFE08A).copy(alpha = 0.074f * p),
+            Color(0xFF76FFF1).copy(alpha = 0.124f * p),
+            Color.Transparent
+        ),
+        start = Offset(w * (flowX - 0.32f), h * -0.06f),
+        end = Offset(w * (flowX + 0.28f), h * 0.96f)
+    )
+    val rimGlow = Brush.radialGradient(
+        colors = listOf(
+            Color.White.copy(alpha = 0.108f * p),
+            Color(0xFF98FFF4).copy(alpha = 0.044f * p),
+            Color.Transparent
+        ),
+        center = Offset(w * sourceX, rimInset),
+        radius = maxSide * 0.48f
+    )
+
+    drawRect(halo, blendMode = BlendMode.Screen)
+    drawRect(depth, blendMode = BlendMode.Multiply)
+    drawRoundRect(flow, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.10.dp.toPx() + 1.15.dp.toPx() * p), blendMode = BlendMode.Plus)
+    drawRoundRect(rimGlow, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.00.dp.toPx() + 0.70.dp.toPx() * p), blendMode = BlendMode.Screen)
 }
 
 @Composable
