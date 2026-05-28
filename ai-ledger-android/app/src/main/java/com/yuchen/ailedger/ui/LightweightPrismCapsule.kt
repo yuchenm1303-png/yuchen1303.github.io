@@ -49,14 +49,14 @@ import kotlinx.coroutines.launch
 
 internal data class LightweightPrismCapsuleSpec(
     val radius: Float = 32.4f,
-    val surfaceAlpha: Float = 0.030f,
-    val rimAlpha: Float = 0.10f,
-    val rimWidth: Float = 0.86f,
-    val topHighlight: Float = 0.145f,
-    val topHighlightHeight: Float = 0.22f,
-    val innerRimAlpha: Float = 0.105f,
-    val bottomDepth: Float = 0.070f,
-    val cornerCatchlight: Float = 0.062f,
+    val surfaceAlpha: Float = 0.050f,
+    val rimAlpha: Float = 0.78f,
+    val rimWidth: Float = 0.52f,
+    val topHighlight: Float = 0.075f,
+    val topHighlightHeight: Float = 0.16f,
+    val innerRimAlpha: Float = 0.45f,
+    val bottomDepth: Float = 0.018f,
+    val cornerCatchlight: Float = 0.42f,
     val pressGlow: Float = 0.55f,
     val pressEdgeBoost: Float = 0.70f,
     val pressSweep: Float = 0.70f,
@@ -66,7 +66,7 @@ internal data class LightweightPrismCapsuleSpec(
     val rainbowRimWidth: Float = 1.40f,
     val rainbowPressEdge: Float = 0.80f,
     val rainbowSweepAlpha: Float = 0.80f,
-    val rainbowCornerAlpha: Float = 0.30f,
+    val rainbowCornerAlpha: Float = 0.38f,
     val rainbowSaturation: Float = 1.00f
 )
 
@@ -238,17 +238,26 @@ private fun Modifier.lightweightPrismCapsuleSurface(
     val surface = Brush.verticalGradient(
         listOf(
             Color.White.copy(alpha = spec.surfaceAlpha.coerceIn(0f, 0.20f)),
-            Color(0xFFCFEAFF).copy(alpha = spec.surfaceAlpha.coerceIn(0f, 0.20f) * 0.28f),
-            Color.Transparent,
-            Color(0xFF000816).copy(alpha = spec.bottomDepth.coerceIn(0f, 0.35f) * 0.42f)
+            Color(0xFFD9F1FF).copy(alpha = spec.surfaceAlpha.coerceIn(0f, 0.20f) * 0.52f),
+            Color(0xFFEAF7FF).copy(alpha = spec.surfaceAlpha.coerceIn(0f, 0.20f) * 0.20f),
+            Color(0xFF000816).copy(alpha = spec.bottomDepth.coerceIn(0f, 0.35f) * 0.36f)
         ),
         0f,
         h
     )
+    val centerMist = Brush.radialGradient(
+        listOf(
+            Color(0xFFEAF7FF).copy(alpha = (0.040f + spec.surfaceAlpha * 0.70f).coerceIn(0f, 0.16f)),
+            Color(0xFF9EDBFF).copy(alpha = (0.018f + spec.surfaceAlpha * 0.22f).coerceIn(0f, 0.08f)),
+            Color.Transparent
+        ),
+        Offset(w * 0.50f, h * 0.50f),
+        maxSide * 0.64f
+    )
     val topLens = Brush.verticalGradient(
         listOf(
             Color.White.copy(alpha = spec.topHighlight.coerceIn(0f, 0.5f)),
-            Color(0xFFE8FFFF).copy(alpha = spec.topHighlight.coerceIn(0f, 0.5f) * 0.22f),
+            Color(0xFFE8FFFF).copy(alpha = spec.topHighlight.coerceIn(0f, 0.5f) * 0.36f),
             Color.Transparent
         ),
         0f,
@@ -262,8 +271,8 @@ private fun Modifier.lightweightPrismCapsuleSurface(
     val topHairline = Brush.horizontalGradient(
         listOf(
             Color.Transparent,
-            Color(0xFFDFFFFF).copy(alpha = spec.rimAlpha.coerceIn(0f, 1f) * 0.18f + spec.topHighlight * 0.20f),
-            Color.White.copy(alpha = spec.topHighlight * 0.34f),
+            Color(0xFFDFFFFF).copy(alpha = spec.rimAlpha.coerceIn(0f, 1f) * 0.26f + spec.topHighlight * 0.24f),
+            Color.White.copy(alpha = spec.rimAlpha.coerceIn(0f, 1f) * 0.30f + spec.topHighlight * 0.36f),
             Color.Transparent
         ),
         0f,
@@ -271,28 +280,46 @@ private fun Modifier.lightweightPrismCapsuleSurface(
     )
     val innerRim = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f),
+            Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.70f),
             Color.Transparent,
             Color(0xFF00091E).copy(alpha = spec.bottomDepth.coerceIn(0f, 0.35f) * 0.68f),
-            Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f)
+            Color.White.copy(alpha = spec.innerRimAlpha.coerceIn(0f, 0.7f) * 0.22f)
         ),
         Offset(w * 0.08f, 0f),
         Offset(w * 0.92f, h)
     )
     val cornerLight = Brush.radialGradient(
         listOf(
-            Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.5f)),
-            Color(0xFFCFFFFF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f),
+            Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.90f),
+            Color(0xFFCFFFFF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.32f),
             Color.Transparent
         ),
         Offset(w * 0.055f, h * 0.045f),
         maxSide * 0.30f
     )
+    val rightCornerLight = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.58f),
+            Color(0xFFB7F7FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.22f),
+            Color.Transparent
+        ),
+        Offset(w * 0.94f, h * 0.10f),
+        maxSide * 0.24f
+    )
+    val lowerCornerLight = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.28f),
+            Color(0xFFC7E9FF).copy(alpha = spec.cornerCatchlight.coerceIn(0f, 0.7f) * 0.12f),
+            Color.Transparent
+        ),
+        Offset(w * 0.92f, h * 0.88f),
+        maxSide * 0.26f
+    )
     val rainbowCorner = Brush.radialGradient(
         listOf(
-            Color.White.copy(alpha = spec.rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.22f),
-            prism(Color(0xFFFF87E5), spec.rainbowCornerAlpha * 0.16f),
-            prism(Color(0xFF79F8FF), spec.rainbowCornerAlpha * 0.18f),
+            Color.White.copy(alpha = spec.rainbowCornerAlpha.coerceIn(0f, 0.5f) * 0.24f),
+            prism(Color(0xFFFF87E5), spec.rainbowCornerAlpha * 0.18f),
+            prism(Color(0xFF79F8FF), spec.rainbowCornerAlpha * 0.22f),
             Color.Transparent
         ),
         Offset(w * 0.10f, h * 0.10f),
@@ -357,6 +384,7 @@ private fun Modifier.lightweightPrismCapsuleSurface(
 
     onDrawWithContent {
         drawRoundRect(brush = surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+        drawRoundRect(brush = centerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         drawRoundRect(brush = topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         drawRoundRect(brush = bottomShade, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
         if (press > 0.001f) {
@@ -364,11 +392,13 @@ private fun Modifier.lightweightPrismCapsuleSurface(
             drawRoundRect(brush = prismPressLight, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         }
         drawContent()
-        drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.55.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.68.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.78.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.86.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = rightCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = lowerCornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.62.dp.toPx()), blendMode = BlendMode.Screen)
         if (spec.rainbowCornerAlpha > 0.001f) {
-            drawRoundRect(brush = rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx()), blendMode = BlendMode.Screen)
+            drawRoundRect(brush = rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.64.dp.toPx()), blendMode = BlendMode.Screen)
         }
         drawRoundRect(brush = rimBandMain, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth + spec.rainbowRimWidth * 0.92f).dp.toPx()), blendMode = BlendMode.Plus)
         drawRoundRect(brush = rimBandCounter, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((spec.rimWidth * 0.72f + spec.rainbowRimWidth * 0.58f).dp.toPx()), blendMode = BlendMode.Screen)
