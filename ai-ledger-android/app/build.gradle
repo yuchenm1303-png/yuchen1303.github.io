@@ -246,7 +246,157 @@ def patchGlassLabLazyLoading = tasks.register('patchGlassLabLazyLoading') {
     }
 }
 
+def patchSettingsFrostParentLayer = tasks.register('patchSettingsFrostParentLayer') {
+    doLast {
+        def settings = file('src/main/java/com/yuchen/ailedger/ui/SettingsPolishedScreen.kt')
+        def text = settings.getText('UTF-8')
+        def oldState = '''    val listState = rememberLazyListState()
+    SyncGlassBackdropToScroll(listState)
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
+        item { SettingsEntrance(42, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
+        item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
+        item { SettingsEntrance(104, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
+        item {
+            SettingsEntrance(140, 22, 0.965f) {
+                SettingsDetailPanel(
+                    panel = selectedPanel,
+                    state = state,
+                    aiEndpoint = aiEndpoint,
+                    onQualityChange = onQualityChange,
+                    onPreviewConversationChange = onPreviewConversationChange,
+                    onGlassPresetChange = onGlassPresetChange,
+                    onBackgroundThemeChange = onBackgroundThemeChange,
+                    onGlassIntensityChange = onGlassIntensityChange,
+                    onMotionIntensityChange = onMotionIntensityChange,
+                    onRainbowPrismChange = onRainbowPrismChange,
+                    onBackdropChange = onBackdropChange,
+                    onBorderChange = onBorderChange,
+                    onUploadBackgroundClick = onUploadBackgroundClick,
+                    onClearCustomBackgroundClick = onClearCustomBackgroundClick
+                )
+            }
+        }
+        item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+    }
+'''
+        def newState = '''    val listState = rememberLazyListState()
+    SyncGlassBackdropToScroll(listState)
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Appearance) }
+    val frostParentLayer = rememberSettingsFrostParentLayerState()
+
+    Box(Modifier.fillMaxSize()) {
+        SettingsFrostParentLayer(frostParentLayer, Modifier.fillMaxSize())
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
+            item { SettingsEntrance(42, 18, 0.965f) { SettingsFrostParentScope(frostParentLayer) { SettingsOverviewCard(state, aiEndpoint) } } }
+            item { SettingsEntrance(78, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
+            item { SettingsEntrance(104, 20, 0.965f) { SettingsFrostParentScope(frostParentLayer) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } } }
+            item {
+                SettingsEntrance(140, 22, 0.965f) {
+                    SettingsDetailPanel(
+                        panel = selectedPanel,
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        onQualityChange = onQualityChange,
+                        onPreviewConversationChange = onPreviewConversationChange,
+                        onGlassPresetChange = onGlassPresetChange,
+                        onBackgroundThemeChange = onBackgroundThemeChange,
+                        onGlassIntensityChange = onGlassIntensityChange,
+                        onMotionIntensityChange = onMotionIntensityChange,
+                        onRainbowPrismChange = onRainbowPrismChange,
+                        onBackdropChange = onBackdropChange,
+                        onBorderChange = onBorderChange,
+                        onUploadBackgroundClick = onUploadBackgroundClick,
+                        onClearCustomBackgroundClick = onClearCustomBackgroundClick
+                    )
+                }
+            }
+            item { SettingsEntrance(176, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+        }
+    }
+'''
+        if (text.contains(newState)) {
+            println('Settings page already uses parent frost layer for overview and dashboard cards.')
+        } else if (text.contains(oldState)) {
+            text = text.replace(oldState, newState)
+            settings.setText(text, 'UTF-8')
+            println('Patched SettingsPolishedScreen to host parent frost layer for the 7 visible frost cards.')
+        } else {
+            throw new GradleException('SettingsPolishedScreen parent frost insertion point not found.')
+        }
+
+        def frost = file('src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt')
+        def frostText = frost.getText('UTF-8')
+        def oldFrost = '''@Composable
+fun FrostInfoGlassPanel(modifier: Modifier = Modifier, radius: Float = 17.44f, backdropAlpha: Float = 1f, frostAlpha: Float = 0f, dimAlpha: Float = 0f, content: @Composable () -> Unit) {
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(modifier = modifier.onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
+        BackdropCrop(coordinates, backdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+        content()
+    }
+}
+'''
+        def newFrost = '''@Composable
+fun FrostInfoGlassPanel(modifier: Modifier = Modifier, radius: Float = 17.44f, backdropAlpha: Float = 1f, frostAlpha: Float = 0f, dimAlpha: Float = 0f, content: @Composable () -> Unit) {
+    val parentLayer = LocalSettingsFrostParentLayer.current
+    if (parentLayer != null) {
+        val parentKey = remember { Any() }
+        val parentId = "settings-frost-${parentKey.hashCode()}"
+        SettingsFrostParentRegistrationCleanup(parentLayer, parentId)
+        Box(
+            modifier = modifier
+                .registerSettingsFrostParentItem(
+                    id = parentId,
+                    layerState = parentLayer,
+                    radiusDp = radius,
+                    backdropAlpha = backdropAlpha,
+                    frostAlpha = frostAlpha,
+                    dimAlpha = dimAlpha
+                )
+                .clip(RoundedCornerShape(radius.dp))
+        ) {
+            content()
+        }
+        return
+    }
+    val coordinates = remember { GlassCoordinateSource() }
+    Box(modifier = modifier.onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
+        BackdropCrop(coordinates, backdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+        content()
+    }
+}
+'''
+        if (frostText.contains('LocalSettingsFrostParentLayer.current')) {
+            println('FrostInfoGlassPanel already supports settings parent frost drawing.')
+        } else if (frostText.contains(oldFrost)) {
+            frostText = frostText.replace(oldFrost, newFrost)
+            frost.setText(frostText, 'UTF-8')
+            println('Patched FrostInfoGlassPanel with settings-only parent frost delegation.')
+        } else {
+            throw new GradleException('FrostInfoGlassPanel parent delegation insertion point not found.')
+        }
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn patchPolishedOnlineDroplet
     dependsOn patchGlassLabLazyLoading
+    dependsOn patchSettingsFrostParentLayer
 }
