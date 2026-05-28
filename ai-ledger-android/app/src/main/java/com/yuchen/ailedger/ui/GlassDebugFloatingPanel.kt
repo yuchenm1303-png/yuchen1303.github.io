@@ -86,7 +86,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "2.4 动态彩虹预览：选中静止样本 / 共享慢速相位",
+            subtitle = "2.5 大幅动态预览：中段漂移 / 外圈闪光 / 强扫光",
             initiallyExpanded = true,
             state = state
         ) {
@@ -190,16 +190,16 @@ private fun LightweightGlassLab(state: AssistantUiState) {
         moving = moving
     )
 
-    LightGlassControlGroup("状态预览", "默认预览：选中静止卡开启共享慢速动态；移动中自动关闭动态", state, initiallyExpanded = true) {
+    LightGlassControlGroup("状态预览", "动态幅度已放大：光晕会穿过中段，外圈会明显呼吸闪动", state, initiallyExpanded = true) {
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LabToggleButton(if (selected) "选中态" else "普通态", "彩边增强", state, Modifier.weight(1f)) { selected = !selected }
             LabToggleButton(if (moving) "移动中" else "静止态", "自动降级", state, Modifier.weight(1f)) { moving = !moving }
             LabToggleButton(if (rainbowEnabled) "彩虹开启" else "彩虹关闭", "假发光层", state, Modifier.weight(1f)) { rainbowEnabled = !rainbowEnabled }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-            LabToggleButton(if (dynamicPreview) "动态预览" else "静态预览", "慢速共享相位", state, Modifier.weight(1f)) { dynamicPreview = !dynamicPreview }
+            LabToggleButton(if (dynamicPreview) "动态预览" else "静态预览", "强幅漂移", state, Modifier.weight(1f)) { dynamicPreview = !dynamicPreview }
         }
-        Text("当前只在样本里演示动态：外圈空气光、内部彩虹光晕和薄膜扫光共用一个低频相位；正式首页后续只建议给选中静止卡开启。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
+        Text("这版刻意把样本动态放大很多：三团光晕不再固定在两头，而是沿横向穿过中间；外圈亮度和半径也会明显呼吸。正式首页不能照这个幅度常驻。", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
 
     LightGlassControlGroup("结构轮廓", "只保留圆角半径，其它结构层固定为 0", state, initiallyExpanded = true) {
@@ -240,7 +240,7 @@ private fun LightweightGlassPreview(
     val phase by motion.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(6200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(animation = tween(1850, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "lightweight-rainbow-preview-phase"
     )
     val cycle = phase.toDouble() * PI * 2.0
@@ -264,6 +264,7 @@ private fun LightweightGlassPreview(
             .height(106.dp)
             .drawWithCache {
                 fun a(value: Float): Float = value.coerceIn(0f, 1f)
+                fun wrap01(value: Float): Float = value - value.toInt().toFloat()
 
                 val padX = 8.dp.toPx()
                 val padY = 13.dp.toPx()
@@ -276,48 +277,64 @@ private fun LightweightGlassPreview(
                 val right = left + bodySize.width
                 val bottom = top + bodySize.height
                 val centerY = top + bodySize.height * 0.50f
-                val haloGrow = rainbowHaloWidth.dp.toPx().coerceIn(1.dp.toPx(), 28.dp.toPx())
+                val baseHaloGrow = rainbowHaloWidth.dp.toPx().coerceIn(1.dp.toPx(), 28.dp.toPx())
+                val haloGrow = (baseHaloGrow * (1f + dynamicLevel * 7.4f) + 12.dp.toPx() * dynamicLevel).coerceIn(1.dp.toPx(), 38.dp.toPx())
                 val edgeWidthPx = rainbowEdgeWidth.dp.toPx().coerceIn(0.5.dp.toPx(), 5.dp.toPx())
-                val breathe = dynamicLevel * wave
+                val breathe = dynamicLevel * (0.36f + wave * 1.25f)
+                val pulse = dynamicLevel * (0.55f + wave * 1.45f)
                 val driftX = dynamicLevel * driftA
                 val driftY = dynamicLevel * driftB
                 val driftZ = dynamicLevel * driftC
-                val airyFill = a(0.014f + rainbowHalo * 0.050f + rainbowEdge * 0.014f + breathe * 0.012f)
+                val travelA = if (dynamicLevel > 0.001f) wrap01(phase * 1.05f) else 0.42f
+                val travelB = if (dynamicLevel > 0.001f) wrap01(phase * 1.05f + 0.34f) else 0.54f
+                val travelC = if (dynamicLevel > 0.001f) wrap01(phase * 1.05f + 0.68f) else 0.72f
+                val airyFill = a(0.014f + rainbowHalo * (0.052f + pulse * 0.048f) + rainbowEdge * 0.014f)
                 val lowerShade = a(rainbowEdge * 0.030f + rainbowBottom * 0.060f)
-                val sweepCenter = if (dynamicLevel > 0.001f) phase else 0.34f
+                val sweepCenter = if (dynamicLevel > 0.001f) wrap01(phase * 1.35f) else 0.34f
 
                 val leftHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF44F6FF).copy(alpha = a(rainbowHalo * (0.50f + breathe * 0.18f) * rainbowSat)),
-                        Color(0xFF6D8CFF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
+                        Color(0xFF44F6FF).copy(alpha = a(rainbowHalo * (0.58f + pulse * 0.42f) * rainbowSat)),
+                        Color(0xFF6D8CFF).copy(alpha = a(rainbowHalo * (0.24f + pulse * 0.16f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * (0.10f + driftX * 0.025f), centerY + bodySize.height * driftY * 0.055f),
-                    radius = bodySize.width * (0.27f + breathe * 0.030f) + haloGrow * 1.12f
+                    center = Offset(left + bodySize.width * (0.08f + travelA * 0.76f), centerY + bodySize.height * driftY * 0.18f),
+                    radius = bodySize.width * (0.24f + pulse * 0.055f) + haloGrow * 1.32f
                 )
                 val topHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFFF56DE).copy(alpha = a(rainbowHalo * (0.36f + breathe * 0.16f) * rainbowSat)),
-                        Color(0xFFFFE584).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
+                        Color(0xFFFF56DE).copy(alpha = a(rainbowHalo * (0.46f + pulse * 0.38f) * rainbowSat)),
+                        Color(0xFFFFE584).copy(alpha = a(rainbowHalo * (0.22f + pulse * 0.16f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * (0.46f + driftY * 0.035f), top + bodySize.height * (0.04f + driftX * 0.020f)),
-                    radius = bodySize.width * (0.34f + breathe * 0.025f) + haloGrow * 0.92f
+                    center = Offset(left + bodySize.width * (0.12f + travelB * 0.76f), top + bodySize.height * (0.10f + driftX * 0.14f)),
+                    radius = bodySize.width * (0.30f + pulse * 0.060f) + haloGrow * 1.12f
                 )
                 val rightHaloBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFFFEA61).copy(alpha = a(rainbowHalo * (0.42f + breathe * 0.14f) * rainbowSat)),
-                        Color(0xFF55FF8D).copy(alpha = a(rainbowHalo * (0.32f + breathe * 0.10f) * rainbowSat)),
-                        Color(0xFF5AE8FF).copy(alpha = a(rainbowHalo * 0.12f * rainbowSat)),
+                        Color(0xFFFFEA61).copy(alpha = a(rainbowHalo * (0.52f + pulse * 0.36f) * rainbowSat)),
+                        Color(0xFF55FF8D).copy(alpha = a(rainbowHalo * (0.40f + pulse * 0.24f) * rainbowSat)),
+                        Color(0xFF5AE8FF).copy(alpha = a(rainbowHalo * (0.16f + pulse * 0.10f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(right - bodySize.width * (0.10f + driftZ * 0.020f), bottom - bodySize.height * (0.22f + driftY * 0.040f)),
-                    radius = bodySize.width * (0.25f + breathe * 0.030f) + haloGrow * 1.08f
+                    center = Offset(left + bodySize.width * (0.12f + travelC * 0.78f), bottom - bodySize.height * (0.20f + driftZ * 0.16f)),
+                    radius = bodySize.width * (0.26f + pulse * 0.060f) + haloGrow * 1.28f
+                )
+                val internalFlowBrush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = a(rainbowSweep * (0.10f + pulse * 0.22f))),
+                        Color(0xFF62FFF0).copy(alpha = a(rainbowHalo * (0.20f + pulse * 0.30f) * rainbowSat)),
+                        Color(0xFFFF69E4).copy(alpha = a(rainbowHalo * (0.14f + pulse * 0.24f) * rainbowSat)),
+                        Color(0xFFFFE86A).copy(alpha = a(rainbowHalo * (0.08f + pulse * 0.18f) * rainbowSat)),
+                        Color.Transparent
+                    ),
+                    center = Offset(left + bodySize.width * (0.10f + travelA * 0.80f), top + bodySize.height * (0.52f + driftB * 0.18f)),
+                    radius = bodySize.width * (0.18f + pulse * 0.10f) + haloGrow * 1.18f
                 )
                 val bodyBrush = Brush.verticalGradient(
                     colors = listOf(
                         Color.White.copy(alpha = airyFill),
-                        Color(0xFF7CEBFF).copy(alpha = airyFill * (0.32f + breathe * 0.10f)),
+                        Color(0xFF7CEBFF).copy(alpha = airyFill * (0.36f + pulse * 0.08f)),
                         Color(0xFF0B1B4A).copy(alpha = airyFill * 0.10f),
                         Color.Transparent
                     ),
@@ -331,36 +348,36 @@ private fun LightweightGlassPreview(
                 )
                 val outerAuraBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF4EFAFF).copy(alpha = a(rainbowHalo * (0.40f + breathe * 0.14f) * rainbowSat)),
-                        Color(0xFF7D92FF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat)),
-                        Color(0xFFFF5FE7).copy(alpha = a(rainbowHalo * (0.30f + breathe * 0.12f) * rainbowSat)),
-                        Color(0xFFFFEF71).copy(alpha = a(rainbowHalo * 0.28f * rainbowSat)),
-                        Color(0xFF5BFF94).copy(alpha = a(rainbowHalo * (0.34f + breathe * 0.10f) * rainbowSat)),
-                        Color(0xFF62CFFF).copy(alpha = a(rainbowHalo * 0.18f * rainbowSat))
+                        Color(0xFF4EFAFF).copy(alpha = a(rainbowHalo * (0.48f + pulse * 0.34f) * rainbowSat)),
+                        Color(0xFF7D92FF).copy(alpha = a(rainbowHalo * (0.22f + pulse * 0.14f) * rainbowSat)),
+                        Color(0xFFFF5FE7).copy(alpha = a(rainbowHalo * (0.38f + pulse * 0.28f) * rainbowSat)),
+                        Color(0xFFFFEF71).copy(alpha = a(rainbowHalo * (0.34f + pulse * 0.24f) * rainbowSat)),
+                        Color(0xFF5BFF94).copy(alpha = a(rainbowHalo * (0.42f + pulse * 0.28f) * rainbowSat)),
+                        Color(0xFF62CFFF).copy(alpha = a(rainbowHalo * (0.22f + pulse * 0.16f) * rainbowSat))
                     ),
-                    start = Offset(left + bodySize.width * driftX * 0.035f, top),
-                    end = Offset(right + bodySize.width * driftY * 0.035f, bottom)
+                    start = Offset(left + bodySize.width * driftX * 0.16f, top - bodySize.height * pulse * 0.06f),
+                    end = Offset(right + bodySize.width * driftY * 0.16f, bottom + bodySize.height * pulse * 0.06f)
                 )
                 val baseEdgeBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * (0.70f * rainbowSat + 0.10f))),
-                        Color(0xFF76F4FF).copy(alpha = a(rainbowEdge * 0.44f * rainbowSat)),
-                        Color(0xFFFF62E6).copy(alpha = a(rainbowEdge * (0.78f + breathe * 0.08f) * rainbowSat)),
-                        Color(0xFFFFF16C).copy(alpha = a(rainbowEdge * 0.58f * rainbowSat)),
-                        Color(0xFF5DFF94).copy(alpha = a(rainbowEdge * (0.76f + breathe * 0.08f) * rainbowSat)),
-                        Color(0xFF6DA2FF).copy(alpha = a(rainbowEdge * 0.48f * rainbowSat)),
-                        Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * 0.56f * rainbowSat))
+                        Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * (0.70f * rainbowSat + 0.10f + pulse * 0.05f))),
+                        Color(0xFF76F4FF).copy(alpha = a(rainbowEdge * (0.44f + pulse * 0.05f) * rainbowSat)),
+                        Color(0xFFFF62E6).copy(alpha = a(rainbowEdge * (0.78f + pulse * 0.16f) * rainbowSat)),
+                        Color(0xFFFFF16C).copy(alpha = a(rainbowEdge * (0.58f + pulse * 0.12f) * rainbowSat)),
+                        Color(0xFF5DFF94).copy(alpha = a(rainbowEdge * (0.76f + pulse * 0.14f) * rainbowSat)),
+                        Color(0xFF6DA2FF).copy(alpha = a(rainbowEdge * (0.48f + pulse * 0.08f) * rainbowSat)),
+                        Color(0xFF48F8FF).copy(alpha = a(rainbowEdge * (0.56f + pulse * 0.08f) * rainbowSat))
                     ),
-                    start = Offset(left + bodySize.width * driftX * 0.050f, top + bodySize.height * 0.08f),
-                    end = Offset(right + bodySize.width * driftY * 0.050f, bottom - bodySize.height * 0.04f)
+                    start = Offset(left + bodySize.width * driftX * 0.20f, top + bodySize.height * 0.08f),
+                    end = Offset(right + bodySize.width * driftY * 0.20f, bottom - bodySize.height * 0.04f)
                 )
                 val innerEdgeBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = a(rainbowEdge * 0.13f)),
-                        Color(0xFFBDFEFF).copy(alpha = a(rainbowEdge * (0.18f + breathe * 0.04f) * rainbowSat)),
-                        Color.White.copy(alpha = a(rainbowEdge * 0.08f)),
-                        Color(0xFFFFD9F5).copy(alpha = a(rainbowEdge * 0.12f * rainbowSat)),
-                        Color.White.copy(alpha = a(rainbowEdge * 0.10f))
+                        Color.White.copy(alpha = a(rainbowEdge * (0.14f + pulse * 0.07f))),
+                        Color(0xFFBDFEFF).copy(alpha = a(rainbowEdge * (0.20f + pulse * 0.10f) * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowEdge * (0.08f + pulse * 0.06f))),
+                        Color(0xFFFFD9F5).copy(alpha = a(rainbowEdge * (0.14f + pulse * 0.08f) * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowEdge * (0.10f + pulse * 0.05f)))
                     ),
                     start = Offset(left, top),
                     end = Offset(right, bottom)
@@ -368,13 +385,13 @@ private fun LightweightGlassPreview(
                 val sweepBrush = Brush.linearGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0xFF6BFFF2).copy(alpha = a(rainbowSweep * (0.15f + breathe * 0.08f) * rainbowSat)),
-                        Color.White.copy(alpha = a(rainbowSweep * (0.22f + breathe * 0.10f))),
-                        Color(0xFFFF72DD).copy(alpha = a(rainbowSweep * 0.16f * rainbowSat)),
+                        Color(0xFF6BFFF2).copy(alpha = a(rainbowSweep * (0.24f + pulse * 0.26f) * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowSweep * (0.32f + pulse * 0.30f))),
+                        Color(0xFFFF72DD).copy(alpha = a(rainbowSweep * (0.22f + pulse * 0.20f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    start = Offset(left + bodySize.width * (sweepCenter - 0.58f - rainbowSweepWidth * 0.28f), bottom),
-                    end = Offset(left + bodySize.width * (sweepCenter + 0.22f + rainbowSweepWidth * 0.30f), top)
+                    start = Offset(left + bodySize.width * (sweepCenter - 0.68f - rainbowSweepWidth * 0.34f), bottom),
+                    end = Offset(left + bodySize.width * (sweepCenter + 0.28f + rainbowSweepWidth * 0.38f), top)
                 )
                 val bottomBrush = Brush.horizontalGradient(
                     colors = listOf(
@@ -388,45 +405,45 @@ private fun LightweightGlassPreview(
                 )
                 val hotCornerBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = a(rainbowCorner * (0.34f + breathe * 0.16f))),
-                        Color(0xFFFFEC7A).copy(alpha = a(rainbowCorner * (0.30f + breathe * 0.10f) * rainbowSat)),
-                        Color(0xFFFF65E8).copy(alpha = a(rainbowCorner * 0.14f * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowCorner * (0.40f + pulse * 0.38f))),
+                        Color(0xFFFFEC7A).copy(alpha = a(rainbowCorner * (0.34f + pulse * 0.22f) * rainbowSat)),
+                        Color(0xFFFF65E8).copy(alpha = a(rainbowCorner * (0.18f + pulse * 0.16f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(right - bodySize.width * (0.11f + driftZ * 0.020f), top + bodySize.height * (0.16f + driftX * 0.030f)),
-                    radius = bodySize.height * (0.88f + breathe * 0.10f)
+                    center = Offset(left + bodySize.width * (0.16f + travelB * 0.70f), top + bodySize.height * (0.16f + driftX * 0.16f)),
+                    radius = bodySize.height * (0.92f + pulse * 0.26f)
                 )
                 val coolCornerBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = a(rainbowCorner * 0.12f)),
-                        Color(0xFF53F8FF).copy(alpha = a(rainbowCorner * (0.24f + breathe * 0.08f) * rainbowSat)),
-                        Color(0xFF6C98FF).copy(alpha = a(rainbowCorner * 0.14f * rainbowSat)),
+                        Color.White.copy(alpha = a(rainbowCorner * (0.16f + pulse * 0.18f))),
+                        Color(0xFF53F8FF).copy(alpha = a(rainbowCorner * (0.30f + pulse * 0.22f) * rainbowSat)),
+                        Color(0xFF6C98FF).copy(alpha = a(rainbowCorner * (0.18f + pulse * 0.14f) * rainbowSat)),
                         Color.Transparent
                     ),
-                    center = Offset(left + bodySize.width * (0.10f + driftY * 0.020f), bottom - bodySize.height * (0.18f + driftZ * 0.030f)),
-                    radius = bodySize.height * (0.80f + breathe * 0.08f)
+                    center = Offset(left + bodySize.width * (0.12f + travelC * 0.72f), bottom - bodySize.height * (0.18f + driftZ * 0.16f)),
+                    radius = bodySize.height * (0.84f + pulse * 0.24f)
                 )
 
                 onDrawBehind {
                     if (rainbowHalo > 0.002f) {
                         drawRoundRect(
                             brush = leftHaloBrush,
-                            topLeft = Offset(left - haloGrow * 0.82f, top - haloGrow * 0.16f),
-                            size = Size(bodySize.width + haloGrow * 1.10f, bodySize.height + haloGrow * 0.32f),
+                            topLeft = Offset(left - haloGrow * 0.82f, top - haloGrow * 0.24f),
+                            size = Size(bodySize.width + haloGrow * 1.48f, bodySize.height + haloGrow * 0.62f),
                             cornerRadius = corner,
                             blendMode = BlendMode.Plus
                         )
                         drawRoundRect(
                             brush = topHaloBrush,
-                            topLeft = Offset(left - haloGrow * 0.12f, top - haloGrow * 0.54f),
-                            size = Size(bodySize.width + haloGrow * 0.24f, bodySize.height + haloGrow * 0.76f),
+                            topLeft = Offset(left - haloGrow * 0.24f, top - haloGrow * 0.88f),
+                            size = Size(bodySize.width + haloGrow * 0.48f, bodySize.height + haloGrow * 1.12f),
                             cornerRadius = corner,
                             blendMode = BlendMode.Plus
                         )
                         drawRoundRect(
                             brush = rightHaloBrush,
-                            topLeft = Offset(left - haloGrow * 0.04f, top - haloGrow * 0.06f),
-                            size = Size(bodySize.width + haloGrow * 0.72f, bodySize.height + haloGrow * 0.56f),
+                            topLeft = Offset(left - haloGrow * 0.12f, top - haloGrow * 0.18f),
+                            size = Size(bodySize.width + haloGrow * 1.18f, bodySize.height + haloGrow * 0.92f),
                             cornerRadius = corner,
                             blendMode = BlendMode.Plus
                         )
@@ -435,13 +452,17 @@ private fun LightweightGlassPreview(
                             topLeft = bodyTopLeft,
                             size = bodySize,
                             cornerRadius = corner,
-                            style = Stroke(width = edgeWidthPx + haloGrow * 0.20f),
+                            style = Stroke(width = edgeWidthPx + haloGrow * (0.32f + pulse * 0.06f)),
                             blendMode = BlendMode.Plus
                         )
                     }
 
                     drawRoundRect(bodyBrush, bodyTopLeft, bodySize, corner, blendMode = BlendMode.Screen)
                     drawRoundRect(lowerShadeBrush, bodyTopLeft, bodySize, corner, blendMode = BlendMode.Multiply)
+
+                    if (rainbowHalo > 0.002f) {
+                        drawRoundRect(internalFlowBrush, bodyTopLeft, bodySize, corner, blendMode = BlendMode.Screen)
+                    }
 
                     if (rainbowSweep > 0.002f) {
                         drawRoundRect(sweepBrush, bodyTopLeft, bodySize, corner, blendMode = BlendMode.Screen)
@@ -463,7 +484,7 @@ private fun LightweightGlassPreview(
                             topLeft = bodyTopLeft,
                             size = bodySize,
                             cornerRadius = corner,
-                            style = Stroke(width = edgeWidthPx * 3.15f),
+                            style = Stroke(width = edgeWidthPx * (3.40f + pulse * 0.90f)),
                             blendMode = BlendMode.Plus
                         )
                         drawRoundRect(
@@ -471,7 +492,7 @@ private fun LightweightGlassPreview(
                             topLeft = bodyTopLeft,
                             size = bodySize,
                             cornerRadius = corner,
-                            style = Stroke(width = edgeWidthPx * 1.62f),
+                            style = Stroke(width = edgeWidthPx * (1.70f + pulse * 0.40f)),
                             blendMode = BlendMode.Plus
                         )
                         drawRoundRect(
@@ -479,7 +500,7 @@ private fun LightweightGlassPreview(
                             topLeft = Offset(left + 1.0.dp.toPx(), top + 1.0.dp.toPx()),
                             size = Size(bodySize.width - 2.0.dp.toPx(), bodySize.height - 2.0.dp.toPx()),
                             cornerRadius = corner,
-                            style = Stroke(width = 0.78.dp.toPx()),
+                            style = Stroke(width = 0.78.dp.toPx() + 0.22.dp.toPx() * pulse),
                             blendMode = BlendMode.Screen
                         )
                     }
