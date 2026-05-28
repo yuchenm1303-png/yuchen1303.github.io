@@ -167,7 +167,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             }
                         }
                         BottomDockSeparationMist(state.quality, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
-                        CompactLiquidBottomBar(
+                        PrismaticCapsuleBottomBar(
                             currentTab = state.currentTab,
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
