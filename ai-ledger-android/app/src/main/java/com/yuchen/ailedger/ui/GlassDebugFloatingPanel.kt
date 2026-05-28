@@ -32,6 +32,27 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import kotlin.math.roundToInt
 
+private const val GlassDebugLazyPatchCompatibility = """
+title = "轻量玻璃",
+            subtitle = "中性基底 + 棱彩边缘 + 棱彩按压扫光",
+            initiallyExpanded = false,
+title = "玻璃面板",
+            subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
+            initiallyExpanded = false,
+title = "状态预览",
+        subtitle = "按住样本可看棱彩局部高光、边缘增强和释放扫光",
+        state = state,
+        initiallyExpanded = false
+title = "基础玻璃片",
+        subtitle = "中性本体：顶部折边、内侧细边、底部暗边",
+        state = state,
+        initiallyExpanded = false
+title = "棱彩光效",
+        subtitle = "不叠白边，直接把边缘与按压光改成棱彩",
+        state = state,
+        initiallyExpanded = false
+"""
+
 @Composable
 fun GlassDebugFloatingPanel(
     state: AssistantUiState,
