@@ -39,7 +39,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -280,8 +279,6 @@ private fun Modifier.bottomSliderPrismOptics(
 
     val sweep = ((sin((phase * 0.98f + edgeSeed * 0.31f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
     val sweepCenter = -0.38f + 1.76f * sweep + 0.06f * drift + 0.060f * travelDirection * e
-    val edgeA = ((sin((phase * 0.64f + edgeSeed) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
-    val edgeB = ((sin((phase * 0.52f + edgeSeed + 0.41f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
 
     drawRoundRect(
         brush = Brush.linearGradient(
@@ -321,46 +318,6 @@ private fun Modifier.bottomSliderPrismOptics(
         blendMode = BlendMode.Plus
     )
 
-    val inset = 0.72.dp.toPx()
-    val rimSize = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f))
-    val rimCorner = CornerRadius((h - inset * 2f) / 2f, (h - inset * 2f) / 2f)
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.142f + 0.080f * e),
-                Color(0xFFFF7AD6).copy(alpha = 0.072f * e),
-                Color(0xFFFFD86E).copy(alpha = 0.058f * e),
-                Color(0xFF6DFFF0).copy(alpha = 0.092f * e),
-                Color(0xFFA796FF).copy(alpha = 0.066f * e),
-                Color.White.copy(alpha = 0.092f + 0.040f * e)
-            ),
-            start = Offset(w * (edgeA - 0.60f), -h * 0.08f),
-            end = Offset(w * (edgeA + 0.60f), h * 1.08f)
-        ),
-        topLeft = Offset(inset, inset),
-        size = rimSize,
-        cornerRadius = rimCorner,
-        style = Stroke(width = 0.96.dp.toPx() + 0.44.dp.toPx() * e),
-        blendMode = BlendMode.Screen
-    )
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color(0xFFFF68D0).copy(alpha = 0.230f * e),
-                Color.White.copy(alpha = (0.285f + 0.165f * stopEnergy) * e),
-                Color(0xFF6FFFF2).copy(alpha = 0.272f * e),
-                Color.Transparent
-            ),
-            start = Offset(w * (edgeB - 0.34f), h * -0.03f),
-            end = Offset(w * (edgeB + 0.30f), h * 0.30f)
-        ),
-        topLeft = Offset(inset * 1.45f, inset * 1.45f),
-        size = Size((w - inset * 2.90f).coerceAtLeast(1f), (h - inset * 2.90f).coerceAtLeast(1f)),
-        cornerRadius = rimCorner,
-        style = Stroke(width = 0.64.dp.toPx() + 0.30.dp.toPx() * e),
-        blendMode = BlendMode.Plus
-    )
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
