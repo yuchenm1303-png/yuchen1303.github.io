@@ -186,6 +186,8 @@ private fun MessageBubbleV2(
     val bubbleRadius = if (fromUser) 26 else 28
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
+    val visual = chatBubbleVisualTransform(appear, fromUser)
+    SideEffect { bubbleLayerState.updateBubbleAppearance(message.id, appear) }
     DisposableEffect(message.id) {
         onDispose { bubbleLayerState.removeBubble(message.id) }
     }
@@ -194,19 +196,12 @@ private fun MessageBubbleV2(
             modifier = Modifier
                 .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
                 .graphicsLayer {
-                    val raw = appear.coerceIn(0f, 1.18f)
-                    val settled = raw.coerceIn(0f, 1f)
-                    val overshoot = ((raw - 1f) / 0.18f).coerceIn(0f, 1f)
-                    alpha = settled
-                    transformOrigin = if (fromUser) {
-                        androidx.compose.ui.graphics.TransformOrigin(0.96f, 0.82f)
-                    } else {
-                        androidx.compose.ui.graphics.TransformOrigin(0.04f, 0.22f)
-                    }
-                    scaleX = 0.72f + settled * 0.30f + overshoot * 0.030f
-                    scaleY = 0.58f + settled * 0.45f - overshoot * 0.024f
-                    translationY = (1f - settled) * 14f
-                    translationX = (1f - settled) * if (fromUser) 12f else -12f
+                    alpha = visual.alpha
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(visual.originX, visual.originY)
+                    scaleX = visual.scaleX
+                    scaleY = visual.scaleY
+                    translationX = visual.translationX
+                    translationY = visual.translationY
                 }
                 .clip(RoundedCornerShape(bubbleRadius.dp))
                 .onGloballyPositioned {
@@ -215,7 +210,7 @@ private fun MessageBubbleV2(
                         coordinates = it,
                         fromUser = fromUser,
                         status = message.status,
-                        appear = appear.coerceIn(0f, 1f),
+                        appear = appear,
                         phaseOffset = phaseOffset,
                         speedFactor = speedFactor,
                         radiusDp = bubbleRadius
@@ -276,7 +271,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied parent-layer chat bubble patch with disposal cleanup.')
+        println('Applied parent-layer chat bubble patch with shared visual transform.')
     }
 }
 
