@@ -8,6 +8,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -20,9 +22,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,8 +63,11 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -78,9 +83,16 @@ import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
+
+private val ModelPressInEasing = CubicBezierEasing(0.10f, 0.00f, 0.06f, 1.00f)
+private val ModelLensInEasing = CubicBezierEasing(0.18f, 0.00f, 0.10f, 1.00f)
+private val ModelReleaseEasing = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1.00f)
 
 @Composable
 fun AssistantScreenV2(
@@ -183,7 +195,12 @@ private fun ModelStackSelector(
     onToggleExpanded: () -> Unit,
     onSelected: (ChatModel) -> Unit
 ) {
-    BoxWithConstraints(modifier = modifier) {
+    val fieldProgress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(durationMillis = if (expanded) 520 else 360, easing = FastOutSlowInEasing),
+        label = "model-stack-ambient-rainbow-field"
+    )
+    BoxWithConstraints(modifier = modifier.modelStackAmbientAura(fieldProgress, state.glassIntensity)) {
         val models = ChatModel.entries
         val gap = 10.dp
         val rowStep = 74.dp
@@ -201,8 +218,8 @@ private fun ModelStackSelector(
             val expandedY = when (index) { 2, 3 -> rowStep; 4 -> rowStep * 2f; else -> 0.dp }
             val expandedWidth = if (index == 4) maxWidth else halfWidth
             val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
-            val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
-            val collapsedAlpha = if (selected) 1f else 0.48f + (4 - stackRank).coerceAtLeast(0) * 0.080f
+            val collapsedY = if (selected) 0.dp else (stackRank * 1.8f).dp
+            val collapsedAlpha = if (selected) 1f else 0.40f + (4 - stackRank).coerceAtLeast(0) * 0.075f
             val staggerRank = when (index) { 0 -> 0; 2 -> 1; 1 -> 2; 3 -> 3; else -> 4 }
             val z = if (expanded) 30f - index else if (selected) 50f else 40f - stackRank
             ModelStackCard(
@@ -210,7 +227,6 @@ private fun ModelStackSelector(
                 selected = selected,
                 state = state,
                 expanded = expanded,
-                index = index,
                 staggerRank = staggerRank,
                 expandedX = expandedX,
                 expandedY = expandedY,
@@ -235,7 +251,6 @@ private fun ModelStackCard(
     selected: Boolean,
     state: AssistantUiState,
     expanded: Boolean,
-    index: Int,
     staggerRank: Int,
     expandedX: Dp,
     expandedY: Dp,
@@ -254,8 +269,8 @@ private fun ModelStackCard(
     val cardProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
-            durationMillis = if (expanded) 460 else 280,
-            delayMillis = if (expanded) staggerRank * 24 else (ChatModel.entries.lastIndex - staggerRank) * 12,
+            durationMillis = if (expanded) 520 else 340,
+            delayMillis = if (expanded) staggerRank * 30 else (ChatModel.entries.lastIndex - staggerRank) * 16,
             easing = FastOutSlowInEasing
         ),
         label = "model-card-spatial-arc-progress-${model.id}"
@@ -271,24 +286,23 @@ private fun ModelStackCard(
     val dx = endX - startX
     val dy = endY - startY
     val distance = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-    val curveT = eased.coerceIn(0f, 1f)
     val speedPulse = modelStackSpeedPulse(cardProgress)
     val unitX = dx / distance
     val unitY = dy / distance
-    val liftPx = -with(density) { (7.dp + (staggerRank * 0.7f).dp).toPx() } * speedPulse
-    val curveX = startX + dx * curveT
-    val curveY = startY + dy * curveT + liftPx
+    val liftPx = -with(density) { (8.dp + (staggerRank * 0.85f).dp).toPx() } * speedPulse
+    val curveX = startX + dx * eased
+    val curveY = startY + dy * eased + liftPx
     val brake = modelStackArrivalBrake(cardProgress)
     val returnBrake = modelStackReturnBrake(cardProgress)
-    val overshootPx = with(density) { 4.6.dp.toPx() } * brake - with(density) { 2.6.dp.toPx() } * returnBrake
+    val overshootPx = with(density) { 5.4.dp.toPx() } * brake - with(density) { 2.8.dp.toPx() } * returnBrake
     val tx = curveX + unitX * overshootPx
     val ty = curveY + unitY * overshootPx
     val settled = cardProgress < 0.025f || cardProgress > 0.985f
     val capsuleScaleX = modelStackCapsuleScaleX(cardProgress)
     val capsuleScaleY = modelStackCapsuleScaleY(cardProgress)
     val selectedPulse by animateFloatAsState(
-        targetValue = if (selected && settled) 1.010f else 1f,
-        animationSpec = spring(dampingRatio = 0.60f, stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (selected && settled) 1.012f else 1f,
+        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
         label = "model-card-selected-pulse-${model.id}"
     )
     val transformModifier = Modifier
@@ -324,19 +338,19 @@ private fun smoothGlass(value: Float): Float { val x = value.coerceIn(0f, 1f); r
 private fun modelStackMotionEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     val smooth = p * p * (3f - 2f * p)
-    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.026f * (1f - kotlin.math.abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
+    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.038f * (1f - abs(0.5f - p) * 1.45f).coerceIn(0f, 1f)
     return (smooth + elastic).coerceIn(0f, 1f)
 }
 private fun modelStackSpeedPulse(progress: Float): Float = sin(progress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-private fun modelStackArrivalBrake(progress: Float): Float = sin(((progress - 0.70f) / 0.30f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
-private fun modelStackReturnBrake(progress: Float): Float = sin(((0.28f - progress) / 0.28f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+private fun modelStackArrivalBrake(progress: Float): Float = sin(((progress - 0.68f) / 0.32f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+private fun modelStackReturnBrake(progress: Float): Float = sin(((0.30f - progress) / 0.30f).coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
 private fun modelStackCapsuleScaleX(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     if (p < 0.025f || p > 0.985f) return 1f
     val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f + 0.034f * speed + 0.026f * arrive - 0.012f * back
+    return 1f + 0.040f * speed + 0.030f * arrive - 0.014f * back
 }
 private fun modelStackCapsuleScaleY(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
@@ -344,7 +358,7 @@ private fun modelStackCapsuleScaleY(progress: Float): Float {
     val speed = modelStackSpeedPulse(p)
     val arrive = modelStackArrivalBrake(p)
     val back = modelStackReturnBrake(p)
-    return 1f - 0.068f * speed + 0.034f * arrive + 0.014f * back
+    return 1f - 0.074f * speed + 0.038f * arrive + 0.016f * back
 }
 
 @Composable
@@ -361,7 +375,7 @@ private fun ModelFrostCapsule(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(30.dp)
-    val stackEnergy = if (stackRank > 0) 0.42f else 1f
+    val stackEnergy = if (stackRank > 0) 0.44f else 1f
     LightweightModelCapsule(
         model = model,
         selected = selected,
@@ -391,54 +405,173 @@ private fun LightweightModelCapsule(
     showContent: Boolean,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val pressProgress by animateFloatAsState(
-        targetValue = if (pressed && !state.isSending) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessLow),
-        label = "model-prism-glass-press-${model.id}"
-    )
+    val scope = rememberCoroutineScope()
+    val shellPress = remember(model.id) { Animatable(0f) }
+    val lensPress = remember(model.id) { Animatable(0f) }
+    val rimSweep = remember(model.id) { Animatable(0f) }
+    var pressCenter by remember(model.id) { mutableStateOf(Offset(0.50f, 0.50f)) }
+    var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
+    var flowSeed by remember(model.id) { mutableStateOf(0.35f) }
+    var flowDirection by remember(model.id) { mutableStateOf(1f) }
+    val pressValue = shellPress.value.coerceIn(-0.20f, 1.18f)
+    val positivePress = pressValue.coerceAtLeast(0f)
+    val rebound = smoothGlass((-pressValue / 0.18f).coerceIn(0f, 1f))
+    val surfacePress = smoothGlass((positivePress / 0.86f).coerceIn(0f, 1f))
+    val lensValue = lensPress.value.coerceIn(0f, 1.12f)
+    val lensProgress = smoothGlass(lensValue.coerceIn(0f, 1f))
+    val releaseSweep = rimSweep.value.coerceIn(0f, 1.24f)
     val selectedEnergy = if (selected) 1f else 0f
     val stackSafeEnergy = maxOf(stackEnergy, 0.44f)
-    val settleSweep = smoothGlass(stopPulse) * 0.30f
-    val pressBloom = smoothGlass(pressProgress) * 0.42f
-    val flightGlow = smoothGlass(moving) * 0.08f
-    val sweepEnergy = (settleSweep + pressBloom + flightGlow).coerceIn(0f, 0.86f)
+    val settleSweep = smoothGlass(stopPulse) * 0.38f
+    val pressBloom = maxOf(surfacePress, lensProgress * 0.88f) * 0.58f
+    val flightGlow = smoothGlass(moving) * 0.12f
+    val sweepEnergy = (settleSweep + pressBloom + flightGlow + releaseSweep * 0.78f).coerceIn(0f, 1.18f)
+    val opticsPress = maxOf(surfacePress, lensProgress * 0.86f, rebound * 0.24f)
+    val elasticity = stackSafeEnergy * state.motionIntensity.coerceIn(0f, 1f)
+
+    fun updatePressCenter(position: Offset) {
+        pressCenter = Offset(
+            (position.x / cardSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+            (position.y / cardSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+        )
+    }
+
     Box(
         modifier = modifier
+            .onSizeChanged { size -> cardSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat()) }
+            .pointerInput(state.isSending, model.id) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
+                    if (!state.isSending) {
+                        flowSeed = Random.nextFloat()
+                        flowDirection = if (Random.nextBoolean()) 1f else -1f
+                        scope.launch {
+                            shellPress.stop()
+                            if (shellPress.value < 0.18f) shellPress.snapTo(0.18f)
+                            shellPress.animateTo(0.74f, tween(118, easing = ModelPressInEasing))
+                            shellPress.animateTo(0.92f, tween(210, easing = FastOutSlowInEasing))
+                            shellPress.animateTo(0.78f, spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow))
+                        }
+                        scope.launch {
+                            lensPress.stop()
+                            lensPress.animateTo(0.24f, tween(130, easing = ModelLensInEasing))
+                            lensPress.animateTo(0.92f, tween(330, easing = FastOutSlowInEasing))
+                        }
+                        scope.launch {
+                            rimSweep.stop()
+                            rimSweep.snapTo(0f)
+                            rimSweep.animateTo(0.36f, tween(210, easing = FastOutSlowInEasing))
+                        }
+                    }
+                    var released = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) {
+                                released = true
+                                break
+                            }
+                        }
+                        if (event.changes.none { it.pressed }) {
+                            released = true
+                            break
+                        }
+                    }
+                    if (!state.isSending) {
+                        if (released) onClick()
+                        scope.launch {
+                            shellPress.stop()
+                            shellPress.animateTo(-0.130f, tween(150, easing = ModelReleaseEasing))
+                            shellPress.animateTo(0.045f, spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow))
+                            shellPress.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessLow))
+                        }
+                        scope.launch {
+                            lensPress.stop()
+                            lensPress.animateTo(0.42f, tween(180, easing = ModelReleaseEasing))
+                            lensPress.animateTo(0f, tween(620, easing = FastOutSlowInEasing))
+                        }
+                        scope.launch {
+                            rimSweep.stop()
+                            rimSweep.animateTo(1.18f, tween(560, easing = FastOutSlowInEasing))
+                            rimSweep.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+                        }
+                    }
+                }
+            }
             .graphicsLayer {
-                scaleX = 1f + 0.014f * pressProgress
-                scaleY = 1f - 0.022f * pressProgress
-                translationY = 1.2f * pressProgress
+                transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
+                scaleX = 1f + surfacePress * 0.030f * elasticity - rebound * 0.010f * elasticity
+                scaleY = 1f - surfacePress * 0.050f * elasticity + rebound * 0.018f * elasticity
+                translationY = surfacePress * 2.8f * elasticity - rebound * 1.1f * elasticity
+                shadowElevation = 0f
             }
             .clip(shape)
             .modelPrismSampleSurface(
                 radius = 30f,
-                surfaceAlpha = (0.038f + 0.010f * selectedEnergy) * stackSafeEnergy,
-                rimAlpha = 0.10f * stackSafeEnergy,
-                rimWidth = if (selected) 1.05f else 0.90f,
-                topHighlight = (0.17f + 0.06f * selectedEnergy) * stackSafeEnergy,
-                topHighlightHeight = 0.24f,
-                innerRimAlpha = (0.11f + 0.04f * selectedEnergy) * stackSafeEnergy,
-                bottomDepth = 0.08f * stackSafeEnergy,
-                cornerCatchlight = (0.06f + 0.05f * selectedEnergy) * stackSafeEnergy,
-                press = pressProgress,
+                surfaceAlpha = (0.044f + 0.014f * selectedEnergy + 0.018f * opticsPress) * stackSafeEnergy,
+                rimAlpha = (0.12f + 0.055f * selectedEnergy + 0.04f * expansionProgress) * stackSafeEnergy,
+                rimWidth = if (selected) 1.12f else 0.94f,
+                topHighlight = (0.18f + 0.07f * selectedEnergy + 0.08f * opticsPress) * stackSafeEnergy,
+                topHighlightHeight = 0.26f,
+                innerRimAlpha = (0.12f + 0.05f * selectedEnergy + 0.04f * lensProgress) * stackSafeEnergy,
+                bottomDepth = (0.082f + 0.025f * opticsPress) * stackSafeEnergy,
+                cornerCatchlight = (0.072f + 0.060f * selectedEnergy + 0.05f * releaseSweep) * stackSafeEnergy,
+                press = opticsPress,
                 sweep = sweepEnergy,
-                pressCenter = Offset(0.50f, 0.50f),
-                pressGlow = 1.45f * stackSafeEnergy,
-                pressEdgeBoost = 1.10f * stackSafeEnergy,
-                pressSweep = 1.20f * stackSafeEnergy,
-                pressDarken = 0.08f,
-                rainbowRimAlpha = (2.20f + 0.70f * selectedEnergy + 0.24f * expansionProgress + 0.10f * moving + 0.18f * stopPulse) * stackSafeEnergy,
-                rainbowRimWidth = 2.10f + 0.28f * selectedEnergy,
-                rainbowPressEdge = 2.05f + 0.35f * selectedEnergy,
-                rainbowSweepAlpha = 2.10f + 0.38f * selectedEnergy,
-                rainbowCornerAlpha = (0.55f + 0.14f * selectedEnergy) * stackSafeEnergy,
-                rainbowSaturation = 2.20f
+                pressCenter = pressCenter,
+                flowSeed = flowSeed,
+                flowDirection = flowDirection,
+                pressGlow = 1.74f * stackSafeEnergy,
+                pressEdgeBoost = 1.38f * stackSafeEnergy,
+                pressSweep = 1.48f * stackSafeEnergy,
+                pressDarken = 0.10f,
+                rainbowRimAlpha = (2.65f + 0.95f * selectedEnergy + 0.36f * expansionProgress + 0.18f * moving + 0.30f * stopPulse + 0.46f * releaseSweep) * stackSafeEnergy,
+                rainbowRimWidth = 2.42f + 0.38f * selectedEnergy + 0.28f * opticsPress,
+                rainbowPressEdge = 2.80f + 0.52f * selectedEnergy,
+                rainbowSweepAlpha = 2.88f + 0.56f * selectedEnergy + 0.34f * releaseSweep,
+                rainbowCornerAlpha = (0.72f + 0.24f * selectedEnergy + 0.36f * releaseSweep) * stackSafeEnergy,
+                rainbowSaturation = 3.00f
             )
-            .clickable(interactionSource = interactionSource, indication = null, enabled = !state.isSending, onClick = onClick)
     ) {
-        if (showContent) ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress)
+        if (showContent) ModelStackCardContent(model = model, selected = selected, expansionProgress = expansionProgress, press = opticsPress)
+    }
+}
+
+private fun Modifier.modelStackAmbientAura(expansion: Float, glassIntensity: Float): Modifier = drawWithCache {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val p = smoothGlass(expansion.coerceIn(0f, 1f))
+    val alpha = (glassIntensity.coerceIn(0.45f, 1.35f) * p).coerceIn(0f, 1f)
+    val mainGlow = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = 0.045f * alpha),
+            Color(0xFFFF7CE1).copy(alpha = 0.050f * alpha),
+            Color(0xFF68F7FF).copy(alpha = 0.044f * alpha),
+            Color.Transparent
+        ),
+        Offset(w * 0.50f, h * 0.46f),
+        maxOf(w, h) * 0.78f
+    )
+    val crossing = Brush.linearGradient(
+        listOf(
+            Color.Transparent,
+            Color(0xFF65F7FF).copy(alpha = 0.038f * alpha),
+            Color(0xFFFF7CE1).copy(alpha = 0.046f * alpha),
+            Color(0xFFFFE785).copy(alpha = 0.034f * alpha),
+            Color.Transparent
+        ),
+        Offset(w * -0.12f, h * 0.08f),
+        Offset(w * 1.12f, h * 0.92f)
+    )
+    onDrawWithContent {
+        if (alpha > 0.001f) {
+            drawRect(mainGlow, blendMode = BlendMode.Screen)
+            drawRect(crossing, blendMode = BlendMode.Plus)
+        }
+        drawContent()
     }
 }
 
@@ -455,6 +588,8 @@ private fun Modifier.modelPrismSampleSurface(
     press: Float,
     sweep: Float,
     pressCenter: Offset,
+    flowSeed: Float,
+    flowDirection: Float,
     pressGlow: Float,
     pressEdgeBoost: Float,
     pressSweep: Float,
@@ -475,24 +610,27 @@ private fun Modifier.modelPrismSampleSurface(
     val bodySize = Size(w, h)
     val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
     val innerSize = Size((w - innerInset * 2f).coerceAtLeast(1f), (h - innerInset * 2f).coerceAtLeast(1f))
-    val center = Offset(pressCenter.x.coerceIn(0f, 1f) * w, pressCenter.y.coerceIn(0f, 1f) * h)
-    val topNear = (1f - pressCenter.y / 0.42f).coerceIn(0f, 1f) * press
-    val bottomNear = (1f - (1f - pressCenter.y) / 0.42f).coerceIn(0f, 1f) * press
-    val leftNear = (1f - pressCenter.x / 0.42f).coerceIn(0f, 1f) * press
-    val rightNear = (1f - (1f - pressCenter.x) / 0.42f).coerceIn(0f, 1f) * press
+    val centerNorm = Offset(pressCenter.x.coerceIn(0f, 1f), pressCenter.y.coerceIn(0f, 1f))
+    val center = Offset(centerNorm.x * w, centerNorm.y * h)
+    val safePress = press.coerceIn(0f, 1.18f)
+    val topNear = (1f - centerNorm.y / 0.42f).coerceIn(0f, 1f) * safePress
+    val bottomNear = (1f - (1f - centerNorm.y) / 0.42f).coerceIn(0f, 1f) * safePress
+    val leftNear = (1f - centerNorm.x / 0.42f).coerceIn(0f, 1f) * safePress
+    val rightNear = (1f - (1f - centerNorm.x) / 0.42f).coerceIn(0f, 1f) * safePress
     val sweepT = smoothGlass(sweep.coerceIn(0f, 1f))
-    val sweepX = -0.28f + sweepT * 1.56f
-    val sat = rainbowSaturation.coerceIn(0f, 2.2f)
-    fun prism(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.18f + sat * 0.82f)).coerceIn(0f, 1f))
+    val seedShift = (flowSeed - 0.5f) * 0.28f
+    val sweepX = if (flowDirection >= 0f) -0.34f + seedShift + sweepT * 1.70f else 1.34f + seedShift - sweepT * 1.70f
+    val sat = rainbowSaturation.coerceIn(0f, 3.0f)
+    fun prism(color: Color, alpha: Float): Color = color.copy(alpha = (alpha * (0.16f + sat * 0.84f)).coerceIn(0f, 1f))
     fun prismBandBrush(start: Offset, end: Offset, strength: Float): Brush = Brush.linearGradient(
         colors = listOf(
             Color.Transparent,
-            prism(Color(0xFF68F7FF), strength * 0.20f),
-            prism(Color(0xFFFF7CE1), strength * 0.24f),
-            Color.White.copy(alpha = (strength * 0.11f).coerceIn(0f, 0.62f)),
-            prism(Color(0xFFFFE785), strength * 0.20f),
-            prism(Color(0xFF7BFF9E), strength * 0.18f),
-            prism(Color(0xFF6FA8FF), strength * 0.16f),
+            prism(Color(0xFF64F7FF), strength * 0.26f),
+            prism(Color(0xFFFF5CE1), strength * 0.30f),
+            Color.White.copy(alpha = (strength * 0.16f).coerceIn(0f, 0.78f)),
+            prism(Color(0xFFFFE36E), strength * 0.25f),
+            prism(Color(0xFF74FF9E), strength * 0.22f),
+            prism(Color(0xFF7994FF), strength * 0.20f),
             Color.Transparent
         ),
         start = start,
@@ -500,61 +638,72 @@ private fun Modifier.modelPrismSampleSurface(
     )
     val surface = Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.30f)),
-            Color(0xFFCFEAFF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.30f) * 0.28f),
+            Color.White.copy(alpha = surfaceAlpha.coerceIn(0f, 0.34f)),
+            Color(0xFFE1F6FF).copy(alpha = surfaceAlpha.coerceIn(0f, 0.34f) * 0.34f),
             Color.Transparent,
-            Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.45f) * 0.42f)
+            Color(0xFF000816).copy(alpha = bottomDepth.coerceIn(0f, 0.48f) * 0.46f)
         ),
         0f,
         h
     )
+    val auroraBody = Brush.radialGradient(
+        listOf(
+            Color.White.copy(alpha = 0.038f * safePress),
+            prism(Color(0xFF68F7FF), 0.065f * safePress),
+            prism(Color(0xFFFF7CE1), 0.052f * safePress),
+            Color.Transparent
+        ),
+        Offset(center.x, center.y - h * 0.05f),
+        maxSide * (0.58f + 0.10f * safePress)
+    )
     val topLens = Brush.verticalGradient(
-        listOf(Color.White.copy(alpha = topHighlight.coerceIn(0f, 0.7f)), Color(0xFFE8FFFF).copy(alpha = topHighlight.coerceIn(0f, 0.7f) * 0.22f), Color.Transparent),
+        listOf(Color.White.copy(alpha = topHighlight.coerceIn(0f, 0.78f)), Color(0xFFE8FFFF).copy(alpha = topHighlight.coerceIn(0f, 0.78f) * 0.28f), Color.Transparent),
         0f,
         h * topHighlightHeight.coerceIn(0.05f, 0.60f)
     )
-    val bottomShade = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.45f))), h * 0.52f, h)
-    val topHairline = Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.18f + topHighlight * 0.20f), Color.White.copy(alpha = topHighlight * 0.34f), Color.Transparent), 0f, w)
-    val innerRim = Brush.linearGradient(listOf(Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.62f), Color.Transparent, Color(0xFF00091E).copy(alpha = bottomDepth.coerceIn(0f, 0.45f) * 0.68f), Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.5f) * 0.16f)), Offset(w * 0.08f, 0f), Offset(w * 0.92f, h))
-    val cornerLight = Brush.radialGradient(listOf(Color.White.copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f)), Color(0xFFCFFFFF).copy(alpha = cornerCatchlight.coerceIn(0f, 0.5f) * 0.20f), Color.Transparent), Offset(w * 0.055f, h * 0.045f), maxSide * 0.30f)
-    val rainbowCorner = Brush.radialGradient(listOf(Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 0.8f) * 0.18f), prism(Color(0xFFFF87E5), rainbowCornerAlpha * 0.14f), prism(Color(0xFF79F8FF), rainbowCornerAlpha * 0.16f), Color.Transparent), Offset(w * 0.10f, h * 0.10f), maxSide * 0.24f)
-    val pressureDark = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF071B3D).copy(alpha = pressDarken.coerceIn(0f, 0.4f) * 0.34f * press), Color(0xFF01040C).copy(alpha = pressDarken.coerceIn(0f, 0.4f) * press)), center, maxSide * (0.72f + 0.12f * press))
-    val prismPressLight = Brush.radialGradient(listOf(Color.White.copy(alpha = pressGlow.coerceIn(0f, 1.5f) * 0.10f * press), prism(Color(0xFF6AF7FF), pressGlow * 0.24f * press), prism(Color(0xFFFF7FE0), pressGlow * 0.22f * press), prism(Color(0xFFFFE789), pressGlow * 0.17f * press), prism(Color(0xFF7CFFA0), pressGlow * 0.15f * press), Color.Transparent), center, maxSide * (0.30f + 0.22f * press))
-    val prismLocalEdge = Brush.linearGradient(listOf(Color.Transparent, prism(Color(0xFF6BF7FF), rainbowPressEdge * 0.26f * press + pressEdgeBoost * 0.07f * press), prism(Color(0xFFFF7FE0), rainbowPressEdge * 0.24f * press), Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 1.8f) * 0.055f * press), prism(Color(0xFFFFE889), rainbowPressEdge * 0.20f * press), prism(Color(0xFF7DFFA0), rainbowPressEdge * 0.18f * press), Color.Transparent), Offset(center.x - w * 0.24f, center.y - h * 0.74f), Offset(center.x + w * 0.22f, center.y + h * 0.74f))
-    val rimBandPower = rainbowRimAlpha.coerceIn(0f, 3.2f)
+    val bottomShade = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = bottomDepth.coerceIn(0f, 0.48f))), h * 0.50f, h)
+    val topHairline = Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFFDFFFFF).copy(alpha = rimAlpha.coerceIn(0f, 1f) * 0.22f + topHighlight * 0.22f), Color.White.copy(alpha = topHighlight * 0.40f), Color.Transparent), 0f, w)
+    val innerRim = Brush.linearGradient(listOf(Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.56f) * 0.66f), Color.Transparent, Color(0xFF00091E).copy(alpha = bottomDepth.coerceIn(0f, 0.48f) * 0.74f), Color.White.copy(alpha = innerRimAlpha.coerceIn(0f, 0.56f) * 0.18f)), Offset(w * 0.08f, 0f), Offset(w * 0.92f, h))
+    val cornerLight = Brush.radialGradient(listOf(Color.White.copy(alpha = cornerCatchlight.coerceIn(0f, 0.62f)), Color(0xFFCFFFFF).copy(alpha = cornerCatchlight.coerceIn(0f, 0.62f) * 0.24f), Color.Transparent), Offset(w * 0.055f, h * 0.045f), maxSide * 0.30f)
+    val rainbowCorner = Brush.radialGradient(listOf(Color.White.copy(alpha = rainbowCornerAlpha.coerceIn(0f, 1f) * 0.22f), prism(Color(0xFFFF5CE1), rainbowCornerAlpha * 0.20f), prism(Color(0xFF68F7FF), rainbowCornerAlpha * 0.22f), prism(Color(0xFFFFE36E), rainbowCornerAlpha * 0.12f), Color.Transparent), Offset(w * 0.10f, h * 0.10f), maxSide * 0.30f)
+    val pressureDark = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF071B3D).copy(alpha = pressDarken.coerceIn(0f, 0.45f) * 0.36f * safePress), Color(0xFF01040C).copy(alpha = pressDarken.coerceIn(0f, 0.45f) * safePress)), center, maxSide * (0.74f + 0.12f * safePress))
+    val prismPressLight = Brush.radialGradient(listOf(Color.White.copy(alpha = pressGlow.coerceIn(0f, 1.8f) * 0.14f * safePress), prism(Color(0xFF64F7FF), pressGlow * 0.32f * safePress), prism(Color(0xFFFF5CE1), pressGlow * 0.30f * safePress), prism(Color(0xFFFFE36E), pressGlow * 0.24f * safePress), prism(Color(0xFF74FF9E), pressGlow * 0.20f * safePress), Color.Transparent), center, maxSide * (0.28f + 0.22f * safePress))
+    val prismLocalEdge = Brush.linearGradient(listOf(Color.Transparent, prism(Color(0xFF64F7FF), rainbowPressEdge * 0.34f * safePress + pressEdgeBoost * 0.08f * safePress), prism(Color(0xFFFF5CE1), rainbowPressEdge * 0.32f * safePress), Color.White.copy(alpha = pressEdgeBoost.coerceIn(0f, 2f) * 0.070f * safePress), prism(Color(0xFFFFE36E), rainbowPressEdge * 0.28f * safePress), prism(Color(0xFF74FF9E), rainbowPressEdge * 0.24f * safePress), Color.Transparent), Offset(center.x - w * 0.26f, center.y - h * 0.78f), Offset(center.x + w * 0.24f, center.y + h * 0.78f))
+    val rimBandPower = rainbowRimAlpha.coerceIn(0f, 4.0f)
     val pressBandBoost = (topNear + bottomNear + leftNear + rightNear).coerceIn(0f, 1f)
-    val rimBandMain = prismBandBrush(Offset(w * (sweepX - 0.22f), h * -0.06f), Offset(w * (sweepX + 0.28f), h * 1.04f), rimBandPower * (0.72f + 0.28f * pressBandBoost))
-    val rimBandCounter = prismBandBrush(Offset(w * (1.12f - sweepX), h * 0.02f), Offset(w * (0.54f - sweepX), h * 1.00f), rimBandPower * 0.52f * (0.70f + 0.30f * pressBandBoost))
-    val rimBandTop = prismBandBrush(Offset(w * (sweepX - 0.18f), h * 0.02f), Offset(w * (sweepX + 0.34f), h * 0.26f), rimBandPower * 0.42f * (0.68f + 0.32f * topNear))
-    val prismSweep = prismBandBrush(Offset(w * (sweepX - 0.24f), h * -0.04f), Offset(w * (sweepX + 0.30f), h * 1.04f), rainbowSweepAlpha.coerceIn(0f, 3.2f) * sweep + pressSweep.coerceIn(0f, 1.8f) * 0.10f * sweep)
+    val rimBandMain = prismBandBrush(Offset(w * (sweepX - 0.22f), h * -0.08f), Offset(w * (sweepX + 0.30f), h * 1.06f), rimBandPower * (0.75f + 0.25f * pressBandBoost))
+    val rimBandCounter = prismBandBrush(Offset(w * (1.16f - sweepX), h * 0.02f), Offset(w * (0.50f - sweepX), h * 1.00f), rimBandPower * 0.60f * (0.70f + 0.30f * pressBandBoost))
+    val rimBandTop = prismBandBrush(Offset(w * (sweepX - 0.18f), h * 0.00f), Offset(w * (sweepX + 0.34f), h * 0.28f), rimBandPower * 0.50f * (0.68f + 0.32f * topNear))
+    val prismSweep = prismBandBrush(Offset(w * (sweepX - 0.24f), h * -0.04f), Offset(w * (sweepX + 0.32f), h * 1.04f), rainbowSweepAlpha.coerceIn(0f, 4.0f) * sweep + pressSweep.coerceIn(0f, 2.0f) * 0.14f * sweep)
     onDrawWithContent {
         drawRoundRect(surface, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
+        drawRoundRect(auroraBody, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         drawRoundRect(topLens, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         drawRoundRect(bottomShade, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
-        if (press > 0.001f) {
+        if (safePress > 0.001f) {
             drawRoundRect(pressureDark, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
             drawRoundRect(prismPressLight, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
         }
         drawContent()
-        drawRoundRect(topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.55.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.46.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.68.dp.toPx()), blendMode = BlendMode.Screen)
-        if (rainbowCornerAlpha > 0.001f) drawRoundRect(rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.58.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(rimBandMain, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth + rainbowRimWidth * 0.92f).dp.toPx()), blendMode = BlendMode.Plus)
-        drawRoundRect(rimBandCounter, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.72f + rainbowRimWidth * 0.58f).dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(rimBandTop, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.46f + rainbowRimWidth * 0.42f).dp.toPx()), blendMode = BlendMode.Plus)
-        if (press > 0.001f) {
-            val localEdgeAlpha = (topNear + bottomNear + leftNear + rightNear).coerceIn(0.16f, 1f)
-            drawRoundRect(prismLocalEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.76f + 0.96f * localEdgeAlpha).dp.toPx()), blendMode = BlendMode.Plus)
+        drawRoundRect(topHairline, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.62.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.50.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(cornerLight, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.72.dp.toPx()), blendMode = BlendMode.Screen)
+        if (rainbowCornerAlpha > 0.001f) drawRoundRect(rainbowCorner, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(0.64.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(rimBandMain, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth + rainbowRimWidth * 1.04f).dp.toPx()), blendMode = BlendMode.Plus)
+        drawRoundRect(rimBandCounter, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.76f + rainbowRimWidth * 0.66f).dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(rimBandTop, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((rimWidth * 0.50f + rainbowRimWidth * 0.50f).dp.toPx()), blendMode = BlendMode.Plus)
+        if (safePress > 0.001f) {
+            val localEdgeAlpha = (topNear + bottomNear + leftNear + rightNear).coerceIn(0.18f, 1f)
+            drawRoundRect(prismLocalEdge, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.82f + 1.08f * localEdgeAlpha).dp.toPx()), blendMode = BlendMode.Plus)
         }
-        if (sweep > 0.001f) drawRoundRect(prismSweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.58f + 0.68f * sweep).dp.toPx()), blendMode = BlendMode.Plus)
+        if (sweep > 0.001f) drawRoundRect(prismSweep, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke((0.64f + 0.82f * sweep.coerceIn(0f, 1.2f)).dp.toPx()), blendMode = BlendMode.Plus)
     }
 }
 
 @Composable
-private fun ModelStackCardContent(model: ChatModel, selected: Boolean, expansionProgress: Float) {
+private fun ModelStackCardContent(model: ChatModel, selected: Boolean, expansionProgress: Float, press: Float) {
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(if (selected) 9.dp else 7.dp).clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.32f + 0.20f * expansionProgress)))
+        Box(Modifier.size(if (selected) 9.dp else 7.dp).graphicsLayer { scaleX = 1f + 0.16f * press; scaleY = 1f + 0.16f * press }.clip(RoundedCornerShape(999.dp)).background(if (selected) Color(0xFF8DF9EA) else Color.White.copy(alpha = 0.32f + 0.20f * expansionProgress)))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
             Text(model.shortLabel, color = Color.White.copy(alpha = if (selected) 0.96f else 0.78f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(model.id, color = Color.White.copy(alpha = if (selected) 0.54f else 0.38f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
