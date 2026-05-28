@@ -131,7 +131,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
     )
 
     if (sending) {
-        val bandX = 0.50f + 0.46f * sin(cycle + 0.64f)
+        val bandX = -0.72f + phase.coerceIn(0f, 1f) * 2.34f
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
