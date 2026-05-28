@@ -103,6 +103,24 @@ data class GlassBorderStyle(
     val openGlSampleRadiusScale: Float = 0f
 )
 
+data class ModelCardGlassStyle(
+    val bodyAlpha: Float = 1.00f,
+    val topHairline: Float = 1.00f,
+    val outerRim: Float = 1.00f,
+    val innerDepth: Float = 1.00f,
+    val bottomShadow: Float = 1.00f,
+    val selectedRainbowRim: Float = 1.00f,
+    val selectedOuterHalo: Float = 1.00f,
+    val selectedAura: Float = 1.00f,
+    val edgeGlint: Float = 1.00f,
+    val edgeGlintRadius: Float = 1.00f,
+    val edgeGlintCenterX: Float = 1.00f,
+    val edgeGlintCenterY: Float = 1.00f,
+    val dotGlow: Float = 1.00f,
+    val unselectedEnergy: Float = 1.00f,
+    val radiusScale: Float = 1.00f
+)
+
 enum class MessageRole { Assistant, User }
 
 enum class MessageStatus { Sending, Sent, Failed }
@@ -160,6 +178,7 @@ data class AssistantUiState(
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
     val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
+    val modelCardGlassStyle: ModelCardGlassStyle = ModelCardGlassStyle(),
     val backdropParams: BackdropDebugParams = BackdropDebugParams(),
     val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
     val stats: List<StatSummary> = emptyList(),
