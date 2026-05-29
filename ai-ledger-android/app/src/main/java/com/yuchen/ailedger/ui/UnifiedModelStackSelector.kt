@@ -171,7 +171,7 @@ internal fun UnifiedParentModelStackSelector(
                 val travelPhase = if (expanded) rawTravelProgress else 1f - rawTravelProgress
                 val pathProgress = modelCapsuleOvershootPath(travelPhase)
                 val p = if (expanded) pathProgress else 1f - pathProgress
-                val targetProgress = p.coerceIn(0f, 1f)
+                val targetProgress = modelSmooth(rawTravelProgress)
                 val stackReveal = 1f - targetProgress
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
                 val arrivalBrake = modelSmooth((overshootAmount / 0.072f).coerceIn(0f, 1f))
