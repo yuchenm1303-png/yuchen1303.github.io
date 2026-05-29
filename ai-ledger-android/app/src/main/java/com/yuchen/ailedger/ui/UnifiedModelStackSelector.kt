@@ -362,10 +362,10 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val press = v.press.coerceIn(0f, 1.08f)
 
             withTransform({ translate(v.left, v.top) }) {
-                drawRoundRect(outerRim, Offset(inset, inset), rimSize, corner, Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(topLine, Offset(innerInset, innerInset), innerSize, corner, Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(innerLine, Offset(innerInset, innerInset), innerSize, corner, Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF00040C).copy(alpha = 0.300f * rimPower * bottom)), v.height * 0.42f, v.height), Offset(inset, inset), rimSize, corner, Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
+                drawRoundRect(brush = outerRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = topLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = innerLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
+                drawRoundRect(brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF00040C).copy(alpha = 0.300f * rimPower * bottom)), v.height * 0.42f, v.height), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
 
                 if (press > 0.001f) {
                     val p = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
@@ -382,13 +382,13 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
                     val flowingRim = Brush.linearGradient(listOf(Color.Transparent, Color(0xFFFF6ADB).copy(alpha = 0.20f * bandAlpha), Color.White.copy(alpha = 0.34f * bandAlpha), Color(0xFFFFE08A).copy(alpha = 0.18f * bandAlpha), Color(0xFF62FFF0).copy(alpha = 0.24f * bandAlpha), Color(0xFF92A6FF).copy(alpha = 0.12f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.26f), v.height * startY), Offset(v.width * (sweepX + 0.22f), v.height * endY))
                     fun nearEdge(d: Float) = (1f - d / 0.42f).coerceIn(0f, 1f) * p
                     fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.18f * power), Color(0xFFFF7DE2).copy(alpha = 0.038f * power), Color(0xFFFFE28A).copy(alpha = 0.026f * power), Color(0xFF80FFF2).copy(alpha = 0.052f * power), Color.Transparent), point, maxSide * 0.36f)
-                    drawRoundRect(pressureGlow, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
-                    drawRoundRect(Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.052f * bandAlpha), Color(0xFF92FFF1).copy(alpha = 0.026f * bandAlpha), Color.Transparent), center, maxSide * 0.74f), Offset(inset, inset), rimSize, corner, Stroke(0.74.dp.toPx() + 0.26.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(flowingRim, Offset(inset, inset), rimSize, corner, Stroke(1.02.dp.toPx()), blendMode = BlendMode.Plus)
-                    drawRoundRect(edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), Offset(inset, inset), rimSize, corner, Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(edgeHalo(nearEdge(1f - centerNorm.y), Offset(center.x, v.height - inset)), Offset(inset, inset), rimSize, corner, Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(edgeHalo(nearEdge(centerNorm.x), Offset(inset, center.y)), Offset(inset, inset), rimSize, corner, Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(edgeHalo(nearEdge(1f - centerNorm.x), Offset(v.width - inset, center.y)), Offset(inset, inset), rimSize, corner, Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = pressureGlow, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.052f * bandAlpha), Color(0xFF92FFF1).copy(alpha = 0.026f * bandAlpha), Color.Transparent), center, maxSide * 0.74f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx() + 0.26.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = flowingRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.02.dp.toPx()), blendMode = BlendMode.Plus)
+                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.y), Offset(center.x, v.height - inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.x), Offset(inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.x), Offset(v.width - inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
                 }
             }
         }
