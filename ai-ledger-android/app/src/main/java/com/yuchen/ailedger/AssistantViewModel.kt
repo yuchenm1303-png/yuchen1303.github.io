@@ -27,7 +27,9 @@ import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiWorkerClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,6 +44,9 @@ class AssistantViewModel(
 
     var uiState by mutableStateOf(repository.initialState())
         private set
+
+    private var activeSendJob: Job? = null
+    private var activePendingMessageId: String? = null
 
     init {
         viewModelScope.launch {
@@ -110,19 +115,58 @@ class AssistantViewModel(
         sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage)
     }
 
+    fun stopGenerating() {
+        if (!uiState.isSending) return
+        val pendingId = activePendingMessageId
+        activeSendJob?.cancel(CancellationException("user stopped generation"))
+        if (pendingId != null) markMessageStopped(pendingId)
+        activeSendJob = null
+        activePendingMessageId = null
+        uiState = uiState.copy(isSending = false)
+    }
+
     private fun sendPendingRequest(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage) {
+        activeSendJob?.cancel()
         val selectedModel = uiState.selectedModel
         val onlineEnabled = uiState.onlineEnabled
-        viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled) } }
-            result.onSuccess { response ->
-                replaceMessage(pendingMessage.id, pendingMessage.copy(text = response.reply, status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null))
-            }.onFailure { error ->
-                val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
-                replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
+        activePendingMessageId = pendingMessage.id
+        activeSendJob = viewModelScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled)
+                }
+                if (activePendingMessageId == pendingMessage.id) {
+                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = response.reply, status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null))
+                }
+            } catch (error: CancellationException) {
+                if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
+            } catch (error: Throwable) {
+                if (activePendingMessageId == pendingMessage.id) {
+                    val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
+                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
+                }
+            } finally {
+                if (activePendingMessageId == pendingMessage.id) {
+                    activeSendJob = null
+                    activePendingMessageId = null
+                    uiState = uiState.copy(isSending = false)
+                }
             }
-            uiState = uiState.copy(isSending = false)
         }
+    }
+
+    private fun markMessageStopped(id: String) {
+        val current = uiState.messages.firstOrNull { it.id == id } ?: return
+        replaceMessage(
+            id,
+            current.copy(
+                text = "已暂停生成。",
+                status = MessageStatus.Sent,
+                source = "local",
+                modelLabel = "已暂停",
+                errorText = null
+            )
+        )
     }
 
     fun insertCommandDraft(text: String) { uiState = uiState.copy(composerText = text) }
