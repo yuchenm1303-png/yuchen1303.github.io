@@ -420,22 +420,39 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
                 c,
                 size.minDimension * (0.78f + 0.20f * press)
             )
-            val rainbowRing = Brush.sweepGradient(
+            val autoRainbowGlow = Brush.radialGradient(
                 listOf(
-                    theme.prismA.copy(alpha = 0.78f),
-                    theme.gold.copy(alpha = 0.76f),
-                    theme.prismB.copy(alpha = 0.78f),
-                    theme.prismC.copy(alpha = 0.78f),
-                    theme.prismA.copy(alpha = 0.78f)
+                    Color.White.copy(alpha = 0.10f + 0.06f * selected + 0.04f * press),
+                    theme.prismA.copy(alpha = 0.18f + 0.06f * selected + 0.05f * press),
+                    theme.prismB.copy(alpha = 0.12f + 0.05f * selected + 0.04f * press),
+                    Color.Transparent
                 ),
-                c
+                c,
+                size.minDimension * (0.70f + 0.06f * press)
+            )
+            val autoRainbowBall = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.88f + 0.06f * selected),
+                    theme.prismA.copy(alpha = 0.66f + 0.08f * selected + 0.05f * press),
+                    theme.gold.copy(alpha = 0.54f + 0.07f * selected + 0.05f * press),
+                    theme.prismB.copy(alpha = 0.48f + 0.06f * selected + 0.04f * press),
+                    theme.prismC.copy(alpha = 0.38f + 0.05f * selected + 0.04f * press),
+                    Color.Transparent
+                ),
+                c,
+                size.minDimension * (0.34f + 0.030f * selected + 0.024f * press)
             )
             onDrawBehind {
                 drawCircle(idleGlow, radius = size.minDimension * 0.47f, center = c, blendMode = BlendMode.Screen)
                 if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.66f, center = c, blendMode = BlendMode.Screen)
                 if (autoRainbow) {
-                    drawCircle(rainbowRing, radius = size.minDimension * (0.245f + 0.020f * selected + 0.018f * press), center = c, style = Stroke(size.minDimension * 0.070f), blendMode = BlendMode.Screen)
-                    drawCircle(Color.White.copy(alpha = 0.24f + 0.15f * selected + 0.08f * press), radius = size.minDimension * (0.120f + 0.012f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(autoRainbowGlow, radius = size.minDimension * (0.46f + 0.028f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(autoRainbowBall, radius = size.minDimension * (0.255f + 0.018f * selected + 0.016f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(theme.prismC.copy(alpha = 0.20f + 0.06f * selected + 0.04f * press), radius = size.minDimension * (0.235f + 0.014f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(theme.prismB.copy(alpha = 0.24f + 0.07f * selected + 0.05f * press), radius = size.minDimension * (0.200f + 0.012f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(theme.gold.copy(alpha = 0.28f + 0.08f * selected + 0.05f * press), radius = size.minDimension * (0.165f + 0.010f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(theme.prismA.copy(alpha = 0.34f + 0.10f * selected + 0.06f * press), radius = size.minDimension * (0.132f + 0.008f * press), center = c, blendMode = BlendMode.Screen)
+                    drawCircle(Color.White.copy(alpha = 0.88f + 0.08f * selected + 0.04f * press), radius = size.minDimension * (0.078f + 0.008f * press), center = c, blendMode = BlendMode.Screen)
                 } else {
                     drawCircle(theme.main.copy(alpha = 0.82f * selected + 0.26f * press), radius = size.minDimension * (0.22f + 0.045f * selected + 0.026f * press), center = c)
                     drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.090f + 0.014f * press), center = c)
