@@ -1,6 +1,10 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatModel
@@ -10,9 +14,10 @@ internal fun ModelCardGlassLabPreview(
     state: AssistantUiState,
     modifier: Modifier = Modifier
 ) {
+    var previewModel by remember { mutableStateOf(ChatModel.Kimi) }
     val previewState = state.copy(
-        selectedModel = ChatModel.Kimi,
-        selectedModelLabel = ChatModel.Kimi.label,
+        selectedModel = previewModel,
+        selectedModelLabel = previewModel.label,
         isSending = false
     )
     UnifiedParentModelStackSelector(
@@ -20,6 +25,6 @@ internal fun ModelCardGlassLabPreview(
         expanded = true,
         modifier = modifier,
         onToggleExpanded = {},
-        onSelected = {}
+        onSelected = { previewModel = it }
     )
 }
