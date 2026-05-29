@@ -65,55 +65,71 @@ private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: M
             }
         }
 
-        if (!text.contains('val backDotCenter = Offset(24.dp.toPx(), size.height / 2f)')) {
-            def cornerLine = '''    val corner = CornerRadius(radius, radius)
-'''
-            def dotVars = '''    val corner = CornerRadius(radius, radius)
+        def backPlateStart = text.indexOf('private fun Modifier.drawFoldedModelBackPlate(')
+        def backPlateEnd = text.indexOf('\n\nprivate fun Modifier.drawModelCardGlassSurface', backPlateStart)
+        if (backPlateStart >= 0 && backPlateEnd > backPlateStart) {
+            def newBackPlateFunction = '''private fun Modifier.drawFoldedModelBackPlate(style: ModelCardGlassStyle, theme: ModelCardPrismTheme, stackRank: Int, press: Float): Modifier = drawWithCache {
+    val radius = minOf(size.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
+    val corner = CornerRadius(radius, radius)
+    val rankFade = (0.30f - stackRank * 0.032f).coerceIn(0.15f, 0.28f)
     val backDotCenter = Offset(24.dp.toPx(), size.height / 2f)
+    val body = Brush.linearGradient(
+        listOf(
+            Color.White.copy(alpha = 0.012f + 0.006f * press),
+            theme.main.copy(alpha = rankFade * 0.15f + 0.014f * press),
+            theme.deep.copy(alpha = rankFade * 0.24f),
+            Color(0xFF000713).copy(alpha = rankFade * 0.30f)
+        ),
+        Offset(size.width * 0.08f, 0f),
+        Offset(size.width, size.height)
+    )
+    val rim = Brush.linearGradient(
+        listOf(
+            theme.bright.copy(alpha = 0.145f + 0.045f * press),
+            theme.main.copy(alpha = 0.118f + 0.034f * press),
+            Color.Transparent,
+            theme.prismC.copy(alpha = 0.130f + 0.026f * press)
+        ),
+        Offset.Zero,
+        Offset(size.width, size.height)
+    )
+    val rearEdgeRim = Brush.linearGradient(
+        listOf(
+            Color.Transparent,
+            theme.prismC.copy(alpha = 0.150f + 0.028f * press),
+            theme.main.copy(alpha = 0.120f + 0.028f * press),
+            theme.bright.copy(alpha = 0.185f + 0.032f * press)
+        ),
+        Offset(size.width * 0.66f, size.height * 0.18f),
+        Offset(size.width, size.height)
+    )
     val backDotGlow = Brush.radialGradient(
         listOf(
-            theme.bright.copy(alpha = 0.050f + 0.036f * press),
-            theme.main.copy(alpha = 0.082f + 0.046f * press),
-            theme.prismB.copy(alpha = 0.036f + 0.024f * press),
+            theme.bright.copy(alpha = 0.030f + 0.020f * press),
+            theme.main.copy(alpha = 0.044f + 0.024f * press),
+            theme.prismB.copy(alpha = 0.020f + 0.012f * press),
             Color.Transparent
         ),
         backDotCenter,
-        17.dp.toPx()
+        6.8.dp.toPx()
     )
+    onDrawBehind {
+        drawRoundRect(body, size = size, cornerRadius = corner, blendMode = BlendMode.Screen)
+        drawRoundRect(brush = rim, topLeft = Offset(0.58.dp.toPx(), 0.58.dp.toPx()), size = Size(size.width - 1.16.dp.toPx(), size.height - 1.16.dp.toPx()), cornerRadius = corner, style = Stroke(0.88.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = rearEdgeRim, topLeft = Offset(0.72.dp.toPx(), 0.72.dp.toPx()), size = Size(size.width - 1.44.dp.toPx(), size.height - 1.44.dp.toPx()), cornerRadius = corner, style = Stroke(1.04.dp.toPx()), blendMode = BlendMode.Plus)
+        drawCircle(brush = backDotGlow, radius = 6.2.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
+        drawCircle(theme.bright.copy(alpha = 0.34f + 0.12f * press), radius = 1.55.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
+    }
+}
 '''
-            def funcStart = text.indexOf('private fun Modifier.drawFoldedModelBackPlate')
-            if (funcStart >= 0) {
-                def cornerAt = text.indexOf(cornerLine, funcStart)
-                if (cornerAt >= 0) {
-                    text = text.substring(0, cornerAt) + dotVars + text.substring(cornerAt + cornerLine.length())
-                    println('Prepared folded rear card dot glow variables.')
-                } else {
-                    println('Folded back plate corner line not found; skipped dot variable insertion.')
-                }
-            }
-        }
-
-        if (!text.contains('drawCircle(brush = backDotGlow')) {
-            def rimDraw = '''        drawRoundRect(brush = rim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.76.dp.toPx()), blendMode = BlendMode.Screen)
-'''
-            def rimAndDotDraw = '''        drawRoundRect(brush = rim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.76.dp.toPx()), blendMode = BlendMode.Screen)
-        drawCircle(brush = backDotGlow, radius = 11.5.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
-        drawCircle(theme.bright.copy(alpha = 0.42f + 0.20f * press), radius = 3.1.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
-'''
-            def funcStart = text.indexOf('private fun Modifier.drawFoldedModelBackPlate')
-            if (funcStart >= 0) {
-                def rimAt = text.indexOf(rimDraw, funcStart)
-                if (rimAt >= 0) {
-                    text = text.substring(0, rimAt) + rimAndDotDraw + text.substring(rimAt + rimDraw.length())
-                    println('Restored folded rear card left dots.')
-                } else {
-                    println('Folded back plate rim draw target not found; skipped dot draw insertion.')
-                }
-            }
+            text = text.substring(0, backPlateStart) + newBackPlateFunction + text.substring(backPlateEnd)
+            println('Replaced folded rear back plate with smaller dots and stronger stacked rims.')
+        } else {
+            println('Folded back plate function not found; skipped back plate replacement.')
         }
 
         selector.setText(text, 'UTF-8')
-        println('Patched folded model stack details: width, rear labels and rear dots.')
+        println('Patched folded model stack details: original-like small rear dots and layered rims.')
     }
 }
 
