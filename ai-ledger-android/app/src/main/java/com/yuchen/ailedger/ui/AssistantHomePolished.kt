@@ -25,9 +25,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -189,10 +192,13 @@ private fun ModelAndNetworkPanel(
 @Composable
 private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    val keyboardSendMode = keyboardOpen && state.isSending
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
         if (lastMessageId != null) {
-            delay(40)
+            delay(if (keyboardOpen) 96 else 40)
             listState.scrollToItem(state.messages.lastIndex)
         }
     }
@@ -203,7 +209,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
+                    ChatStatusV2(if (keyboardOpen) "可上下滑动" else if (state.isSending) "正在思考" else "可上下滑动")
                 }
                 LazyColumn(
                     state = listState,
@@ -211,8 +217,8 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     contentPadding = PaddingValues(vertical = 3.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
-                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, reduceMotion = keyboardSendMode) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage, hiddenForKeyboard = keyboardOpen) }
                 }
             }
         }
@@ -220,11 +226,12 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
 }
 
 @Composable
-private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
+private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit, hiddenForKeyboard: Boolean) {
+    val visible = state.messages.size <= 2 && !hiddenForKeyboard
     AnimatedVisibility(
-        visible = state.messages.size <= 2,
+        visible = visible,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.72f)) { it / 2 },
-        exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
+        exit = fadeOut(tween(if (hiddenForKeyboard) 0 else 120)) + slideOutVertically(tween(if (hiddenForKeyboard) 0 else 120)) { if (hiddenForKeyboard) 0 else it / 2 }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 2.dp)) {
             Text("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -238,7 +245,11 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState, reduceMotion: Boolean) {
+    if (reduceMotion) {
+        MessageBubbleV2(message, state, reduceMotion = true)
+        return
+    }
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
@@ -249,12 +260,12 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
             scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
     ) {
-        MessageBubbleV2(message, state)
+        MessageBubbleV2(message, state, reduceMotion = false)
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, reduceMotion: Boolean) {
     val fromUser = message.role == MessageRole.User
     val fill = if (fromUser) 0.76f else 0.90f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -275,7 +286,7 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (message.status == MessageStatus.Sending && !fromUser) {
+                if (message.status == MessageStatus.Sending && !fromUser && !reduceMotion) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
                         ThinkingDotsV2(size = 6, color = Color(0xFF8DF9EA).copy(alpha = 0.88f))
@@ -316,14 +327,15 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
                 value = text,
                 onValueChange = onTextChange,
                 singleLine = true,
-                enabled = !state.isSending,
+                enabled = true,
+                readOnly = state.isSending,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
                 modifier = Modifier.fillMaxWidth()
             )
-            AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
+            if (text.isBlank() && !state.isSending) {
                 Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
