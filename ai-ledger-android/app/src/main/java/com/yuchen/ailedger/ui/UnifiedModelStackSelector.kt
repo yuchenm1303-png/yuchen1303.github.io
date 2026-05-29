@@ -272,6 +272,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val radiusBase = minOf(v.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
             val corner = CornerRadius(radiusBase, radiusBase)
             val bodyAlpha = energy * alpha * s(style.bodyAlpha, 6f)
+            val mistAlpha = energy * alpha * s(style.innerMist, 6f)
             val bodySize = Size(v.width, v.height)
             val selectedAura = s(style.selectedAura, 8f)
             val auraRamp = v.aura.coerceIn(0f, 1f)
@@ -283,6 +284,15 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                     Color(0xFF8EA2FF).copy(alpha = 0.054f * alpha * selectedAura * auraRamp),
                     Color.Transparent
                 ), Offset(v.width * -0.10f, v.height * -0.18f), Offset(v.width * 0.96f, v.height * 1.02f)
+            )
+            val innerMist = Brush.linearGradient(
+                listOf(
+                    Color.White.copy(alpha = (0.010f + bodyLight * 0.006f) * mistAlpha),
+                    Color(0xFFDFFBFF).copy(alpha = (0.018f + bodyLight * 0.010f) * mistAlpha),
+                    Color(0xFF9FB6FF).copy(alpha = 0.006f * mistAlpha),
+                    Color.Transparent,
+                    Color(0xFF000713).copy(alpha = 0.014f * mistAlpha)
+                ), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height)
             )
             val bodyVeil = Brush.verticalGradient(
                 listOf(
@@ -300,6 +310,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 if (auraRamp > 0.001f && selectedAura > 0.001f) {
                     drawRoundRect(selectedRainbowAura, topLeft = Offset(-3.2.dp.toPx(), -3.2.dp.toPx()), size = Size(v.width + 6.4.dp.toPx(), v.height + 6.4.dp.toPx()), cornerRadius = CornerRadius(radiusBase + 3.2.dp.toPx(), radiusBase + 3.2.dp.toPx()), blendMode = BlendMode.Screen)
                 }
+                if (mistAlpha > 0.001f) drawRoundRect(innerMist, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(bodyVeil, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(surfaceClear, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Multiply)
             }
