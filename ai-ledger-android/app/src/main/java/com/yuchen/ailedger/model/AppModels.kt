@@ -104,22 +104,22 @@ data class GlassBorderStyle(
 )
 
 data class ModelCardGlassStyle(
-    val bodyAlpha: Float = 0.00f,
-    val innerMist: Float = 0.72f,
-    val topHairline: Float = 1.14f,
-    val outerRim: Float = 0.56f,
-    val innerDepth: Float = 5.35f,
-    val bottomShadow: Float = 0.00f,
-    val selectedRainbowRim: Float = 8.00f,
-    val selectedOuterHalo: Float = 0.00f,
+    val bodyAlpha: Float = 0.35f,
+    val innerMist: Float = 2.50f,
+    val topHairline: Float = 0.09f,
+    val outerRim: Float = 0.24f,
+    val innerDepth: Float = 1.43f,
+    val bottomShadow: Float = 0.81f,
+    val selectedRainbowRim: Float = 7.30f,
+    val selectedOuterHalo: Float = 4.99f,
     val selectedAura: Float = 8.00f,
-    val edgeGlint: Float = 10.00f,
-    val edgeGlintRadius: Float = 1.15f,
+    val edgeGlint: Float = 5.56f,
+    val edgeGlintRadius: Float = 0.88f,
     val edgeGlintCenterX: Float = 0.38f,
     val edgeGlintCenterY: Float = 0.53f,
     val dotGlow: Float = 4.42f,
-    val unselectedEnergy: Float = 4.99f,
-    val radiusScale: Float = 0.70f
+    val unselectedEnergy: Float = 4.28f,
+    val radiusScale: Float = 0.72f
 )
 
 enum class MessageRole { Assistant, User }
