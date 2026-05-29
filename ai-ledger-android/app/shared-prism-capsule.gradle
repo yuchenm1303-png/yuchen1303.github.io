@@ -262,8 +262,28 @@ tasks.register('patchModelSelectorLightLayerMerge') {
     }
 }
 
+tasks.register('patchModelSelectorRemoveShadowElevation') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped model selector shadow patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+        def before = text
+        text = text.replaceAll(/shadowElevation\s*=\s*compression\s*\*\s*[0-9.]+f\s*\+\s*capsuleLaunch\s*\*\s*[0-9.]+f\s*\+\s*(dockGlow|glideSettle)\s*\*\s*[0-9.]+f/, 'shadowElevation = 0f')
+        if (text != before) {
+            selector.setText(text, 'UTF-8')
+            println('Removed dynamic model-card shadowElevation to prevent rectangular shadow layer.')
+        } else {
+            println('Model-card shadowElevation was already zero or target pattern was not present.')
+        }
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn tasks.named('patchSharedPrismCapsuleUsage')
     dependsOn tasks.named('patchModelSelectorGeminiBelowMistral')
     dependsOn tasks.named('patchModelSelectorLightLayerMerge')
+    dependsOn tasks.named('patchModelSelectorRemoveShadowElevation')
 }
