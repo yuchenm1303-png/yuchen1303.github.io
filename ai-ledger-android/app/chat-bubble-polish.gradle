@@ -25,6 +25,15 @@ tasks.register('patchAssistantChatBubblePolish') {
         def compactClock = '''    val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size, state.isSending) { if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex) }
 '''
+        def delayedClock = '''    val listState = rememberLazyListState()
+    val lastMessageId = state.messages.lastOrNull()?.id
+    LaunchedEffect(lastMessageId) {
+        if (lastMessageId != null) {
+            delay(40)
+            listState.scrollToItem(state.messages.lastIndex)
+        }
+    }
+'''
         def newClock = '''    val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
@@ -39,9 +48,10 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace(oldClock, newClock)
         } else if (text.contains(compactClock)) {
             text = text.replace(compactClock, newClock)
+        } else if (text.contains(delayedClock)) {
+            text = text.replace(delayedClock, newClock)
         } else if (!text.contains('val bubbleLayerState = rememberChatBubbleLayerState()')) {
-            println('ChatPanelV2 clock block not found; skipped parent bubble layer patch to preserve concurrent AssistantHomePolished changes.')
-            return
+            throw new GradleException('ChatPanelV2 clock block not found for parent bubble layer patch.')
         }
 
         def oldShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -60,8 +70,7 @@ tasks.register('patchAssistantChatBubblePolish') {
         } else if (text.contains('bubbleLayerState.updateRoot')) {
             text = text.replace('\n                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }', '')
         } else if (!text.contains('.clip(RoundedCornerShape(30.dp))')) {
-            println('Chat shell content clip target not found; skipped parent bubble layer patch safely.')
-            return
+            throw new GradleException('Chat shell content clip target not found.')
         }
 
         def oldList = '''                LazyColumn(
@@ -111,15 +120,13 @@ tasks.register('patchAssistantChatBubblePolish') {
         } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('listState = listState') && text.contains('messages = state.messages')) {
             println('LazyListState-driven parent chat bubble layer list already patched.')
         } else {
-            println('Chat list block not found; skipped parent bubble layer patch safely.')
-            return
+            throw new GradleException('Chat list block not found for LazyListState parent layer patch.')
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
         def badgeStart = text.indexOf('@Composable\nprivate fun MessageBadgeV2')
         if (bubbleStart < 0 || badgeStart < bubbleStart) {
-            println('Message bubble block not found; skipped parent bubble layer patch safely.')
-            return
+            throw new GradleException('Message bubble block not found.')
         }
         def bubble = '''@Composable
 private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
@@ -239,8 +246,7 @@ private fun MessageBubbleV2(
         def thinkingStart = text.indexOf('@Composable\nprivate fun ThinkingDotsV2')
         def pulseStart = text.indexOf('@Composable\nprivate fun PulseDotV2')
         if (thinkingStart < 0 || pulseStart < thinkingStart) {
-            println('Thinking dots block not found; skipped parent bubble layer patch safely.')
-            return
+            throw new GradleException('Thinking dots block not found.')
         }
         def thinking = '''@Composable
 private fun ThinkingDotsV2(size: Int, color: Color) {
