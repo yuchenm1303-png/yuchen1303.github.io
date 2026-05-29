@@ -156,6 +156,57 @@ private fun LightweightGlassPreview(
     }
 }
 
+tasks.register('patchModelSelectorGeminiBelowMistral') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped model selector layout patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        def layoutSlotLine = '''                val layoutSlot = when (model) {
+                    ChatModel.Auto -> 0
+                    ChatModel.Kimi -> 2
+                    ChatModel.Workers -> 4
+                    ChatModel.Mistral -> 3
+                    ChatModel.Gemini -> 5
+                }
+'''
+        if (!text.contains('ChatModel.Gemini -> 5')) {
+            def themeLine = '''                val theme = remember(model) { model.modelCardPrismTheme() }
+'''
+            if (text.contains(themeLine)) {
+                text = text.replace(themeLine, themeLine + layoutSlotLine)
+            } else {
+                throw new GradleException('Model selector theme line not found for layout slot insertion.')
+            }
+        }
+
+        def rememberOldA = 'val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, index, stackRank) {'
+        def rememberOldB = 'val geometry = remember(density.density, maxWidth, selectedModel, index, stackRank) {'
+        def rememberNew = 'val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, layoutSlot, stackRank) {'
+        if (text.contains(rememberOldA)) {
+            text = text.replace(rememberOldA, rememberNew)
+        } else if (text.contains(rememberOldB)) {
+            text = text.replace(rememberOldB, rememberNew)
+        } else if (!text.contains(rememberNew)) {
+            throw new GradleException('Model selector geometry remember target not found.')
+        }
+
+        def expandedXOld = 'val expandedX = if (index % 2 == 1) halfWidth + gap else 0.dp'
+        def expandedYOld = 'val expandedY = rowStep * (index / 2).toFloat()'
+        def expandedXNew = 'val expandedX = if (layoutSlot % 2 == 1) halfWidth + gap else 0.dp'
+        def expandedYNew = 'val expandedY = rowStep * (layoutSlot / 2).toFloat()'
+        if (text.contains(expandedXOld)) text = text.replace(expandedXOld, expandedXNew)
+        if (text.contains(expandedYOld)) text = text.replace(expandedYOld, expandedYNew)
+
+        selector.setText(text, 'UTF-8')
+        println('Patched model selector layout: Gemini is placed below Mistral on the right column.')
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn tasks.named('patchSharedPrismCapsuleUsage')
+    dependsOn tasks.named('patchModelSelectorGeminiBelowMistral')
 }
