@@ -48,4 +48,5 @@ dependencies {
 apply from: 'chat-bubble-polish.gradle'
 apply from: 'shared-prism-capsule.gradle'
 apply from: 'fix-assistant-home-compile.gradle'
+apply from: 'model-selector-folded-stack.gradle'
 apply from: 'network-droplet-light-preset.gradle'
