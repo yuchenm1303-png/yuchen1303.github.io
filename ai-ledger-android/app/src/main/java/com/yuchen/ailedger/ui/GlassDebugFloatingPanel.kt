@@ -6,10 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -178,15 +176,16 @@ private fun ModelCardGlassLab(state: AssistantUiState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("实时样本", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Text("拖动下方滑块，Kimi 选中卡和未选中卡会立即变化", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("点击样本卡片可预览选中光效，拖动下方滑块会立即变化", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text("Preview", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Clickable", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
             }
             ModelCardGlassLabPreview(state = state, modifier = Modifier.fillMaxWidth().height(188.dp))
         }
     }
-    ModelCardControlGroup("主体与轮廓", "透明底、圆角、未选中能量", state, true) {
+    ModelCardControlGroup("主体与轮廓", "透明底、雾面、圆角、未选中能量", state, true) {
         LabSlider("主体雾面", "卡片内部基础雾面强度", style.bodyAlpha, 0f..6f) { ModelCardGlassLabState.update(style.copy(bodyAlpha = it)) }
+        LabSlider("内部雾面", "玻璃内部柔雾提亮，不影响边缘线", style.innerMist, 0f..6f) { ModelCardGlassLabState.update(style.copy(innerMist = it)) }
         LabSlider("圆角倍率", "模型卡圆角半径倍率", style.radiusScale, 0.2f..3f) { ModelCardGlassLabState.update(style.copy(radiusScale = it)) }
         LabSlider("未选中强度", "非当前模型卡片整体可见度", style.unselectedEnergy, 0f..5f) { ModelCardGlassLabState.update(style.copy(unselectedEnergy = it)) }
     }
@@ -212,7 +211,7 @@ private fun ModelCardGlassLab(state: AssistantUiState) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         LabActionButton("重置模型卡", "恢复默认参数", state, Modifier.weight(1f)) { ModelCardGlassLabState.reset() }
-        LabActionButton("实时调试", "样本已在上方", state, Modifier.weight(1f)) { }
+        LabActionButton("实时调试", "点击上方样本预览", state, Modifier.weight(1f)) { }
     }
 }
 
