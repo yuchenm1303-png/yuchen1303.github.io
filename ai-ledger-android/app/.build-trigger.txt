@@ -1,5 +1,3 @@
-Thinking bubble sweep direction update.
-Source commit:
-- 59f1d623b02fa9c0b2fac9faf9759a7a1d19c4f7
-Change: sending/thinking bubble wide sweep now moves left-to-right only and restarts from off-screen left instead of ping-ponging.
-Trigger path: ai-ledger-android/app/.build-trigger.txt
+Rollback target: 83176052dd2a6c7e9c8c000d06b063bb0805d754
+Purpose: trigger Build Compose Android APK after rollback.
+App source code remains at the rollback baseline.
