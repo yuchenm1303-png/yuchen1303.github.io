@@ -1,7 +1,6 @@
-Thinking bubble sweep enhancement.
-Source commit:
-- dc098b47ddc7285a905ad5fbfd2e0fce308ac33c
-Changes:
-- Brighten sending/thinking wide sweep band substantially.
-- Make sending/thinking edge prism and satin highlight scan left-to-right with the wide band instead of ping-ponging.
+Rollback target: d89a9fea54eb578bab3975607f0470847f9e4374
+Purpose: trigger Build Compose Android APK after rollback.
+App source code remains at the rollback baseline.
+
+Recovered from broken chat bubble action UI.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
