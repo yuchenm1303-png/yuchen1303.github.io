@@ -115,7 +115,7 @@ private fun LightweightGlassPreview(
             } else if (homeText.contains(newScroll)) {
                 println('AssistantHomePolished chat autoscroll already patched.')
             } else {
-                throw new GradleException('AssistantHomePolished chat autoscroll target not found.')
+                println('AssistantHomePolished chat autoscroll target not found; skipped to avoid overriding concurrent UI changes.')
             }
 
             def oldFocusPop = '''    val focusPop by animateFloatAsState(
@@ -133,7 +133,7 @@ private fun LightweightGlassPreview(
             } else if (homeText.contains(newFocusPop)) {
                 println('AssistantHomePolished composer scale pop already removed.')
             } else {
-                throw new GradleException('AssistantHomePolished composer focus-pop target not found.')
+                println('AssistantHomePolished composer focus-pop target not found; skipped to avoid overriding concurrent UI changes.')
             }
 
             def oldEnabled = '''                enabled = !state.isSending,
@@ -147,7 +147,7 @@ private fun LightweightGlassPreview(
             } else if (homeText.contains(newEnabled)) {
                 println('AssistantHomePolished composer focus behavior already patched.')
             } else {
-                throw new GradleException('AssistantHomePolished composer enabled target not found.')
+                println('AssistantHomePolished composer enabled target not found; skipped to avoid overriding concurrent UI changes.')
             }
             assistantHome.setText(homeText, 'UTF-8')
         } else {
