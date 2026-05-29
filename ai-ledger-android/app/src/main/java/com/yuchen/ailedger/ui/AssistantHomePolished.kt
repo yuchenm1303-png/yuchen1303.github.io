@@ -87,7 +87,11 @@ fun AssistantScreenV2(
             AssistantHeroV2(state = state)
         }
         AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
-            ModelAndNetworkPanel(state = state, onModelSelected = onModelSelected)
+            ModelAndNetworkPanel(
+                state = state,
+                onModelSelected = onModelSelected,
+                onToggleOnline = onToggleOnline
+            )
         }
         AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
             ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
@@ -98,7 +102,6 @@ fun AssistantScreenV2(
     }
     onOpenTools.hashCode()
     onOpenSettings.hashCode()
-    onToggleOnline.hashCode()
 }
 
 @Composable
@@ -135,7 +138,11 @@ private fun AssistantHeroV2(state: AssistantUiState) {
 }
 
 @Composable
-private fun ModelAndNetworkPanel(state: AssistantUiState, onModelSelected: (ChatModel) -> Unit) {
+private fun ModelAndNetworkPanel(
+    state: AssistantUiState,
+    onModelSelected: (ChatModel) -> Unit,
+    onToggleOnline: () -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
     val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
@@ -144,18 +151,35 @@ private fun ModelAndNetworkPanel(state: AssistantUiState, onModelSelected: (Chat
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
-    UnifiedParentModelStackSelector(
-        state = state,
-        expanded = expanded,
+    Row(
         modifier = Modifier.fillMaxWidth().height(panelHeight),
-        onToggleExpanded = { if (!state.isSending) expanded = !expanded },
-        onSelected = { model ->
-            if (!state.isSending) {
-                onModelSelected(model)
-                expanded = false
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        UnifiedParentModelStackSelector(
+            state = state,
+            expanded = expanded,
+            modifier = Modifier.weight(1f).height(panelHeight),
+            onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+            onSelected = { model ->
+                if (!state.isSending) {
+                    onModelSelected(model)
+                    expanded = false
+                }
             }
+        )
+        Box(
+            modifier = Modifier.weight(0.54f).height(panelHeight),
+            contentAlignment = Alignment.Center
+        ) {
+            NetworkDropletCapsule(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.isSending,
+                onClick = onToggleOnline
+            )
         }
-    )
+    }
 }
 
 @Composable
