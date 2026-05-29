@@ -148,6 +148,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     state = state,
                                     onComposerChange = viewModel::updateComposer,
                                     onSend = viewModel::submitComposer,
+                                    onStopGenerating = viewModel::stopGenerating,
                                     onDraftCommand = viewModel::insertCommandDraft,
                                     onModelSelected = viewModel::selectModel,
                                     onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
