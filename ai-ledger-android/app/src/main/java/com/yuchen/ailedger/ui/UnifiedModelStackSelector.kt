@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -57,7 +58,6 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val ModelPressPreload = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.00f)
@@ -142,9 +142,11 @@ internal fun UnifiedParentModelStackSelector(
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0).toLong()
-                    val travelDuration = if (expanded) (360 + stackRank * 44).coerceAtMost(548) else if (selected) 520 else 340 + reverseRank.toInt() * 42
-                    val settleDuration = if (expanded) 285 else 250
-                    val overshootTarget = if (expanded) 1.070f else -0.070f
+                    val travelDuration = if (expanded) {
+                        (660 + stackRank * 54).coerceAtMost(860)
+                    } else {
+                        if (selected) 780 else 610 + reverseRank.toInt() * 54
+                    }
 
                     launch {
                         capsuleAnim.stop()
@@ -154,8 +156,7 @@ internal fun UnifiedParentModelStackSelector(
                     }
 
                     travelAnim.stop()
-                    travelAnim.animateTo(overshootTarget, tween(durationMillis = travelDuration, easing = if (expanded) ModelCapsuleTravel else FastOutSlowInEasing))
-                    travelAnim.animateTo(target, tween(durationMillis = settleDuration, easing = ModelCapsuleBrake))
+                    travelAnim.animateTo(target, tween(durationMillis = travelDuration, easing = LinearEasing))
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -165,18 +166,17 @@ internal fun UnifiedParentModelStackSelector(
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
                 val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
-                val rawTravelProgress = travelAnim.value
-                val targetProgress = rawTravelProgress.coerceIn(0f, 1f)
-                val arrivalBrake = modelSmooth(((if (expanded) rawTravelProgress - 1f else -rawTravelProgress) / 0.070f).coerceIn(0f, 1f))
+                val rawTravelProgress = travelAnim.value.coerceIn(0f, 1f)
+                val travelPhase = if (expanded) rawTravelProgress else 1f - rawTravelProgress
+                val pathProgress = modelCapsuleOvershootPath(travelPhase)
+                val p = if (expanded) pathProgress else 1f - pathProgress
+                val targetProgress = p.coerceIn(0f, 1f)
+                val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
+                val arrivalBrake = modelSmooth((overshootAmount / 0.090f).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
-                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.28f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
+                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.30f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
 
-                val easedProgress = modelStackEase(targetProgress)
-                val p = when {
-                    rawTravelProgress < 0f -> rawTravelProgress
-                    rawTravelProgress > 1f -> rawTravelProgress
-                    else -> easedProgress
-                }
+                val easedProgress = targetProgress
                 val width = modelLerpDp(collapsedWidth, halfWidth, easedProgress)
                 val height = modelLerpDp(collapsedHeight, expandedHeight, easedProgress)
                 val expandedX = if (index % 2 == 1) halfWidth + gap else 0.dp
@@ -197,8 +197,8 @@ internal fun UnifiedParentModelStackSelector(
                 val alpha = modelLerpFloat(if (selected) 1f else 0.52f, 1f, easedProgress)
                 val baseW = with(density) { width.toPx() }
                 val baseH = with(density) { height.toPx() }
-                val arrivalScaleX = arrivalBrake * (0.011f * horizontalMotion - 0.004f * verticalMotion)
-                val arrivalScaleY = arrivalBrake * (0.009f * verticalMotion - 0.006f * horizontalMotion)
+                val arrivalScaleX = arrivalBrake * (0.013f * horizontalMotion - 0.004f * verticalMotion)
+                val arrivalScaleY = arrivalBrake * (0.010f * verticalMotion - 0.007f * horizontalMotion)
                 val scaleX = selectedPulse * (1f + compression * 0.044f - rebound * 0.012f + capsuleLaunch * 0.026f + arrivalScaleX)
                 val scaleY = selectedPulse * (1f - compression * 0.054f + rebound * 0.024f - capsuleLaunch * 0.017f + arrivalScaleY)
                 val sinkY = compression * 3.70f - rebound * 1.05f + capsuleLaunch * 0.72f + arrivalBrake * 0.08f
@@ -424,73 +424,12 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val pullY = verticalTilt * compression * 0.052f
             val pullStart = Offset(v.width * (-0.10f + pullX), v.height * (-0.18f + pullY))
             val pullEnd = Offset(v.width * (1.10f + pullX), v.height * (1.14f + pullY))
-            val aura = Brush.linearGradient(
-                listOf(
-                    theme.main.copy(alpha = (0.048f + 0.062f * themePower) * auraPower),
-                    theme.bright.copy(alpha = 0.014f * auraPower),
-                    theme.prismB.copy(alpha = (0.018f + 0.024f * themePower) * auraPower),
-                    theme.gold.copy(alpha = 0.010f * auraPower),
-                    theme.prismC.copy(alpha = 0.016f * auraPower),
-                    Color.Transparent
-                ),
-                Offset(v.width * -0.14f, v.height * -0.20f),
-                Offset(v.width * 1.08f, v.height * 1.10f)
-            )
-            val refractedBackdrop = Brush.linearGradient(
-                listOf(
-                    theme.deep.copy(alpha = 0.160f * refraction),
-                    theme.main.copy(alpha = (0.070f + 0.075f * themePower) * refraction),
-                    Color(0xFF050D24).copy(alpha = 0.176f * refraction),
-                    theme.prismC.copy(alpha = (0.040f + 0.045f * themePower) * refraction),
-                    Color(0xFF020716).copy(alpha = 0.208f * refraction)
-                ),
-                pullStart,
-                pullEnd
-            )
-            val refractedCyan = Brush.linearGradient(
-                listOf(
-                    Color.Transparent,
-                    theme.prismA.copy(alpha = 0.080f * refraction + 0.050f * leftWeight),
-                    Color.Transparent,
-                    theme.main.copy(alpha = (0.044f + 0.090f * themePower) * centerWeight),
-                    Color.Transparent
-                ),
-                Offset(v.width * (-0.26f + pullX * 0.65f), v.height * 0.00f),
-                Offset(v.width * (0.96f + pullX * 0.65f), v.height * 0.92f)
-            )
-            val refractedMagenta = Brush.linearGradient(
-                listOf(
-                    Color.Transparent,
-                    theme.prismB.copy(alpha = 0.048f * refraction + 0.030f * rightWeight),
-                    Color.Transparent,
-                    theme.gold.copy(alpha = 0.030f * topWeight),
-                    Color.Transparent
-                ),
-                Offset(v.width * (1.18f + pullX * 0.50f), v.height * -0.08f),
-                Offset(v.width * (-0.18f + pullX * 0.50f), v.height * 1.02f)
-            )
-            val pressureBend = Brush.radialGradient(
-                listOf(
-                    Color.Transparent,
-                    theme.deep.copy(alpha = 0.092f * compression + 0.026f * centerWeight),
-                    Color(0xFF00040D).copy(alpha = 0.112f * compression),
-                    Color.Transparent
-                ),
-                materialCenter,
-                maxOf(v.width, v.height) * (0.66f + 0.08f * compression)
-            )
-            val fixedPrismField = Brush.linearGradient(
-                listOf(
-                    Color.Transparent,
-                    theme.prismA.copy(alpha = 0.036f * prismPower + 0.030f * leftWeight),
-                    theme.main.copy(alpha = (0.050f + 0.084f * themePower) * prismPower + 0.038f * centerWeight),
-                    theme.prismB.copy(alpha = 0.026f * prismPower + 0.020f * rightWeight),
-                    theme.gold.copy(alpha = 0.028f * prismPower + 0.024f * topWeight),
-                    Color.Transparent
-                ),
-                Offset(v.width * -0.16f, v.height * -0.12f),
-                Offset(v.width * 1.14f, v.height * 1.10f)
-            )
+            val aura = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.048f + 0.062f * themePower) * auraPower), theme.bright.copy(alpha = 0.014f * auraPower), theme.prismB.copy(alpha = (0.018f + 0.024f * themePower) * auraPower), theme.gold.copy(alpha = 0.010f * auraPower), theme.prismC.copy(alpha = 0.016f * auraPower), Color.Transparent), Offset(v.width * -0.14f, v.height * -0.20f), Offset(v.width * 1.08f, v.height * 1.10f))
+            val refractedBackdrop = Brush.linearGradient(listOf(theme.deep.copy(alpha = 0.160f * refraction), theme.main.copy(alpha = (0.070f + 0.075f * themePower) * refraction), Color(0xFF050D24).copy(alpha = 0.176f * refraction), theme.prismC.copy(alpha = (0.040f + 0.045f * themePower) * refraction), Color(0xFF020716).copy(alpha = 0.208f * refraction)), pullStart, pullEnd)
+            val refractedCyan = Brush.linearGradient(listOf(Color.Transparent, theme.prismA.copy(alpha = 0.080f * refraction + 0.050f * leftWeight), Color.Transparent, theme.main.copy(alpha = (0.044f + 0.090f * themePower) * centerWeight), Color.Transparent), Offset(v.width * (-0.26f + pullX * 0.65f), v.height * 0.00f), Offset(v.width * (0.96f + pullX * 0.65f), v.height * 0.92f))
+            val refractedMagenta = Brush.linearGradient(listOf(Color.Transparent, theme.prismB.copy(alpha = 0.048f * refraction + 0.030f * rightWeight), Color.Transparent, theme.gold.copy(alpha = 0.030f * topWeight), Color.Transparent), Offset(v.width * (1.18f + pullX * 0.50f), v.height * -0.08f), Offset(v.width * (-0.18f + pullX * 0.50f), v.height * 1.02f))
+            val pressureBend = Brush.radialGradient(listOf(Color.Transparent, theme.deep.copy(alpha = 0.092f * compression + 0.026f * centerWeight), Color(0xFF00040D).copy(alpha = 0.112f * compression), Color.Transparent), materialCenter, maxOf(v.width, v.height) * (0.66f + 0.08f * compression))
+            val fixedPrismField = Brush.linearGradient(listOf(Color.Transparent, theme.prismA.copy(alpha = 0.036f * prismPower + 0.030f * leftWeight), theme.main.copy(alpha = (0.050f + 0.084f * themePower) * prismPower + 0.038f * centerWeight), theme.prismB.copy(alpha = 0.026f * prismPower + 0.020f * rightWeight), theme.gold.copy(alpha = 0.028f * prismPower + 0.024f * topWeight), Color.Transparent), Offset(v.width * -0.16f, v.height * -0.12f), Offset(v.width * 1.14f, v.height * 1.10f))
             val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.004f + v.text * 0.002f + v.delayed * 0.001f) * mist), theme.bright.copy(alpha = (0.007f + v.text * 0.003f + v.delayed * 0.002f) * mist), theme.prismC.copy(alpha = 0.004f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.018f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
             val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.018f + v.text * 0.004f + v.delayed * 0.002f) * body), theme.main.copy(alpha = (0.014f + v.text * 0.012f + v.delayed * 0.005f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.152f * body)), 0f, v.height)
             val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.034f * body), Color(0xFF00040C).copy(alpha = 0.080f * body)), materialCenter, maxOf(v.width, v.height) * 0.78f)
@@ -586,6 +525,14 @@ private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end 
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
 private fun modelSmooth(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * (3f - 2f * x) }
+private fun modelCapsuleOvershootPath(phase: Float): Float {
+    val x = phase.coerceIn(0f, 1f)
+    val base = ModelCapsuleTravel.transform(x)
+    val enter = modelSmooth(((x - 0.50f) / 0.26f).coerceIn(0f, 1f))
+    val leave = 1f - modelSmooth(((x - 0.80f) / 0.20f).coerceIn(0f, 1f))
+    val brakePulse = enter * leave
+    return base + brakePulse * 0.092f
+}
 private fun modelStackEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     val smooth = modelSmooth(p)
