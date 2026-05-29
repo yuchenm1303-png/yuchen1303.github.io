@@ -123,17 +123,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     if (!ENABLE_OPENGL_GLASS_PROBE) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
                     OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
-                        CachedAppTabHost(
-                            currentTab = state.currentTab,
+                        Box(
                             modifier = Modifier
                                 .zIndex(0f)
                                 .fillMaxSize()
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
                                 .padding(horizontal = 12.dp)
-                                .padding(bottom = 44.dp)
-                        ) { tab ->
-                            when (tab) {
+                        ) {
+                            when (state.currentTab) {
                                 AppTab.Assistant -> AssistantScreenV2(
                                     state = state,
                                     onComposerChange = viewModel::updateComposer,
@@ -204,15 +202,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 @Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
     val blur = if (quality.enableMotion) 10.dp else 0.dp
-    val height = if (quality.enableMotion) 86.dp else 64.dp
-    val bottomAlpha = if (quality.enableMotion) 0x72 else 0x50
+    val height = if (quality.enableMotion) 82.dp else 60.dp
+    val bottomAlpha = if (quality.enableMotion) 0x64 else 0x46
     Box(
         modifier = modifier.fillMaxWidth().height(height).blur(blur).background(
             Brush.verticalGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0x1208142C),
-                    Color(0x3E08142C),
+                    Color(0x0E08142C),
+                    Color(0x3008142C),
                     Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
                 )
             )
