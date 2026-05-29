@@ -206,7 +206,64 @@ tasks.register('patchModelSelectorGeminiBelowMistral') {
     }
 }
 
+tasks.register('patchModelSelectorLightLayerMerge') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped model selector light-layer patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        if (!text.contains('val pressMaterial =') && text.contains('val pressureBend =') && text.contains('val prismField =')) {
+            def pressureLine = '''    val pressureBend = Brush.radialGradient(listOf(Color.Transparent, theme.deep.copy(alpha = 0.092f * compression), Color(0xFF00040D).copy(alpha = 0.112f * compression), Color.Transparent), materialCenter, maxOf(size.width, size.height) * (0.66f + 0.08f * compression))
+'''
+            def prismLine = '''    val prismField = Brush.linearGradient(listOf(Color.Transparent, theme.prismA.copy(alpha = 0.038f * optics), theme.main.copy(alpha = (0.060f + 0.084f * themeBoost) * optics), theme.prismB.copy(alpha = 0.030f * optics), theme.gold.copy(alpha = 0.026f * optics), Color.Transparent), Offset(size.width * -0.16f, size.height * -0.12f), Offset(size.width * 1.14f, size.height * 1.10f))
+'''
+            def pressMaterialLine = '''    val pressMaterial = Brush.radialGradient(listOf(Color.Transparent, theme.deep.copy(alpha = 0.080f * compression), theme.main.copy(alpha = (0.050f + 0.060f * themeBoost) * optics), theme.prismA.copy(alpha = 0.032f * optics), theme.gold.copy(alpha = 0.020f * optics), Color.Transparent), materialCenter, maxOf(size.width, size.height) * (0.72f + 0.12f * compression))
+'''
+            if (text.contains(pressureLine) && text.contains(prismLine)) {
+                text = text.replace(pressureLine + prismLine, pressMaterialLine)
+            } else {
+                println('Model selector press light exact definitions not found; skipped press light merge.')
+            }
+        }
+
+        if (!text.contains('val combinedRim =') && text.contains('val outerRim =') && text.contains('val stackRim =')) {
+            def outerLine = '''    val outerRim = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.260f * rimPower * s(style.outerRim)), Color(0xFFF1FFFF).copy(alpha = 0.082f * rimPower * s(style.outerRim)), theme.main.copy(alpha = (0.150f + 0.170f * themeBoost) * rimPower * s(style.outerRim)), Color.Transparent, theme.deep.copy(alpha = 0.225f * rimPower * s(style.bottomShadow)), theme.prismC.copy(alpha = 0.072f * rimPower * s(style.outerRim))), Offset.Zero, Offset(size.width, size.height))
+'''
+            def stackLine = '''    val stackRim = Brush.linearGradient(listOf(Color.Transparent, theme.prismC.copy(alpha = 0.040f * rimPower * stackBoost), theme.main.copy(alpha = (0.120f + 0.110f * themeBoost) * rimPower * stackBoost), theme.bright.copy(alpha = 0.330f * rimPower * stackBoost)), Offset(size.width * 0.64f, size.height * 0.24f), Offset(size.width, size.height))
+'''
+            def combinedLine = '''    val combinedRim = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.260f * rimPower * s(style.outerRim) + 0.070f * rimPower * stackBoost), Color(0xFFF1FFFF).copy(alpha = 0.082f * rimPower * s(style.outerRim)), theme.main.copy(alpha = (0.150f + 0.170f * themeBoost) * rimPower * s(style.outerRim) + (0.112f + 0.092f * themeBoost) * rimPower * stackBoost), Color.Transparent, theme.deep.copy(alpha = 0.225f * rimPower * s(style.bottomShadow)), theme.prismC.copy(alpha = 0.072f * rimPower * s(style.outerRim) + 0.090f * rimPower * stackBoost)), Offset.Zero, Offset(size.width, size.height))
+'''
+            if (text.contains(outerLine) && text.contains(stackLine)) {
+                text = text.replace(outerLine, combinedLine)
+                text = text.replace(stackLine, '')
+            } else {
+                println('Model selector rim exact definitions not found; skipped rim merge.')
+            }
+        }
+
+        def oldPressDraw = '''        if (press > 0.001f) { drawRoundRect(pressureBend, size = size, cornerRadius = corner, blendMode = BlendMode.Multiply); drawRoundRect(prismField, size = size, cornerRadius = corner, blendMode = BlendMode.Screen) }
+'''
+        def newPressDraw = '''        if (press > 0.001f) drawRoundRect(pressMaterial, size = size, cornerRadius = corner, blendMode = BlendMode.Screen)
+'''
+        if (text.contains(oldPressDraw)) text = text.replace(oldPressDraw, newPressDraw)
+
+        def oldRimDraw = '''        drawRoundRect(brush = outerRim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
+        if (collapsedReveal > 0.001f) drawRoundRect(brush = stackRim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(1.18.dp.toPx()), blendMode = BlendMode.Screen)
+'''
+        def newRimDraw = '''        drawRoundRect(brush = combinedRim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.96.dp.toPx() + 0.20.dp.toPx() * collapsedReveal), blendMode = BlendMode.Screen)
+'''
+        if (text.contains(oldRimDraw)) text = text.replace(oldRimDraw, newRimDraw)
+
+        selector.setText(text, 'UTF-8')
+        println('Patched model selector light layers: press material and rim layers are merged when source matches.')
+    }
+}
+
 tasks.named('preBuild') {
     dependsOn tasks.named('patchSharedPrismCapsuleUsage')
     dependsOn tasks.named('patchModelSelectorGeminiBelowMistral')
+    dependsOn tasks.named('patchModelSelectorLightLayerMerge')
 }
