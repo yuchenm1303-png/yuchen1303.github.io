@@ -144,9 +144,9 @@ internal fun UnifiedParentModelStackSelector(
                     val target = if (expanded) 1f else 0f
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0).toLong()
                     val travelDuration = if (expanded) {
-                        (660 + stackRank * 54).coerceAtMost(860)
+                        (360 + stackRank * 44).coerceAtMost(548)
                     } else {
-                        if (selected) 780 else 610 + reverseRank.toInt() * 54
+                        if (selected) 520 else 340 + reverseRank.toInt() * 42
                     }
 
                     launch {
@@ -396,6 +396,7 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
             val c = Offset(size.width / 2f, size.height / 2f)
             val selected = selection.coerceIn(0f, 1f)
             val press = materialPress.coerceIn(0f, 1f)
+            val autoRainbow = theme.themeWeight <= 0.01f
             val coreAlpha = (0.70f * (1f - selected) + 0.94f * selected + 0.09f * press).coerceIn(0f, 1f)
             val themeLift = selected * theme.themeWeight
             val idleGlow = Brush.radialGradient(
@@ -419,11 +420,26 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
                 c,
                 size.minDimension * (0.78f + 0.20f * press)
             )
+            val rainbowRing = Brush.sweepGradient(
+                listOf(
+                    theme.prismA.copy(alpha = 0.78f),
+                    theme.gold.copy(alpha = 0.76f),
+                    theme.prismB.copy(alpha = 0.78f),
+                    theme.prismC.copy(alpha = 0.78f),
+                    theme.prismA.copy(alpha = 0.78f)
+                ),
+                c
+            )
             onDrawBehind {
                 drawCircle(idleGlow, radius = size.minDimension * 0.47f, center = c, blendMode = BlendMode.Screen)
                 if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.66f, center = c, blendMode = BlendMode.Screen)
-                drawCircle(theme.main.copy(alpha = 0.82f * selected + 0.26f * press), radius = size.minDimension * (0.22f + 0.045f * selected + 0.026f * press), center = c)
-                drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.090f + 0.014f * press), center = c)
+                if (autoRainbow) {
+                    drawCircle(rainbowRing, radius = size.minDimension * (0.245f + 0.020f * selected + 0.018f * press), center = c, style = Stroke(size.minDimension * 0.070f), blendMode = BlendMode.Screen)
+                    drawCircle(Color.White.copy(alpha = 0.24f + 0.15f * selected + 0.08f * press), radius = size.minDimension * (0.120f + 0.012f * press), center = c, blendMode = BlendMode.Screen)
+                } else {
+                    drawCircle(theme.main.copy(alpha = 0.82f * selected + 0.26f * press), radius = size.minDimension * (0.22f + 0.045f * selected + 0.026f * press), center = c)
+                    drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.090f + 0.014f * press), center = c)
+                }
             }
         },
         contentAlignment = Alignment.Center
