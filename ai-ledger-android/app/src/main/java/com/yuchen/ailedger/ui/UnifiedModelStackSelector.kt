@@ -174,7 +174,7 @@ internal fun UnifiedParentModelStackSelector(
                 val targetProgress = p.coerceIn(0f, 1f)
                 val stackReveal = 1f - targetProgress
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
-                val arrivalBrake = modelSmooth((overshootAmount / 0.090f).coerceIn(0f, 1f))
+                val arrivalBrake = modelSmooth((overshootAmount / 0.072f).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
                 val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.30f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
 
@@ -592,11 +592,25 @@ private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end 
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
 private fun modelSmooth(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * (3f - 2f * x) }
+private fun modelEaseInOut(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
+}
 private fun modelCapsuleOvershootPath(phase: Float): Float {
     val x = phase.coerceIn(0f, 1f)
-    val base = ModelCapsuleTravel.transform(x)
-    val enter = modelSmooth(((x - 0.50f) / 0.26f).coerceIn(0f, 1f))
-    val leave = 1f - modelSmooth(((x - 0.80f) / 0.20f).coerceIn(0f, 1f))
-    val brakePulse = enter * leave
-    return base + brakePulse * 0.092f
+    val far = 1.072f
+    return when {
+        x < 0.42f -> {
+            val t = x / 0.42f
+            0.48f * t * t
+        }
+        x < 0.84f -> {
+            val t = (x - 0.42f) / 0.42f
+            modelLerpRawFloat(0.48f, far, 1f - (1f - t) * (1f - t))
+        }
+        else -> {
+            val t = (x - 0.84f) / 0.16f
+            modelLerpRawFloat(far, 1f, modelEaseInOut(t))
+        }
+    }
 }
