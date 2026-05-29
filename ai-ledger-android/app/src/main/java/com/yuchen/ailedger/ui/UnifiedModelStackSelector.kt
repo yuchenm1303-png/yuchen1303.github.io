@@ -199,6 +199,7 @@ internal fun UnifiedParentModelStackSelector(
                         if (selected) 262L else reverseRank * 42L
                     }
                     val travelDuration = if (expanded) 440 else 360
+                    val arrivalLead = if (expanded) 132 else 116
 
                     arrivalAnim.stop()
                     arrivalAnim.snapTo(0f)
@@ -213,10 +214,14 @@ internal fun UnifiedParentModelStackSelector(
 
                     delay(travelDelay)
                     travelAnim.stop()
+                    launch {
+                        delay((travelDuration - arrivalLead).coerceAtLeast(0).toLong())
+                        arrivalAnim.stop()
+                        arrivalAnim.snapTo(0f)
+                        arrivalAnim.animateTo(if (expanded) 1f else 0.88f, tween(durationMillis = arrivalLead, easing = ModelCapsuleTravel))
+                        arrivalAnim.animateTo(0f, tween(durationMillis = if (expanded) 285 else 250, easing = ModelCapsuleBrake))
+                    }
                     travelAnim.animateTo(target, tween(durationMillis = travelDuration, easing = if (expanded) ModelCapsuleTravel else FastOutSlowInEasing))
-                    arrivalAnim.snapTo(0f)
-                    arrivalAnim.animateTo(if (expanded) 1f else 0.88f, tween(durationMillis = if (expanded) 96 else 82, easing = ModelCapsuleTravel))
-                    arrivalAnim.animateTo(0f, tween(durationMillis = if (expanded) 285 else 250, easing = ModelCapsuleBrake))
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
