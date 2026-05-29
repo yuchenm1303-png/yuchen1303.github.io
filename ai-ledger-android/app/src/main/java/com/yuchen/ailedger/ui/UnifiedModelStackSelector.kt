@@ -343,125 +343,138 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val press = v.press.coerceIn(0f, 1.12f)
             val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
             val optics = modelSmooth((maxOf(v.delayed, press * 0.72f) / 1.04f).coerceIn(0f, 1f))
-            val rainbowPower = (optics * 1.35f + compression * 0.55f).coerceIn(0f, 1.75f)
-            val prismPower = (rainbowPower * (1.18f + 0.72f * compression)).coerceIn(0f, 2.55f)
+            val refraction = (optics * 1.05f + compression * 0.34f).coerceIn(0f, 1.45f)
+            val prismPower = (optics * 0.78f + compression * 0.32f).coerceIn(0f, 1.10f)
             val selectedGlow = v.text.coerceIn(0f, 1f)
             val auraPower = alpha * selectedGlow * s(style.selectedAura, 8f)
             val px = v.center.x.coerceIn(0f, 1f)
             val py = v.center.y.coerceIn(0f, 1f)
-            val leftWeight = (1f - px) * prismPower
-            val rightWeight = px * prismPower
-            val topWeight = (1f - py) * prismPower
-            val bottomWeight = py * prismPower
-            val centerWeight = (1f - (abs(px - 0.5f) + abs(py - 0.5f)).coerceIn(0f, 1f)) * prismPower
+            val leftWeight = (1f - px) * refraction
+            val rightWeight = px * refraction
+            val topWeight = (1f - py) * refraction
+            val bottomWeight = py * refraction
+            val centerWeight = (1f - (abs(px - 0.5f) + abs(py - 0.5f)).coerceIn(0f, 1f)) * refraction
             val horizontalTilt = (px - 0.5f) * 2f
             val verticalTilt = (py - 0.5f) * 2f
             val materialCenter = Offset(v.width * 0.52f, v.height * 0.50f)
+            val pullX = horizontalTilt * compression * 0.030f
+            val pullY = verticalTilt * compression * 0.045f
+            val pullStart = Offset(v.width * (-0.10f + pullX), v.height * (-0.18f + pullY))
+            val pullEnd = Offset(v.width * (1.10f + pullX), v.height * (1.14f + pullY))
             val aura = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.036f * auraPower),
-                    Color.White.copy(alpha = 0.020f * auraPower),
-                    Color(0xFFFF7BDA).copy(alpha = 0.028f * auraPower),
-                    Color(0xFFFFE58A).copy(alpha = 0.018f * auraPower),
-                    Color(0xFF8EA2FF).copy(alpha = 0.024f * auraPower),
+                    Color(0xFF77FFF0).copy(alpha = 0.032f * auraPower),
+                    Color.White.copy(alpha = 0.014f * auraPower),
+                    Color(0xFFFF7BDA).copy(alpha = 0.022f * auraPower),
+                    Color(0xFFFFE58A).copy(alpha = 0.014f * auraPower),
+                    Color(0xFF8EA2FF).copy(alpha = 0.020f * auraPower),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.14f, v.height * -0.20f),
                 Offset(v.width * 1.08f, v.height * 1.10f)
             )
-            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.006f + v.text * 0.003f + v.delayed * 0.002f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.012f + v.text * 0.004f + v.delayed * 0.004f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.005f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.017f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
-            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.030f + v.text * 0.006f + v.delayed * 0.004f) * body), Color(0xFFB8F7FF).copy(alpha = (0.020f + v.text * 0.006f + v.delayed * 0.008f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.132f * body)), 0f, v.height)
-            val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.028f * body), Color(0xFF00040C).copy(alpha = 0.070f * body)), materialCenter, maxOf(v.width, v.height) * 0.78f)
-            val fixedRainbowField = Brush.linearGradient(
+            val refractedBackdrop = Brush.linearGradient(
+                listOf(
+                    Color(0xFF07142D).copy(alpha = 0.150f * refraction),
+                    Color(0xFF102A58).copy(alpha = 0.115f * refraction),
+                    Color(0xFF050D24).copy(alpha = 0.170f * refraction),
+                    Color(0xFF12305F).copy(alpha = 0.090f * refraction),
+                    Color(0xFF020716).copy(alpha = 0.190f * refraction)
+                ),
+                pullStart,
+                pullEnd
+            )
+            val refractedCyan = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF66FFF1).copy(alpha = 0.120f * prismPower + 0.060f * leftWeight + 0.032f * topWeight),
-                    Color(0xFF87A0FF).copy(alpha = 0.095f * prismPower + 0.060f * centerWeight),
-                    Color(0xFFFF70D9).copy(alpha = 0.130f * prismPower + 0.070f * rightWeight + 0.034f * bottomWeight),
-                    Color(0xFFFFDD86).copy(alpha = 0.095f * prismPower + 0.064f * topWeight + 0.035f * rightWeight),
-                    Color(0xFF6EFFF3).copy(alpha = 0.082f * prismPower + 0.050f * bottomWeight),
+                    Color(0xFF62FFF0).copy(alpha = 0.075f * refraction + 0.045f * leftWeight),
+                    Color.Transparent,
+                    Color(0xFF8EA2FF).copy(alpha = 0.040f * centerWeight),
+                    Color.Transparent
+                ),
+                Offset(v.width * (-0.26f + pullX * 0.65f), v.height * 0.00f),
+                Offset(v.width * (0.96f + pullX * 0.65f), v.height * 0.92f)
+            )
+            val refractedMagenta = Brush.linearGradient(
+                listOf(
+                    Color.Transparent,
+                    Color(0xFFFF70D9).copy(alpha = 0.070f * refraction + 0.048f * rightWeight),
+                    Color.Transparent,
+                    Color(0xFFFFDE86).copy(alpha = 0.044f * topWeight),
+                    Color.Transparent
+                ),
+                Offset(v.width * (1.18f + pullX * 0.50f), v.height * -0.08f),
+                Offset(v.width * (-0.18f + pullX * 0.50f), v.height * 1.02f)
+            )
+            val pressureBend = Brush.radialGradient(
+                listOf(
+                    Color.Transparent,
+                    Color(0xFF07142C).copy(alpha = 0.070f * compression + 0.020f * centerWeight),
+                    Color(0xFF00040D).copy(alpha = 0.086f * compression),
+                    Color.Transparent
+                ),
+                materialCenter,
+                maxOf(v.width, v.height) * (0.70f + 0.08f * compression)
+            )
+            val fixedPrismField = Brush.linearGradient(
+                listOf(
+                    Color.Transparent,
+                    Color(0xFF66FFF1).copy(alpha = 0.038f * prismPower + 0.030f * leftWeight),
+                    Color(0xFF87A0FF).copy(alpha = 0.030f * prismPower + 0.020f * centerWeight),
+                    Color(0xFFFF70D9).copy(alpha = 0.042f * prismPower + 0.034f * rightWeight),
+                    Color(0xFFFFDD86).copy(alpha = 0.030f * prismPower + 0.026f * topWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.16f, v.height * -0.12f),
                 Offset(v.width * 1.14f, v.height * 1.10f)
             )
-            val fixedCounterField = Brush.linearGradient(
-                listOf(
-                    Color.Transparent,
-                    Color(0xFFFF7ADB).copy(alpha = 0.080f * prismPower + 0.060f * topWeight),
-                    Color.Transparent,
-                    Color(0xFF78FFF1).copy(alpha = 0.085f * prismPower + 0.070f * leftWeight),
-                    Color.Transparent,
-                    Color(0xFFFFE58A).copy(alpha = 0.064f * prismPower + 0.060f * bottomWeight),
-                    Color.Transparent
-                ),
-                Offset(v.width * 1.10f, v.height * -0.10f),
-                Offset(v.width * -0.14f, v.height * 1.08f)
-            )
-            val fixedCorePrism = Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.040f * prismPower),
-                    Color(0xFF78FFF1).copy(alpha = 0.115f * prismPower + 0.050f * leftWeight),
-                    Color(0xFF8EA2FF).copy(alpha = 0.092f * prismPower + 0.055f * centerWeight),
-                    Color(0xFFFF72D9).copy(alpha = 0.105f * prismPower + 0.052f * rightWeight),
-                    Color(0xFFFFE08A).copy(alpha = 0.078f * prismPower + 0.045f * topWeight),
-                    Color.Transparent
-                ),
-                materialCenter,
-                maxOf(v.width, v.height) * 0.72f
-            )
+            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.004f + v.text * 0.002f + v.delayed * 0.001f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.009f + v.text * 0.003f + v.delayed * 0.002f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.004f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.018f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
+            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.024f + v.text * 0.004f + v.delayed * 0.002f) * body), Color(0xFFB8F7FF).copy(alpha = (0.015f + v.text * 0.004f + v.delayed * 0.003f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.145f * body)), 0f, v.height)
+            val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.034f * body), Color(0xFF00040C).copy(alpha = 0.080f * body)), materialCenter, maxOf(v.width, v.height) * 0.78f)
             val horizontalResponse = Brush.horizontalGradient(
                 listOf(
-                    Color(0xFF6CFFF2).copy(alpha = 0.105f * leftWeight),
-                    Color.White.copy(alpha = 0.020f * prismPower),
-                    Color(0xFFFF73D9).copy(alpha = 0.112f * rightWeight)
+                    Color(0xFF6CFFF2).copy(alpha = 0.050f * leftWeight),
+                    Color.Transparent,
+                    Color(0xFFFF73D9).copy(alpha = 0.054f * rightWeight)
                 ),
                 0f,
                 v.width
             )
             val verticalResponse = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.052f * topWeight),
+                    Color.White.copy(alpha = 0.024f * topWeight),
                     Color.Transparent,
-                    Color(0xFF000713).copy(alpha = 0.038f * bottomWeight + 0.034f * compression)
+                    Color(0xFF000713).copy(alpha = 0.055f * bottomWeight + 0.044f * compression)
                 ),
                 0f,
                 v.height
             )
             val materialBend = Brush.linearGradient(
                 listOf(
-                    Color(0xFF000713).copy(alpha = 0.014f * compression * (1f + verticalTilt.coerceAtLeast(0f) * 0.25f)),
+                    Color(0xFF000713).copy(alpha = 0.020f * compression * (1f + verticalTilt.coerceAtLeast(0f) * 0.25f)),
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.026f * prismPower * (1f - abs(horizontalTilt) * 0.22f)),
+                    Color.White.copy(alpha = 0.010f * prismPower * (1f - abs(horizontalTilt) * 0.22f)),
                     Color.Transparent,
-                    Color(0xFF020815).copy(alpha = 0.022f * compression)
+                    Color(0xFF020815).copy(alpha = 0.034f * compression)
                 ),
                 Offset(v.width * -0.04f, 0f),
                 Offset(v.width * 1.04f, v.height)
             )
-            val fixedLensDepth = Brush.radialGradient(
-                listOf(
-                    Color.Transparent,
-                    Color(0xFF07142C).copy(alpha = 0.020f * compression + 0.006f * centerWeight),
-                    Color.Transparent
-                ),
-                materialCenter,
-                maxOf(v.width, v.height) * 0.62f
-            )
-            val bottomDepth = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.044f * compression)), v.height * 0.44f, v.height)
+            val bottomDepth = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.058f * compression)), v.height * 0.44f, v.height)
             withTransform({ translate(v.left, v.top) }) {
                 if (auraPower > 0.001f) drawRoundRect(brush = aura, topLeft = Offset(-3.4.dp.toPx(), -3.4.dp.toPx()), size = Size(v.width + 6.8.dp.toPx(), v.height + 6.8.dp.toPx()), cornerRadius = CornerRadius(radius + 3.4.dp.toPx(), radius + 3.4.dp.toPx()), blendMode = BlendMode.Screen)
                 if (mist > 0.001f) drawRoundRect(innerMist, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(bodyVeil, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(clear, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
                 if (press > 0.001f) {
+                    drawRoundRect(brush = refractedBackdrop, size = Size(v.width, v.height), cornerRadius = corner)
                     drawRoundRect(materialBend, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
-                    drawRoundRect(brush = fixedRainbowField, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Plus)
-                    drawRoundRect(brush = fixedCounterField, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Plus)
-                    drawRoundRect(brush = fixedCorePrism, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Plus)
+                    drawRoundRect(pressureBend, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
+                    drawRoundRect(brush = refractedCyan, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = refractedMagenta, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = fixedPrismField, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                     drawRoundRect(brush = horizontalResponse, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                     drawRoundRect(brush = verticalResponse, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
-                    drawRoundRect(fixedLensDepth, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
                     drawRoundRect(bottomDepth, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
                 }
             }
