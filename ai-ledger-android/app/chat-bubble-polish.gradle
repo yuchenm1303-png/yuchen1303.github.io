@@ -3,6 +3,9 @@ tasks.register('patchAssistantChatBubblePolish') {
         def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
         def text = home.getText('UTF-8')
 
+        if (!text.contains('import androidx.compose.animation.core.animateFloatAsState')) {
+            text = text.replace('import androidx.compose.animation.core.animateFloat\n', 'import androidx.compose.animation.core.animateFloat\nimport androidx.compose.animation.core.animateFloatAsState\n')
+        }
         if (!text.contains('import androidx.compose.ui.draw.clipToBounds')) {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
