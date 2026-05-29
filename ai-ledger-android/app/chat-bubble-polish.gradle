@@ -6,6 +6,9 @@ tasks.register('patchAssistantChatBubblePolish') {
         if (!text.contains('import androidx.compose.animation.core.animateFloatAsState')) {
             text = text.replace('import androidx.compose.animation.core.animateFloat\n', 'import androidx.compose.animation.core.animateFloat\nimport androidx.compose.animation.core.animateFloatAsState\n')
         }
+        if (!text.contains('import androidx.compose.foundation.clickable')) {
+            text = text.replace('import androidx.compose.foundation.background\n', 'import androidx.compose.foundation.background\nimport androidx.compose.foundation.clickable\n')
+        }
         if (!text.contains('import androidx.compose.ui.draw.clipToBounds')) {
             text = text.replace('import androidx.compose.ui.draw.clip\n', 'import androidx.compose.ui.draw.clip\nimport androidx.compose.ui.draw.clipToBounds\n')
         }
@@ -18,6 +21,62 @@ tasks.register('patchAssistantChatBubblePolish') {
             if (!text.contains('import androidx.compose.runtime.SideEffect')) {
                 text = text.replace('import androidx.compose.runtime.State\n', 'import androidx.compose.runtime.SideEffect\nimport androidx.compose.runtime.State\n')
             }
+        }
+
+        def oldScreenParams = '''    onPickImage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleOnline: () -> Unit
+) {
+'''
+        def newScreenParams = '''    onPickImage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleOnline: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+'''
+        if (text.contains(oldScreenParams)) {
+            text = text.replace(oldScreenParams, newScreenParams)
+        } else if (!text.contains('onCopyMessage: (String) -> Unit')) {
+            throw new GradleException('AssistantScreenV2 callback parameter block not found.')
+        }
+
+        def oldChatPanelCall = '''            ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
+'''
+        def newChatPanelCall = '''            ChatPanelV2(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                onDraftCommand = onDraftCommand,
+                onPickImage = onPickImage,
+                onCopyMessage = onCopyMessage,
+                onRetryMessage = onRetryMessage
+            )
+'''
+        if (text.contains(oldChatPanelCall)) {
+            text = text.replace(oldChatPanelCall, newChatPanelCall)
+        } else if (!text.contains('onCopyMessage = onCopyMessage')) {
+            throw new GradleException('AssistantScreenV2 ChatPanelV2 call not found.')
+        }
+
+        def oldChatPanelSignature = '''@Composable
+private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
+'''
+        def newChatPanelSignature = '''@Composable
+private fun ChatPanelV2(
+    state: AssistantUiState,
+    modifier: Modifier,
+    onDraftCommand: (String) -> Unit,
+    onPickImage: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+'''
+        if (text.contains(oldChatPanelSignature)) {
+            text = text.replace(oldChatPanelSignature, newChatPanelSignature)
+        } else if (!text.contains('onRetryMessage: (String) -> Unit')) {
+            throw new GradleException('ChatPanelV2 signature not found.')
         }
 
         def oldClock = '''    val listState = rememberLazyListState()
@@ -97,6 +156,9 @@ tasks.register('patchAssistantChatBubblePolish') {
                         .fillMaxWidth()
                         .clipToBounds()
                 ) {
+                    val lastActionableMessageId = remember(state.messages) {
+                        state.messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
+                    }
                     ChatBubbleMaterialLayer(
                         layerState = bubbleLayerState,
                         listState = listState,
@@ -111,7 +173,17 @@ tasks.register('patchAssistantChatBubblePolish') {
                         contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, chatPhase, bubbleLayerState) }
+                        items(state.messages, key = { it.id }) { message ->
+                            AnimatedMessageBubbleV2(
+                                message = message,
+                                state = state,
+                                chatPhase = chatPhase,
+                                bubbleLayerState = bubbleLayerState,
+                                showActions = message.id == lastActionableMessageId,
+                                onCopyMessage = onCopyMessage,
+                                onRetryMessage = onRetryMessage
+                            )
+                        }
                         item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                     }
                 }
@@ -120,8 +192,10 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace(oldList, newList)
         } else if (text.contains(compactList)) {
             text = text.replace(compactList, newList)
-        } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('listState = listState') && text.contains('messages = state.messages')) {
-            println('LazyListState-driven parent chat bubble layer list already patched.')
+        } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('lastActionableMessageId')) {
+            println('LazyListState-driven parent chat bubble layer list already patched with safe actions.')
+        } else if (text.contains('ChatBubbleMaterialLayer(')) {
+            throw new GradleException('Chat list already patched without safe actions; clean source before rebuilding.')
         } else {
             throw new GradleException('Chat list block not found for LazyListState parent layer patch.')
         }
@@ -157,7 +231,10 @@ private fun AnimatedMessageBubbleV2(
     message: ChatMessage,
     state: AssistantUiState,
     chatPhase: State<Float>,
-    bubbleLayerState: ChatBubbleLayerState
+    bubbleLayerState: ChatBubbleLayerState,
+    showActions: Boolean,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
 ) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
@@ -181,7 +258,10 @@ private fun AnimatedMessageBubbleV2(
             state = state,
             chatPhase = chatPhase,
             bubbleLayerState = bubbleLayerState,
-            appear = appear
+            appear = appear,
+            showActions = showActions,
+            onCopyMessage = onCopyMessage,
+            onRetryMessage = onRetryMessage
         )
     }
 }
@@ -192,7 +272,10 @@ private fun MessageBubbleV2(
     state: AssistantUiState,
     chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
-    appear: Float = 1f
+    appear: Float = 1f,
+    showActions: Boolean,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
 ) {
     val fromUser = message.role == MessageRole.User
     val sending = message.status == MessageStatus.Sending && !fromUser
@@ -238,8 +321,60 @@ private fun MessageBubbleV2(
                     Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
                 }
                 if (!fromUser) MessageBadgeV2(message)
+                if (showActions && !fromUser && !sending) {
+                    MessageActionsV2(
+                        message = message,
+                        onCopyMessage = onCopyMessage,
+                        onRetryMessage = onRetryMessage
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun MessageActionsV2(
+    message: ChatMessage,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextActionV2("复制") { onCopyMessage(messageText(message)) }
+        Spacer(Modifier.size(12.dp))
+        TextActionV2(
+            text = "重试",
+            color = if (message.status == MessageStatus.Failed) Color(0xFFFFB4B4) else Color.White.copy(alpha = 0.50f)
+        ) { onRetryMessage(message.id) }
+    }
+}
+
+@Composable
+private fun TextActionV2(
+    text: String,
+    color: Color = Color.White.copy(alpha = 0.50f),
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
+    if (message.role != MessageRole.Assistant) return false
+    if (message.status == MessageStatus.Sending) return false
+    return when (message.source) {
+        null, "", "local", "local_ledger", "local_mobile" -> false
+        else -> true
     }
 }
 
@@ -282,7 +417,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied LazyListState-driven parent chat bubble layer patch.')
+        println('Applied LazyListState-driven parent chat bubble layer patch with safe last-message actions.')
     }
 }
 
