@@ -1,0 +1,37 @@
+tasks.register('patchModelSelectorStackPressFollow') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped stack press follow patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        text = text.replace('''                        1 -> 0.72f
+                        2 -> 0.48f
+                        3 -> 0.30f
+                        else -> 0.18f
+''', '''                        1 -> 0.82f
+                        2 -> 0.62f
+                        3 -> 0.44f
+                        else -> 0.28f
+''')
+
+        text = text.replace('translationX = geometry.collapsedXPx - stackCompression * 1.2f * layerFactor', 'translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor')
+        text = text.replace('translationY = geometry.collapsedYPx + stackCompression * 3.2f * layerFactor', 'translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor')
+        text = text.replace('scaleX = 1f + stackCompression * 0.018f * layerFactor', 'scaleX = 1f + stackCompression * 0.032f * layerFactor')
+        text = text.replace('scaleY = 1f - stackCompression * 0.026f * layerFactor', 'scaleY = 1f - stackCompression * 0.046f * layerFactor')
+
+        selector.setText(text, 'UTF-8')
+        println('Enhanced folded model stack press follow: stronger rear-card sinking, squash and subtle lateral compression.')
+    }
+}
+
+tasks.named('patchModelSelectorStackPressFollow') {
+    def foldedTask = tasks.findByName('patchModelSelectorFoldedStackDetails')
+    if (foldedTask != null) dependsOn foldedTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelSelectorStackPressFollow')
+}
