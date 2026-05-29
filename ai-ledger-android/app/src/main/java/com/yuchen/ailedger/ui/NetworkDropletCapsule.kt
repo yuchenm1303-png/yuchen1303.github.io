@@ -56,30 +56,30 @@ private val NetworkInlineReleaseEasing = CubicBezierEasing(0.16f, 0.00f, 0.10f, 
 
 private val NetworkInlineDropletStyle = DropletGlassStyle(
     bodyBulgePx = 44f,
-    edgePullPx = 120f,
-    edgeWidthPx = 32f,
+    edgePullPx = 104f,
+    edgeWidthPx = 25f,
     lensMix = 0.92f,
     dragStrength = 2.0f,
-    bottomGlow = 1.48f,
+    bottomGlow = 1.36f,
     topGloss = 0.53f,
-    cornerGloss = 1.03f,
+    cornerGloss = 0.88f,
     innerDark = 0.65f,
     alpha = 0.63f,
     activeGlow = 0.53f,
     activeRefraction = 4.0f,
-    activeRimRefraction = 3.16f,
+    activeRimRefraction = 2.05f,
     activeLightX = 1.0f,
-    activeLightSpread = 0.70f,
+    activeLightSpread = 0.78f,
     activeLightY = 1.25f,
     activeEntryHeight = 0.04f,
     activeLightThickness = 0.22f,
-    activeHotspot = 1.27f,
-    activeEntryPearl = 1.88f,
-    activeRimPearl = 1.35f,
+    activeHotspot = 1.10f,
+    activeEntryPearl = 1.25f,
+    activeRimPearl = 0.78f,
     activeCenterClear = 0.42f,
     activeVolumeWarmth = 0.14f,
-    activeRimGather = 1.21f,
-    activeRimFlow = 0.89f
+    activeRimGather = 0.72f,
+    activeRimFlow = 0.46f
 )
 
 @Composable
@@ -100,7 +100,7 @@ fun NetworkDropletCapsule(
     val afterglowAnim = remember { Animatable(0f) }
     val breathAnim = remember { Animatable(0f) }
     val driftAnim = remember { Animatable(0f) }
-    val shimmerAnim = remember { Animatable(0.35f) }
+    val shimmerAnim = remember { Animatable(0.42f) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(active) {
@@ -125,46 +125,46 @@ fun NetworkDropletCapsule(
     LaunchedEffect(activeForBreath) {
         if (activeForBreath) {
             while (true) {
-                breathAnim.animateTo(Random.nextFloat(), tween(950 + Random.nextInt(850), easing = FastOutSlowInEasing))
+                breathAnim.animateTo(0.36f + Random.nextFloat() * 0.38f, tween(1700 + Random.nextInt(1200), easing = FastOutSlowInEasing))
             }
         } else {
-            breathAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
+            breathAnim.animateTo(0f, tween(420, easing = FastOutSlowInEasing))
         }
     }
 
     LaunchedEffect(activeForBreath) {
         if (activeForBreath) {
             while (true) {
-                driftAnim.animateTo(Random.nextFloat() * 0.34f - 0.17f, tween(1200 + Random.nextInt(1300), easing = FastOutSlowInEasing))
+                driftAnim.animateTo(Random.nextFloat() * 0.14f - 0.07f, tween(2300 + Random.nextInt(1500), easing = FastOutSlowInEasing))
             }
         } else {
-            driftAnim.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
+            driftAnim.animateTo(0f, tween(560, easing = FastOutSlowInEasing))
         }
     }
 
     LaunchedEffect(activeForBreath) {
         if (activeForBreath) {
             while (true) {
-                shimmerAnim.animateTo(0.22f + Random.nextFloat() * 0.78f, tween(520 + Random.nextInt(980), easing = FastOutSlowInEasing))
+                shimmerAnim.animateTo(0.36f + Random.nextFloat() * 0.32f, tween(1900 + Random.nextInt(1200), easing = FastOutSlowInEasing))
             }
         } else {
-            shimmerAnim.animateTo(0.18f, tween(360, easing = FastOutSlowInEasing))
+            shimmerAnim.animateTo(0.26f, tween(460, easing = FastOutSlowInEasing))
         }
     }
 
     val breathValue = breathAnim.value.coerceIn(0f, 1f)
-    val driftValue = driftAnim.value.coerceIn(-0.22f, 0.22f)
+    val driftValue = driftAnim.value.coerceIn(-0.10f, 0.10f)
     val shimmerValue = shimmerAnim.value.coerceIn(0f, 1f)
     val prismAmount = 2.76f
     val purpleAmount = 0.67f
     val purpleMix = (purpleAmount / 1.5f).coerceIn(0f, 1f)
-    val breathEnergy = 0.88f + breathValue * 0.14f + shimmerValue * 0.08f
+    val breathEnergy = 0.90f + breathValue * 0.08f + shimmerValue * 0.05f
     val holdEnergy = maxOf(pressPositive, latchValue)
-    val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.55f).coerceIn(0f, 1.30f)
-    val refractionEnergy = (holdEnergy * (0.92f + breathValue * 0.10f + shimmerValue * 0.08f) + afterglowValue * 0.40f).coerceIn(0f, 1.18f)
-    val effectiveLightX = (0.92f + driftValue * holdEnergy).coerceIn(0.04f, 0.96f)
-    val prismPhase = effectiveLightX * 0.80f + breathValue * 0.21f + shimmerValue * 0.19f + afterglowValue * 0.17f
-    val prismMix = (lightEnergy * prismAmount * 0.80f).coerceIn(0f, 1f)
+    val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.44f).coerceIn(0f, 1.18f)
+    val refractionEnergy = (holdEnergy * (0.88f + breathValue * 0.08f + shimmerValue * 0.05f) + afterglowValue * 0.32f).coerceIn(0f, 1.08f)
+    val effectiveLightX = (0.90f + driftValue * holdEnergy).coerceIn(0.08f, 0.94f)
+    val prismPhase = effectiveLightX * 0.55f + breathValue * 0.18f + shimmerValue * 0.12f + afterglowValue * 0.11f
+    val prismMix = (lightEnergy * prismAmount * 0.66f).coerceIn(0f, 1f)
     val prismRed = 0.36f + networkInlinePrismChannel(prismPhase + 0.00f) * 0.64f
     val prismGreen = 0.38f + networkInlinePrismChannel(prismPhase + 0.34f) * 0.62f
     val prismBlue = 0.50f + networkInlinePrismChannel(prismPhase + 0.68f) * 0.50f
@@ -173,27 +173,27 @@ fun NetworkDropletCapsule(
     val warmBlue = 0.58f + networkInlinePrismChannel(prismPhase + 0.58f) * 0.42f
 
     val animatedStyle = NetworkInlineDropletStyle.copy(
-        bodyBulgePx = NetworkInlineDropletStyle.bodyBulgePx + pressPositive * 14.0f + latchValue * 5.0f - afterglowValue * 3.0f,
-        edgePullPx = NetworkInlineDropletStyle.edgePullPx + pressPositive * 32.0f + latchValue * 12.0f + afterglowValue * 9.0f,
-        edgeWidthPx = NetworkInlineDropletStyle.edgeWidthPx + pressPositive * 5.8f + latchValue * 2.8f,
-        bottomGlow = NetworkInlineDropletStyle.bottomGlow * (0.68f + lightEnergy * (0.20f + purpleMix * 0.18f + prismAmount * 0.08f)),
-        topGloss = NetworkInlineDropletStyle.topGloss + lightEnergy * (0.12f + purpleMix * 0.22f + prismAmount * 0.10f),
-        cornerGloss = NetworkInlineDropletStyle.cornerGloss + lightEnergy * (0.10f + purpleMix * 0.18f) + prismAmount * shimmerValue * lightEnergy * 0.12f,
-        innerDark = (NetworkInlineDropletStyle.innerDark + pressPositive * 0.10f - lightEnergy * 0.08f).coerceIn(0f, 1f),
-        alpha = (NetworkInlineDropletStyle.alpha + lightEnergy * 0.13f).coerceIn(0f, 1f),
-        activeGlow = NetworkInlineDropletStyle.activeGlow * lightEnergy * (0.50f + purpleMix * 0.28f + prismAmount * 0.16f),
+        bodyBulgePx = NetworkInlineDropletStyle.bodyBulgePx + pressPositive * 10.0f + latchValue * 3.5f - afterglowValue * 2.0f,
+        edgePullPx = NetworkInlineDropletStyle.edgePullPx + pressPositive * 18.0f + latchValue * 7.0f + afterglowValue * 5.0f,
+        edgeWidthPx = NetworkInlineDropletStyle.edgeWidthPx + pressPositive * 2.6f + latchValue * 1.6f,
+        bottomGlow = NetworkInlineDropletStyle.bottomGlow * (0.72f + lightEnergy * (0.16f + purpleMix * 0.12f + prismAmount * 0.045f)),
+        topGloss = NetworkInlineDropletStyle.topGloss + lightEnergy * (0.09f + purpleMix * 0.16f + prismAmount * 0.055f),
+        cornerGloss = NetworkInlineDropletStyle.cornerGloss + lightEnergy * (0.06f + purpleMix * 0.10f) + prismAmount * shimmerValue * lightEnergy * 0.055f,
+        innerDark = (NetworkInlineDropletStyle.innerDark + pressPositive * 0.08f - lightEnergy * 0.055f).coerceIn(0f, 1f),
+        alpha = (NetworkInlineDropletStyle.alpha + lightEnergy * 0.10f).coerceIn(0f, 1f),
+        activeGlow = NetworkInlineDropletStyle.activeGlow * lightEnergy * (0.48f + purpleMix * 0.24f + prismAmount * 0.11f),
         activeRefraction = NetworkInlineDropletStyle.activeRefraction * refractionEnergy,
-        activeRimRefraction = NetworkInlineDropletStyle.activeRimRefraction * refractionEnergy * (1f + prismAmount * 0.12f),
+        activeRimRefraction = NetworkInlineDropletStyle.activeRimRefraction * refractionEnergy,
         activeLightX = networkInlineLerp(NetworkInlineDropletStyle.activeLightX.coerceIn(0f, 1f), effectiveLightX, holdEnergy.coerceIn(0f, 1f)),
-        activeLightSpread = (NetworkInlineDropletStyle.activeLightSpread * (0.50f + lightEnergy * 0.52f) + pressPositive * 0.12f + prismAmount * 0.035f).coerceIn(0f, 1f),
-        activeLightThickness = (NetworkInlineDropletStyle.activeLightThickness * (0.58f + lightEnergy * 0.46f + prismAmount * 0.06f)).coerceIn(0.015f, 0.42f),
-        activeHotspot = NetworkInlineDropletStyle.activeHotspot * (lightEnergy * (0.35f + purpleMix * 0.45f + prismAmount * 0.16f) + shimmerValue * holdEnergy * 0.18f),
-        activeEntryPearl = NetworkInlineDropletStyle.activeEntryPearl * (lightEnergy * (0.30f + purpleMix * 0.44f + prismAmount * 0.16f) + pressPositive * 0.12f),
-        activeRimPearl = NetworkInlineDropletStyle.activeRimPearl * (lightEnergy * (0.25f + purpleMix * 0.32f + prismAmount * 0.24f) + shimmerValue * holdEnergy * 0.12f),
-        activeCenterClear = (NetworkInlineDropletStyle.activeCenterClear + lightEnergy * 0.24f).coerceIn(0f, 1f),
-        activeVolumeWarmth = NetworkInlineDropletStyle.activeVolumeWarmth * (0.24f + lightEnergy * (purpleMix * 0.36f + prismAmount * 0.22f)),
-        activeRimGather = NetworkInlineDropletStyle.activeRimGather * (lightEnergy + afterglowValue * 0.22f + prismAmount * shimmerValue * 0.07f),
-        activeRimFlow = NetworkInlineDropletStyle.activeRimFlow * (0.42f + lightEnergy * 0.88f + prismAmount * 0.08f),
+        activeLightSpread = (NetworkInlineDropletStyle.activeLightSpread * (0.58f + lightEnergy * 0.34f) + pressPositive * 0.06f).coerceIn(0f, 1f),
+        activeLightThickness = (NetworkInlineDropletStyle.activeLightThickness * (0.62f + lightEnergy * 0.34f + prismAmount * 0.035f)).coerceIn(0.015f, 0.36f),
+        activeHotspot = NetworkInlineDropletStyle.activeHotspot * (lightEnergy * (0.32f + purpleMix * 0.38f + prismAmount * 0.10f) + shimmerValue * holdEnergy * 0.10f),
+        activeEntryPearl = NetworkInlineDropletStyle.activeEntryPearl * (lightEnergy * (0.30f + purpleMix * 0.36f + prismAmount * 0.10f) + pressPositive * 0.08f),
+        activeRimPearl = NetworkInlineDropletStyle.activeRimPearl * (lightEnergy * (0.22f + purpleMix * 0.24f + prismAmount * 0.12f) + shimmerValue * holdEnergy * 0.06f),
+        activeCenterClear = (NetworkInlineDropletStyle.activeCenterClear + lightEnergy * 0.20f).coerceIn(0f, 1f),
+        activeVolumeWarmth = NetworkInlineDropletStyle.activeVolumeWarmth * (0.22f + lightEnergy * (purpleMix * 0.28f + prismAmount * 0.14f)),
+        activeRimGather = NetworkInlineDropletStyle.activeRimGather * (lightEnergy + afterglowValue * 0.14f + prismAmount * shimmerValue * 0.025f),
+        activeRimFlow = NetworkInlineDropletStyle.activeRimFlow * (0.34f + lightEnergy * 0.52f + prismAmount * 0.035f),
         accentRed = networkInlineLerp(NetworkInlineDropletStyle.accentRed, prismRed, prismMix),
         accentGreen = networkInlineLerp(NetworkInlineDropletStyle.accentGreen, prismGreen, prismMix),
         accentBlue = networkInlineLerp(NetworkInlineDropletStyle.accentBlue, prismBlue, prismMix),
@@ -203,25 +203,25 @@ fun NetworkDropletCapsule(
     )
 
     val animatedPurpleWhiteGlow = 0.53f * lightEnergy * purpleAmount
-    val animatedPrismGlow = 0.53f * lightEnergy * (0.34f + prismAmount * 0.64f).coerceIn(0f, 2.2f)
-    val animatedBackgroundGlow = 0.38f * (lightEnergy + recoilValue * 0.35f + prismAmount * lightEnergy * 0.16f).coerceIn(0f, 1.8f)
-    val animatedOuterGlow = 0.46f * (lightEnergy + afterglowValue * 0.28f + recoilValue * 0.30f + prismAmount * lightEnergy * 0.22f).coerceIn(0f, 1.9f)
-    val animatedWarmGlow = 0.54f * (lightEnergy * (0.20f + purpleMix * 0.46f + prismAmount * 0.18f) + pressPositive * 0.12f).coerceIn(0f, 1.8f)
+    val animatedPrismGlow = 0.53f * lightEnergy * (0.28f + prismAmount * 0.46f).coerceIn(0f, 1.7f)
+    val animatedBackgroundGlow = 0.38f * (lightEnergy + recoilValue * 0.24f + prismAmount * lightEnergy * 0.10f).coerceIn(0f, 1.5f)
+    val animatedOuterGlow = 0.46f * (lightEnergy + afterglowValue * 0.18f + recoilValue * 0.20f + prismAmount * lightEnergy * 0.11f).coerceIn(0f, 1.45f)
+    val animatedWarmGlow = 0.54f * (lightEnergy * (0.18f + purpleMix * 0.36f + prismAmount * 0.11f) + pressPositive * 0.08f).coerceIn(0f, 1.5f)
     val contentAlpha = (0.50f + lightEnergy * 0.36f + recoilValue * 0.10f).coerceIn(0.44f, 0.98f)
 
-    Box(modifier = modifier.height(68.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.height(54.dp), contentAlignment = Alignment.Center) {
         NetworkInlineDropletBackgroundGlow(animatedPrismGlow, animatedBackgroundGlow, animatedOuterGlow, animatedWarmGlow, prismAmount, prismPhase, Modifier.fillMaxSize())
-        NetworkInlineDropletContactShadow(alpha = 0.18f * (0.72f + pressPositive * 0.62f + afterglowValue * 0.32f), modifier = Modifier.fillMaxSize())
+        NetworkInlineDropletContactShadow(alpha = 0.18f * (0.72f + pressPositive * 0.42f + afterglowValue * 0.20f), modifier = Modifier.fillMaxSize())
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     transformOrigin = TransformOrigin(effectiveLightX.coerceIn(0f, 1f), 0.50f)
-                    scaleX = 1f + pressPositive * 0.066f + latchValue * 0.018f - afterglowValue * 0.006f - recoilValue * 0.020f
-                    scaleY = 1f - pressPositive * 0.074f + afterglowValue * 0.014f + recoilValue * 0.026f
-                    translationX = (effectiveLightX - 0.5f) * pressPositive * 5.8f + recoilValue * if (effectiveLightX > 0.5f) 3.0f else -3.0f
-                    translationY = pressPositive * 5.2f - afterglowValue * 1.1f - recoilValue * 1.8f
-                    rotationZ = (effectiveLightX - 0.5f) * pressPositive * 0.72f + recoilValue * if (effectiveLightX > 0.5f) 0.36f else -0.36f
+                    scaleX = 1f + pressPositive * 0.052f + latchValue * 0.014f - afterglowValue * 0.004f - recoilValue * 0.014f
+                    scaleY = 1f - pressPositive * 0.058f + afterglowValue * 0.010f + recoilValue * 0.018f
+                    translationX = (effectiveLightX - 0.5f) * pressPositive * 4.2f + recoilValue * if (effectiveLightX > 0.5f) 2.0f else -2.0f
+                    translationY = pressPositive * 3.8f - afterglowValue * 0.8f - recoilValue * 1.2f
+                    rotationZ = (effectiveLightX - 0.5f) * pressPositive * 0.44f + recoilValue * if (effectiveLightX > 0.5f) 0.22f else -0.22f
                 }
                 .onGloballyPositioned { coordinates.coordinates = it }
                 .pointerInput(enabled) {
@@ -235,8 +235,8 @@ fun NetworkDropletCapsule(
                         scope.launch {
                             pressAnim.stop()
                             if (pressAnim.value < 0.24f) pressAnim.snapTo(0.24f)
-                            pressAnim.animateTo(1.20f, tween(145, easing = NetworkInlinePressEasing))
-                            pressAnim.animateTo(0.96f, spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow))
+                            pressAnim.animateTo(1.12f, tween(145, easing = NetworkInlinePressEasing))
+                            pressAnim.animateTo(0.92f, spring(dampingRatio = 0.54f, stiffness = Spring.StiffnessMediumLow))
                         }
                         var releasedAt = down.uptimeMillis
                         while (true) {
@@ -251,14 +251,14 @@ fun NetworkDropletCapsule(
                         if (releasedAt - down.uptimeMillis < 260L) clickAction()
                         scope.launch {
                             pressAnim.stop()
-                            pressAnim.animateTo(-0.22f, tween(130, easing = NetworkInlineReleaseEasing))
-                            pressAnim.animateTo(0.08f, spring(dampingRatio = 0.38f, stiffness = Spring.StiffnessLow))
-                            pressAnim.animateTo(0f, tween(210, easing = FastOutSlowInEasing))
+                            pressAnim.animateTo(-0.18f, tween(130, easing = NetworkInlineReleaseEasing))
+                            pressAnim.animateTo(0.06f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessLow))
+                            pressAnim.animateTo(0f, tween(230, easing = FastOutSlowInEasing))
                         }
                         scope.launch {
                             afterglowAnim.stop()
-                            afterglowAnim.snapTo(0.78f)
-                            afterglowAnim.animateTo(0f, tween(820, easing = FastOutSlowInEasing))
+                            afterglowAnim.snapTo(0.58f)
+                            afterglowAnim.animateTo(0f, tween(920, easing = FastOutSlowInEasing))
                         }
                     }
                 }
@@ -302,7 +302,7 @@ private fun NetworkInlineDropletBackgroundGlow(activeGlow: Float, backgroundGlow
         val drift = networkInlinePrismChannel(phase)
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFBFEAFF).copy(alpha = bg * active * 0.18f), Color(0xFF6CCBFF).copy(alpha = bg * active * 0.06f), Color.Transparent), Offset(size.width * 0.50f, size.height * 0.42f), size.width * 0.62f), Offset(size.width * 0.02f, size.height * 0.08f), Size(size.width * 0.96f, size.height * 0.80f), CornerRadius(radius, radius), blendMode = BlendMode.Screen)
         drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF72B7).copy(alpha = warm * active * 0.08f), Color(0xFFFFB56F).copy(alpha = warm * active * 0.025f), Color.Transparent), Offset(size.width * 0.48f, size.height * 0.78f), size.width * 0.44f), Offset(size.width * 0.08f, size.height * 0.42f), Size(size.width * 0.84f, size.height * 0.42f), CornerRadius(radius, radius), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF4FA7).copy(alpha = outer * active * prism * 0.035f), Color(0xFF80FFD8).copy(alpha = outer * active * prism * 0.028f), Color(0xFF78A8FF).copy(alpha = outer * active * prism * 0.020f), Color.Transparent), Offset(size.width * (0.34f + drift * 0.32f), size.height * 0.34f), size.width * 0.68f), Offset(size.width * 0.03f, size.height * 0.10f), Size(size.width * 0.94f, size.height * 0.74f), CornerRadius(radius, radius), blendMode = BlendMode.Plus)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF4FA7).copy(alpha = outer * active * prism * 0.028f), Color(0xFF80FFD8).copy(alpha = outer * active * prism * 0.022f), Color(0xFF78A8FF).copy(alpha = outer * active * prism * 0.016f), Color.Transparent), Offset(size.width * (0.34f + drift * 0.32f), size.height * 0.34f), size.width * 0.62f), Offset(size.width * 0.03f, size.height * 0.10f), Size(size.width * 0.94f, size.height * 0.74f), CornerRadius(radius, radius), blendMode = BlendMode.Plus)
     }
 }
 
@@ -313,8 +313,8 @@ private fun NetworkInlineDropletActiveOverlay(activeGlow: Float, warmGlow: Float
         val warm = warmGlow.coerceIn(0f, 2f)
         val purple = purpleMix.coerceIn(0f, 1f)
         val radius = size.height / 2f
-        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = active * purple * 0.16f), Color.White.copy(alpha = active * purple * 0.024f), Color.Transparent)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF73C5).copy(alpha = active * warm * purple * 0.10f), Color(0xFFFFB06C).copy(alpha = active * warm * purple * 0.032f), Color.Transparent), Offset(size.width * 0.50f, size.height * 1.03f), size.width * 0.42f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = active * purple * 0.14f), Color.White.copy(alpha = active * purple * 0.020f), Color.Transparent)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        drawRoundRect(Brush.radialGradient(listOf(Color(0xFFFF73C5).copy(alpha = active * warm * purple * 0.08f), Color(0xFFFFB06C).copy(alpha = active * warm * purple * 0.026f), Color.Transparent), Offset(size.width * 0.50f, size.height * 1.03f), size.width * 0.38f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
     }
 }
 
@@ -326,14 +326,15 @@ private fun NetworkInlineDropletPrismOverlay(activeGlow: Float, energy: Float, p
         val prism = prismStrength.coerceIn(0f, 3f)
         if (active <= 0.001f || e <= 0.001f || prism <= 0.001f) return@Canvas
         val radius = size.height / 2f
-        val sweep = (phase - phase.toInt()) * size.width * 0.66f
-        val alpha = (active * e * prism).coerceIn(0f, 4.2f)
-        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color(0xFFFF2E93).copy(alpha = alpha * 0.045f), Color(0xFFFFD84D).copy(alpha = alpha * 0.038f), Color(0xFF55FFD6).copy(alpha = alpha * 0.050f), Color(0xFF4F89FF).copy(alpha = alpha * 0.046f), Color(0xFFC05CFF).copy(alpha = alpha * 0.052f)), start = Offset(-size.width * 0.42f + sweep, 0f), end = Offset(size.width * 1.04f + sweep, size.height)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
-        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * (0.05f + shimmer * 0.02f)), Color(0xFF9EFFF0).copy(alpha = alpha * 0.03f), Color.Transparent), start = Offset(size.width * (lightX - 0.42f), size.height * 0.02f), end = Offset(size.width * (lightX + 0.40f), size.height * 0.28f)), topLeft = Offset(size.width * 0.06f, size.height * 0.06f), size = Size(size.width * 0.88f, size.height * 0.24f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
-        val edgeX = if (lightX > 0.5f) (lightX + 0.06f).coerceAtMost(0.92f) else (lightX - 0.06f).coerceAtLeast(0.08f)
-        val edgeY = 0.42f + (shimmer - 0.5f) * 0.08f
-        drawRoundRect(brush = Brush.radialGradient(colors = listOf(Color.White.copy(alpha = alpha * 0.060f), Color(0xFFFFF4B5).copy(alpha = alpha * 0.045f), Color(0xFF63FFE4).copy(alpha = alpha * 0.040f), Color.Transparent), center = Offset(size.width * edgeX, size.height * edgeY), radius = size.width * (0.18f + shimmer * 0.10f)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
-        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color.Transparent, Color(0xFFFFF0A8).copy(alpha = alpha * 0.020f), Color(0xFF69FFE8).copy(alpha = alpha * 0.028f), Color.Transparent), start = Offset(size.width * 0.10f, size.height * 0.88f), end = Offset(size.width * 0.90f, size.height * 0.18f)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
+        val smoothPhase = 0.5f + 0.5f * sin(((phase * 1.35f + shimmer * 0.25f) * NetworkInlineDropletTau).toDouble()).toFloat()
+        val sweep = smoothPhase * size.width * 0.46f
+        val alpha = (active * e * prism).coerceIn(0f, 3.2f)
+        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color(0xFFFF2E93).copy(alpha = alpha * 0.034f), Color(0xFFFFD84D).copy(alpha = alpha * 0.028f), Color(0xFF55FFD6).copy(alpha = alpha * 0.038f), Color(0xFF4F89FF).copy(alpha = alpha * 0.034f), Color(0xFFC05CFF).copy(alpha = alpha * 0.036f)), start = Offset(-size.width * 0.36f + sweep, 0f), end = Offset(size.width * 0.92f + sweep, size.height)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
+        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color.Transparent, Color.White.copy(alpha = alpha * (0.038f + shimmer * 0.014f)), Color(0xFF9EFFF0).copy(alpha = alpha * 0.022f), Color.Transparent), start = Offset(size.width * (lightX - 0.34f), size.height * 0.02f), end = Offset(size.width * (lightX + 0.32f), size.height * 0.26f)), topLeft = Offset(size.width * 0.08f, size.height * 0.07f), size = Size(size.width * 0.84f, size.height * 0.22f), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Screen)
+        val edgeX = if (lightX > 0.5f) (lightX + 0.045f).coerceAtMost(0.88f) else (lightX - 0.045f).coerceAtLeast(0.12f)
+        val edgeY = 0.42f + (shimmer - 0.5f) * 0.04f
+        drawRoundRect(brush = Brush.radialGradient(colors = listOf(Color.White.copy(alpha = alpha * 0.038f), Color(0xFFFFF4B5).copy(alpha = alpha * 0.030f), Color(0xFF63FFE4).copy(alpha = alpha * 0.026f), Color.Transparent), center = Offset(size.width * edgeX, size.height * edgeY), radius = size.width * (0.14f + shimmer * 0.06f)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
+        drawRoundRect(brush = Brush.linearGradient(colors = listOf(Color.Transparent, Color(0xFFFFF0A8).copy(alpha = alpha * 0.014f), Color(0xFF69FFE8).copy(alpha = alpha * 0.020f), Color.Transparent), start = Offset(size.width * 0.12f, size.height * 0.86f), end = Offset(size.width * 0.88f, size.height * 0.20f)), cornerRadius = CornerRadius(radius, radius), blendMode = BlendMode.Plus)
     }
 }
 
