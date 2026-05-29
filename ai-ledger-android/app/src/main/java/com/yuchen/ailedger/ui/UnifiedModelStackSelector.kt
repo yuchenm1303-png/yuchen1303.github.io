@@ -129,7 +129,7 @@ internal fun UnifiedParentModelStackSelector(
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
-                val materialPress = maxOf(positivePress, delayed * 0.62f, rebound * 0.24f, selectionBurst * 0.42f).coerceIn(0f, 1.08f)
+                val materialPress = maxOf(positivePress, delayed * 0.76f, rebound * 0.34f, selectionBurst * 0.46f).coerceIn(0f, 1.08f)
 
                 val p = modelStackEase(targetProgress)
                 val width = modelLerpDp(collapsedWidth, halfWidth, p)
@@ -143,9 +143,9 @@ internal fun UnifiedParentModelStackSelector(
                 val alpha = modelLerpFloat(if (selected) 1f else 0.52f, 1f, p)
                 val baseW = with(density) { width.toPx() }
                 val baseH = with(density) { height.toPx() }
-                val scaleX = selectedPulse * (1f + compression * 0.014f - rebound * 0.004f)
-                val scaleY = selectedPulse * (1f - compression * 0.022f + rebound * 0.008f)
-                val sinkY = compression * 2.10f - rebound * 0.80f
+                val scaleX = selectedPulse * (1f + compression * 0.018f - rebound * 0.004f)
+                val scaleY = selectedPulse * (1f - compression * 0.025f + rebound * 0.008f)
+                val sinkY = compression * 2.30f - rebound * 0.80f
                 val energy = if (selected) modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection) else 0.50f * style.unselectedEnergy.coerceIn(0f, 5f)
 
                 visuals.add(ModelCardVisual(
@@ -196,20 +196,20 @@ internal fun UnifiedParentModelStackSelector(
                                 seed = Random.nextFloat()
                                 direction = if (Random.nextBoolean()) 1f else -1f
                                 band = Random.nextInt(0, 4)
-                                strength = 0.86f + Random.nextFloat() * 0.52f
+                                strength = 1.06f + Random.nextFloat() * 0.62f
 
                                 scope.launch {
                                     pressAnim.stop()
-                                    if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
-                                    pressAnim.animateTo(0.42f, tween(132, easing = ModelPressPulse))
-                                    pressAnim.animateTo(0.62f, tween(260, easing = ModelPressSink))
-                                    pressAnim.animateTo(0.70f, tween(360, easing = FastOutSlowInEasing))
+                                    if (pressAnim.value < 0.20f) pressAnim.snapTo(0.20f)
+                                    pressAnim.animateTo(0.48f, tween(132, easing = ModelPressPulse))
+                                    pressAnim.animateTo(0.70f, tween(260, easing = ModelPressSink))
+                                    pressAnim.animateTo(0.78f, tween(360, easing = FastOutSlowInEasing))
                                 }
                                 scope.launch {
                                     opticsAnim.stop()
-                                    opticsAnim.animateTo(0.24f, tween(180, easing = ModelPressPreload))
-                                    opticsAnim.animateTo(0.74f, tween(360, easing = ModelPressSink))
-                                    opticsAnim.animateTo(0.82f, tween(420, easing = FastOutSlowInEasing))
+                                    opticsAnim.animateTo(0.34f, tween(170, easing = ModelPressPreload))
+                                    opticsAnim.animateTo(0.88f, tween(360, easing = ModelPressSink))
+                                    opticsAnim.animateTo(0.96f, tween(420, easing = FastOutSlowInEasing))
                                 }
 
                                 var released = false
@@ -234,14 +234,14 @@ internal fun UnifiedParentModelStackSelector(
                                 }
                                 scope.launch {
                                     opticsAnim.stop()
-                                    if (released && opticsAnim.value < 0.24f) opticsAnim.animateTo(0.32f, tween(110, easing = ModelPressPulse))
-                                    opticsAnim.animateTo(0f, tween(if (released) 520 else 340, easing = FastOutSlowInEasing))
+                                    if (released && opticsAnim.value < 0.34f) opticsAnim.animateTo(0.42f, tween(110, easing = ModelPressPulse))
+                                    opticsAnim.animateTo(0f, tween(if (released) 640 else 380, easing = FastOutSlowInEasing))
                                 }
                                 scope.launch {
                                     pressAnim.stop()
                                     if (released) {
-                                        if (pressAnim.value.coerceIn(0f, 1.08f) < 0.46f) {
-                                            pressAnim.animateTo(0.52f, tween(96, easing = ModelPressPulse))
+                                        if (pressAnim.value.coerceIn(0f, 1.08f) < 0.50f) {
+                                            pressAnim.animateTo(0.58f, tween(96, easing = ModelPressPulse))
                                             pressAnim.animateTo(-0.056f, tween(140, easing = ModelPressRelease))
                                         } else {
                                             pressAnim.animateTo(-0.060f, tween(190, easing = ModelPressRelease))
@@ -297,13 +297,32 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
             val c = Offset(size.width / 2f, size.height / 2f)
             val selected = selection.coerceIn(0f, 1f)
             val press = materialPress.coerceIn(0f, 1f)
-            val idleGlow = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.070f + 0.045f * expansionProgress), Color.Transparent), c, size.minDimension * 0.48f)
-            val pressGlow = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.22f * press), Color(0xFF9DFFF1).copy(alpha = 0.12f * press), Color.Transparent), c, size.minDimension * (0.68f + 0.20f * press))
+            val idleGlow = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.090f + 0.050f * expansionProgress),
+                    Color(0xFF8DF9EA).copy(alpha = 0.120f * selected),
+                    Color(0xFFFF7DE2).copy(alpha = 0.050f * selected),
+                    Color.Transparent
+                ),
+                c,
+                size.minDimension * 0.60f
+            )
+            val pressGlow = Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = 0.34f * press),
+                    Color(0xFF8DF9EA).copy(alpha = 0.24f * press),
+                    Color(0xFFFF7DE2).copy(alpha = 0.12f * press),
+                    Color(0xFFFFE28A).copy(alpha = 0.08f * press),
+                    Color.Transparent
+                ),
+                c,
+                size.minDimension * (0.82f + 0.24f * press)
+            )
             onDrawBehind {
-                drawCircle(idleGlow, radius = size.minDimension * 0.40f, center = c, blendMode = BlendMode.Screen)
-                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.54f, center = c, blendMode = BlendMode.Screen)
+                drawCircle(idleGlow, radius = size.minDimension * 0.48f, center = c, blendMode = BlendMode.Screen)
+                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.68f, center = c, blendMode = BlendMode.Screen)
                 drawCircle(Color.White.copy(alpha = 0.72f * (1f - selected)), radius = size.minDimension * 0.17f, center = c)
-                drawCircle(Color(0xFF8DF9EA).copy(alpha = 0.76f * selected + 0.18f * press), radius = size.minDimension * (0.17f + 0.045f * selected + 0.030f * press), center = c)
+                drawCircle(Color(0xFF8DF9EA).copy(alpha = 0.88f * selected + 0.25f * press), radius = size.minDimension * (0.18f + 0.052f * selected + 0.034f * press), center = c)
             }
         },
         contentAlignment = Alignment.Center
@@ -324,12 +343,27 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val press = v.press.coerceIn(0f, 1.08f)
             val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
             val center = Offset(v.width * v.center.x.coerceIn(0f, 1f), v.height * v.center.y.coerceIn(0f, 1f))
-            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.010f + v.text * 0.004f + v.delayed * 0.004f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.018f + v.text * 0.006f + v.delayed * 0.006f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.006f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.014f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
-            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.052f + v.text * 0.010f + v.delayed * 0.012f) * body), Color(0xFFB8F7FF).copy(alpha = (0.020f + v.text * 0.006f + v.delayed * 0.010f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.115f * body)), 0f, v.height)
+            val selectedGlow = v.text.coerceIn(0f, 1f)
+            val auraPower = alpha * selectedGlow * s(style.selectedAura, 8f)
+            val aura = Brush.linearGradient(
+                listOf(
+                    Color(0xFF77FFF0).copy(alpha = 0.040f * auraPower),
+                    Color.White.copy(alpha = 0.026f * auraPower),
+                    Color(0xFFFF7BDA).copy(alpha = 0.032f * auraPower),
+                    Color(0xFFFFE58A).copy(alpha = 0.022f * auraPower),
+                    Color(0xFF8EA2FF).copy(alpha = 0.028f * auraPower),
+                    Color.Transparent
+                ),
+                Offset(v.width * -0.14f, v.height * -0.20f),
+                Offset(v.width * 1.08f, v.height * 1.10f)
+            )
+            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.010f + v.text * 0.004f + v.delayed * 0.006f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.018f + v.text * 0.006f + v.delayed * 0.010f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.006f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.014f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
+            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.052f + v.text * 0.012f + v.delayed * 0.018f) * body), Color(0xFFB8F7FF).copy(alpha = (0.020f + v.text * 0.008f + v.delayed * 0.016f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.115f * body)), 0f, v.height)
             val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.024f * body), Color(0xFF00040C).copy(alpha = 0.056f * body)), Offset(v.width * 0.50f, v.height * 0.58f), maxOf(v.width, v.height) * 0.78f)
-            val pressure = Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.045f * press), Color(0xFFB8F7FF).copy(alpha = 0.020f * press), Color.Transparent), center, maxOf(v.width, v.height) * (0.74f + 0.16f * press))
+            val pressure = Brush.radialGradient(listOf(Color(0xFFFFFFFF).copy(alpha = 0.085f * press), Color(0xFF9DFFF1).copy(alpha = 0.054f * press), Color(0xFFFF7DE2).copy(alpha = 0.026f * press), Color.Transparent), center, maxOf(v.width, v.height) * (0.74f + 0.16f * press))
             val sink = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF102C66).copy(alpha = 0.007f * press), Color(0xFF030B1A).copy(alpha = 0.038f * compression)), center, maxOf(v.width, v.height) * (0.96f + 0.05f * press))
             withTransform({ translate(v.left, v.top) }) {
+                if (auraPower > 0.001f) drawRoundRect(brush = aura, topLeft = Offset(-3.4.dp.toPx(), -3.4.dp.toPx()), size = Size(v.width + 6.8.dp.toPx(), v.height + 6.8.dp.toPx()), cornerRadius = CornerRadius(radius + 3.4.dp.toPx(), radius + 3.4.dp.toPx()), blendMode = BlendMode.Screen)
                 if (mist > 0.001f) drawRoundRect(innerMist, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(bodyVeil, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(clear, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
@@ -352,16 +386,23 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val rimSize = Size((v.width - inset * 2f).coerceAtLeast(1f), (v.height - inset * 2f).coerceAtLeast(1f))
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
             val rimPower = energy * alpha
+            val selectedGlow = v.text.coerceIn(0f, 1f)
             val outer = s(style.outerRim)
-            val top = s(style.topHairline) * (1f + v.text * 0.10f + v.press * 0.16f)
+            val top = s(style.topHairline) * (1f + v.text * 0.10f + v.press * 0.20f)
             val inner = s(style.innerDepth)
             val bottom = s(style.bottomShadow)
+            val rainbow = s(style.selectedRainbowRim, 8f)
+            val halo = s(style.selectedOuterHalo, 8f)
             val outerRim = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.320f * rimPower * outer), Color(0xFFF1FFFF).copy(alpha = 0.150f * rimPower * outer), Color(0xFFB7FFF7).copy(alpha = 0.115f * rimPower * outer), Color.White.copy(alpha = 0.060f * rimPower * outer), Color.Transparent, Color(0xFF010817).copy(alpha = 0.225f * rimPower * bottom), Color.White.copy(alpha = 0.062f * rimPower * outer)), Offset.Zero, Offset(v.width, v.height))
             val topLine = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.020f * rimPower * top), Color.White.copy(alpha = 0.470f * rimPower * top), Color(0xFFFFF3C8).copy(alpha = 0.125f * rimPower * top), Color(0xFFE9FFFF).copy(alpha = 0.210f * rimPower * top), Color.White.copy(alpha = 0.080f * rimPower * top), Color.Transparent), 0f, v.width)
             val innerLine = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.072f * rimPower * inner), Color.Transparent, Color(0xFF000713).copy(alpha = 0.235f * rimPower * inner), Color(0xFF89FFF3).copy(alpha = 0.044f * rimPower * inner)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.92f, v.height))
+            val selectedHalo = Brush.linearGradient(listOf(Color(0xFF77FFF0).copy(alpha = 0.110f * alpha * halo * selectedGlow), Color.White.copy(alpha = 0.060f * alpha * halo * selectedGlow), Color(0xFFFF7BDA).copy(alpha = 0.084f * alpha * halo * selectedGlow), Color(0xFFFFE58A).copy(alpha = 0.050f * alpha * halo * selectedGlow), Color.Transparent, Color(0xFF8EA2FF).copy(alpha = 0.070f * alpha * halo * selectedGlow)), Offset(v.width * -0.12f, v.height * -0.18f), Offset(v.width * 1.08f, v.height * 1.10f))
+            val selectedRainbow = Brush.linearGradient(listOf(Color(0xFF77FFF0).copy(alpha = 0.430f * alpha * rainbow * selectedGlow), Color.White.copy(alpha = 0.280f * alpha * rainbow * selectedGlow), Color(0xFFFF7BDA).copy(alpha = 0.330f * alpha * rainbow * selectedGlow), Color(0xFFFFE58A).copy(alpha = 0.220f * alpha * rainbow * selectedGlow), Color(0xFF8EA2FF).copy(alpha = 0.250f * alpha * rainbow * selectedGlow), Color.Transparent), Offset(v.width * -0.08f, 0f), Offset(v.width * 1.02f, v.height * 0.78f))
             val press = v.press.coerceIn(0f, 1.08f)
 
             withTransform({ translate(v.left, v.top) }) {
+                if (selectedGlow > 0.001f && halo > 0.001f) drawRoundRect(brush = selectedHalo, topLeft = Offset(-1.70.dp.toPx(), -1.70.dp.toPx()), size = Size(v.width + 3.40.dp.toPx(), v.height + 3.40.dp.toPx()), cornerRadius = CornerRadius(radius + 1.70.dp.toPx(), radius + 1.70.dp.toPx()), style = Stroke(2.25.dp.toPx()), blendMode = BlendMode.Screen)
+                if (selectedGlow > 0.001f && rainbow > 0.001f) drawRoundRect(brush = selectedRainbow, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.32.dp.toPx()), blendMode = BlendMode.Plus)
                 drawRoundRect(brush = outerRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = topLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
@@ -377,18 +418,18 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
                     val sweepX = if (v.direction >= 0f) -0.24f + shift + flow * 1.42f else 1.24f + shift - flow * 1.42f
                     val startY = when (v.band % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
                     val endY = when (v.band % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
-                    val bandAlpha = modelSmooth((press / 0.50f).coerceIn(0f, 1f)) * v.strength.coerceIn(0.70f, 1.45f)
-                    val pressureGlow = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.120f * p), Color(0xFF9DFFF1).copy(alpha = 0.062f * p), Color(0xFFFF8FE7).copy(alpha = 0.034f * p), Color.Transparent), center, maxSide * (0.32f + 0.12f * p))
-                    val flowingRim = Brush.linearGradient(listOf(Color.Transparent, Color(0xFFFF6ADB).copy(alpha = 0.20f * bandAlpha), Color.White.copy(alpha = 0.34f * bandAlpha), Color(0xFFFFE08A).copy(alpha = 0.18f * bandAlpha), Color(0xFF62FFF0).copy(alpha = 0.24f * bandAlpha), Color(0xFF92A6FF).copy(alpha = 0.12f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.26f), v.height * startY), Offset(v.width * (sweepX + 0.22f), v.height * endY))
+                    val bandAlpha = modelSmooth((press / 0.50f).coerceIn(0f, 1f)) * v.strength.coerceIn(0.70f, 1.68f)
+                    val pressureGlow = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.200f * p), Color(0xFF9DFFF1).copy(alpha = 0.130f * p), Color(0xFFFF7DE2).copy(alpha = 0.080f * p), Color(0xFFFFE28A).copy(alpha = 0.050f * p), Color.Transparent), center, maxSide * (0.36f + 0.16f * p))
+                    val flowingRim = Brush.linearGradient(listOf(Color.Transparent, Color(0xFFFF6ADB).copy(alpha = 0.340f * bandAlpha), Color.White.copy(alpha = 0.480f * bandAlpha), Color(0xFFFFE08A).copy(alpha = 0.300f * bandAlpha), Color(0xFF62FFF0).copy(alpha = 0.380f * bandAlpha), Color(0xFF92A6FF).copy(alpha = 0.240f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.30f), v.height * startY), Offset(v.width * (sweepX + 0.26f), v.height * endY))
                     fun nearEdge(d: Float) = (1f - d / 0.42f).coerceIn(0f, 1f) * p
-                    fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.18f * power), Color(0xFFFF7DE2).copy(alpha = 0.038f * power), Color(0xFFFFE28A).copy(alpha = 0.026f * power), Color(0xFF80FFF2).copy(alpha = 0.052f * power), Color.Transparent), point, maxSide * 0.36f)
+                    fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.300f * power), Color(0xFFFF7DE2).copy(alpha = 0.084f * power), Color(0xFFFFE28A).copy(alpha = 0.064f * power), Color(0xFF80FFF2).copy(alpha = 0.120f * power), Color.Transparent), point, maxSide * 0.40f)
                     drawRoundRect(brush = pressureGlow, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.052f * bandAlpha), Color(0xFF92FFF1).copy(alpha = 0.026f * bandAlpha), Color.Transparent), center, maxSide * 0.74f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.74.dp.toPx() + 0.26.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = flowingRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.02.dp.toPx()), blendMode = BlendMode.Plus)
-                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.y), Offset(center.x, v.height - inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.x), Offset(inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
-                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.x), Offset(v.width - inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx() + 0.48.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.100f * bandAlpha), Color(0xFF92FFF1).copy(alpha = 0.060f * bandAlpha), Color(0xFFFF7DE2).copy(alpha = 0.034f * bandAlpha), Color.Transparent), center, maxSide * 0.80f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.90.dp.toPx() + 0.34.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = flowingRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.34.dp.toPx()), blendMode = BlendMode.Plus)
+                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.y), Offset(center.x, v.height - inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.x), Offset(inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.x), Offset(v.width - inset, center.y)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
                 }
             }
         }
