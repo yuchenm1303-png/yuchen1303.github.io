@@ -90,44 +90,44 @@ private fun ChatModel.modelCardPrismTheme(): ModelCardPrismTheme = when (this) {
         themeWeight = 0.00f
     )
     ChatModel.Gemini -> ModelCardPrismTheme(
-        main = Color(0xFF8EA2FF),
-        bright = Color(0xFFD4DCFF),
-        deep = Color(0xFF10184A),
-        prismA = Color(0xFF63FFF1),
-        prismB = Color(0xFFFF75DA),
-        prismC = Color(0xFF7B8DFF),
-        gold = Color(0xFFFFDF8A),
-        themeWeight = 0.66f
+        main = Color(0xFF2F8CFF),
+        bright = Color(0xFFE2F7FF),
+        deep = Color(0xFF061A42),
+        prismA = Color(0xFF37F6FF),
+        prismB = Color(0xFF4F6CFF),
+        prismC = Color(0xFF126BFF),
+        gold = Color(0xFFBEEFFF),
+        themeWeight = 0.98f
     )
     ChatModel.Kimi -> ModelCardPrismTheme(
-        main = Color(0xFFC98CFF),
-        bright = Color(0xFFF0D5FF),
-        deep = Color(0xFF22113E),
-        prismA = Color(0xFF7AFFF3),
-        prismB = Color(0xFFFF78D8),
-        prismC = Color(0xFFA987FF),
-        gold = Color(0xFFFFE29B),
-        themeWeight = 0.64f
+        main = Color(0xFFE35CFF),
+        bright = Color(0xFFFFE0FF),
+        deep = Color(0xFF2A0C45),
+        prismA = Color(0xFFFF7AE4),
+        prismB = Color(0xFFB85CFF),
+        prismC = Color(0xFFFF4FC6),
+        gold = Color(0xFFFFB5F0),
+        themeWeight = 1.00f
     )
     ChatModel.Mistral -> ModelCardPrismTheme(
-        main = Color(0xFFFFB45E),
-        bright = Color(0xFFFFEDB0),
-        deep = Color(0xFF341907),
-        prismA = Color(0xFF65FFF2),
-        prismB = Color(0xFFFF6FA4),
-        prismC = Color(0xFF9E9CFF),
-        gold = Color(0xFFFFD36E),
-        themeWeight = 0.70f
+        main = Color(0xFFFFC247),
+        bright = Color(0xFFFFF3C4),
+        deep = Color(0xFF3B2205),
+        prismA = Color(0xFFFFE07A),
+        prismB = Color(0xFFFF9B35),
+        prismC = Color(0xFFFFD15C),
+        gold = Color(0xFFFFE26D),
+        themeWeight = 0.98f
     )
     ChatModel.Workers -> ModelCardPrismTheme(
-        main = Color(0xFFFF8C42),
-        bright = Color(0xFFFFD29A),
-        deep = Color(0xFF2B1304),
-        prismA = Color(0xFF67FFF0),
-        prismB = Color(0xFFFF67C7),
-        prismC = Color(0xFF88A0FF),
-        gold = Color(0xFFFFE07A),
-        themeWeight = 0.70f
+        main = Color(0xFFFF4F47),
+        bright = Color(0xFFFFD8D0),
+        deep = Color(0xFF3A0D0A),
+        prismA = Color(0xFFFF7B5C),
+        prismB = Color(0xFFFF3D86),
+        prismC = Color(0xFFFF6B3D),
+        gold = Color(0xFFFFB06A),
+        themeWeight = 1.00f
     )
 }
 
@@ -408,34 +408,34 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
             val c = Offset(size.width / 2f, size.height / 2f)
             val selected = selection.coerceIn(0f, 1f)
             val press = materialPress.coerceIn(0f, 1f)
-            val coreAlpha = (0.74f * (1f - selected) + 0.88f * selected + 0.08f * press).coerceIn(0f, 1f)
+            val coreAlpha = (0.70f * (1f - selected) + 0.94f * selected + 0.09f * press).coerceIn(0f, 1f)
             val themeLift = selected * theme.themeWeight
             val idleGlow = Brush.radialGradient(
                 listOf(
-                    theme.bright.copy(alpha = 0.070f + 0.034f * expansionProgress),
-                    theme.main.copy(alpha = (0.090f + 0.050f * themeLift) * selected),
-                    theme.prismB.copy(alpha = 0.030f * selected),
+                    theme.bright.copy(alpha = 0.060f + 0.040f * expansionProgress),
+                    theme.main.copy(alpha = (0.110f + 0.180f * themeLift) * selected),
+                    theme.prismB.copy(alpha = (0.030f + 0.075f * themeLift) * selected),
                     Color.Transparent
                 ),
                 c,
-                size.minDimension * 0.58f
+                size.minDimension * 0.60f
             )
             val pressGlow = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.22f * press),
-                    theme.main.copy(alpha = 0.24f * press),
-                    theme.prismB.copy(alpha = 0.100f * press),
-                    theme.gold.copy(alpha = 0.070f * press),
+                    Color.White.copy(alpha = 0.18f * press),
+                    theme.main.copy(alpha = 0.34f * press),
+                    theme.prismB.copy(alpha = 0.150f * press),
+                    theme.gold.copy(alpha = 0.105f * press),
                     Color.Transparent
                 ),
                 c,
-                size.minDimension * (0.76f + 0.18f * press)
+                size.minDimension * (0.78f + 0.20f * press)
             )
             onDrawBehind {
-                drawCircle(idleGlow, radius = size.minDimension * 0.44f, center = c, blendMode = BlendMode.Screen)
-                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.62f, center = c, blendMode = BlendMode.Screen)
-                drawCircle(theme.main.copy(alpha = 0.66f * selected + 0.18f * press), radius = size.minDimension * (0.20f + 0.034f * selected + 0.022f * press), center = c)
-                drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.095f + 0.014f * press), center = c)
+                drawCircle(idleGlow, radius = size.minDimension * 0.47f, center = c, blendMode = BlendMode.Screen)
+                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.66f, center = c, blendMode = BlendMode.Screen)
+                drawCircle(theme.main.copy(alpha = 0.82f * selected + 0.26f * press), radius = size.minDimension * (0.22f + 0.045f * selected + 0.026f * press), center = c)
+                drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.090f + 0.014f * press), center = c)
             }
         },
         contentAlignment = Alignment.Center
@@ -460,7 +460,7 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refraction = (optics * 1.10f + compression * 0.46f).coerceIn(0f, 1.58f)
             val prismPower = (optics * 0.72f + compression * 0.36f).coerceIn(0f, 1.08f)
             val selectedGlow = v.text.coerceIn(0f, 1f)
-            val themeSignal = (0.38f + selectedGlow * 0.62f + compression * 0.22f).coerceIn(0f, 1.20f)
+            val themeSignal = (0.55f + selectedGlow * 0.90f + compression * 0.34f).coerceIn(0f, 1.65f)
             val themePower = theme.themeWeight * themeSignal
             val auraPower = alpha * selectedGlow * s(style.selectedAura, 8f)
             val px = v.center.x.coerceIn(0f, 1f)
@@ -479,11 +479,11 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val pullEnd = Offset(v.width * (1.10f + pullX), v.height * (1.14f + pullY))
             val aura = Brush.linearGradient(
                 listOf(
-                    theme.main.copy(alpha = (0.032f + 0.034f * themePower) * auraPower),
-                    theme.bright.copy(alpha = 0.016f * auraPower),
-                    theme.prismB.copy(alpha = (0.022f + 0.020f * themePower) * auraPower),
-                    theme.gold.copy(alpha = 0.014f * auraPower),
-                    theme.prismC.copy(alpha = 0.020f * auraPower),
+                    theme.main.copy(alpha = (0.048f + 0.062f * themePower) * auraPower),
+                    theme.bright.copy(alpha = 0.014f * auraPower),
+                    theme.prismB.copy(alpha = (0.018f + 0.024f * themePower) * auraPower),
+                    theme.gold.copy(alpha = 0.010f * auraPower),
+                    theme.prismC.copy(alpha = 0.016f * auraPower),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.14f, v.height * -0.20f),
@@ -492,9 +492,9 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refractedBackdrop = Brush.linearGradient(
                 listOf(
                     theme.deep.copy(alpha = 0.160f * refraction),
-                    theme.main.copy(alpha = (0.055f + 0.040f * themePower) * refraction),
-                    Color(0xFF050D24).copy(alpha = 0.188f * refraction),
-                    theme.prismC.copy(alpha = (0.036f + 0.025f * themePower) * refraction),
+                    theme.main.copy(alpha = (0.070f + 0.075f * themePower) * refraction),
+                    Color(0xFF050D24).copy(alpha = 0.176f * refraction),
+                    theme.prismC.copy(alpha = (0.040f + 0.045f * themePower) * refraction),
                     Color(0xFF020716).copy(alpha = 0.208f * refraction)
                 ),
                 pullStart,
@@ -503,9 +503,9 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refractedCyan = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    theme.prismA.copy(alpha = 0.084f * refraction + 0.052f * leftWeight),
+                    theme.prismA.copy(alpha = 0.080f * refraction + 0.050f * leftWeight),
                     Color.Transparent,
-                    theme.main.copy(alpha = (0.030f + 0.050f * themePower) * centerWeight),
+                    theme.main.copy(alpha = (0.044f + 0.090f * themePower) * centerWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * (-0.26f + pullX * 0.65f), v.height * 0.00f),
@@ -514,9 +514,9 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refractedMagenta = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    theme.prismB.copy(alpha = 0.052f * refraction + 0.032f * rightWeight),
+                    theme.prismB.copy(alpha = 0.048f * refraction + 0.030f * rightWeight),
                     Color.Transparent,
-                    theme.gold.copy(alpha = 0.034f * topWeight),
+                    theme.gold.copy(alpha = 0.030f * topWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * (1.18f + pullX * 0.50f), v.height * -0.08f),
@@ -535,23 +535,23 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val fixedPrismField = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    theme.prismA.copy(alpha = 0.040f * prismPower + 0.034f * leftWeight),
-                    theme.main.copy(alpha = (0.028f + 0.038f * themePower) * prismPower + 0.026f * centerWeight),
-                    theme.prismB.copy(alpha = 0.032f * prismPower + 0.024f * rightWeight),
-                    theme.gold.copy(alpha = 0.034f * prismPower + 0.030f * topWeight),
+                    theme.prismA.copy(alpha = 0.036f * prismPower + 0.030f * leftWeight),
+                    theme.main.copy(alpha = (0.050f + 0.084f * themePower) * prismPower + 0.038f * centerWeight),
+                    theme.prismB.copy(alpha = 0.026f * prismPower + 0.020f * rightWeight),
+                    theme.gold.copy(alpha = 0.028f * prismPower + 0.024f * topWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.16f, v.height * -0.12f),
                 Offset(v.width * 1.14f, v.height * 1.10f)
             )
             val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.004f + v.text * 0.002f + v.delayed * 0.001f) * mist), theme.bright.copy(alpha = (0.007f + v.text * 0.003f + v.delayed * 0.002f) * mist), theme.prismC.copy(alpha = 0.004f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.018f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
-            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.020f + v.text * 0.004f + v.delayed * 0.002f) * body), theme.main.copy(alpha = (0.010f + v.text * 0.006f + v.delayed * 0.003f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.152f * body)), 0f, v.height)
+            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.018f + v.text * 0.004f + v.delayed * 0.002f) * body), theme.main.copy(alpha = (0.014f + v.text * 0.012f + v.delayed * 0.005f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.152f * body)), 0f, v.height)
             val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.034f * body), Color(0xFF00040C).copy(alpha = 0.080f * body)), materialCenter, maxOf(v.width, v.height) * 0.78f)
             val horizontalResponse = Brush.horizontalGradient(
                 listOf(
-                    theme.prismA.copy(alpha = 0.055f * leftWeight),
+                    theme.prismA.copy(alpha = 0.052f * leftWeight),
                     Color.Transparent,
-                    theme.prismB.copy(alpha = 0.038f * rightWeight)
+                    theme.prismB.copy(alpha = 0.035f * rightWeight)
                 ),
                 0f,
                 v.width
@@ -615,17 +615,17 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val bottom = s(style.bottomShadow)
             val rainbow = s(style.selectedRainbowRim, 8f)
             val halo = s(style.selectedOuterHalo, 8f)
-            val themeBoost = (theme.themeWeight * (0.40f + selectedGlow * 0.60f)).coerceIn(0f, 1f)
-            val outerRim = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.300f * rimPower * outer), Color(0xFFF1FFFF).copy(alpha = 0.120f * rimPower * outer), theme.main.copy(alpha = (0.100f + 0.080f * themeBoost) * rimPower * outer), Color.White.copy(alpha = 0.052f * rimPower * outer), Color.Transparent, theme.deep.copy(alpha = 0.225f * rimPower * bottom), theme.gold.copy(alpha = 0.052f * rimPower * outer)), Offset.Zero, Offset(v.width, v.height))
-            val topLine = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.018f * rimPower * top), theme.bright.copy(alpha = 0.430f * rimPower * top), theme.gold.copy(alpha = 0.145f * rimPower * top), theme.main.copy(alpha = (0.170f + 0.090f * themeBoost) * rimPower * top), Color.White.copy(alpha = 0.070f * rimPower * top), Color.Transparent), 0f, v.width)
-            val innerLine = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.065f * rimPower * inner), Color.Transparent, Color(0xFF000713).copy(alpha = 0.235f * rimPower * inner), theme.prismA.copy(alpha = 0.050f * rimPower * inner)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.92f, v.height))
-            val selectedHalo = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.110f + 0.110f * themeBoost) * alpha * halo * selectedGlow), Color.White.copy(alpha = 0.055f * alpha * halo * selectedGlow), theme.prismB.copy(alpha = 0.084f * alpha * halo * selectedGlow), theme.gold.copy(alpha = 0.050f * alpha * halo * selectedGlow), Color.Transparent, theme.prismC.copy(alpha = 0.070f * alpha * halo * selectedGlow)), Offset(v.width * -0.12f, v.height * -0.18f), Offset(v.width * 1.08f, v.height * 1.10f))
-            val selectedRainbow = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.430f + 0.300f * themeBoost) * alpha * rainbow * selectedGlow), Color.White.copy(alpha = 0.240f * alpha * rainbow * selectedGlow), theme.prismB.copy(alpha = 0.300f * alpha * rainbow * selectedGlow), theme.gold.copy(alpha = 0.210f * alpha * rainbow * selectedGlow), theme.prismC.copy(alpha = 0.240f * alpha * rainbow * selectedGlow), Color.Transparent), Offset(v.width * -0.08f, 0f), Offset(v.width * 1.02f, v.height * 0.78f))
+            val themeBoost = (theme.themeWeight * (0.62f + selectedGlow * 0.70f)).coerceIn(0f, 1.35f)
+            val outerRim = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.260f * rimPower * outer), Color(0xFFF1FFFF).copy(alpha = 0.082f * rimPower * outer), theme.main.copy(alpha = (0.150f + 0.170f * themeBoost) * rimPower * outer), Color.White.copy(alpha = 0.045f * rimPower * outer), Color.Transparent, theme.deep.copy(alpha = 0.225f * rimPower * bottom), theme.prismC.copy(alpha = 0.072f * rimPower * outer)), Offset.Zero, Offset(v.width, v.height))
+            val topLine = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.016f * rimPower * top), theme.bright.copy(alpha = 0.360f * rimPower * top), theme.main.copy(alpha = (0.220f + 0.240f * themeBoost) * rimPower * top), theme.prismA.copy(alpha = 0.120f * rimPower * top), theme.prismB.copy(alpha = 0.075f * rimPower * top), Color.Transparent), 0f, v.width)
+            val innerLine = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.070f * rimPower * inner), Color.Transparent, Color(0xFF000713).copy(alpha = 0.235f * rimPower * inner), theme.main.copy(alpha = 0.075f * rimPower * inner)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.92f, v.height))
+            val selectedHalo = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.180f + 0.180f * themeBoost) * alpha * halo * selectedGlow), Color.White.copy(alpha = 0.045f * alpha * halo * selectedGlow), theme.prismB.copy(alpha = 0.060f * alpha * halo * selectedGlow), theme.gold.copy(alpha = 0.032f * alpha * halo * selectedGlow), Color.Transparent, theme.prismC.copy(alpha = 0.080f * alpha * halo * selectedGlow)), Offset(v.width * -0.12f, v.height * -0.18f), Offset(v.width * 1.08f, v.height * 1.10f))
+            val selectedRainbow = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.680f + 0.420f * themeBoost) * alpha * rainbow * selectedGlow), theme.bright.copy(alpha = 0.170f * alpha * rainbow * selectedGlow), theme.prismA.copy(alpha = 0.155f * alpha * rainbow * selectedGlow), theme.prismB.copy(alpha = 0.145f * alpha * rainbow * selectedGlow), theme.prismC.copy(alpha = 0.190f * alpha * rainbow * selectedGlow), Color.Transparent), Offset(v.width * -0.08f, 0f), Offset(v.width * 1.02f, v.height * 0.78f))
             val press = v.press.coerceIn(0f, 1.16f)
 
             withTransform({ translate(v.left, v.top) }) {
                 if (selectedGlow > 0.001f && halo > 0.001f) drawRoundRect(brush = selectedHalo, topLeft = Offset(-1.70.dp.toPx(), -1.70.dp.toPx()), size = Size(v.width + 3.40.dp.toPx(), v.height + 3.40.dp.toPx()), cornerRadius = CornerRadius(radius + 1.70.dp.toPx(), radius + 1.70.dp.toPx()), style = Stroke(2.25.dp.toPx()), blendMode = BlendMode.Screen)
-                if (selectedGlow > 0.001f && rainbow > 0.001f) drawRoundRect(brush = selectedRainbow, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.32.dp.toPx()), blendMode = BlendMode.Plus)
+                if (selectedGlow > 0.001f && rainbow > 0.001f) drawRoundRect(brush = selectedRainbow, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.42.dp.toPx()), blendMode = BlendMode.Plus)
                 drawRoundRect(brush = outerRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = topLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
@@ -642,10 +642,10 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
                     val startY = when (v.band % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
                     val endY = when (v.band % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
                     val bandAlpha = modelSmooth((press / 0.50f).coerceIn(0f, 1f)) * v.strength.coerceIn(0.70f, 1.68f)
-                    val flowingRim = Brush.linearGradient(listOf(Color.Transparent, theme.prismB.copy(alpha = 0.320f * bandAlpha), Color.White.copy(alpha = 0.430f * bandAlpha), theme.gold.copy(alpha = 0.285f * bandAlpha), theme.main.copy(alpha = 0.420f * bandAlpha), theme.prismC.copy(alpha = 0.230f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.30f), v.height * startY), Offset(v.width * (sweepX + 0.26f), v.height * endY))
+                    val flowingRim = Brush.linearGradient(listOf(Color.Transparent, theme.main.copy(alpha = 0.450f * bandAlpha), theme.bright.copy(alpha = 0.330f * bandAlpha), theme.prismA.copy(alpha = 0.255f * bandAlpha), theme.prismB.copy(alpha = 0.225f * bandAlpha), theme.prismC.copy(alpha = 0.210f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.30f), v.height * startY), Offset(v.width * (sweepX + 0.26f), v.height * endY))
                     fun nearEdge(d: Float) = (1f - d / 0.42f).coerceIn(0f, 1f) * p
-                    fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.260f * power), theme.prismB.copy(alpha = 0.090f * power), theme.gold.copy(alpha = 0.064f * power), theme.main.copy(alpha = 0.150f * power), Color.Transparent), point, maxSide * 0.40f)
-                    drawRoundRect(brush = Brush.radialGradient(listOf(theme.bright.copy(alpha = 0.080f * bandAlpha), theme.main.copy(alpha = 0.084f * bandAlpha), theme.prismB.copy(alpha = 0.030f * bandAlpha), Color.Transparent), center, maxSide * 0.80f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.90.dp.toPx() + 0.34.dp.toPx() * p), blendMode = BlendMode.Screen)
+                    fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.210f * power), theme.main.copy(alpha = 0.210f * power), theme.prismA.copy(alpha = 0.080f * power), theme.prismB.copy(alpha = 0.070f * power), Color.Transparent), point, maxSide * 0.40f)
+                    drawRoundRect(brush = Brush.radialGradient(listOf(theme.bright.copy(alpha = 0.070f * bandAlpha), theme.main.copy(alpha = 0.120f * bandAlpha), theme.prismB.copy(alpha = 0.026f * bandAlpha), Color.Transparent), center, maxSide * 0.80f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.90.dp.toPx() + 0.34.dp.toPx() * p), blendMode = BlendMode.Screen)
                     drawRoundRect(brush = flowingRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.34.dp.toPx()), blendMode = BlendMode.Plus)
                     drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
                     drawRoundRect(brush = edgeHalo(nearEdge(1f - centerNorm.y), Offset(center.x, v.height - inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
