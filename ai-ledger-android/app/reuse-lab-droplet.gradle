@@ -1,0 +1,21 @@
+tasks.register('patchReuseLabDroplet') {
+    doLast {
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt')
+        def text = lab.getText('UTF-8')
+        text = text.replace('@Composable\nprivate fun OpenGlLargeDropletPreview(', '@Composable\nfun OpenGlLargeDropletPreview(')
+        text = text.replace('purpleWhiteLight: Float,\n    modifier: Modifier = Modifier\n) {', 'purpleWhiteLight: Float,\n    modifier: Modifier = Modifier,\n    forceLocked: Boolean? = null,\n    onTap: (() -> Unit)? = null,\n    leadingText: String = "●",\n    mainText: String = "语音输入",\n    statusText: String? = null\n) {')
+        text = text.replace('var locked by rememberSaveable { mutableStateOf(false) }', 'var localLocked by rememberSaveable { mutableStateOf(false) }')
+        text = text.replace('var interactionLightX by remember { mutableStateOf(style.activeLightX.coerceIn(0.04f, 0.96f)) }', 'var interactionLightX by remember { mutableStateOf(style.activeLightX.coerceIn(0.04f, 0.96f)) }\n    val locked = forceLocked ?: localLocked')
+        text = text.replace('val statusLabel = if (locked) "锁定棱彩" else "按住点亮 · 轻点锁定"', 'val statusLabel = statusText ?: if (locked) "锁定棱彩" else "按住点亮 · 轻点锁定"')
+        text = text.replace('.pointerInput(style) {', '.pointerInput(style, forceLocked, onTap) {')
+        text = text.replace('if (wasTap) locked = !locked', 'if (wasTap) { if (forceLocked == null) localLocked = !localLocked else onTap?.invoke() }')
+        text = text.replace('Text("🎙", color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)', 'Text(leadingText, color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)')
+        text = text.replace('Text("语音输入", color = Color.White.copy(alpha = contentAlpha), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)', 'Text(mainText, color = Color.White.copy(alpha = contentAlpha), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)')
+        if (!text.contains('val locked = forceLocked ?: localLocked')) throw new GradleException('Lab droplet reuse patch did not apply.')
+        lab.setText(text, 'UTF-8')
+        println('Reused exact lab droplet implementation for home entry points.')
+    }
+}
+
+tasks.named('preBuild') { dependsOn tasks.named('patchReuseLabDroplet') }
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach { dependsOn tasks.named('patchReuseLabDroplet') }
