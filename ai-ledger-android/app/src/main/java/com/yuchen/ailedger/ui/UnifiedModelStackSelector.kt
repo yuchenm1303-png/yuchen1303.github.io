@@ -5,7 +5,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,20 +92,28 @@ internal fun UnifiedParentModelStackSelector(
                 val selectionProgress by animateFloatAsState(
                     targetValue = if (selected) 1f else 0f,
                     animationSpec = tween(
-                        durationMillis = if (selected) 560 else 260,
-                        delayMillis = if (selected) 40 else 0,
+                        durationMillis = if (selected) 660 else 310,
+                        delayMillis = if (selected) 36 else 0,
                         easing = FastOutSlowInEasing
                     ),
                     label = "model-card-selection-light-${model.id}"
                 )
                 val selectedPulse by animateFloatAsState(
-                    targetValue = if (selected) 1.008f else 1f,
-                    animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow),
+                    targetValue = if (selected) 1.010f else 1f,
+                    animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow),
                     label = "model-card-selected-${model.id}"
                 )
 
                 val p = unifiedModelStackEase(targetProgress)
-                val light = unifiedModelStackSmooth(selectionProgress)
+                val selectionRaw = selectionProgress.coerceIn(0f, 1f)
+                val textLight = unifiedModelStackSmooth(selectionRaw)
+                val bodyLight = unifiedModelStackPhase(selectionRaw, 0.00f, 0.30f)
+                val edgeLight = unifiedModelStackPhase(selectionRaw, 0.06f, 0.54f)
+                val glintLight = unifiedModelStackPhase(selectionRaw, 0.10f, 0.48f)
+                val rainbowLight = unifiedModelStackPhase(selectionRaw, 0.22f, 0.84f)
+                val auraLight = unifiedModelStackPhase(selectionRaw, 0.34f, 1.00f)
+                val edgeIgnite = sin(selectionRaw.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f)
+
                 val currentWidth = unifiedLerpDp(collapsedWidth, halfWidth, p)
                 val currentHeight = unifiedLerpDp(collapsedHeight, expandedHeight, p)
                 val expandedX = if (column == 1) halfWidth + gap else 0.dp
@@ -120,7 +126,7 @@ internal fun UnifiedParentModelStackSelector(
                 val wPx = with(density) { currentWidth.toPx() } * selectedPulse
                 val hPx = with(density) { currentHeight.toPx() } * selectedPulse
                 val unselectedEnergy = 0.50f * style.unselectedEnergy.coerceIn(0f, 5f)
-                val energy = if (selected) unifiedLerpFloat(unselectedEnergy, 1f, light) else unselectedEnergy
+                val energy = if (selected) unifiedLerpFloat(unselectedEnergy, 1f, edgeLight) else unselectedEnergy
 
                 visuals.add(
                     UnifiedModelCardVisual(
@@ -130,9 +136,15 @@ internal fun UnifiedParentModelStackSelector(
                         height = hPx,
                         alpha = alpha,
                         selected = selected,
-                        selection = light,
+                        text = textLight,
+                        body = bodyLight,
+                        edge = edgeLight,
+                        rainbow = rainbowLight,
+                        aura = auraLight,
+                        glint = glintLight,
+                        ignite = edgeIgnite,
                         stackEnergy = energy,
-                        lens = 0.20f * light,
+                        lens = 0.20f * edgeLight,
                         press = 0f
                     )
                 )
@@ -159,7 +171,7 @@ internal fun UnifiedParentModelStackSelector(
                             if (expanded) onSelected(model) else onToggleExpanded()
                         }
                 ) {
-                    UnifiedModelCardContent(model, light, targetProgress, style.dotGlow)
+                    UnifiedModelCardContent(model, textLight, targetProgress, style.dotGlow)
                 }
             }
         }
@@ -173,7 +185,13 @@ private data class UnifiedModelCardVisual(
     val height: Float,
     val alpha: Float,
     val selected: Boolean,
-    val selection: Float,
+    val text: Float,
+    val body: Float,
+    val edge: Float,
+    val rainbow: Float,
+    val aura: Float,
+    val glint: Float,
+    val ignite: Float,
     val stackEnergy: Float,
     val lens: Float,
     val press: Float
@@ -248,7 +266,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val alpha = v.alpha.coerceIn(0f, 1f)
             val energy = v.stackEnergy.coerceIn(0f, 8f)
             if (alpha <= 0.01f || v.width <= 1f || v.height <= 1f) return
-            val selectedPower = v.selection.coerceIn(0f, 1f)
+            val bodyLight = v.body.coerceIn(0f, 1f)
             val lens = unifiedModelStackSmooth(v.lens.coerceIn(0f, 1f))
             val maxSide = maxOf(v.width, v.height)
             val radiusBase = minOf(v.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
@@ -256,7 +274,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val bodyAlpha = energy * alpha * s(style.bodyAlpha, 6f)
             val bodySize = Size(v.width, v.height)
             val selectedAura = s(style.selectedAura, 8f)
-            val auraRamp = selectedPower * selectedPower
+            val auraRamp = v.aura.coerceIn(0f, 1f)
             val selectedRainbowAura = Brush.linearGradient(
                 listOf(
                     Color(0xFF74FFF1).copy(alpha = 0.085f * alpha * selectedAura * auraRamp),
@@ -268,8 +286,8 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             )
             val bodyVeil = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = (0.052f + selectedPower * 0.016f + lens * 0.012f) * bodyAlpha),
-                    Color(0xFFB8F7FF).copy(alpha = (0.020f + selectedPower * 0.010f) * bodyAlpha),
+                    Color.White.copy(alpha = (0.052f + bodyLight * 0.016f + lens * 0.012f) * bodyAlpha),
+                    Color(0xFFB8F7FF).copy(alpha = (0.020f + bodyLight * 0.010f) * bodyAlpha),
                     Color.Transparent,
                     Color(0xFF000713).copy(alpha = 0.115f * bodyAlpha)
                 ), 0f, v.height
@@ -279,7 +297,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 center = Offset(v.width * 0.50f, v.height * 0.58f), radius = maxSide * 0.78f
             )
             withTransform({ translate(v.left, v.top) }) {
-                if (selectedPower > 0.001f && selectedAura > 0.001f) {
+                if (auraRamp > 0.001f && selectedAura > 0.001f) {
                     drawRoundRect(selectedRainbowAura, topLeft = Offset(-3.2.dp.toPx(), -3.2.dp.toPx()), size = Size(v.width + 6.4.dp.toPx(), v.height + 6.4.dp.toPx()), cornerRadius = CornerRadius(radiusBase + 3.2.dp.toPx(), radiusBase + 3.2.dp.toPx()), blendMode = BlendMode.Screen)
                 }
                 drawRoundRect(bodyVeil, size = bodySize, cornerRadius = corner, blendMode = BlendMode.Screen)
@@ -291,7 +309,10 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val alpha = v.alpha.coerceIn(0f, 1f)
             val energy = v.stackEnergy.coerceIn(0f, 8f)
             if (alpha <= 0.01f || v.width <= 1f || v.height <= 1f) return
-            val selectedPower = v.selection.coerceIn(0f, 1f)
+            val edgeLight = v.edge.coerceIn(0f, 1f)
+            val rainbowLight = v.rainbow.coerceIn(0f, 1f)
+            val glintLight = v.glint.coerceIn(0f, 1f)
+            val ignite = v.ignite.coerceIn(0f, 1f)
             val lens = unifiedModelStackSmooth(v.lens.coerceIn(0f, 1f))
             val maxSide = maxOf(v.width, v.height)
             val radiusBase = minOf(v.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
@@ -301,16 +322,15 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             val rimSize = Size((v.width - rimInset * 2f).coerceAtLeast(1f), (v.height - rimInset * 2f).coerceAtLeast(1f))
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
             val rimPower = energy * alpha
-            val selectedRim = (0.050f + selectedPower * 0.160f + lens * 0.020f) * rimPower
+            val selectedRim = (0.050f + edgeLight * 0.160f + lens * 0.020f) * rimPower
             val outer = s(style.outerRim, 8f)
-            val top = s(style.topHairline, 8f)
+            val top = s(style.topHairline, 8f) * (1f + edgeLight * 0.14f + ignite * 0.10f)
             val inner = s(style.innerDepth, 8f)
             val bottom = s(style.bottomShadow, 8f)
             val rainbow = s(style.selectedRainbowRim, 8f)
             val halo = s(style.selectedOuterHalo, 8f)
             val glint = s(style.edgeGlint, 10f)
-            val rainbowRamp = selectedPower * selectedPower
-            val glintRamp = (selectedPower * 0.72f + 0.28f).coerceIn(0f, 1f)
+            val glintRamp = (0.20f + glintLight * 0.92f + ignite * 0.18f).coerceIn(0f, 1.22f)
 
             val outerRim = Brush.linearGradient(
                 listOf(
@@ -325,21 +345,21 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
             )
             val selectedRainbowRim = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.64f * alpha * rainbow * rainbowRamp),
-                    Color.White.copy(alpha = 0.42f * alpha * rainbow * rainbowRamp),
-                    Color(0xFFFF7BDA).copy(alpha = 0.36f * alpha * rainbow * rainbowRamp),
-                    Color(0xFFFFE58A).copy(alpha = 0.20f * alpha * rainbow * rainbowRamp),
-                    Color(0xFF8EA2FF).copy(alpha = 0.22f * alpha * rainbow * rainbowRamp),
+                    Color(0xFF77FFF0).copy(alpha = 0.64f * alpha * rainbow * rainbowLight),
+                    Color.White.copy(alpha = 0.42f * alpha * rainbow * rainbowLight),
+                    Color(0xFFFF7BDA).copy(alpha = 0.36f * alpha * rainbow * rainbowLight),
+                    Color(0xFFFFE58A).copy(alpha = 0.20f * alpha * rainbow * rainbowLight),
+                    Color(0xFF8EA2FF).copy(alpha = 0.22f * alpha * rainbow * rainbowLight),
                     Color.Transparent
                 ), Offset(v.width * -0.06f, v.height * -0.02f), Offset(v.width * 0.98f, v.height * 0.72f)
             )
             val selectedOuterRainbowHalo = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.115f * alpha * halo * rainbowRamp),
-                    Color(0xFFFF7BDA).copy(alpha = 0.074f * alpha * halo * rainbowRamp),
-                    Color(0xFFFFE58A).copy(alpha = 0.044f * alpha * halo * rainbowRamp),
+                    Color(0xFF77FFF0).copy(alpha = 0.115f * alpha * halo * rainbowLight),
+                    Color(0xFFFF7BDA).copy(alpha = 0.074f * alpha * halo * rainbowLight),
+                    Color(0xFFFFE58A).copy(alpha = 0.044f * alpha * halo * rainbowLight),
                     Color.Transparent,
-                    Color(0xFF8EA2FF).copy(alpha = 0.052f * alpha * halo * rainbowRamp)
+                    Color(0xFF8EA2FF).copy(alpha = 0.052f * alpha * halo * rainbowLight)
                 ), Offset(v.width * -0.10f, v.height * -0.20f), Offset(v.width * 1.06f, v.height * 1.10f)
             )
             val topHairline = Brush.horizontalGradient(
@@ -372,7 +392,7 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
                 ), center = Offset(centerX, centerY), radius = maxSide * 0.082f * style.edgeGlintRadius.coerceIn(0.05f, 5f)
             )
             withTransform({ translate(v.left, v.top) }) {
-                if (selectedPower > 0.001f) {
+                if (rainbowLight > 0.001f) {
                     if (halo > 0.001f) drawRoundRect(selectedOuterRainbowHalo, topLeft = Offset(-1.55.dp.toPx(), -1.55.dp.toPx()), size = Size(v.width + 3.10.dp.toPx(), v.height + 3.10.dp.toPx()), cornerRadius = CornerRadius(radiusBase + 1.55.dp.toPx(), radiusBase + 1.55.dp.toPx()), style = Stroke(2.15.dp.toPx()), blendMode = BlendMode.Screen)
                     if (rainbow > 0.001f) drawRoundRect(selectedRainbowRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = corner, style = Stroke(1.16.dp.toPx()), blendMode = BlendMode.Plus)
                 }
@@ -393,6 +413,10 @@ private fun Modifier.drawUnifiedModelRimGlass(visuals: List<UnifiedModelCardVisu
 private fun unifiedLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun unifiedLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun unifiedModelStackSmooth(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * (3f - 2f * x) }
+private fun unifiedModelStackPhase(value: Float, start: Float, end: Float): Float {
+    if (end <= start) return if (value >= end) 1f else 0f
+    return unifiedModelStackSmooth(((value - start) / (end - start)).coerceIn(0f, 1f))
+}
 private fun unifiedModelStackEase(progress: Float): Float {
     val p = progress.coerceIn(0f, 1f)
     val smooth = unifiedModelStackSmooth(p)
