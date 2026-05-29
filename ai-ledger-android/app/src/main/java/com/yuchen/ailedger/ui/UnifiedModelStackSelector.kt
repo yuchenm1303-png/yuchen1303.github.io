@@ -297,32 +297,33 @@ private fun ModelStatusDot(selection: Float, expansionProgress: Float, materialP
             val c = Offset(size.width / 2f, size.height / 2f)
             val selected = selection.coerceIn(0f, 1f)
             val press = materialPress.coerceIn(0f, 1f)
+            val coreAlpha = (0.74f * (1f - selected) + 0.88f * selected + 0.08f * press).coerceIn(0f, 1f)
             val idleGlow = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.090f + 0.050f * expansionProgress),
-                    Color(0xFF8DF9EA).copy(alpha = 0.120f * selected),
-                    Color(0xFFFF7DE2).copy(alpha = 0.050f * selected),
+                    Color.White.copy(alpha = 0.070f + 0.034f * expansionProgress),
+                    Color(0xFF8DF9EA).copy(alpha = 0.090f * selected),
+                    Color(0xFFFF7DE2).copy(alpha = 0.030f * selected),
                     Color.Transparent
                 ),
                 c,
-                size.minDimension * 0.60f
+                size.minDimension * 0.58f
             )
             val pressGlow = Brush.radialGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.34f * press),
-                    Color(0xFF8DF9EA).copy(alpha = 0.24f * press),
-                    Color(0xFFFF7DE2).copy(alpha = 0.12f * press),
-                    Color(0xFFFFE28A).copy(alpha = 0.08f * press),
+                    Color.White.copy(alpha = 0.26f * press),
+                    Color(0xFF8DF9EA).copy(alpha = 0.22f * press),
+                    Color(0xFFFF7DE2).copy(alpha = 0.090f * press),
+                    Color(0xFFFFE28A).copy(alpha = 0.060f * press),
                     Color.Transparent
                 ),
                 c,
-                size.minDimension * (0.82f + 0.24f * press)
+                size.minDimension * (0.76f + 0.18f * press)
             )
             onDrawBehind {
-                drawCircle(idleGlow, radius = size.minDimension * 0.48f, center = c, blendMode = BlendMode.Screen)
-                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.68f, center = c, blendMode = BlendMode.Screen)
-                drawCircle(Color.White.copy(alpha = 0.72f * (1f - selected)), radius = size.minDimension * 0.17f, center = c)
-                drawCircle(Color(0xFF8DF9EA).copy(alpha = 0.88f * selected + 0.25f * press), radius = size.minDimension * (0.18f + 0.052f * selected + 0.034f * press), center = c)
+                drawCircle(idleGlow, radius = size.minDimension * 0.44f, center = c, blendMode = BlendMode.Screen)
+                if (press > 0.001f) drawCircle(pressGlow, radius = size.minDimension * 0.62f, center = c, blendMode = BlendMode.Screen)
+                drawCircle(Color(0xFF8DF9EA).copy(alpha = 0.62f * selected + 0.16f * press), radius = size.minDimension * (0.20f + 0.034f * selected + 0.022f * press), center = c)
+                drawCircle(Color.White.copy(alpha = coreAlpha), radius = size.minDimension * (0.095f + 0.014f * press), center = c)
             }
         },
         contentAlignment = Alignment.Center
@@ -343,8 +344,8 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val press = v.press.coerceIn(0f, 1.12f)
             val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
             val optics = modelSmooth((maxOf(v.delayed, press * 0.72f) / 1.04f).coerceIn(0f, 1f))
-            val refraction = (optics * 1.05f + compression * 0.34f).coerceIn(0f, 1.45f)
-            val prismPower = (optics * 0.78f + compression * 0.32f).coerceIn(0f, 1.10f)
+            val refraction = (optics * 1.10f + compression * 0.46f).coerceIn(0f, 1.58f)
+            val prismPower = (optics * 0.72f + compression * 0.36f).coerceIn(0f, 1.08f)
             val selectedGlow = v.text.coerceIn(0f, 1f)
             val auraPower = alpha * selectedGlow * s(style.selectedAura, 8f)
             val px = v.center.x.coerceIn(0f, 1f)
@@ -357,8 +358,8 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val horizontalTilt = (px - 0.5f) * 2f
             val verticalTilt = (py - 0.5f) * 2f
             val materialCenter = Offset(v.width * 0.52f, v.height * 0.50f)
-            val pullX = horizontalTilt * compression * 0.030f
-            val pullY = verticalTilt * compression * 0.045f
+            val pullX = horizontalTilt * compression * 0.034f
+            val pullY = verticalTilt * compression * 0.052f
             val pullStart = Offset(v.width * (-0.10f + pullX), v.height * (-0.18f + pullY))
             val pullEnd = Offset(v.width * (1.10f + pullX), v.height * (1.14f + pullY))
             val aura = Brush.linearGradient(
@@ -375,11 +376,11 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             )
             val refractedBackdrop = Brush.linearGradient(
                 listOf(
-                    Color(0xFF07142D).copy(alpha = 0.150f * refraction),
-                    Color(0xFF102A58).copy(alpha = 0.115f * refraction),
-                    Color(0xFF050D24).copy(alpha = 0.170f * refraction),
-                    Color(0xFF12305F).copy(alpha = 0.090f * refraction),
-                    Color(0xFF020716).copy(alpha = 0.190f * refraction)
+                    Color(0xFF07142D).copy(alpha = 0.158f * refraction),
+                    Color(0xFF102A58).copy(alpha = 0.120f * refraction),
+                    Color(0xFF050D24).copy(alpha = 0.188f * refraction),
+                    Color(0xFF12305F).copy(alpha = 0.086f * refraction),
+                    Color(0xFF020716).copy(alpha = 0.208f * refraction)
                 ),
                 pullStart,
                 pullEnd
@@ -387,9 +388,9 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refractedCyan = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF62FFF0).copy(alpha = 0.075f * refraction + 0.045f * leftWeight),
+                    Color(0xFF62FFF0).copy(alpha = 0.084f * refraction + 0.052f * leftWeight),
                     Color.Transparent,
-                    Color(0xFF8EA2FF).copy(alpha = 0.040f * centerWeight),
+                    Color(0xFF8EA2FF).copy(alpha = 0.046f * centerWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * (-0.26f + pullX * 0.65f), v.height * 0.00f),
@@ -398,9 +399,9 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val refractedMagenta = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFFFF70D9).copy(alpha = 0.070f * refraction + 0.048f * rightWeight),
+                    Color(0xFFFF70D9).copy(alpha = 0.052f * refraction + 0.032f * rightWeight),
                     Color.Transparent,
-                    Color(0xFFFFDE86).copy(alpha = 0.044f * topWeight),
+                    Color(0xFFFFDE86).copy(alpha = 0.034f * topWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * (1.18f + pullX * 0.50f), v.height * -0.08f),
@@ -409,58 +410,58 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val pressureBend = Brush.radialGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF07142C).copy(alpha = 0.070f * compression + 0.020f * centerWeight),
-                    Color(0xFF00040D).copy(alpha = 0.086f * compression),
+                    Color(0xFF07142C).copy(alpha = 0.092f * compression + 0.026f * centerWeight),
+                    Color(0xFF00040D).copy(alpha = 0.112f * compression),
                     Color.Transparent
                 ),
                 materialCenter,
-                maxOf(v.width, v.height) * (0.70f + 0.08f * compression)
+                maxOf(v.width, v.height) * (0.66f + 0.08f * compression)
             )
             val fixedPrismField = Brush.linearGradient(
                 listOf(
                     Color.Transparent,
-                    Color(0xFF66FFF1).copy(alpha = 0.038f * prismPower + 0.030f * leftWeight),
-                    Color(0xFF87A0FF).copy(alpha = 0.030f * prismPower + 0.020f * centerWeight),
-                    Color(0xFFFF70D9).copy(alpha = 0.042f * prismPower + 0.034f * rightWeight),
-                    Color(0xFFFFDD86).copy(alpha = 0.030f * prismPower + 0.026f * topWeight),
+                    Color(0xFF66FFF1).copy(alpha = 0.040f * prismPower + 0.034f * leftWeight),
+                    Color(0xFF87A0FF).copy(alpha = 0.030f * prismPower + 0.024f * centerWeight),
+                    Color(0xFFFF70D9).copy(alpha = 0.032f * prismPower + 0.024f * rightWeight),
+                    Color(0xFFFFDD86).copy(alpha = 0.034f * prismPower + 0.030f * topWeight),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.16f, v.height * -0.12f),
                 Offset(v.width * 1.14f, v.height * 1.10f)
             )
             val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.004f + v.text * 0.002f + v.delayed * 0.001f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.009f + v.text * 0.003f + v.delayed * 0.002f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.004f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.018f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
-            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.024f + v.text * 0.004f + v.delayed * 0.002f) * body), Color(0xFFB8F7FF).copy(alpha = (0.015f + v.text * 0.004f + v.delayed * 0.003f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.145f * body)), 0f, v.height)
+            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.020f + v.text * 0.004f + v.delayed * 0.002f) * body), Color(0xFFB8F7FF).copy(alpha = (0.013f + v.text * 0.004f + v.delayed * 0.003f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.152f * body)), 0f, v.height)
             val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.034f * body), Color(0xFF00040C).copy(alpha = 0.080f * body)), materialCenter, maxOf(v.width, v.height) * 0.78f)
             val horizontalResponse = Brush.horizontalGradient(
                 listOf(
-                    Color(0xFF6CFFF2).copy(alpha = 0.050f * leftWeight),
+                    Color(0xFF6CFFF2).copy(alpha = 0.055f * leftWeight),
                     Color.Transparent,
-                    Color(0xFFFF73D9).copy(alpha = 0.054f * rightWeight)
+                    Color(0xFFFF73D9).copy(alpha = 0.038f * rightWeight)
                 ),
                 0f,
                 v.width
             )
             val verticalResponse = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.024f * topWeight),
+                    Color.White.copy(alpha = 0.020f * topWeight),
                     Color.Transparent,
-                    Color(0xFF000713).copy(alpha = 0.055f * bottomWeight + 0.044f * compression)
+                    Color(0xFF000713).copy(alpha = 0.062f * bottomWeight + 0.050f * compression)
                 ),
                 0f,
                 v.height
             )
             val materialBend = Brush.linearGradient(
                 listOf(
-                    Color(0xFF000713).copy(alpha = 0.020f * compression * (1f + verticalTilt.coerceAtLeast(0f) * 0.25f)),
+                    Color(0xFF000713).copy(alpha = 0.026f * compression * (1f + verticalTilt.coerceAtLeast(0f) * 0.25f)),
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.010f * prismPower * (1f - abs(horizontalTilt) * 0.22f)),
+                    Color.White.copy(alpha = 0.008f * prismPower * (1f - abs(horizontalTilt) * 0.22f)),
                     Color.Transparent,
-                    Color(0xFF020815).copy(alpha = 0.034f * compression)
+                    Color(0xFF020815).copy(alpha = 0.040f * compression)
                 ),
                 Offset(v.width * -0.04f, 0f),
                 Offset(v.width * 1.04f, v.height)
             )
-            val bottomDepth = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.058f * compression)), v.height * 0.44f, v.height)
+            val bottomDepth = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.066f * compression)), v.height * 0.44f, v.height)
             withTransform({ translate(v.left, v.top) }) {
                 if (auraPower > 0.001f) drawRoundRect(brush = aura, topLeft = Offset(-3.4.dp.toPx(), -3.4.dp.toPx()), size = Size(v.width + 6.8.dp.toPx(), v.height + 6.8.dp.toPx()), cornerRadius = CornerRadius(radius + 3.4.dp.toPx(), radius + 3.4.dp.toPx()), blendMode = BlendMode.Screen)
                 if (mist > 0.001f) drawRoundRect(innerMist, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
