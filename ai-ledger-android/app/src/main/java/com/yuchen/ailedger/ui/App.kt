@@ -1,7 +1,11 @@
 package com.yuchen.ailedger.ui
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.view.View
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -58,6 +62,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val state = viewModel.uiState
     val rootView = LocalView.current
     val context = LocalContext.current
+    val clipboardManager = remember(context) {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
     val compactDensity = remember(density.density, density.fontScale) {
@@ -146,7 +153,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                     onOpenTools = { viewModel.selectTab(AppTab.Tools) },
                                     onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                    onToggleOnline = viewModel::toggleOnline
+                                    onToggleOnline = viewModel::toggleOnline,
+                                    onCopyMessage = { text ->
+                                        if (text.isNotBlank()) {
+                                            clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onRetryMessage = viewModel::retryMessage
                                 )
                                 AppTab.Tools -> ToolsScreenV2(
                                     state = state,
