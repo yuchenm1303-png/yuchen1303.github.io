@@ -1,0 +1,2 @@
+Purpose: trigger Build Compose Android APK after making AssistantHome compatibility cleanup run after shared prism patch.
+Commit: 16bd52d0dcfa0246c64507b4378a408db86725a8
