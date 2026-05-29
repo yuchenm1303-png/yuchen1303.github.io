@@ -126,13 +126,13 @@ fun PrismaticCapsuleBottomBar(
         modifier = modifier
             .zIndex(300f)
             .fillMaxWidth()
-            .height(72.dp),
+            .height(56.dp),
         role = GlassRole.Nav
     ) {
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 7.dp)
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
@@ -143,7 +143,7 @@ fun PrismaticCapsuleBottomBar(
             val leadPx = travelDirection * slotWidthPx * 0.026f * edgeSafeTravel
             val rawSelectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
             val selectorX = rawSelectorX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
-            val heightDp = 52.dp + 3.2.dp * stopEnergy - 6.5.dp * edgeSafeTravel - 4.2.dp * pressEnergy
+            val heightDp = 42.dp + 2.0.dp * stopEnergy - 4.0.dp * edgeSafeTravel - 2.8.dp * pressEnergy
             val selectorShape = RoundedCornerShape(999.dp)
             val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
@@ -154,10 +154,10 @@ fun PrismaticCapsuleBottomBar(
                     .height(heightDp)
                     .graphicsLayer {
                         translationX = selectorX
-                        translationY = 1.45f * pressEnergy - 2.65f * edgeSafeTravel - 1.00f * stopEnergy
-                        scaleX = 1f + 0.128f * edgeSafeTravel + 0.058f * pressEnergy - 0.022f * stopEnergy
-                        scaleY = 1f - 0.136f * edgeSafeTravel - 0.074f * pressEnergy + 0.060f * stopEnergy
-                        shadowElevation = 0.24f + 0.42f * activeEnergy.coerceIn(0f, 1f)
+                        translationY = 0.90f * pressEnergy - 1.70f * edgeSafeTravel - 0.70f * stopEnergy
+                        scaleX = 1f + 0.088f * edgeSafeTravel + 0.040f * pressEnergy - 0.018f * stopEnergy
+                        scaleY = 1f - 0.090f * edgeSafeTravel - 0.052f * pressEnergy + 0.040f * stopEnergy
+                        shadowElevation = 0.18f + 0.34f * activeEnergy.coerceIn(0f, 1f)
                     }
                     .clip(selectorShape)
             ) {
@@ -216,23 +216,23 @@ fun PrismaticCapsuleBottomBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.graphicsLayer {
-                                translationY = -2.4f * selectedPop + 1.2f * tabPress - 0.8f * stopEnergy * selectedPop
-                                scaleX = 1f + 0.060f * selectedPop + 0.028f * tabPress
-                                scaleY = 1f + 0.038f * selectedPop - 0.018f * tabPress
-                                alpha = 0.50f + 0.50f * selectedPop
+                                translationY = -1.2f * selectedPop + 0.7f * tabPress - 0.5f * stopEnergy * selectedPop
+                                scaleX = 1f + 0.038f * selectedPop + 0.020f * tabPress
+                                scaleY = 1f + 0.026f * selectedPop - 0.012f * tabPress
+                                alpha = 0.54f + 0.46f * selectedPop
                             }
                         ) {
                             Text(
                                 tab.icon,
                                 color = Color.White.copy(alpha = 0.72f + 0.26f * selectedPop),
-                                fontSize = if (tab == AppTab.Assistant) 13.sp else 18.sp,
+                                fontSize = if (tab == AppTab.Assistant) 11.sp else 15.sp,
                                 fontWeight = FontWeight.Black,
                                 maxLines = 1
                             )
                             Text(
                                 tab.title,
                                 color = Color.White.copy(alpha = 0.70f + 0.28f * selectedPop),
-                                fontSize = 11.sp,
+                                fontSize = 9.sp,
                                 fontWeight = if (selected) FontWeight.Black else FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
