@@ -81,6 +81,13 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
     }
 }
 
+tasks.named('fixAssistantHomeCompile') {
+    def sharedTask = tasks.findByName('patchSharedPrismCapsuleUsage')
+    if (sharedTask != null) dependsOn sharedTask
+    def bubbleTask = tasks.findByName('patchAssistantChatBubblePolish')
+    if (bubbleTask != null) dependsOn bubbleTask
+}
+
 tasks.named('preBuild') {
     dependsOn fixAssistantHomeCompile
 }
