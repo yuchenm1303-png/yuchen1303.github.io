@@ -1,0 +1,30 @@
+tasks.register('patchNetworkDropletLightPreset') {
+    doLast {
+        def target = file('src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt')
+        if (!target.exists()) return
+        def text = target.getText('UTF-8')
+        def before = text
+        [
+            'edgePullPx = 104f,':'edgePullPx = 120f,',
+            'edgeWidthPx = 25f,':'edgeWidthPx = 32f,',
+            'bottomGlow = 1.36f,':'bottomGlow = 1.48f,',
+            'cornerGloss = 0.88f,':'cornerGloss = 1.03f,',
+            'activeRimRefraction = 2.05f,':'activeRimRefraction = 3.16f,',
+            'activeHotspot = 1.10f,':'activeHotspot = 1.27f,',
+            'activeEntryPearl = 1.25f,':'activeEntryPearl = 1.88f,',
+            'activeRimPearl = 0.78f,':'activeRimPearl = 1.35f,',
+            'activeRimGather = 0.72f,':'activeRimGather = 1.21f,',
+            'activeRimFlow = 0.46f':'activeRimFlow = 0.89f',
+            'val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.44f).coerceIn(0f, 1.18f)':'val lightEnergy = (holdEnergy * breathEnergy + afterglowValue * 0.55f).coerceIn(0f, 1.30f)',
+            'val animatedPrismGlow = 0.53f * lightEnergy * (0.28f + prismAmount * 0.46f).coerceIn(0f, 1.7f)':'val animatedPrismGlow = 0.53f * lightEnergy * (0.34f + prismAmount * 0.64f).coerceIn(0f, 2.2f)',
+            'val animatedBackgroundGlow = 0.38f * (lightEnergy + recoilValue * 0.24f + prismAmount * lightEnergy * 0.10f).coerceIn(0f, 1.5f)':'val animatedBackgroundGlow = 0.38f * (lightEnergy + recoilValue * 0.35f + prismAmount * lightEnergy * 0.16f).coerceIn(0f, 1.8f)',
+            'val animatedOuterGlow = 0.46f * (lightEnergy + afterglowValue * 0.18f + recoilValue * 0.20f + prismAmount * lightEnergy * 0.11f).coerceIn(0f, 1.45f)':'val animatedOuterGlow = 0.46f * (lightEnergy + afterglowValue * 0.28f + recoilValue * 0.30f + prismAmount * lightEnergy * 0.22f).coerceIn(0f, 1.9f)',
+            'val animatedWarmGlow = 0.54f * (lightEnergy * (0.18f + purpleMix * 0.36f + prismAmount * 0.11f) + pressPositive * 0.08f).coerceIn(0f, 1.5f)':'val animatedWarmGlow = 0.54f * (lightEnergy * (0.20f + purpleMix * 0.46f + prismAmount * 0.18f) + pressPositive * 0.12f).coerceIn(0f, 1.8f)'
+        ].each { from, to -> text = text.replace(from, to) }
+        if (text != before) target.setText(text, 'UTF-8')
+        println('Applied stronger lab-like light preset to online droplet.')
+    }
+}
+
+tasks.named('preBuild') { dependsOn tasks.named('patchNetworkDropletLightPreset') }
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach { dependsOn tasks.named('patchNetworkDropletLightPreset') }
