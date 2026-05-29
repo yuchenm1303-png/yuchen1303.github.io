@@ -9,12 +9,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +58,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val rootView = LocalView.current
     val context = LocalContext.current
     val density = LocalDensity.current
+    val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -176,19 +177,20 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 )
                             }
                         }
-                        PrismaticCapsuleBottomBar(
-                            currentTab = state.currentTab,
-                            quality = state.quality,
-                            glassIntensity = state.glassIntensity,
-                            motionIntensity = state.motionIntensity,
-                            onTabChange = viewModel::selectTab,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .padding(horizontal = 16.dp, vertical = 3.dp)
-                                .offset(y = 16.dp)
-                                .zIndex(1000f)
-                        )
+                        if (!isKeyboardOpen) {
+                            PrismaticCapsuleBottomBar(
+                                currentTab = state.currentTab,
+                                quality = state.quality,
+                                glassIntensity = state.glassIntensity,
+                                motionIntensity = state.motionIntensity,
+                                onTabChange = viewModel::selectTab,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .zIndex(1000f)
+                            )
+                        }
                     }
                 }
             }
