@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -130,6 +131,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .fillMaxSize()
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
+                                .imePadding()
                                 .padding(horizontal = 12.dp)
                         ) {
                             when (state.currentTab) {
