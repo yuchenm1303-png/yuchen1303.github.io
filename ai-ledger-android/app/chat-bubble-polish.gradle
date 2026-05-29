@@ -23,6 +23,10 @@ tasks.register('patchAssistantChatBubblePolish') {
             }
         }
 
+        if (!text.contains('onStopGenerating: () -> Unit')) {
+            text = text.replace('    onSend: () -> Unit,\n', '    onSend: () -> Unit,\n    onStopGenerating: () -> Unit,\n')
+        }
+
         def oldScreenParams = '''    onPickImage: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -41,6 +45,22 @@ tasks.register('patchAssistantChatBubblePolish') {
             text = text.replace(oldScreenParams, newScreenParams)
         } else if (!text.contains('onCopyMessage: (String) -> Unit')) {
             throw new GradleException('AssistantScreenV2 callback parameter block not found.')
+        }
+
+        def oldComposerCall = '''            ComposerBarV2(state = state, onComposerChange = onComposerChange, onSend = onSend, onPickImage = onPickImage)
+'''
+        def newComposerCall = '''            ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage
+            )
+'''
+        if (text.contains(oldComposerCall)) {
+            text = text.replace(oldComposerCall, newComposerCall)
+        } else if (!text.contains('onStopGenerating = onStopGenerating')) {
+            throw new GradleException('AssistantScreenV2 ComposerBarV2 call not found.')
         }
 
         def oldChatPanelCall = '''            ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
@@ -77,6 +97,39 @@ private fun ChatPanelV2(
             text = text.replace(oldChatPanelSignature, newChatPanelSignature)
         } else if (!text.contains('onRetryMessage: (String) -> Unit')) {
             throw new GradleException('ChatPanelV2 signature not found.')
+        }
+
+        def oldComposerSignature = '''@Composable
+private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val sendAction = if (state.isSending) ({}) else onSend
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = sendAction)
+    }
+}
+'''
+        def newComposerSignature = '''@Composable
+private fun ComposerBarV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    val keyboardSendAction = if (state.isSending) ({}) else onSend
+    val buttonAction = if (state.isSending) onStopGenerating else onSend
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = buttonAction)
+    }
+}
+'''
+        if (text.contains(oldComposerSignature)) {
+            text = text.replace(oldComposerSignature, newComposerSignature)
+        } else if (!text.contains('onStopGenerating: () -> Unit') || !text.contains('buttonAction = if (state.isSending) onStopGenerating else onSend')) {
+            throw new GradleException('ComposerBarV2 block not found for stop button patch.')
         }
 
         def oldClock = '''    val listState = rememberLazyListState()
@@ -381,6 +434,30 @@ private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
 '''
         text = text.substring(0, bubbleStart) + bubble + text.substring(badgeStart)
 
+        def oldSendButton = '''@Composable
+private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (state.isSending) Text("…", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+'''
+        def newSendButton = '''@Composable
+private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(if (state.isSending) "Ⅱ" else "↑", color = Color.White, fontSize = if (state.isSending) 19.sp else 22.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+'''
+        if (text.contains(oldSendButton)) {
+            text = text.replace(oldSendButton, newSendButton)
+        } else if (!text.contains('Text(if (state.isSending) "Ⅱ" else "↑"')) {
+            throw new GradleException('SendButtonV2 block not found for pause button patch.')
+        }
+
         def thinkingStart = text.indexOf('@Composable\nprivate fun ThinkingDotsV2')
         def pulseStart = text.indexOf('@Composable\nprivate fun PulseDotV2')
         if (thinkingStart < 0 || pulseStart < thinkingStart) {
@@ -417,7 +494,7 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
 '''
         text = text.substring(0, thinkingStart) + thinking + text.substring(pulseStart)
         home.setText(text, 'UTF-8')
-        println('Applied LazyListState-driven parent chat bubble layer patch with safe last-message actions.')
+        println('Applied chat bubble layer patch with safe actions and stop button.')
     }
 }
 
