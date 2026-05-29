@@ -1,0 +1,131 @@
+tasks.register('patchModelSelectorFoldedStackDetails') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped folded stack detail patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        text = text.replaceAll(/val collapsedWidth = \(maxWidth - reservedGap\) \* 0\.[0-9]+f/, 'val collapsedWidth = (maxWidth - reservedGap) * 0.642f')
+
+        def oldBackPlateCall = '''                            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
+                    )
+                    return@forEachIndexed
+'''
+        def newBackPlateCall = '''                            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
+                    ) {
+                        FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme)
+                    }
+                    return@forEachIndexed
+'''
+        if (text.contains(oldBackPlateCall)) {
+            text = text.replace(oldBackPlateCall, newBackPlateCall)
+            println('Restored folded stack rear model labels.')
+        } else if (text.contains('FoldedModelBackPlateLabel(model = model')) {
+            println('Folded stack rear model labels already restored.')
+        } else {
+            println('Folded stack Box target not found; skipped rear label insertion.')
+        }
+
+        if (!text.contains('private fun FoldedModelBackPlateLabel(')) {
+            def contentAnchor = '''@Composable
+private fun UnifiedModelCardContent(
+'''
+            def foldedLabelFunction = '''@Composable
+private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: ModelCardPrismTheme) {
+    val density = LocalDensity.current
+    val labelShiftX = with(density) { (stackRank * 22).dp.toPx() }
+    val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
+    val labelAlpha = (0.70f - stackRank * 0.065f).coerceIn(0.38f, 0.66f)
+    Box(Modifier.fillMaxSize()) {
+        Text(
+            model.shortLabel,
+            modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer {
+                alpha = labelAlpha
+                translationX = -labelShiftX
+                translationY = labelShiftY
+            },
+            color = theme.bright.copy(alpha = 0.90f),
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
+    }
+}
+
+'''
+            if (text.contains(contentAnchor)) {
+                text = text.replace(contentAnchor, foldedLabelFunction + contentAnchor)
+                println('Inserted folded rear model label composable.')
+            } else {
+                println('UnifiedModelCardContent anchor not found; skipped folded label composable insertion.')
+            }
+        }
+
+        if (!text.contains('val backDotCenter = Offset(24.dp.toPx(), size.height / 2f)')) {
+            def cornerLine = '''    val corner = CornerRadius(radius, radius)
+'''
+            def dotVars = '''    val corner = CornerRadius(radius, radius)
+    val backDotCenter = Offset(24.dp.toPx(), size.height / 2f)
+    val backDotGlow = Brush.radialGradient(
+        listOf(
+            theme.bright.copy(alpha = 0.050f + 0.036f * press),
+            theme.main.copy(alpha = 0.082f + 0.046f * press),
+            theme.prismB.copy(alpha = 0.036f + 0.024f * press),
+            Color.Transparent
+        ),
+        backDotCenter,
+        17.dp.toPx()
+    )
+'''
+            def funcStart = text.indexOf('private fun Modifier.drawFoldedModelBackPlate')
+            if (funcStart >= 0) {
+                def cornerAt = text.indexOf(cornerLine, funcStart)
+                if (cornerAt >= 0) {
+                    text = text.substring(0, cornerAt) + dotVars + text.substring(cornerAt + cornerLine.length())
+                    println('Prepared folded rear card dot glow variables.')
+                } else {
+                    println('Folded back plate corner line not found; skipped dot variable insertion.')
+                }
+            }
+        }
+
+        if (!text.contains('drawCircle(brush = backDotGlow')) {
+            def rimDraw = '''        drawRoundRect(brush = rim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.76.dp.toPx()), blendMode = BlendMode.Screen)
+'''
+            def rimAndDotDraw = '''        drawRoundRect(brush = rim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.76.dp.toPx()), blendMode = BlendMode.Screen)
+        drawCircle(brush = backDotGlow, radius = 11.5.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
+        drawCircle(theme.bright.copy(alpha = 0.42f + 0.20f * press), radius = 3.1.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
+'''
+            def funcStart = text.indexOf('private fun Modifier.drawFoldedModelBackPlate')
+            if (funcStart >= 0) {
+                def rimAt = text.indexOf(rimDraw, funcStart)
+                if (rimAt >= 0) {
+                    text = text.substring(0, rimAt) + rimAndDotDraw + text.substring(rimAt + rimDraw.length())
+                    println('Restored folded rear card left dots.')
+                } else {
+                    println('Folded back plate rim draw target not found; skipped dot draw insertion.')
+                }
+            }
+        }
+
+        selector.setText(text, 'UTF-8')
+        println('Patched folded model stack details: width, rear labels and rear dots.')
+    }
+}
+
+tasks.named('patchModelSelectorFoldedStackDetails') {
+    def layoutTask = tasks.findByName('patchModelSelectorGeminiBelowMistral')
+    if (layoutTask != null) dependsOn layoutTask
+    def lightTask = tasks.findByName('patchModelSelectorLightLayerMerge')
+    if (lightTask != null) dependsOn lightTask
+    def shadowTask = tasks.findByName('patchModelSelectorRemoveShadowElevation')
+    if (shadowTask != null) dependsOn shadowTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelSelectorFoldedStackDetails')
+}
