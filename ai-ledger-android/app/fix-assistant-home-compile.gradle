@@ -1,0 +1,73 @@
+def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        def oldSignature = '''fun AssistantScreenV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onDraftCommand: (String) -> Unit,
+    onModelSelected: (ChatModel) -> Unit,
+    onPickImage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleOnline: () -> Unit
+) {
+'''
+        def newSignature = '''fun AssistantScreenV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onDraftCommand: (String) -> Unit,
+    onModelSelected: (ChatModel) -> Unit,
+    onPickImage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleOnline: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+'''
+        if (text.contains(oldSignature)) {
+            text = text.replace(oldSignature, newSignature)
+            println('Added onCopyMessage/onRetryMessage parameters to AssistantScreenV2.')
+        } else if (text.contains('onCopyMessage: (String) -> Unit') && text.contains('onRetryMessage: (String) -> Unit')) {
+            println('AssistantScreenV2 callback parameters already exist.')
+        } else {
+            throw new GradleException('AssistantScreenV2 signature target not found.')
+        }
+
+        def oldOpenSettingsUse = '''    onOpenTools.hashCode()
+    onOpenSettings.hashCode()
+}
+'''
+        def newOpenSettingsUse = '''    onOpenTools.hashCode()
+    onOpenSettings.hashCode()
+    onCopyMessage.hashCode()
+    onRetryMessage.hashCode()
+}
+'''
+        if (text.contains(oldOpenSettingsUse)) {
+            text = text.replace(oldOpenSettingsUse, newOpenSettingsUse)
+            println('Marked copy/retry callbacks as intentionally retained.')
+        } else if (text.contains('onCopyMessage.hashCode()') && text.contains('onRetryMessage.hashCode()')) {
+            println('Copy/retry callback placeholders already exist.')
+        } else {
+            throw new GradleException('AssistantScreenV2 callback placeholder block not found.')
+        }
+
+        text = text.replace('''                enabled = true,
+                readOnly = state.isSending,
+''', '''                enabled = !state.isSending,
+''')
+        text = text.replace('''                readOnly = state.isSending,
+''', '')
+
+        home.setText(text, 'UTF-8')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn fixAssistantHomeCompile
+}
