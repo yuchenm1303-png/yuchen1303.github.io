@@ -194,7 +194,6 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
-    val keyboardSendMode = keyboardOpen && state.isSending
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
         if (lastMessageId != null) {
@@ -217,7 +216,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     contentPadding = PaddingValues(vertical = 3.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, reduceMotion = keyboardSendMode) }
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage, hiddenForKeyboard = keyboardOpen) }
                 }
             }
@@ -245,11 +244,7 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState, reduceMotion: Boolean) {
-    if (reduceMotion) {
-        MessageBubbleV2(message, state, reduceMotion = true)
-        return
-    }
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
@@ -260,12 +255,12 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
             scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
     ) {
-        MessageBubbleV2(message, state, reduceMotion = false)
+        MessageBubbleV2(message, state)
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, reduceMotion: Boolean) {
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
     val fill = if (fromUser) 0.76f else 0.90f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -286,7 +281,7 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState, reduc
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (message.status == MessageStatus.Sending && !fromUser && !reduceMotion) {
+                if (message.status == MessageStatus.Sending && !fromUser) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
                         ThinkingDotsV2(size = 6, color = Color(0xFF8DF9EA).copy(alpha = 0.88f))
