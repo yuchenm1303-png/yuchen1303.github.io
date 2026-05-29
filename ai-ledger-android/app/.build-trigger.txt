@@ -1,3 +1,7 @@
-Rollback target: 83176052dd2a6c7e9c8c000d06b063bb0805d754
-Purpose: trigger Build Compose Android APK after rollback.
-App source code remains at the rollback baseline.
+Thinking bubble sweep enhancement.
+Source commit:
+- dc098b47ddc7285a905ad5fbfd2e0fce308ac33c
+Changes:
+- Brighten sending/thinking wide sweep band substantially.
+- Make sending/thinking edge prism and satin highlight scan left-to-right with the wide band instead of ping-ponging.
+Trigger path: ai-ledger-android/app/.build-trigger.txt
