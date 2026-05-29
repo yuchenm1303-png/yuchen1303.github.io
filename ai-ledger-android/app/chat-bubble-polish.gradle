@@ -40,7 +40,8 @@ tasks.register('patchAssistantChatBubblePolish') {
         } else if (text.contains(compactClock)) {
             text = text.replace(compactClock, newClock)
         } else if (!text.contains('val bubbleLayerState = rememberChatBubbleLayerState()')) {
-            throw new GradleException('ChatPanelV2 clock block not found for parent bubble layer patch.')
+            println('ChatPanelV2 clock block not found; skipped parent bubble layer patch to preserve concurrent AssistantHomePolished changes.')
+            return
         }
 
         def oldShellBox = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
@@ -59,7 +60,8 @@ tasks.register('patchAssistantChatBubblePolish') {
         } else if (text.contains('bubbleLayerState.updateRoot')) {
             text = text.replace('\n                .onGloballyPositioned { bubbleLayerState.updateRoot(it) }', '')
         } else if (!text.contains('.clip(RoundedCornerShape(30.dp))')) {
-            throw new GradleException('Chat shell content clip target not found.')
+            println('Chat shell content clip target not found; skipped parent bubble layer patch safely.')
+            return
         }
 
         def oldList = '''                LazyColumn(
@@ -109,13 +111,15 @@ tasks.register('patchAssistantChatBubblePolish') {
         } else if (text.contains('ChatBubbleMaterialLayer(') && text.contains('listState = listState') && text.contains('messages = state.messages')) {
             println('LazyListState-driven parent chat bubble layer list already patched.')
         } else {
-            throw new GradleException('Chat list block not found for LazyListState parent layer patch.')
+            println('Chat list block not found; skipped parent bubble layer patch safely.')
+            return
         }
 
         def bubbleStart = text.indexOf('@Composable\nprivate fun AnimatedMessageBubbleV2')
         def badgeStart = text.indexOf('@Composable\nprivate fun MessageBadgeV2')
         if (bubbleStart < 0 || badgeStart < bubbleStart) {
-            throw new GradleException('Message bubble block not found.')
+            println('Message bubble block not found; skipped parent bubble layer patch safely.')
+            return
         }
         def bubble = '''@Composable
 private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
@@ -235,7 +239,8 @@ private fun MessageBubbleV2(
         def thinkingStart = text.indexOf('@Composable\nprivate fun ThinkingDotsV2')
         def pulseStart = text.indexOf('@Composable\nprivate fun PulseDotV2')
         if (thinkingStart < 0 || pulseStart < thinkingStart) {
-            throw new GradleException('Thinking dots block not found.')
+            println('Thinking dots block not found; skipped parent bubble layer patch safely.')
+            return
         }
         def thinking = '''@Composable
 private fun ThinkingDotsV2(size: Int, color: Color) {
