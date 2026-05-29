@@ -188,17 +188,13 @@ internal fun UnifiedParentModelStackSelector(
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0).toLong()
-                    val travelDelay = if (expanded) {
-                        if (selected) 50L else 104L + stackRank.toLong() * 58L
+                    val travelDelay = 0L
+                    val launchDelay = 0L
+                    val travelDuration = if (expanded) {
+                        (360 + stackRank * 44).coerceAtMost(548)
                     } else {
-                        if (selected) 238L else reverseRank * 48L
+                        if (selected) 520 else 340 + reverseRank.toInt() * 42
                     }
-                    val launchDelay = if (expanded) {
-                        if (selected) 0L else 54L + stackRank.toLong() * 48L
-                    } else {
-                        if (selected) 262L else reverseRank * 42L
-                    }
-                    val travelDuration = if (expanded) 440 else 360
                     val arrivalLead = if (expanded) 132 else 116
 
                     arrivalAnim.stop()
