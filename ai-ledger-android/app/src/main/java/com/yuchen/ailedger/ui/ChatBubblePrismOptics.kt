@@ -55,9 +55,12 @@ fun DrawScope.drawChatBubblePrismMaterial(
     val h = rect.height.coerceAtLeast(1f)
     val motion = motionIntensity.coerceIn(0f, 1f)
     val active = if (sending) 1f else 0.58f
-    val cycle = phase * 2f * PI.toFloat()
-    val sweepWave = 0.50f + 0.42f * sin(cycle)
-    val satinWave = 0.50f + 0.28f * sin(cycle + 1.35f)
+    val phase01 = phase.coerceIn(0f, 1f)
+    val cycle = phase01 * 2f * PI.toFloat()
+    val sendingSweep = -0.28f + phase01 * 1.62f
+    val sendingSatin = -0.20f + phase01 * 1.44f
+    val sweepWave = if (sending) sendingSweep else 0.50f + 0.42f * sin(cycle)
+    val satinWave = if (sending) sendingSatin else 0.50f + 0.28f * sin(cycle + 1.35f)
     val glowWave = sin(cycle + if (fromUser) 0.72f else 1.08f)
     val radiusPx = radiusDp.dp.toPx()
     val corner = CornerRadius(radiusPx, radiusPx)
@@ -131,24 +134,43 @@ fun DrawScope.drawChatBubblePrismMaterial(
     )
 
     if (sending) {
-        val bandX = -0.72f + phase.coerceIn(0f, 1f) * 2.34f
+        val bandX = -0.72f + phase01 * 2.34f
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF58D2).copy(alpha = 0.048f * motion * a),
-                    Color(0xFFFFF0A8).copy(alpha = 0.095f * motion * a),
-                    Color(0xFF62FFF0).copy(alpha = 0.130f * motion * a),
-                    Color(0xFF8EA2FF).copy(alpha = 0.082f * motion * a),
+                    Color(0xFFFF58D2).copy(alpha = 0.115f * motion * a),
+                    Color(0xFFFFD66E).copy(alpha = 0.190f * motion * a),
+                    Color.White.copy(alpha = 0.285f * motion * a),
+                    Color(0xFF62FFF0).copy(alpha = 0.255f * motion * a),
+                    Color(0xFF8EA2FF).copy(alpha = 0.165f * motion * a),
                     Color.Transparent
                 ),
-                start = Offset(l + w * (bandX - 0.56f), t + h * 1.10f),
-                end = Offset(l + w * (bandX + 0.44f), t - h * 0.18f)
+                start = Offset(l + w * (bandX - 0.64f), t + h * 1.16f),
+                end = Offset(l + w * (bandX + 0.54f), t - h * 0.22f)
             ),
             topLeft = topLeft,
             size = size,
             cornerRadius = corner,
             blendMode = BlendMode.Screen
+        )
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.030f * motion * a),
+                    Color.White.copy(alpha = 0.210f * motion * a),
+                    Color.White.copy(alpha = 0.360f * motion * a),
+                    Color(0xFFB9FFF7).copy(alpha = 0.250f * motion * a),
+                    Color.Transparent
+                ),
+                start = Offset(l + w * (bandX - 0.30f), t + h * 1.03f),
+                end = Offset(l + w * (bandX + 0.20f), t - h * 0.08f)
+            ),
+            topLeft = topLeft,
+            size = size,
+            cornerRadius = corner,
+            blendMode = BlendMode.Plus
         )
     }
 
@@ -161,10 +183,10 @@ fun DrawScope.drawChatBubblePrismMaterial(
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = (if (sending) 0.220f else 0.155f) * a),
-                accentA.copy(alpha = (if (sending) 0.125f else 0.090f) * a),
+                Color.White.copy(alpha = (if (sending) 0.260f else 0.155f) * a),
+                accentA.copy(alpha = (if (sending) 0.170f else 0.090f) * a),
                 Color(0xFF000A28).copy(alpha = 0.070f * a),
-                Color.White.copy(alpha = (if (sending) 0.095f else 0.058f) * a)
+                Color.White.copy(alpha = (if (sending) 0.135f else 0.058f) * a)
             ),
             start = Offset(l, t),
             end = Offset(l + w, t + h)
@@ -172,7 +194,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 0.96.dp.toPx() else 0.72.dp.toPx()),
+        style = Stroke(width = if (sending) 1.10.dp.toPx() else 0.72.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
@@ -180,20 +202,20 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = 0.190f * prismPower * a),
-                Color(0xFFFFF0A8).copy(alpha = 0.165f * prismPower * a),
-                Color.White.copy(alpha = 0.150f * prismPower * a),
-                accentB.copy(alpha = 0.190f * prismPower * a),
-                accentA.copy(alpha = 0.125f * prismPower * a),
+                accentC.copy(alpha = (if (sending) 0.320f else 0.190f) * prismPower * a),
+                Color(0xFFFFF0A8).copy(alpha = (if (sending) 0.285f else 0.165f) * prismPower * a),
+                Color.White.copy(alpha = (if (sending) 0.260f else 0.150f) * prismPower * a),
+                accentB.copy(alpha = (if (sending) 0.320f else 0.190f) * prismPower * a),
+                accentA.copy(alpha = (if (sending) 0.210f else 0.125f) * prismPower * a),
                 Color.Transparent
             ),
-            start = Offset(l + w * (sweepWave - 0.36f), t - h * 0.12f),
-            end = Offset(l + w * (sweepWave + 0.40f), t + h * 1.12f)
+            start = Offset(l + w * (sweepWave - 0.38f), t - h * 0.12f),
+            end = Offset(l + w * (sweepWave + 0.42f), t + h * 1.12f)
         ),
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 2.85.dp.toPx() else 2.05.dp.toPx()),
+        style = Stroke(width = if (sending) 3.20.dp.toPx() else 2.05.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
@@ -201,18 +223,18 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = 0.340f * prismPower * a),
-                Color.White.copy(alpha = 0.410f * prismPower * a),
-                accentB.copy(alpha = 0.350f * prismPower * a),
+                accentC.copy(alpha = (if (sending) 0.500f else 0.340f) * prismPower * a),
+                Color.White.copy(alpha = (if (sending) 0.610f else 0.410f) * prismPower * a),
+                accentB.copy(alpha = (if (sending) 0.520f else 0.350f) * prismPower * a),
                 Color.Transparent
             ),
-            start = Offset(l + w * (sweepWave - 0.18f), t - h * 0.03f),
-            end = Offset(l + w * (sweepWave + 0.23f), t + h * 1.03f)
+            start = Offset(l + w * (sweepWave - 0.20f), t - h * 0.03f),
+            end = Offset(l + w * (sweepWave + 0.25f), t + h * 1.03f)
         ),
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 1.24.dp.toPx() else 0.92.dp.toPx()),
+        style = Stroke(width = if (sending) 1.50.dp.toPx() else 0.92.dp.toPx()),
         blendMode = BlendMode.Plus
     )
 
@@ -220,8 +242,8 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = 0.112f * a),
-                Color(0xFF8DF9EA).copy(alpha = 0.064f * a),
+                Color.White.copy(alpha = (if (sending) 0.190f else 0.112f) * a),
+                Color(0xFF8DF9EA).copy(alpha = (if (sending) 0.125f else 0.064f) * a),
                 Color.Transparent
             ),
             start = Offset(l + w * (satinWave - 0.30f), t),
@@ -230,7 +252,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = Offset(l + inset * 1.15f, t + inset * 1.15f),
         size = Size((w - inset * 2.3f).coerceAtLeast(1f), (h - inset * 2.3f).coerceAtLeast(1f)),
         cornerRadius = CornerRadius((radiusPx - inset * 1.15f).coerceAtLeast(1f), (radiusPx - inset * 1.15f).coerceAtLeast(1f)),
-        style = Stroke(width = 0.50.dp.toPx()),
+        style = Stroke(width = if (sending) 0.70.dp.toPx() else 0.50.dp.toPx()),
         blendMode = BlendMode.Screen
     )
 }
