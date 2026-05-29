@@ -25,11 +25,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,7 +50,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -192,12 +189,10 @@ private fun ModelAndNetworkPanel(
 @Composable
 private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
-    val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
         if (lastMessageId != null) {
-            delay(if (keyboardOpen) 96 else 40)
+            delay(40)
             listState.scrollToItem(state.messages.lastIndex)
         }
     }
@@ -208,7 +203,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(if (keyboardOpen) "可上下滑动" else if (state.isSending) "正在思考" else "可上下滑动")
+                    ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
                 }
                 LazyColumn(
                     state = listState,
@@ -217,7 +212,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
-                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage, hiddenForKeyboard = keyboardOpen) }
+                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                 }
             }
         }
@@ -225,12 +220,11 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
 }
 
 @Composable
-private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit, hiddenForKeyboard: Boolean) {
-    val visible = state.messages.size <= 2 && !hiddenForKeyboard
+private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     AnimatedVisibility(
-        visible = visible,
+        visible = state.messages.size <= 2,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.72f)) { it / 2 },
-        exit = fadeOut(tween(if (hiddenForKeyboard) 0 else 120)) + slideOutVertically(tween(if (hiddenForKeyboard) 0 else 120)) { if (hiddenForKeyboard) 0 else it / 2 }
+        exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 2.dp)) {
             Text("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -322,15 +316,14 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
                 value = text,
                 onValueChange = onTextChange,
                 singleLine = true,
-                enabled = true,
-                readOnly = state.isSending,
+                enabled = !state.isSending,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
                 modifier = Modifier.fillMaxWidth()
             )
-            if (text.isBlank() && !state.isSending) {
+            AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
                 Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
