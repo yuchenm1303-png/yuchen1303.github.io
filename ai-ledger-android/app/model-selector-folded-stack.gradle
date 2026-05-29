@@ -9,6 +9,20 @@ tasks.register('patchModelSelectorFoldedStackDetails') {
 
         text = text.replaceAll(/val collapsedWidth = \(maxWidth - reservedGap\) \* 0\.[0-9]+f/, 'val collapsedWidth = (maxWidth - reservedGap) * 0.642f')
 
+        if (!text.contains('private const val ModelStackTapMaxMillis')) {
+            def easingAnchor = '''private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
+'''
+            def easingWithTapLimit = '''private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
+private const val ModelStackTapMaxMillis = 450L
+'''
+            if (text.contains(easingAnchor)) {
+                text = text.replace(easingAnchor, easingWithTapLimit)
+                println('Inserted model stack tap duration threshold.')
+            } else {
+                println('Model stack easing anchor not found; skipped tap threshold insertion.')
+            }
+        }
+
         def oldBackPlateCall = '''                            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
                     )
                     return@forEachIndexed
@@ -128,8 +142,46 @@ private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: M
             println('Folded back plate function not found; skipped back plate replacement.')
         }
 
+        def downOld = '''                                val down = awaitFirstDown(requireUnconsumed = false)
+                                updateCenter(down.position)
+'''
+        def downNew = '''                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val downUptime = down.uptimeMillis
+                                var releaseUptime = downUptime
+                                updateCenter(down.position)
+'''
+        if (text.contains(downOld) && !text.contains('val downUptime = down.uptimeMillis')) {
+            text = text.replace(downOld, downNew)
+            println('Started tracking model-card press duration.')
+        }
+
+        def releaseOld = '''                                    if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { released = true; break } }
+                                    if (event.changes.none { it.pressed }) { released = true; break }
+'''
+        def releaseNew = '''                                    if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { releaseUptime = tracked.uptimeMillis; released = true; break } }
+                                    if (event.changes.none { it.pressed }) { releaseUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: releaseUptime; released = true; break }
+'''
+        if (text.contains(releaseOld)) {
+            text = text.replace(releaseOld, releaseNew)
+            println('Captured model-card release timestamp.')
+        }
+
+        def triggerOld = '''                                if (released) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
+'''
+        def triggerNew = '''                                val isTapRelease = released && releaseUptime - downUptime <= ModelStackTapMaxMillis
+                                if (isTapRelease) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
+'''
+        if (text.contains(triggerOld)) {
+            text = text.replace(triggerOld, triggerNew)
+            println('Limited model-card expand/collapse trigger to short taps only.')
+        } else if (text.contains('val isTapRelease = released && releaseUptime - downUptime <= ModelStackTapMaxMillis')) {
+            println('Model-card short-tap trigger logic already exists.')
+        } else {
+            println('Model-card release trigger target not found; skipped tap-only trigger patch.')
+        }
+
         selector.setText(text, 'UTF-8')
-        println('Patched folded model stack details: original-like small rear dots and layered rims.')
+        println('Patched folded model stack details: original-like small rear dots, layered rims and tap-only release trigger.')
     }
 }
 
