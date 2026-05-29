@@ -1,0 +1,51 @@
+tasks.register('patchAssistantStopGenerationSignature') {
+    dependsOn tasks.named('patchAssistantChatBubblePolish')
+
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        def text = home.getText('UTF-8')
+
+        def screenStart = text.indexOf('fun AssistantScreenV2(')
+        if (screenStart < 0) {
+            throw new GradleException('AssistantScreenV2 function not found for stop-generation signature patch.')
+        }
+        def screenEnd = text.indexOf(') {', screenStart)
+        if (screenEnd < 0) {
+            throw new GradleException('AssistantScreenV2 signature end not found for stop-generation signature patch.')
+        }
+        def screenSignature = text.substring(screenStart, screenEnd)
+        if (!screenSignature.contains('onStopGenerating: () -> Unit')) {
+            def target = '    onSend: () -> Unit,\n'
+            if (!screenSignature.contains(target)) {
+                throw new GradleException('AssistantScreenV2 onSend parameter not found for stop-generation signature patch.')
+            }
+            def patchedSignature = screenSignature.replace(target, target + '    onStopGenerating: () -> Unit,\n')
+            text = text.substring(0, screenStart) + patchedSignature + text.substring(screenEnd)
+        }
+
+        def compactComposerCall = 'ComposerBarV2(state = state, onComposerChange = onComposerChange, onSend = onSend, onPickImage = onPickImage)'
+        if (text.contains(compactComposerCall)) {
+            text = text.replace(
+                compactComposerCall,
+                '''ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage
+            )'''
+            )
+        }
+
+        if (!text.contains('onStopGenerating = onStopGenerating')) {
+            throw new GradleException('ComposerBarV2 call still missing onStopGenerating after patch.')
+        }
+
+        home.setText(text, 'UTF-8')
+        println('Applied AssistantScreenV2 stop-generation signature patch.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchAssistantStopGenerationSignature')
+}
