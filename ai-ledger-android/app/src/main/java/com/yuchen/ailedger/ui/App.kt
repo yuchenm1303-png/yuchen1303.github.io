@@ -9,7 +9,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -123,8 +122,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     if (!ENABLE_OPENGL_GLASS_PROBE) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
                     OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
-                        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
-                            when (state.currentTab) {
+                        CachedAppTabHost(
+                            currentTab = state.currentTab,
+                            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)
+                        ) { tab ->
+                            when (tab) {
                                 AppTab.Assistant -> AssistantScreenV2(
                                     state = state,
                                     onComposerChange = viewModel::updateComposer,
