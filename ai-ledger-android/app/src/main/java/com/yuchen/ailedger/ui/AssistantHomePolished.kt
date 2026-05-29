@@ -240,7 +240,7 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
         ) {
             Column(
                 Modifier.padding(
-                    start = if (fromUser) 14.dp else 22.dp,
+                    start = if (fromUser) 14.dp else 36.dp,
                     top = 10.dp,
                     end = 14.dp,
                     bottom = 10.dp
