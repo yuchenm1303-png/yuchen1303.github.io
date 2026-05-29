@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,22 +66,57 @@ private val ModelPressPulse = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
 private val ModelStackTravel = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
 private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
 
-private data class ModelCardPrismTheme(val main: Color, val bright: Color, val deep: Color, val prismA: Color, val prismB: Color, val prismC: Color, val gold: Color, val themeWeight: Float)
+private data class ModelCardPrismTheme(
+    val main: Color,
+    val bright: Color,
+    val deep: Color,
+    val prismA: Color,
+    val prismB: Color,
+    val prismC: Color,
+    val gold: Color,
+    val themeWeight: Float
+)
+
+private data class ModelCardGeometry(
+    val collapsedXPx: Float,
+    val collapsedYPx: Float,
+    val expandedXPx: Float,
+    val expandedYPx: Float,
+    val horizontalMotion: Float,
+    val verticalMotion: Float,
+    val overshoot: Float
+)
+
+private val AutoModelTheme = ModelCardPrismTheme(Color(0xFF77FFF0), Color.White, Color(0xFF07142D), Color(0xFF62FFF0), Color(0xFFFF70D9), Color(0xFF8EA2FF), Color(0xFFFFE08A), 0.00f)
+private val GeminiModelTheme = ModelCardPrismTheme(Color(0xFF2F8CFF), Color(0xFFE2F7FF), Color(0xFF061A42), Color(0xFF37F6FF), Color(0xFF4F6CFF), Color(0xFF126BFF), Color(0xFFBEEFFF), 0.98f)
+private val KimiModelTheme = ModelCardPrismTheme(Color(0xFFE35CFF), Color(0xFFFFE0FF), Color(0xFF2A0C45), Color(0xFFFF7AE4), Color(0xFFB85CFF), Color(0xFFFF4FC6), Color(0xFFFFB5F0), 1.00f)
+private val MistralModelTheme = ModelCardPrismTheme(Color(0xFFFFC247), Color(0xFFFFF3C4), Color(0xFF3B2205), Color(0xFFFFE07A), Color(0xFFFF9B35), Color(0xFFFFD15C), Color(0xFFFFE26D), 0.98f)
+private val WorkersModelTheme = ModelCardPrismTheme(Color(0xFFFF4F47), Color(0xFFFFD8D0), Color(0xFF3A0D0A), Color(0xFFFF7B5C), Color(0xFFFF3D86), Color(0xFFFF6B3D), Color(0xFFFFB06A), 1.00f)
 
 private fun ChatModel.modelCardPrismTheme(): ModelCardPrismTheme = when (this) {
-    ChatModel.Auto -> ModelCardPrismTheme(Color(0xFF77FFF0), Color.White, Color(0xFF07142D), Color(0xFF62FFF0), Color(0xFFFF70D9), Color(0xFF8EA2FF), Color(0xFFFFE08A), 0.00f)
-    ChatModel.Gemini -> ModelCardPrismTheme(Color(0xFF2F8CFF), Color(0xFFE2F7FF), Color(0xFF061A42), Color(0xFF37F6FF), Color(0xFF4F6CFF), Color(0xFF126BFF), Color(0xFFBEEFFF), 0.98f)
-    ChatModel.Kimi -> ModelCardPrismTheme(Color(0xFFE35CFF), Color(0xFFFFE0FF), Color(0xFF2A0C45), Color(0xFFFF7AE4), Color(0xFFB85CFF), Color(0xFFFF4FC6), Color(0xFFFFB5F0), 1.00f)
-    ChatModel.Mistral -> ModelCardPrismTheme(Color(0xFFFFC247), Color(0xFFFFF3C4), Color(0xFF3B2205), Color(0xFFFFE07A), Color(0xFFFF9B35), Color(0xFFFFD15C), Color(0xFFFFE26D), 0.98f)
-    ChatModel.Workers -> ModelCardPrismTheme(Color(0xFFFF4F47), Color(0xFFFFD8D0), Color(0xFF3A0D0A), Color(0xFFFF7B5C), Color(0xFFFF3D86), Color(0xFFFF6B3D), Color(0xFFFFB06A), 1.00f)
+    ChatModel.Auto -> AutoModelTheme
+    ChatModel.Gemini -> GeminiModelTheme
+    ChatModel.Kimi -> KimiModelTheme
+    ChatModel.Mistral -> MistralModelTheme
+    ChatModel.Workers -> WorkersModelTheme
 }
 
 @Composable
-internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: Boolean, modifier: Modifier, onToggleExpanded: () -> Unit, onSelected: (ChatModel) -> Unit) {
+internal fun UnifiedParentModelStackSelector(
+    state: AssistantUiState,
+    expanded: Boolean,
+    modifier: Modifier,
+    onToggleExpanded: () -> Unit,
+    onSelected: (ChatModel) -> Unit
+) {
     BoxWithConstraints(modifier = modifier) {
         val density = LocalDensity.current
-        val models = ChatModel.entries
+        val models = remember { ChatModel.entries }
         val style = ModelCardGlassLabState.style
+        val currentIsSending by rememberUpdatedState(state.isSending)
+        val currentExpanded by rememberUpdatedState(expanded)
+        val currentOnToggleExpanded by rememberUpdatedState(onToggleExpanded)
+        val currentOnSelected by rememberUpdatedState(onSelected)
         val gap = 10.dp
         val rowStep = 74.dp
         val collapsedHeight = 56.dp
@@ -89,12 +125,12 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
         val collapsedWidth = (maxWidth - reservedGap) * 0.642f
         val halfWidth = (maxWidth - gap) / 2f
         val selectedModel = state.selectedModel
-        val behindModels = models.filter { it != selectedModel }
+        val behindModels = remember(selectedModel) { models.filter { it != selectedModel } }
 
         Box(Modifier.fillMaxSize()) {
             models.forEachIndexed { index, model ->
                 val selected = model == selectedModel
-                val theme = model.modelCardPrismTheme()
+                val theme = remember(model) { model.modelCardPrismTheme() }
                 val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
                 val scope = rememberCoroutineScope()
                 val pressAnim = remember(model.id) { Animatable(0f) }
@@ -108,6 +144,32 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                 var direction by remember(model.id) { mutableStateOf(1f) }
                 var band by remember(model.id) { mutableStateOf(0) }
                 var strength by remember(model.id) { mutableStateOf(1f) }
+
+                val geometry = remember(density.density, maxWidth, selectedModel, index, stackRank) {
+                    val expandedX = if (index % 2 == 1) halfWidth + gap else 0.dp
+                    val expandedY = rowStep * (index / 2).toFloat()
+                    val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
+                    val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
+                    val collapsedXPx = with(density) { collapsedX.toPx() }
+                    val collapsedYPx = with(density) { collapsedY.toPx() }
+                    val expandedXPx = with(density) { expandedX.toPx() }
+                    val expandedYPx = with(density) { expandedY.toPx() }
+                    val motionX = expandedXPx - collapsedXPx
+                    val motionY = expandedYPx - collapsedYPx
+                    val travelTotal = abs(motionX) + abs(motionY) + 0.001f
+                    val horizontalMotion = abs(motionX) / travelTotal
+                    val verticalMotion = abs(motionY) / travelTotal
+                    val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
+                    ModelCardGeometry(
+                        collapsedXPx = collapsedXPx,
+                        collapsedYPx = collapsedYPx,
+                        expandedXPx = expandedXPx,
+                        expandedYPx = expandedYPx,
+                        horizontalMotion = horizontalMotion,
+                        verticalMotion = verticalMotion,
+                        overshoot = 0.040f + 0.020f * distanceWeight
+                    )
+                }
 
                 val selectionProgress by animateFloatAsState(if (selected) 1f else 0f, tween(if (selected) 520 else 260, delayMillis = if (selected) 28 else 0, easing = FastOutSlowInEasing), label = "model-card-selection-material-${model.id}")
                 val selectedPulse by animateFloatAsState(if (selected) 1.008f else 1f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow), label = "model-card-selected-${model.id}")
@@ -140,38 +202,23 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                 val targetProgress = modelSmooth(visualAnim.value.coerceIn(0f, 1f))
                 val stackReveal = 1f - targetProgress
                 val rawMotion = motionAnim.value.coerceIn(0f, 1f)
+                val motionPhase = if (expanded) rawMotion else 1f - rawMotion
+                val pathProgress = modelDockingProgress(motionPhase, geometry.overshoot)
+                val p = if (expanded) pathProgress else 1f - pathProgress
+                val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
+                val dockGlow = modelSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
+                val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
+                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.42f, dockGlow * 0.08f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
 
                 val width = modelLerpDp(collapsedWidth, halfWidth, targetProgress)
                 val height = modelLerpDp(collapsedHeight, expandedHeight, targetProgress)
-                val expandedX = if (index % 2 == 1) halfWidth + gap else 0.dp
-                val expandedY = rowStep * (index / 2).toFloat()
-                val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
-                val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
-                val collapsedXPx = with(density) { collapsedX.toPx() }
-                val collapsedYPx = with(density) { collapsedY.toPx() }
-                val expandedXPx = with(density) { expandedX.toPx() }
-                val expandedYPx = with(density) { expandedY.toPx() }
-                val motionX = expandedXPx - collapsedXPx
-                val motionY = expandedYPx - collapsedYPx
-                val travelTotal = abs(motionX) + abs(motionY) + 0.001f
-                val horizontalMotion = abs(motionX) / travelTotal
-                val verticalMotion = abs(motionY) / travelTotal
-                val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
-                val overshoot = 0.040f + 0.020f * distanceWeight
-                val motionPhase = if (expanded) rawMotion else 1f - rawMotion
-                val pathProgress = modelDockingProgress(motionPhase, overshoot)
-                val p = if (expanded) pathProgress else 1f - pathProgress
-                val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
-                val dockGlow = modelSmooth((overshootAmount / overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
-                val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
-                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.42f, dockGlow * 0.08f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
-                val tx = modelLerpRawFloat(collapsedXPx, expandedXPx, p)
-                val ty = modelLerpRawFloat(collapsedYPx, expandedYPx, p)
+                val tx = modelLerpRawFloat(geometry.collapsedXPx, geometry.expandedXPx, p)
+                val ty = modelLerpRawFloat(geometry.collapsedYPx, geometry.expandedYPx, p)
                 val alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress)
-                val releaseStretchX = capsuleLaunch * (0.044f * horizontalMotion - 0.012f * verticalMotion)
-                val releaseStretchY = capsuleLaunch * (0.016f * verticalMotion - 0.024f * horizontalMotion)
-                val dockScaleX = dockGlow * (0.0016f * horizontalMotion - 0.0008f * verticalMotion)
-                val dockScaleY = dockGlow * (0.0014f * verticalMotion - 0.0010f * horizontalMotion)
+                val releaseStretchX = capsuleLaunch * (0.044f * geometry.horizontalMotion - 0.012f * geometry.verticalMotion)
+                val releaseStretchY = capsuleLaunch * (0.016f * geometry.verticalMotion - 0.024f * geometry.horizontalMotion)
+                val dockScaleX = dockGlow * (0.0016f * geometry.horizontalMotion - 0.0008f * geometry.verticalMotion)
+                val dockScaleY = dockGlow * (0.0014f * geometry.verticalMotion - 0.0010f * geometry.horizontalMotion)
                 val scaleX = selectedPulse * (1f + compression * 0.055f - rebound * 0.010f + releaseStretchX + dockScaleX)
                 val scaleY = selectedPulse * (1f - compression * 0.064f + rebound * 0.028f + releaseStretchY + dockScaleY)
                 val sinkY = compression * 4.10f - rebound * 1.05f + capsuleLaunch * 0.82f + dockGlow * 0.006f
@@ -182,12 +229,12 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                         .onSizeChanged { cardSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
                         .graphicsLayer { transformOrigin = TransformOrigin(center.x, center.y); translationX = tx; translationY = ty + sinkY; this.scaleX = scaleX; this.scaleY = scaleY; this.alpha = alpha; shadowElevation = compression * 0.62f + capsuleLaunch * 0.26f + dockGlow * 0.01f }
                         .drawModelCardGlassSurface(style, theme, selected, selection, energy, materialPress, delayed, stackReveal, center, seed, direction, band, strength)
-                        .pointerInput(state.isSending, expanded, model.id) {
+                        .pointerInput(model.id) {
                             awaitEachGesture {
                                 fun updateCenter(position: Offset) { center = Offset((position.x / cardSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f), (position.y / cardSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)) }
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 updateCenter(down.position)
-                                if (state.isSending) return@awaitEachGesture
+                                if (currentIsSending) return@awaitEachGesture
                                 seed = Random.nextFloat(); direction = if (Random.nextBoolean()) 1f else -1f; band = Random.nextInt(0, 4); strength = 1.06f + Random.nextFloat() * 0.62f
                                 scope.launch { pressAnim.stop(); if (pressAnim.value < 0.34f) pressAnim.snapTo(0.34f); pressAnim.animateTo(0.88f, tween(82, easing = ModelPressPulse)); pressAnim.animateTo(0.78f, tween(160, easing = ModelPressSink)); pressAnim.animateTo(0.74f, tween(220, easing = FastOutSlowInEasing)) }
                                 scope.launch { opticsAnim.stop(); opticsAnim.animateTo(0.46f, tween(104, easing = ModelPressPreload)); opticsAnim.animateTo(1.05f, tween(260, easing = ModelPressSink)); opticsAnim.animateTo(1.08f, tween(360, easing = FastOutSlowInEasing)) }
@@ -198,7 +245,7 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                                     if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { released = true; break } }
                                     if (event.changes.none { it.pressed }) { released = true; break }
                                 }
-                                if (released) { if (expanded) onSelected(model) else onToggleExpanded() }
+                                if (released) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
                                 scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.52f) opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 620 else 340, easing = FastOutSlowInEasing)) }
                                 scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) { pressAnim.animateTo(0.68f, tween(62, easing = ModelPressPulse)); pressAnim.animateTo(-0.086f, tween(142, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.092f, tween(178, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing)) } }
                             }
