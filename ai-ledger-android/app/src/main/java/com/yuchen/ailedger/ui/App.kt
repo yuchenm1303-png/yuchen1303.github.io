@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
@@ -124,7 +125,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         CachedAppTabHost(
                             currentTab = state.currentTab,
-                            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)
+                            modifier = Modifier
+                                .zIndex(0f)
+                                .fillMaxSize()
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 12.dp)
+                                .padding(bottom = 44.dp)
                         ) { tab ->
                             when (tab) {
                                 AppTab.Assistant -> AssistantScreenV2(
@@ -168,14 +175,24 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 )
                             }
                         }
-                        BottomDockSeparationMist(state.quality, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+                        BottomDockSeparationMist(
+                            state.quality,
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .zIndex(900f)
+                        )
                         PrismaticCapsuleBottomBar(
                             currentTab = state.currentTab,
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
                             onTabChange = viewModel::selectTab,
-                            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 3.dp)
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 3.dp)
+                                .zIndex(1000f)
                         )
                     }
                 }
