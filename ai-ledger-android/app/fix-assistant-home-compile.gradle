@@ -61,13 +61,30 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
                 readOnly = state.isSending,
 ''', '''                enabled = !state.isSending,
 ''')
+        text = text.replace('''                enabled = true,
+                readOnly = state.isSending,
+''', '''                enabled = !state.isSending,
+''')
         text = text.replace('''                readOnly = state.isSending,
 ''', '')
+        text = text.replace('''                readOnly = state.isSending,
+''', '')
+        text = text.replace('readOnly = state.isSending,', '')
 
         home.setText(text, 'UTF-8')
+
+        def verified = home.getText('UTF-8')
+        if (verified.contains('readOnly')) {
+            throw new GradleException('AssistantHomePolished still contains readOnly after cleanup.')
+        }
+        println('AssistantHomePolished compile compatibility verified: no readOnly parameter remains.')
     }
 }
 
 tasks.named('preBuild') {
+    dependsOn fixAssistantHomeCompile
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
     dependsOn fixAssistantHomeCompile
 }
