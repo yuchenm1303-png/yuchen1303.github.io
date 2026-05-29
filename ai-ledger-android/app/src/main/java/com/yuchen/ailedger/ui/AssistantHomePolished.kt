@@ -14,7 +14,6 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -162,8 +161,12 @@ private fun ModelAndNetworkPanel(state: AssistantUiState, onModelSelected: (Chat
 @Composable
 private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
-    LaunchedEffect(state.messages.size, state.isSending) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    val lastMessageId = state.messages.lastOrNull()?.id
+    LaunchedEffect(lastMessageId) {
+        if (lastMessageId != null) {
+            delay(40)
+            listState.scrollToItem(state.messages.lastIndex)
+        }
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
         Box(Modifier.fillMaxSize()) {
@@ -191,7 +194,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
 @Composable
 private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     AnimatedVisibility(
-        visible = !state.isSending && state.messages.size <= 2,
+        visible = state.messages.size <= 2,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.72f)) { it / 2 },
         exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
     ) {
@@ -272,25 +275,21 @@ private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) ->
     val sendAction = if (state.isSending) ({}) else onSend
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), if (state.isSending) "正在等待回复..." else "和我说点什么...")
+        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), "和我说点什么...")
         SendButtonV2(state, onClick = sendAction)
     }
 }
 
 @Composable
 private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange: (String) -> Unit, onSend: () -> Unit, modifier: Modifier, placeholder: String) {
-    val focusPop by animateFloatAsState(
-        targetValue = if (text.isNotBlank()) 1.012f else 1f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
-        label = "composer-pop"
-    )
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp).graphicsLayer { scaleX = focusPop; scaleY = focusPop }, GlassRole.Card) {
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Card) {
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
                 value = text,
                 onValueChange = onTextChange,
                 singleLine = true,
-                enabled = !state.isSending,
+                enabled = true,
+                readOnly = state.isSending,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -308,7 +307,7 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
 private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (state.isSending) ThinkingDotsV2(size = 6, color = Color.White.copy(alpha = 0.90f)) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            if (state.isSending) Text("…", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -335,7 +334,6 @@ private fun SuggestionButtonV2(text: String, state: AssistantUiState, modifier: 
 private fun ChatStatusV2(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(text, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        if (text.contains("思考")) ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.50f))
     }
 }
 
