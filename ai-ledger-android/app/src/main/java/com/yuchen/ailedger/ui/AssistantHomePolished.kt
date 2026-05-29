@@ -235,7 +235,15 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
             modifier = Modifier.fillMaxWidth(fill),
             role = if (fromUser) GlassRole.Floating else GlassRole.Card
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                Modifier.padding(
+                    start = if (fromUser) 14.dp else 22.dp,
+                    top = 10.dp,
+                    end = 14.dp,
+                    bottom = 10.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 if (message.status == MessageStatus.Sending && !fromUser) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
