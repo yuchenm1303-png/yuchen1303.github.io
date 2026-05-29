@@ -173,13 +173,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 )
                             }
                         }
-                        BottomDockSeparationMist(
-                            state.quality,
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .zIndex(900f)
-                        )
                         PrismaticCapsuleBottomBar(
                             currentTab = state.currentTab,
                             quality = state.quality,
@@ -201,19 +194,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
 @Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
-    val blur = if (quality.enableMotion) 10.dp else 0.dp
-    val height = if (quality.enableMotion) 82.dp else 60.dp
-    val bottomAlpha = if (quality.enableMotion) 0x64 else 0x46
-    Box(
-        modifier = modifier.fillMaxWidth().height(height).blur(blur).background(
-            Brush.verticalGradient(
-                listOf(
-                    Color.Transparent,
-                    Color(0x0E08142C),
-                    Color(0x3008142C),
-                    Color(red = 0x03, green = 0x08, blue = 0x17, alpha = bottomAlpha)
-                )
-            )
-        )
-    )
+    Box(modifier = modifier.fillMaxWidth().height(0.dp))
+    quality.hashCode()
 }
