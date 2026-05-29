@@ -46,6 +46,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -171,6 +172,7 @@ internal fun UnifiedParentModelStackSelector(
                 val pathProgress = modelCapsuleOvershootPath(travelPhase)
                 val p = if (expanded) pathProgress else 1f - pathProgress
                 val targetProgress = p.coerceIn(0f, 1f)
+                val stackReveal = 1f - targetProgress
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
                 val arrivalBrake = modelSmooth((overshootAmount / 0.090f).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
@@ -220,6 +222,7 @@ internal fun UnifiedParentModelStackSelector(
                     direction = direction,
                     band = band,
                     strength = strength,
+                    stackReveal = stackReveal,
                     theme = theme
                 ))
 
@@ -311,7 +314,7 @@ internal fun UnifiedParentModelStackSelector(
                             }
                         }
                 ) {
-                    UnifiedModelCardContent(model, selection, targetProgress, materialPress, theme)
+                    UnifiedModelCardContent(model, selected, stackRank, selection, targetProgress, stackReveal, materialPress, theme)
                 }
             }
         }
@@ -334,16 +337,54 @@ private data class ModelCardVisual(
     val direction: Float,
     val band: Int,
     val strength: Float,
+    val stackReveal: Float,
     val theme: ModelCardPrismTheme
 )
 
 @Composable
-private fun UnifiedModelCardContent(model: ChatModel, selection: Float, expansionProgress: Float, materialPress: Float, theme: ModelCardPrismTheme) {
+private fun UnifiedModelCardContent(
+    model: ChatModel,
+    selected: Boolean,
+    stackRank: Int,
+    selection: Float,
+    expansionProgress: Float,
+    stackReveal: Float,
+    materialPress: Float,
+    theme: ModelCardPrismTheme
+) {
+    val density = LocalDensity.current
+    val collapsed = stackReveal.coerceIn(0f, 1f)
+    val fullTextAlpha = if (selected) 1f else expansionProgress.coerceIn(0f, 1f) * 0.92f
+    val stackLabelAlpha = if (selected) 0f else modelSmooth(collapsed) * 0.62f
+    val labelShiftX = with(density) { (stackRank * 24).dp.toPx() }
+    val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
+
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         ModelStatusDot(selection, expansionProgress, materialPress, theme)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-            Text(model.shortLabel, color = Color.White.copy(alpha = modelLerpFloat(0.88f, 0.985f, selection)), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(model.id, color = Color.White.copy(alpha = modelLerpFloat(0.46f, 0.62f, selection)), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.weight(1f).fillMaxSize()) {
+            Column(
+                Modifier.align(Alignment.CenterStart).graphicsLayer { alpha = fullTextAlpha },
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(model.shortLabel, color = Color.White.copy(alpha = modelLerpFloat(0.88f, 0.985f, selection)), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(model.id, color = Color.White.copy(alpha = modelLerpFloat(0.46f, 0.62f, selection)), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (!selected) {
+                Text(
+                    model.shortLabel,
+                    modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer {
+                        alpha = stackLabelAlpha
+                        translationX = -labelShiftX
+                        translationY = labelShiftY
+                    },
+                    color = theme.bright.copy(alpha = 0.86f),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
+            }
         }
     }
 }
@@ -469,18 +510,23 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val innerSize = Size((v.width - innerInset * 2f).coerceAtLeast(1f), (v.height - innerInset * 2f).coerceAtLeast(1f))
             val rimPower = energy * alpha
             val selectedGlow = v.text.coerceIn(0f, 1f)
-            val outer = s(style.outerRim)
+            val collapsedReveal = modelSmooth(v.stackReveal.coerceIn(0f, 1f))
+            val stackBoost = collapsedReveal * if (v.selected) 0.45f else 1.12f
+            val outer = s(style.outerRim) * (1f + stackBoost * 0.22f)
             val top = s(style.topHairline) * (1f + v.text * 0.10f + v.press * 0.20f)
             val inner = s(style.innerDepth)
             val bottom = s(style.bottomShadow)
             val rainbow = s(style.selectedRainbowRim, 8f)
             val halo = s(style.selectedOuterHalo, 8f)
-            val themeBoost = (theme.themeWeight * (0.62f + selectedGlow * 0.70f)).coerceIn(0f, 1.35f)
+            val themeBoost = (theme.themeWeight * (0.62f + selectedGlow * 0.70f + stackBoost * 0.40f)).coerceIn(0f, 1.55f)
             val outerRim = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.260f * rimPower * outer), Color(0xFFF1FFFF).copy(alpha = 0.082f * rimPower * outer), theme.main.copy(alpha = (0.150f + 0.170f * themeBoost) * rimPower * outer), Color.White.copy(alpha = 0.045f * rimPower * outer), Color.Transparent, theme.deep.copy(alpha = 0.225f * rimPower * bottom), theme.prismC.copy(alpha = 0.072f * rimPower * outer)), Offset.Zero, Offset(v.width, v.height))
             val topLine = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.016f * rimPower * top), theme.bright.copy(alpha = 0.360f * rimPower * top), theme.main.copy(alpha = (0.220f + 0.240f * themeBoost) * rimPower * top), theme.prismA.copy(alpha = 0.120f * rimPower * top), theme.prismB.copy(alpha = 0.075f * rimPower * top), Color.Transparent), 0f, v.width)
             val innerLine = Brush.linearGradient(listOf(theme.bright.copy(alpha = 0.070f * rimPower * inner), Color.Transparent, Color(0xFF000713).copy(alpha = 0.235f * rimPower * inner), theme.main.copy(alpha = 0.075f * rimPower * inner)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.92f, v.height))
             val selectedHalo = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.180f + 0.180f * themeBoost) * alpha * halo * selectedGlow), Color.White.copy(alpha = 0.045f * alpha * halo * selectedGlow), theme.prismB.copy(alpha = 0.060f * alpha * halo * selectedGlow), theme.gold.copy(alpha = 0.032f * alpha * halo * selectedGlow), Color.Transparent, theme.prismC.copy(alpha = 0.080f * alpha * halo * selectedGlow)), Offset(v.width * -0.12f, v.height * -0.18f), Offset(v.width * 1.08f, v.height * 1.10f))
             val selectedRainbow = Brush.linearGradient(listOf(theme.main.copy(alpha = (0.680f + 0.420f * themeBoost) * alpha * rainbow * selectedGlow), theme.bright.copy(alpha = 0.170f * alpha * rainbow * selectedGlow), theme.prismA.copy(alpha = 0.155f * alpha * rainbow * selectedGlow), theme.prismB.copy(alpha = 0.145f * alpha * rainbow * selectedGlow), theme.prismC.copy(alpha = 0.190f * alpha * rainbow * selectedGlow), Color.Transparent), Offset(v.width * -0.08f, 0f), Offset(v.width * 1.02f, v.height * 0.78f))
+            val rightEdgeAccent = Brush.horizontalGradient(listOf(Color.Transparent, theme.prismC.copy(alpha = 0.044f * rimPower * stackBoost), theme.main.copy(alpha = (0.140f + 0.130f * themeBoost) * rimPower * stackBoost), theme.bright.copy(alpha = 0.390f * rimPower * stackBoost)), startX = v.width * 0.64f, endX = v.width)
+            val bottomEdgeAccent = Brush.verticalGradient(listOf(Color.Transparent, theme.prismB.copy(alpha = 0.040f * rimPower * stackBoost), theme.main.copy(alpha = (0.124f + 0.110f * themeBoost) * rimPower * stackBoost), theme.bright.copy(alpha = 0.350f * rimPower * stackBoost)), startY = v.height * 0.54f, endY = v.height)
+            val rightBottomHalo = Brush.linearGradient(listOf(Color.Transparent, theme.main.copy(alpha = 0.120f * alpha * stackBoost), theme.bright.copy(alpha = 0.150f * alpha * stackBoost), theme.prismC.copy(alpha = 0.090f * alpha * stackBoost), Color.Transparent), Offset(v.width * 0.58f, v.height * 0.24f), Offset(v.width * 1.10f, v.height * 1.06f))
             val press = v.press.coerceIn(0f, 1.16f)
 
             withTransform({ translate(v.left, v.top) }) {
@@ -489,7 +535,12 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
                 drawRoundRect(brush = outerRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.96.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = topLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
                 drawRoundRect(brush = innerLine, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = corner, style = Stroke(0.54.dp.toPx()), blendMode = BlendMode.Screen)
-                drawRoundRect(brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF00040C).copy(alpha = 0.300f * rimPower * bottom)), v.height * 0.42f, v.height), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
+                if (collapsedReveal > 0.001f) {
+                    drawRoundRect(brush = rightBottomHalo, topLeft = Offset(-1.30.dp.toPx(), -1.30.dp.toPx()), size = Size(v.width + 2.60.dp.toPx(), v.height + 2.60.dp.toPx()), cornerRadius = CornerRadius(radius + 1.30.dp.toPx(), radius + 1.30.dp.toPx()), style = Stroke(1.60.dp.toPx()), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = rightEdgeAccent, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.18.dp.toPx()), blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = bottomEdgeAccent, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.24.dp.toPx()), blendMode = BlendMode.Screen)
+                }
+                drawRoundRect(brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF00040C).copy(alpha = 0.230f * rimPower * bottom)), v.height * 0.42f, v.height), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.92.dp.toPx()), blendMode = BlendMode.Multiply)
 
                 if (press > 0.001f) {
                     val p = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
@@ -532,10 +583,4 @@ private fun modelCapsuleOvershootPath(phase: Float): Float {
     val leave = 1f - modelSmooth(((x - 0.80f) / 0.20f).coerceIn(0f, 1f))
     val brakePulse = enter * leave
     return base + brakePulse * 0.092f
-}
-private fun modelStackEase(progress: Float): Float {
-    val p = progress.coerceIn(0f, 1f)
-    val smooth = modelSmooth(p)
-    val elastic = sin(p * PI.toFloat()).coerceAtLeast(0f) * 0.030f * (1f - abs(0.5f - p) * 1.6f).coerceIn(0f, 1f)
-    return (smooth + elastic).coerceIn(0f, 1f)
 }
