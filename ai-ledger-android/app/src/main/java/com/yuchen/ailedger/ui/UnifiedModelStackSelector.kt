@@ -62,7 +62,7 @@ private val ModelPressPreload = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.00f)
 private val ModelPressSink = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1.00f)
 private val ModelPressRelease = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 private val ModelPressPulse = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
-private val ModelStackNudge = CubicBezierEasing(0.18f, 0.00f, 0.12f, 1.00f)
+private val ModelStackTravel = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
 private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
 
 private data class ModelCardPrismTheme(val main: Color, val bright: Color, val deep: Color, val prismA: Color, val prismB: Color, val prismC: Color, val gold: Color, val themeWeight: Float)
@@ -115,29 +115,19 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
-                    val visualDuration = if (expanded) (480 + stackRank * 42).coerceAtMost(620) else if (selected) 460 else 400 + reverseRank * 34
-                    val releasePush = if (expanded) 0.030f + stackRank * 0.002f else -0.022f - reverseRank * 0.002f
-                    val pushTarget = (motionAnim.value + releasePush).coerceIn(-0.060f, 1.060f)
-                    val initialVelocity = if (expanded) 2.52f + stackRank * 0.14f else -2.16f - reverseRank * 0.12f
+                    val motionDuration = if (expanded) (450 + stackRank * 32).coerceAtMost(570) else if (selected) 390 else 360 + reverseRank * 28
+                    val visualDuration = if (expanded) (350 + stackRank * 24).coerceAtMost(450) else if (selected) 320 else 300 + reverseRank * 20
                     launch {
                         capsuleAnim.stop(); capsuleAnim.snapTo(0f)
-                        capsuleAnim.animateTo(1f, tween(if (expanded) 76 else 72, easing = ModelPressPulse))
-                        capsuleAnim.animateTo(0f, tween(if (expanded) 340 else 310, easing = FastOutSlowInEasing))
+                        capsuleAnim.animateTo(1f, tween(if (expanded) 60 else 58, easing = ModelPressPulse))
+                        capsuleAnim.animateTo(0f, tween(if (expanded) 230 else 210, easing = FastOutSlowInEasing))
                     }
                     launch {
                         visualAnim.stop()
                         visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual))
                     }
                     motionAnim.stop()
-                    motionAnim.animateTo(pushTarget, tween(durationMillis = 86 + stackRank * 6, easing = ModelStackNudge))
-                    motionAnim.animateTo(
-                        targetValue = target,
-                        animationSpec = spring(
-                            dampingRatio = if (expanded) 0.84f else 0.86f,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
-                        initialVelocity = initialVelocity
-                    )
+                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -149,11 +139,7 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                 val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
                 val targetProgress = modelSmooth(visualAnim.value.coerceIn(0f, 1f))
                 val stackReveal = 1f - targetProgress
-                val p = motionAnim.value
-                val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
-                val dockGlow = modelSmooth((overshootAmount / 0.030f).coerceIn(0f, 1f))
-                val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
-                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.36f, dockGlow * 0.10f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
+                val rawMotion = motionAnim.value.coerceIn(0f, 1f)
 
                 val width = modelLerpDp(collapsedWidth, halfWidth, targetProgress)
                 val height = modelLerpDp(collapsedHeight, expandedHeight, targetProgress)
@@ -170,22 +156,31 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                 val travelTotal = abs(motionX) + abs(motionY) + 0.001f
                 val horizontalMotion = abs(motionX) / travelTotal
                 val verticalMotion = abs(motionY) / travelTotal
+                val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
+                val overshoot = 0.040f + 0.020f * distanceWeight
+                val motionPhase = if (expanded) rawMotion else 1f - rawMotion
+                val pathProgress = modelDockingProgress(motionPhase, overshoot)
+                val p = if (expanded) pathProgress else 1f - pathProgress
+                val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
+                val dockGlow = modelSmooth((overshootAmount / overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
+                val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
+                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.42f, dockGlow * 0.08f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
                 val tx = modelLerpRawFloat(collapsedXPx, expandedXPx, p)
                 val ty = modelLerpRawFloat(collapsedYPx, expandedYPx, p)
                 val alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress)
-                val releaseStretchX = capsuleLaunch * (0.030f * horizontalMotion - 0.010f * verticalMotion)
-                val releaseStretchY = capsuleLaunch * (0.014f * verticalMotion - 0.018f * horizontalMotion)
-                val dockScaleX = dockGlow * (0.0025f * horizontalMotion - 0.0012f * verticalMotion)
-                val dockScaleY = dockGlow * (0.0020f * verticalMotion - 0.0015f * horizontalMotion)
-                val scaleX = selectedPulse * (1f + compression * 0.050f - rebound * 0.010f + releaseStretchX + dockScaleX)
-                val scaleY = selectedPulse * (1f - compression * 0.058f + rebound * 0.026f + releaseStretchY + dockScaleY)
-                val sinkY = compression * 3.90f - rebound * 1.05f + capsuleLaunch * 0.76f + dockGlow * 0.01f
+                val releaseStretchX = capsuleLaunch * (0.044f * horizontalMotion - 0.012f * verticalMotion)
+                val releaseStretchY = capsuleLaunch * (0.016f * verticalMotion - 0.024f * horizontalMotion)
+                val dockScaleX = dockGlow * (0.0016f * horizontalMotion - 0.0008f * verticalMotion)
+                val dockScaleY = dockGlow * (0.0014f * verticalMotion - 0.0010f * horizontalMotion)
+                val scaleX = selectedPulse * (1f + compression * 0.055f - rebound * 0.010f + releaseStretchX + dockScaleX)
+                val scaleY = selectedPulse * (1f - compression * 0.064f + rebound * 0.028f + releaseStretchY + dockScaleY)
+                val sinkY = compression * 4.10f - rebound * 1.05f + capsuleLaunch * 0.82f + dockGlow * 0.006f
                 val energy = if (selected) modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection) else 0.50f * style.unselectedEnergy.coerceIn(0f, 5f)
 
                 Box(
                     modifier = Modifier.width(width).height(height).zIndex(if (selected) 50f else 30f - index)
                         .onSizeChanged { cardSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
-                        .graphicsLayer { transformOrigin = TransformOrigin(center.x, center.y); translationX = tx; translationY = ty + sinkY; this.scaleX = scaleX; this.scaleY = scaleY; this.alpha = alpha; shadowElevation = compression * 0.62f + capsuleLaunch * 0.24f + dockGlow * 0.02f }
+                        .graphicsLayer { transformOrigin = TransformOrigin(center.x, center.y); translationX = tx; translationY = ty + sinkY; this.scaleX = scaleX; this.scaleY = scaleY; this.alpha = alpha; shadowElevation = compression * 0.62f + capsuleLaunch * 0.26f + dockGlow * 0.01f }
                         .drawModelCardGlassSurface(style, theme, selected, selection, energy, materialPress, delayed, stackReveal, center, seed, direction, band, strength)
                         .pointerInput(state.isSending, expanded, model.id) {
                             awaitEachGesture {
@@ -194,8 +189,8 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                                 updateCenter(down.position)
                                 if (state.isSending) return@awaitEachGesture
                                 seed = Random.nextFloat(); direction = if (Random.nextBoolean()) 1f else -1f; band = Random.nextInt(0, 4); strength = 1.06f + Random.nextFloat() * 0.62f
-                                scope.launch { pressAnim.stop(); if (pressAnim.value < 0.28f) pressAnim.snapTo(0.28f); pressAnim.animateTo(0.76f, tween(96, easing = ModelPressPulse)); pressAnim.animateTo(0.84f, tween(210, easing = ModelPressSink)); pressAnim.animateTo(0.76f, tween(330, easing = FastOutSlowInEasing)) }
-                                scope.launch { opticsAnim.stop(); opticsAnim.animateTo(0.42f, tween(120, easing = ModelPressPreload)); opticsAnim.animateTo(1.02f, tween(300, easing = ModelPressSink)); opticsAnim.animateTo(1.06f, tween(420, easing = FastOutSlowInEasing)) }
+                                scope.launch { pressAnim.stop(); if (pressAnim.value < 0.34f) pressAnim.snapTo(0.34f); pressAnim.animateTo(0.88f, tween(82, easing = ModelPressPulse)); pressAnim.animateTo(0.78f, tween(160, easing = ModelPressSink)); pressAnim.animateTo(0.74f, tween(220, easing = FastOutSlowInEasing)) }
+                                scope.launch { opticsAnim.stop(); opticsAnim.animateTo(0.46f, tween(104, easing = ModelPressPreload)); opticsAnim.animateTo(1.05f, tween(260, easing = ModelPressSink)); opticsAnim.animateTo(1.08f, tween(360, easing = FastOutSlowInEasing)) }
                                 var released = false
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -204,8 +199,8 @@ internal fun UnifiedParentModelStackSelector(state: AssistantUiState, expanded: 
                                     if (event.changes.none { it.pressed }) { released = true; break }
                                 }
                                 if (released) { if (expanded) onSelected(model) else onToggleExpanded() }
-                                scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.48f) opticsAnim.animateTo(0.60f, tween(92, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 760 else 380, easing = FastOutSlowInEasing)) }
-                                scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.56f) { pressAnim.animateTo(0.66f, tween(72, easing = ModelPressPulse)); pressAnim.animateTo(-0.070f, tween(170, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.078f, tween(214, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(380, easing = FastOutSlowInEasing)) } }
+                                scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.52f) opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 620 else 340, easing = FastOutSlowInEasing)) }
+                                scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) { pressAnim.animateTo(0.68f, tween(62, easing = ModelPressPulse)); pressAnim.animateTo(-0.086f, tween(142, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.092f, tween(178, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing)) } }
                             }
                         }
                 ) { UnifiedModelCardContent(model, selected, stackRank, selection, targetProgress, stackReveal, materialPress, theme) }
@@ -304,6 +299,26 @@ private fun Modifier.drawModelCardGlassSurface(style: ModelCardGlassStyle, theme
     }
 }
 
+private fun modelDockingProgress(phase: Float, overshoot: Float): Float {
+    val t = phase.coerceIn(0f, 1f)
+    val out = overshoot.coerceIn(0.030f, 0.070f)
+    return when {
+        t < 0.16f -> modelLerpRawFloat(0f, 0.34f, modelEaseOutCubic(t / 0.16f))
+        t < 0.54f -> modelLerpRawFloat(0.34f, 0.88f, modelSmoother((t - 0.16f) / 0.38f))
+        t < 0.74f -> modelLerpRawFloat(0.88f, 1f + out, modelEaseOutCubic((t - 0.54f) / 0.20f))
+        t < 0.88f -> modelLerpRawFloat(1f + out, 1f + out * 0.34f, modelSmoother((t - 0.74f) / 0.14f))
+        else -> modelLerpRawFloat(1f + out * 0.34f, 1f, modelSmoother((t - 0.88f) / 0.12f))
+    }
+}
+
+private fun modelEaseOutCubic(value: Float): Float {
+    val x = 1f - value.coerceIn(0f, 1f)
+    return 1f - x * x * x
+}
+private fun modelSmoother(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
+}
 private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
