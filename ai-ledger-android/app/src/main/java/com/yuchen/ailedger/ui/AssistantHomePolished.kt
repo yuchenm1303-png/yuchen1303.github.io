@@ -75,7 +75,9 @@ fun AssistantScreenV2(
     onPickImage: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSettings: () -> Unit,
-    onToggleOnline: () -> Unit
+    onToggleOnline: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -102,6 +104,8 @@ fun AssistantScreenV2(
     }
     onOpenTools.hashCode()
     onOpenSettings.hashCode()
+    onCopyMessage.hashCode()
+    onRetryMessage.hashCode()
 }
 
 @Composable
