@@ -105,6 +105,7 @@ data class GlassBorderStyle(
 
 data class ModelCardGlassStyle(
     val bodyAlpha: Float = 0.00f,
+    val innerMist: Float = 0.72f,
     val topHairline: Float = 1.14f,
     val outerRim: Float = 0.56f,
     val innerDepth: Float = 5.35f,
