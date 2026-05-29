@@ -91,6 +91,68 @@ private fun LightweightGlassPreview(
         } else {
             println('GlassDebugFloatingPanel.kt not found; skipped lab preview patch.')
         }
+
+        def assistantHome = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        if (assistantHome.exists()) {
+            def homeText = assistantHome.getText('UTF-8')
+            def oldScroll = '''    val listState = rememberLazyListState()
+    LaunchedEffect(state.messages.size, state.isSending) {
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    }
+'''
+            def newScroll = '''    val listState = rememberLazyListState()
+    val lastMessageId = state.messages.lastOrNull()?.id
+    LaunchedEffect(lastMessageId) {
+        if (lastMessageId != null) {
+            delay(60)
+            listState.scrollToItem(state.messages.lastIndex)
+        }
+    }
+'''
+            if (homeText.contains(oldScroll)) {
+                homeText = homeText.replace(oldScroll, newScroll)
+                println('Patched AssistantHomePolished chat autoscroll to follow only new message ids.')
+            } else if (homeText.contains(newScroll)) {
+                println('AssistantHomePolished chat autoscroll already patched.')
+            } else {
+                throw new GradleException('AssistantHomePolished chat autoscroll target not found.')
+            }
+
+            def oldFocusPop = '''    val focusPop by animateFloatAsState(
+        targetValue = if (text.isNotBlank()) 1.012f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+        label = "composer-pop"
+    )
+    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp).graphicsLayer { scaleX = focusPop; scaleY = focusPop }, GlassRole.Card) {
+'''
+            def newFocusPop = '''    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Card) {
+'''
+            if (homeText.contains(oldFocusPop)) {
+                homeText = homeText.replace(oldFocusPop, newFocusPop)
+                println('Removed composer scale pop that caused send-time layout jitter.')
+            } else if (homeText.contains(newFocusPop)) {
+                println('AssistantHomePolished composer scale pop already removed.')
+            } else {
+                throw new GradleException('AssistantHomePolished composer focus-pop target not found.')
+            }
+
+            def oldEnabled = '''                enabled = !state.isSending,
+'''
+            def newEnabled = '''                enabled = true,
+                readOnly = state.isSending,
+'''
+            if (homeText.contains(oldEnabled)) {
+                homeText = homeText.replace(oldEnabled, newEnabled)
+                println('Kept composer focused during send by using readOnly instead of disabled.')
+            } else if (homeText.contains(newEnabled)) {
+                println('AssistantHomePolished composer focus behavior already patched.')
+            } else {
+                throw new GradleException('AssistantHomePolished composer enabled target not found.')
+            }
+            assistantHome.setText(homeText, 'UTF-8')
+        } else {
+            println('AssistantHomePolished.kt not found; skipped send jitter patch.')
+        }
     }
 }
 
