@@ -1,4 +1,4 @@
-Trigger target: 2e7f2d075791a44762296fe971b00a2c43e98d09
-Purpose: trigger Build Compose Android APK after safely adding AI bubble actions.
-Changed behavior: only the latest actionable cloud assistant message shows lightweight copy/retry text actions.
+Trigger target: d45110052f0c6d0abf879ba7bbb24e788dbd5d7e
+Purpose: trigger Build Compose Android APK after adding stop generation and improving AI worker request compatibility.
+Changed behavior: sending button becomes pause while generating; AI request tries compatible worker chat routes and longer read timeout.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
