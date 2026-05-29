@@ -342,35 +342,63 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
             val mist = energy * alpha * s(style.innerMist, 6f)
             val press = v.press.coerceIn(0f, 1.08f)
             val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
+            val refraction = modelSmooth((maxOf(press, v.delayed) / 0.88f).coerceIn(0f, 1f))
             val center = Offset(v.width * v.center.x.coerceIn(0f, 1f), v.height * v.center.y.coerceIn(0f, 1f))
             val selectedGlow = v.text.coerceIn(0f, 1f)
             val auraPower = alpha * selectedGlow * s(style.selectedAura, 8f)
+            val maxSide = maxOf(v.width, v.height)
+            val seedShift = (v.seed - 0.5f)
+            val slant = if (v.direction >= 0f) 1f else -1f
             val aura = Brush.linearGradient(
                 listOf(
-                    Color(0xFF77FFF0).copy(alpha = 0.040f * auraPower),
-                    Color.White.copy(alpha = 0.026f * auraPower),
-                    Color(0xFFFF7BDA).copy(alpha = 0.032f * auraPower),
-                    Color(0xFFFFE58A).copy(alpha = 0.022f * auraPower),
-                    Color(0xFF8EA2FF).copy(alpha = 0.028f * auraPower),
+                    Color(0xFF77FFF0).copy(alpha = 0.036f * auraPower),
+                    Color.White.copy(alpha = 0.020f * auraPower),
+                    Color(0xFFFF7BDA).copy(alpha = 0.028f * auraPower),
+                    Color(0xFFFFE58A).copy(alpha = 0.018f * auraPower),
+                    Color(0xFF8EA2FF).copy(alpha = 0.024f * auraPower),
                     Color.Transparent
                 ),
                 Offset(v.width * -0.14f, v.height * -0.20f),
                 Offset(v.width * 1.08f, v.height * 1.10f)
             )
-            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.010f + v.text * 0.004f + v.delayed * 0.006f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.018f + v.text * 0.006f + v.delayed * 0.010f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.006f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.014f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
-            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.052f + v.text * 0.012f + v.delayed * 0.018f) * body), Color(0xFFB8F7FF).copy(alpha = (0.020f + v.text * 0.008f + v.delayed * 0.016f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.115f * body)), 0f, v.height)
-            val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.024f * body), Color(0xFF00040C).copy(alpha = 0.056f * body)), Offset(v.width * 0.50f, v.height * 0.58f), maxOf(v.width, v.height) * 0.78f)
-            val pressure = Brush.radialGradient(listOf(Color(0xFFFFFFFF).copy(alpha = 0.085f * press), Color(0xFF9DFFF1).copy(alpha = 0.054f * press), Color(0xFFFF7DE2).copy(alpha = 0.026f * press), Color.Transparent), center, maxOf(v.width, v.height) * (0.74f + 0.16f * press))
-            val sink = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF102C66).copy(alpha = 0.007f * press), Color(0xFF030B1A).copy(alpha = 0.038f * compression)), center, maxOf(v.width, v.height) * (0.96f + 0.05f * press))
+            val innerMist = Brush.linearGradient(listOf(Color.White.copy(alpha = (0.006f + v.text * 0.003f + v.delayed * 0.003f) * mist), Color(0xFFDFFBFF).copy(alpha = (0.012f + v.text * 0.004f + v.delayed * 0.006f) * mist), Color(0xFF9FB6FF).copy(alpha = 0.005f * mist), Color.Transparent, Color(0xFF000713).copy(alpha = 0.016f * mist)), Offset(v.width * 0.08f, 0f), Offset(v.width * 0.94f, v.height))
+            val bodyVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = (0.034f + v.text * 0.006f + v.delayed * 0.006f) * body), Color(0xFFB8F7FF).copy(alpha = (0.022f + v.text * 0.006f + v.delayed * 0.010f) * body), Color.Transparent, Color(0xFF000713).copy(alpha = 0.126f * body)), 0f, v.height)
+            val clear = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF031026).copy(alpha = 0.026f * body), Color(0xFF00040C).copy(alpha = 0.066f * body)), Offset(v.width * 0.50f, v.height * 0.58f), maxSide * 0.78f)
+            val lensDimple = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF07142C).copy(alpha = 0.038f * compression), Color(0xFF00030A).copy(alpha = 0.062f * compression)), center, maxSide * (0.34f + 0.06f * compression))
+            val pressureWash = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.020f * refraction), Color(0xFF9DFFF1).copy(alpha = 0.024f * refraction), Color.Transparent), center, maxSide * (0.72f + 0.12f * refraction))
+            val sink = Brush.radialGradient(listOf(Color.Transparent, Color(0xFF102C66).copy(alpha = 0.009f * press), Color(0xFF030B1A).copy(alpha = 0.046f * compression)), center, maxSide * (0.96f + 0.05f * press))
+            fun bandBrush(main: Color, side: Color, power: Float) = Brush.linearGradient(
+                listOf(Color.Transparent, main.copy(alpha = 0.104f * power), Color.White.copy(alpha = 0.052f * power), side.copy(alpha = 0.064f * power), Color.Transparent),
+                Offset(center.x - v.width * 0.20f, center.y),
+                Offset(center.x + v.width * 0.22f, center.y)
+            )
+            fun drawBrokenBand(dx: Float, dy: Float, length: Float, thickness: Float, angle: Float, brush: Brush, power: Float) {
+                if (power <= 0.001f) return
+                val bandW = v.width * length
+                val bandH = v.height * thickness
+                withTransform({ rotate(degrees = angle, pivot = center) }) {
+                    drawRoundRect(
+                        brush = brush,
+                        topLeft = Offset(center.x - bandW * 0.50f + v.width * dx, center.y - bandH * 0.50f + v.height * dy),
+                        size = Size(bandW, bandH),
+                        cornerRadius = CornerRadius(bandH * 0.50f, bandH * 0.50f),
+                        blendMode = BlendMode.Screen
+                    )
+                }
+            }
             withTransform({ translate(v.left, v.top) }) {
                 if (auraPower > 0.001f) drawRoundRect(brush = aura, topLeft = Offset(-3.4.dp.toPx(), -3.4.dp.toPx()), size = Size(v.width + 6.8.dp.toPx(), v.height + 6.8.dp.toPx()), cornerRadius = CornerRadius(radius + 3.4.dp.toPx(), radius + 3.4.dp.toPx()), blendMode = BlendMode.Screen)
                 if (mist > 0.001f) drawRoundRect(innerMist, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(bodyVeil, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                 drawRoundRect(clear, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
                 if (press > 0.001f) {
-                    drawRoundRect(pressure, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(pressureWash, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(lensDimple, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
+                    drawBrokenBand(-0.030f + seedShift * 0.030f, -0.055f, 0.34f, 0.050f, -14f * slant, bandBrush(Color(0xFF7CFFF3), Color(0xFF8EA2FF), refraction), refraction)
+                    drawBrokenBand(0.050f - seedShift * 0.024f, 0.026f, 0.28f, 0.040f, 16f * slant, bandBrush(Color(0xFFFF78DE), Color(0xFFFFE08A), refraction * 0.82f), refraction)
+                    drawBrokenBand(0.006f, -0.004f + seedShift * 0.020f, 0.20f, 0.030f, 5f * slant, bandBrush(Color(0xFFFFE08A), Color.White, refraction * 0.58f), refraction * 0.72f)
                     drawRoundRect(sink, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
-                    drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.044f * compression)), v.height * 0.44f, v.height), size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
+                    drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xFF020815).copy(alpha = 0.050f * compression)), v.height * 0.44f, v.height), size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Multiply)
                 }
             }
         }
@@ -419,11 +447,11 @@ private fun Modifier.drawModelCardGlass(visuals: List<ModelCardVisual>, style: M
                     val startY = when (v.band % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
                     val endY = when (v.band % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
                     val bandAlpha = modelSmooth((press / 0.50f).coerceIn(0f, 1f)) * v.strength.coerceIn(0.70f, 1.68f)
-                    val pressureGlow = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.200f * p), Color(0xFF9DFFF1).copy(alpha = 0.130f * p), Color(0xFFFF7DE2).copy(alpha = 0.080f * p), Color(0xFFFFE28A).copy(alpha = 0.050f * p), Color.Transparent), center, maxSide * (0.36f + 0.16f * p))
+                    val pressureGlance = Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.082f * p), Color(0xFF9DFFF1).copy(alpha = 0.078f * p), Color(0xFFFF7DE2).copy(alpha = 0.044f * p), Color.Transparent), Offset(center.x - v.width * 0.24f, center.y - v.height * 0.12f), Offset(center.x + v.width * 0.30f, center.y + v.height * 0.10f))
                     val flowingRim = Brush.linearGradient(listOf(Color.Transparent, Color(0xFFFF6ADB).copy(alpha = 0.340f * bandAlpha), Color.White.copy(alpha = 0.480f * bandAlpha), Color(0xFFFFE08A).copy(alpha = 0.300f * bandAlpha), Color(0xFF62FFF0).copy(alpha = 0.380f * bandAlpha), Color(0xFF92A6FF).copy(alpha = 0.240f * bandAlpha), Color.Transparent), Offset(v.width * (sweepX - 0.30f), v.height * startY), Offset(v.width * (sweepX + 0.26f), v.height * endY))
                     fun nearEdge(d: Float) = (1f - d / 0.42f).coerceIn(0f, 1f) * p
                     fun edgeHalo(power: Float, point: Offset) = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.300f * power), Color(0xFFFF7DE2).copy(alpha = 0.084f * power), Color(0xFFFFE28A).copy(alpha = 0.064f * power), Color(0xFF80FFF2).copy(alpha = 0.120f * power), Color.Transparent), point, maxSide * 0.40f)
-                    drawRoundRect(brush = pressureGlow, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
+                    drawRoundRect(brush = pressureGlance, size = Size(v.width, v.height), cornerRadius = corner, blendMode = BlendMode.Screen)
                     drawRoundRect(brush = Brush.radialGradient(listOf(Color(0xFFEFFFFF).copy(alpha = 0.100f * bandAlpha), Color(0xFF92FFF1).copy(alpha = 0.060f * bandAlpha), Color(0xFFFF7DE2).copy(alpha = 0.034f * bandAlpha), Color.Transparent), center, maxSide * 0.80f), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(0.90.dp.toPx() + 0.34.dp.toPx() * p), blendMode = BlendMode.Screen)
                     drawRoundRect(brush = flowingRim, topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.34.dp.toPx()), blendMode = BlendMode.Plus)
                     drawRoundRect(brush = edgeHalo(nearEdge(centerNorm.y), Offset(center.x, inset)), topLeft = Offset(inset, inset), size = rimSize, cornerRadius = corner, style = Stroke(1.35.dp.toPx() + 0.60.dp.toPx() * p), blendMode = BlendMode.Screen)
