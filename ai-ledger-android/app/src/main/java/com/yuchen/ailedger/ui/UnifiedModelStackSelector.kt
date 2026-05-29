@@ -122,17 +122,18 @@ internal fun UnifiedParentModelStackSelector(
 
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
+                    val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0).toLong()
                     val travelDelay = if (expanded) {
-                        if (selected) 44L else 74L + stackRank.toLong() * 30L
+                        if (selected) 50L else 104L + stackRank.toLong() * 58L
                     } else {
-                        if (selected) 118L else (models.lastIndex - index).toLong() * 16L
+                        if (selected) 238L else reverseRank * 48L
                     }
                     val launchDelay = if (expanded) {
-                        if (selected) 0L else 34L + stackRank.toLong() * 18L
+                        if (selected) 0L else 54L + stackRank.toLong() * 48L
                     } else {
-                        if (selected) 206L else (models.lastIndex - index).toLong() * 12L
+                        if (selected) 262L else reverseRank * 42L
                     }
-                    val travelDuration = if (expanded) 430 else 330
+                    val travelDuration = if (expanded) 440 else 360
 
                     arrivalAnim.stop()
                     arrivalAnim.snapTo(0f)
@@ -148,8 +149,9 @@ internal fun UnifiedParentModelStackSelector(
                     delay(travelDelay)
                     travelAnim.stop()
                     travelAnim.animateTo(target, tween(durationMillis = travelDuration, easing = if (expanded) ModelCapsuleTravel else FastOutSlowInEasing))
-                    arrivalAnim.snapTo(if (expanded) 1f else 0.82f)
-                    arrivalAnim.animateTo(0f, tween(durationMillis = if (expanded) 260 else 230, easing = ModelCapsuleBrake))
+                    arrivalAnim.snapTo(0f)
+                    arrivalAnim.animateTo(if (expanded) 1f else 0.88f, tween(durationMillis = if (expanded) 96 else 82, easing = ModelCapsuleTravel))
+                    arrivalAnim.animateTo(0f, tween(durationMillis = if (expanded) 285 else 250, easing = ModelCapsuleBrake))
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -162,7 +164,7 @@ internal fun UnifiedParentModelStackSelector(
                 val arrivalBrake = modelSmooth(arrivalAnim.value.coerceIn(0f, 1.12f))
                 val targetProgress = travelAnim.value.coerceIn(0f, 1f)
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
-                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.28f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
+                val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.20f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
 
                 val p = modelStackEase(targetProgress)
                 val width = modelLerpDp(collapsedWidth, halfWidth, p)
@@ -177,18 +179,23 @@ internal fun UnifiedParentModelStackSelector(
                 val expandedYPx = with(density) { expandedY.toPx() }
                 val motionX = expandedXPx - collapsedXPx
                 val motionY = expandedYPx - collapsedYPx
+                val travelTotal = abs(motionX) + abs(motionY) + 0.001f
+                val horizontalMotion = abs(motionX) / travelTotal
+                val verticalMotion = abs(motionY) / travelTotal
                 val motionDirection = if (expanded) 1f else -1f
-                val brakeDistance = with(density) { 6.4.dp.toPx() }
+                val brakeDistance = with(density) { 7.2.dp.toPx() }
                 val brakeX = if (abs(motionX) > 0.5f) (if (motionX >= 0f) 1f else -1f) * motionDirection * arrivalBrake * brakeDistance else 0f
-                val brakeY = if (abs(motionY) > 0.5f) (if (motionY >= 0f) 1f else -1f) * motionDirection * arrivalBrake * brakeDistance * 0.72f else 0f
+                val brakeY = if (abs(motionY) > 0.5f) (if (motionY >= 0f) 1f else -1f) * motionDirection * arrivalBrake * brakeDistance * 0.70f else 0f
                 val tx = modelLerpFloat(collapsedXPx, expandedXPx, p) + brakeX
                 val ty = modelLerpFloat(collapsedYPx, expandedYPx, p) + brakeY
                 val alpha = modelLerpFloat(if (selected) 1f else 0.52f, 1f, p)
                 val baseW = with(density) { width.toPx() }
                 val baseH = with(density) { height.toPx() }
-                val scaleX = selectedPulse * (1f + compression * 0.044f - rebound * 0.012f + capsuleLaunch * 0.026f + arrivalBrake * 0.014f)
-                val scaleY = selectedPulse * (1f - compression * 0.054f + rebound * 0.024f - capsuleLaunch * 0.017f - arrivalBrake * 0.013f)
-                val sinkY = compression * 3.70f - rebound * 1.05f + capsuleLaunch * 0.72f + arrivalBrake * 0.42f
+                val arrivalScaleX = arrivalBrake * (0.007f * horizontalMotion - 0.003f * verticalMotion)
+                val arrivalScaleY = arrivalBrake * (0.006f * verticalMotion - 0.004f * horizontalMotion)
+                val scaleX = selectedPulse * (1f + compression * 0.044f - rebound * 0.012f + capsuleLaunch * 0.026f + arrivalScaleX)
+                val scaleY = selectedPulse * (1f - compression * 0.054f + rebound * 0.024f - capsuleLaunch * 0.017f + arrivalScaleY)
+                val sinkY = compression * 3.70f - rebound * 1.05f + capsuleLaunch * 0.72f + arrivalBrake * 0.08f
                 val energy = if (selected) modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection) else 0.50f * style.unselectedEnergy.coerceIn(0f, 5f)
 
                 visuals.add(ModelCardVisual(
@@ -222,7 +229,7 @@ internal fun UnifiedParentModelStackSelector(
                             this.scaleX = scaleX
                             this.scaleY = scaleY
                             this.alpha = alpha
-                            shadowElevation = compression * 0.62f + capsuleLaunch * 0.25f + arrivalBrake * 0.18f
+                            shadowElevation = compression * 0.62f + capsuleLaunch * 0.25f + arrivalBrake * 0.12f
                         }
                         .pointerInput(state.isSending, expanded, model.id) {
                             awaitEachGesture {
