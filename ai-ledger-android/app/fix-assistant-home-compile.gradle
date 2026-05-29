@@ -71,6 +71,71 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
 ''', '')
         text = text.replace('readOnly = state.isSending,', '')
 
+        def oldModelNetworkRow = '''    Row(
+        modifier = Modifier.fillMaxWidth().height(panelHeight),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        UnifiedParentModelStackSelector(
+            state = state,
+            expanded = expanded,
+            modifier = Modifier.weight(1f).height(panelHeight),
+            onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+            onSelected = { model ->
+                if (!state.isSending) {
+                    onModelSelected(model)
+                    expanded = false
+                }
+            }
+        )
+        Box(
+            modifier = Modifier.weight(0.54f).height(panelHeight),
+            contentAlignment = Alignment.Center
+        ) {
+            NetworkDropletCapsule(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.isSending,
+                onClick = onToggleOnline
+            )
+        }
+    }
+'''
+        def newModelNetworkOverlay = '''    Box(
+        modifier = Modifier.fillMaxWidth().height(panelHeight)
+    ) {
+        UnifiedParentModelStackSelector(
+            state = state,
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth().height(panelHeight),
+            onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+            onSelected = { model ->
+                if (!state.isSending) {
+                    onModelSelected(model)
+                    expanded = false
+                }
+            }
+        )
+        NetworkDropletCapsule(
+            state = state,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxWidth(0.34f)
+                .height(58.dp),
+            enabled = !state.isSending,
+            onClick = onToggleOnline
+        )
+    }
+'''
+        if (text.contains(oldModelNetworkRow)) {
+            text = text.replace(oldModelNetworkRow, newModelNetworkOverlay)
+            println('Restored full-width model selector strip and pinned network droplet in the reserved right gap.')
+        } else if (text.contains('modifier = Modifier.fillMaxWidth().height(panelHeight)') && text.contains('.align(Alignment.TopEnd)') && text.contains('.fillMaxWidth(0.34f)')) {
+            println('Model/network overlay layout already patched.')
+        } else {
+            println('Model/network row target not found; skipped layout patch to avoid overriding concurrent changes.')
+        }
+
         home.setText(text, 'UTF-8')
 
         def verified = home.getText('UTF-8')
