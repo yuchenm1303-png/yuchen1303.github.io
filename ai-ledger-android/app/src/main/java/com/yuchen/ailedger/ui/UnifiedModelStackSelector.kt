@@ -166,7 +166,6 @@ internal fun UnifiedParentModelStackSelector(
                 val opticsAnim = remember(model.id) { Animatable(0f) }
                 val travelAnim = remember(model.id) { Animatable(if (expanded) 1f else 0f) }
                 val capsuleAnim = remember(model.id) { Animatable(0f) }
-                val arrivalAnim = remember(model.id) { Animatable(0f) }
                 var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
                 var center by remember(model.id) { mutableStateOf(Offset(0.50f, 0.42f)) }
                 var seed by remember(model.id) { mutableStateOf(0.50f) }
@@ -195,10 +194,8 @@ internal fun UnifiedParentModelStackSelector(
                     } else {
                         if (selected) 520 else 340 + reverseRank.toInt() * 42
                     }
-                    val arrivalLead = if (expanded) 132 else 116
-
-                    arrivalAnim.stop()
-                    arrivalAnim.snapTo(0f)
+                    val settleDuration = if (expanded) 285 else 250
+                    val overshootTarget = if (expanded) 1.035f else -0.035f
 
                     launch {
                         capsuleAnim.stop()
@@ -210,14 +207,8 @@ internal fun UnifiedParentModelStackSelector(
 
                     delay(travelDelay)
                     travelAnim.stop()
-                    launch {
-                        delay((travelDuration - arrivalLead).coerceAtLeast(0).toLong())
-                        arrivalAnim.stop()
-                        arrivalAnim.snapTo(0f)
-                        arrivalAnim.animateTo(if (expanded) 1f else 0.88f, tween(durationMillis = arrivalLead, easing = ModelCapsuleTravel))
-                        arrivalAnim.animateTo(0f, tween(durationMillis = if (expanded) 285 else 250, easing = ModelCapsuleBrake))
-                    }
-                    travelAnim.animateTo(target, tween(durationMillis = travelDuration, easing = if (expanded) ModelCapsuleTravel else FastOutSlowInEasing))
+                    travelAnim.animateTo(overshootTarget, tween(durationMillis = travelDuration, easing = if (expanded) ModelCapsuleTravel else FastOutSlowInEasing))
+                    travelAnim.animateTo(target, tween(durationMillis = settleDuration, easing = ModelCapsuleBrake))
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -227,14 +218,20 @@ internal fun UnifiedParentModelStackSelector(
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
                 val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
-                val arrivalBrake = modelSmooth(arrivalAnim.value.coerceIn(0f, 1.12f))
-                val targetProgress = travelAnim.value.coerceIn(0f, 1f)
+                val rawTravelProgress = travelAnim.value
+                val targetProgress = rawTravelProgress.coerceIn(0f, 1f)
+                val arrivalBrake = modelSmooth(((if (expanded) rawTravelProgress - 1f else -rawTravelProgress) / 0.035f).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
                 val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.34f, arrivalBrake * 0.20f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)
 
-                val p = modelStackEase(targetProgress)
-                val width = modelLerpDp(collapsedWidth, halfWidth, p)
-                val height = modelLerpDp(collapsedHeight, expandedHeight, p)
+                val easedProgress = modelStackEase(targetProgress)
+                val p = when {
+                    rawTravelProgress < 0f -> rawTravelProgress
+                    rawTravelProgress > 1f -> rawTravelProgress
+                    else -> easedProgress
+                }
+                val width = modelLerpDp(collapsedWidth, halfWidth, easedProgress)
+                val height = modelLerpDp(collapsedHeight, expandedHeight, easedProgress)
                 val expandedX = if (index % 2 == 1) halfWidth + gap else 0.dp
                 val expandedY = rowStep * (index / 2).toFloat()
                 val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
@@ -248,13 +245,9 @@ internal fun UnifiedParentModelStackSelector(
                 val travelTotal = abs(motionX) + abs(motionY) + 0.001f
                 val horizontalMotion = abs(motionX) / travelTotal
                 val verticalMotion = abs(motionY) / travelTotal
-                val motionDirection = if (expanded) 1f else -1f
-                val brakeDistance = with(density) { 7.2.dp.toPx() }
-                val brakeX = if (abs(motionX) > 0.5f) (if (motionX >= 0f) 1f else -1f) * motionDirection * arrivalBrake * brakeDistance else 0f
-                val brakeY = if (abs(motionY) > 0.5f) (if (motionY >= 0f) 1f else -1f) * motionDirection * arrivalBrake * brakeDistance * 0.70f else 0f
-                val tx = modelLerpFloat(collapsedXPx, expandedXPx, p) + brakeX
-                val ty = modelLerpFloat(collapsedYPx, expandedYPx, p) + brakeY
-                val alpha = modelLerpFloat(if (selected) 1f else 0.52f, 1f, p)
+                val tx = modelLerpFloat(collapsedXPx, expandedXPx, p)
+                val ty = modelLerpFloat(collapsedYPx, expandedYPx, p)
+                val alpha = modelLerpFloat(if (selected) 1f else 0.52f, 1f, easedProgress)
                 val baseW = with(density) { width.toPx() }
                 val baseH = with(density) { height.toPx() }
                 val arrivalScaleX = arrivalBrake * (0.007f * horizontalMotion - 0.003f * verticalMotion)
