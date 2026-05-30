@@ -470,9 +470,10 @@ private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
 @Composable
 private fun MessageBadgeV2(message: ChatMessage) {
     val text = messageBadgeTextV2(message) ?: return
+    val badgeColor = badgeColorV2(message)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColorV2(message).copy(alpha = 0.82f)))
-        Text(text, color = badgeColorV2(message).copy(alpha = 0.68f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
+        Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -633,7 +634,10 @@ private fun sourceReadableLabelV2(source: String?): String? = when (source) {
     "cloud_ai" -> "云端 AI"
     "workers_ai", "workers_ai_text_fallback" -> "Workers AI"
     "gemini_ai", "gemini_chat", "gemini_text_fallback" -> "Gemini"
-    "kimi", "nvidia_chat" -> "Kimi / NIM"
+    "qwen", "qwen_chat", "qwen_ai", "dashscope_qwen" -> "Qwen"
+    "kimi", "nvidia_chat" -> "Qwen"
+    "deepseek", "deepseek_chat", "deepseek_v4" -> "DeepSeek"
+    "gpt_oss", "nvidia_gpt_oss" -> "GPT OSS"
     "mistral" -> "Mistral"
     "web_search_tool", "tavily_web_search", "tavily_ai_summary" -> "联网搜索"
     "cloud_fetch_failed" -> "云端连接失败"
@@ -647,9 +651,24 @@ private fun sourceReadableLabelV2(source: String?): String? = when (source) {
 private fun badgeColorV2(message: ChatMessage): Color = when (message.status) {
     MessageStatus.Failed -> Color(0xFFFFB4B4)
     MessageStatus.Sending -> Color(0xFF8DF9EA)
-    MessageStatus.Sent -> when (message.source) {
-        "web_search_tool", "tavily_web_search", "tavily_ai_summary" -> Color(0xFF8DF9EA)
-        "cloud_fetch_failed", "cloud_error_normalized" -> Color(0xFFFFB4B4)
-        else -> Color.White
+    MessageStatus.Sent -> {
+        val signal = modelSignalV2(message)
+        when {
+            message.source in listOf("web_search_tool", "tavily_web_search", "tavily_ai_summary") -> Color(0xFF8DF9EA)
+            message.source in listOf("cloud_fetch_failed", "cloud_error_normalized") -> Color(0xFFFFB4B4)
+            signal.contains("qwen") || signal.contains("kimi") || signal.contains("千问") -> Color(0xFF8DF9EA)
+            signal.contains("deepseek") -> Color(0xFF22D3EE)
+            signal.contains("gemini") -> Color(0xFF6AE4FF)
+            signal.contains("mistral") -> Color(0xFFFFC247)
+            signal.contains("worker") || signal.contains("llama") -> Color(0xFFFF7B5C)
+            signal.contains("gpt") || signal.contains("oss") -> Color(0xFF34D399)
+            else -> Color.White
+        }
     }
+}
+
+private fun modelSignalV2(message: ChatMessage): String {
+    return listOfNotNull(message.model, message.modelLabel, message.source)
+        .joinToString(" ")
+        .lowercase()
 }
