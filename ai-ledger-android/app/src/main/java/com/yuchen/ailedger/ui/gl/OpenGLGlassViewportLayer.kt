@@ -14,6 +14,7 @@ import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.layout.onPlaced
@@ -31,6 +32,8 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val FRAME_NANOS_UNSET = Long.MIN_VALUE
 
 data class OpenGLGlassViewportItem(
     val key: String,
@@ -52,8 +55,8 @@ fun OpenGLGlassViewportLayer(
     val backdropOrigin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
-    val frameNanos = ticker?.frameNanos ?: 0L
-    val coordinates = androidx.compose.runtime.remember { GlassCoordinateSource() }
+    val frameNanos = ticker?.frameNanos ?: FRAME_NANOS_UNSET
+    val coordinates = remember { GlassCoordinateSource() }
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -81,7 +84,10 @@ fun OpenGLGlassViewportLayer(
                 val itemDirty = view.setGlassItems(items)
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (viewportDirty || itemDirty || textureDirty || styleDirty || frameNanos >= 0L) view.requestRender()
+                val frameDirty = view.setFrameSignal(frameNanos)
+                if (viewportDirty || itemDirty || textureDirty || styleDirty || frameDirty) {
+                    view.requestRender()
+                }
             }
         )
     }
@@ -99,6 +105,8 @@ private class OpenGLGlassViewportTextureView(context: Context) : TextureView(con
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
     private var latestStyle = GlassBorderStyle()
+    private var latestFrameSignal = FRAME_NANOS_UNSET
+    private var pendingRenderRequested = false
 
     init {
         isOpaque = false
@@ -120,6 +128,7 @@ private class OpenGLGlassViewportTextureView(context: Context) : TextureView(con
             abs(originY - latestOriginY) > 0.05f ||
             abs(nextRootWidth - latestRootWidth) > 0.5f ||
             abs(nextRootHeight - latestRootHeight) > 0.5f
+        if (!dirty) return false
         latestWidth = nextWidth
         latestHeight = nextHeight
         latestOriginX = originX
@@ -127,33 +136,41 @@ private class OpenGLGlassViewportTextureView(context: Context) : TextureView(con
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
         renderThread?.setViewportSpec(latestWidth, latestHeight, latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
-        return dirty
+        return true
     }
 
     fun setGlassItems(items: List<OpenGLGlassViewportItem>): Boolean {
         val next = items.filter { it.width > 0.5f && it.height > 0.5f }
-        val dirty = next != latestItems
+        if (next == latestItems) return false
         latestItems = next
-        if (dirty) renderThread?.setGlassItems(next)
-        return dirty
+        renderThread?.setGlassItems(next)
+        return true
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
         val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
+        if (!dirty) return false
         latestBlurBitmap = blurBitmap
         latestLensBitmap = lensBitmap
-        if (dirty) renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
-        return dirty
+        renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
+        return true
     }
 
     fun setGlassStyle(style: GlassBorderStyle): Boolean {
-        val dirty = style != latestStyle
+        if (style == latestStyle) return false
         latestStyle = style
-        if (dirty) renderThread?.setGlassStyle(style)
-        return dirty
+        renderThread?.setGlassStyle(style)
+        return true
+    }
+
+    fun setFrameSignal(frameNanos: Long): Boolean {
+        if (frameNanos == FRAME_NANOS_UNSET || frameNanos == latestFrameSignal) return false
+        latestFrameSignal = frameNanos
+        return true
     }
 
     fun requestRender() {
+        pendingRenderRequested = true
         renderThread?.requestRender()
     }
 
@@ -167,6 +184,7 @@ private class OpenGLGlassViewportTextureView(context: Context) : TextureView(con
             val lens = latestLensBitmap
             if (blur != null && lens != null) thread.setBackdropTextures(blur, lens)
             thread.start()
+            if (pendingRenderRequested || latestItems.isNotEmpty()) thread.requestRender()
         }
     }
 
@@ -177,6 +195,7 @@ private class OpenGLGlassViewportTextureView(context: Context) : TextureView(con
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
         renderThread?.shutdown()
         renderThread = null
+        pendingRenderRequested = false
         return true
     }
 
@@ -522,7 +541,7 @@ private class OpenGLGlassViewportRenderer {
         if (linkStatus[0] == 0) {
             val log = GLES20.glGetProgramInfoLog(glProgram)
             GLES20.glDeleteProgram(glProgram)
-            error("OpenGL glass viewport program link failed: $log")
+            error("OpenGL program link failed: $log")
         }
         GLES20.glDeleteShader(vertexShader)
         GLES20.glDeleteShader(fragmentShader)
@@ -533,229 +552,96 @@ private class OpenGLGlassViewportRenderer {
         val shader = GLES20.glCreateShader(type)
         GLES20.glShaderSource(shader, source)
         GLES20.glCompileShader(shader)
-        val compileStatus = IntArray(1)
-        GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compileStatus, 0)
-        if (compileStatus[0] == 0) {
+        val compiled = IntArray(1)
+        GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0)
+        if (compiled[0] == 0) {
             val log = GLES20.glGetShaderInfoLog(shader)
             GLES20.glDeleteShader(shader)
-            error("OpenGL glass viewport shader compile failed: $log")
+            error("OpenGL shader compile failed: $log")
         }
         return shader
     }
-
-    private companion object {
-        val FULLSCREEN_QUAD = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
-
-        const val VERTEX_SHADER = """
-            attribute vec2 aPosition;
-            void main() {
-                gl_Position = vec4(aPosition, 0.0, 1.0);
-            }
-        """
-
-        const val FRAGMENT_SHADER = """
-            precision mediump float;
-            uniform vec2 uResolution;
-            uniform vec2 uViewportOrigin;
-            uniform vec2 uRootResolution;
-            uniform vec4 uRect;
-            uniform float uRadius;
-            uniform float uIntensity;
-            uniform float uTextureReady;
-            uniform vec4 uMaterial;
-            uniform vec4 uRefraction;
-            uniform vec4 uOptics;
-            uniform sampler2D uBlurTexture;
-            uniform sampler2D uLensTexture;
-
-            float sat(float x) { return clamp(x, 0.0, 1.0); }
-
-            float roundedBoxSdfAt(vec2 coord, vec2 rectSize, float radius) {
-                vec2 p = coord - rectSize * 0.5;
-                vec2 halfSize = rectSize * 0.5;
-                vec2 q = abs(p) - max(halfSize - vec2(radius), vec2(0.0));
-                return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-            }
-
-            vec2 texUv(vec2 uv) {
-                return clamp(uv, 0.0, 1.0);
-            }
-
-            vec2 globalUv(vec2 localCoord) {
-                return clamp((uViewportOrigin + uRect.xy + localCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
-            }
-
-            vec3 fallbackBackdrop(vec2 uv) {
-                float h = smoothstep(0.0, 1.0, uv.y);
-                return mix(vec3(0.12, 0.22, 0.38), vec3(0.36, 0.50, 0.72), h);
-            }
-
-            vec3 sourceBlurBackdrop(vec2 uv) {
-                vec3 fallback = fallbackBackdrop(uv);
-                vec3 realColor = texture2D(uBlurTexture, texUv(uv)).rgb;
-                return mix(fallback, realColor, sat(uTextureReady));
-            }
-
-            vec3 sourceLensBackdrop(vec2 uv) {
-                vec3 fallback = fallbackBackdrop(uv);
-                vec3 realColor = texture2D(uLensTexture, texUv(uv)).rgb;
-                return mix(fallback, realColor, sat(uTextureReady));
-            }
-
-            vec3 blurBackdrop(vec2 uv, float edgeWeight) {
-                float blurBoost = 1.0 + edgeWeight * 0.38;
-                vec2 px = vec2(max(uOptics.x, 0.0) * blurBoost) / max(uRootResolution, vec2(1.0));
-                vec3 c = sourceBlurBackdrop(uv) * 0.200;
-                c += sourceBlurBackdrop(uv + vec2(px.x, 0.0)) * 0.110;
-                c += sourceBlurBackdrop(uv - vec2(px.x, 0.0)) * 0.110;
-                c += sourceBlurBackdrop(uv + vec2(0.0, px.y)) * 0.110;
-                c += sourceBlurBackdrop(uv - vec2(0.0, px.y)) * 0.110;
-                c += sourceBlurBackdrop(uv + vec2(px.x, px.y)) * 0.090;
-                c += sourceBlurBackdrop(uv + vec2(-px.x, px.y)) * 0.090;
-                c += sourceBlurBackdrop(uv + vec2(px.x, -px.y)) * 0.090;
-                c += sourceBlurBackdrop(uv + vec2(-px.x, -px.y)) * 0.090;
-                return c;
-            }
-
-            float effectiveEdgeWidth(vec2 rectSize) {
-                float maxSafe = min(rectSize.x, rectSize.y) * 0.34;
-                return clamp(uOptics.y, 6.0, maxSafe);
-            }
-
-            float insideDistanceAt(vec2 coord, vec2 rectSize, float radius) {
-                return max(-roundedBoxSdfAt(coord, rectSize, radius), 0.0);
-            }
-
-            float rimWideAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = insideDistanceAt(coord, rectSize, radius);
-                float w = effectiveEdgeWidth(rectSize);
-                return 1.0 - smoothstep(0.0, w, inside);
-            }
-
-            float rimCoreAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = insideDistanceAt(coord, rectSize, radius);
-                float w = max(effectiveEdgeWidth(rectSize) * 0.28, 3.0);
-                return 1.0 - smoothstep(0.0, w, inside);
-            }
-
-            float edgeDragBandAt(vec2 coord, vec2 rectSize, float radius) {
-                float inside = insideDistanceAt(coord, rectSize, radius);
-                float w = max(effectiveEdgeWidth(rectSize) * 1.45, 8.0);
-                return pow(1.0 - smoothstep(0.0, w, inside), 1.35);
-            }
-
-            vec2 sdfNormalAt(vec2 coord, vec2 rectSize, float radius) {
-                float d = 1.25;
-                float l = roundedBoxSdfAt(coord - vec2(d, 0.0), rectSize, radius);
-                float r = roundedBoxSdfAt(coord + vec2(d, 0.0), rectSize, radius);
-                float u = roundedBoxSdfAt(coord - vec2(0.0, d), rectSize, radius);
-                float b = roundedBoxSdfAt(coord + vec2(0.0, d), rectSize, radius);
-                vec2 n = vec2(r - l, b - u);
-                return n / max(length(n), 0.001);
-            }
-
-            float colorSignal(vec3 c) {
-                float luma = dot(c, vec3(0.299, 0.587, 0.114));
-                float chroma = length(c - vec3(luma));
-                return sat((luma - 0.20) * 1.25 + chroma * 1.55);
-            }
-
-            vec3 edgeColorDrag(vec2 coord, vec2 rectSize, float radius, float band, float core) {
-                vec2 n = sdfNormalAt(coord, rectSize, radius);
-                vec2 t = vec2(-n.y, n.x);
-                float pull = clamp(8.0 + abs(uRefraction.y) * 0.030, 8.0, 42.0);
-                float smear = clamp(4.0 + effectiveEdgeWidth(rectSize) * 0.55, 4.0, 22.0);
-
-                vec2 baseIn = coord - n * pull;
-                vec2 baseFar = coord - n * (pull * 1.85);
-                vec2 baseOut = coord + n * (pull * 0.45);
-
-                vec3 c = sourceLensBackdrop(globalUv(baseIn)) * 0.28;
-                c += sourceLensBackdrop(globalUv(baseFar)) * 0.18;
-                c += sourceLensBackdrop(globalUv(baseOut)) * 0.12;
-                c += sourceLensBackdrop(globalUv(baseIn + t * smear)) * 0.14;
-                c += sourceLensBackdrop(globalUv(baseIn - t * smear)) * 0.14;
-                c += sourceLensBackdrop(globalUv(baseIn + t * smear * 1.85)) * 0.07;
-                c += sourceLensBackdrop(globalUv(baseIn - t * smear * 1.85)) * 0.07;
-
-                vec3 soft = blurBackdrop(globalUv(baseIn), band) * 0.45 + c * 0.55;
-                float signal = colorSignal(c);
-                float dragAlpha = band * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + core * 0.030) * signal;
-                return mix(vec3(0.0), soft, sat(dragAlpha));
-            }
-
-            float bodyDomeAt(vec2 coord, vec2 rectSize) {
-                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
-                vec2 p = local * 2.0 - 1.0;
-                p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.4) * 0.38;
-                float d = length(p);
-                return pow(sat(1.0 - d * 0.74), 1.65);
-            }
-
-            float thicknessAt(vec2 coord, vec2 rectSize, float radius) {
-                float sd = roundedBoxSdfAt(coord, rectSize, radius);
-                float maskGuard = 1.0 - smoothstep(1.5, 16.0, sd);
-                float rimWide = rimWideAt(coord, rectSize, radius);
-                float rimCore = rimCoreAt(coord, rectSize, radius);
-                float dome = bodyDomeAt(coord, rectSize);
-                float t = dome * 0.22 + rimWide * 0.46 + rimCore * 0.34;
-                return t * maskGuard;
-            }
-
-            vec2 softLimitPx(vec2 v, float limitPx) {
-                float len = length(v);
-                float softLen = len / (1.0 + len / max(limitPx, 1.0));
-                return v * (softLen / max(len, 0.0001));
-            }
-
-            void main() {
-                vec2 viewportCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
-                vec2 coord = viewportCoord - uRect.xy;
-                vec2 rectSize = max(uRect.zw, vec2(1.0));
-                float radius = min(uRadius, min(rectSize.x, rectSize.y) * 0.5);
-                float sd = roundedBoxSdfAt(coord, rectSize, radius);
-                float mask = 1.0 - smoothstep(0.0, 1.35, sd);
-                if (mask <= 0.001) discard;
-
-                vec2 bgUv = globalUv(coord);
-                float stepPx = 2.0;
-                float tL = thicknessAt(coord - vec2(stepPx, 0.0), rectSize, radius);
-                float tR = thicknessAt(coord + vec2(stepPx, 0.0), rectSize, radius);
-                float tU = thicknessAt(coord - vec2(0.0, stepPx), rectSize, radius);
-                float tD = thicknessAt(coord + vec2(0.0, stepPx), rectSize, radius);
-                vec2 grad = vec2(tR - tL, tD - tU);
-
-                float rimWide = rimWideAt(coord, rectSize, radius);
-                float rimCore = rimCoreAt(coord, rectSize, radius);
-                float dragBand = edgeDragBandAt(coord, rectSize, radius);
-                float gLen = length(grad);
-                float gradGate = smoothstep(0.0004, 0.012, gLen);
-                grad *= gradGate * min(1.0, 0.22 / max(gLen, 0.0001));
-                float gradEnergy = sat(length(grad) * max(uRefraction.w, 0.0));
-
-                vec2 rawRefractPx = grad * (uRefraction.x + uRefraction.y * rimWide) * max(uMaterial.x, 0.0);
-                float limitPx = mix(18.0, 62.0, rimWide) + sat(abs(uRefraction.y) / 600.0) * 16.0;
-                vec2 refractPx = softLimitPx(rawRefractPx, limitPx);
-                vec2 refractedUv = bgUv + refractPx / max(uRootResolution, vec2(1.0));
-
-                vec3 color = blurBackdrop(refractedUv, rimWide);
-                vec3 lensColor = sourceLensBackdrop(refractedUv);
-                float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42);
-                color = mix(color, lensColor, lensMix);
-
-                vec3 dragColor = edgeColorDrag(coord, rectSize, radius, dragBand, rimCore);
-                float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
-                color = mix(color, dragColor, dragMix);
-
-                float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045;
-                color *= uMaterial.z * (1.0 + rimOpticalBoost);
-                float debugEdge = smoothstep(-1.65, 0.0, sd) * mask;
-                color = mix(color, vec3(1.0, 0.45, 0.0), debugEdge * uOptics.z);
-                color -= vec3(0.06, 0.07, 0.09) * uOptics.w * rimWide;
-                color = clamp(color, 0.0, 1.0);
-
-                gl_FragColor = vec4(color, clamp(uMaterial.y * uMaterial.x, 0.0, 1.0) * mask);
-            }
-        """
-    }
 }
+
+private val FULLSCREEN_QUAD = floatArrayOf(
+    -1f, -1f,
+    1f, -1f,
+    -1f, 1f,
+    1f, 1f
+)
+
+private const val VERTEX_SHADER = """
+attribute vec2 aPosition;
+void main() {
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+"""
+
+private const val FRAGMENT_SHADER = """
+precision mediump float;
+uniform vec2 uResolution;
+uniform vec2 uViewportOrigin;
+uniform vec2 uRootResolution;
+uniform vec4 uRect;
+uniform float uRadius;
+uniform float uIntensity;
+uniform float uTextureReady;
+uniform sampler2D uBlurTexture;
+uniform sampler2D uLensTexture;
+uniform vec4 uMaterial;
+uniform vec4 uRefraction;
+uniform vec4 uOptics;
+
+float sdRoundedBox(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + vec2(r);
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+vec3 saturateColor(vec3 color, float amount) {
+    float gray = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    return mix(vec3(gray), color, amount);
+}
+
+void main() {
+    vec2 frag = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+    vec2 local = frag - uRect.xy;
+    vec2 halfSize = uRect.zw * 0.5;
+    vec2 centered = local - halfSize;
+    float dist = sdRoundedBox(centered, halfSize, uRadius);
+    if (dist > 1.0) discard;
+
+    vec2 uvLocal = local / max(uRect.zw, vec2(1.0));
+    float edgeDistance = min(min(uvLocal.x, 1.0 - uvLocal.x), min(uvLocal.y, 1.0 - uvLocal.y));
+    float edge = 1.0 - smoothstep(0.0, max(uOptics.y, 1.0) / max(min(uRect.z, uRect.w), 1.0), edgeDistance);
+    float corner = smoothstep(0.18, 0.96, length((uvLocal - vec2(0.5)) * vec2(uRect.z / max(uRect.w, 1.0), 1.0)));
+    float pull = edge * uRefraction.x + corner * uRefraction.z;
+    vec2 pullDir = normalize(centered + vec2(0.001));
+    vec2 sampleRoot = uViewportOrigin + frag - pullDir * pull;
+    vec2 rootUv = clamp(sampleRoot / max(uRootResolution, vec2(1.0)), vec2(0.0), vec2(1.0));
+    vec3 blur = texture2D(uBlurTexture, rootUv).rgb;
+    vec3 lens = texture2D(uLensTexture, rootUv).rgb;
+    vec3 backdrop = mix(blur, lens, clamp(uOptics.x * 0.34, 0.0, 1.0));
+    if (uTextureReady < 0.5) {
+        backdrop = vec3(0.08, 0.14, 0.26);
+    }
+
+    float visibility = clamp(uMaterial.x / 10.0, 0.0, 1.0);
+    float maxAlpha = clamp(uMaterial.y, 0.0, 1.0);
+    float bodyAlpha = clamp(0.20 + uMaterial.w * 0.34, 0.05, 0.92) * uIntensity;
+    float edgeAlpha = clamp(edge * (0.20 + uMaterial.z * 0.10), 0.0, 1.0);
+    vec3 body = saturateColor(backdrop, clamp(1.0 + uMaterial.z * 0.12, 0.5, 2.3));
+    vec3 milk = vec3(0.86, 0.92, 1.0) * (0.06 + bodyAlpha * 0.18);
+    vec3 dark = vec3(0.01, 0.03, 0.08) * (edge * clamp(uOptics.w * 0.08, 0.0, 0.8));
+    vec3 rim = vec3(0.78, 0.94, 1.0) * edgeAlpha;
+    vec3 color = body * (0.78 + bodyAlpha * 0.28) + milk + rim - dark;
+
+    float top = smoothstep(0.55, 0.0, uvLocal.y) * 0.10;
+    float bottom = smoothstep(0.40, 1.0, uvLocal.y) * 0.12;
+    color += vec3(top);
+    color -= vec3(bottom * 0.38);
+
+    float alpha = clamp((0.42 + bodyAlpha * 0.34 + edge * 0.20) * visibility, 0.0, maxAlpha);
+    alpha *= 1.0 - smoothstep(-1.0, 1.0, dist) * 0.12;
+    gl_FragColor = vec4(color, alpha);
+}
+"""
