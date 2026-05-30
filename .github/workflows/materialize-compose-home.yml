@@ -1,0 +1,81 @@
+name: Materialize Compose Home Sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+
+      - name: Use JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Apply legacy home patches into source tree
+        working-directory: ai-ledger-android
+        run: gradle -p . :app:preBuild
+
+      - name: Remove materialized Gradle patch chain
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('ai-ledger-android/app/build.gradle')
+          text = path.read_text()
+          remove = {
+              "apply from: 'chat-bubble-polish.gradle'",
+              "apply from: 'stop-generation-signature-fix.gradle'",
+              "apply from: 'shared-prism-capsule.gradle'",
+              "apply from: 'fix-assistant-home-compile.gradle'",
+              "apply from: 'model-selector-folded-stack.gradle'",
+              "apply from: 'model-selector-stack-press-follow.gradle'",
+              "apply from: 'model-selector-animation-continuity.gradle'",
+              "apply from: 'model-selector-animation-tempo.gradle'",
+              "apply from: 'model-network-original-layout.gradle'",
+              "apply from: 'reuse-lab-droplet.gradle'",
+              "apply from: 'network-droplet-surface-text.gradle'",
+          }
+          lines = [line for line in text.splitlines() if line.strip() not in remove]
+          path.write_text('\n'.join(lines).rstrip() + '\n')
+          PY
+
+      - name: Validate materialized build without patch chain
+        working-directory: ai-ledger-android
+        run: gradle -p . clean :app:assembleDebug
+
+      - name: Commit materialized sources
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            ai-ledger-android/app/build.gradle \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/LightweightPrismCapsule.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt
+          if git diff --cached --quiet; then
+            echo "No materialized source changes to commit."
+            exit 0
+          fi
+          git commit -m "固化Compose首页源码并移除补丁链"
+          git push origin HEAD:dev-update-1
