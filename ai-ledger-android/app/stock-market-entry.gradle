@@ -1,0 +1,245 @@
+tasks.register('patchStockMarketEntry') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/ToolsHomePolished.kt')
+        if (!home.exists()) {
+            println('ToolsHomePolished.kt not found; skipped stock market entry patch.')
+            return
+        }
+        def text = home.getText('UTF-8')
+
+        text = text.replace('''            "账单中心" -> LedgerCenterV2(
+                state = state,
+                onBack = onBack,
+                onTitleChange = onLedgerTitleChange,
+                onAmountChange = onLedgerAmountChange,
+                onTypeChange = onLedgerTypeChange,
+                onCategoryChange = onLedgerCategoryChange,
+                onBudgetChange = onLedgerBudgetChange,
+                onAddRecord = onAddLedgerRecord,
+                onDeleteRecord = onDeleteLedgerRecord,
+                onOpenAssistant = onOpenAssistant
+            )
+''', '''            "股票行情" -> StockMarketCenterV2(
+                state = state,
+                onBack = onBack,
+                onOpenAssistant = onOpenAssistant
+            )
+            "账单中心" -> LedgerCenterV2(
+                state = state,
+                onBack = onBack,
+                onTitleChange = onLedgerTitleChange,
+                onAmountChange = onLedgerAmountChange,
+                onTypeChange = onLedgerTypeChange,
+                onCategoryChange = onLedgerCategoryChange,
+                onBudgetChange = onLedgerBudgetChange,
+                onAddRecord = onAddLedgerRecord,
+                onDeleteRecord = onDeleteLedgerRecord,
+                onOpenAssistant = onOpenAssistant
+            )
+''')
+
+        text = text.replace('onClick = { onOpenTool("账单中心") }', 'onClick = { onOpenTool("股票行情") }')
+        text = text.replace('Text("今日入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)', 'Text("市场入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)')
+        text = text.replace('Text("账单中心", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)', 'Text("股票行情", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)')
+        text = text.replace('Text("从记账、预算和最近明细开始", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)', 'Text("看分时、涨跌、成交量和 AI 解读", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)')
+        text = text.replace('''                    HeroFrostMetric("记录", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
+                    HeroFrostMetric("今日", todayExpenseTextV2(state), Modifier.weight(1f))
+                    HeroFrostMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", Modifier.weight(1f))
+''', '''                    HeroFrostMetric("自选", "AAPL", Modifier.weight(1f))
+                    HeroFrostMetric("现价", "$189.84", Modifier.weight(1f))
+                    HeroFrostMetric("涨跌", "+1.26%", Modifier.weight(1f))
+''')
+        text = text.replace('QuickToolPillV2("账单", "明细", "账单中心", state, Modifier.weight(1f), onOpenTool)', 'QuickToolPillV2("股票", "分时", "股票行情", state, Modifier.weight(1f), onOpenTool)')
+        text = text.replace('val active = target == "账单中心"', 'val active = target == "股票行情"')
+        text = text.replace('val active = title == "账单中心"', 'val active = title == "股票行情"')
+
+        text = text.replace('''        ToolEntry("账单中心", "手动记账、预算、分类和最近明细"),
+        ToolEntry("数据统计", "按周、月、年查看趋势"),
+''', '''        ToolEntry("股票行情", "分时走势、涨跌幅和成交量"),
+        ToolEntry("账单中心", "手动记账、预算、分类和最近明细"),
+        ToolEntry("数据统计", "按周、月、年查看趋势"),
+''')
+        text = text.replace('''private fun displayToolTitleV2(title: String): String = when {
+    title.contains("账单") -> "账单中心"
+''', '''private fun displayToolTitleV2(title: String): String = when {
+    title.contains("股票") || title.contains("行情") || title.contains("市场") -> "股票行情"
+    title.contains("账单") -> "账单中心"
+''')
+        text = text.replace('''private fun displayToolSubtitleV2(tool: ToolEntry): String = when (displayToolTitleV2(tool.title)) {
+    "账单中心" -> "手动记账、预算、分类和最近明细"
+''', '''private fun displayToolSubtitleV2(tool: ToolEntry): String = when (displayToolTitleV2(tool.title)) {
+    "股票行情" -> "查看分时走势、涨跌幅和成交量"
+    "账单中心" -> "手动记账、预算、分类和最近明细"
+''')
+        text = text.replace('''private fun toolGlyphV2(title: String): String = when (displayToolTitleV2(title)) {
+    "账单中心" -> "账"
+''', '''private fun toolGlyphV2(title: String): String = when (displayToolTitleV2(title)) {
+    "股票行情" -> "股"
+    "账单中心" -> "账"
+''')
+        text = text.replace('''private fun toolAccentV2(title: String): Color = when (displayToolTitleV2(title)) {
+    "账单中心" -> Color(0xFF8DF9EA)
+''', '''private fun toolAccentV2(title: String): Color = when (displayToolTitleV2(title)) {
+    "股票行情" -> Color(0xFF7CFFB2)
+    "账单中心" -> Color(0xFF8DF9EA)
+''')
+        text = text.replace('''            "账单中心" -> drawLedgerIcon(color, stroke, w, h)
+            "数据统计" -> drawStatsIcon(color, stroke, w, h)
+''', '''            "股票行情" -> drawStockIcon(color, stroke, w, h)
+            "账单中心" -> drawLedgerIcon(color, stroke, w, h)
+            "数据统计" -> drawStatsIcon(color, stroke, w, h)
+''')
+
+        def stockDetailBlock = '''
+@Composable
+private fun StockMarketCenterV2(
+    state: AssistantUiState,
+    onBack: () -> Unit,
+    onOpenAssistant: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item { AnimatedAppear(0) { DetailHeaderV2("股票行情", "分时、涨跌、成交量和智能解读", state, onBack) } }
+        item { AnimatedAppear(55) { StockQuoteHeroV2(state) } }
+        item { AnimatedAppear(100) { StockIntradayChartV2(state) } }
+        item { AnimatedAppear(145) { StockFeatureGridV2(state) } }
+        item { AnimatedAppear(190) { AssistantHintV2(state, onOpenAssistant) } }
+    }
+}
+
+@Composable
+private fun StockQuoteHeroV2(state: AssistantUiState) {
+    OpenGlShellGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 1.04f,
+        motionIntensity = state.motionIntensity,
+        radius = 28,
+        modifier = Modifier.fillMaxWidth().height(150.dp),
+        mood = OpenGlShellMood.Summary
+    ) {
+        Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("AAPL · NASDAQ", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("$189.84", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
+                    Text("示例行情 · 接入实时源后自动刷新", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("+2.36  +1.26%", color = Color(0xFF7CFFB2), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MiniToolMetric("最高", "$191.22", state, Modifier.weight(1f))
+                MiniToolMetric("最低", "$187.40", state, Modifier.weight(1f))
+                MiniToolMetric("成交量", "62.1M", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StockIntradayChartV2(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitleV2("今日分时", "后续接入 REST / WebSocket 实时数据源")
+            Canvas(modifier = Modifier.fillMaxWidth().height(128.dp)) {
+                val values = listOf(188.1f, 188.6f, 187.9f, 188.8f, 189.4f, 188.9f, 189.7f, 190.5f, 189.8f, 190.9f, 191.2f, 190.4f, 189.84f)
+                val minValue = values.minOrNull() ?: 0f
+                val maxValue = values.maxOrNull() ?: 1f
+                val range = (maxValue - minValue).coerceAtLeast(0.01f)
+                val left = 4.dp.toPx()
+                val right = size.width - 4.dp.toPx()
+                val top = 8.dp.toPx()
+                val bottom = size.height - 10.dp.toPx()
+                val gridColor = Color.White.copy(alpha = 0.12f)
+                repeat(4) { index ->
+                    val y = top + (bottom - top) * index / 3f
+                    drawLine(gridColor, Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
+                }
+                val path = Path()
+                values.forEachIndexed { index, value ->
+                    val x = left + (right - left) * index / (values.lastIndex.coerceAtLeast(1)).toFloat()
+                    val y = bottom - (value - minValue) / range * (bottom - top)
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, Color(0xFF7CFFB2), style = Stroke(width = 2.6.dp.toPx(), cap = StrokeCap.Round))
+                val lastX = right
+                val lastY = bottom - (values.last() - minValue) / range * (bottom - top)
+                drawCircle(Color(0xFF7CFFB2), radius = 4.5.dp.toPx(), center = Offset(lastX, lastY))
+                drawCircle(Color.White.copy(alpha = 0.35f), radius = 9.dp.toPx(), center = Offset(lastX, lastY), style = Stroke(width = 1.dp.toPx()))
+            }
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("09:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("11:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("15:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StockFeatureGridV2(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitleV2("行情能力", "先放入口和骨架，数据源可以下一步接入")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("自选股", "关注列表", state, Modifier.weight(1f))
+                StockFeaturePillV2("分时图", "实时刷新", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("K 线", "日周月", state, Modifier.weight(1f))
+                StockFeaturePillV2("AI 解读", "趋势摘要", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StockFeaturePillV2(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, modifier.height(54.dp), GlassRole.Chip) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+'''
+        if (!text.contains('private fun StockMarketCenterV2(')) {
+            text = text.replace('\n@Composable\nprivate fun LedgerCenterV2(', stockDetailBlock + '\n@Composable\nprivate fun LedgerCenterV2(')
+        }
+
+        def stockIconBlock = '''
+private fun DrawScope.drawStockIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawLine(color, Offset(w * 0.16f, h * 0.78f), Offset(w * 0.84f, h * 0.78f), stroke.width, cap = StrokeCap.Round)
+    val path = Path().apply {
+        moveTo(w * 0.18f, h * 0.62f)
+        lineTo(w * 0.34f, h * 0.50f)
+        lineTo(w * 0.48f, h * 0.56f)
+        lineTo(w * 0.66f, h * 0.34f)
+        lineTo(w * 0.82f, h * 0.26f)
+    }
+    drawPath(path, color, style = stroke)
+    drawCircle(color = color, radius = w * 0.035f, center = Offset(w * 0.82f, h * 0.26f))
+}
+'''
+        if (!text.contains('drawStockIcon')) {
+            text = text.replace('\nprivate fun DrawScope.drawLedgerIcon', stockIconBlock + '\nprivate fun DrawScope.drawLedgerIcon')
+        }
+
+        home.setText(text, 'UTF-8')
+        def verified = home.getText('UTF-8')
+        if (!verified.contains('"股票行情" -> StockMarketCenterV2')) throw new GradleException('Stock market detail route was not installed.')
+        if (!verified.contains('private fun StockMarketCenterV2(')) throw new GradleException('Stock market detail screen was not installed.')
+        if (!verified.contains('ToolEntry("股票行情"')) throw new GradleException('Stock market tool entry was not installed.')
+        println('Stock market entry installed: hero card, quick pill, list item, detail screen and intraday chart skeleton.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchStockMarketEntry')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchStockMarketEntry')
+}
