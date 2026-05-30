@@ -142,55 +142,60 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .offset(y = if (isKeyboardOpen && state.currentTab == AppTab.Assistant) 48.dp else 0.dp)
                                 .padding(horizontal = 12.dp)
                         ) {
-                            when (state.currentTab) {
-                                AppTab.Assistant -> AssistantScreenV2(
-                                    state = state,
-                                    onComposerChange = viewModel::updateComposer,
-                                    onSend = viewModel::submitComposer,
-                                    onStopGenerating = viewModel::stopGenerating,
-                                    onDraftCommand = viewModel::insertCommandDraft,
-                                    onModelSelected = viewModel::selectModel,
-                                    onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                    onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                    onToggleOnline = viewModel::toggleOnline,
-                                    onCopyMessage = { text ->
-                                        if (text.isNotBlank()) {
-                                            clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                            CachedAppTabHost(
+                                currentTab = state.currentTab,
+                                modifier = Modifier.fillMaxSize()
+                            ) { tab ->
+                                when (tab) {
+                                    AppTab.Assistant -> AssistantScreenV2(
+                                        state = state,
+                                        onComposerChange = viewModel::updateComposer,
+                                        onSend = viewModel::submitComposer,
+                                        onStopGenerating = viewModel::stopGenerating,
+                                        onDraftCommand = viewModel::insertCommandDraft,
+                                        onModelSelected = viewModel::selectModel,
+                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                        onToggleOnline = viewModel::toggleOnline,
+                                        onCopyMessage = { text ->
+                                            if (text.isNotBlank()) {
+                                                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        onRetryMessage = viewModel::retryMessage
+                                    )
+                                    AppTab.Tools -> {
+                                        if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
+                                            AStockMarketScreenV2(
+                                                state = state,
+                                                onBack = viewModel::closeTool,
+                                                onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                            )
+                                        } else {
+                                            StockFirstToolsHomeScreen(
+                                                state = state,
+                                                onOpenTool = viewModel::openTool
+                                            )
                                         }
-                                    },
-                                    onRetryMessage = viewModel::retryMessage
-                                )
-                                AppTab.Tools -> {
-                                    if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
-                                        AStockMarketScreenV2(
-                                            state = state,
-                                            onBack = viewModel::closeTool,
-                                            onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
-                                        )
-                                    } else {
-                                        StockFirstToolsHomeScreen(
-                                            state = state,
-                                            onOpenTool = viewModel::openTool
-                                        )
                                     }
+                                    AppTab.Settings -> SettingsPolishedScreen(
+                                        state = state,
+                                        aiEndpoint = viewModel.aiEndpoint,
+                                        onQualityChange = viewModel::selectQuality,
+                                        onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                        onGlassPresetChange = viewModel::setGlassPreset,
+                                        onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                        onGlassIntensityChange = viewModel::setGlassIntensity,
+                                        onMotionIntensityChange = viewModel::setMotionIntensity,
+                                        onRainbowPrismChange = viewModel::setRainbowPrismStyle,
+                                        onBackdropChange = viewModel::setBackdropDebugParams,
+                                        onBorderChange = viewModel::setGlassBorderStyle,
+                                        onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                    )
                                 }
-                                AppTab.Settings -> SettingsPolishedScreen(
-                                    state = state,
-                                    aiEndpoint = viewModel.aiEndpoint,
-                                    onQualityChange = viewModel::selectQuality,
-                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                    onGlassPresetChange = viewModel::setGlassPreset,
-                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                    onGlassIntensityChange = viewModel::setGlassIntensity,
-                                    onMotionIntensityChange = viewModel::setMotionIntensity,
-                                    onRainbowPrismChange = viewModel::setRainbowPrismStyle,
-                                    onBackdropChange = viewModel::setBackdropDebugParams,
-                                    onBorderChange = viewModel::setGlassBorderStyle,
-                                    onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                )
                             }
                         }
                         if (!isKeyboardOpen) {
