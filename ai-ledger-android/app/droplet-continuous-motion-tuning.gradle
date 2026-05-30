@@ -1,0 +1,40 @@
+tasks.register('patchDropletContinuousMotionTuning') {
+    doLast {
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt')
+        def text = lab.getText('UTF-8')
+
+        def oldMotion = '''            breathValue = (0.50f + 0.50f * sin((t * 1.38f).toDouble()).toFloat()).coerceIn(0f, 1f)
+            driftValue = (sin((t * 0.42f + 1.10f).toDouble()).toFloat() * 0.13f + sin((t * 0.19f + 2.40f).toDouble()).toFloat() * 0.04f).coerceIn(-0.22f, 0.22f)
+            shimmerValue = (0.52f + sin((t * 1.08f + 0.70f).toDouble()).toFloat() * 0.25f + sin((t * 2.06f + 2.10f).toDouble()).toFloat() * 0.09f).coerceIn(0f, 1f)'''
+        def newMotion = '''            breathValue = (0.50f + 0.50f * sin((t * 2.05f).toDouble()).toFloat()).coerceIn(0f, 1f)
+            driftValue = (sin((t * 0.78f + 1.10f).toDouble()).toFloat() * 0.17f + sin((t * 0.33f + 2.40f).toDouble()).toFloat() * 0.06f).coerceIn(-0.24f, 0.24f)
+            shimmerValue = (0.52f + sin((t * 1.72f + 0.70f).toDouble()).toFloat() * 0.33f + sin((t * 3.18f + 2.10f).toDouble()).toFloat() * 0.13f).coerceIn(0f, 1f)'''
+        if (text.contains(oldMotion)) {
+            text = text.replace(oldMotion, newMotion)
+        } else if (text.contains('t * 2.05f') && text.contains('0.17f') && text.contains('3.18f')) {
+            println('Droplet continuous motion tuning already applied.')
+        } else {
+            throw new GradleException('Continuous droplet motion source not found; refusing to guess and patch wrong code.')
+        }
+
+        if (text.contains('Random.nextFloat()')) throw new GradleException('Droplet motion still contains Random.nextFloat().')
+        if (text.contains('afterglowAnim.snapTo')) throw new GradleException('Droplet afterglow still contains snapTo hard jump.')
+        if (!text.contains('t * 2.05f')) throw new GradleException('Droplet motion tuning did not apply.')
+
+        lab.setText(text, 'UTF-8')
+        println('Tuned droplet motion: continuous only, faster breathing, stronger drift and larger shimmer amplitude.')
+    }
+}
+
+tasks.named('patchDropletContinuousMotionTuning') {
+    def breathTask = tasks.findByName('patchDropletContinuousBreathAnimation')
+    if (breathTask != null) dependsOn breathTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchDropletContinuousMotionTuning')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchDropletContinuousMotionTuning')
+}
