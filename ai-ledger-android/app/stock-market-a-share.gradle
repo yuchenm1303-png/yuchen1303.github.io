@@ -1,0 +1,118 @@
+tasks.register('patchStockMarketAShare') {
+    dependsOn tasks.named('patchStockMarketIconFix')
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/ToolsHomePolished.kt')
+        if (!home.exists()) {
+            println('ToolsHomePolished.kt not found; skipped A-share market patch.')
+            return
+        }
+        def text = home.getText('UTF-8')
+
+        text = text.replace('HeroFrostMetric("自选", "AAPL", Modifier.weight(1f))', 'HeroFrostMetric("市场", "A股", Modifier.weight(1f))')
+        text = text.replace('HeroFrostMetric("现价", "$189.84", Modifier.weight(1f))', 'HeroFrostMetric("上证", "3048.03", Modifier.weight(1f))')
+        text = text.replace('HeroFrostMetric("涨跌", "+1.26%", Modifier.weight(1f))', 'HeroFrostMetric("涨跌", "+0.52%", Modifier.weight(1f))')
+        text = text.replace('Text("看分时、涨跌、成交量和 AI 解读", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)', 'Text("看A股分时、指数、自选和板块", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)')
+        text = text.replace('ToolEntry("股票行情", "分时走势、涨跌幅和成交量")', 'ToolEntry("股票行情", "A股分时、指数、自选和板块")')
+        text = text.replace('"股票行情" -> "查看分时走势、涨跌幅和成交量"', '"股票行情" -> "查看A股分时、指数、自选和板块"')
+
+        text = text.replace('item { AnimatedAppear(55) { StockQuoteHeroV2(state) } }\n        item { AnimatedAppear(100) { StockIntradayChartV2(state) } }\n        item { AnimatedAppear(145) { StockFeatureGridV2(state) } }\n        item { AnimatedAppear(190) { AssistantHintV2(state, onOpenAssistant) } }', 'item { AnimatedAppear(55) { StockQuoteHeroV2(state) } }\n        item { AnimatedAppear(88) { AShareIndexStripV2(state) } }\n        item { AnimatedAppear(125) { StockIntradayChartV2(state) } }\n        item { AnimatedAppear(165) { AShareWatchlistV2(state) } }\n        item { AnimatedAppear(205) { StockFeatureGridV2(state) } }\n        item { AnimatedAppear(245) { AssistantHintV2(state, onOpenAssistant) } }')
+        text = text.replace('DetailHeaderV2("股票行情", "分时、涨跌、成交量和智能解读", state, onBack)', 'DetailHeaderV2("股票行情", "A股分时、指数、自选和智能解读", state, onBack)')
+        text = text.replace('Text("AAPL · NASDAQ", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)', 'Text("上证指数 · SH000001", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)')
+        text = text.replace('Text("$189.84", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)', 'Text("3048.03", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)')
+        text = text.replace('Text("示例行情 · 接入实时源后自动刷新", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)', 'Text("A股示例行情 · 接入数据源后自动刷新", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)')
+        text = text.replace('Text("+2.36  +1.26%", color = Color(0xFF7CFFB2), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)', 'Text("+15.82  +0.52%", color = Color(0xFF7CFFB2), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)')
+        text = text.replace('MiniToolMetric("最高", "$191.22", state, Modifier.weight(1f))', 'MiniToolMetric("最高", "3062.18", state, Modifier.weight(1f))')
+        text = text.replace('MiniToolMetric("最低", "$187.40", state, Modifier.weight(1f))', 'MiniToolMetric("最低", "3021.44", state, Modifier.weight(1f))')
+        text = text.replace('MiniToolMetric("成交量", "62.1M", state, Modifier.weight(1f))', 'MiniToolMetric("成交额", "4218亿", state, Modifier.weight(1f))')
+        text = text.replace('SectionTitleV2("今日分时", "后续接入 REST / WebSocket 实时数据源")', 'SectionTitleV2("A股今日分时", "支持上证、深证、创业板和个股分时")')
+        text = text.replace('val values = listOf(188.1f, 188.6f, 187.9f, 188.8f, 189.4f, 188.9f, 189.7f, 190.5f, 189.8f, 190.9f, 191.2f, 190.4f, 189.84f)', 'val values = listOf(3021.4f, 3028.2f, 3024.9f, 3032.6f, 3039.8f, 3035.1f, 3042.7f, 3051.2f, 3044.5f, 3056.9f, 3062.2f, 3052.6f, 3048.0f)')
+        text = text.replace('Text("09:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)\n                Text("11:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)\n                Text("15:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)', 'Text("09:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)\n                Text("11:30 / 13:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)\n                Text("15:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)')
+
+        text = text.replace('''            SectionTitleV2("行情能力", "先放入口和骨架，数据源可以下一步接入")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("自选股", "关注列表", state, Modifier.weight(1f))
+                StockFeaturePillV2("分时图", "实时刷新", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("K 线", "日周月", state, Modifier.weight(1f))
+                StockFeaturePillV2("AI 解读", "趋势摘要", state, Modifier.weight(1f))
+            }
+''', '''            SectionTitleV2("A股能力", "按国内市场习惯设计，后续接实时源")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("沪深京", "市场切换", state, Modifier.weight(1f))
+                StockFeaturePillV2("分时图", "实时刷新", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("板块热度", "行业概念", state, Modifier.weight(1f))
+                StockFeaturePillV2("涨跌停", "情绪观察", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StockFeaturePillV2("K 线", "日周月", state, Modifier.weight(1f))
+                StockFeaturePillV2("AI 解读", "趋势摘要", state, Modifier.weight(1f))
+            }
+''')
+
+        def extraBlock = '''
+@Composable
+private fun AShareIndexStripV2(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            SectionTitleV2("A股指数", "先用示例点位，后续由行情源驱动")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MiniToolMetric("上证", "3048.03", state, Modifier.weight(1f))
+                MiniToolMetric("深成", "9561.28", state, Modifier.weight(1f))
+                MiniToolMetric("创业板", "1882.40", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                MiniToolMetric("沪深300", "3650.72", state, Modifier.weight(1f))
+                MiniToolMetric("科创50", "742.18", state, Modifier.weight(1f))
+                MiniToolMetric("中证A500", "4621.36", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AShareWatchlistV2(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitleV2("A股自选", "示例列表，下一步接搜索和持久化")
+            AShareWatchRowV2("贵州茅台", "600519", "¥1668.00", "+0.81%")
+            AShareWatchRowV2("宁德时代", "300750", "¥201.36", "-0.34%")
+            AShareWatchRowV2("比亚迪", "002594", "¥247.20", "+1.12%")
+        }
+    }
+}
+
+@Composable
+private fun AShareWatchRowV2(name: String, code: String, price: String, change: String) {
+    Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(name, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(code, color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Text(price, color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(change, color = if (change.startsWith("-")) Color(0xFFFFB4C8) else Color(0xFF7CFFB2), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+    }
+}
+'''
+        if (!text.contains('private fun AShareIndexStripV2(')) {
+            text = text.replace('\n@Composable\nprivate fun StockIntradayChartV2', extraBlock + '\n@Composable\nprivate fun StockIntradayChartV2')
+        }
+
+        home.setText(text, 'UTF-8')
+        def verified = home.getText('UTF-8')
+        if (!verified.contains('上证指数 · SH000001')) throw new GradleException('A-share quote hero was not installed.')
+        if (!verified.contains('private fun AShareIndexStripV2(')) throw new GradleException('A-share index strip was not installed.')
+        if (verified.contains('Text("$189.84"')) throw new GradleException('US dollar sample quote was not replaced.')
+        println('A-share stock market UI installed: China indices, A-share watchlist, A-share intraday chart and feature grid.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchStockMarketAShare')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchStockMarketAShare')
+}
