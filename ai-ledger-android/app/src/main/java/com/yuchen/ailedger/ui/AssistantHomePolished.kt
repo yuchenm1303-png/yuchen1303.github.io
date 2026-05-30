@@ -194,7 +194,7 @@ private fun ModelAndNetworkPanel(
             state = state,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .fillMaxWidth(0.34f)
+                .fillMaxWidth(0.30f)
                 .height(58.dp),
             enabled = !state.isSending,
             onClick = onToggleOnline
