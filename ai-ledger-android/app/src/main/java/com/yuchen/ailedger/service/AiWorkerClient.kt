@@ -78,8 +78,8 @@ class AiWorkerClient(
             onlineEnabled -> ChatModel.Gemini
             hasAny(text, listOf("什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning")) -> ChatModel.Gemini
             latest.length >= 900 || (latest.length >= 220 && hasAny(text, listOf("总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "summary", "summarize", "outline"))) -> ChatModel.Mistral
-            hasAny(text, listOf("方案", "规划", "架构", "策略", "推理", "分析", "为什么", "怎么设计", "建模", "论文", "电路", "证明", "优化", "迁移", "实现思路")) -> ChatModel.Kimi
-            hasAny(text, listOf("代码", "报错", "kotlin", "compose", "android", "github", "gradle", "python", "java", "javascript", "html", "css", "接口")) -> ChatModel.Gemini
+            hasAny(text, listOf("代码", "报错", "kotlin", "compose", "android", "github", "gradle", "python", "java", "javascript", "html", "css", "接口", "api", "worker")) -> ChatModel.GptOss
+            hasAny(text, listOf("方案", "规划", "架构", "策略", "推理", "分析", "为什么", "怎么设计", "建模", "论文", "电路", "证明", "优化", "迁移", "实现思路", "数学", "计算")) -> ChatModel.DeepSeekV4
             else -> ChatModel.Workers
         }
         return ModelRoute(ChatModel.Auto, resolved, "auto_v1")
