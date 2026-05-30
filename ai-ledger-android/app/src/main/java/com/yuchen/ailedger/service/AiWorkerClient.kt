@@ -16,6 +16,7 @@ private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
+    val fallbackEndpoints: List<String> = AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS,
     val connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
     val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS
 )
@@ -54,24 +55,32 @@ class AiWorkerClient(
         modelPreference: ChatModel = ChatModel.Auto,
         onlineEnabled: Boolean = false
     ): AiChatResponse {
-        val cleanEndpoint = config.endpoint.trim().trimEnd('/')
-        if (cleanEndpoint.isBlank()) throw IOException("AI Worker endpoint 未配置")
+        val endpoints = endpointPool(config.endpoint, config.fallbackEndpoints)
+        if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
 
         val route = resolveModelRoute(messages, modelPreference, onlineEnabled)
         val payload = buildPayload(messages, route, onlineEnabled)
-        val candidates = endpointCandidates(cleanEndpoint)
         var lastError: IOException? = null
 
-        for (candidate in candidates) {
-            try {
-                return postChat(candidate, payload, route)
-            } catch (error: IOException) {
-                lastError = error
-                if (error is SocketTimeoutException || error.cause is SocketTimeoutException) break
+        endpointLoop@ for (cleanEndpoint in endpoints) {
+            for (candidate in endpointCandidates(cleanEndpoint)) {
+                try {
+                    return postChat(candidate, payload, route)
+                } catch (error: IOException) {
+                    lastError = error
+                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
+                }
             }
         }
 
         throw lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
+    }
+
+    private fun endpointPool(primary: String, fallbacks: List<String>): List<String> {
+        return (listOf(primary) + fallbacks)
+            .map { it.trim().trimEnd('/') }
+            .filter { it.isNotBlank() }
+            .distinct()
     }
 
     private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel, onlineEnabled: Boolean): ModelRoute {
@@ -337,5 +346,6 @@ class AiWorkerClient(
 
     companion object {
         const val DEFAULT_ENDPOINT = "https://ai-ledger-parser.552078638.workers.dev"
+        val DEFAULT_FALLBACK_ENDPOINTS = listOf(DEFAULT_ENDPOINT)
     }
 }
