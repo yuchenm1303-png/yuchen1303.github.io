@@ -13,43 +13,137 @@ import java.net.URLEncoder
 import java.util.Locale
 import org.json.JSONObject
 
-class StockRepository {
+class StockRepository(
+    private val proxyBaseUrl: String = ""
+) {
     fun loadAStock(query: String): StockDetailUiState {
         val base = sampleAStockDetailUiState()
         val normalized = query.trim().ifBlank { base.quote.code }
         return runCatching {
-            val resolved = resolveAStock(normalized)
-            val quote = fetchQuote(resolved)
-            val kLines = fetchDailyKLine(resolved).ifEmpty { base.kLinePoints }
-            val recent = kLines.takeLast(12)
-            val minutePoints = recent.mapIndexed { index, point ->
-                StockMinutePoint(
-                    time = when (index) {
-                        0 -> "09:30"
-                        5 -> "11:30"
-                        6 -> "13:00"
-                        11 -> "15:00"
-                        else -> ""
-                    },
-                    price = point.close,
-                    average = recent.take(index + 1).map { it.close }.average().toFloat(),
-                    volumeRatio = (point.volume / (recent.maxOfOrNull { it.volume } ?: 1f)).coerceIn(0.05f, 1f)
-                )
-            }
-            base.copy(
-                quote = quote,
-                topMetrics = topMetricsFor(quote),
-                minutePoints = minutePoints.ifEmpty { base.minutePoints },
-                kLinePoints = kLines,
-                dataSourceLabel = "东方财富公开行情 · ${quote.code}",
-                errorMessage = null,
-                aiSummary = "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。日K与报价已尝试从公开行情源刷新；盘口、资金流、新闻公告等模块先保留骨架，后续继续逐项接入。"
-            )
+            loadFromProxy(normalized, base) ?: loadFromEastMoney(normalized, base)
         }.getOrElse { error ->
             base.copy(
                 dataSourceLabel = "真实行情加载失败，已回退示例数据",
                 errorMessage = error.message ?: "网络或行情源异常"
             )
+        }
+    }
+
+    private fun loadFromProxy(query: String, base: StockDetailUiState): StockDetailUiState? {
+        val baseUrl = proxyBaseUrl.trim().trimEnd('/')
+        if (baseUrl.isBlank()) return null
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        val body = httpGet("$baseUrl/api/stock/a-share/detail?query=$encoded", referer = baseUrl)
+        val obj = JSONObject(body)
+        val quoteJson = obj.optJSONObject("quote") ?: throw IllegalStateException("代理行情缺少 quote 字段")
+        val quote = quoteFromJson(quoteJson, base.quote)
+        val kLines = parseKLines(obj).ifEmpty { base.kLinePoints }
+        val minutePoints = parseMinutePoints(obj).ifEmpty { minutePointsFromKLines(kLines, base) }
+        return base.copy(
+            quote = quote,
+            topMetrics = topMetricsFor(quote),
+            minutePoints = minutePoints,
+            kLinePoints = kLines,
+            dataSourceLabel = obj.optString("dataSourceLabel", "Tushare Pro 后端代理 · ${quote.code}"),
+            errorMessage = null,
+            aiSummary = obj.optString(
+                "aiSummary",
+                "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情来自后端代理，App 内不保存 Tushare token；盘口、资金和资讯可继续在代理侧扩展。"
+            )
+        )
+    }
+
+    private fun loadFromEastMoney(query: String, base: StockDetailUiState): StockDetailUiState {
+        val resolved = resolveAStock(query)
+        val quote = fetchQuote(resolved)
+        val kLines = fetchDailyKLine(resolved).ifEmpty { base.kLinePoints }
+        val minutePoints = minutePointsFromKLines(kLines, base)
+        return base.copy(
+            quote = quote,
+            topMetrics = topMetricsFor(quote),
+            minutePoints = minutePoints.ifEmpty { base.minutePoints },
+            kLinePoints = kLines,
+            dataSourceLabel = "东方财富公开行情 · ${quote.code}",
+            errorMessage = null,
+            aiSummary = "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。日K与报价已尝试从公开行情源刷新；正式版建议切到 Tushare Pro 后端代理。"
+        )
+    }
+
+    private fun minutePointsFromKLines(kLines: List<StockKLinePoint>, base: StockDetailUiState): List<StockMinutePoint> {
+        val recent = kLines.takeLast(12)
+        return recent.mapIndexed { index, point ->
+            StockMinutePoint(
+                time = when (index) {
+                    0 -> "09:30"
+                    5 -> "11:30"
+                    6 -> "13:00"
+                    11 -> "15:00"
+                    else -> ""
+                },
+                price = point.close,
+                average = recent.take(index + 1).map { it.close }.average().toFloat(),
+                volumeRatio = (point.volume / (recent.maxOfOrNull { it.volume } ?: 1f)).coerceIn(0.05f, 1f)
+            )
+        }.ifEmpty { base.minutePoints }
+    }
+
+    private fun quoteFromJson(json: JSONObject, fallback: StockQuote): StockQuote = StockQuote(
+        name = json.optString("name", fallback.name),
+        code = json.optString("code", fallback.code),
+        market = json.optString("market", fallback.market),
+        price = json.optString("price", fallback.price),
+        changeAmount = json.optString("changeAmount", fallback.changeAmount),
+        changePercent = json.optString("changePercent", fallback.changePercent),
+        isRising = json.optBoolean("isRising", !json.optString("changePercent", fallback.changePercent).startsWith("-")),
+        previousClose = json.optDouble("previousClose", fallback.previousClose.toDouble()).toFloat(),
+        high = json.optString("high", fallback.high),
+        low = json.optString("low", fallback.low),
+        open = json.optString("open", fallback.open),
+        totalMarketValue = json.optString("totalMarketValue", fallback.totalMarketValue),
+        floatMarketValue = json.optString("floatMarketValue", fallback.floatMarketValue),
+        volumeRatio = json.optString("volumeRatio", fallback.volumeRatio),
+        turnoverRate = json.optString("turnoverRate", fallback.turnoverRate),
+        peTtm = json.optString("peTtm", fallback.peTtm),
+        pb = json.optString("pb", fallback.pb),
+        amount = json.optString("amount", fallback.amount),
+        popularityRank = json.optString("popularityRank", fallback.popularityRank)
+    )
+
+    private fun parseKLines(obj: JSONObject): List<StockKLinePoint> {
+        val array = obj.optJSONArray("kLinePoints") ?: return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                add(
+                    StockKLinePoint(
+                        date = item.optString("date"),
+                        open = item.optDouble("open", 0.0).toFloat(),
+                        close = item.optDouble("close", 0.0).toFloat(),
+                        high = item.optDouble("high", 0.0).toFloat(),
+                        low = item.optDouble("low", 0.0).toFloat(),
+                        volume = item.optDouble("volume", 0.0).toFloat(),
+                        amount = item.optDouble("amount", 0.0).toFloat(),
+                        changePercent = item.optString("changePercent", "--")
+                    )
+                )
+            }
+        }
+    }
+
+    private fun parseMinutePoints(obj: JSONObject): List<StockMinutePoint> {
+        val array = obj.optJSONArray("minutePoints") ?: return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                add(
+                    StockMinutePoint(
+                        time = item.optString("time"),
+                        price = item.optDouble("price", 0.0).toFloat(),
+                        average = item.optDouble("average", 0.0).toFloat(),
+                        volumeRatio = item.optDouble("volumeRatio", 0.0).toFloat().coerceIn(0f, 1f)
+                    )
+                )
+            }
         }
     }
 
@@ -139,13 +233,13 @@ class StockRepository {
         StockMetric("人气", quote.popularityRank)
     )
 
-    private fun httpGet(url: String): String {
+    private fun httpGet(url: String, referer: String = "https://quote.eastmoney.com/"): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 8000
             readTimeout = 8000
             setRequestProperty("User-Agent", "Mozilla/5.0")
-            setRequestProperty("Referer", "https://quote.eastmoney.com/")
+            setRequestProperty("Referer", referer)
         }
         return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
     }
