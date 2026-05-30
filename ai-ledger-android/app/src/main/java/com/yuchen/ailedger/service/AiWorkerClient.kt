@@ -27,6 +27,14 @@ data class AiChatResponse(
     val version: String? = null
 )
 
+private data class ModelRoute(
+    val requested: ChatModel,
+    val resolved: ChatModel,
+    val reason: String
+) {
+    val isAuto: Boolean get() = requested == ChatModel.Auto
+}
+
 class AiWorkerClient(
     private val config: AiWorkerConfig = AiWorkerConfig()
 ) {
@@ -42,42 +50,62 @@ class AiWorkerClient(
         val cleanEndpoint = config.endpoint.trim().trimEnd('/')
         if (cleanEndpoint.isBlank()) throw IOException("AI Worker endpoint 未配置")
 
-        val payload = buildPayload(messages, modelPreference, onlineEnabled)
+        val route = resolveModelRoute(messages, modelPreference, onlineEnabled)
+        val payload = buildPayload(messages, route, onlineEnabled)
         val candidates = endpointCandidates(cleanEndpoint)
         var lastError: IOException? = null
 
         for (candidate in candidates) {
             try {
-                return postChat(candidate, payload, modelPreference)
+                return postChat(candidate, payload, route)
             } catch (error: IOException) {
                 lastError = error
-                if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
-                    break
-                }
+                if (error is SocketTimeoutException || error.cause is SocketTimeoutException) break
             }
         }
 
         throw lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
     }
 
-    private fun buildPayload(
-        messages: List<ChatMessage>,
-        modelPreference: ChatModel,
-        onlineEnabled: Boolean
-    ): JSONObject {
+    private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel, onlineEnabled: Boolean): ModelRoute {
+        if (modelPreference != ChatModel.Auto) {
+            return ModelRoute(modelPreference, modelPreference, "manual_selection")
+        }
+
+        val latest = latestUserText(messages)
+        val text = latest.lowercase()
+        val resolved = when {
+            onlineEnabled -> ChatModel.Gemini
+            hasAny(text, listOf("什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning")) -> ChatModel.Gemini
+            latest.length >= 900 || (latest.length >= 220 && hasAny(text, listOf("总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "summary", "summarize", "outline"))) -> ChatModel.Mistral
+            hasAny(text, listOf("方案", "规划", "架构", "策略", "推理", "分析", "为什么", "怎么设计", "建模", "论文", "电路", "证明", "优化", "迁移", "实现思路")) -> ChatModel.Kimi
+            hasAny(text, listOf("代码", "报错", "kotlin", "compose", "android", "github", "gradle", "python", "java", "javascript", "html", "css", "接口")) -> ChatModel.Gemini
+            else -> ChatModel.Workers
+        }
+        return ModelRoute(ChatModel.Auto, resolved, "auto_v1")
+    }
+
+    private fun hasAny(text: String, keywords: List<String>): Boolean = keywords.any { text.contains(it) }
+
+    private fun buildPayload(messages: List<ChatMessage>, route: ModelRoute, onlineEnabled: Boolean): JSONObject {
         val workerMessages = messages.toWorkerMessages()
-        val latestUserText = messages.lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }?.text.orEmpty()
+        val latestUserText = latestUserText(messages)
+        val resolvedId = route.resolved.id
         return JSONObject().apply {
             put("messages", workerMessages)
             put("message", latestUserText)
             put("prompt", latestUserText)
             put("text", latestUserText)
             put("content", latestUserText)
-            put("modelPreference", modelPreference.id)
-            put("aiModelPreference", modelPreference.id)
-            put("requestedModelPreference", modelPreference.id)
-            put("model", modelPreference.id)
-            put("modelId", modelPreference.id)
+            put("modelPreference", resolvedId)
+            put("aiModelPreference", resolvedId)
+            put("requestedModelPreference", resolvedId)
+            put("model", resolvedId)
+            put("modelId", resolvedId)
+            put("originalModelPreference", route.requested.id)
+            put("autoRequested", route.isAuto)
+            put("autoResolvedModel", resolvedId)
+            put("autoRouteReason", route.reason)
             put("onlineEnabled", onlineEnabled)
             put("webSearch", onlineEnabled)
             put("searchEnabled", onlineEnabled)
@@ -90,18 +118,10 @@ class AiWorkerClient(
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
         val knownChatPath = cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")
         if (knownChatPath) return listOf(cleanEndpoint)
-        return listOf(
-            "$cleanEndpoint/chat",
-            "$cleanEndpoint/api/chat",
-            cleanEndpoint
-        ).distinct()
+        return listOf("$cleanEndpoint/chat", "$cleanEndpoint/api/chat", cleanEndpoint).distinct()
     }
 
-    private fun postChat(
-        endpoint: String,
-        payload: JSONObject,
-        modelPreference: ChatModel
-    ): AiChatResponse {
+    private fun postChat(endpoint: String, payload: JSONObject, route: ModelRoute): AiChatResponse {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -113,10 +133,7 @@ class AiWorkerClient(
         }
 
         return try {
-            connection.outputStream.use { stream ->
-                stream.write(payload.toString().toByteArray(Charsets.UTF_8))
-            }
-
+            connection.outputStream.use { stream -> stream.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val body = readBody(connection, status)
             val data = body.toJsonOrNull()
@@ -135,18 +152,19 @@ class AiWorkerClient(
 
             val rawModel = data?.optString("model")?.takeIf { it.isNotBlank() }
                 ?: data?.optString("modelId")?.takeIf { it.isNotBlank() }
+                ?: route.resolved.id
             val rawVersion = data?.optString("version")?.takeIf { it.isNotBlank() }
-            val rawModelLabel = data?.optString("modelLabel")
+            val serverLabel = data?.optString("modelLabel")
                 ?.ifBlank { data.optString("modelName") }
-                ?.ifBlank { rawModel.orEmpty() }
-                ?.ifBlank { modelPreference.label }
-                ?: modelPreference.label
+                ?.ifBlank { null }
+            val resolvedLabel = serverLabel ?: modelLabelFromId(rawModel) ?: route.resolved.label
+            val displayLabel = if (route.isAuto && !resolvedLabel.startsWith("自动选择")) "自动选择 · $resolvedLabel" else resolvedLabel
 
             AiChatResponse(
                 reply = reply,
                 source = data?.optString("source")?.ifBlank { "cloud_ai" } ?: "cloud_ai",
                 model = rawModel,
-                modelLabel = rawModelLabel,
+                modelLabel = displayLabel,
                 version = rawVersion
             )
         } catch (error: SocketTimeoutException) {
@@ -166,6 +184,15 @@ class AiWorkerClient(
             .ifBlank { data.optJSONObject("data")?.optString("reply").orEmpty() }
             .ifBlank { data.optJSONObject("result")?.optString("reply").orEmpty() }
             .ifBlank { data.optJSONObject("result")?.optString("text").orEmpty() }
+    }
+
+    private fun latestUserText(messages: List<ChatMessage>): String {
+        return messages.lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }?.text.orEmpty()
+    }
+
+    private fun modelLabelFromId(modelId: String?): String? {
+        if (modelId.isNullOrBlank()) return null
+        return ChatModel.fromId(modelId).takeIf { it != ChatModel.Auto }?.label
     }
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
