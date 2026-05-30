@@ -32,6 +32,19 @@ jobs:
         working-directory: ai-ledger-android
         run: gradle -p . :app:assembleDebug
 
+      - name: Upload materialized home sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: materialized-home-sources
+          path: |
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt
+          if-no-files-found: error
+
       - name: Upload Compose APK
         uses: actions/upload-artifact@v4
         with:
