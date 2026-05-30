@@ -27,18 +27,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -72,10 +67,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
-    var keepAssistantHomeMounted by remember { mutableStateOf(state.currentTab == AppTab.Assistant) }
-    LaunchedEffect(state.currentTab) {
-        if (state.currentTab == AppTab.Assistant) keepAssistantHomeMounted = true
-    }
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -152,37 +143,26 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .imePadding()
                                 .padding(horizontal = 12.dp)
                         ) {
-                            val assistantVisible = state.currentTab == AppTab.Assistant
-                            if (keepAssistantHomeMounted || assistantVisible) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .zIndex(if (assistantVisible) 10f else -10f)
-                                        .graphicsLayer { alpha = if (assistantVisible) 1f else 0f }
-                                ) {
-                                    AssistantScreenV2(
-                                        state = state,
-                                        onComposerChange = viewModel::updateComposer,
-                                        onSend = viewModel::submitComposer,
-                                        onStopGenerating = viewModel::stopGenerating,
-                                        onDraftCommand = viewModel::insertCommandDraft,
-                                        onModelSelected = viewModel::selectModel,
-                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                        onToggleOnline = viewModel::toggleOnline,
-                                        onCopyMessage = { text ->
-                                            if (text.isNotBlank()) {
-                                                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        onRetryMessage = viewModel::retryMessage
-                                    )
-                                }
-                            }
                             when (state.currentTab) {
-                                AppTab.Assistant -> Unit
+                                AppTab.Assistant -> AssistantScreenV2(
+                                    state = state,
+                                    onComposerChange = viewModel::updateComposer,
+                                    onSend = viewModel::submitComposer,
+                                    onStopGenerating = viewModel::stopGenerating,
+                                    onDraftCommand = viewModel::insertCommandDraft,
+                                    onModelSelected = viewModel::selectModel,
+                                    onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                    onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                    onToggleOnline = viewModel::toggleOnline,
+                                    onCopyMessage = { text ->
+                                        if (text.isNotBlank()) {
+                                            clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onRetryMessage = viewModel::retryMessage
+                                )
                                 AppTab.Tools -> ToolsScreenV2(
                                     state = state,
                                     onOpenTool = viewModel::openTool,
