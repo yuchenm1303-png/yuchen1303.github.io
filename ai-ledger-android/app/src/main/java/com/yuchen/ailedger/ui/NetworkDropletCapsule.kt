@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.ui.gl.DropletGlassStyle
 
@@ -59,7 +58,7 @@ fun NetworkDropletCapsule(
         forceLocked = state.onlineEnabled,
         onTap = { if (enabled) clickAction() },
         leadingText = "•",
-        mainText = if (state.onlineEnabled) "已联网" else "联网已关闭",
+        mainText = if (state.onlineEnabled) "在线" else "联网",
         statusText = ""
     )
 }
