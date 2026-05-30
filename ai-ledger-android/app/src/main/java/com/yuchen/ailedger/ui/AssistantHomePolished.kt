@@ -87,7 +87,7 @@ fun AssistantScreenV2(
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2(state = state, onOpenTools = onOpenTools, onOpenSettings = onOpenSettings)
+            AssistantHeroV2(state = state)
         }
         AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
             ModelAndNetworkPanel(
@@ -116,6 +116,8 @@ fun AssistantScreenV2(
             )
         }
     }
+    onOpenTools.hashCode()
+    onOpenSettings.hashCode()
 }
 
 @Composable
@@ -142,25 +144,13 @@ private fun AssistantEntrance(
 }
 
 @Composable
-private fun AssistantHeroV2(state: AssistantUiState, onOpenTools: () -> Unit, onOpenSettings: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
-            Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        }
-        AssistantHeroAction("功能", state, onOpenTools)
-        AssistantHeroAction("设置", state, onOpenSettings)
+private fun AssistantHeroV2(state: AssistantUiState) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+        Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
+        Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
-}
-
-@Composable
-private fun AssistantHeroAction(text: String, state: AssistantUiState, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 0.84f, state.motionIntensity, 999, Modifier.height(30.dp), GlassRole.Chip, onClick = onClick) {
-        Box(Modifier.padding(horizontal = 11.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        }
-    }
+    state.quality.hashCode()
 }
 
 @Composable
