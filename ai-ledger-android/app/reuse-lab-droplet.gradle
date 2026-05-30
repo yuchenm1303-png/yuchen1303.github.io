@@ -17,5 +17,87 @@ tasks.register('patchReuseLabDroplet') {
     }
 }
 
-tasks.named('preBuild') { dependsOn tasks.named('patchReuseLabDroplet') }
-tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach { dependsOn tasks.named('patchReuseLabDroplet') }
+tasks.register('patchDropletContinuousRefractionField') {
+    doLast {
+        def gl = file('src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt')
+        def text = gl.getText('UTF-8')
+
+        if (!text.contains('vec2 capsuleGradient(vec2 coord, vec2 size, float radius)')) {
+            text = text.replace('''            vec2 globalUv(vec2 coord) { return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);''', '''            vec2 capsuleGradient(vec2 coord, vec2 size, float radius) {
+                float e = 1.0;
+                vec2 dx = vec2(e, 0.0);
+                vec2 dy = vec2(0.0, e);
+                float gx = capsuleSdf(coord + dx, size, radius) - capsuleSdf(coord - dx, size, radius);
+                float gy = capsuleSdf(coord + dy, size, radius) - capsuleSdf(coord - dy, size, radius);
+                vec2 g = vec2(gx, gy);
+                float l = length(g);
+                vec2 fallbackNormal = normalize(coord - size * 0.5 + vec2(0.0, 0.0001));
+                return mix(fallbackNormal, g / max(l, 0.0001), step(0.0001, l));
+            }
+
+            vec2 globalUv(vec2 coord) { return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);''')
+        }
+
+        def oldField = '''                vec2 center = size * 0.5;
+                float halfLine = max(size.x * 0.5 - radius, 0.0);
+                vec2 spine = vec2(clamp(coord.x, center.x - halfLine, center.x + halfLine), center.y);
+                vec2 local = coord - spine;
+                vec2 wholeLocal = coord - center;
+                float distToSpine = length(local);
+                float rNorm = sat(distToSpine / max(radius, 1.0));
+                float inside = max(radius - distToSpine, 0.0);
+                vec2 normal = local / max(distToSpine, 0.001);
+                vec2 tangent = vec2(-normal.y, normal.x);
+                vec2 softNormal = local / max(radius, 1.0);
+                float softR = sat(length(softNormal));
+                vec2 softTangent = vec2(-softNormal.y, softNormal.x);
+                float thickness = sqrt(max(0.0, 1.0 - rNorm * rNorm));
+                float rim = pow(rNorm, 1.85);
+                float edgeWidth = clamp(uShape.z, 2.0, size.y * 0.48);
+                float edge = 1.0 - smoothstep(0.0, edgeWidth, inside);
+                float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.4, 9.0), inside);
+                float thinRim = 1.0 - smoothstep(0.0, 2.8, inside);
+                float rimGroove = smoothstep(2.2, 5.8, inside) * (1.0 - smoothstep(7.0, 14.0, inside));
+                float innerRimLine = smoothstep(7.0, 12.0, inside) * (1.0 - smoothstep(14.0, 24.0, inside));
+                float lensStrength = sat(abs(uShape.x) / 72.0);
+
+                vec2 centerField = -vec2(wholeLocal.x * 0.12, wholeLocal.y * 0.58) * lensStrength * thickness * (1.0 - edge * 0.15);
+                vec2 magnifyOffset = -local * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);'''
+        def newField = '''                vec2 center = size * 0.5;
+                vec2 wholeLocal = coord - center;
+                float inside = max(-sd, 0.0);
+                float rNorm = sat(1.0 - inside / max(radius, 1.0));
+                vec2 normal = capsuleGradient(coord, size, radius);
+                vec2 tangent = vec2(-normal.y, normal.x);
+                vec2 fieldLocal = normal * (rNorm * radius);
+                vec2 softNormal = fieldLocal / max(radius, 1.0);
+                float softR = rNorm;
+                vec2 softTangent = vec2(-softNormal.y, softNormal.x);
+                float thickness = sqrt(max(0.0, 1.0 - rNorm * rNorm));
+                float rim = pow(rNorm, 1.85);
+                float edgeWidth = clamp(uShape.z, 2.0, size.y * 0.48);
+                float edge = 1.0 - smoothstep(0.0, edgeWidth, inside);
+                float wideRim = 1.0 - smoothstep(0.0, max(edgeWidth * 2.4, 9.0), inside);
+                float thinRim = 1.0 - smoothstep(0.0, 2.8, inside);
+                float rimGroove = smoothstep(2.2, 5.8, inside) * (1.0 - smoothstep(7.0, 14.0, inside));
+                float innerRimLine = smoothstep(7.0, 12.0, inside) * (1.0 - smoothstep(14.0, 24.0, inside));
+                float lensStrength = sat(abs(uShape.x) / 72.0);
+
+                vec2 centerField = -vec2(wholeLocal.x * 0.12, wholeLocal.y * 0.58) * lensStrength * thickness * (1.0 - edge * 0.15);
+                vec2 magnifyOffset = -fieldLocal * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);'''
+        text = text.replace(oldField, newField)
+        if (text.contains('vec2 spine = vec2(clamp(coord.x')) throw new GradleException('Droplet field still uses segmented spine projection.')
+        if (!text.contains('capsuleGradient(coord, size, radius)')) throw new GradleException('Droplet continuous field patch did not apply.')
+        gl.setText(text, 'UTF-8')
+        println('Rebuilt OpenGL droplet refraction as one continuous capsule SDF field.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchReuseLabDroplet')
+    dependsOn tasks.named('patchDropletContinuousRefractionField')
+}
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchReuseLabDroplet')
+    dependsOn tasks.named('patchDropletContinuousRefractionField')
+}
