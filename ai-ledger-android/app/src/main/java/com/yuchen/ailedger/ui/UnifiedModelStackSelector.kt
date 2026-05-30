@@ -93,6 +93,8 @@ private val GeminiModelTheme = ModelCardPrismTheme(Color(0xFF2F8CFF), Color(0xFF
 private val KimiModelTheme = ModelCardPrismTheme(Color(0xFFE35CFF), Color(0xFFFFE0FF), Color(0xFF2A0C45), Color(0xFFFF7AE4), Color(0xFFB85CFF), Color(0xFFFF4FC6), Color(0xFFFFB5F0), 1.00f)
 private val MistralModelTheme = ModelCardPrismTheme(Color(0xFFFFC247), Color(0xFFFFF3C4), Color(0xFF3B2205), Color(0xFFFFE07A), Color(0xFFFF9B35), Color(0xFFFFD15C), Color(0xFFFFE26D), 0.98f)
 private val WorkersModelTheme = ModelCardPrismTheme(Color(0xFFFF4F47), Color(0xFFFFD8D0), Color(0xFF3A0D0A), Color(0xFFFF7B5C), Color(0xFFFF3D86), Color(0xFFFF6B3D), Color(0xFFFFB06A), 1.00f)
+private val DeepSeekModelTheme = ModelCardPrismTheme(Color(0xFF2563EB), Color(0xFFA7F3FF), Color(0xFF031B3C), Color(0xFF22D3EE), Color(0xFF3B82F6), Color(0xFF14B8A6), Color(0xFFB7F7FF), 0.98f)
+private val GptOssModelTheme = ModelCardPrismTheme(Color(0xFF10B981), Color(0xFFD1FAE5), Color(0xFF03140F), Color(0xFF34D399), Color(0xFF6EE7B7), Color(0xFFA7F3D0), Color(0xFFE5FFF5), 0.95f)
 
 private fun ChatModel.modelCardPrismTheme(): ModelCardPrismTheme = when (this) {
     ChatModel.Auto -> AutoModelTheme
@@ -100,6 +102,8 @@ private fun ChatModel.modelCardPrismTheme(): ModelCardPrismTheme = when (this) {
     ChatModel.Kimi -> KimiModelTheme
     ChatModel.Mistral -> MistralModelTheme
     ChatModel.Workers -> WorkersModelTheme
+    ChatModel.DeepSeekV4 -> DeepSeekModelTheme
+    ChatModel.GptOss -> GptOssModelTheme
 }
 
 private fun ChatModel.modelExpandedLayoutSlot(): Int = when (this) {
@@ -108,6 +112,8 @@ private fun ChatModel.modelExpandedLayoutSlot(): Int = when (this) {
     ChatModel.Workers -> 4
     ChatModel.Mistral -> 3
     ChatModel.Gemini -> 5
+    ChatModel.DeepSeekV4 -> 6
+    ChatModel.GptOss -> 7
 }
 
 @Composable
@@ -174,27 +180,11 @@ internal fun UnifiedParentModelStackSelector(
                     val motionY = expandedYPx - collapsedYPx
                     val travelTotal = abs(motionX) + abs(motionY) + 0.001f
                     val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
-                    ModelCardGeometry(
-                        collapsedXPx = collapsedXPx,
-                        collapsedYPx = collapsedYPx,
-                        expandedXPx = expandedXPx,
-                        expandedYPx = expandedYPx,
-                        horizontalMotion = abs(motionX) / travelTotal,
-                        verticalMotion = abs(motionY) / travelTotal,
-                        overshoot = 0.040f + 0.020f * distanceWeight
-                    )
+                    ModelCardGeometry(collapsedXPx, collapsedYPx, expandedXPx, expandedYPx, abs(motionX) / travelTotal, abs(motionY) / travelTotal, 0.040f + 0.020f * distanceWeight)
                 }
 
-                val selectionProgress by animateFloatAsState(
-                    targetValue = if (selected) 1f else 0f,
-                    animationSpec = tween(if (selected) 520 else 260, delayMillis = if (selected) 28 else 0, easing = FastOutSlowInEasing),
-                    label = "model-card-selection-material-${model.id}"
-                )
-                val selectedPulse by animateFloatAsState(
-                    targetValue = if (selected) 1.008f else 1f,
-                    animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow),
-                    label = "model-card-selected-${model.id}"
-                )
+                val selectionProgress by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = tween(if (selected) 520 else 260, delayMillis = if (selected) 28 else 0, easing = FastOutSlowInEasing), label = "model-card-selection-material-${model.id}")
+                val selectedPulse by animateFloatAsState(targetValue = if (selected) 1.008f else 1f, animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow), label = "model-card-selected-${model.id}")
 
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
@@ -214,10 +204,7 @@ internal fun UnifiedParentModelStackSelector(
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
                     val motionDuration = if (expanded) (520 + stackRank * 38).coerceAtMost(660) else if (selected) 450 else 420 + reverseRank * 32
                     val visualDuration = if (expanded) (405 + stackRank * 28).coerceAtMost(520) else if (selected) 370 else 350 + reverseRank * 24
-                    launch {
-                        visualAnim.stop()
-                        visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual))
-                    }
+                    launch { visualAnim.stop(); visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual)) }
                     motionAnim.stop()
                     motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
                     if (!expanded && !selected) {
@@ -228,47 +215,16 @@ internal fun UnifiedParentModelStackSelector(
                 }
 
                 val fullCardNeeded = selected || expanded || renderAsFullCard
-                val layerFactor = when (stackRank) {
-                    1 -> 0.82f
-                    2 -> 0.62f
-                    3 -> 0.44f
-                    else -> 0.28f
-                }
+                val layerFactor = when (stackRank) { 1 -> 0.82f; 2 -> 0.62f; 3 -> 0.44f; else -> 0.28f }
                 val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
 
                 if (!fullCardNeeded) {
-                    FoldedModelBackPlate(
-                        width = collapsedWidth,
-                        height = collapsedHeight,
-                        zIndex = 18f - index,
-                        geometry = geometry,
-                        style = style,
-                        theme = theme,
-                        stackRank = stackRank,
-                        stackCompression = stackCompression,
-                        layerFactor = layerFactor,
-                        alpha = (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f),
-                        model = model
-                    )
+                    FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, stackCompression, layerFactor, (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
                     return@forEachIndexed
                 }
 
                 val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
-                if (foldedBlend > 0.001f) {
-                    FoldedModelBackPlate(
-                        width = collapsedWidth,
-                        height = collapsedHeight,
-                        zIndex = 18f - index,
-                        geometry = geometry,
-                        style = style,
-                        theme = theme,
-                        stackRank = stackRank,
-                        stackCompression = stackCompression,
-                        layerFactor = layerFactor,
-                        alpha = foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f),
-                        model = model
-                    )
-                }
+                if (foldedBlend > 0.001f) FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, stackCompression, layerFactor, foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
                 val positivePress = pressValue.coerceAtLeast(0f)
@@ -300,95 +256,56 @@ internal fun UnifiedParentModelStackSelector(
                 val energy = if (selected) modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection) else 0.50f * style.unselectedEnergy.coerceIn(0f, 5f)
 
                 Box(
-                    modifier = Modifier
-                        .width(width)
-                        .height(height)
-                        .zIndex(if (selected) 50f else 30f - index)
-                        .onSizeChanged { cardSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(center.x, center.y)
-                            translationX = modelLerpRawFloat(geometry.collapsedXPx, geometry.expandedXPx, p)
-                            translationY = modelLerpRawFloat(geometry.collapsedYPx, geometry.expandedYPx, p) + sinkY
-                            this.scaleX = scaleX
-                            this.scaleY = scaleY
-                            this.alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress) * (1f - foldedBlend).coerceIn(0f, 1f)
-                            shadowElevation = 0f
-                        }
-                        .drawModelCardGlassSurface(style, theme, selected, selection, energy, materialPress, delayed, stackReveal, center, seed, direction, band, strength)
-                        .pointerInput(model.id) {
-                            awaitEachGesture {
-                                fun updateCenter(position: Offset) {
-                                    center = Offset(
-                                        (position.x / cardSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                                        (position.y / cardSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                                    )
-                                }
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val downUptime = down.uptimeMillis
-                                var releaseUptime = downUptime
-                                updateCenter(down.position)
-                                if (currentIsSending) return@awaitEachGesture
-                                seed = Random.nextFloat(); direction = if (Random.nextBoolean()) 1f else -1f; band = Random.nextInt(0, 4); strength = 1.06f + Random.nextFloat() * 0.62f
-                                scope.launch { pressAnim.stop(); if (pressAnim.value < 0.34f) pressAnim.snapTo(0.34f); pressAnim.animateTo(0.88f, tween(82, easing = ModelPressPulse)); pressAnim.animateTo(0.78f, tween(160, easing = ModelPressSink)); pressAnim.animateTo(0.74f, tween(220, easing = FastOutSlowInEasing)) }
-                                scope.launch { opticsAnim.stop(); opticsAnim.animateTo(0.46f, tween(104, easing = ModelPressPreload)); opticsAnim.animateTo(1.05f, tween(260, easing = ModelPressSink)); opticsAnim.animateTo(1.08f, tween(360, easing = FastOutSlowInEasing)) }
-                                if (!currentExpanded) {
-                                    scope.launch { stackPressAnim.stop(); if (stackPressAnim.value < 0.28f) stackPressAnim.snapTo(0.28f); stackPressAnim.animateTo(0.78f, tween(92, easing = ModelPressPulse)); stackPressAnim.animateTo(0.70f, tween(180, easing = ModelPressSink)) }
-                                }
-                                var released = false
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
-                                    if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { releaseUptime = tracked.uptimeMillis; released = true; break } }
-                                    if (event.changes.none { it.pressed }) { releaseUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: releaseUptime; released = true; break }
-                                }
-                                val isTapRelease = released && releaseUptime - downUptime <= ModelStackTapMaxMillis
-                                if (isTapRelease) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
-                                scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.52f) opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 620 else 340, easing = FastOutSlowInEasing)) }
-                                scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) { pressAnim.animateTo(0.68f, tween(62, easing = ModelPressPulse)); pressAnim.animateTo(-0.086f, tween(142, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.092f, tween(178, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing)) } }
-                                if (!currentExpanded) {
-                                    scope.launch { stackPressAnim.stop(); stackPressAnim.animateTo(-0.070f, tween(142, easing = ModelPressRelease)); stackPressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) }
-                                }
+                    modifier = Modifier.width(width).height(height).zIndex(if (selected) 50f else 30f - index).onSizeChanged { cardSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }.graphicsLayer {
+                        transformOrigin = TransformOrigin(center.x, center.y)
+                        translationX = modelLerpRawFloat(geometry.collapsedXPx, geometry.expandedXPx, p)
+                        translationY = modelLerpRawFloat(geometry.collapsedYPx, geometry.expandedYPx, p) + sinkY
+                        this.scaleX = scaleX
+                        this.scaleY = scaleY
+                        this.alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress) * (1f - foldedBlend).coerceIn(0f, 1f)
+                        shadowElevation = 0f
+                    }.drawModelCardGlassSurface(style, theme, selected, selection, energy, materialPress, delayed, stackReveal, center, seed, direction, band, strength).pointerInput(model.id) {
+                        awaitEachGesture {
+                            fun updateCenter(position: Offset) { center = Offset((position.x / cardSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f), (position.y / cardSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)) }
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downUptime = down.uptimeMillis
+                            var releaseUptime = downUptime
+                            updateCenter(down.position)
+                            if (currentIsSending) return@awaitEachGesture
+                            seed = Random.nextFloat(); direction = if (Random.nextBoolean()) 1f else -1f; band = Random.nextInt(0, 4); strength = 1.06f + Random.nextFloat() * 0.62f
+                            scope.launch { pressAnim.stop(); if (pressAnim.value < 0.34f) pressAnim.snapTo(0.34f); pressAnim.animateTo(0.88f, tween(82, easing = ModelPressPulse)); pressAnim.animateTo(0.78f, tween(160, easing = ModelPressSink)); pressAnim.animateTo(0.74f, tween(220, easing = FastOutSlowInEasing)) }
+                            scope.launch { opticsAnim.stop(); opticsAnim.animateTo(0.46f, tween(104, easing = ModelPressPreload)); opticsAnim.animateTo(1.05f, tween(260, easing = ModelPressSink)); opticsAnim.animateTo(1.08f, tween(360, easing = FastOutSlowInEasing)) }
+                            if (!currentExpanded) scope.launch { stackPressAnim.stop(); if (stackPressAnim.value < 0.28f) stackPressAnim.snapTo(0.28f); stackPressAnim.animateTo(0.78f, tween(92, easing = ModelPressPulse)); stackPressAnim.animateTo(0.70f, tween(180, easing = ModelPressSink)) }
+                            var released = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                                if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { releaseUptime = tracked.uptimeMillis; released = true; break } }
+                                if (event.changes.none { it.pressed }) { releaseUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: releaseUptime; released = true; break }
                             }
+                            val isTapRelease = released && releaseUptime - downUptime <= ModelStackTapMaxMillis
+                            if (isTapRelease) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
+                            scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.52f) opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 620 else 340, easing = FastOutSlowInEasing)) }
+                            scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) { pressAnim.animateTo(0.68f, tween(62, easing = ModelPressPulse)); pressAnim.animateTo(-0.086f, tween(142, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.092f, tween(178, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing)) } }
+                            if (!currentExpanded) scope.launch { stackPressAnim.stop(); stackPressAnim.animateTo(-0.070f, tween(142, easing = ModelPressRelease)); stackPressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) }
                         }
-                ) {
-                    UnifiedModelCardContent(model, selected, stackRank, selection, targetProgress, stackReveal, theme)
-                }
+                    }
+                ) { UnifiedModelCardContent(model, selected, stackRank, selection, targetProgress, stackReveal, theme) }
             }
         }
     }
 }
 
 @Composable
-private fun FoldedModelBackPlate(
-    width: Dp,
-    height: Dp,
-    zIndex: Float,
-    geometry: ModelCardGeometry,
-    style: ModelCardGlassStyle,
-    theme: ModelCardPrismTheme,
-    stackRank: Int,
-    stackCompression: Float,
-    layerFactor: Float,
-    alpha: Float,
-    model: ChatModel
-) {
-    Box(
-        modifier = Modifier
-            .width(width)
-            .height(height)
-            .zIndex(zIndex)
-            .graphicsLayer {
-                translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
-                translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
-                scaleX = 1f + stackCompression * 0.032f * layerFactor
-                scaleY = 1f - stackCompression * 0.046f * layerFactor
-                this.alpha = alpha
-                shadowElevation = 0f
-            }
-            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
-    ) {
-        FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme)
-    }
+private fun FoldedModelBackPlate(width: Dp, height: Dp, zIndex: Float, geometry: ModelCardGeometry, style: ModelCardGlassStyle, theme: ModelCardPrismTheme, stackRank: Int, stackCompression: Float, layerFactor: Float, alpha: Float, model: ChatModel) {
+    Box(modifier = Modifier.width(width).height(height).zIndex(zIndex).graphicsLayer {
+        translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
+        translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
+        scaleX = 1f + stackCompression * 0.032f * layerFactor
+        scaleY = 1f - stackCompression * 0.046f * layerFactor
+        this.alpha = alpha
+        shadowElevation = 0f
+    }.drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)) { FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme) }
 }
 
 @Composable
@@ -398,39 +315,17 @@ private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: M
     val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
     val labelAlpha = (0.70f - stackRank * 0.065f).coerceIn(0.38f, 0.66f)
     Box(Modifier.fillMaxSize()) {
-        Text(
-            model.shortLabel,
-            modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer {
-                alpha = labelAlpha
-                translationX = -labelShiftX
-                translationY = labelShiftY
-            },
-            color = theme.bright.copy(alpha = 0.90f),
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Black,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Clip
-        )
+        Text(model.shortLabel, modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer { alpha = labelAlpha; translationX = -labelShiftX; translationY = labelShiftY }, color = theme.bright.copy(alpha = 0.90f), fontSize = 8.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Clip)
     }
 }
 
 @Composable
-private fun UnifiedModelCardContent(
-    model: ChatModel,
-    selected: Boolean,
-    stackRank: Int,
-    selection: Float,
-    expansionProgress: Float,
-    stackReveal: Float,
-    theme: ModelCardPrismTheme
-) {
+private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, stackRank: Int, selection: Float, expansionProgress: Float, stackReveal: Float, theme: ModelCardPrismTheme) {
     val density = LocalDensity.current
     val fullTextAlpha = if (selected) 1f else expansionProgress.coerceIn(0f, 1f) * 0.92f
     val stackLabelAlpha = if (selected) 0f else modelSmooth(stackReveal.coerceIn(0f, 1f)) * 0.62f
     val labelShiftX = with(density) { (stackRank * 24).dp.toPx() }
     val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
-
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         Box(Modifier.size(20.dp))
         Box(Modifier.weight(1f).fillMaxSize()) {
@@ -461,21 +356,7 @@ private fun Modifier.drawFoldedModelBackPlate(style: ModelCardGlassStyle, theme:
     }
 }
 
-private fun Modifier.drawModelCardGlassSurface(
-    style: ModelCardGlassStyle,
-    theme: ModelCardPrismTheme,
-    selected: Boolean,
-    selection: Float,
-    energy: Float,
-    materialPress: Float,
-    delayed: Float,
-    stackReveal: Float,
-    center: Offset,
-    seed: Float,
-    direction: Float,
-    band: Int,
-    strength: Float
-): Modifier = drawWithCache {
+private fun Modifier.drawModelCardGlassSurface(style: ModelCardGlassStyle, theme: ModelCardPrismTheme, selected: Boolean, selection: Float, energy: Float, materialPress: Float, delayed: Float, stackReveal: Float, center: Offset, seed: Float, direction: Float, band: Int, strength: Float): Modifier = drawWithCache {
     fun s(value: Float, max: Float = 8f) = value.coerceIn(0f, max)
     val radius = minOf(size.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
     val corner = CornerRadius(radius, radius)
@@ -546,16 +427,8 @@ private fun modelDockingProgress(phase: Float, overshoot: Float): Float {
     }
 }
 
-private fun modelEaseOutCubic(value: Float): Float {
-    val x = 1f - value.coerceIn(0f, 1f)
-    return 1f - x * x * x
-}
-
-private fun modelSmoother(value: Float): Float {
-    val x = value.coerceIn(0f, 1f)
-    return x * x * x * (x * (x * 6f - 15f) + 10f)
-}
-
+private fun modelEaseOutCubic(value: Float): Float { val x = 1f - value.coerceIn(0f, 1f); return 1f - x * x * x }
+private fun modelSmoother(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * x * (x * (x * 6f - 15f) + 10f) }
 private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
