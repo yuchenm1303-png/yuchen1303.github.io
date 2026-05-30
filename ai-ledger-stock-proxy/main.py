@@ -8,7 +8,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI Ledger A股行情代理", version="0.1.0")
+app = FastAPI(title="AI Ledger A股行情代理", version="0.1.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,6 +19,7 @@ app.add_middleware(
 )
 
 _spot_cache: tuple[datetime, pd.DataFrame] | None = None
+_last_spot_error: str | None = None
 
 
 def _now() -> datetime:
@@ -27,9 +28,12 @@ def _now() -> datetime:
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
-        if pd.isna(value):
+        if value is None or pd.isna(value):
             return default
-        return float(value)
+        text = str(value).replace(",", "").replace("%", "").strip()
+        if text in {"", "--", "-"}:
+            return default
+        return float(text)
     except Exception:
         return default
 
@@ -84,16 +88,36 @@ def _market_name(code: str) -> str:
     return "深A"
 
 
+def _normalize_code(value: Any) -> str:
+    text = _safe_str(value, "")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) <= 6:
+        return digits.zfill(6)
+    return digits[-6:]
+
+
 def _get_spot_df() -> pd.DataFrame:
-    global _spot_cache
+    global _spot_cache, _last_spot_error
     now = _now()
     if _spot_cache is not None:
         created_at, df = _spot_cache
-        if now - created_at < timedelta(seconds=8):
+        if now - created_at < timedelta(seconds=20):
             return df
-    df = ak.stock_zh_a_spot_em()
-    _spot_cache = (now, df)
-    return df
+    try:
+        df = ak.stock_zh_a_spot_em()
+        if df is None or df.empty:
+            raise RuntimeError("AKShare stock_zh_a_spot_em 返回空数据")
+        if "代码" in df.columns:
+            df = df.copy()
+            df["代码"] = df["代码"].map(_normalize_code)
+        _spot_cache = (now, df)
+        _last_spot_error = None
+        return df
+    except Exception as exc:
+        _last_spot_error = f"{type(exc).__name__}: {exc}"
+        if _spot_cache is not None:
+            return _spot_cache[1]
+        raise HTTPException(status_code=502, detail=f"AKShare 实时行情列表暂不可用：{_last_spot_error}") from exc
 
 
 def _resolve_stock(query: str) -> dict[str, Any]:
@@ -101,12 +125,21 @@ def _resolve_stock(query: str) -> dict[str, Any]:
     if not keyword:
         raise HTTPException(status_code=400, detail="query 不能为空")
 
-    df = _get_spot_df()
-    if "代码" not in df.columns or "名称" not in df.columns:
-        raise HTTPException(status_code=502, detail="行情源缺少股票代码或名称字段")
-
     code_part = "".join(ch for ch in keyword if ch.isdigit())
-    if len(code_part) == 6:
+    has_direct_code = len(code_part) == 6
+
+    try:
+        df = _get_spot_df()
+    except HTTPException:
+        if has_direct_code:
+            code = code_part
+            return {"code": code, "name": code, "row": None, "resolveSource": "code-only"}
+        raise
+
+    if "代码" not in df.columns or "名称" not in df.columns:
+        raise HTTPException(status_code=502, detail="AKShare 行情源缺少股票代码或名称字段")
+
+    if has_direct_code:
         hit = df[df["代码"].astype(str) == code_part]
     else:
         code_hit = df[df["代码"].astype(str).str.contains(keyword, case=False, na=False)]
@@ -114,13 +147,15 @@ def _resolve_stock(query: str) -> dict[str, Any]:
         hit = pd.concat([code_hit, name_hit]).drop_duplicates(subset=["代码"])
 
     if hit.empty:
+        if has_direct_code:
+            return {"code": code_part, "name": code_part, "row": None, "resolveSource": "code-only"}
         raise HTTPException(status_code=404, detail=f"没有找到股票：{keyword}")
 
     row = hit.iloc[0]
-    return {"code": _safe_str(row.get("代码")), "name": _safe_str(row.get("名称")), "row": row}
+    return {"code": _normalize_code(row.get("代码")), "name": _safe_str(row.get("名称")), "row": row, "resolveSource": "akshare-spot"}
 
 
-def _quote_from_row(code: str, name: str, row: pd.Series) -> dict[str, Any]:
+def _quote_from_spot_row(code: str, name: str, row: pd.Series) -> dict[str, Any]:
     change_percent = _safe_float(row.get("涨跌幅"), 0.0)
     previous_close = _safe_float(row.get("昨收"), 0.0)
     return {
@@ -146,14 +181,44 @@ def _quote_from_row(code: str, name: str, row: pd.Series) -> dict[str, Any]:
     }
 
 
+def _quote_from_kline(code: str, name: str, k_lines: list[dict[str, Any]]) -> dict[str, Any]:
+    latest = k_lines[-1] if k_lines else {}
+    previous = k_lines[-2] if len(k_lines) >= 2 else latest
+    close = _safe_float(latest.get("close"), 0.0)
+    prev_close = _safe_float(previous.get("close"), close)
+    change_amount = close - prev_close
+    change_percent = change_amount / prev_close * 100 if prev_close else 0.0
+    return {
+        "name": name,
+        "code": code,
+        "market": _market_name(code),
+        "price": _format_price(close),
+        "changeAmount": _format_signed(change_amount),
+        "changePercent": _format_percent(change_percent, signed=True),
+        "isRising": change_amount >= 0,
+        "previousClose": prev_close,
+        "high": _format_price(latest.get("high")),
+        "low": _format_price(latest.get("low")),
+        "open": _format_price(latest.get("open")),
+        "totalMarketValue": "--",
+        "floatMarketValue": "--",
+        "volumeRatio": "--",
+        "turnoverRate": "--",
+        "peTtm": "--",
+        "pb": "--",
+        "amount": _format_cn_money(_safe_float(latest.get("amount"), 0.0) * 100000000.0),
+        "popularityRank": "--",
+    }
+
+
 def _load_daily_kline(code: str) -> list[dict[str, Any]]:
     end_date = datetime.now().strftime("%Y%m%d")
-    start_date = (datetime.now() - timedelta(days=150)).strftime("%Y%m%d")
+    start_date = (datetime.now() - timedelta(days=180)).strftime("%Y%m%d")
     try:
         df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
     except Exception:
         return []
-    if df.empty:
+    if df is None or df.empty:
         return []
     rows = []
     for _, row in df.tail(80).iterrows():
@@ -173,13 +238,13 @@ def _load_daily_kline(code: str) -> list[dict[str, Any]]:
 
 
 def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # AKShare 分钟接口在不同版本中字段可能变化；失败时用最近 K 线生成可视化轮廓，保证 App 不崩。
+    # 分钟数据优先用 AKShare。免费源偶尔会受网络和时间段影响，失败时用最近 K 线生成轮廓，保证 App 不崩。
     try:
         end = datetime.now().strftime("%Y-%m-%d 15:00:00")
         start = datetime.now().strftime("%Y-%m-%d 09:30:00")
         df = ak.stock_zh_a_hist_min_em(symbol=code, start_date=start, end_date=end, period="1", adjust="")
-        if not df.empty:
-            close_col = "收盘" if "收盘" in df.columns else df.columns[2]
+        if df is not None and not df.empty:
+            close_col = "收盘" if "收盘" in df.columns else df.columns[min(2, len(df.columns) - 1)]
             volume_col = "成交量" if "成交量" in df.columns else None
             max_volume = max((_safe_float(v) for v in df[volume_col]), default=1.0) if volume_col else 1.0
             points = []
@@ -222,7 +287,7 @@ def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[s
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "dataSource": "AKShare + optional future Tushare"}
+    return {"status": "ok", "dataSource": "AKShare primary"}
 
 
 @app.get("/api/stock/a-share/detail")
@@ -230,14 +295,27 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
     resolved = _resolve_stock(query)
     code = resolved["code"]
     name = resolved["name"]
-    row = resolved["row"]
-    quote = _quote_from_row(code, name, row)
+    row = resolved.get("row")
     k_lines = _load_daily_kline(code)
+    if row is not None:
+        quote = _quote_from_spot_row(code, name, row)
+    elif k_lines:
+        quote = _quote_from_kline(code, name, k_lines)
+    else:
+        raise HTTPException(status_code=502, detail=f"AKShare 暂未返回 {query} 的报价或 K 线数据")
     minute_points = _load_minute_points(code, k_lines)
+    warnings = []
+    if _last_spot_error:
+        warnings.append(f"spot: {_last_spot_error}")
+    if not k_lines:
+        warnings.append("daily_kline: empty")
+    if not minute_points:
+        warnings.append("minute_points: empty")
     return {
         "dataSourceLabel": f"AKShare 免费行情代理 · {code}",
         "quote": quote,
         "kLinePoints": k_lines,
         "minutePoints": minute_points,
-        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。报价、日K和分时轮廓来自 AKShare 代理；后续可继续扩展盘口、资金流、龙虎榜和公告。",
+        "warnings": warnings,
+        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。报价、K线和分时轮廓来自 AKShare 代理；后续可继续扩展盘口、资金流、龙虎榜和公告。",
     }
