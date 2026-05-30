@@ -1,2 +1,0 @@
-Purpose: trigger Build Compose Android APK after making online toggle directly reuse the lab OpenGlLargeDropletPreview implementation.
-Commits: 3011a5a9ab938a84ed0d16845450856c8b5a89a0, 3111143fafc908580f688f66e32ea6aff90ed2b6, c7f81517cfaf6c72618540a4f45ee1dc7e2a6058
