@@ -177,11 +177,11 @@ private fun AStockSearchPanel(
 ) {
     GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Section("搜索个股", "输入 A 股代码或名称，先接真实报价和日K线")
+            Section("搜索个股", "输入 A 股代码或名称，先接真实报价和K线")
             AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
             Text("当前：${stock.quote.name} ${stock.quote.code} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             stock.errorMessage?.let {
-                Text("提示：公开行情源连接不稳定，已切换示例数据", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp)
+                Text("提示：行情代理暂未返回，已切换示例数据", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp)
             }
         }
     }
@@ -196,7 +196,7 @@ private fun AStockDetailSearchPanel(
     onSearch: () -> Unit
 ) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Floating) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text("搜索切换个股", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
             AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
         }
@@ -211,25 +211,38 @@ private fun AStockSearchInputRow(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, Modifier.weight(1f).height(46.dp), GlassRole.Chip) {
-            Box(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                    cursorBrush = SolidColor(Color.White.copy(alpha = 0.85f)),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (query.isBlank()) Text("输入代码/名称，例如 600519", color = Color.White.copy(alpha = 0.38f), fontSize = 13.sp)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(52.dp), GlassRole.Chip) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Text("⌕", color = Color.White.copy(alpha = 0.58f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("代码 / 名称", color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black),
+                        cursorBrush = SolidColor(Color.White.copy(alpha = 0.90f)),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { innerTextField ->
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                                if (query.isBlank()) Text("输入 600519 / 贵州茅台", color = Color.White.copy(alpha = 0.38f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
             }
         }
-        PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 20, Modifier.height(46.dp), GlassRole.Floating, onClick = onSearch) {
-            Box(Modifier.padding(horizontal = 16.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (loading) "加载" else "搜索", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+        PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(44.dp), GlassRole.Floating, onClick = onSearch) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (loading) "正在加载…" else "搜索并切换个股", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -239,7 +252,7 @@ private fun AStockSearchInputRow(
 private fun AStockCompactStatus(state: AssistantUiState, stock: StockDetailUiState, loading: Boolean) {
     val text = when {
         loading -> "正在刷新行情…"
-        stock.errorMessage != null -> "公开行情源连接不稳定，已回退示例数据"
+        stock.errorMessage != null -> "行情代理暂未返回，已回退示例数据"
         else -> stock.dataSourceLabel
     }
     GlassPanel(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 20, Modifier.fillMaxWidth(), GlassRole.Card) {
@@ -447,13 +460,9 @@ private fun AStockInlineOrderBook(state: AssistantUiState, stock: StockDetailUiS
                 Text("盘口", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
                 Text("五档", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                stock.sellLevels.takeLast(5).forEach { OrderRowCompact(it) }
-            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { stock.sellLevels.takeLast(5).forEach { OrderRowCompact(it) } }
             Box(Modifier.fillMaxWidth().height(1.dp)) { Canvas(Modifier.fillMaxSize()) { drawLine(RiseRed.copy(alpha = 0.75f), Offset(0f, size.height / 2f), Offset(size.width * 0.56f, size.height / 2f), 2.dp.toPx()); drawLine(FallGreen.copy(alpha = 0.75f), Offset(size.width * 0.56f, size.height / 2f), Offset(size.width, size.height / 2f), 2.dp.toPx()) } }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                stock.buyLevels.take(5).forEach { OrderRowCompact(it) }
-            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { stock.buyLevels.take(5).forEach { OrderRowCompact(it) } }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("56%", color = RiseRed.copy(alpha = 0.90f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text("44%", color = FallGreen.copy(alpha = 0.90f), fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -509,22 +518,6 @@ private fun TradeMetric(label: String, value: String, color: Color = Color.White
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
         Text(value, color = color.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun AStockKLineChart(state: AssistantUiState, stock: StockDetailUiState) {
-    val points = stock.kLinePoints.takeLast(36).ifEmpty { sampleAStockDetailUiState().kLinePoints }
-    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Section("日K线", "已接真实日K原型；红涨绿跌，后续扩展 MA / 周K / 月K")
-            AStockKLineCanvas(points, Modifier.fillMaxWidth().height(210.dp))
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text(points.firstOrNull()?.date.orEmpty(), color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text("${points.size} 日", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text(points.lastOrNull()?.date.orEmpty(), color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
     }
 }
 
@@ -639,7 +632,7 @@ private fun AStockIndexPanel(state: AssistantUiState, stock: StockDetailUiState)
 private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState, onOpenCode: ((String) -> Unit)? = null) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Section("A股自选", "点示例股会尝试加载真实报价与日K")
+            Section("A股自选", "点示例股会尝试加载真实报价与K线")
             stock.watchlist.forEach { item ->
                 PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(42.dp), GlassRole.Chip, onClick = { onOpenCode?.invoke(item.code) }) {
                     Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
