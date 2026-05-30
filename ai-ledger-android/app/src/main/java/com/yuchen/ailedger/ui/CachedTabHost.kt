@@ -18,18 +18,38 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
+import kotlinx.coroutines.delay
 
 val LocalPageActive = compositionLocalOf { true }
+
+private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
+private const val DEFAULT_PREWARM_DELAY_MS = 360L
+private const val DEFAULT_PREWARM_STEP_DELAY_MS = 96L
 
 @Composable
 fun CachedAppTabHost(
     currentTab: AppTab,
     modifier: Modifier = Modifier,
+    prewarmTabs: Set<AppTab> = DefaultPrewarmTabs,
+    prewarmDelayMs: Long = DEFAULT_PREWARM_DELAY_MS,
+    prewarmStepDelayMs: Long = DEFAULT_PREWARM_STEP_DELAY_MS,
     content: @Composable (AppTab) -> Unit
 ) {
-    var visitedTabs by remember { mutableStateOf(setOf(AppTab.Assistant)) }
+    var visitedTabs by remember { mutableStateOf(setOf(currentTab)) }
+    val orderedPrewarmTabs = remember(prewarmTabs) {
+        AppTab.entries.filter { tab -> tab in prewarmTabs }
+    }
+
     LaunchedEffect(currentTab) {
         if (currentTab !in visitedTabs) visitedTabs = visitedTabs + currentTab
+    }
+
+    LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
+        if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
+        orderedPrewarmTabs.forEach { tab ->
+            visitedTabs = visitedTabs + tab
+            if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
+        }
     }
 
     Box(modifier) {
@@ -52,7 +72,7 @@ fun CachedAppTabHost(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .zIndex(if (active) 1f else 0f)
+                            .zIndex(if (active) 1f else -1f)
                             .graphicsLayer {
                                 this.alpha = alpha
                                 translationY = with(density) { offsetDp.toDp().toPx() }
