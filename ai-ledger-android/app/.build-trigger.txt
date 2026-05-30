@@ -1,4 +1,3 @@
-Trigger target: a0aa6e0c8ec60a39f9c13da94c269f6227217186
-Purpose: trigger Build Compose Android APK after adding DeepSeek V4 Pro and GPT OSS 120B model routing.
-Changed behavior: Android model picker includes two new NVIDIA NIM models and Auto v1 can route technical/reasoning tasks to them.
+Trigger target: 4b654d093056fa83fbf3e2fb3475fc587adab286
+Purpose: trigger Compose APK build after fixing model card theme branches.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
