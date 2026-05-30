@@ -1,0 +1,60 @@
+tasks.register('patchModelSelectorAnimationTempo') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped animation tempo patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        def oldMotion = '''                    val motionDuration = if (expanded) (450 + stackRank * 32).coerceAtMost(570) else if (selected) 390 else 360 + reverseRank * 28
+                    val visualDuration = if (expanded) (350 + stackRank * 24).coerceAtMost(450) else if (selected) 320 else 300 + reverseRank * 20
+'''
+        def newMotion = '''                    val motionDuration = if (expanded) (520 + stackRank * 38).coerceAtMost(660) else if (selected) 450 else 420 + reverseRank * 32
+                    val visualDuration = if (expanded) (405 + stackRank * 28).coerceAtMost(520) else if (selected) 370 else 350 + reverseRank * 24
+'''
+        if (text.contains(oldMotion)) {
+            text = text.replace(oldMotion, newMotion)
+            println('Slowed model selector travel and visual durations by a small amount.')
+        } else if (text.contains(newMotion)) {
+            println('Model selector travel tempo already slowed.')
+        } else {
+            println('Model selector duration block not found; skipped travel tempo patch.')
+        }
+
+        def oldCapsule = '''                        capsuleAnim.animateTo(1f, tween(if (expanded) 60 else 58, easing = ModelPressPulse))
+                        capsuleAnim.animateTo(0f, tween(if (expanded) 230 else 210, easing = FastOutSlowInEasing))
+'''
+        def newCapsule = '''                        capsuleAnim.animateTo(1f, tween(if (expanded) 72 else 68, easing = ModelPressPulse))
+                        capsuleAnim.animateTo(0f, tween(if (expanded) 270 else 250, easing = FastOutSlowInEasing))
+'''
+        if (text.contains(oldCapsule)) {
+            text = text.replace(oldCapsule, newCapsule)
+            println('Softened model selector launch pulse timing.')
+        } else if (text.contains(newCapsule)) {
+            println('Model selector launch pulse timing already softened.')
+        } else {
+            println('Model selector capsule timing block not found; skipped pulse tempo patch.')
+        }
+
+        text = text.replace('foldedBlendAnim.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))', 'foldedBlendAnim.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))')
+
+        selector.setText(text, 'UTF-8')
+        println('Patched model selector animation tempo: slightly slower travel, softer launch and longer folded blend.')
+    }
+}
+
+tasks.named('patchModelSelectorAnimationTempo') {
+    def continuityTask = tasks.findByName('patchModelSelectorAnimationContinuity')
+    if (continuityTask != null) dependsOn continuityTask
+    def layoutTask = tasks.findByName('patchModelNetworkOriginalLayout')
+    if (layoutTask != null) dependsOn layoutTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelSelectorAnimationTempo')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchModelSelectorAnimationTempo')
+}
