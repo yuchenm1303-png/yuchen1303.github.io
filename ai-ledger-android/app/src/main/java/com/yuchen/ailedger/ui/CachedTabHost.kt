@@ -68,7 +68,10 @@ fun CachedAppTabHost(
                     label = "tabOffset-${tab.name}"
                 )
 
-                CompositionLocalProvider(LocalPageActive provides active) {
+                CompositionLocalProvider(
+                    LocalPageActive provides active,
+                    LocalGlassItemRegistry provides if (active) LocalGlassItemRegistry.current else null
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
