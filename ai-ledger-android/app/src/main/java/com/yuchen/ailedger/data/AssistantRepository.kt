@@ -53,6 +53,7 @@ class PreviewAssistantRepository : AssistantRepository {
 }
 
 private fun defaultToolEntries(): List<ToolEntry> = listOf(
+    ToolEntry("股票行情", "A股看盘、分时、盘口和资金"),
     ToolEntry("账单中心", "查看和管理收入支出"),
     ToolEntry("数据统计", "按周、月、年查看趋势"),
     ToolEntry("提醒闹钟", "创建提醒和闹钟"),
