@@ -1,4 +1,4 @@
-Trigger target: d45110052f0c6d0abf879ba7bbb24e788dbd5d7e
-Purpose: trigger Build Compose Android APK after adding stop generation and improving AI worker request compatibility.
-Changed behavior: sending button becomes pause while generating; AI request tries compatible worker chat routes and longer read timeout.
+Rollback target: 8e792a3865873d297e25ce6322a35cc460b11559
+Purpose: trigger Build Compose Android APK after rollback.
+App source code remains at the rollback baseline.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
