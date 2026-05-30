@@ -1,3 +1,0 @@
-Purpose: trigger Build Compose Android APK after deleting materialized legacy home patch scripts.
-Reason: verify Compose build uses solidified Kotlin sources without the old home patch chain.
-Trigger path: ai-ledger-android/app/.build-trigger.txt
