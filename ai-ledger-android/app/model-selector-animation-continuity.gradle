@@ -11,14 +11,21 @@ tasks.register('patchModelSelectorAnimationContinuity') {
 '''
         def strengthWithRenderLatch = '''                var strength by remember(model.id) { mutableStateOf(1f) }
                 var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
+                var hasModelStackEntered by remember(model.id) { mutableStateOf(false) }
                 val foldedBlendAnim = remember(model.id) { Animatable(1f) }
 '''
         if (text.contains(strengthLine) && !text.contains('var renderAsFullCard by remember(model.id)')) {
             text = text.replace(strengthLine, strengthWithRenderLatch)
-            println('Inserted collapsed-default lightweight render latch and folded blend animation.')
+            println('Inserted collapsed-default lightweight render latch, first-enter guard and folded blend animation.')
         } else {
             text = text.replace('var renderAsFullCard by remember(model.id) { mutableStateOf(expanded) }', 'var renderAsFullCard by remember(model.id) { mutableStateOf(false) }')
             text = text.replace('val foldedBlendAnim = remember(model.id) { Animatable(if (expanded) 0f else 1f) }', 'val foldedBlendAnim = remember(model.id) { Animatable(1f) }')
+            if (text.contains('var renderAsFullCard by remember(model.id) { mutableStateOf(false) }') && !text.contains('var hasModelStackEntered by remember(model.id)')) {
+                text = text.replace('''                var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
+''', '''                var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
+                var hasModelStackEntered by remember(model.id) { mutableStateOf(false) }
+''')
+            }
             if (text.contains('var renderAsFullCard by remember(model.id) { mutableStateOf(false) }')) {
                 println('Forced collapsed default to lightweight render state.')
             }
@@ -26,21 +33,41 @@ tasks.register('patchModelSelectorAnimationContinuity') {
 
         def targetLine = '''                    val target = if (expanded) 1f else 0f
 '''
-        def targetWithLatch = '''                    val target = if (expanded) 1f else 0f
+        def targetWithGuard = '''                    val target = if (expanded) 1f else 0f
+                    if (!hasModelStackEntered && !expanded) {
+                        hasModelStackEntered = true
+                        renderAsFullCard = false
+                        foldedBlendAnim.snapTo(1f)
+                        visualAnim.snapTo(0f)
+                        motionAnim.snapTo(0f)
+                        return@LaunchedEffect
+                    }
+                    hasModelStackEntered = true
                     renderAsFullCard = true
                     foldedBlendAnim.stop()
                     foldedBlendAnim.snapTo(0f)
 '''
-        if (text.contains(targetLine) && !text.contains('foldedBlendAnim.snapTo(0f)')) {
-            text = text.replace(targetLine, targetWithLatch)
-            println('Latched full-card rendering and reset folded blend before model selector motion starts.')
-        } else if (text.contains('renderAsFullCard = true') && !text.contains('foldedBlendAnim.snapTo(0f)')) {
+        if (text.contains(targetLine) && !text.contains('if (!hasModelStackEntered && !expanded)')) {
+            text = text.replace(targetLine, targetWithGuard)
+            println('Added first-enter folded guard before model selector motion starts.')
+        } else if (text.contains('renderAsFullCard = true') && !text.contains('if (!hasModelStackEntered && !expanded)')) {
             text = text.replace('''                    renderAsFullCard = true
-''', '''                    renderAsFullCard = true
+                    foldedBlendAnim.stop()
+                    foldedBlendAnim.snapTo(0f)
+''', '''                    if (!hasModelStackEntered && !expanded) {
+                        hasModelStackEntered = true
+                        renderAsFullCard = false
+                        foldedBlendAnim.snapTo(1f)
+                        visualAnim.snapTo(0f)
+                        motionAnim.snapTo(0f)
+                        return@LaunchedEffect
+                    }
+                    hasModelStackEntered = true
+                    renderAsFullCard = true
                     foldedBlendAnim.stop()
                     foldedBlendAnim.snapTo(0f)
 ''')
-            println('Added folded blend reset beside existing full-card latch.')
+            println('Inserted first-enter folded guard before existing full-card latch.')
         }
 
         def oldRelease = '''                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
@@ -140,7 +167,7 @@ tasks.register('patchModelSelectorAnimationContinuity') {
         }
 
         selector.setText(text, 'UTF-8')
-        println('Patched model selector animation continuity: collapsed init stays lightweight; motion still crossfades into lightweight back plate after collapse.')
+        println('Patched model selector animation continuity: first collapsed entry stays lightweight; user-triggered motion still crossfades into lightweight back plate after collapse.')
     }
 }
 
