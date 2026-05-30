@@ -89,7 +89,10 @@ fun AStockMarketScreenV2(
         AStockDetailScreen(
             state = state,
             stock = stock,
+            query = query,
             loading = loading,
+            onQueryChange = { query = it },
+            onSearch = { loadStock(query, true) },
             onBack = { showDetail = false },
             onOpenAssistant = onOpenAssistant
         )
@@ -139,16 +142,23 @@ private fun AStockMarketHomeScreen(
 private fun AStockDetailScreen(
     state: AssistantUiState,
     stock: StockDetailUiState,
+    query: String,
     loading: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
     onBack: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
+    var showSearch by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 8.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { AStockMarketTopNav(state, stock, onBack) }
+        item { AStockMarketTopNav(state, stock, onBack, onSearchClick = { showSearch = !showSearch }) }
+        if (showSearch) {
+            item { AStockDetailSearchPanel(state, query, loading, onQueryChange, onSearch) }
+        }
         item { AStockCompactQuotePanel(state, stock) }
         item { AStockCompactStatus(state, stock, loading) }
         item { AStockTabs(state) }
@@ -171,31 +181,58 @@ private fun AStockSearchPanel(
     GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Section("搜索个股", "输入 A 股代码或名称，先接真实报价和日K线")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, Modifier.weight(1f).height(46.dp), GlassRole.Chip) {
-                    Box(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-                        BasicTextField(
-                            value = query,
-                            onValueChange = onQueryChange,
-                            singleLine = true,
-                            textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold),
-                            cursorBrush = SolidColor(Color.White.copy(alpha = 0.85f)),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (query.isBlank()) Text("例如 600519 / 贵州茅台", color = Color.White.copy(alpha = 0.38f), fontSize = 13.sp)
-                    }
-                }
-                PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 20, Modifier.height(46.dp), GlassRole.Floating, onClick = onSearch) {
-                    Box(Modifier.padding(horizontal = 16.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(if (loading) "加载" else "搜索", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
+            AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
             Text("当前：${stock.quote.name} ${stock.quote.code} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             stock.errorMessage?.let {
                 Text("提示：公开行情源连接不稳定，已切换示例数据", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AStockDetailSearchPanel(
+    state: AssistantUiState,
+    query: String,
+    loading: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit
+) {
+    GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Floating) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("搜索切换个股", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
+        }
+    }
+}
+
+@Composable
+private fun AStockSearchInputRow(
+    state: AssistantUiState,
+    query: String,
+    loading: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, Modifier.weight(1f).height(46.dp), GlassRole.Chip) {
+            Box(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                    cursorBrush = SolidColor(Color.White.copy(alpha = 0.85f)),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (query.isBlank()) Text("输入代码/名称，例如 600519", color = Color.White.copy(alpha = 0.38f), fontSize = 13.sp)
+            }
+        }
+        PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 20, Modifier.height(46.dp), GlassRole.Floating, onClick = onSearch) {
+            Box(Modifier.padding(horizontal = 16.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(if (loading) "加载" else "搜索", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -232,7 +269,7 @@ private fun AStockTopBar(title: String, subtitle: String, state: AssistantUiStat
 }
 
 @Composable
-private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit) {
+private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit, onSearchClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PressableGlass(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = onBack) {
             Box(Modifier.padding(horizontal = 14.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -243,7 +280,7 @@ private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiStat
             Text(stock.quote.name, color = Color.White, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${stock.quote.code} · ${stock.quote.market}    L2", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
-        PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = {}) {
+        PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = onSearchClick) {
             Box(Modifier.padding(horizontal = 12.dp).fillMaxSize(), contentAlignment = Alignment.Center) { Text("⌕", color = Color.White.copy(alpha = 0.78f), fontSize = 22.sp, fontWeight = FontWeight.Bold) }
         }
         PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = {}) {
@@ -267,7 +304,7 @@ private fun AStockHomeHero(state: AssistantUiState, stock: StockDetailUiState, o
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("今日关注", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text("点入查看分时、K线、十档盘口、成交明细和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("点入查看分时、K线、五档盘口、成交明细和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 HomeHeroMetric("现价", stock.quote.price, quoteColor(stock.quote.isRising), Modifier.weight(1f))
