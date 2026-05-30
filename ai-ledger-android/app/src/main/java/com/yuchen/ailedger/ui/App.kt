@@ -168,18 +168,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                             onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                         )
                                     } else {
-                                        ToolsScreenV2(
+                                        StockFirstToolsHomeScreen(
                                             state = state,
-                                            onOpenTool = viewModel::openTool,
-                                            onBack = viewModel::closeTool,
-                                            onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
-                                            onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
-                                            onLedgerTypeChange = viewModel::selectLedgerDraftType,
-                                            onLedgerCategoryChange = viewModel::selectLedgerCategory,
-                                            onLedgerBudgetChange = viewModel::updateLedgerBudget,
-                                            onAddLedgerRecord = viewModel::addLedgerRecord,
-                                            onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
-                                            onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                            onOpenTool = viewModel::openTool
                                         )
                                     }
                                 }
