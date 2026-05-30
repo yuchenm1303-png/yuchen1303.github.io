@@ -607,6 +607,18 @@ private class DropletRenderer {
                 return length(pa - ba * h) - radius;
             }
 
+            vec2 capsuleGradient(vec2 coord, vec2 size, float radius) {
+                float e = 1.0;
+                vec2 dx = vec2(e, 0.0);
+                vec2 dy = vec2(0.0, e);
+                float gx = capsuleSdf(coord + dx, size, radius) - capsuleSdf(coord - dx, size, radius);
+                float gy = capsuleSdf(coord + dy, size, radius) - capsuleSdf(coord - dy, size, radius);
+                vec2 g = vec2(gx, gy);
+                float l = length(g);
+                vec2 fallbackNormal = normalize(coord - size * 0.5 + vec2(0.0, 0.0001));
+                return mix(fallbackNormal, g / max(l, 0.0001), step(0.0001, l));
+            }
+
             vec2 globalUv(vec2 coord) { return clamp((uCardOrigin + coord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0); }
             vec3 fallback(vec2 uv) { return mix(vec3(0.04, 0.12, 0.24), vec3(0.12, 0.36, 0.42), smoothstep(0.0, 1.0, uv.y)); }
             vec3 sampleBlur(vec2 uv) { return mix(fallback(uv), texture2D(uBlurTexture, uv).rgb, sat(uTextureReady)); }
@@ -651,17 +663,14 @@ private class DropletRenderer {
                 }
 
                 vec2 center = size * 0.5;
-                float halfLine = max(size.x * 0.5 - radius, 0.0);
-                vec2 spine = vec2(clamp(coord.x, center.x - halfLine, center.x + halfLine), center.y);
-                vec2 local = coord - spine;
                 vec2 wholeLocal = coord - center;
-                float distToSpine = length(local);
-                float rNorm = sat(distToSpine / max(radius, 1.0));
-                float inside = max(radius - distToSpine, 0.0);
-                vec2 normal = local / max(distToSpine, 0.001);
+                float inside = max(-sd, 0.0);
+                float rNorm = sat(1.0 - inside / max(radius, 1.0));
+                vec2 normal = capsuleGradient(coord, size, radius);
                 vec2 tangent = vec2(-normal.y, normal.x);
-                vec2 softNormal = local / max(radius, 1.0);
-                float softR = sat(length(softNormal));
+                vec2 fieldLocal = normal * (rNorm * radius);
+                vec2 softNormal = fieldLocal / max(radius, 1.0);
+                float softR = rNorm;
                 vec2 softTangent = vec2(-softNormal.y, softNormal.x);
                 float thickness = sqrt(max(0.0, 1.0 - rNorm * rNorm));
                 float rim = pow(rNorm, 1.85);
@@ -674,7 +683,7 @@ private class DropletRenderer {
                 float lensStrength = sat(abs(uShape.x) / 72.0);
 
                 vec2 centerField = -vec2(wholeLocal.x * 0.12, wholeLocal.y * 0.58) * lensStrength * thickness * (1.0 - edge * 0.15);
-                vec2 magnifyOffset = -local * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);
+                vec2 magnifyOffset = -fieldLocal * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);
                 vec2 softHorizontal = vec2(-(coord.x - center.x) * lensStrength * 0.06, 0.0) * thickness;
                 vec2 rimOffset = normal * uShape.y * edge * (0.18 + 0.82 * rim);
                 vec2 edgeCompression = -normal * abs(uShape.y) * 0.16 * wideRim * (1.0 - thickness);
@@ -753,13 +762,9 @@ private class DropletRenderer {
                 float angularFocus = mix(sideFocus, 1.0, lightSpread * 0.65);
                 float warpedEnergy = warpedLight * (0.34 + 0.66 * thickness) * (0.58 + 0.42 * angularFocus);
 
-                vec2 rimProbe = p;
-                float rimProbePull = activeRimRefraction * rimFlow;
-                rimProbe.x += normal.x * rimProbePull * 0.12;
-                rimProbe.x = mix(rimProbe.x, lightOrigin.x, sideFacing * wideRim * 0.42);
-                rimProbe.x = clamp(rimProbe.x, 0.04, 0.96);
-                rimProbe.y = mix(lightOrigin.y, lightOrigin.y + normal.y * 0.08, 0.30 + 0.70 * wideRim);
-                rimProbe.y = clamp(rimProbe.y, 0.04, 0.98);
+                vec2 rimProbe = p + normal * activeRimRefraction * rimFlow * wideRim * 0.055;
+                rimProbe += lightDir * activeRimRefraction * rimFlow * edgeOptics * 0.035;
+                rimProbe = clamp(rimProbe, vec2(0.04, 0.04), vec2(0.96, 0.98));
                 float rimSource = glassLightSource(rimProbe, lightOrigin, lightDir, sourceThickness * 1.15, hotspotStrength * 0.72, sat(lightSpread + 0.18));
                 float fresnelLike = pow(sat(rNorm), 2.2);
                 float rimDirection = bottomOptic * 1.00 + sideFacing * 0.62 + topFacing * 0.20;
@@ -860,10 +865,10 @@ private class DropletRenderer {
                 color += mix(warmColor, vec3(1.0), 0.44) * active * pow(sat(dot(normal, normalize(vec2(0.70, -0.72)))), 7.0) * edge * 0.22;
                 color = mix(color, sharp, centerClearMask * 0.32);
 
-                float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
-                float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
-                float shadowAvoid = 1.0 - sat(entryEdgeContact * 0.80 + entryEdgeWash * 0.45);
-                color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x * shadowAvoid;
+                float rimShadow = (wideRim * 0.28 + rim * 0.08) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
+                float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.20 + 0.56 * wideRim);
+                float shadowAvoid = 1.0 - sat(entryEdgeContact * 0.95 + entryEdgeWash * 0.70 + rimLight * 0.55);
+                color -= vec3(0.040, 0.046, 0.068) * (rimShadow + bottomShadow * 0.32) * uAlpha.x * shadowAvoid;
                 gl_FragColor = vec4(clamp(color, 0.0, 1.0), mask);
             }
         """

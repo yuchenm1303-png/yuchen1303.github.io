@@ -65,6 +65,7 @@ private val ModelPressRelease = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 private val ModelPressPulse = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
 private val ModelStackTravel = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
 private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
+private const val ModelStackTapMaxMillis = 450L
 
 private data class ModelCardPrismTheme(
     val main: Color,
@@ -156,6 +157,9 @@ internal fun UnifiedParentModelStackSelector(
                 var direction by remember(model.id) { mutableStateOf(1f) }
                 var band by remember(model.id) { mutableStateOf(0) }
                 var strength by remember(model.id) { mutableStateOf(1f) }
+                var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
+                var hasModelStackEntered by remember(model.id) { mutableStateOf(false) }
+                val foldedBlendAnim = remember(model.id) { Animatable(1f) }
 
                 val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, layoutSlot, stackRank) {
                     val expandedX = if (layoutSlot % 2 == 1) halfWidth + gap else 0.dp
@@ -196,13 +200,25 @@ internal fun UnifiedParentModelStackSelector(
 
                 LaunchedEffect(expanded, selected, model.id) {
                     val target = if (expanded) 1f else 0f
+                    if (!hasModelStackEntered && !expanded) {
+                        hasModelStackEntered = true
+                        renderAsFullCard = false
+                        foldedBlendAnim.snapTo(1f)
+                        visualAnim.snapTo(0f)
+                        motionAnim.snapTo(0f)
+                        return@LaunchedEffect
+                    }
+                    hasModelStackEntered = true
+                    renderAsFullCard = true
+                    foldedBlendAnim.stop()
+                    foldedBlendAnim.snapTo(0f)
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
-                    val motionDuration = if (expanded) (450 + stackRank * 32).coerceAtMost(570) else if (selected) 390 else 360 + reverseRank * 28
-                    val visualDuration = if (expanded) (350 + stackRank * 24).coerceAtMost(450) else if (selected) 320 else 300 + reverseRank * 20
+                    val motionDuration = if (expanded) (520 + stackRank * 38).coerceAtMost(660) else if (selected) 450 else 420 + reverseRank * 32
+                    val visualDuration = if (expanded) (405 + stackRank * 28).coerceAtMost(520) else if (selected) 370 else 350 + reverseRank * 24
                     launch {
                         capsuleAnim.stop(); capsuleAnim.snapTo(0f)
-                        capsuleAnim.animateTo(1f, tween(if (expanded) 60 else 58, easing = ModelPressPulse))
-                        capsuleAnim.animateTo(0f, tween(if (expanded) 230 else 210, easing = FastOutSlowInEasing))
+                        capsuleAnim.animateTo(1f, tween(if (expanded) 72 else 68, easing = ModelPressPulse))
+                        capsuleAnim.animateTo(0f, tween(if (expanded) 270 else 250, easing = FastOutSlowInEasing))
                     }
                     launch {
                         visualAnim.stop()
@@ -210,16 +226,21 @@ internal fun UnifiedParentModelStackSelector(
                     }
                     motionAnim.stop()
                     motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
+                    if (!expanded && !selected) {
+                        foldedBlendAnim.stop()
+                        foldedBlendAnim.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+                        renderAsFullCard = false
+                    }
                 }
 
-                val fullCardNeeded = selected || expanded || visualAnim.value > 0.025f || motionAnim.value > 0.025f
+                val fullCardNeeded = selected || expanded || renderAsFullCard
 
                 if (!fullCardNeeded) {
                     val layerFactor = when (stackRank) {
-                        1 -> 0.72f
-                        2 -> 0.48f
-                        3 -> 0.30f
-                        else -> 0.18f
+                        1 -> 0.82f
+                        2 -> 0.62f
+                        3 -> 0.44f
+                        else -> 0.28f
                     }
                     val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
                     Box(
@@ -228,16 +249,46 @@ internal fun UnifiedParentModelStackSelector(
                             .height(collapsedHeight)
                             .zIndex(18f - index)
                             .graphicsLayer {
-                                translationX = geometry.collapsedXPx - stackCompression * 1.2f * layerFactor
-                                translationY = geometry.collapsedYPx + stackCompression * 3.2f * layerFactor
-                                scaleX = 1f + stackCompression * 0.018f * layerFactor
-                                scaleY = 1f - stackCompression * 0.026f * layerFactor
+                                translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
+                                translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
+                                scaleX = 1f + stackCompression * 0.032f * layerFactor
+                                scaleY = 1f - stackCompression * 0.046f * layerFactor
                                 alpha = (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
                                 shadowElevation = 0f
                             }
                             .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
-                    )
+                    ) {
+                        FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme)
+                    }
                     return@forEachIndexed
+                }
+
+                val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
+                if (foldedBlend > 0.001f) {
+                    val layerFactor = when (stackRank) {
+                        1 -> 0.82f
+                        2 -> 0.62f
+                        3 -> 0.44f
+                        else -> 0.28f
+                    }
+                    val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
+                    Box(
+                        modifier = Modifier
+                            .width(collapsedWidth)
+                            .height(collapsedHeight)
+                            .zIndex(18f - index)
+                            .graphicsLayer {
+                                translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
+                                translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
+                                scaleX = 1f + stackCompression * 0.032f * layerFactor
+                                scaleY = 1f - stackCompression * 0.046f * layerFactor
+                                alpha = foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
+                                shadowElevation = 0f
+                            }
+                            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
+                    ) {
+                        FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme)
+                    }
                 }
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -284,7 +335,7 @@ internal fun UnifiedParentModelStackSelector(
                             translationY = ty + sinkY
                             this.scaleX = scaleX
                             this.scaleY = scaleY
-                            this.alpha = alpha
+                            this.alpha = alpha * (1f - foldedBlend).coerceIn(0f, 1f)
                             shadowElevation = 0f
                         }
                         .drawModelCardGlassSurface(style, theme, selected, selection, energy, materialPress, delayed, stackReveal, center, seed, direction, band, strength)
@@ -297,6 +348,8 @@ internal fun UnifiedParentModelStackSelector(
                                     )
                                 }
                                 val down = awaitFirstDown(requireUnconsumed = false)
+                                val downUptime = down.uptimeMillis
+                                var releaseUptime = downUptime
                                 updateCenter(down.position)
                                 if (currentIsSending) return@awaitEachGesture
                                 seed = Random.nextFloat(); direction = if (Random.nextBoolean()) 1f else -1f; band = Random.nextInt(0, 4); strength = 1.06f + Random.nextFloat() * 0.62f
@@ -309,10 +362,11 @@ internal fun UnifiedParentModelStackSelector(
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
-                                    if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { released = true; break } }
-                                    if (event.changes.none { it.pressed }) { released = true; break }
+                                    if (tracked != null) { updateCenter(tracked.position); if (!tracked.pressed) { releaseUptime = tracked.uptimeMillis; released = true; break } }
+                                    if (event.changes.none { it.pressed }) { releaseUptime = event.changes.maxOfOrNull { it.uptimeMillis } ?: releaseUptime; released = true; break }
                                 }
-                                if (released) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
+                                val isTapRelease = released && releaseUptime - downUptime <= ModelStackTapMaxMillis
+                                if (isTapRelease) { if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded() }
                                 scope.launch { opticsAnim.stop(); if (released && opticsAnim.value < 0.52f) opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse)); opticsAnim.animateTo(0f, tween(if (released) 620 else 340, easing = FastOutSlowInEasing)) }
                                 scope.launch { pressAnim.stop(); if (released) { if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) { pressAnim.animateTo(0.68f, tween(62, easing = ModelPressPulse)); pressAnim.animateTo(-0.086f, tween(142, easing = ModelPressRelease)) } else { pressAnim.animateTo(-0.092f, tween(178, easing = ModelPressRelease)) }; pressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) } else { pressAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing)) } }
                                 if (!currentExpanded) {
@@ -325,6 +379,30 @@ internal fun UnifiedParentModelStackSelector(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: ModelCardPrismTheme) {
+    val density = LocalDensity.current
+    val labelShiftX = with(density) { (stackRank * 22).dp.toPx() }
+    val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
+    val labelAlpha = (0.70f - stackRank * 0.065f).coerceIn(0.38f, 0.66f)
+    Box(Modifier.fillMaxSize()) {
+        Text(
+            model.shortLabel,
+            modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer {
+                alpha = labelAlpha
+                translationX = -labelShiftX
+                translationY = labelShiftY
+            },
+            color = theme.bright.copy(alpha = 0.90f),
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
     }
 }
 
@@ -359,32 +437,57 @@ private fun UnifiedModelCardContent(
 private fun Modifier.drawFoldedModelBackPlate(style: ModelCardGlassStyle, theme: ModelCardPrismTheme, stackRank: Int, press: Float): Modifier = drawWithCache {
     val radius = minOf(size.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
     val corner = CornerRadius(radius, radius)
-    val rankFade = (0.34f - stackRank * 0.038f).coerceIn(0.16f, 0.32f)
+    val rankFade = (0.30f - stackRank * 0.032f).coerceIn(0.15f, 0.28f)
+    val backDotCenter = Offset(24.dp.toPx(), size.height / 2f)
     val body = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = 0.020f + 0.012f * press),
-            theme.main.copy(alpha = rankFade * 0.22f + 0.030f * press),
-            theme.deep.copy(alpha = rankFade * 0.36f),
-            Color(0xFF000713).copy(alpha = rankFade * 0.40f)
+            Color.White.copy(alpha = 0.012f + 0.006f * press),
+            theme.main.copy(alpha = rankFade * 0.15f + 0.014f * press),
+            theme.deep.copy(alpha = rankFade * 0.24f),
+            Color(0xFF000713).copy(alpha = rankFade * 0.30f)
         ),
-        Offset(size.width * 0.10f, 0f),
+        Offset(size.width * 0.08f, 0f),
         Offset(size.width, size.height)
     )
     val rim = Brush.linearGradient(
         listOf(
-            theme.bright.copy(alpha = 0.080f + 0.045f * press),
-            theme.main.copy(alpha = 0.070f + 0.038f * press),
+            theme.bright.copy(alpha = 0.145f + 0.045f * press),
+            theme.main.copy(alpha = 0.118f + 0.034f * press),
             Color.Transparent,
-            theme.prismC.copy(alpha = 0.060f)
+            theme.prismC.copy(alpha = 0.130f + 0.026f * press)
         ),
         Offset.Zero,
         Offset(size.width, size.height)
     )
+    val rearEdgeRim = Brush.linearGradient(
+        listOf(
+            Color.Transparent,
+            theme.prismC.copy(alpha = 0.150f + 0.028f * press),
+            theme.main.copy(alpha = 0.120f + 0.028f * press),
+            theme.bright.copy(alpha = 0.185f + 0.032f * press)
+        ),
+        Offset(size.width * 0.66f, size.height * 0.18f),
+        Offset(size.width, size.height)
+    )
+    val backDotGlow = Brush.radialGradient(
+        listOf(
+            theme.bright.copy(alpha = 0.030f + 0.020f * press),
+            theme.main.copy(alpha = 0.044f + 0.024f * press),
+            theme.prismB.copy(alpha = 0.020f + 0.012f * press),
+            Color.Transparent
+        ),
+        backDotCenter,
+        6.8.dp.toPx()
+    )
     onDrawBehind {
         drawRoundRect(body, size = size, cornerRadius = corner, blendMode = BlendMode.Screen)
-        drawRoundRect(brush = rim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.76.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = rim, topLeft = Offset(0.58.dp.toPx(), 0.58.dp.toPx()), size = Size(size.width - 1.16.dp.toPx(), size.height - 1.16.dp.toPx()), cornerRadius = corner, style = Stroke(0.88.dp.toPx()), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = rearEdgeRim, topLeft = Offset(0.72.dp.toPx(), 0.72.dp.toPx()), size = Size(size.width - 1.44.dp.toPx(), size.height - 1.44.dp.toPx()), cornerRadius = corner, style = Stroke(1.04.dp.toPx()), blendMode = BlendMode.Plus)
+        drawCircle(brush = backDotGlow, radius = 6.2.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
+        drawCircle(theme.bright.copy(alpha = 0.34f + 0.12f * press), radius = 1.55.dp.toPx(), center = backDotCenter, blendMode = BlendMode.Screen)
     }
 }
+
 
 private fun Modifier.drawModelCardGlassSurface(
     style: ModelCardGlassStyle,

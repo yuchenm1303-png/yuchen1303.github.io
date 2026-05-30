@@ -56,17 +56,6 @@ dependencies {
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }
 
-apply from: 'chat-bubble-polish.gradle'
-apply from: 'stop-generation-signature-fix.gradle'
-apply from: 'shared-prism-capsule.gradle'
-apply from: 'fix-assistant-home-compile.gradle'
-apply from: 'model-selector-folded-stack.gradle'
-apply from: 'model-selector-stack-press-follow.gradle'
-apply from: 'model-selector-animation-continuity.gradle'
-apply from: 'model-selector-animation-tempo.gradle'
-apply from: 'model-network-original-layout.gradle'
-apply from: 'reuse-lab-droplet.gradle'
-apply from: 'network-droplet-surface-text.gradle'
 apply from: 'droplet-continuous-motion-tuning.gradle'
 apply from: 'stock-market-entry.gradle'
 apply from: 'stock-market-icon-fix.gradle'

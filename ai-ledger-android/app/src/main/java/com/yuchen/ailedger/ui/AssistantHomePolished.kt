@@ -14,11 +14,13 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +41,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +76,7 @@ fun AssistantScreenV2(
     state: AssistantUiState,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
     onDraftCommand: (String) -> Unit,
     onModelSelected: (ChatModel) -> Unit,
     onPickImage: () -> Unit,
@@ -96,10 +103,23 @@ fun AssistantScreenV2(
             )
         }
         AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
-            ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
+            ChatPanelV2(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                onDraftCommand = onDraftCommand,
+                onPickImage = onPickImage,
+                onCopyMessage = onCopyMessage,
+                onRetryMessage = onRetryMessage
+            )
         }
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(state = state, onComposerChange = onComposerChange, onSend = onSend, onPickImage = onPickImage)
+            ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage
+            )
         }
     }
     onOpenTools.hashCode()
@@ -155,15 +175,13 @@ private fun ModelAndNetworkPanel(
         animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
         label = "model-stack-panel-height"
     )
-    Row(
-        modifier = Modifier.fillMaxWidth().height(panelHeight),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    Box(
+        modifier = Modifier.fillMaxWidth().height(panelHeight)
     ) {
         UnifiedParentModelStackSelector(
             state = state,
             expanded = expanded,
-            modifier = Modifier.weight(1f).height(panelHeight),
+            modifier = Modifier.fillMaxWidth().height(panelHeight),
             onToggleExpanded = { if (!state.isSending) expanded = !expanded },
             onSelected = { model ->
                 if (!state.isSending) {
@@ -172,32 +190,43 @@ private fun ModelAndNetworkPanel(
                 }
             }
         )
-        Box(
-            modifier = Modifier.weight(0.54f).height(panelHeight),
-            contentAlignment = Alignment.Center
-        ) {
-            NetworkDropletCapsule(
-                state = state,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isSending,
-                onClick = onToggleOnline
-            )
-        }
+        NetworkDropletCapsule(
+            state = state,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxWidth(0.34f)
+                .height(58.dp),
+            enabled = !state.isSending,
+            onClick = onToggleOnline
+        )
     }
 }
 
 @Composable
-private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
+private fun ChatPanelV2(
+    state: AssistantUiState,
+    modifier: Modifier,
+    onDraftCommand: (String) -> Unit,
+    onPickImage: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val listState = rememberLazyListState()
+    val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
+    val bubbleLayerState = rememberChatBubbleLayerState()
+    val activeMessageIds = remember(state.messages) { state.messages.map { it.id }.toSet() }
+    SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
-        if (lastMessageId != null) {
-            delay(40)
-            listState.scrollToItem(state.messages.lastIndex)
-        }
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
-        Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(30.dp))
+                .clipToBounds()
+        ) {
             RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -205,14 +234,42 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     Spacer(Modifier.weight(1f))
                     ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
                 }
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 3.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
                 ) {
-                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
-                    item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                    val lastActionableMessageId = remember(state.messages) {
+                        state.messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
+                    }
+                    ChatBubbleMaterialLayer(
+                        layerState = bubbleLayerState,
+                        listState = listState,
+                        messages = state.messages,
+                        phase = chatPhase.value,
+                        motionIntensity = state.motionIntensity,
+                        modifier = Modifier.matchParentSize()
+                    )
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        items(state.messages, key = { it.id }) { message ->
+                            AnimatedMessageBubbleV2(
+                                message = message,
+                                state = state,
+                                chatPhase = chatPhase,
+                                bubbleLayerState = bubbleLayerState,
+                                showActions = message.id == lastActionableMessageId,
+                                onCopyMessage = onCopyMessage,
+                                onRetryMessage = onRetryMessage
+                            )
+                        }
+                        item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                    }
                 }
             }
         }
@@ -238,54 +295,175 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
+    if (motionIntensity <= 0.02f) return remember { mutableStateOf(0f) }
+    val transition = rememberInfiniteTransition(label = "shared-chat-motion-clock")
+    return transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(7200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "shared-chat-motion-phase"
+    )
+}
+
+private fun phaseOffsetForMessage(id: String): Float {
+    return ((id.hashCode() ushr 1) % 997) / 997f
+}
+
+private fun phaseSpeedForMessage(id: String): Float {
+    val bucket = (id.hashCode() ushr 2) % 7
+    return 0.82f + bucket * 0.055f
+}
+
+@Composable
+private fun AnimatedMessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    chatPhase: State<Float>,
+    bubbleLayerState: ChatBubbleLayerState,
+    showActions: Boolean,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInHorizontally(spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)) { width -> if (fromUser) width / 3 else -width / 3 } +
-            scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
+    val appear by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.48f,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "message-light-bubble-q-appear"
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
-        MessageBubbleV2(message, state)
+        MessageBubbleV2(
+            message = message,
+            state = state,
+            chatPhase = chatPhase,
+            bubbleLayerState = bubbleLayerState,
+            appear = appear,
+            showActions = showActions,
+            onCopyMessage = onCopyMessage,
+            onRetryMessage = onRetryMessage
+        )
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun MessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    chatPhase: State<Float>,
+    bubbleLayerState: ChatBubbleLayerState,
+    appear: Float = 1f,
+    showActions: Boolean,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val fromUser = message.role == MessageRole.User
-    val fill = if (fromUser) 0.76f else 0.90f
+    val sending = message.status == MessageStatus.Sending && !fromUser
+    val bubbleRadius = if (fromUser) 26 else 28
+    val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
+    val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
+    val visual = chatBubbleVisualTransform(appear, fromUser)
+    SideEffect {
+        bubbleLayerState.updateBubbleVisual(
+            id = message.id,
+            fromUser = fromUser,
+            status = message.status,
+            appear = appear,
+            phaseOffset = phaseOffset,
+            speedFactor = speedFactor,
+            radiusDp = bubbleRadius
+        )
+    }
+    DisposableEffect(message.id) {
+        onDispose { bubbleLayerState.removeBubble(message.id) }
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
-        GlassPanel(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * if (fromUser) 1.03f else 0.94f,
-            motionIntensity = state.motionIntensity,
-            radius = 22,
-            modifier = Modifier.fillMaxWidth(fill),
-            role = if (fromUser) GlassRole.Floating else GlassRole.Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
+                .graphicsLayer {
+                    alpha = visual.alpha
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(visual.originX, visual.originY)
+                    scaleX = visual.scaleX
+                    scaleY = visual.scaleY
+                    translationX = visual.translationX
+                    translationY = visual.translationY
+                }
+                .clip(RoundedCornerShape(bubbleRadius.dp))
         ) {
-            Column(
-                Modifier.padding(
-                    start = if (fromUser) 14.dp else 36.dp,
-                    top = 10.dp,
-                    end = 14.dp,
-                    bottom = 10.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                if (message.status == MessageStatus.Sending && !fromUser) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("正在思考", color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
-                        ThinkingDotsV2(size = 6, color = Color(0xFF8DF9EA).copy(alpha = 0.88f))
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (sending) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
                     }
                 } else {
-                    Text(text = messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
+                    Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
                 }
                 if (!fromUser) MessageBadgeV2(message)
+                if (showActions && !fromUser && !sending) {
+                    MessageActionsV2(
+                        message = message,
+                        onCopyMessage = onCopyMessage,
+                        onRetryMessage = onRetryMessage
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun MessageActionsV2(
+    message: ChatMessage,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextActionV2("复制") { onCopyMessage(messageText(message)) }
+        Spacer(Modifier.size(12.dp))
+        TextActionV2(
+            text = "重试",
+            color = if (message.status == MessageStatus.Failed) Color(0xFFFFB4B4) else Color.White.copy(alpha = 0.50f)
+        ) { onRetryMessage(message.id) }
+    }
+}
+
+@Composable
+private fun TextActionV2(
+    text: String,
+    color: Color = Color.White.copy(alpha = 0.50f),
+    onClick: () -> Unit
+) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
+    if (message.role != MessageRole.Assistant) return false
+    if (message.status == MessageStatus.Sending) return false
+    return when (message.source) {
+        null, "", "local", "local_ledger", "local_mobile" -> false
+        else -> true
     }
 }
 
@@ -299,12 +477,30 @@ private fun MessageBadgeV2(message: ChatMessage) {
 }
 
 @Composable
-private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
-    val sendAction = if (state.isSending) ({}) else onSend
+private fun ComposerBarV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val inputMethodManager = remember(view) {
+        view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+    }
+    val keyboardSendAction = if (state.isSending) ({}) else {
+        {
+            if (state.composerText.isNotBlank()) {
+                inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            onSend()
+        }
+    }
+    val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), "和我说点什么...")
-        SendButtonV2(state, onClick = sendAction)
+        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = buttonAction)
     }
 }
 
@@ -314,9 +510,9 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
                 value = text,
-                onValueChange = onTextChange,
+                onValueChange = { if (!state.isSending) onTextChange(it) },
                 singleLine = true,
-                enabled = !state.isSending,
+                enabled = true,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -334,7 +530,7 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
 private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (state.isSending) Text("…", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            Text(if (state.isSending) "Ⅱ" else "↑", color = Color.White, fontSize = if (state.isSending) 19.sp else 22.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -366,27 +562,27 @@ private fun ChatStatusV2(text: String) {
 
 @Composable
 private fun ThinkingDotsV2(size: Int, color: Color) {
-    val transition = rememberInfiniteTransition(label = "thinking-dots-v2")
+    val transition = rememberInfiniteTransition(label = "thinking-glass-pearls-v2")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(920, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "thinking-phase-v2"
+        animationSpec = infiniteRepeatable(animation = tween(1060, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "thinking-glass-pearls-phase"
     )
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
-            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.45f) + 1f) / 2f).coerceIn(0f, 1f)
+            val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.34f) + 1f) / 2f).coerceIn(0f, 1f)
+            val pulse = ((sin(phase * 2f * PI.toFloat() + index * 1.34f - 0.74f) + 1f) / 2f).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .size(size.dp)
                     .graphicsLayer {
-                        translationY = -6f * wave
-                        alpha = 0.32f + 0.68f * wave
-                        scaleX = 0.72f + 0.34f * wave
-                        scaleY = 0.72f + 0.34f * wave
+                        translationY = -5.6f * wave
+                        alpha = 0.54f + 0.46f * wave
+                        scaleX = 0.76f + 0.42f * wave
+                        scaleY = 0.72f + 0.30f * pulse
                     }
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(color)
+                    .thinkingPearlSurface(color = color, wave = wave, index = index)
             )
         }
     }

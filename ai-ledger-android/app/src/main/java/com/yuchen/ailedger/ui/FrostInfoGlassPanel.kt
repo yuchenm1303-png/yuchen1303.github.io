@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +63,6 @@ import com.yuchen.ailedger.ui.gl.DropletGlassStyle
 import com.yuchen.ailedger.ui.gl.OpenGLDropletGlassLayer
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.random.Random
 import kotlinx.coroutines.launch
 
 private const val DropletPrismTau = 6.2831855f
@@ -303,7 +303,7 @@ fun FrostInfoGlassLab(state: AssistantUiState) {
 }
 
 @Composable
-private fun OpenGlLargeDropletPreview(
+fun OpenGlLargeDropletPreview(
     style: DropletGlassStyle,
     shadowAlpha: Float,
     shadowOffsetX: Float,
@@ -315,19 +315,25 @@ private fun OpenGlLargeDropletPreview(
     warmGlow: Float,
     prismStrength: Float,
     purpleWhiteLight: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    forceLocked: Boolean? = null,
+    onTap: (() -> Unit)? = null,
+    leadingText: String = "●",
+    mainText: String = "语音输入",
+    statusText: String? = null
 ) {
     val coordinates = remember { GlassCoordinateSource() }
     val pressAnim = remember { Animatable(0f) }
     val latchAnim = remember { Animatable(0f) }
     val afterglowAnim = remember { Animatable(0f) }
-    val breathAnim = remember { Animatable(0f) }
-    val driftAnim = remember { Animatable(0f) }
-    val shimmerAnim = remember { Animatable(0.35f) }
+    var breathValue by remember { mutableStateOf(0f) }
+    var driftValue by remember { mutableStateOf(0f) }
+    var shimmerValue by remember { mutableStateOf(0.35f) }
     val scope = rememberCoroutineScope()
-    var locked by rememberSaveable { mutableStateOf(false) }
+    var localLocked by rememberSaveable { mutableStateOf(false) }
     var capsuleSize by remember { mutableStateOf(Size(1f, 1f)) }
     var interactionLightX by remember { mutableStateOf(style.activeLightX.coerceIn(0.04f, 0.96f)) }
+    val locked = forceLocked ?: localLocked
 
     LaunchedEffect(locked) {
         if (locked) {
@@ -348,39 +354,15 @@ private fun OpenGlLargeDropletPreview(
     val afterglowValue = afterglowAnim.value.coerceIn(0f, 1f)
     val activeForBreath = locked || pressPositive > 0.05f
 
-    LaunchedEffect(activeForBreath) {
-        if (activeForBreath) {
-            while (true) {
-                breathAnim.animateTo(Random.nextFloat(), tween(950 + Random.nextInt(850), easing = FastOutSlowInEasing))
-            }
-        } else {
-            breathAnim.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
+    LaunchedEffect(Unit) {
+        while (true) {
+            val nanos = withFrameNanos { it }
+            val t = nanos / 1_000_000_000f
+            breathValue = (0.50f + 0.50f * sin((t * 2.05f).toDouble()).toFloat()).coerceIn(0f, 1f)
+            driftValue = (sin((t * 0.78f + 1.10f).toDouble()).toFloat() * 0.17f + sin((t * 0.33f + 2.40f).toDouble()).toFloat() * 0.06f).coerceIn(-0.24f, 0.24f)
+            shimmerValue = (0.52f + sin((t * 1.72f + 0.70f).toDouble()).toFloat() * 0.33f + sin((t * 3.18f + 2.10f).toDouble()).toFloat() * 0.13f).coerceIn(0f, 1f)
         }
     }
-
-    LaunchedEffect(activeForBreath) {
-        if (activeForBreath) {
-            while (true) {
-                driftAnim.animateTo(Random.nextFloat() * 0.34f - 0.17f, tween(1200 + Random.nextInt(1300), easing = FastOutSlowInEasing))
-            }
-        } else {
-            driftAnim.animateTo(0f, tween(520, easing = FastOutSlowInEasing))
-        }
-    }
-
-    LaunchedEffect(activeForBreath) {
-        if (activeForBreath) {
-            while (true) {
-                shimmerAnim.animateTo(0.22f + Random.nextFloat() * 0.78f, tween(520 + Random.nextInt(980), easing = FastOutSlowInEasing))
-            }
-        } else {
-            shimmerAnim.animateTo(0.18f, tween(360, easing = FastOutSlowInEasing))
-        }
-    }
-
-    val breathValue = breathAnim.value.coerceIn(0f, 1f)
-    val driftValue = driftAnim.value.coerceIn(-0.22f, 0.22f)
-    val shimmerValue = shimmerAnim.value.coerceIn(0f, 1f)
     val prismAmount = prismStrength.coerceIn(0f, 3f)
     val purpleAmount = purpleWhiteLight.coerceIn(0f, 1.5f)
     val purpleMix = (purpleAmount / 1.5f).coerceIn(0f, 1f)
@@ -433,7 +415,7 @@ private fun OpenGlLargeDropletPreview(
     val animatedOuterGlow = outerGlow * (lightEnergy + afterglowValue * 0.28f + recoilValue * 0.30f + prismAmount * lightEnergy * 0.22f).coerceIn(0f, 1.9f)
     val animatedWarmGlow = warmGlow * (lightEnergy * (0.20f + purpleMix * 0.46f + prismAmount * 0.18f) + pressPositive * 0.12f).coerceIn(0f, 1.8f)
     val contentAlpha = if (debug <= 0.001f) (0.50f + lightEnergy * 0.36f + recoilValue * 0.10f).coerceIn(0.44f, 0.98f) else 0f
-    val statusLabel = if (locked) "锁定棱彩" else "按住点亮 · 轻点锁定"
+    val statusLabel = statusText ?: if (locked) "锁定棱彩" else "按住点亮 · 轻点锁定"
 
     Box(modifier = modifier.padding(horizontal = 10.dp, vertical = 2.dp), contentAlignment = Alignment.Center) {
         if (debug <= 0.001f) {
@@ -461,7 +443,7 @@ private fun OpenGlLargeDropletPreview(
                     translationY = pressPositive * 5.2f - afterglowValue * 1.1f - recoilValue * 1.8f
                     rotationZ = (effectiveLightX - 0.5f) * pressPositive * 0.72f + recoilValue * if (effectiveLightX > 0.5f) 0.36f else -0.36f
                 }
-                .pointerInput(style) {
+                .pointerInput(style, forceLocked, onTap) {
                     awaitEachGesture {
                         fun updateLight(position: Offset) {
                             interactionLightX = (position.x / capsuleSize.width.coerceAtLeast(1f)).coerceIn(0.04f, 0.96f)
@@ -470,7 +452,7 @@ private fun OpenGlLargeDropletPreview(
                         updateLight(down.position)
                         scope.launch {
                             afterglowAnim.stop()
-                            afterglowAnim.snapTo(0f)
+                            afterglowAnim.animateTo(0f, tween(80, easing = FastOutSlowInEasing))
                         }
                         scope.launch {
                             pressAnim.stop()
@@ -492,7 +474,7 @@ private fun OpenGlLargeDropletPreview(
                             if (event.changes.none { it.pressed }) break
                         }
                         val wasTap = releasedAt - down.uptimeMillis < 260L
-                        if (wasTap) locked = !locked
+                        if (wasTap) { if (forceLocked == null) localLocked = !localLocked else onTap?.invoke() }
                         scope.launch {
                             pressAnim.stop()
                             pressAnim.animateTo(-0.22f, tween(130, easing = DropletReleaseEasing))
@@ -501,7 +483,10 @@ private fun OpenGlLargeDropletPreview(
                         }
                         scope.launch {
                             afterglowAnim.stop()
-                            afterglowAnim.snapTo(if (wasTap && locked) 0.42f else 0.78f)
+                            val afterglowTarget = if (wasTap && locked) 0.42f else 0.78f
+                            if (afterglowAnim.value < afterglowTarget) {
+                                afterglowAnim.animateTo(afterglowTarget, tween(95, easing = FastOutSlowInEasing))
+                            }
                             afterglowAnim.animateTo(0f, tween(if (locked) 460 else 820, easing = FastOutSlowInEasing))
                         }
                     }
@@ -514,22 +499,24 @@ private fun OpenGlLargeDropletPreview(
                 DropletActiveOverlay(animatedPurpleWhiteGlow, animatedWarmGlow, purpleMix, Modifier.fillMaxSize())
                 DropletPrismOverlay(animatedPrismGlow, lightEnergy, prismPhase, prismAmount, effectiveLightX, shimmerValue, Modifier.fillMaxSize())
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-                    Text("🎙", color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                    Text(leadingText, color = Color.White.copy(alpha = contentAlpha), fontSize = 18.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.width(10.dp))
-                    Text("语音输入", color = Color.White.copy(alpha = contentAlpha), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(mainText, color = Color.White.copy(alpha = contentAlpha), fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    text = statusLabel,
-                    color = Color.White.copy(alpha = 0.40f + lightEnergy * 0.18f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 12.dp, bottom = 6.dp)
-                        .background(Color.Black.copy(alpha = 0.13f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
-                        .padding(horizontal = 7.dp, vertical = 2.dp)
-                )
+                if (statusLabel.isNotBlank()) {
+                    Text(
+                        text = statusLabel,
+                        color = Color.White.copy(alpha = 0.40f + lightEnergy * 0.18f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 6.dp)
+                            .background(Color.Black.copy(alpha = 0.13f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
     }
