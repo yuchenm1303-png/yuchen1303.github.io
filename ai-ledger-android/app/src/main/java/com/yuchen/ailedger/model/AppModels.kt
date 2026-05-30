@@ -131,12 +131,18 @@ enum class ChatModel(val id: String, val label: String, val shortLabel: String) 
     Gemini("gemini", "Gemini 2.5 Flash", "Gemini"),
     Kimi("kimi", "Kimi K2.6", "Kimi"),
     Mistral("mistral", "Mistral Medium 3.5", "Mistral"),
-    Workers("workers", "Workers AI", "Workers");
+    Workers("workers", "Workers AI", "Workers"),
+    DeepSeekV4("deepseek_v4", "DeepSeek V4 Pro", "DeepSeek"),
+    GptOss("gpt_oss", "GPT OSS 120B", "GPT OSS");
 
     companion object {
         fun fromId(value: String): ChatModel {
             val clean = value.lowercase().trim().replace("workers_ai", "workers")
-            return entries.firstOrNull { it.id == clean || it.name.lowercase() == clean } ?: Auto
+            return when {
+                clean == "deepseek" || clean == "deepseek_v4" || clean == "deepseek-v4" || clean.contains("deepseek-v4-pro") -> DeepSeekV4
+                clean == "gptoss" || clean == "gpt_oss" || clean == "gpt-oss" || clean.contains("gpt-oss-120b") -> GptOss
+                else -> entries.firstOrNull { it.id == clean || it.name.lowercase() == clean } ?: Auto
+            }
         }
     }
 }
