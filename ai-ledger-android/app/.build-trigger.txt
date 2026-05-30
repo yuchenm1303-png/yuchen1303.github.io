@@ -1,0 +1,3 @@
+Fix target: build.gradle patch-chain cleanup
+Purpose: trigger Build Compose Android APK after Gradle patch references were removed.
+App source code is already solidified into Kotlin/Compose source.
