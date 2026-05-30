@@ -1,4 +1,6 @@
 name = "ai-ledger-parser"
+# 当前 Worker 生产入口是诊断包装器：先包住 orchestrator 做超时兜底与模型诊断，
+# 再由 src/index-orchestrator.js 分流聊天、搜索、天气、附件和本地命令协议。
 main = "src/index-orchestrator-diagnostics.js"
 compatibility_date = "2026-05-10"
 
