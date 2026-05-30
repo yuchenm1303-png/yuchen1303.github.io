@@ -178,6 +178,7 @@ class AssistantViewModel(
             ChatModel.Gemini -> ChatModel.Kimi
             ChatModel.Kimi -> ChatModel.Mistral
             ChatModel.Mistral -> ChatModel.Auto
+            else -> ChatModel.Auto
         }
         selectModel(next)
     }
