@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Paint as AndroidPaint
 import android.graphics.RuntimeShader
@@ -41,6 +42,30 @@ private const val SHADER_DIAGNOSTIC_TINT = 0.0f
 
 @Volatile
 private var hasLoggedShaderLensFailure = false
+
+private object GlassLensRuntimeShaderCache {
+    private var runtimeShader: RuntimeShader? = null
+    private var blurBitmap: Bitmap? = null
+    private var lensBitmap: Bitmap? = null
+    private var blurShader: BitmapShader? = null
+    private var lensShader: BitmapShader? = null
+
+    @SuppressLint("NewApi")
+    fun shaderFor(blur: Bitmap, lens: Bitmap): RuntimeShader {
+        val shader = runtimeShader ?: RuntimeShader(GLASS_LENS_SHADER).also { runtimeShader = it }
+        if (blurBitmap !== blur || blurShader == null) {
+            blurBitmap = blur
+            blurShader = BitmapShader(blur, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        if (lensBitmap !== lens || lensShader == null) {
+            lensBitmap = lens
+            lensShader = BitmapShader(lens, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        shader.setInputShader("backdropBlur", blurShader!!)
+        shader.setInputShader("backdropLens", lensShader!!)
+        return shader
+    }
+}
 
 @Composable
 fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) {
@@ -180,9 +205,9 @@ private fun DrawScope.drawShaderLens(
 ): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
     return runCatching {
-        val lensShader = RuntimeShader(GLASS_LENS_SHADER).apply {
-            setInputShader("backdropBlur", BitmapShader(backdrop.image.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
-            setInputShader("backdropLens", BitmapShader(backdrop.lensImage.asAndroidBitmap(), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP))
+        val blurBitmap = backdrop.image.asAndroidBitmap()
+        val lensBitmap = backdrop.lensImage.asAndroidBitmap()
+        val lensShader = GlassLensRuntimeShaderCache.shaderFor(blurBitmap, lensBitmap).apply {
             setFloatUniform("itemPos", itemRect.left, itemRect.top)
             setFloatUniform("itemSize", itemRect.width, itemRect.height)
             setFloatUniform("sampleOffset", sampleOffset.x, sampleOffset.y)
