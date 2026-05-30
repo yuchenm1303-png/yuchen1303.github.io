@@ -177,10 +177,27 @@ private fun buildBlurredBackdropBitmap(
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
     val file = path?.let(::File) ?: return false
     if (!file.exists()) return false
-    val source = BitmapFactory.decodeFile(file.absolutePath) ?: return false
+    val source = decodeCustomBitmapForTarget(file, target.width, target.height) ?: return false
     drawBitmapCoverIntoTarget(source, target)
     source.recycle()
     return true
+}
+
+private fun decodeCustomBitmapForTarget(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val targetMax = max(targetWidth, targetHeight).coerceAtLeast(1)
+    val sourceMax = max(bounds.outWidth, bounds.outHeight)
+    var sample = 1
+    while (sourceMax / (sample * 2) >= targetMax * 2) sample *= 2
+    return BitmapFactory.decodeFile(
+        file.absolutePath,
+        BitmapFactory.Options().apply {
+            inSampleSize = sample.coerceAtLeast(1)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+    )
 }
 
 private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
