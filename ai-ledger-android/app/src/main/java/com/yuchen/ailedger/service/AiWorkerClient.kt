@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -198,16 +199,29 @@ class AiWorkerClient(
     }
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
-        val recent = filter { it.role == MessageRole.User || it.role == MessageRole.Assistant }
-            .filter { it.text.isNotBlank() && it.status.name != "Sending" }
-            .takeLast(16)
+        val recent = filter { message ->
+            when (message.role) {
+                MessageRole.User -> message.text.isNotBlank() && message.status != MessageStatus.Sending
+                MessageRole.Assistant -> message.isCloudAssistantContextMessage()
+            }
+        }.takeLast(16)
+        val clean = recent.dropWhile { it.role != MessageRole.User }
         return JSONArray().apply {
-            recent.forEach { message ->
+            clean.forEach { message ->
                 put(JSONObject().apply {
                     put("role", if (message.role == MessageRole.User) "user" else "assistant")
                     put("content", message.text)
                 })
             }
+        }
+    }
+
+    private fun ChatMessage.isCloudAssistantContextMessage(): Boolean {
+        if (text.isBlank()) return false
+        if (status != MessageStatus.Sent) return false
+        return when (source) {
+            null, "", "local", "local_ledger", "local_mobile", "cloud_fetch_failed", "cloud_error_normalized" -> false
+            else -> true
         }
     }
 
