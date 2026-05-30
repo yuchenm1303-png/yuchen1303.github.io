@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -8,7 +9,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI Ledger A股行情代理", version="0.1.1")
+app = FastAPI(title="AI Ledger A股行情代理", version="0.1.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,7 +20,11 @@ app.add_middleware(
 )
 
 _spot_cache: tuple[datetime, pd.DataFrame] | None = None
+_detail_cache: dict[str, tuple[datetime, dict[str, Any]]] = {}
 _last_spot_error: str | None = None
+
+FRESH_DETAIL_SECONDS = 45
+STALE_DETAIL_SECONDS = 6 * 60 * 60
 
 
 def _now() -> datetime:
@@ -96,12 +101,54 @@ def _normalize_code(value: Any) -> str:
     return digits[-6:]
 
 
+def _query_key(query: str) -> str:
+    return query.strip().lower()
+
+
+def _code_from_query(query: str) -> str | None:
+    digits = "".join(ch for ch in query if ch.isdigit())
+    return digits if len(digits) == 6 else None
+
+
+def _cache_get(key: str | None, max_age_seconds: int) -> tuple[dict[str, Any], int] | None:
+    if not key:
+        return None
+    entry = _detail_cache.get(key)
+    if entry is None:
+        return None
+    created_at, payload = entry
+    age = int((_now() - created_at).total_seconds())
+    if age > max_age_seconds:
+        return None
+    return deepcopy(payload), age
+
+
+def _cache_put(payload: dict[str, Any], *keys: str | None) -> None:
+    created_at = _now()
+    for key in keys:
+        if key:
+            _detail_cache[_query_key(key)] = (created_at, deepcopy(payload))
+
+
+def _as_cached_payload(payload: dict[str, Any], age: int, reason: str | None = None) -> dict[str, Any]:
+    cached = deepcopy(payload)
+    quote = cached.get("quote") or {}
+    code = quote.get("code") or "--"
+    cached["dataSourceLabel"] = f"AKShare 缓存行情 · {code} · {age}s前"
+    warnings = list(cached.get("warnings") or [])
+    warnings.append(f"cache: hit, age={age}s")
+    if reason:
+        warnings.append(f"realtime_failed: {reason}")
+    cached["warnings"] = warnings
+    return cached
+
+
 def _get_spot_df() -> pd.DataFrame:
     global _spot_cache, _last_spot_error
     now = _now()
     if _spot_cache is not None:
         created_at, df = _spot_cache
-        if now - created_at < timedelta(seconds=20):
+        if now - created_at < timedelta(seconds=30):
             return df
     try:
         df = ak.stock_zh_a_spot_em()
@@ -125,21 +172,20 @@ def _resolve_stock(query: str) -> dict[str, Any]:
     if not keyword:
         raise HTTPException(status_code=400, detail="query 不能为空")
 
-    code_part = "".join(ch for ch in keyword if ch.isdigit())
-    has_direct_code = len(code_part) == 6
+    code_part = _code_from_query(keyword)
+    has_direct_code = code_part is not None
 
     try:
         df = _get_spot_df()
     except HTTPException:
-        if has_direct_code:
-            code = code_part
-            return {"code": code, "name": code, "row": None, "resolveSource": "code-only"}
+        if has_direct_code and code_part:
+            return {"code": code_part, "name": code_part, "row": None, "resolveSource": "code-only"}
         raise
 
     if "代码" not in df.columns or "名称" not in df.columns:
         raise HTTPException(status_code=502, detail="AKShare 行情源缺少股票代码或名称字段")
 
-    if has_direct_code:
+    if has_direct_code and code_part:
         hit = df[df["代码"].astype(str) == code_part]
     else:
         code_hit = df[df["代码"].astype(str).str.contains(keyword, case=False, na=False)]
@@ -147,7 +193,7 @@ def _resolve_stock(query: str) -> dict[str, Any]:
         hit = pd.concat([code_hit, name_hit]).drop_duplicates(subset=["代码"])
 
     if hit.empty:
-        if has_direct_code:
+        if has_direct_code and code_part:
             return {"code": code_part, "name": code_part, "row": None, "resolveSource": "code-only"}
         raise HTTPException(status_code=404, detail=f"没有找到股票：{keyword}")
 
@@ -238,7 +284,6 @@ def _load_daily_kline(code: str) -> list[dict[str, Any]]:
 
 
 def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # 分钟数据优先用 AKShare。免费源偶尔会受网络和时间段影响，失败时用最近 K 线生成轮廓，保证 App 不崩。
     try:
         end = datetime.now().strftime("%Y-%m-%d 15:00:00")
         start = datetime.now().strftime("%Y-%m-%d 09:30:00")
@@ -285,13 +330,7 @@ def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[s
     return points
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "dataSource": "AKShare primary"}
-
-
-@app.get("/api/stock/a-share/detail")
-def a_share_detail(query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台")) -> dict[str, Any]:
+def _build_detail_payload(query: str) -> dict[str, Any]:
     resolved = _resolve_stock(query)
     code = resolved["code"]
     name = resolved["name"]
@@ -317,5 +356,41 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
         "kLinePoints": k_lines,
         "minutePoints": minute_points,
         "warnings": warnings,
-        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。报价、K线和分时轮廓来自 AKShare 代理；后续可继续扩展盘口、资金流、龙虎榜和公告。",
+        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。报价、K线和分时轮廓来自 AKShare 代理；如果实时源暂时失败，会自动返回最近一次真实缓存。",
     }
+
+
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {"status": "ok", "dataSource": "AKShare primary + cache fallback", "cacheSize": len(_detail_cache)}
+
+
+@app.get("/api/stock/a-share/detail")
+def a_share_detail(query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台")) -> dict[str, Any]:
+    key = _query_key(query)
+    code_key = _code_from_query(query)
+
+    fresh = _cache_get(key, FRESH_DETAIL_SECONDS) or _cache_get(code_key, FRESH_DETAIL_SECONDS)
+    if fresh is not None:
+        payload, age = fresh
+        return _as_cached_payload(payload, age)
+
+    try:
+        payload = _build_detail_payload(query)
+        quote = payload.get("quote") or {}
+        code = _safe_str(quote.get("code"), code_key or "")
+        name = _safe_str(quote.get("name"), "")
+        _cache_put(payload, key, code, name)
+        return payload
+    except HTTPException as exc:
+        stale = _cache_get(key, STALE_DETAIL_SECONDS) or _cache_get(code_key, STALE_DETAIL_SECONDS)
+        if stale is not None:
+            payload, age = stale
+            return _as_cached_payload(payload, age, reason=str(exc.detail))
+        raise exc
+    except Exception as exc:
+        stale = _cache_get(key, STALE_DETAIL_SECONDS) or _cache_get(code_key, STALE_DETAIL_SECONDS)
+        if stale is not None:
+            payload, age = stale
+            return _as_cached_payload(payload, age, reason=f"{type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail=f"AKShare 行情代理异常：{type(exc).__name__}: {exc}") from exc
