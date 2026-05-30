@@ -58,8 +58,8 @@ fun NetworkDropletCapsule(
         modifier = modifier,
         forceLocked = state.onlineEnabled,
         onTap = { if (enabled) clickAction() },
-        leadingText = "●",
-        mainText = if (state.onlineEnabled) "已开启" else "已关闭",
-        statusText = "联网"
+        leadingText = "•",
+        mainText = if (state.onlineEnabled) "已联网" else "联网已关闭",
+        statusText = ""
     )
 }
