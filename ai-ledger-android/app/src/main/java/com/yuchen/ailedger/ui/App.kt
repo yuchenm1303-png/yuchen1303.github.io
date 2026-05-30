@@ -27,7 +27,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -67,6 +71,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    var assistantEntranceKey by remember { mutableStateOf(0) }
+    LaunchedEffect(state.currentTab) {
+        if (state.currentTab != AppTab.Assistant) assistantEntranceKey += 1
+    }
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -146,6 +154,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             when (state.currentTab) {
                                 AppTab.Assistant -> AssistantScreenV2(
                                     state = state,
+                                    entranceKey = assistantEntranceKey,
                                     onComposerChange = viewModel::updateComposer,
                                     onSend = viewModel::submitComposer,
                                     onStopGenerating = viewModel::stopGenerating,
