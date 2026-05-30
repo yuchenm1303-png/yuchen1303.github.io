@@ -1,2 +1,0 @@
-Purpose: trigger Build Compose Android APK after applying stronger lab-like light preset to online droplet.
-Commits: 7288964c88caf62ed54734e017d4de068cb8b509, fab3f943c8d13ec35ae83769641d4f2886a708b7
