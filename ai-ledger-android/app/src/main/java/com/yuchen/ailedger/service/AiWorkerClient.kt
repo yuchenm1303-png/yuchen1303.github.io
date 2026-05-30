@@ -92,6 +92,8 @@ class AiWorkerClient(
         val latestUserText = latestUserText(messages)
         val resolvedId = route.resolved.id
         return JSONObject().apply {
+            put("action", "chat")
+            put("intent", "chat")
             put("messages", workerMessages)
             put("message", latestUserText)
             put("prompt", latestUserText)
@@ -118,7 +120,7 @@ class AiWorkerClient(
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
         val knownChatPath = cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")
         if (knownChatPath) return listOf(cleanEndpoint)
-        return listOf("$cleanEndpoint/chat", "$cleanEndpoint/api/chat", cleanEndpoint).distinct()
+        return listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
     }
 
     private fun postChat(endpoint: String, payload: JSONObject, route: ModelRoute): AiChatResponse {
