@@ -70,6 +70,7 @@ fun AssistantScreenV2(
     state: AssistantUiState,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
     onDraftCommand: (String) -> Unit,
     onModelSelected: (ChatModel) -> Unit,
     onPickImage: () -> Unit,
@@ -86,7 +87,7 @@ fun AssistantScreenV2(
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2(state = state)
+            AssistantHeroV2(state = state, onOpenTools = onOpenTools, onOpenSettings = onOpenSettings)
         }
         AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
             ModelAndNetworkPanel(
@@ -96,16 +97,25 @@ fun AssistantScreenV2(
             )
         }
         AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
-            ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
+            ChatPanelV2(
+                state = state,
+                modifier = Modifier.fillMaxWidth(),
+                onDraftCommand = onDraftCommand,
+                onPickImage = onPickImage,
+                onCopyMessage = onCopyMessage,
+                onRetryMessage = onRetryMessage
+            )
         }
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(state = state, onComposerChange = onComposerChange, onSend = onSend, onPickImage = onPickImage)
+            ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage
+            )
         }
     }
-    onOpenTools.hashCode()
-    onOpenSettings.hashCode()
-    onCopyMessage.hashCode()
-    onRetryMessage.hashCode()
 }
 
 @Composable
@@ -132,13 +142,25 @@ private fun AssistantEntrance(
 }
 
 @Composable
-private fun AssistantHeroV2(state: AssistantUiState) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-        Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
-        Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+private fun AssistantHeroV2(state: AssistantUiState, onOpenTools: () -> Unit, onOpenSettings: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
+            Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+        AssistantHeroAction("功能", state, onOpenTools)
+        AssistantHeroAction("设置", state, onOpenSettings)
     }
-    state.quality.hashCode()
+}
+
+@Composable
+private fun AssistantHeroAction(text: String, state: AssistantUiState, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity * 0.84f, state.motionIntensity, 999, Modifier.height(30.dp), GlassRole.Chip, onClick = onClick) {
+        Box(Modifier.padding(horizontal = 11.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
 }
 
 @Composable
@@ -187,7 +209,14 @@ private fun ModelAndNetworkPanel(
 }
 
 @Composable
-private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
+private fun ChatPanelV2(
+    state: AssistantUiState,
+    modifier: Modifier,
+    onDraftCommand: (String) -> Unit,
+    onPickImage: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val listState = rememberLazyListState()
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
@@ -211,7 +240,7 @@ private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftComm
                     contentPadding = PaddingValues(vertical = 3.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, onCopyMessage, onRetryMessage) }
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                 }
             }
@@ -238,7 +267,12 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun AnimatedMessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
@@ -249,12 +283,17 @@ private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiStat
             scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
     ) {
-        MessageBubbleV2(message, state)
+        MessageBubbleV2(message, state, onCopyMessage, onRetryMessage)
     }
 }
 
 @Composable
-private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
+private fun MessageBubbleV2(
+    message: ChatMessage,
+    state: AssistantUiState,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
     val fromUser = message.role == MessageRole.User
     val fill = if (fromUser) 0.76f else 0.90f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -283,28 +322,63 @@ private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
                 } else {
                     Text(text = messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
                 }
-                if (!fromUser) MessageBadgeV2(message)
+                if (!fromUser) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MessageBadgeV2(message, Modifier.weight(1f))
+                        if (message.status == MessageStatus.Sent && message.text.isNotBlank()) {
+                            MessageActionChipV2("复制", state) { onCopyMessage(message.text) }
+                        }
+                        if (message.status == MessageStatus.Failed) {
+                            MessageActionChipV2("重试", state) { onRetryMessage(message.id) }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MessageBadgeV2(message: ChatMessage) {
+private fun MessageBadgeV2(message: ChatMessage, modifier: Modifier = Modifier) {
     val text = messageBadgeTextV2(message) ?: return
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColorV2(message).copy(alpha = 0.82f)))
         Text(text, color = badgeColorV2(message).copy(alpha = 0.68f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
-    val sendAction = if (state.isSending) ({}) else onSend
+private fun MessageActionChipV2(text: String, state: AssistantUiState, onClick: () -> Unit) {
+    PressableGlass(state.quality, state.glassIntensity * 0.78f, state.motionIntensity, 999, Modifier.height(24.dp), GlassRole.Chip, onClick = onClick) {
+        Box(Modifier.padding(horizontal = 9.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color.White.copy(alpha = 0.66f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ComposerBarV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val inputMethodManager = remember(view) {
+        view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+    }
+    val keyboardSendAction = if (state.isSending) ({}) else {
+        {
+            if (state.composerText.isNotBlank()) inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+            onSend()
+        }
+    }
+    val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), "和我说点什么...")
-        SendButtonV2(state, onClick = sendAction)
+        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = buttonAction)
     }
 }
 
@@ -314,9 +388,9 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
                 value = text,
-                onValueChange = onTextChange,
+                onValueChange = { if (!state.isSending) onTextChange(it) },
                 singleLine = true,
-                enabled = !state.isSending,
+                enabled = true,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -334,7 +408,7 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
 private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (state.isSending) Text("…", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            if (state.isSending) Text("×", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
     }
 }
