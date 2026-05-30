@@ -1,2 +1,0 @@
-Purpose: trigger Build Compose Android APK after removing stale Settings frost parent build patch.
-Commit: 5438256a51769b3b57a48ce977ccdff604cfea8e
