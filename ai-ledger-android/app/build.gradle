@@ -56,19 +56,28 @@ dependencies {
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }
 
-apply from: 'chat-bubble-polish.gradle'
-apply from: 'stop-generation-signature-fix.gradle'
-apply from: 'shared-prism-capsule.gradle'
-apply from: 'fix-assistant-home-compile.gradle'
-apply from: 'model-selector-folded-stack.gradle'
-apply from: 'model-selector-stack-press-follow.gradle'
-apply from: 'model-selector-animation-continuity.gradle'
-apply from: 'model-selector-animation-tempo.gradle'
-apply from: 'model-network-original-layout.gradle'
-apply from: 'reuse-lab-droplet.gradle'
-apply from: 'network-droplet-surface-text.gradle'
-apply from: 'droplet-continuous-motion-tuning.gradle'
-apply from: 'stock-market-entry.gradle'
-apply from: 'stock-market-icon-fix.gradle'
-apply from: 'stock-market-a-share.gradle'
-apply from: 'stock-market-pro-detail.gradle'
+def applyOptionalPatch = { String patchName ->
+    def patchFile = file(patchName)
+    if (patchFile.exists()) {
+        apply from: patchName
+    } else {
+        println("Skipped missing optional patch: ${patchName}")
+    }
+}
+
+applyOptionalPatch('chat-bubble-polish.gradle')
+applyOptionalPatch('stop-generation-signature-fix.gradle')
+applyOptionalPatch('shared-prism-capsule.gradle')
+applyOptionalPatch('fix-assistant-home-compile.gradle')
+applyOptionalPatch('model-selector-folded-stack.gradle')
+applyOptionalPatch('model-selector-stack-press-follow.gradle')
+applyOptionalPatch('model-selector-animation-continuity.gradle')
+applyOptionalPatch('model-selector-animation-tempo.gradle')
+applyOptionalPatch('model-network-original-layout.gradle')
+applyOptionalPatch('reuse-lab-droplet.gradle')
+applyOptionalPatch('network-droplet-surface-text.gradle')
+applyOptionalPatch('droplet-continuous-motion-tuning.gradle')
+applyOptionalPatch('stock-market-entry.gradle')
+applyOptionalPatch('stock-market-icon-fix.gradle')
+applyOptionalPatch('stock-market-a-share.gradle')
+applyOptionalPatch('stock-market-pro-detail.gradle')
