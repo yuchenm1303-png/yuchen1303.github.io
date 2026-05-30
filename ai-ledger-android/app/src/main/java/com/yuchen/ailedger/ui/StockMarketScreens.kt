@@ -49,6 +49,7 @@ fun AStockMarketScreenV2(
         item { AStockTopBar(state, stock, onBack) }
         item { AStockQuotePanel(state, stock) }
         item { AStockTabs(state) }
+        item { AStockFeaturePanel(state) }
         item { AStockMinuteChart(state, stock) }
         item { AStockOrderBook(state, stock) }
         item { AStockTradeAndFlow(state, stock) }
@@ -121,6 +122,37 @@ private fun AStockTabs(state: AssistantUiState) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label, color = Color.White.copy(alpha = if (index == 0) 0.94f else 0.48f), fontSize = 12.sp, fontWeight = FontWeight.Black) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AStockFeaturePanel(state: AssistantUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Section("行情功能", "自选、板块、涨跌停、资金和 AI 问股入口")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                AStockFeatureChip("自选股", "关注列表", state, Modifier.weight(1f))
+                AStockFeatureChip("沪深京", "市场切换", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                AStockFeatureChip("板块热度", "行业概念", state, Modifier.weight(1f))
+                AStockFeatureChip("涨跌停", "情绪观察", state, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                AStockFeatureChip("资金流", "主力/大单", state, Modifier.weight(1f))
+                AStockFeatureChip("AI 问股", "趋势摘要", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AStockFeatureChip(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, modifier.height(54.dp), GlassRole.Chip) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
