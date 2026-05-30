@@ -1,3 +1,3 @@
-Fix target: build.gradle patch-chain cleanup
-Purpose: trigger Build Compose Android APK after Gradle patch references were removed.
-App source code is already solidified into Kotlin/Compose source.
+Fix target: StockRepository Kotlin null-safety compile error
+Purpose: trigger Build Compose Android APK after fixing nullable JSONObject access.
+App source code remains solidified in Kotlin/Compose source.
