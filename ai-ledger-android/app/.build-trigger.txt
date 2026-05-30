@@ -1,3 +1,3 @@
-Trigger target: fa3b84f38a649061487f5439e561a4afd60c40d8
-Purpose: trigger Compose APK build after filtering local assistant notices from AI chat context.
+Trigger target: 3463fcd7c3ada20719a498489f95138748605d92
+Purpose: trigger Compose APK build after improving network droplet text readability.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
