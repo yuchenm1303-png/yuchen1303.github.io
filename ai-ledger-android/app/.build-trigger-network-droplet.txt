@@ -1,2 +1,0 @@
-Purpose: trigger Build Compose Android APK after restoring network droplet beside the new model selector.
-Changed area: ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt
