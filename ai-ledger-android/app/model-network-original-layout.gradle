@@ -1,0 +1,66 @@
+tasks.register('patchModelNetworkOriginalLayout') {
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt')
+        if (!home.exists()) {
+            println('AssistantHomePolished.kt not found; skipped model/network original layout patch.')
+            return
+        }
+        def text = home.getText('UTF-8')
+        def panelStart = text.indexOf('@Composable\nprivate fun ModelAndNetworkPanel(')
+        def nextStart = text.indexOf('\n@Composable\nprivate fun ChatPanelV2', panelStart)
+        if (panelStart < 0 || nextStart <= panelStart) {
+            throw new GradleException('ModelAndNetworkPanel block not found for original layout patch.')
+        }
+        def panelBlock = text.substring(panelStart, nextStart)
+        def rowStartInPanel = panelBlock.indexOf('    Row(')
+        def boxStartInPanel = panelBlock.indexOf('    Box(')
+        def layoutStartInPanel = rowStartInPanel >= 0 ? rowStartInPanel : boxStartInPanel
+        if (layoutStartInPanel < 0) {
+            throw new GradleException('ModelAndNetworkPanel layout root not found for original layout patch.')
+        }
+        def panelHeader = panelBlock.substring(0, layoutStartInPanel)
+        def replacementLayout = '''    Box(
+        modifier = Modifier.fillMaxWidth().height(panelHeight)
+    ) {
+        UnifiedParentModelStackSelector(
+            state = state,
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth().height(panelHeight),
+            onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+            onSelected = { model ->
+                if (!state.isSending) {
+                    onModelSelected(model)
+                    expanded = false
+                }
+            }
+        )
+        NetworkDropletCapsule(
+            state = state,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxWidth(0.34f)
+                .height(58.dp),
+            enabled = !state.isSending,
+            onClick = onToggleOnline
+        )
+    }
+}
+'''
+        text = text.substring(0, panelStart) + panelHeader + replacementLayout + text.substring(nextStart)
+        home.setText(text, 'UTF-8')
+        println('Restored original model selector strip: full-width model stack with pinned right network droplet.')
+    }
+}
+
+tasks.named('patchModelNetworkOriginalLayout') {
+    def fixTask = tasks.findByName('fixAssistantHomeCompile')
+    if (fixTask != null) dependsOn fixTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelNetworkOriginalLayout')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchModelNetworkOriginalLayout')
+}
