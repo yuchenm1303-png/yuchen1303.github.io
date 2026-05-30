@@ -36,6 +36,12 @@ private data class ModelRoute(
     val isAuto: Boolean get() = requested == ChatModel.Auto
 }
 
+private data class RouteScore(
+    val model: ChatModel,
+    val score: Int,
+    val reason: String
+)
+
 class AiWorkerClient(
     private val config: AiWorkerConfig = AiWorkerConfig()
 ) {
@@ -75,18 +81,99 @@ class AiWorkerClient(
 
         val latest = latestUserText(messages)
         val text = latest.lowercase()
-        val resolved = when {
-            onlineEnabled -> ChatModel.Gemini
-            hasAny(text, listOf("什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning")) -> ChatModel.Gemini
-            latest.length >= 900 || (latest.length >= 220 && hasAny(text, listOf("总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "summary", "summarize", "outline"))) -> ChatModel.Mistral
-            hasAny(text, listOf("代码", "报错", "kotlin", "compose", "android", "github", "gradle", "python", "java", "javascript", "html", "css", "接口", "api", "worker")) -> ChatModel.GptOss
-            hasAny(text, listOf("方案", "规划", "架构", "策略", "推理", "分析", "为什么", "怎么设计", "建模", "论文", "电路", "证明", "优化", "迁移", "实现思路", "数学", "计算")) -> ChatModel.DeepSeekV4
-            else -> ChatModel.Workers
-        }
-        return ModelRoute(ChatModel.Auto, resolved, "auto_v1")
+        if (onlineEnabled) return ModelRoute(ChatModel.Auto, ChatModel.Gemini, "auto_v2:web_search")
+
+        val route = scoreAutoV2(latest, text).maxWithOrNull(
+            compareBy<RouteScore> { it.score }
+                .thenBy { autoTieBreakPriority(it.model) }
+        ) ?: RouteScore(ChatModel.Kimi, 1, "qwen_default")
+
+        return ModelRoute(ChatModel.Auto, route.model, "auto_v2:${route.reason}")
     }
 
+    private fun scoreAutoV2(latest: String, text: String): List<RouteScore> {
+        val codeScore = 10 * countMatches(text, codeKeywords) + 7 * countMatches(text, appDevKeywords) + if (looksLikeCodeOrError(latest, text)) 18 else 0
+        val reasoningScore = 9 * countMatches(text, reasoningKeywords) + 11 * countMatches(text, stemKeywords) + 6 * countMatches(text, designKeywords) + if (hasFormulaSignal(latest)) 14 else 0
+        val translateScore = 10 * countMatches(text, translationKeywords)
+        val longWritingScore = 8 * countMatches(text, writingKeywords) + when {
+            latest.length >= 1600 -> 18
+            latest.length >= 900 -> 12
+            latest.length >= 420 && hasAny(text, writingKeywords) -> 8
+            else -> 0
+        }
+        val qwenGeneralScore = 12 + if (containsChinese(latest)) 6 else 0 + if (latest.length < 420) 4 else 0
+
+        return listOf(
+            RouteScore(ChatModel.GptOss, codeScore, "code_android_api"),
+            RouteScore(ChatModel.DeepSeekV4, reasoningScore, "reasoning_stem_design"),
+            RouteScore(ChatModel.Kimi, qwenGeneralScore + translateScore + longWritingScore / 2, "qwen_general_cn_translation_writing"),
+            RouteScore(ChatModel.Gemini, translateScore + if (hasAny(text, listOf("gemini", "联网", "搜索", "最新", "today", "latest"))) 4 else 0, "translation_or_online_hint"),
+            RouteScore(ChatModel.Mistral, longWritingScore, "long_summary_polish")
+        )
+    }
+
+    private fun autoTieBreakPriority(model: ChatModel): Int = when (model) {
+        ChatModel.Kimi -> 5
+        ChatModel.DeepSeekV4 -> 4
+        ChatModel.GptOss -> 3
+        ChatModel.Mistral -> 2
+        ChatModel.Gemini -> 1
+        ChatModel.Workers -> 0
+        ChatModel.Auto -> -1
+    }
+
+    private fun looksLikeCodeOrError(latest: String, text: String): Boolean {
+        return latest.contains("```") ||
+            latest.contains("Exception") ||
+            latest.contains("Traceback") ||
+            latest.contains("NullPointer") ||
+            latest.contains("Unresolved reference") ||
+            latest.contains("Cannot resolve") ||
+            text.contains("build failed") ||
+            text.contains("stacktrace") ||
+            Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
+    }
+
+    private fun hasFormulaSignal(text: String): Boolean {
+        return text.any { it in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } ||
+            Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) ||
+            Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
+    }
+
+    private fun containsChinese(text: String): Boolean = text.any { it in '\u4e00'..'\u9fff' }
+
+    private fun countMatches(text: String, keywords: List<String>): Int = keywords.count { text.contains(it) }
+
     private fun hasAny(text: String, keywords: List<String>): Boolean = keywords.any { text.contains(it) }
+
+    private val codeKeywords = listOf(
+        "代码", "报错", "bug", "修复", "编译", "构建", "函数", "类", "脚本", "依赖", "库", "接口", "api",
+        "kotlin", "compose", "android", "github", "gradle", "cloudflare", "worker", "python", "java", "javascript", "typescript", "html", "css", "json", "http", "request", "response"
+    )
+
+    private val appDevKeywords = listOf(
+        "app", "apk", "workflow", "actions", "commit", "分支", "仓库", "源码", "viewmodel", "client", "repository", "compose 原生"
+    )
+
+    private val reasoningKeywords = listOf(
+        "推理", "证明", "分析", "为什么", "原理", "思路", "计算", "求解", "推导", "判别", "极限", "偏导", "积分", "二重积分", "链式法则", "全微分"
+    )
+
+    private val stemKeywords = listOf(
+        "数学", "电路", "模电", "数电", "单片机", "stm32", "传感器", "建模", "模型", "仿真", "控制", "信号", "滤波", "放大器", "电磁", "物理"
+    )
+
+    private val designKeywords = listOf(
+        "方案", "设计", "架构", "策略", "优化", "规划", "迁移", "实现思路", "怎么做", "怎么设计", "技术路线", "系统设计"
+    )
+
+    private val translationKeywords = listOf(
+        "什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning", "pronunciation"
+    )
+
+    private val writingKeywords = listOf(
+        "总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "论文", "summary", "summarize", "outline", "polish", "rewrite"
+    )
 
     private fun buildPayload(messages: List<ChatMessage>, route: ModelRoute, onlineEnabled: Boolean): JSONObject {
         val workerMessages = messages.toWorkerMessages()
@@ -105,6 +192,7 @@ class AiWorkerClient(
             put("requestedModelPreference", resolvedId)
             put("model", resolvedId)
             put("modelId", resolvedId)
+            put("legacyModelPreference", if (route.resolved == ChatModel.Kimi) "kimi" else resolvedId)
             put("originalModelPreference", route.requested.id)
             put("autoRequested", route.isAuto)
             put("autoResolvedModel", resolvedId)
