@@ -101,7 +101,7 @@ class AiWorkerClient(
             latest.length >= 420 && hasAny(text, writingKeywords) -> 8
             else -> 0
         }
-        val qwenGeneralScore = 12 + if (containsChinese(latest)) 6 else 0 + if (latest.length < 420) 4 else 0
+        val qwenGeneralScore = 12 + (if (containsChinese(latest)) 6 else 0) + (if (latest.length < 420) 4 else 0)
 
         return listOf(
             RouteScore(ChatModel.GptOss, codeScore, "code_android_api"),
