@@ -70,7 +70,6 @@ fun AssistantScreenV2(
     state: AssistantUiState,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
-    onStopGenerating: () -> Unit,
     onDraftCommand: (String) -> Unit,
     onModelSelected: (ChatModel) -> Unit,
     onPickImage: () -> Unit,
@@ -97,27 +96,16 @@ fun AssistantScreenV2(
             )
         }
         AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
-            ChatPanelV2(
-                state = state,
-                modifier = Modifier.fillMaxWidth(),
-                onDraftCommand = onDraftCommand,
-                onPickImage = onPickImage,
-                onCopyMessage = onCopyMessage,
-                onRetryMessage = onRetryMessage
-            )
+            ChatPanelV2(state = state, modifier = Modifier.fillMaxWidth(), onDraftCommand = onDraftCommand, onPickImage = onPickImage)
         }
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(
-                state = state,
-                onComposerChange = onComposerChange,
-                onSend = onSend,
-                onStopGenerating = onStopGenerating,
-                onPickImage = onPickImage
-            )
+            ComposerBarV2(state = state, onComposerChange = onComposerChange, onSend = onSend, onPickImage = onPickImage)
         }
     }
     onOpenTools.hashCode()
     onOpenSettings.hashCode()
+    onCopyMessage.hashCode()
+    onRetryMessage.hashCode()
 }
 
 @Composable
@@ -199,14 +187,7 @@ private fun ModelAndNetworkPanel(
 }
 
 @Composable
-private fun ChatPanelV2(
-    state: AssistantUiState,
-    modifier: Modifier,
-    onDraftCommand: (String) -> Unit,
-    onPickImage: () -> Unit,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
-) {
+private fun ChatPanelV2(state: AssistantUiState, modifier: Modifier, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
     val listState = rememberLazyListState()
     val lastMessageId = state.messages.lastOrNull()?.id
     LaunchedEffect(lastMessageId) {
@@ -230,7 +211,7 @@ private fun ChatPanelV2(
                     contentPadding = PaddingValues(vertical = 3.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state, onCopyMessage, onRetryMessage) }
+                    items(state.messages, key = { it.id }) { message -> AnimatedMessageBubbleV2(message, state) }
                     item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                 }
             }
@@ -257,12 +238,7 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(
-    message: ChatMessage,
-    state: AssistantUiState,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
-) {
+private fun AnimatedMessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
     var visible by remember(message.id) { mutableStateOf(false) }
     LaunchedEffect(message.id) { visible = true }
@@ -273,17 +249,12 @@ private fun AnimatedMessageBubbleV2(
             scaleIn(initialScale = 0.90f, animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.96f, animationSpec = tween(120))
     ) {
-        MessageBubbleV2(message, state, onCopyMessage, onRetryMessage)
+        MessageBubbleV2(message, state)
     }
 }
 
 @Composable
-private fun MessageBubbleV2(
-    message: ChatMessage,
-    state: AssistantUiState,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
-) {
+private fun MessageBubbleV2(message: ChatMessage, state: AssistantUiState) {
     val fromUser = message.role == MessageRole.User
     val fill = if (fromUser) 0.76f else 0.90f
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -312,63 +283,28 @@ private fun MessageBubbleV2(
                 } else {
                     Text(text = messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
                 }
-                if (!fromUser) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MessageBadgeV2(message, Modifier.weight(1f))
-                        if (message.status == MessageStatus.Sent && message.text.isNotBlank()) {
-                            MessageActionChipV2("复制", state) { onCopyMessage(message.text) }
-                        }
-                        if (message.status == MessageStatus.Failed) {
-                            MessageActionChipV2("重试", state) { onRetryMessage(message.id) }
-                        }
-                    }
-                }
+                if (!fromUser) MessageBadgeV2(message)
             }
         }
     }
 }
 
 @Composable
-private fun MessageBadgeV2(message: ChatMessage, modifier: Modifier = Modifier) {
+private fun MessageBadgeV2(message: ChatMessage) {
     val text = messageBadgeTextV2(message) ?: return
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColorV2(message).copy(alpha = 0.82f)))
         Text(text, color = badgeColorV2(message).copy(alpha = 0.68f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun MessageActionChipV2(text: String, state: AssistantUiState, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 0.78f, state.motionIntensity, 999, Modifier.height(24.dp), GlassRole.Chip, onClick = onClick) {
-        Box(Modifier.padding(horizontal = 9.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.66f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-private fun ComposerBarV2(
-    state: AssistantUiState,
-    onComposerChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStopGenerating: () -> Unit,
-    onPickImage: () -> Unit
-) {
-    val view = androidx.compose.ui.platform.LocalView.current
-    val inputMethodManager = remember(view) {
-        view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-    }
-    val keyboardSendAction = if (state.isSending) ({}) else {
-        {
-            if (state.composerText.isNotBlank()) inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
-            onSend()
-        }
-    }
-    val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
+private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val sendAction = if (state.isSending) ({}) else onSend
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
-        SendButtonV2(state, onClick = buttonAction)
+        ComposerInputV2(state, state.composerText, onComposerChange, sendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = sendAction)
     }
 }
 
@@ -378,9 +314,9 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
                 value = text,
-                onValueChange = { if (!state.isSending) onTextChange(it) },
+                onValueChange = onTextChange,
                 singleLine = true,
-                enabled = true,
+                enabled = !state.isSending,
                 textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -398,7 +334,7 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
 private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            if (state.isSending) Text("×", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
+            if (state.isSending) Text("…", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black) else Text("↑", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
     }
 }
