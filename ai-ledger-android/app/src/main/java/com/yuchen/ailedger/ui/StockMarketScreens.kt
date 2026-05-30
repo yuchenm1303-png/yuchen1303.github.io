@@ -11,11 +11,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,20 +29,29 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockFeatureEntry
+import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AStockMarketScreenV2(
@@ -45,13 +59,37 @@ fun AStockMarketScreenV2(
     onBack: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
-    val stock = remember { sampleAStockDetailUiState() }
+    val repository = remember { StockRepository() }
+    val scope = rememberCoroutineScope()
+    var stock by remember { mutableStateOf(sampleAStockDetailUiState()) }
+    var query by remember { mutableStateOf(stock.quote.code) }
+    var loading by remember { mutableStateOf(false) }
     var showDetail by remember { mutableStateOf(false) }
+
+    fun loadStock(input: String, openDetail: Boolean) {
+        val target = input.trim().ifBlank { stock.quote.code }
+        scope.launch {
+            loading = true
+            val loaded = withContext(Dispatchers.IO) { repository.loadAStock(target) }
+            stock = loaded
+            query = loaded.quote.code
+            loading = false
+            if (openDetail) showDetail = true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        stock = withContext(Dispatchers.IO) { repository.loadAStock(query) }
+        query = stock.quote.code
+        loading = false
+    }
 
     if (showDetail) {
         AStockDetailScreen(
             state = state,
             stock = stock,
+            loading = loading,
             onBack = { showDetail = false },
             onOpenAssistant = onOpenAssistant
         )
@@ -59,8 +97,13 @@ fun AStockMarketScreenV2(
         AStockMarketHomeScreen(
             state = state,
             stock = stock,
+            query = query,
+            loading = loading,
+            onQueryChange = { query = it },
+            onSearch = { loadStock(query, true) },
             onBack = onBack,
-            onOpenDetail = { showDetail = true }
+            onOpenDetail = { showDetail = true },
+            onOpenCode = { code -> loadStock(code, true) }
         )
     }
 }
@@ -69,18 +112,24 @@ fun AStockMarketScreenV2(
 private fun AStockMarketHomeScreen(
     state: AssistantUiState,
     stock: StockDetailUiState,
+    query: String,
+    loading: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
     onBack: () -> Unit,
-    onOpenDetail: () -> Unit
+    onOpenDetail: () -> Unit,
+    onOpenCode: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        item { AStockTopBar("A股行情首页", "自选、指数、热榜、龙虎榜、板块和资金流", state, onBack) }
+        item { AStockTopBar("A股行情首页", "搜索个股、查看自选、指数、热榜和龙虎榜", state, onBack) }
+        item { AStockSearchPanel(state, query, loading, stock, onQueryChange, onSearch) }
         item { AStockHomeHero(state, stock, onOpenDetail) }
         item { AStockIndexPanel(state, stock) }
-        item { AStockWatchPanel(state, stock, onOpenDetail) }
+        item { AStockWatchPanel(state, stock, onOpenCode) }
         item { AStockFeatureMatrix(state, stock) }
         item { AStockMarketBoards(state, stock) }
     }
@@ -90,6 +139,7 @@ private fun AStockMarketHomeScreen(
 private fun AStockDetailScreen(
     state: AssistantUiState,
     stock: StockDetailUiState,
+    loading: Boolean,
     onBack: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
@@ -99,13 +149,67 @@ private fun AStockDetailScreen(
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item { AStockTopBar("${stock.quote.name}", "${stock.quote.code} · ${stock.quote.market} · 个股看盘详情", state, onBack) }
+        item { AStockDataStatus(state, stock, loading) }
         item { AStockQuotePanel(state, stock) }
         item { AStockTabs(state) }
+        item { AStockKLineChart(state, stock) }
         item { AStockMinuteChart(state, stock) }
         item { AStockOrderBook(state, stock) }
         item { AStockTradeAndFlow(state, stock) }
         item { AStockInfoPanel(state, stock) }
         item { AStockAiPanel(state, stock, onOpenAssistant) }
+    }
+}
+
+@Composable
+private fun AStockSearchPanel(
+    state: AssistantUiState,
+    query: String,
+    loading: Boolean,
+    stock: StockDetailUiState,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit
+) {
+    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Section("搜索个股", "输入 A 股代码或名称，先接真实报价和日K线")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, Modifier.weight(1f).height(46.dp), GlassRole.Chip) {
+                    Box(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                        BasicTextField(
+                            value = query,
+                            onValueChange = onQueryChange,
+                            singleLine = true,
+                            textStyle = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold),
+                            cursorBrush = SolidColor(Color.White.copy(alpha = 0.85f)),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (query.isBlank()) Text("例如 600519 / 贵州茅台", color = Color.White.copy(alpha = 0.38f), fontSize = 13.sp)
+                    }
+                }
+                PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 20, Modifier.height(46.dp), GlassRole.Floating, onClick = onSearch) {
+                    Box(Modifier.padding(horizontal = 16.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(if (loading) "加载" else "搜索", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+            Text("当前：${stock.quote.name} ${stock.quote.code} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            stock.errorMessage?.let {
+                Text("提示：$it", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AStockDataStatus(state: AssistantUiState, stock: StockDetailUiState, loading: Boolean) {
+    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 22, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(if (loading) "正在刷新真实行情…" else stock.dataSourceLabel, color = Color.White.copy(alpha = 0.76f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            stock.errorMessage?.let { Text("真实接口暂不可用：$it", color = Color(0xFFFFC857).copy(alpha = 0.82f), fontSize = 11.sp, lineHeight = 16.sp) }
+        }
     }
 }
 
@@ -202,9 +306,50 @@ private fun AStockTabs(state: AssistantUiState) {
     GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Card) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf("分时", "日K", "周K", "月K", "五日", "更多").forEachIndexed { index, label ->
-                GlassPanel(state.quality, state.glassIntensity * if (index == 0) 1.02f else 0.78f, state.motionIntensity, 999, Modifier.weight(1f).height(34.dp), if (index == 0) GlassRole.Floating else GlassRole.Chip) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label, color = Color.White.copy(alpha = if (index == 0) 0.94f else 0.48f), fontSize = 12.sp, fontWeight = FontWeight.Black) }
+                GlassPanel(state.quality, state.glassIntensity * if (index == 1) 1.02f else 0.78f, state.motionIntensity, 999, Modifier.weight(1f).height(34.dp), if (index == 1) GlassRole.Floating else GlassRole.Chip) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(label, color = Color.White.copy(alpha = if (index == 1) 0.94f else 0.48f), fontSize = 12.sp, fontWeight = FontWeight.Black) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AStockKLineChart(state: AssistantUiState, stock: StockDetailUiState) {
+    val points = stock.kLinePoints.takeLast(36).ifEmpty { sampleAStockDetailUiState().kLinePoints }
+    GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Section("日K线", "已接真实日K原型；红涨绿跌，后续扩展 MA / 周K / 月K")
+            Canvas(modifier = Modifier.fillMaxWidth().height(210.dp)) {
+                val minPrice = (points.minOfOrNull { it.low } ?: 0f).coerceAtLeast(0.01f)
+                val maxPrice = (points.maxOfOrNull { it.high } ?: 1f).coerceAtLeast(minPrice + 0.01f)
+                val range = (maxPrice - minPrice).coerceAtLeast(0.01f)
+                val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx(); val top = 10.dp.toPx(); val bottom = size.height * 0.70f
+                val volumeTop = bottom + 16.dp.toPx(); val volumeBottom = size.height - 8.dp.toPx()
+                repeat(4) { i -> val y = top + (bottom - top) * i / 3f; drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round) }
+                val candleSpace = (right - left) / points.size.coerceAtLeast(1)
+                val candleWidth = candleSpace * 0.54f
+                val maxVolume = points.maxOfOrNull { it.volume } ?: 1f
+                fun y(value: Float): Float = bottom - (value - minPrice) / range * (bottom - top)
+                points.forEachIndexed { index, point ->
+                    val x = left + candleSpace * index + candleSpace / 2f
+                    val color = if (point.close >= point.open) RiseRed else FallGreen
+                    val highY = y(point.high)
+                    val lowY = y(point.low)
+                    val openY = y(point.open)
+                    val closeY = y(point.close)
+                    drawLine(color.copy(alpha = 0.86f), Offset(x, highY), Offset(x, lowY), 1.2.dp.toPx(), cap = StrokeCap.Round)
+                    val rectTop = minOf(openY, closeY)
+                    val rectHeight = kotlin.math.abs(closeY - openY).coerceAtLeast(1.6.dp.toPx())
+                    drawRoundRect(color.copy(alpha = 0.82f), Offset(x - candleWidth / 2f, rectTop), Size(candleWidth, rectHeight), CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx()))
+                    val barHeight = (volumeBottom - volumeTop) * (point.volume / maxVolume).coerceIn(0.04f, 1f)
+                    drawRoundRect(color.copy(alpha = 0.45f), Offset(x - candleWidth / 2f, volumeBottom - barHeight), Size(candleWidth, barHeight), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text(points.firstOrNull()?.date.orEmpty(), color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("${points.size} 日", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(points.lastOrNull()?.date.orEmpty(), color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -272,17 +417,15 @@ private fun AStockMinuteChart(state: AssistantUiState, stock: StockDetailUiState
     val points = stock.minutePoints
     GlassPanel(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Section("分时走势", "白线价格 · 黄线均价 · 下方成交量")
-            Canvas(modifier = Modifier.fillMaxWidth().height(210.dp)) {
+            Section("分时走势", "当前先由日K近端数据生成轮廓，后续接分钟分时")
+            Canvas(modifier = Modifier.fillMaxWidth().height(160.dp)) {
                 val prices = points.map { it.price }
                 val averages = points.map { it.average }
-                val minValue = minOf(prices.minOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 0.90f
-                val maxValue = maxOf(prices.maxOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 1.01f
+                val minValue = minOf(prices.minOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 0.98f
+                val maxValue = maxOf(prices.maxOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 1.02f
                 val range = (maxValue - minValue).coerceAtLeast(0.01f)
-                val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx(); val top = 10.dp.toPx(); val bottom = size.height * 0.70f
-                val volumeTop = bottom + 16.dp.toPx(); val volumeBottom = size.height - 8.dp.toPx()
+                val left = 6.dp.toPx(); val right = size.width - 6.dp.toPx(); val top = 10.dp.toPx(); val bottom = size.height - 12.dp.toPx()
                 repeat(4) { i -> val y = top + (bottom - top) * i / 3f; drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round) }
-                repeat(5) { i -> val x = left + (right - left) * i / 4f; drawLine(Color.White.copy(alpha = 0.12f), Offset(x, top), Offset(x, volumeBottom), 1.dp.toPx(), cap = StrokeCap.Round) }
                 val baseY = bottom - (stock.quote.previousClose - minValue) / range * (bottom - top)
                 drawLine(Color.White.copy(alpha = 0.25f), Offset(left, baseY), Offset(right, baseY), 1.dp.toPx(), cap = StrokeCap.Round)
                 fun point(index: Int, value: Float): Offset = Offset(left + (right - left) * index / prices.lastIndex.coerceAtLeast(1).toFloat(), bottom - (value - minValue) / range * (bottom - top))
@@ -290,18 +433,6 @@ private fun AStockMinuteChart(state: AssistantUiState, stock: StockDetailUiState
                 val avgPath = Path(); averages.forEachIndexed { i, v -> val p = point(i, v); if (i == 0) avgPath.moveTo(p.x, p.y) else avgPath.lineTo(p.x, p.y) }
                 drawPath(pricePath, Color.White.copy(alpha = 0.92f), style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round))
                 drawPath(avgPath, Color(0xFFFFC857), style = Stroke(width = 1.7.dp.toPx(), cap = StrokeCap.Round))
-                points.forEachIndexed { i, point ->
-                    val barWidth = (right - left) / points.size * 0.52f
-                    val x = left + (right - left) * i / points.lastIndex.coerceAtLeast(1).toFloat()
-                    val barHeight = (volumeBottom - volumeTop) * point.volumeRatio.coerceIn(0f, 1f)
-                    val color = if (i > 0 && point.price >= points[i - 1].price) RiseRed else FallGreen
-                    drawRoundRect(color.copy(alpha = 0.62f), Offset(x - barWidth / 2f, volumeBottom - barHeight), Size(barWidth, barHeight), CornerRadius(2.dp.toPx(), 2.dp.toPx()))
-                }
-            }
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("09:30", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text("11:30 / 13:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text("15:00", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -311,7 +442,7 @@ private fun AStockMinuteChart(state: AssistantUiState, stock: StockDetailUiState
 private fun AStockOrderBook(state: AssistantUiState, stock: StockDetailUiState) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Section("十档盘口", "卖盘在上，买盘在下")
+            Section("十档盘口", "卖盘在上，买盘在下；接口下一步接入")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { stock.sellLevels.forEach { OrderRow(it) } }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { stock.buyLevels.forEach { OrderRow(it) } }
@@ -336,7 +467,7 @@ private fun AStockTradeAndFlow(state: AssistantUiState, stock: StockDetailUiStat
         stock.tradeTicks.forEach { tick -> add("${tick.time}  ${tick.price}  ${tick.volume}  ${tick.direction}") }
         add("主力净流入 ${stock.moneyFlow.mainInflow}    超大单 ${stock.moneyFlow.superLargeOrder}    大单 ${stock.moneyFlow.largeOrder}")
     }
-    InfoCard(state, "成交与资金", "逐笔成交、主力净流入和大单结构", rows)
+    InfoCard(state, "成交与资金", "逐笔成交、主力净流入和大单结构；接口下一步接入", rows)
 }
 
 @Composable
@@ -360,12 +491,12 @@ private fun AStockIndexPanel(state: AssistantUiState, stock: StockDetailUiState)
 }
 
 @Composable
-private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState, onOpenDetail: (() -> Unit)? = null) {
+private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState, onOpenCode: ((String) -> Unit)? = null) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Section("A股自选", "点示例股进入个股详情，后续接搜索、添加和本地持久化")
+            Section("A股自选", "点示例股会尝试加载真实报价与日K")
             stock.watchlist.forEach { item ->
-                PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(42.dp), GlassRole.Chip, onClick = { onOpenDetail?.invoke() }) {
+                PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(42.dp), GlassRole.Chip, onClick = { onOpenCode?.invoke(item.code) }) {
                     Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
