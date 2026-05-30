@@ -1,3 +1,4 @@
-Fix target: StockRepository Kotlin null-safety compile error
-Purpose: trigger Build Compose Android APK after fixing nullable JSONObject access.
-App source code remains solidified in Kotlin/Compose source.
+Trigger target: a0aa6e0c8ec60a39f9c13da94c269f6227217186
+Purpose: trigger Build Compose Android APK after adding DeepSeek V4 Pro and GPT OSS 120B model routing.
+Changed behavior: Android model picker includes two new NVIDIA NIM models and Auto v1 can route technical/reasoning tasks to them.
+Trigger path: ai-ledger-android/app/.build-trigger.txt
