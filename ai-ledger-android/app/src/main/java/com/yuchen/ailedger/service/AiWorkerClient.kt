@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
-private const val DEFAULT_READ_TIMEOUT_MS = 90_000
+private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
