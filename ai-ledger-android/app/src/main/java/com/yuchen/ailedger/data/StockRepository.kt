@@ -14,7 +14,7 @@ import java.util.Locale
 import org.json.JSONObject
 
 class StockRepository(
-    private val proxyBaseUrl: String = ""
+    private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
     fun loadAStock(query: String): StockDetailUiState {
         val base = sampleAStockDetailUiState()
@@ -44,11 +44,11 @@ class StockRepository(
             topMetrics = topMetricsFor(quote),
             minutePoints = minutePoints,
             kLinePoints = kLines,
-            dataSourceLabel = obj.optString("dataSourceLabel", "Tushare Pro 后端代理 · ${quote.code}"),
+            dataSourceLabel = obj.optString("dataSourceLabel", "AKShare 行情代理 · ${quote.code}"),
             errorMessage = null,
             aiSummary = obj.optString(
                 "aiSummary",
-                "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情来自后端代理，App 内不保存 Tushare token；盘口、资金和资讯可继续在代理侧扩展。"
+                "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情来自后端代理，App 内不直接连接第三方行情源；盘口、资金和资讯可继续在代理侧扩展。"
             )
         )
     }
@@ -65,7 +65,7 @@ class StockRepository(
             kLinePoints = kLines,
             dataSourceLabel = "东方财富公开行情 · ${quote.code}",
             errorMessage = null,
-            aiSummary = "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。日K与报价已尝试从公开行情源刷新；正式版建议切到 Tushare Pro 后端代理。"
+            aiSummary = "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。日K与报价已尝试从公开行情源刷新；正式版建议切到后端行情代理。"
         )
     }
 
