@@ -3,13 +3,16 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
+import json
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 import akshare as ak
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI Ledger A股行情代理", version="0.1.2")
+app = FastAPI(title="AI Ledger A股行情代理", version="0.1.3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,13 +65,30 @@ def _format_price(value: Any) -> str:
     return f"{number:.2f}"
 
 
+def _format_scaled_price(value: Any) -> str:
+    number = _safe_float(value, -1.0)
+    if number <= 0 or number > 100000000:
+        return "--"
+    return f"{number / 100.0:.2f}"
+
+
 def _format_signed(value: Any) -> str:
     number = _safe_float(value, 0.0)
     return f"{number:+.2f}"
 
 
+def _format_signed_scaled(value: Any) -> str:
+    number = _safe_float(value, 0.0) / 100.0
+    return f"{number:+.2f}"
+
+
 def _format_percent(value: Any, signed: bool = False) -> str:
     number = _safe_float(value, 0.0)
+    return f"{number:+.2f}%" if signed else f"{number:.2f}%"
+
+
+def _format_scaled_percent(value: Any, signed: bool = False) -> str:
+    number = _safe_float(value, 0.0) / 100.0
     return f"{number:+.2f}%" if signed else f"{number:.2f}%"
 
 
@@ -93,6 +113,10 @@ def _market_name(code: str) -> str:
     return "深A"
 
 
+def _secid_for_code(code: str) -> str:
+    return f"1.{code}" if code.startswith(("6", "9")) else f"0.{code}"
+
+
 def _normalize_code(value: Any) -> str:
     text = _safe_str(value, "")
     digits = "".join(ch for ch in text if ch.isdigit())
@@ -113,7 +137,7 @@ def _code_from_query(query: str) -> str | None:
 def _cache_get(key: str | None, max_age_seconds: int) -> tuple[dict[str, Any], int] | None:
     if not key:
         return None
-    entry = _detail_cache.get(key)
+    entry = _detail_cache.get(_query_key(key))
     if entry is None:
         return None
     created_at, payload = entry
@@ -132,8 +156,8 @@ def _cache_put(payload: dict[str, Any], *keys: str | None) -> None:
 
 def _as_cached_payload(payload: dict[str, Any], age: int, reason: str | None = None) -> dict[str, Any]:
     cached = deepcopy(payload)
-    quote = cached.get("quote") or {}
-    code = quote.get("code") or "--"
+    quote_data = cached.get("quote") or {}
+    code = quote_data.get("code") or "--"
     cached["dataSourceLabel"] = f"AKShare 缓存行情 · {code} · {age}s前"
     warnings = list(cached.get("warnings") or [])
     warnings.append(f"cache: hit, age={age}s")
@@ -141,6 +165,20 @@ def _as_cached_payload(payload: dict[str, Any], age: int, reason: str | None = N
         warnings.append(f"realtime_failed: {reason}")
     cached["warnings"] = warnings
     return cached
+
+
+def _http_json(url: str, timeout: int = 10) -> dict[str, Any]:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://quote.eastmoney.com/",
+            "Accept": "application/json,text/plain,*/*",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8", errors="ignore")
+    return json.loads(raw)
 
 
 def _get_spot_df() -> pd.DataFrame:
@@ -297,14 +335,7 @@ def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[s
             for _, row in df.tail(120).iterrows():
                 price = _safe_float(row.get(close_col))
                 closes.append(price)
-                points.append(
-                    {
-                        "time": _safe_str(row.iloc[0])[-8:-3],
-                        "price": price,
-                        "average": sum(closes) / max(len(closes), 1),
-                        "volumeRatio": min(max((_safe_float(row.get(volume_col)) if volume_col else 1.0) / max_volume, 0.02), 1.0),
-                    }
-                )
+                points.append({"time": _safe_str(row.iloc[0])[-8:-3], "price": price, "average": sum(closes) / max(len(closes), 1), "volumeRatio": min(max((_safe_float(row.get(volume_col)) if volume_col else 1.0) / max_volume, 0.02), 1.0)})
             if points:
                 return points
     except Exception:
@@ -319,50 +350,135 @@ def _load_minute_points(code: str, k_lines: list[dict[str, Any]]) -> list[dict[s
     for index, item in enumerate(recent):
         price = _safe_float(item.get("close"))
         closes.append(price)
-        points.append(
-            {
-                "time": {0: "09:30", 5: "11:30", 6: "13:00", 11: "15:00"}.get(index, ""),
-                "price": price,
-                "average": sum(closes) / max(len(closes), 1),
-                "volumeRatio": min(max(item["volume"] / max_volume, 0.05), 1.0),
-            }
-        )
+        points.append({"time": {0: "09:30", 5: "11:30", 6: "13:00", 11: "15:00"}.get(index, ""), "price": price, "average": sum(closes) / max(len(closes), 1), "volumeRatio": min(max(item["volume"] / max_volume, 0.05), 1.0)})
     return points
 
 
+def _em_quote(code: str) -> dict[str, Any] | None:
+    try:
+        url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={_secid_for_code(code)}&fields=f43,f44,f45,f46,f48,f50,f57,f58,f60,f116,f117,f162,f168,f169,f170"
+        data = _http_json(url, timeout=8).get("data")
+        if not data:
+            return None
+        change_raw = _safe_float(data.get("f169"), 0.0)
+        return {
+            "name": _safe_str(data.get("f58"), code),
+            "code": _safe_str(data.get("f57"), code),
+            "market": _market_name(code),
+            "price": _format_scaled_price(data.get("f43")),
+            "changeAmount": _format_signed_scaled(data.get("f169")),
+            "changePercent": _format_scaled_percent(data.get("f170"), signed=True),
+            "isRising": change_raw >= 0,
+            "previousClose": _safe_float(data.get("f60"), 0.0) / 100.0,
+            "high": _format_scaled_price(data.get("f44")),
+            "low": _format_scaled_price(data.get("f45")),
+            "open": _format_scaled_price(data.get("f46")),
+            "totalMarketValue": _format_cn_money(data.get("f116")),
+            "floatMarketValue": _format_cn_money(data.get("f117")),
+            "volumeRatio": _format_scaled_price(data.get("f50")),
+            "turnoverRate": _format_scaled_percent(data.get("f168")),
+            "peTtm": _format_scaled_price(data.get("f162")),
+            "pb": "--",
+            "amount": _format_cn_money(data.get("f48")),
+            "popularityRank": "--",
+        }
+    except Exception:
+        return None
+
+
+def _em_daily_kline(code: str) -> list[dict[str, Any]]:
+    try:
+        url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={_secid_for_code(code)}&klt=101&fqt=1&lmt=80&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+        data = _http_json(url, timeout=10).get("data") or {}
+        klines = data.get("klines") or []
+        rows = []
+        for item in klines:
+            parts = str(item).split(",")
+            if len(parts) >= 9:
+                rows.append({"date": parts[0][-5:], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": max(_safe_float(parts[5]) / 10000.0, 0.01), "amount": max(_safe_float(parts[6]) / 100000000.0, 0.01), "changePercent": _format_percent(parts[8], signed=True)})
+        return rows
+    except Exception:
+        return []
+
+
+def _em_minute_points(code: str) -> list[dict[str, Any]]:
+    try:
+        url = f"https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid={_secid_for_code(code)}&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1"
+        data = _http_json(url, timeout=8).get("data") or {}
+        trends = data.get("trends") or []
+        points = []
+        closes: list[float] = []
+        max_volume = 1.0
+        parsed = []
+        for item in trends[-120:]:
+            parts = str(item).split(",")
+            if len(parts) >= 6:
+                price = _safe_float(parts[2])
+                volume = _safe_float(parts[5], 1.0)
+                parsed.append((parts[0][-5:], price, volume))
+                max_volume = max(max_volume, volume)
+        for time_text, price, volume in parsed:
+            closes.append(price)
+            points.append({"time": time_text, "price": price, "average": sum(closes) / max(len(closes), 1), "volumeRatio": min(max(volume / max_volume, 0.02), 1.0)})
+        return points
+    except Exception:
+        return []
+
+
 def _build_detail_payload(query: str) -> dict[str, Any]:
+    warnings = []
     resolved = _resolve_stock(query)
     code = resolved["code"]
     name = resolved["name"]
     row = resolved.get("row")
+
     k_lines = _load_daily_kline(code)
+    if not k_lines:
+        em_k_lines = _em_daily_kline(code)
+        if em_k_lines:
+            k_lines = em_k_lines
+            warnings.append("ak_daily_empty: fast_public_kline_fallback")
+
     if row is not None:
-        quote = _quote_from_spot_row(code, name, row)
-    elif k_lines:
-        quote = _quote_from_kline(code, name, k_lines)
+        quote_data = _quote_from_spot_row(code, name, row)
     else:
-        raise HTTPException(status_code=502, detail=f"AKShare 暂未返回 {query} 的报价或 K 线数据")
+        quote_data = _em_quote(code)
+        if quote_data is not None:
+            name = quote_data.get("name", name)
+            warnings.append("ak_spot_empty: fast_public_quote_fallback")
+        elif k_lines:
+            quote_data = _quote_from_kline(code, name, k_lines)
+        else:
+            raise HTTPException(status_code=502, detail=f"AKShare 暂未返回 {query} 的报价或 K 线数据")
+
     minute_points = _load_minute_points(code, k_lines)
-    warnings = []
+    if not minute_points:
+        minute_points = _em_minute_points(code)
+        if minute_points:
+            warnings.append("ak_minute_empty: fast_public_minute_fallback")
+
     if _last_spot_error:
         warnings.append(f"spot: {_last_spot_error}")
     if not k_lines:
         warnings.append("daily_kline: empty")
     if not minute_points:
         warnings.append("minute_points: empty")
+
+    using_fallback = any("fallback" in item for item in warnings)
+    label = f"AKShare主源 + 快速公开源兜底 · {code}" if using_fallback else f"AKShare 免费行情代理 · {code}"
     return {
-        "dataSourceLabel": f"AKShare 免费行情代理 · {code}",
-        "quote": quote,
+        "dataSourceLabel": label,
+        "quote": quote_data,
         "kLinePoints": k_lines,
         "minutePoints": minute_points,
         "warnings": warnings,
-        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。报价、K线和分时轮廓来自 AKShare 代理；如果实时源暂时失败，会自动返回最近一次真实缓存。",
+        "aiSummary": f"{name} 当前价 {quote_data['price']}，涨跌幅 {quote_data['changePercent']}。AKShare 为主源；若免费源暂时失败，会使用缓存或快速公开源补齐首屏行情。",
     }
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "dataSource": "AKShare primary + cache fallback", "cacheSize": len(_detail_cache)}
+    return {"status": "ok", "dataSource": "AKShare primary + cache + fast fallback", "cacheSize": len(_detail_cache)}
 
 
 @app.get("/api/stock/a-share/detail")
@@ -377,9 +493,9 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
 
     try:
         payload = _build_detail_payload(query)
-        quote = payload.get("quote") or {}
-        code = _safe_str(quote.get("code"), code_key or "")
-        name = _safe_str(quote.get("name"), "")
+        quote_data = payload.get("quote") or {}
+        code = _safe_str(quote_data.get("code"), code_key or "")
+        name = _safe_str(quote_data.get("name"), "")
         _cache_put(payload, key, code, name)
         return payload
     except HTTPException as exc:
@@ -393,4 +509,4 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
         if stale is not None:
             payload, age = stale
             return _as_cached_payload(payload, age, reason=f"{type(exc).__name__}: {exc}")
-        raise HTTPException(status_code=502, detail=f"AKShare 行情代理异常：{type(exc).__name__}: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"行情代理异常：{type(exc).__name__}: {exc}") from exc
