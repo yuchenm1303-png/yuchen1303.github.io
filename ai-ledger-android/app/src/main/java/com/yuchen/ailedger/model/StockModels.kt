@@ -35,6 +35,17 @@ data class StockMinutePoint(
     val volumeRatio: Float
 )
 
+data class StockKLinePoint(
+    val date: String,
+    val open: Float,
+    val close: Float,
+    val high: Float,
+    val low: Float,
+    val volume: Float,
+    val amount: Float,
+    val changePercent: String
+)
+
 data class StockOrderLevel(
     val label: String,
     val price: String,
@@ -112,7 +123,10 @@ data class StockDetailUiState(
     val watchlist: List<StockWatchItem>,
     val featureGroups: List<StockFeatureGroup>,
     val marketBoards: List<StockMarketBoard>,
-    val aiSummary: String
+    val aiSummary: String,
+    val kLinePoints: List<StockKLinePoint> = emptyList(),
+    val dataSourceLabel: String = "示例数据",
+    val errorMessage: String? = null
 )
 
 enum class StockTone { Rising, Falling, Neutral }
@@ -226,9 +240,19 @@ fun sampleAStockDetailUiState(): StockDetailUiState {
         ),
         featureGroups = sampleAStockFeatureGroups(),
         marketBoards = sampleAStockMarketBoards(),
-        aiSummary = "当前示例股冲高后回落，价格仍高于昨收线；成交量明显放大，盘口买一挂单较厚。接入真实行情后，这里会结合分时、量能、盘口、资金流、公告和新闻自动生成摘要。"
+        aiSummary = "当前示例股冲高后回落，价格仍高于昨收线；成交量明显放大，盘口买一挂单较厚。接入真实行情后，这里会结合分时、量能、盘口、资金流、公告和新闻自动生成摘要。",
+        kLinePoints = sampleKLinePoints(),
+        dataSourceLabel = "示例数据"
     )
 }
+
+private fun sampleKLinePoints(): List<StockKLinePoint> = listOf(
+    StockKLinePoint("05-10", 18.10f, 18.55f, 18.70f, 17.98f, 0.42f, 7.2f, "+2.12%"),
+    StockKLinePoint("05-13", 18.60f, 19.05f, 19.22f, 18.30f, 0.56f, 9.1f, "+2.70%"),
+    StockKLinePoint("05-14", 19.08f, 18.86f, 19.44f, 18.72f, 0.48f, 8.4f, "-1.00%"),
+    StockKLinePoint("05-15", 18.90f, 19.26f, 19.38f, 18.65f, 0.62f, 10.2f, "+2.12%"),
+    StockKLinePoint("05-16", 19.18f, 20.03f, 20.80f, 19.18f, 1.00f, 60.1f, "+4.00%")
+)
 
 private fun sampleAStockFeatureGroups(): List<StockFeatureGroup> = listOf(
     StockFeatureGroup(
@@ -326,58 +350,10 @@ private fun sampleAStockFeatureGroups(): List<StockFeatureGroup> = listOf(
 )
 
 private fun sampleAStockMarketBoards(): List<StockMarketBoard> = listOf(
-    StockMarketBoard(
-        title = "热度排行榜",
-        subtitle = "示例：综合搜索、讨论和成交活跃度",
-        items = listOf(
-            StockRankItem("华电能源", "600396", "热度 99", "+4.00%", true),
-            StockRankItem("四川长虹", "600839", "热度 96", "+6.31%", true),
-            StockRankItem("中际旭创", "300308", "热度 93", "-1.08%", false)
-        )
-    ),
-    StockMarketBoard(
-        title = "龙虎榜",
-        subtitle = "示例：机构、游资和营业部席位异动",
-        items = listOf(
-            StockRankItem("宗申动力", "001696", "净买 1.86亿", "+10.01%", true),
-            StockRankItem("万丰奥威", "002085", "机构买入", "+7.42%", true),
-            StockRankItem("常山北明", "000158", "游资活跃", "-2.36%", false)
-        )
-    ),
-    StockMarketBoard(
-        title = "涨停梯队",
-        subtitle = "示例：连板高度、首板和炸板观察",
-        items = listOf(
-            StockRankItem("南京商旅", "600250", "4连板", "+10.02%", true),
-            StockRankItem("国机汽车", "600335", "2连板", "+9.98%", true),
-            StockRankItem("合锻智能", "603011", "首板", "+10.00%", true)
-        )
-    ),
-    StockMarketBoard(
-        title = "板块热度",
-        subtitle = "示例：行业/概念强弱和涨跌家数",
-        items = listOf(
-            StockRankItem("电力", "BK0428", "涨 42 家", "+2.86%", true),
-            StockRankItem("算力", "BK1136", "涨 38 家", "+2.12%", true),
-            StockRankItem("医药商业", "BK0465", "跌 29 家", "-1.06%", false)
-        )
-    ),
-    StockMarketBoard(
-        title = "资金流向",
-        subtitle = "示例：主力净流入和北向关注方向",
-        items = listOf(
-            StockRankItem("宁德时代", "300750", "主力 +5.2亿", "+1.26%", true),
-            StockRankItem("贵州茅台", "600519", "北向 +3.4亿", "+0.81%", true),
-            StockRankItem("东方财富", "300059", "主力 -2.1亿", "-0.66%", false)
-        )
-    ),
-    StockMarketBoard(
-        title = "竞价异动",
-        subtitle = "示例：高开、低开、抢筹和核按钮",
-        items = listOf(
-            StockRankItem("比亚迪", "002594", "高开 2.1%", "+1.12%", true),
-            StockRankItem("赛力斯", "601127", "抢筹 1.4亿", "+3.28%", true),
-            StockRankItem("药明康德", "603259", "低开 1.8%", "-1.54%", false)
-        )
-    )
+    StockMarketBoard("热度排行榜", "示例：综合搜索、讨论和成交活跃度", listOf(StockRankItem("华电能源", "600396", "热度 99", "+4.00%", true), StockRankItem("四川长虹", "600839", "热度 96", "+6.31%", true), StockRankItem("中际旭创", "300308", "热度 93", "-1.08%", false))),
+    StockMarketBoard("龙虎榜", "示例：机构、游资和营业部席位异动", listOf(StockRankItem("宗申动力", "001696", "净买 1.86亿", "+10.01%", true), StockRankItem("万丰奥威", "002085", "机构买入", "+7.42%", true), StockRankItem("常山北明", "000158", "游资活跃", "-2.36%", false))),
+    StockMarketBoard("涨停梯队", "示例：连板高度、首板和炸板观察", listOf(StockRankItem("南京商旅", "600250", "4连板", "+10.02%", true), StockRankItem("国机汽车", "600335", "2连板", "+9.98%", true), StockRankItem("合锻智能", "603011", "首板", "+10.00%", true))),
+    StockMarketBoard("板块热度", "示例：行业/概念强弱和涨跌家数", listOf(StockRankItem("电力", "BK0428", "涨 42 家", "+2.86%", true), StockRankItem("算力", "BK1136", "涨 38 家", "+2.12%", true), StockRankItem("医药商业", "BK0465", "跌 29 家", "-1.06%", false))),
+    StockMarketBoard("资金流向", "示例：主力净流入和北向关注方向", listOf(StockRankItem("宁德时代", "300750", "主力 +5.2亿", "+1.26%", true), StockRankItem("贵州茅台", "600519", "北向 +3.4亿", "+0.81%", true), StockRankItem("东方财富", "300059", "主力 -2.1亿", "-0.66%", false))),
+    StockMarketBoard("竞价异动", "示例：高开、低开、抢筹和核按钮", listOf(StockRankItem("比亚迪", "002594", "高开 2.1%", "+1.12%", true), StockRankItem("赛力斯", "601127", "抢筹 1.4亿", "+3.28%", true), StockRankItem("药明康德", "603259", "低开 1.8%", "-1.54%", false)))
 )
