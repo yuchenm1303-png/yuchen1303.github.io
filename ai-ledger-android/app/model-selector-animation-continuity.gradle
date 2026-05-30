@@ -11,30 +11,63 @@ tasks.register('patchModelSelectorAnimationContinuity') {
 '''
         def strengthWithRenderLatch = '''                var strength by remember(model.id) { mutableStateOf(1f) }
                 var renderAsFullCard by remember(model.id) { mutableStateOf(expanded) }
+                val foldedBlendAnim = remember(model.id) { Animatable(if (expanded) 0f else 1f) }
 '''
         if (text.contains(strengthLine) && !text.contains('var renderAsFullCard by remember(model.id)')) {
             text = text.replace(strengthLine, strengthWithRenderLatch)
-            println('Inserted full-card render latch for model selector animation continuity.')
+            println('Inserted full-card render latch and folded blend animation for model selector continuity.')
+        } else if (text.contains('var renderAsFullCard by remember(model.id)') && !text.contains('val foldedBlendAnim = remember(model.id)')) {
+            text = text.replace('''                var renderAsFullCard by remember(model.id) { mutableStateOf(expanded) }
+''', '''                var renderAsFullCard by remember(model.id) { mutableStateOf(expanded) }
+                val foldedBlendAnim = remember(model.id) { Animatable(if (expanded) 0f else 1f) }
+''')
+            println('Inserted folded blend animation beside existing render latch.')
         }
 
         def targetLine = '''                    val target = if (expanded) 1f else 0f
 '''
         def targetWithLatch = '''                    val target = if (expanded) 1f else 0f
                     renderAsFullCard = true
+                    foldedBlendAnim.stop()
+                    foldedBlendAnim.snapTo(0f)
 '''
-        if (text.contains(targetLine) && !text.contains('renderAsFullCard = true')) {
+        if (text.contains(targetLine) && !text.contains('foldedBlendAnim.snapTo(0f)')) {
             text = text.replace(targetLine, targetWithLatch)
-            println('Latched full-card rendering before model selector motion starts.')
+            println('Latched full-card rendering and reset folded blend before model selector motion starts.')
+        } else if (text.contains('renderAsFullCard = true') && !text.contains('foldedBlendAnim.snapTo(0f)')) {
+            text = text.replace('''                    renderAsFullCard = true
+''', '''                    renderAsFullCard = true
+                    foldedBlendAnim.stop()
+                    foldedBlendAnim.snapTo(0f)
+''')
+            println('Added folded blend reset beside existing full-card latch.')
         }
 
+        def oldRelease = '''                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
+                    if (!expanded && !selected) renderAsFullCard = false
+'''
+        def newRelease = '''                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
+                    if (!expanded && !selected) {
+                        foldedBlendAnim.stop()
+                        foldedBlendAnim.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
+                        renderAsFullCard = false
+                    }
+'''
         def motionEndLine = '''                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
 '''
         def motionEndWithRelease = '''                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
-                    if (!expanded && !selected) renderAsFullCard = false
+                    if (!expanded && !selected) {
+                        foldedBlendAnim.stop()
+                        foldedBlendAnim.animateTo(1f, tween(durationMillis = 160, easing = FastOutSlowInEasing))
+                        renderAsFullCard = false
+                    }
 '''
-        if (text.contains(motionEndLine) && !text.contains('if (!expanded && !selected) renderAsFullCard = false')) {
+        if (text.contains(oldRelease)) {
+            text = text.replace(oldRelease, newRelease)
+            println('Replaced instant full-to-light release with 160ms folded blend.')
+        } else if (text.contains(motionEndLine) && !text.contains('foldedBlendAnim.animateTo(1f')) {
             text = text.replace(motionEndLine, motionEndWithRelease)
-            println('Released full-card rendering only after collapse motion completes.')
+            println('Added 160ms folded blend before releasing full-card rendering.')
         }
 
         def oldNeed = 'val fullCardNeeded = selected || expanded || visualAnim.value > 0.025f || motionAnim.value > 0.025f'
@@ -48,8 +81,64 @@ tasks.register('patchModelSelectorAnimationContinuity') {
             println('Model selector fullCardNeeded target not found; skipped continuity condition patch.')
         }
 
+        def afterLightweightBranch = '''                    return@forEachIndexed
+                }
+
+                val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
+'''
+        def crossfadeInsert = '''                    return@forEachIndexed
+                }
+
+                val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
+                if (foldedBlend > 0.001f) {
+                    val layerFactor = when (stackRank) {
+                        1 -> 0.82f
+                        2 -> 0.62f
+                        3 -> 0.44f
+                        else -> 0.28f
+                    }
+                    val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
+                    Box(
+                        modifier = Modifier
+                            .width(collapsedWidth)
+                            .height(collapsedHeight)
+                            .zIndex(18f - index)
+                            .graphicsLayer {
+                                translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
+                                translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
+                                scaleX = 1f + stackCompression * 0.032f * layerFactor
+                                scaleY = 1f - stackCompression * 0.046f * layerFactor
+                                alpha = foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
+                                shadowElevation = 0f
+                            }
+                            .drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)
+                    ) {
+                        FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme)
+                    }
+                }
+
+                val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
+'''
+        if (text.contains(afterLightweightBranch) && !text.contains('val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn')) {
+            text = text.replace(afterLightweightBranch, crossfadeInsert)
+            println('Inserted folded back-plate fade-in beneath full-card fade-out.')
+        } else if (text.contains('val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn')) {
+            println('Folded back-plate crossfade block already exists.')
+        } else {
+            println('Lightweight branch anchor not found; skipped folded crossfade insertion.')
+        }
+
+        def alphaOld = '''                            this.alpha = alpha
+'''
+        def alphaNew = '''                            this.alpha = alpha * (1f - foldedBlend).coerceIn(0f, 1f)
+'''
+        if (text.contains(alphaOld) && !text.contains('this.alpha = alpha * (1f - foldedBlend).coerceIn(0f, 1f)')) {
+            text = text.replace(alphaOld, alphaNew)
+            println('Added full-card fade-out during folded back-plate fade-in.')
+        }
+
         selector.setText(text, 'UTF-8')
-        println('Patched model selector animation continuity: no lightweight/full-card branch switch during motion.')
+        println('Patched model selector animation continuity: full card crossfades into lightweight back plate after collapse.')
     }
 }
 
