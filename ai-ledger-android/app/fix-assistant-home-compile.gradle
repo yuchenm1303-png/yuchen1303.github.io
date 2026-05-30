@@ -78,6 +78,34 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
             throw new GradleException('AssistantHomePolished still contains readOnly after cleanup.')
         }
         println('AssistantHomePolished compile compatibility verified: no readOnly parameter remains.')
+
+        def screens = file('src/main/java/com/yuchen/ailedger/ui/Screens.kt')
+        def screensText = screens.getText('UTF-8')
+        def oldComposerBar = '''@Composable
+private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val sendAction = if (state.isSending) ({}) else onSend
+'''
+        def newComposerBar = '''@Composable
+private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val sendAction = if (state.isSending) ({}) else {
+        {
+            if (state.composerText.isNotBlank()) {
+                focusManager.clearFocus(force = true)
+            }
+            onSend()
+        }
+    }
+'''
+        if (screensText.contains(oldComposerBar)) {
+            screensText = screensText.replace(oldComposerBar, newComposerBar)
+            screens.setText(screensText, 'UTF-8')
+            println('ComposerBar now clears focus before sending non-empty messages, so IME hides after send.')
+        } else if (screensText.contains('LocalFocusManager.current') && screensText.contains('focusManager.clearFocus(force = true)')) {
+            println('ComposerBar IME hide behavior already exists.')
+        } else {
+            throw new GradleException('ComposerBar sendAction target not found for IME hide patch.')
+        }
     }
 }
 
