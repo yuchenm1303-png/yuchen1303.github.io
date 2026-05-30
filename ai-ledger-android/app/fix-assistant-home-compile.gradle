@@ -90,7 +90,55 @@ private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) ->
         }
     }
 '''
-        if (text.contains(oldComposerBarV2)) {
+        def oldStopComposerBarV2 = '''@Composable
+private fun ComposerBarV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    val keyboardSendAction = if (state.isSending) ({}) else onSend
+    val buttonAction = if (state.isSending) onStopGenerating else onSend
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = buttonAction)
+    }
+}
+'''
+        def newStopComposerBarV2 = '''@Composable
+private fun ComposerBarV2(
+    state: AssistantUiState,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onPickImage: () -> Unit
+) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val inputMethodManager = remember(view) {
+        view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+    }
+    val keyboardSendAction = if (state.isSending) ({}) else {
+        {
+            if (state.composerText.isNotBlank()) {
+                inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            onSend()
+        }
+    }
+    val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        SendButtonV2(state, onClick = buttonAction)
+    }
+}
+'''
+        if (text.contains(oldStopComposerBarV2)) {
+            text = text.replace(oldStopComposerBarV2, newStopComposerBarV2)
+            println('ComposerBarV2 stop button now preserves direct IME hide behavior.')
+        } else if (text.contains(oldComposerBarV2)) {
             text = text.replace(oldComposerBarV2, newComposerBarV2)
             println('ComposerBarV2 now hides IME directly without clearing focus.')
         } else if (text.contains('hideSoftInputFromWindow(view.windowToken, 0)')) {
@@ -130,6 +178,10 @@ private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) ->
         }
         println('AssistantHomePolished input IME behavior verified: direct hide, no disable-driven focus drop.')
     }
+}
+
+fixAssistantHomeCompile.configure {
+    dependsOn tasks.named('patchAssistantChatBubblePolish')
 }
 
 tasks.named('preBuild') {
