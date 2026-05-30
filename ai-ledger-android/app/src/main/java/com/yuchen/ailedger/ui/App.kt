@@ -11,7 +11,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,9 +29,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -163,19 +160,29 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     },
                                     onRetryMessage = viewModel::retryMessage
                                 )
-                                AppTab.Tools -> ToolsScreenV2(
-                                    state = state,
-                                    onOpenTool = viewModel::openTool,
-                                    onBack = viewModel::closeTool,
-                                    onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
-                                    onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
-                                    onLedgerTypeChange = viewModel::selectLedgerDraftType,
-                                    onLedgerCategoryChange = viewModel::selectLedgerCategory,
-                                    onLedgerBudgetChange = viewModel::updateLedgerBudget,
-                                    onAddLedgerRecord = viewModel::addLedgerRecord,
-                                    onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
-                                    onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
-                                )
+                                AppTab.Tools -> {
+                                    if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
+                                        AStockMarketScreenV2(
+                                            state = state,
+                                            onBack = viewModel::closeTool,
+                                            onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                        )
+                                    } else {
+                                        ToolsScreenV2(
+                                            state = state,
+                                            onOpenTool = viewModel::openTool,
+                                            onBack = viewModel::closeTool,
+                                            onLedgerTitleChange = viewModel::updateLedgerDraftTitle,
+                                            onLedgerAmountChange = viewModel::updateLedgerDraftAmount,
+                                            onLedgerTypeChange = viewModel::selectLedgerDraftType,
+                                            onLedgerCategoryChange = viewModel::selectLedgerCategory,
+                                            onLedgerBudgetChange = viewModel::updateLedgerBudget,
+                                            onAddLedgerRecord = viewModel::addLedgerRecord,
+                                            onDeleteLedgerRecord = viewModel::deleteLedgerRecord,
+                                            onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                        )
+                                    }
+                                }
                                 AppTab.Settings -> SettingsPolishedScreen(
                                     state = state,
                                     aiEndpoint = viewModel.aiEndpoint,
@@ -213,6 +220,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         }
     }
 }
+
+const val STOCK_MARKET_TOOL_TITLE = "股票行情"
 
 @Composable
 private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
