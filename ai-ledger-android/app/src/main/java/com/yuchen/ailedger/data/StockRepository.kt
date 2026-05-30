@@ -62,10 +62,10 @@ class StockRepository {
         val obj = JSONObject(body)
         val data = obj.optJSONObject("QuotationCodeTable")
         val list = data?.optJSONArray("Data")
-        val first = list?.optJSONObject(0)
-        val code = first?.optString("Code").orEmpty().ifBlank { throw IllegalArgumentException("没有找到股票：$query") }
-        val name = first.optString("Name", code)
-        val market = first.optString("MarketType", marketNameForCode(code))
+        val firstQuote = list?.optJSONObject(0) ?: throw IllegalArgumentException("没有找到股票：$query")
+        val code = firstQuote.optString("Code").ifBlank { throw IllegalArgumentException("没有找到股票：$query") }
+        val name = firstQuote.optString("Name", code)
+        val market = firstQuote.optString("MarketType", marketNameForCode(code))
         return ResolvedStock(code = code, name = name, secid = secidForCode(code), market = if (market.contains("SH")) "沪A" else if (market.contains("SZ")) "深A" else marketNameForCode(code))
     }
 
