@@ -29,8 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockDetailUiState
+import com.yuchen.ailedger.model.StockFeatureEntry
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockOrderLevel
+import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
 
@@ -49,7 +51,8 @@ fun AStockMarketScreenV2(
         item { AStockTopBar(state, stock, onBack) }
         item { AStockQuotePanel(state, stock) }
         item { AStockTabs(state) }
-        item { AStockFeaturePanel(state) }
+        item { AStockFeatureMatrix(state, stock) }
+        item { AStockMarketBoards(state, stock) }
         item { AStockMinuteChart(state, stock) }
         item { AStockOrderBook(state, stock) }
         item { AStockTradeAndFlow(state, stock) }
@@ -127,33 +130,59 @@ private fun AStockTabs(state: AssistantUiState) {
 }
 
 @Composable
-private fun AStockFeaturePanel(state: AssistantUiState) {
+private fun AStockFeatureMatrix(state: AssistantUiState, stock: StockDetailUiState) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Section("行情功能", "自选、板块、涨跌停、资金和 AI 问股入口")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                AStockFeatureChip("自选股", "关注列表", state, Modifier.weight(1f))
-                AStockFeatureChip("沪深京", "市场切换", state, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                AStockFeatureChip("板块热度", "行业概念", state, Modifier.weight(1f))
-                AStockFeatureChip("涨跌停", "情绪观察", state, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                AStockFeatureChip("资金流", "主力/大单", state, Modifier.weight(1f))
-                AStockFeatureChip("AI 问股", "趋势摘要", state, Modifier.weight(1f))
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Section("行情功能总览", "按标准看盘软件整理：榜单、板块、异动、资金、资讯和工具")
+            stock.featureGroups.forEach { group ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Section(group.title, group.subtitle)
+                    group.entries.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEach { entry -> AStockFeatureChip(entry, state, Modifier.weight(1f)) }
+                            if (row.size == 1) Box(Modifier.weight(1f))
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AStockFeatureChip(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+private fun AStockFeatureChip(entry: StockFeatureEntry, state: AssistantUiState, modifier: Modifier = Modifier) {
     GlassPanel(state.quality, state.glassIntensity * 0.88f, state.motionIntensity, 20, modifier.height(54.dp), GlassRole.Chip) {
         Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(entry.title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(entry.subtitle, color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+private fun AStockMarketBoards(state: AssistantUiState, stock: StockDetailUiState) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Section("市场榜单预览", "热度排行榜、龙虎榜、涨停梯队、板块热度、资金流向和竞价异动")
+            stock.marketBoards.forEach { board ->
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Section(board.title, board.subtitle)
+                    board.items.forEach { item -> AStockRankRow(item) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AStockRankRow(item: StockRankItem) {
+    Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.code, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        Text(item.value, color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(0.7f), maxLines = 1)
     }
 }
 
