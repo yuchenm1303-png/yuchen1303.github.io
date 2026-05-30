@@ -1,0 +1,59 @@
+tasks.register('patchNetworkDropletSurfaceText') {
+    doLast {
+        def lab = file('src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt')
+        def text = lab.getText('UTF-8')
+
+        def oldStatusBlock = '''                Text(
+                    text = statusLabel,
+                    color = Color.White.copy(alpha = 0.40f + lightEnergy * 0.18f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 6.dp)
+                        .background(Color.Black.copy(alpha = 0.13f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                )'''
+        def newStatusBlock = '''                if (statusLabel.isNotBlank()) {
+                    Text(
+                        text = statusLabel,
+                        color = Color.White.copy(alpha = 0.40f + lightEnergy * 0.18f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 12.dp, bottom = 6.dp)
+                            .background(Color.Black.copy(alpha = 0.13f + lightEnergy * 0.10f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }'''
+        if (text.contains(oldStatusBlock)) {
+            text = text.replace(oldStatusBlock, newStatusBlock)
+        } else if (text.contains('if (statusLabel.isNotBlank())')) {
+            println('Network droplet blank status hiding already applied.')
+        } else {
+            throw new GradleException('OpenGlLargeDropletPreview status Text block not found for surface text patch.')
+        }
+
+        if (!text.contains('if (statusLabel.isNotBlank())')) {
+            throw new GradleException('Network droplet blank status hiding did not apply.')
+        }
+        lab.setText(text, 'UTF-8')
+        println('Patched network droplet surface text: empty status label is hidden while original droplet body stays unchanged.')
+    }
+}
+
+tasks.named('patchNetworkDropletSurfaceText') {
+    def reuseTask = tasks.findByName('patchReuseLabDroplet')
+    if (reuseTask != null) dependsOn reuseTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchNetworkDropletSurfaceText')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchNetworkDropletSurfaceText')
+}
