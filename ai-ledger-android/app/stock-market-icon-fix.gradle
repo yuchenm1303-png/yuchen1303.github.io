@@ -1,0 +1,51 @@
+tasks.register('patchStockMarketIconFix') {
+    dependsOn tasks.named('patchStockMarketEntry')
+    doLast {
+        def home = file('src/main/java/com/yuchen/ailedger/ui/ToolsHomePolished.kt')
+        if (!home.exists()) {
+            println('ToolsHomePolished.kt not found; skipped stock market icon fix.')
+            return
+        }
+        def text = home.getText('UTF-8')
+        if (text.contains('private fun DrawScope.drawStockIcon(')) {
+            println('Stock market icon function already exists.')
+            return
+        }
+
+        def anchor = '\nprivate fun DrawScope.drawLedgerIcon'
+        if (!text.contains(anchor)) {
+            throw new GradleException('drawLedgerIcon anchor not found; cannot install stock icon function.')
+        }
+
+        def stockIconBlock = '''
+private fun DrawScope.drawStockIcon(color: Color, stroke: Stroke, w: Float, h: Float) {
+    drawLine(color, Offset(w * 0.16f, h * 0.78f), Offset(w * 0.84f, h * 0.78f), stroke.width, cap = StrokeCap.Round)
+    val path = Path().apply {
+        moveTo(w * 0.18f, h * 0.62f)
+        lineTo(w * 0.34f, h * 0.50f)
+        lineTo(w * 0.48f, h * 0.56f)
+        lineTo(w * 0.66f, h * 0.34f)
+        lineTo(w * 0.82f, h * 0.26f)
+    }
+    drawPath(path, color, style = stroke)
+    drawCircle(color = color, radius = w * 0.035f, center = Offset(w * 0.82f, h * 0.26f))
+}
+'''
+        text = text.replace(anchor, stockIconBlock + anchor)
+        home.setText(text, 'UTF-8')
+
+        def verified = home.getText('UTF-8')
+        if (!verified.contains('private fun DrawScope.drawStockIcon(')) {
+            throw new GradleException('Stock market icon function was not installed.')
+        }
+        println('Stock market icon function installed after stock entry patch.')
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchStockMarketIconFix')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchStockMarketIconFix')
+}
