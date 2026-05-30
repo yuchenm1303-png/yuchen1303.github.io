@@ -17,9 +17,9 @@ enum class OpenGlShellMood {
 /**
  * Shared glass entry for surfaces that are deliberately promoted to Shell/OpenGL.
  *
- * Hero and List are OpenGL Shell surfaces. List is used by the six independent
- * feature-page tool cards. Nested glyphs remain their own Card/Chip/Floating
- * glass components and stay isolated from OpenGL.
+ * Only Hero, or an explicit forceOpenGl call, is promoted to Shell. List/Summary/
+ * Settings surfaces stay on the Compose glass path by default so scrolling cards
+ * do not wake the OpenGL viewport unless a caller opts in deliberately.
  */
 @Composable
 fun OpenGlShellGlass(
@@ -33,7 +33,7 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val useOpenGlShell = mood == OpenGlShellMood.Hero || mood == OpenGlShellMood.List || forceOpenGl
+    val useOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
     val surfaceModifier = modifier
 
     if (useOpenGlShell) {
