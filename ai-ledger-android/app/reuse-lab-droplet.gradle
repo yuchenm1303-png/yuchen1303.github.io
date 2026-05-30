@@ -86,10 +86,34 @@ tasks.register('patchDropletContinuousRefractionField') {
                 vec2 centerField = -vec2(wholeLocal.x * 0.12, wholeLocal.y * 0.58) * lensStrength * thickness * (1.0 - edge * 0.15);
                 vec2 magnifyOffset = -fieldLocal * lensStrength * (0.38 + 0.22 * thickness) * (1.0 - edge * 0.20);'''
         text = text.replace(oldField, newField)
+
+        def oldRimProbe = '''                vec2 rimProbe = p;
+                float rimProbePull = activeRimRefraction * rimFlow;
+                rimProbe.x += normal.x * rimProbePull * 0.12;
+                rimProbe.x = mix(rimProbe.x, lightOrigin.x, sideFacing * wideRim * 0.42);
+                rimProbe.x = clamp(rimProbe.x, 0.04, 0.96);
+                rimProbe.y = mix(lightOrigin.y, lightOrigin.y + normal.y * 0.08, 0.30 + 0.70 * wideRim);
+                rimProbe.y = clamp(rimProbe.y, 0.04, 0.98);'''
+        def newRimProbe = '''                vec2 rimProbe = p + normal * activeRimRefraction * rimFlow * wideRim * 0.055;
+                rimProbe += lightDir * activeRimRefraction * rimFlow * edgeOptics * 0.035;
+                rimProbe = clamp(rimProbe, vec2(0.04, 0.04), vec2(0.96, 0.98));'''
+        text = text.replace(oldRimProbe, newRimProbe)
+
+        def oldShadow = '''                float rimShadow = (wideRim * 0.38 + rim * 0.14) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
+                float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.28 + 0.72 * wideRim);
+                float shadowAvoid = 1.0 - sat(entryEdgeContact * 0.80 + entryEdgeWash * 0.45);
+                color -= vec3(0.055, 0.065, 0.10) * (rimShadow + bottomShadow * 0.45) * uAlpha.x * shadowAvoid;'''
+        def newShadow = '''                float rimShadow = (wideRim * 0.28 + rim * 0.08) * (0.42 + 0.58 * sat(dot(normal, normalize(vec2(0.36, 0.94)))));
+                float bottomShadow = bottomOptic * smoothstep(0.36, 1.0, y) * (0.20 + 0.56 * wideRim);
+                float shadowAvoid = 1.0 - sat(entryEdgeContact * 0.95 + entryEdgeWash * 0.70 + rimLight * 0.55);
+                color -= vec3(0.040, 0.046, 0.068) * (rimShadow + bottomShadow * 0.32) * uAlpha.x * shadowAvoid;'''
+        text = text.replace(oldShadow, newShadow)
+
         if (text.contains('vec2 spine = vec2(clamp(coord.x')) throw new GradleException('Droplet field still uses segmented spine projection.')
+        if (text.contains('mix(rimProbe.x, lightOrigin.x')) throw new GradleException('Droplet edge capture still pulls rim probe into a hard side branch.')
         if (!text.contains('capsuleGradient(coord, size, radius)')) throw new GradleException('Droplet continuous field patch did not apply.')
         gl.setText(text, 'UTF-8')
-        println('Rebuilt OpenGL droplet refraction as one continuous capsule SDF field.')
+        println('Rebuilt OpenGL droplet refraction and edge capture as one continuous capsule field.')
     }
 }
 
