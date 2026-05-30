@@ -149,16 +149,13 @@ private fun AStockDetailScreen(
     onBack: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
-    var showSearch by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 8.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { AStockMarketTopNav(state, stock, onBack, onSearchClick = { showSearch = !showSearch }) }
-        if (showSearch) {
-            item { AStockDetailSearchPanel(state, query, loading, onQueryChange, onSearch) }
-        }
+        item { AStockMarketTopNav(state, stock, onBack) }
+        item { AStockDetailSearchPanel(state, query, loading, onQueryChange, onSearch) }
         item { AStockCompactQuotePanel(state, stock) }
         item { AStockCompactStatus(state, stock, loading) }
         item { AStockTabs(state) }
@@ -198,8 +195,8 @@ private fun AStockDetailSearchPanel(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
-    GlassPanel(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Floating) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 24, Modifier.fillMaxWidth(), GlassRole.Floating) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("搜索切换个股", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
             AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
         }
@@ -269,7 +266,7 @@ private fun AStockTopBar(title: String, subtitle: String, state: AssistantUiStat
 }
 
 @Composable
-private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit, onSearchClick: () -> Unit) {
+private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         PressableGlass(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = onBack) {
             Box(Modifier.padding(horizontal = 14.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -280,7 +277,7 @@ private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiStat
             Text(stock.quote.name, color = Color.White, fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("${stock.quote.code} · ${stock.quote.market}    L2", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
-        PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = onSearchClick) {
+        PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = {}) {
             Box(Modifier.padding(horizontal = 12.dp).fillMaxSize(), contentAlignment = Alignment.Center) { Text("⌕", color = Color.White.copy(alpha = 0.78f), fontSize = 22.sp, fontWeight = FontWeight.Bold) }
         }
         PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.height(48.dp), GlassRole.Chip, onClick = {}) {
