@@ -21,7 +21,8 @@ class StockRepository {
             val resolved = resolveAStock(normalized)
             val quote = fetchQuote(resolved)
             val kLines = fetchDailyKLine(resolved).ifEmpty { base.kLinePoints }
-            val minutePoints = kLines.takeLast(12).mapIndexed { index, point ->
+            val recent = kLines.takeLast(12)
+            val minutePoints = recent.mapIndexed { index, point ->
                 StockMinutePoint(
                     time = when (index) {
                         0 -> "09:30"
@@ -31,8 +32,8 @@ class StockRepository {
                         else -> ""
                     },
                     price = point.close,
-                    average = kLines.takeLast(12).take(index + 1).map { it.close }.average().toFloat(),
-                    volumeRatio = (point.volume / (kLines.takeLast(12).maxOfOrNull { it.volume } ?: 1f)).coerceIn(0.05f, 1f)
+                    average = recent.take(index + 1).map { it.close }.average().toFloat(),
+                    volumeRatio = (point.volume / (recent.maxOfOrNull { it.volume } ?: 1f)).coerceIn(0.05f, 1f)
                 )
             }
             base.copy(
@@ -69,7 +70,7 @@ class StockRepository {
     }
 
     private fun fetchQuote(stock: ResolvedStock): StockQuote {
-        val url = "https://push2.eastmoney.com/api/qt/stock/get?secid=${stock.secid}&fields=f43,f44,f45,f46,f47,f48,f49,f57,f58,f60,f116,f117,f135,f136,f137,f152,f162,f167,f168,f170"
+        val url = "https://push2.eastmoney.com/api/qt/stock/get?secid=${stock.secid}&fields=f43,f44,f45,f46,f48,f50,f57,f58,f60,f116,f117,f162,f168,f169,f170"
         val body = httpGet(url)
         val data = JSONObject(body).optJSONObject("data") ?: throw IllegalStateException("行情返回为空")
         val price = scalePrice(data.optDouble("f43", 0.0))
@@ -91,7 +92,7 @@ class StockRepository {
             open = scalePrice(data.optDouble("f46", 0.0)),
             totalMarketValue = moneyCn(data.optDouble("f116", 0.0)),
             floatMarketValue = moneyCn(data.optDouble("f117", 0.0)),
-            volumeRatio = number(data.optDouble("f50", 0.0)),
+            volumeRatio = number(data.optDouble("f50", 0.0) / 100.0),
             turnoverRate = percent(data.optDouble("f168", 0.0) / 100.0),
             peTtm = number(data.optDouble("f162", 0.0) / 100.0),
             pb = "--",
