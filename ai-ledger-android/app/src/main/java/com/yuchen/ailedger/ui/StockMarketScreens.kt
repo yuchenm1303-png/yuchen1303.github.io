@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -43,28 +46,71 @@ fun AStockMarketScreenV2(
     onOpenAssistant: () -> Unit
 ) {
     val stock = remember { sampleAStockDetailUiState() }
+    var showDetail by remember { mutableStateOf(false) }
+
+    if (showDetail) {
+        AStockDetailScreen(
+            state = state,
+            stock = stock,
+            onBack = { showDetail = false },
+            onOpenAssistant = onOpenAssistant
+        )
+    } else {
+        AStockMarketHomeScreen(
+            state = state,
+            stock = stock,
+            onBack = onBack,
+            onOpenDetail = { showDetail = true }
+        )
+    }
+}
+
+@Composable
+private fun AStockMarketHomeScreen(
+    state: AssistantUiState,
+    stock: StockDetailUiState,
+    onBack: () -> Unit,
+    onOpenDetail: () -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        item { AStockTopBar(state, stock, onBack) }
-        item { AStockQuotePanel(state, stock) }
-        item { AStockTabs(state) }
+        item { AStockTopBar("A股行情首页", "自选、指数、热榜、龙虎榜、板块和资金流", state, onBack) }
+        item { AStockHomeHero(state, stock, onOpenDetail) }
+        item { AStockIndexPanel(state, stock) }
+        item { AStockWatchPanel(state, stock, onOpenDetail) }
         item { AStockFeatureMatrix(state, stock) }
         item { AStockMarketBoards(state, stock) }
+    }
+}
+
+@Composable
+private fun AStockDetailScreen(
+    state: AssistantUiState,
+    stock: StockDetailUiState,
+    onBack: () -> Unit,
+    onOpenAssistant: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item { AStockTopBar("${stock.quote.name}", "${stock.quote.code} · ${stock.quote.market} · 个股看盘详情", state, onBack) }
+        item { AStockQuotePanel(state, stock) }
+        item { AStockTabs(state) }
         item { AStockMinuteChart(state, stock) }
         item { AStockOrderBook(state, stock) }
         item { AStockTradeAndFlow(state, stock) }
         item { AStockInfoPanel(state, stock) }
         item { AStockAiPanel(state, stock, onOpenAssistant) }
-        item { AStockIndexPanel(state, stock) }
-        item { AStockWatchPanel(state, stock) }
     }
 }
 
 @Composable
-private fun AStockTopBar(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit) {
+private fun AStockTopBar(title: String, subtitle: String, state: AssistantUiState, onBack: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PressableGlass(state.quality, state.glassIntensity * 0.95f, state.motionIntensity, 999, Modifier.height(38.dp), GlassRole.Chip, onClick = onBack) {
             Box(Modifier.padding(horizontal = 14.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -73,9 +119,44 @@ private fun AStockTopBar(state: AssistantUiState, stock: StockDetailUiState, onB
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("A-SHARE", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("股票行情", color = Color.White, fontSize = 31.sp, lineHeight = 35.sp, fontWeight = FontWeight.Black)
-            Text("${stock.quote.market}专业看盘、盘口、资金和 AI 摘要", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp)
+            Text(title, color = Color.White, fontSize = 31.sp, lineHeight = 35.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+private fun AStockHomeHero(state: AssistantUiState, stock: StockDetailUiState, onOpenDetail: () -> Unit) {
+    OpenGlShellGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 1.04f,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier.fillMaxWidth().height(188.dp),
+        mood = OpenGlShellMood.Summary,
+        onClick = onOpenDetail
+    ) {
+        Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("今日关注", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("点入查看分时、K线、十档盘口、成交明细和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                HomeHeroMetric("现价", stock.quote.price, quoteColor(stock.quote.isRising), Modifier.weight(1f))
+                HomeHeroMetric("涨跌", stock.quote.changePercent, quoteColor(stock.quote.isRising), Modifier.weight(1f))
+                HomeHeroMetric("成交额", stock.quote.amount, Color.White, Modifier.weight(1f))
+            }
+            Text("进入个股详情", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+@Composable
+private fun HomeHeroMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(value, color = color.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -133,7 +214,7 @@ private fun AStockTabs(state: AssistantUiState) {
 private fun AStockFeatureMatrix(state: AssistantUiState, stock: StockDetailUiState) {
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Section("行情功能总览", "按标准看盘软件整理：榜单、板块、异动、资金、资讯和工具")
+            Section("行情功能总览", "榜单、板块、异动、资金、资讯和看盘工具")
             stock.featureGroups.forEach { group ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Section(group.title, group.subtitle)
@@ -279,8 +360,24 @@ private fun AStockIndexPanel(state: AssistantUiState, stock: StockDetailUiState)
 }
 
 @Composable
-private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState) {
-    InfoCard(state, "A股自选", "后续接搜索、添加和本地持久化", stock.watchlist.map { "${it.name} ${it.code}    ${it.price}    ${it.changePercent}" })
+private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState, onOpenDetail: (() -> Unit)? = null) {
+    GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Section("A股自选", "点示例股进入个股详情，后续接搜索、添加和本地持久化")
+            stock.watchlist.forEach { item ->
+                PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(42.dp), GlassRole.Chip, onClick = { onOpenDetail?.invoke() }) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                            Text(item.code, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                        Text(item.price, color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
