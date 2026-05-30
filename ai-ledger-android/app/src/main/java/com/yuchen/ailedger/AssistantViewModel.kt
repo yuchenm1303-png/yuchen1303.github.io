@@ -10,7 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.data.AssistantRepository
 import com.yuchen.ailedger.data.CustomBackgroundStore
-import com.yuchen.ailedger.data.PreviewAssistantRepository
+import com.yuchen.ailedger.data.ProductionAssistantRepository
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
@@ -40,7 +40,7 @@ class AssistantViewModel(
     private val aiWorkerClient: AiWorkerClient,
     private val customBackgroundStore: CustomBackgroundStore
 ) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, PreviewAssistantRepository(), AssistantPreferencesStore(application), AiWorkerClient(), CustomBackgroundStore(application))
+    constructor(application: Application) : this(application, ProductionAssistantRepository(), AssistantPreferencesStore(application), AiWorkerClient(), CustomBackgroundStore(application))
 
     var uiState by mutableStateOf(repository.initialState())
         private set
