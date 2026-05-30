@@ -19,7 +19,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-rules.pro')
         }
     }
 
@@ -55,25 +55,3 @@ dependencies {
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }
-
-def applyOptionalPatch = { String patchName ->
-    def patchFile = file(patchName)
-    if (patchFile.exists()) {
-        apply from: patchName
-    } else {
-        println("Skipped missing optional patch: ${patchName}")
-    }
-}
-
-applyOptionalPatch('chat-bubble-polish.gradle')
-applyOptionalPatch('stop-generation-signature-fix.gradle')
-applyOptionalPatch('shared-prism-capsule.gradle')
-applyOptionalPatch('fix-assistant-home-compile.gradle')
-applyOptionalPatch('model-selector-folded-stack.gradle')
-applyOptionalPatch('model-selector-stack-press-follow.gradle')
-applyOptionalPatch('model-selector-animation-continuity.gradle')
-applyOptionalPatch('model-selector-animation-tempo.gradle')
-applyOptionalPatch('model-network-original-layout.gradle')
-applyOptionalPatch('reuse-lab-droplet.gradle')
-applyOptionalPatch('network-droplet-surface-text.gradle')
-applyOptionalPatch('droplet-continuous-motion-tuning.gradle')
