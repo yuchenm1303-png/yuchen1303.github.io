@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ai-ledger-stock-proxy
+    runtime: docker
+    plan: free
+    rootDir: ai-ledger-stock-proxy
+    healthCheckPath: /health
