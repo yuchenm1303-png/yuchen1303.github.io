@@ -179,6 +179,7 @@ class AiWorkerClient(
         val workerMessages = messages.toWorkerMessages()
         val latestUserText = latestUserText(messages)
         val resolvedId = route.resolved.id
+        val searchMode = if (onlineEnabled) "force" else "off"
         return JSONObject().apply {
             put("action", "chat")
             put("intent", "chat")
@@ -198,8 +199,16 @@ class AiWorkerClient(
             put("autoResolvedModel", resolvedId)
             put("autoRouteReason", route.reason)
             put("onlineEnabled", onlineEnabled)
-            put("webSearch", onlineEnabled)
             put("searchEnabled", onlineEnabled)
+            put("forceWebSearch", onlineEnabled)
+            put("webSearchMode", searchMode)
+            put("searchMode", searchMode)
+            put("webSearch", JSONObject().apply {
+                put("mode", searchMode)
+                put("force", onlineEnabled)
+                put("requireCitationsWhenForced", true)
+                put("keepAutoSearchWhenOff", false)
+            })
             put("client", "android-compose")
             put("clientVersion", "compose-native-text-v1")
             put("now", System.currentTimeMillis())
