@@ -71,41 +71,64 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
 ''', '')
         text = text.replace('readOnly = state.isSending,', '')
 
+        def oldComposerBarV2 = '''@Composable
+private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val sendAction = if (state.isSending) ({}) else onSend
+'''
+        def newComposerBarV2 = '''@Composable
+private fun ComposerBarV2(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val inputMethodManager = remember(view) {
+        view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+    }
+    val sendAction = if (state.isSending) ({}) else {
+        {
+            if (state.composerText.isNotBlank()) {
+                inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+            }
+            onSend()
+        }
+    }
+'''
+        if (text.contains(oldComposerBarV2)) {
+            text = text.replace(oldComposerBarV2, newComposerBarV2)
+            println('ComposerBarV2 now hides IME directly without clearing focus.')
+        } else if (text.contains('hideSoftInputFromWindow(view.windowToken, 0)')) {
+            println('ComposerBarV2 IME hide behavior already exists.')
+        } else {
+            throw new GradleException('ComposerBarV2 sendAction target not found for IME hide patch.')
+        }
+
+        def oldComposerInputV2 = '''                onValueChange = onTextChange,
+                singleLine = true,
+                enabled = !state.isSending,
+'''
+        def newComposerInputV2 = '''                onValueChange = { if (!state.isSending) onTextChange(it) },
+                singleLine = true,
+                enabled = true,
+'''
+        if (text.contains(oldComposerInputV2)) {
+            text = text.replace(oldComposerInputV2, newComposerInputV2)
+            println('ComposerInputV2 stays enabled while sending, avoiding abrupt focus loss.')
+        } else if (text.contains('onValueChange = { if (!state.isSending) onTextChange(it) }') && text.contains('enabled = true,')) {
+            println('ComposerInputV2 stable focus behavior already exists.')
+        } else {
+            throw new GradleException('ComposerInputV2 focus-stability target not found.')
+        }
+
         home.setText(text, 'UTF-8')
 
         def verified = home.getText('UTF-8')
         if (verified.contains('readOnly')) {
             throw new GradleException('AssistantHomePolished still contains readOnly after cleanup.')
         }
-        println('AssistantHomePolished compile compatibility verified: no readOnly parameter remains.')
-
-        def screens = file('src/main/java/com/yuchen/ailedger/ui/Screens.kt')
-        def screensText = screens.getText('UTF-8')
-        def oldComposerBar = '''@Composable
-private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
-    val sendAction = if (state.isSending) ({}) else onSend
-'''
-        def newComposerBar = '''@Composable
-private fun ComposerBar(state: AssistantUiState, onComposerChange: (String) -> Unit, onSend: () -> Unit, onPickImage: () -> Unit) {
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    val sendAction = if (state.isSending) ({}) else {
-        {
-            if (state.composerText.isNotBlank()) {
-                focusManager.clearFocus(force = true)
-            }
-            onSend()
+        if (!verified.contains('hideSoftInputFromWindow(view.windowToken, 0)')) {
+            throw new GradleException('AssistantHomePolished IME hide behavior was not applied.')
         }
-    }
-'''
-        if (screensText.contains(oldComposerBar)) {
-            screensText = screensText.replace(oldComposerBar, newComposerBar)
-            screens.setText(screensText, 'UTF-8')
-            println('ComposerBar now clears focus before sending non-empty messages, so IME hides after send.')
-        } else if (screensText.contains('LocalFocusManager.current') && screensText.contains('focusManager.clearFocus(force = true)')) {
-            println('ComposerBar IME hide behavior already exists.')
-        } else {
-            throw new GradleException('ComposerBar sendAction target not found for IME hide patch.')
+        if (!verified.contains('onValueChange = { if (!state.isSending) onTextChange(it) }')) {
+            throw new GradleException('AssistantHomePolished input focus stability patch was not applied.')
         }
+        println('AssistantHomePolished input IME behavior verified: direct hide, no disable-driven focus drop.')
     }
 }
 
