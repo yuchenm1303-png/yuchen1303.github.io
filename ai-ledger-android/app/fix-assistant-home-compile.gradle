@@ -38,6 +38,65 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
             throw new GradleException('AssistantScreenV2 signature target not found.')
         }
 
+        if (!text.contains('entranceKey: Int = 0')) {
+            text = text.replace(
+                'fun AssistantScreenV2(\n    state: AssistantUiState,\n',
+                'fun AssistantScreenV2(\n    state: AssistantUiState,\n    entranceKey: Int = 0,\n'
+            )
+            println('Added entranceKey parameter to AssistantScreenV2.')
+        } else {
+            println('AssistantScreenV2 entranceKey parameter already exists.')
+        }
+
+        def entranceCalls = [
+            'AssistantEntrance(delayMs = 0': 'AssistantEntrance(entranceKey = entranceKey, delayMs = 0',
+            'AssistantEntrance(delayMs = 46': 'AssistantEntrance(entranceKey = entranceKey, delayMs = 46',
+            'AssistantEntrance(delayMs = 92': 'AssistantEntrance(entranceKey = entranceKey, delayMs = 92',
+            'AssistantEntrance(delayMs = 138': 'AssistantEntrance(entranceKey = entranceKey, delayMs = 138'
+        ]
+        entranceCalls.each { oldCall, newCall ->
+            if (text.contains(oldCall)) text = text.replace(oldCall, newCall)
+        }
+
+        def oldEntranceSignature = '''private fun AssistantEntrance(
+    delayMs: Long,
+'''
+        def newEntranceSignature = '''private fun AssistantEntrance(
+    entranceKey: Int,
+    delayMs: Long,
+'''
+        if (text.contains(oldEntranceSignature)) {
+            text = text.replace(oldEntranceSignature, newEntranceSignature)
+            println('Added entranceKey to AssistantEntrance.')
+        } else if (text.contains('private fun AssistantEntrance(\n    entranceKey: Int,')) {
+            println('AssistantEntrance entranceKey already exists.')
+        } else {
+            throw new GradleException('AssistantEntrance signature target not found.')
+        }
+
+        def oldEntranceEffect = '''    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (delayMs > 0L) delay(delayMs)
+        visible = true
+    }
+'''
+        def newEntranceEffect = '''    var visible by remember(entranceKey) { mutableStateOf(false) }
+    LaunchedEffect(entranceKey) {
+        visible = false
+        delay(16)
+        if (delayMs > 0L) delay(delayMs)
+        visible = true
+    }
+'''
+        if (text.contains(oldEntranceEffect)) {
+            text = text.replace(oldEntranceEffect, newEntranceEffect)
+            println('Forced AssistantEntrance to keep one frame hidden before playing enter animation.')
+        } else if (text.contains('remember(entranceKey)') && text.contains('LaunchedEffect(entranceKey)')) {
+            println('AssistantEntrance keyed enter animation already patched.')
+        } else {
+            throw new GradleException('AssistantEntrance effect target not found.')
+        }
+
         def oldOpenSettingsUse = '''    onOpenTools.hashCode()
     onOpenSettings.hashCode()
 }
@@ -143,6 +202,9 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
         home.setText(text, 'UTF-8')
 
         def verified = home.getText('UTF-8')
+        if (!verified.contains('entranceKey: Int = 0') || !verified.contains('LaunchedEffect(entranceKey)')) {
+            throw new GradleException('Assistant entrance animation key patch was not applied.')
+        }
         if (verified.contains('readOnly')) {
             throw new GradleException('AssistantHomePolished still contains readOnly after cleanup.')
         }
@@ -152,7 +214,7 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
         if (!verified.contains('onValueChange = { value -> if (!state.isSending) onTextChange(value) }')) {
             throw new GradleException('AssistantHomePolished composer onValueChange guard was not applied.')
         }
-        println('AssistantHomePolished compile compatibility verified: composer stays enabled and guarded during send.')
+        println('AssistantHomePolished compile compatibility verified: composer stays enabled and entrance animation is keyed.')
     }
 }
 
