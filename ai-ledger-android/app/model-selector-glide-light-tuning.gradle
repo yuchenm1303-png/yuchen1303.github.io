@@ -1,0 +1,71 @@
+tasks.register('patchModelSelectorGlideLightTuning') {
+    doLast {
+        def selector = file('src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt')
+        if (!selector.exists()) {
+            println('UnifiedModelStackSelector.kt not found; skipped glide light tuning patch.')
+            return
+        }
+        def text = selector.getText('UTF-8')
+
+        def oldCapsuleLaunch = '''                    launch {
+                        capsuleAnim.stop(); capsuleAnim.snapTo(0f)
+                        capsuleAnim.animateTo(1f, tween(if (expanded) 72 else 68, easing = ModelPressPulse))
+                        capsuleAnim.animateTo(0f, tween(if (expanded) 270 else 250, easing = FastOutSlowInEasing))
+                    }
+'''
+        def newCapsuleLaunch = '''                    launch {
+                        capsuleAnim.stop()
+                        capsuleAnim.snapTo(0f)
+                    }
+'''
+        if (text.contains(oldCapsuleLaunch)) {
+            text = text.replace(oldCapsuleLaunch, newCapsuleLaunch)
+            println('Removed automatic capsule light pulse during model selector glide.')
+        } else if (text.contains(newCapsuleLaunch)) {
+            println('Automatic capsule light pulse during glide already removed.')
+        } else {
+            println('Capsule launch block not found; skipped glide pulse removal.')
+        }
+
+        text = text.replace(
+            'val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.42f, dockGlow * 0.08f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)',
+            'val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.10f, dockGlow * 0.030f, selectionBurst * 0.18f).coerceIn(0f, 1.08f)'
+        )
+        text = text.replace(
+            'val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.42f, dockGlow * 0.08f, selectionBurst * 0.52f).coerceIn(0f, 1.16f)',
+            'val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.10f, dockGlow * 0.030f, selectionBurst * 0.18f).coerceIn(0f, 1.08f)'
+        )
+
+        text = text.replace(
+            'val sinkY = compression * 4.10f - rebound * 1.05f + capsuleLaunch * 0.82f + dockGlow * 0.006f',
+            'val sinkY = compression * 4.10f - rebound * 1.05f + capsuleLaunch * 0.20f + dockGlow * 0.002f'
+        )
+
+        text = text.replace(
+            'val releaseStretchX = capsuleLaunch * (0.044f * geometry.horizontalMotion - 0.012f * geometry.verticalMotion)',
+            'val releaseStretchX = capsuleLaunch * (0.014f * geometry.horizontalMotion - 0.004f * geometry.verticalMotion)'
+        )
+        text = text.replace(
+            'val releaseStretchY = capsuleLaunch * (0.016f * geometry.verticalMotion - 0.024f * geometry.horizontalMotion)',
+            'val releaseStretchY = capsuleLaunch * (0.006f * geometry.verticalMotion - 0.008f * geometry.horizontalMotion)'
+        )
+
+        selector.setText(text, 'UTF-8')
+        println('Patched model selector glide light: glide no longer triggers a strong flash; press glow remains for touch feedback.')
+    }
+}
+
+tasks.named('patchModelSelectorGlideLightTuning') {
+    def tempoTask = tasks.findByName('patchModelSelectorAnimationTempo')
+    if (tempoTask != null) dependsOn tempoTask
+    def continuityTask = tasks.findByName('patchModelSelectorAnimationContinuity')
+    if (continuityTask != null) dependsOn continuityTask
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('patchModelSelectorGlideLightTuning')
+}
+
+tasks.matching { it.name == 'compileDebugKotlin' || it.name == 'compileReleaseKotlin' }.configureEach {
+    dependsOn tasks.named('patchModelSelectorGlideLightTuning')
+}
