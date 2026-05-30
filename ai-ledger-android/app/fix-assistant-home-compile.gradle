@@ -57,19 +57,23 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
             throw new GradleException('AssistantScreenV2 callback placeholder block not found.')
         }
 
+        // Keep BasicTextField enabled during send so it does not lose focus and collapse/re-open the IME.
+        // Some Compose versions used by this workflow do not accept readOnly on BasicTextField,
+        // so sending-state edits are blocked by guarding onValueChange instead of disabling the field.
         text = text.replace('''                enabled = true,
                 readOnly = state.isSending,
-''', '''                enabled = !state.isSending,
+''', '''                enabled = true,
 ''')
-        text = text.replace('''                enabled = true,
-                readOnly = state.isSending,
-''', '''                enabled = !state.isSending,
-''')
-        text = text.replace('''                readOnly = state.isSending,
-''', '')
         text = text.replace('''                readOnly = state.isSending,
 ''', '')
         text = text.replace('readOnly = state.isSending,', '')
+        text = text.replace('''                enabled = !state.isSending,
+''', '''                enabled = true,
+''')
+        text = text.replace('''                onValueChange = onTextChange,
+''', '''                onValueChange = { value -> if (!state.isSending) onTextChange(value) },
+''')
+        println('Kept composer enabled during send and guarded text changes to stabilize IME focus.')
 
         def oldModelNetworkRow = '''    Row(
         modifier = Modifier.fillMaxWidth().height(panelHeight),
@@ -142,7 +146,13 @@ def fixAssistantHomeCompile = tasks.register('fixAssistantHomeCompile') {
         if (verified.contains('readOnly')) {
             throw new GradleException('AssistantHomePolished still contains readOnly after cleanup.')
         }
-        println('AssistantHomePolished compile compatibility verified: no readOnly parameter remains.')
+        if (verified.contains('enabled = !state.isSending')) {
+            throw new GradleException('AssistantHomePolished still disables the composer during send.')
+        }
+        if (!verified.contains('onValueChange = { value -> if (!state.isSending) onTextChange(value) }')) {
+            throw new GradleException('AssistantHomePolished composer onValueChange guard was not applied.')
+        }
+        println('AssistantHomePolished compile compatibility verified: composer stays enabled and guarded during send.')
     }
 }
 
