@@ -2,6 +2,12 @@ name: Materialize Compose Home Sources
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - "ai-ledger-android/app/.materialize-home-trigger.txt"
+      - ".github/workflows/materialize-compose-home.yml"
 
 permissions:
   contents: write
