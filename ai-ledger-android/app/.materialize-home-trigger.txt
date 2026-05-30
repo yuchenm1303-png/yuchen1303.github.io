@@ -1,0 +1,4 @@
+Purpose: trigger Materialize Compose Home Sources workflow.
+Target branch: dev-update-1
+Action: apply verified legacy home patches, validate build, commit materialized sources, and remove patch apply chain.
+Timestamp: 2026-05-30T12:25:00+08:00
