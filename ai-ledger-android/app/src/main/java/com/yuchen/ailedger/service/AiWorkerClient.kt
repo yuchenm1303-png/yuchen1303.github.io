@@ -56,7 +56,7 @@ class AiWorkerClient(
         onlineEnabled: Boolean = false
     ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
-        val endpoints = endpointPlan(route)
+        val endpoints = endpointPlan()
         if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
 
         val payload = buildPayload(messages, route, onlineEnabled)
@@ -87,33 +87,19 @@ class AiWorkerClient(
 
     /**
      * 入口选择策略：
-     * - 手动选择 Qwen / DeepSeek：优先走阿里云国内端，Cloudflare 备用。
-     * - 手动选择海外模型：走 Cloudflare。
-     * - Auto 选到 Qwen / DeepSeek：优先走阿里云国内端。
-     * - Auto 选到海外模型：优先走 Cloudflare，阿里云兜底。
-     * - 联网按钮不参与入口选择，只作为 payload 能力标记传给后端。
+     * - Android 客户端统一优先请求阿里云国内入口，保证大陆网络下基础聊天稳定可用。
+     * - Qwen / DeepSeek 由国内入口优先承接。
+     * - Gemini / Mistral / GPT OSS / Workers AI 也先交给国内入口尝试代理；如果国内入口不支持或不可用，再 fallback 到 Cloudflare。
+     * - Cloudflare 继续作为海外模型和海外网络环境的备用通道，不因为国内入口优先而被删除。
+     * - 联网按钮只作为 payload 能力标记传给后端，不直接改变 App 端入口顺序。
      */
-    private fun endpointPlan(route: ModelRoute): List<String> {
+    private fun endpointPlan(): List<String> {
         val cn = config.endpoint.trim().trimEnd('/')
         val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT)
             .trim()
             .trimEnd('/')
 
-        val resolvedIsCnModel =
-            route.resolved == ChatModel.Kimi || route.resolved == ChatModel.DeepSeekV4
-
-        val manualIsCnModel =
-            !route.isAuto && (
-                route.requested == ChatModel.Kimi ||
-                    route.requested == ChatModel.DeepSeekV4
-                )
-
-        return when {
-            manualIsCnModel -> endpointPool(cn, listOf(cf))
-            !route.isAuto -> endpointPool(cf, emptyList())
-            resolvedIsCnModel -> endpointPool(cn, listOf(cf))
-            else -> endpointPool(cf, listOf(cn))
-        }
+        return endpointPool(cn, listOf(cf))
     }
 
     private fun resolveModelRoute(
@@ -296,9 +282,12 @@ class AiWorkerClient(
                 put("requireCitationsWhenForced", true)
                 put("keepAutoSearchWhenOff", false)
             })
+            put("accessPolicy", "cn_gateway_primary")
+            put("primaryEndpointRole", "aliyun_cn_gateway")
+            put("fallbackEndpointRole", "cloudflare_worker")
 
             put("client", "android-compose")
-            put("clientVersion", "compose-native-text-v1")
+            put("clientVersion", "compose-native-cn-gateway-primary-v1")
             put("now", System.currentTimeMillis())
         }
     }
@@ -350,6 +339,8 @@ class AiWorkerClient(
                 throw IOException(message)
             }
 
+            throwIfServerReturnedFallbackSignal(data)
+
             val reply = extractReply(data, body).trim()
             if (reply.isBlank()) throw IOException("云端没有返回有效回复")
 
@@ -383,6 +374,31 @@ class AiWorkerClient(
             throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
+        if (data == null) return
+
+        val code = data.optString("code").lowercase()
+        val error = data.optString("error")
+            .ifBlank { data.optString("message") }
+        val normalized = "$code $error".lowercase()
+
+        val shouldFallback =
+            data.optBoolean("unsupportedModel", false) ||
+                data.optBoolean("shouldFallback", false) ||
+                normalized.contains("unsupported") ||
+                normalized.contains("not supported") ||
+                normalized.contains("not_configured") ||
+                normalized.contains("model_not_available") ||
+                normalized.contains("provider_not_available") ||
+                normalized.contains("不支持") ||
+                normalized.contains("未配置") ||
+                normalized.contains("不可用")
+
+        if (shouldFallback) {
+            throw IOException(error.ifBlank { "当前入口不支持该模型，正在尝试备用入口。" })
         }
     }
 
