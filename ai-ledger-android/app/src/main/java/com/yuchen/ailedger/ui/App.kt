@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -63,7 +63,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
     val density = LocalDensity.current
-    val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    val imeBottomPx = WindowInsets.ime.getBottom(density).toFloat()
+    val isKeyboardOpen = imeBottomPx > 0f
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -135,9 +136,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             modifier = Modifier
                                 .zIndex(0f)
                                 .fillMaxSize()
+                                .graphicsLayer {
+                                    // 键盘展开时只做合成层位移，不重新测量首页内容，避免 OpenGL 主玻璃随 IME 每帧 resize。
+                                    translationY = -imeBottomPx
+                                }
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
-                                .imePadding()
                                 .padding(horizontal = 12.dp)
                         ) {
                             CachedAppTabHost(
