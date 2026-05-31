@@ -167,10 +167,9 @@ async function callOpenAICompatible(base, key, model, messages, name) {
 
 function detectStructuredIntent(prompt) {
   const text = String(prompt || "").trim();
-  const lower = text.toLowerCase();
 
   if (/(天气|气温|温度|下雨|降雨|weather)/i.test(text)) {
-    return { type: "weather", query: extractBeforeKeyword(text, ["天气", "气温", "温度", "weather"]) || "杭州" };
+    return { type: "weather", query: extractLocation(text) || "杭州" };
   }
 
   if (/(汇率|兑换|兑|exchange rate|currency)/i.test(text)) {
@@ -178,21 +177,20 @@ function detectStructuredIntent(prompt) {
     return { type: "exchange_rate", from: pair.from, to: pair.to };
   }
 
-  if (/(股价|股票|行情|stock|price|nasdaq|nyse|a股|港股)/i.test(text)) {
-    return { type: "stock", symbol: extractStockSymbol(text) };
+  if (/(股价|股票|行情|stock|price|nasdaq|nyse|a股|港股|美股)/i.test(text)) {
+    return { type: "stock", symbol: normalizeStockSymbol(extractStockSymbol(text), text) };
   }
 
   return null;
 }
 
-function extractBeforeKeyword(text, keywords) {
-  for (const keyword of keywords) {
-    const index = text.toLowerCase().indexOf(String(keyword).toLowerCase());
-    if (index > 0) {
-      return text.slice(Math.max(0, index - 12), index).replace(/[，。！？?\s]/g, "").trim();
-    }
-  }
-  return "";
+function extractLocation(text) {
+  const cleaned = String(text || "")
+    .replace(/今天|现在|实时|当前|查询|一下|请问|帮我看看|怎么样|多少/g, "")
+    .replace(/天气|气温|温度|下雨|降雨|weather/gi, "")
+    .replace(/[，。！？?\s]/g, "")
+    .trim();
+  return cleaned.slice(0, 24);
 }
 
 function extractCurrencyPair(text) {
@@ -200,7 +198,7 @@ function extractCurrencyPair(text) {
   const codes = upper.match(/\b[A-Z]{3}\b/g) || [];
   const cnMap = [
     ["美元", "USD"], ["人民币", "CNY"], ["日元", "JPY"], ["欧元", "EUR"],
-    ["英镑", "GBP"], ["港币", "HKD"], ["新币", "SGD"], ["新加坡元", "SGD"]
+    ["英镑", "GBP"], ["港币", "HKD"], ["港元", "HKD"], ["新币", "SGD"], ["新加坡元", "SGD"]
   ];
   const found = [];
   for (const [cn, code] of cnMap) {
@@ -212,10 +210,47 @@ function extractCurrencyPair(text) {
 
 function extractStockSymbol(text) {
   const upper = String(text || "").toUpperCase();
+  const known = [
+    ["苹果", "AAPL"], ["特斯拉", "TSLA"], ["英伟达", "NVDA"], ["微软", "MSFT"],
+    ["谷歌", "GOOGL"], ["亚马逊", "AMZN"], ["腾讯", "0700.HK"], ["阿里", "BABA"],
+    ["贵州茅台", "600519.SS"], ["宁德时代", "300750.SZ"], ["比亚迪", "002594.SZ"]
+  ];
+  for (const [name, symbol] of known) {
+    if (text.includes(name)) return symbol;
+  }
+  const hk = upper.match(/\b0?\d{3,4}\.HK\b/) || upper.match(/港股\s*(\d{3,5})/);
+  if (hk) return String(hk[1] || hk[0]).replace(/^港股\s*/i, "");
   const explicit = upper.match(/\b[A-Z]{1,6}(?:\.[A-Z]{1,4})?\b/);
   if (explicit) return explicit[0];
   const cnCode = text.match(/\b\d{6}\b/);
   return cnCode ? cnCode[0] : "";
+}
+
+function normalizeStockSymbol(symbol, rawText) {
+  const clean = String(symbol || "").toUpperCase().trim();
+  if (!clean) return "";
+  if (clean.includes(".")) return clean;
+  if (/^\d{3,5}$/.test(clean) && /港股|港股行情|港股股价|HK/i.test(rawText)) {
+    return clean.padStart(4, "0") + ".HK";
+  }
+  if (/^\d{6}$/.test(clean)) {
+    if (/^(60|68|90)/.test(clean)) return `${clean}.SS`;
+    if (/^(00|30|20)/.test(clean)) return `${clean}.SZ`;
+    if (/^(83|87|43)/.test(clean)) return `${clean}.BJ`;
+  }
+  return clean;
+}
+
+function weatherCodeLabel(code) {
+  const n = Number(code);
+  if ([0].includes(n)) return "晴";
+  if ([1, 2, 3].includes(n)) return "多云";
+  if ([45, 48].includes(n)) return "雾";
+  if ([51, 53, 55, 56, 57].includes(n)) return "毛毛雨";
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(n)) return "雨";
+  if ([71, 73, 75, 77, 85, 86].includes(n)) return "雪";
+  if ([95, 96, 99].includes(n)) return "雷暴";
+  return String(code ?? "--");
 }
 
 async function getWeatherData(location) {
@@ -234,17 +269,25 @@ async function getWeatherData(location) {
   const current = weather.current || {};
 
   return {
-    type: "weather",
-    title: `${place.name || location}天气`,
-    subtitle: [place.admin1, place.country].filter(Boolean).join(" · "),
-    timestamp: current.time || new Date().toISOString(),
-    metrics: [
-      { label: "温度", value: String(current.temperature_2m ?? "--"), unit: weather.current_units?.temperature_2m || "°C" },
-      { label: "湿度", value: String(current.relative_humidity_2m ?? "--"), unit: weather.current_units?.relative_humidity_2m || "%" },
-      { label: "风速", value: String(current.wind_speed_10m ?? "--"), unit: weather.current_units?.wind_speed_10m || "km/h" },
-      { label: "天气代码", value: String(current.weather_code ?? "--") },
-    ],
-    rawText: "天气数据来自实时天气接口，天气代码后续可在 App 端映射为晴、阴、雨等中文状态。",
+    data: {
+      type: "weather",
+      title: `${place.name || location}天气`,
+      subtitle: [place.admin1, place.country].filter(Boolean).join(" · "),
+      timestamp: current.time || new Date().toISOString(),
+      metrics: [
+        { label: "温度", value: String(current.temperature_2m ?? "--"), unit: weather.current_units?.temperature_2m || "°C" },
+        { label: "天气", value: weatherCodeLabel(current.weather_code) },
+        { label: "湿度", value: String(current.relative_humidity_2m ?? "--"), unit: weather.current_units?.relative_humidity_2m || "%" },
+        { label: "风速", value: String(current.wind_speed_10m ?? "--"), unit: weather.current_units?.wind_speed_10m || "km/h" },
+      ],
+      rawText: "天气数据来自 Open-Meteo 实时接口。",
+    },
+    source: {
+      title: "Open-Meteo Weather Forecast API",
+      url: "https://open-meteo.com/",
+      domain: "open-meteo.com",
+      snippet: "实时天气、地理编码和气象预报数据来源。",
+    },
   };
 }
 
@@ -259,44 +302,84 @@ async function getExchangeRateData(from, to) {
   if (!rate) throw new Error(`exchange rate not found: ${base}/${target}`);
 
   return {
-    type: "exchange_rate",
-    title: `${base.toUpperCase()} / ${target} 汇率`,
-    subtitle: data.provider || "实时汇率",
-    timestamp: data.time_last_update_utc || new Date().toISOString(),
-    metrics: [
-      { label: "来源币种", value: base.toUpperCase() },
-      { label: "目标币种", value: target },
-      { label: "汇率", value: String(rate) },
-    ],
+    data: {
+      type: "exchange_rate",
+      title: `${base.toUpperCase()} / ${target} 汇率`,
+      subtitle: data.provider || "实时汇率",
+      timestamp: data.time_last_update_utc || new Date().toISOString(),
+      metrics: [
+        { label: "来源币种", value: base.toUpperCase() },
+        { label: "目标币种", value: target },
+        { label: "汇率", value: String(rate) },
+      ],
+    },
+    source: {
+      title: "ExchangeRate-API Open Endpoint",
+      url: "https://open.er-api.com/",
+      domain: "open.er-api.com",
+      snippet: "实时外汇汇率数据来源。",
+    },
   };
 }
 
-async function getStructuredData(intent) {
-  if (!intent) return null;
+async function getStockData(symbol) {
+  const cleanSymbol = String(symbol || "").trim().toUpperCase();
+  if (!cleanSymbol) throw new Error("stock symbol missing");
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?range=1d&interval=1m`;
+  const res = await fetchWithTimeout(url, { method: "GET" }, 12000);
+  if (!res.ok) throw new Error(`stock api ${res.status}`);
+  const json = await res.json();
+  const result = json?.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const quote = result?.indicators?.quote?.[0] || {};
+  const closes = Array.isArray(quote.close) ? quote.close.filter((v) => typeof v === "number") : [];
+  const latest = closes.length ? closes[closes.length - 1] : meta.regularMarketPrice;
+  const previous = meta.chartPreviousClose || meta.previousClose;
+  const change = typeof latest === "number" && typeof previous === "number" ? latest - previous : null;
+  const changePercent = change !== null && previous ? (change / previous) * 100 : null;
+
+  return {
+    data: {
+      type: "stock",
+      title: `${cleanSymbol} 股票行情`,
+      subtitle: meta.exchangeName || meta.fullExchangeName || "Yahoo Finance",
+      timestamp: new Date().toISOString(),
+      metrics: [
+        { label: "代码", value: cleanSymbol },
+        { label: "价格", value: latest !== undefined ? String(Number(latest).toFixed(3)) : "--", unit: meta.currency || "" },
+        { label: "涨跌", value: change !== null ? String(change.toFixed(3)) : "--" },
+        { label: "涨跌幅", value: changePercent !== null ? `${changePercent.toFixed(2)}%` : "--" },
+      ],
+      rawText: "股票数据来自 Yahoo Finance chart 接口。行情可能有延迟，仅供信息参考。",
+    },
+    source: {
+      title: "Yahoo Finance Chart API",
+      url: `https://finance.yahoo.com/quote/${encodeURIComponent(cleanSymbol)}`,
+      domain: "finance.yahoo.com",
+      snippet: "股票、ETF、指数等市场行情来源。",
+    },
+  };
+}
+
+async function getStructuredDataWithSource(intent) {
+  if (!intent) return { structuredData: null, structuredSource: null };
 
   if (intent.type === "weather") {
-    return await getWeatherData(intent.query);
+    const result = await getWeatherData(intent.query);
+    return { structuredData: result.data, structuredSource: result.source };
   }
 
   if (intent.type === "exchange_rate") {
-    return await getExchangeRateData(intent.from, intent.to);
+    const result = await getExchangeRateData(intent.from, intent.to);
+    return { structuredData: result.data, structuredSource: result.source };
   }
 
   if (intent.type === "stock") {
-    return {
-      type: "stock",
-      title: "股票行情",
-      subtitle: intent.symbol || "未识别代码",
-      timestamp: new Date().toISOString(),
-      metrics: [
-        { label: "代码", value: intent.symbol || "未识别" },
-        { label: "状态", value: "股票接口待配置" },
-      ],
-      rawText: "当前示例后端尚未绑定稳定股票行情源。可后续接入富途、AkShare 服务、腾讯行情或券商 API。",
-    };
+    const result = await getStockData(intent.symbol);
+    return { structuredData: result.data, structuredSource: result.source };
   }
 
-  return null;
+  return { structuredData: null, structuredSource: null };
 }
 
 async function tavilySearch(query) {
@@ -331,6 +414,19 @@ async function tavilySearch(query) {
   });
 
   return { sources, provider: "tavily" };
+}
+
+function dedupeSources(sources) {
+  const seen = new Set();
+  const clean = [];
+  for (const source of sources) {
+    const url = String(source?.url || "");
+    const key = url || String(source?.title || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    clean.push(source);
+  }
+  return clean.slice(0, 6);
 }
 
 function buildSourceContext(sources) {
@@ -377,8 +473,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         mode: "aliyun-fc-custom-runtime",
-        version: "qwen-deepseek-cn-web-data-v1",
-        features: ["qwen", "deepseek", "web_search_sources", "structured_realtime"],
+        version: "qwen-deepseek-cn-web-data-v2",
+        features: ["qwen", "deepseek", "web_search_sources", "weather", "exchange_rate", "stock"],
       });
     }
 
@@ -416,7 +512,7 @@ const server = http.createServer(async (req, res) => {
         code: "model_not_available",
         error: `CN gateway does not support model: ${modelPref}`,
         model: modelPref,
-        version: "qwen-deepseek-cn-web-data-v1",
+        version: "qwen-deepseek-cn-web-data-v2",
       });
     }
 
@@ -424,10 +520,13 @@ const server = http.createServer(async (req, res) => {
     const structuredIntent = forceSearch ? detectStructuredIntent(prompt) : null;
 
     let structuredData = null;
+    let structuredSource = null;
     let structuredError = null;
     if (structuredIntent) {
       try {
-        structuredData = await getStructuredData(structuredIntent);
+        const structured = await getStructuredDataWithSource(structuredIntent);
+        structuredData = structured.structuredData;
+        structuredSource = structured.structuredSource;
       } catch (e) {
         structuredError = String(e.message || e);
       }
@@ -445,6 +544,12 @@ const server = http.createServer(async (req, res) => {
         searchError = String(e.message || e);
       }
     }
+
+    if (structuredSource) {
+      sources = [structuredSource, ...sources];
+      searchProvider = searchProvider || structuredSource.domain;
+    }
+    sources = dedupeSources(sources);
 
     const messages = buildMessages(body.messages, prompt, structuredData, sources);
 
@@ -473,12 +578,13 @@ const server = http.createServer(async (req, res) => {
       modelId: resolved,
       modelLabel: resolved === "deepseek_v4" ? "DeepSeek V4 Pro" : "Qwen Max",
       searchUsed: Boolean(forceSearch && sources.length),
+      structuredUsed: Boolean(structuredData),
       searchProvider,
       searchError,
       sources,
       structuredData,
       structuredError,
-      version: "qwen-deepseek-cn-web-data-v1",
+      version: "qwen-deepseek-cn-web-data-v2",
     });
   } catch (e) {
     return sendJson(res, 502, {
