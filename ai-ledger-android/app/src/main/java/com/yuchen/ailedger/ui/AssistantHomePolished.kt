@@ -221,6 +221,7 @@ private fun ChatPanelV2(
     val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
+    var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val activeMessageIds = remember(state.messages) { state.messages.map { it.id }.toSet() }
     SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
     val lastMessageId = state.messages.lastOrNull()?.id
@@ -271,6 +272,8 @@ private fun ChatPanelV2(
                                 chatPhase = chatPhase,
                                 bubbleLayerState = bubbleLayerState,
                                 showActions = message.id == lastActionableMessageId,
+                                revealAlreadyPlayed = message.id in revealedMessageIds,
+                                onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
                                 onCopyMessage = onCopyMessage,
                                 onRetryMessage = onRetryMessage
                             )
@@ -329,6 +332,8 @@ private fun AnimatedMessageBubbleV2(
     chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
     showActions: Boolean,
+    revealAlreadyPlayed: Boolean,
+    onRevealCompleted: (String) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
@@ -356,6 +361,8 @@ private fun AnimatedMessageBubbleV2(
             bubbleLayerState = bubbleLayerState,
             appear = appear,
             showActions = showActions,
+            revealAlreadyPlayed = revealAlreadyPlayed,
+            onRevealCompleted = onRevealCompleted,
             onCopyMessage = onCopyMessage,
             onRetryMessage = onRetryMessage
         )
@@ -370,6 +377,8 @@ private fun MessageBubbleV2(
     bubbleLayerState: ChatBubbleLayerState,
     appear: Float = 1f,
     showActions: Boolean,
+    revealAlreadyPlayed: Boolean,
+    onRevealCompleted: (String) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
@@ -380,11 +389,14 @@ private fun MessageBubbleV2(
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
     val rawText = messageText(message)
-    val shouldReveal = !fromUser && !sending && showActions && message.status == MessageStatus.Sent && rawText.length > 24
+    val shouldReveal = !fromUser && !sending && !revealAlreadyPlayed && showActions && message.status == MessageStatus.Sent && rawText.length > 24
     val revealState = rememberRevealTextStateV2(message.id, rawText, shouldReveal)
     val revealedText = revealState.first
     val revealFinished = revealState.second
     val revealActive = shouldReveal && !revealFinished
+    LaunchedEffect(message.id, shouldReveal, revealFinished) {
+        if (shouldReveal && revealFinished) onRevealCompleted(message.id)
+    }
     val longReply = !fromUser && !sending && rawText.length >= 520
     var expanded by remember(message.id) { mutableStateOf(true) }
     val displayBaseText = if (sending) rawText else revealedText
@@ -502,24 +514,24 @@ private fun SweepingProgressTextV2(
     lineHeight: TextUnit,
     fontWeight: FontWeight
 ) {
-    val transition = rememberInfiniteTransition(label = "progress-label-dark-sweep")
+    val transition = rememberInfiniteTransition(label = "progress-label-soft-shadow-sweep")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1640, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "progress-label-dark-sweep-phase"
+        animationSpec = infiniteRepeatable(animation = tween(1880, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "progress-label-soft-shadow-sweep-phase"
     )
-    val startX = phase * 360f - 220f
+    val startX = phase * 420f - 260f
     val brush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.62f),
-            Color.White.copy(alpha = 0.58f),
-            Color.Black.copy(alpha = 0.82f),
-            Color.White.copy(alpha = 0.62f),
-            Color.White.copy(alpha = 0.54f)
+            Color.White.copy(alpha = 0.88f),
+            Color.White.copy(alpha = 0.78f),
+            Color.White.copy(alpha = 0.42f),
+            Color.White.copy(alpha = 0.78f),
+            Color.White.copy(alpha = 0.88f)
         ),
         start = Offset(startX, 0f),
-        end = Offset(startX + 180f, 0f)
+        end = Offset(startX + 260f, 0f)
     )
     Text(
         text = text,
