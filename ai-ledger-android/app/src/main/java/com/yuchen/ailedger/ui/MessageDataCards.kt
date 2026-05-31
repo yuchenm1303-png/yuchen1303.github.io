@@ -29,23 +29,16 @@ fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
     if (message.structuredData == null && message.webSources.isEmpty()) return
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        message.structuredData?.let { StructuredDataCardView(it, state) }
+        message.structuredData?.let { StructuredDataCardView(it) }
         if (message.webSources.isNotEmpty()) {
-            WebSourcesCard(message.webSources, message.searchProvider, state)
+            WebSourcesCard(message.webSources, message.searchProvider)
         }
     }
 }
 
 @Composable
-private fun StructuredDataCardView(data: StructuredDataCard, state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.88f,
-        motionIntensity = state.motionIntensity,
-        radius = 20,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
+private fun StructuredDataCardView(data: StructuredDataCard) {
+    LightweightDataCard {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 DataDot(Color(0xFF8DF9EA))
@@ -74,15 +67,8 @@ private fun StructuredDataCardView(data: StructuredDataCard, state: AssistantUiS
 }
 
 @Composable
-private fun WebSourcesCard(sources: List<WebSource>, provider: String?, state: AssistantUiState) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.86f,
-        motionIntensity = state.motionIntensity,
-        radius = 20,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
+private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
+    LightweightDataCard {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 DataDot(Color(0xFF9FD8FF))
@@ -97,6 +83,18 @@ private fun WebSourcesCard(sources: List<WebSource>, provider: String?, state: A
                 WebSourceRow(index + 1, source)
             }
         }
+    }
+}
+
+@Composable
+private fun LightweightDataCard(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.10f))
+    ) {
+        content()
     }
 }
 
