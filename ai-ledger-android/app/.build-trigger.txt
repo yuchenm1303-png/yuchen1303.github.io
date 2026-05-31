@@ -1,3 +1,3 @@
-Fix target: stable OpenGL card host
-Purpose: trigger source task that wraps the card TextureView in a native clipped host and keeps the surface from shrinking during keyboard resize.
+Fix target: stable OpenGL card host source application
+Purpose: trigger Build Compose Android APK workflow that applies the native clipped host for the card TextureView before building.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
