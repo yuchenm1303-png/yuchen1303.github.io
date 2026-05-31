@@ -55,10 +55,10 @@ class AiWorkerClient(
         modelPreference: ChatModel = ChatModel.Auto,
         onlineEnabled: Boolean = false
     ): AiChatResponse {
-        val endpoints = endpointPool(config.endpoint, config.fallbackEndpoints)
+        val route = resolveModelRoute(messages, modelPreference, onlineEnabled)
+        val endpoints = endpointPlan(route, onlineEnabled)
         if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
 
-        val route = resolveModelRoute(messages, modelPreference, onlineEnabled)
         val payload = buildPayload(messages, route, onlineEnabled)
         var lastError: IOException? = null
 
@@ -81,6 +81,29 @@ class AiWorkerClient(
             .map { it.trim().trimEnd('/') }
             .filter { it.isNotBlank() }
             .distinct()
+    }
+
+    /**
+     * 入口选择策略：
+     * - 手动选择海外模型（Gemini / Mistral / GPT OSS / Workers）时，必须走 Cloudflare，避免国内端误回 Qwen 导致“模型变了”。
+     * - 手动选择 Qwen/DeepSeek 时，优先走国内端，Cloudflare 作为备用。
+     * - Auto 时按 resolved 模型分流；如果 resolved 是海外模型，优先 Cloudflare，国内端作为兜底。
+     * - onlineEnabled 强制走 Cloudflare（国内端不负责联网/搜索）。
+     */
+    private fun endpointPlan(route: ModelRoute, onlineEnabled: Boolean): List<String> {
+        val cn = config.endpoint.trim().trimEnd('/')
+        val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT).trim().trimEnd('/')
+
+        val resolvedIsCnModel = route.resolved == ChatModel.Kimi || route.resolved == ChatModel.DeepSeekV4
+        val manualIsCnModel = !route.isAuto && (route.requested == ChatModel.Kimi || route.requested == ChatModel.DeepSeekV4)
+
+        return when {
+            onlineEnabled -> endpointPool(cf, emptyList())
+            manualIsCnModel -> endpointPool(cn, listOf(cf))
+            !route.isAuto -> endpointPool(cf, emptyList())
+            resolvedIsCnModel -> endpointPool(cn, listOf(cf))
+            else -> endpointPool(cf, listOf(cn))
+        }
     }
 
     private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel, onlineEnabled: Boolean): ModelRoute {
