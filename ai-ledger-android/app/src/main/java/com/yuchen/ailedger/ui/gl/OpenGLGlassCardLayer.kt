@@ -14,6 +14,7 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.ViewTreeObserver
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -70,25 +71,92 @@ fun OpenGLGlassCardLayer(
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
-        AndroidView(
-            modifier = Modifier.matchParentSize(),
-            factory = { context -> OpenGLGlassCardTextureView(context) },
-            update = { view ->
-                val rootDirty = view.setSamplingRootView(rootView)
-                val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
-                val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
-                val pressDirty = view.setPressSpec(press, pressX, pressY)
-                val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
-                val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
-                val styleDirty = view.setGlassStyle(border)
-                if (rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
-                    view.requestRender()
-                }
-            }
+AndroidView(
+    modifier = Modifier.matchParentSize(),
+    factory = { context -> OpenGLGlassCardHostView(context) },
+    update = { view ->
+        val surfaceDirty = view.setStableSurfaceSize(
+            width = widthPx.roundToInt(),
+            height = heightPx.roundToInt(),
+            rootWidth = rootWidthPx.roundToInt(),
+            rootHeight = rootHeightPx.roundToInt()
         )
+        val rootDirty = view.setSamplingRootView(rootView)
+        val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
+        val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+        val pressDirty = view.setPressSpec(press, pressX, pressY)
+        val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
+        val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
+        val styleDirty = view.setGlassStyle(border)
+        if (surfaceDirty || rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
+            view.requestRender()
+        }
+    }
+)
     }
 }
+private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
+    private val textureView = OpenGLGlassCardTextureView(context)
+    private var stableSurfaceWidth = 1
+    private var stableSurfaceHeight = 1
+    private var lastRootWidth = 1
+    private var lastRootHeight = 1
 
+    init {
+        clipChildren = true
+        clipToPadding = true
+        isClickable = false
+        isFocusable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        addView(textureView, LayoutParams(1, 1))
+    }
+
+    fun setStableSurfaceSize(width: Int, height: Int, rootWidth: Int, rootHeight: Int): Boolean {
+        val safeWidth = width.coerceAtLeast(1)
+        val safeHeight = height.coerceAtLeast(1)
+        val safeRootWidth = rootWidth.coerceAtLeast(1)
+        val safeRootHeight = rootHeight.coerceAtLeast(1)
+
+        val rootChanged =
+            kotlin.math.abs(safeRootWidth - lastRootWidth) > 2 ||
+                kotlin.math.abs(safeRootHeight - lastRootHeight) > 2
+
+        if (rootChanged) {
+            stableSurfaceWidth = safeWidth
+            stableSurfaceHeight = safeHeight
+            lastRootWidth = safeRootWidth
+            lastRootHeight = safeRootHeight
+        } else {
+            stableSurfaceWidth = max(stableSurfaceWidth, safeWidth)
+            stableSurfaceHeight = max(stableSurfaceHeight, safeHeight)
+        }
+
+        val lp = textureView.layoutParams
+        val dirty = lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
+        if (dirty) {
+            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
+        }
+        return dirty || rootChanged
+    }
+
+    fun setSamplingRootView(rootView: View): Boolean = textureView.setSamplingRootView(rootView)
+    fun syncSamplingFromWindowPosition(): Boolean = textureView.syncSamplingFromWindowPosition()
+    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean =
+        textureView.setGlassSpec(width, height, radius, intensity)
+
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
+        textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
+
+    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
+        textureView.setPressSpec(progress, centerX, centerY)
+
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean =
+        textureView.setBackdropTextures(blurBitmap, lensBitmap)
+
+    fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
+
+    fun requestRender() = textureView.requestRender()
+}
 private class OpenGLGlassCardTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: CardGlassEglThread? = null
     private var latestBlurBitmap: Bitmap? = null
