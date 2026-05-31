@@ -128,17 +128,17 @@ private fun foldedLabelPlacement(stackRank: Int, totalBackCount: Int): FoldedLab
     val t = if (count <= 1) 0f else index.toFloat() / (count - 1).toFloat()
     return FoldedLabelPlacement(
         xFraction = modelLerpFloat(0.74f, 0.18f, t),
-        yFraction = modelLerpFloat(0.25f, 0.66f, t),
-        scale = modelLerpFloat(0.98f, 0.76f, t),
-        alpha = modelLerpFloat(0.66f, 0.36f, t)
+        yFraction = modelLerpFloat(0.16f, 0.46f, t),
+        scale = modelLerpFloat(1.00f, 0.92f, t),
+        alpha = modelLerpFloat(0.70f, 0.44f, t)
     )
 }
 
 private fun foldedLabelFontSize(label: String) = when {
-    label.length >= 8 -> 6.3.sp
-    label.length >= 6 -> 6.8.sp
-    label.length >= 5 -> 7.3.sp
-    else -> 8.sp
+    label.length >= 8 -> 7.4.sp
+    label.length >= 6 -> 7.8.sp
+    label.length >= 5 -> 8.0.sp
+    else -> 8.2.sp
 }
 
 @Composable
