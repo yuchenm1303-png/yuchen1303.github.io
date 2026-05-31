@@ -35,6 +35,16 @@ private val richMessageTokenRegex = Regex(
     options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
 )
 
+private val inlineMathRegex = Regex(
+    pattern = """\\\((.+?)\\\)""",
+    options = setOf(RegexOption.DOT_MATCHES_ALL)
+)
+
+private val fencedMathRegex = Regex(
+    pattern = """\$\$(.+?)\$\$""",
+    options = setOf(RegexOption.DOT_MATCHES_ALL)
+)
+
 @Composable
 fun Text(
     text: String,
@@ -66,10 +76,13 @@ fun Text(
         richMessageTokenRegex.containsMatchIn(text)
 
     if (allowRichRendering) {
-        RichMessageText(
+        RichMessageContent(
             text = text,
-            textColor = resolvedColor,
-            modifier = modifier.fillMaxWidth()
+            modifier = modifier,
+            color = resolvedColor,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
         )
         return
     }
@@ -104,12 +117,31 @@ fun RichMessageContent(
     lineHeight: TextUnit = TextUnit.Unspecified,
     fontWeight: FontWeight? = null
 ) {
+    val density = LocalDensity.current
     val resolvedColor = if (color != Color.Unspecified) color else Color.White.copy(alpha = 0.86f)
+    val cssFontPx = remember(fontSize, density) {
+        if (fontSize != TextUnit.Unspecified) {
+            (with(density) { fontSize.toPx() } / density.density).coerceAtLeast(12f)
+        } else {
+            13.2f
+        }
+    }
+    val cssLineHeightPx = remember(lineHeight, cssFontPx, density) {
+        if (lineHeight != TextUnit.Unspecified) {
+            (with(density) { lineHeight.toPx() } / density.density).coerceAtLeast(cssFontPx + 2f)
+        } else {
+            cssFontPx * 1.42f
+        }
+    }
+
     if (richMessageTokenRegex.containsMatchIn(text)) {
         RichMessageText(
             text = text,
             textColor = resolvedColor,
-            modifier = modifier.fillMaxWidth()
+            modifier = modifier.fillMaxWidth(),
+            baseFontPx = cssFontPx,
+            lineHeightPx = cssLineHeightPx,
+            baseFontWeight = if (fontWeight == FontWeight.Bold || fontWeight == FontWeight.ExtraBold || fontWeight == FontWeight.Black) 700 else 500
         )
         return
     }
@@ -128,17 +160,23 @@ fun RichMessageContent(
 private fun RichMessageText(
     text: String,
     textColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    baseFontPx: Float,
+    lineHeightPx: Float,
+    baseFontWeight: Int
 ) {
     val density = LocalDensity.current
-    val minHeightPx = with(density) { 24.dp.roundToPx() }
-    var contentHeightPx by remember(text, density.density, density.fontScale) {
+    val minHeightPx = with(density) { 22.dp.roundToPx() }
+    var contentHeightPx by remember(text, density.density, density.fontScale, baseFontPx, lineHeightPx) {
         mutableIntStateOf(minHeightPx)
     }
-    val html = remember(text, textColor) {
+    val html = remember(text, textColor, baseFontPx, lineHeightPx, baseFontWeight) {
         buildRichMessageHtml(
             markdown = text,
-            textColor = textColor
+            textColor = textColor,
+            baseFontPx = baseFontPx,
+            lineHeightPx = lineHeightPx,
+            baseFontWeight = baseFontWeight
         )
     }
 
@@ -152,6 +190,7 @@ private fun RichMessageText(
                 isHorizontalScrollBarEnabled = false
                 isLongClickable = false
                 isHapticFeedbackEnabled = false
+                setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
@@ -161,6 +200,8 @@ private fun RichMessageText(
                 settings.setSupportZoom(false)
                 settings.builtInZoomControls = false
                 settings.displayZoomControls = false
+                settings.loadsImagesAutomatically = true
+                settings.defaultTextEncodingName = "utf-8"
 
                 webChromeClient = WebChromeClient()
                 webViewClient = object : WebViewClient() {
@@ -214,7 +255,7 @@ private fun scheduleHeightMeasurements(
     webView: WebView,
     onMeasured: (Int) -> Unit
 ) {
-    val delays = longArrayOf(0L, 80L, 180L, 360L, 720L)
+    val delays = longArrayOf(0L, 60L, 160L, 320L, 720L)
     delays.forEach { delayMillis ->
         webView.postDelayed(
             { measureContentHeight(webView, onMeasured) },
@@ -258,7 +299,10 @@ private fun measureContentHeight(
 
 private fun buildRichMessageHtml(
     markdown: String,
-    textColor: Color
+    textColor: Color,
+    baseFontPx: Float,
+    lineHeightPx: Float,
+    baseFontWeight: Int
 ): String {
     val colorCss = textColor.toCssRgba()
     val bodyHtml = markdownToHtml(markdown)
@@ -290,14 +334,15 @@ private fun buildRichMessageHtml(
                 }
 
                 #content {
-                    font-size: 15px;
-                    line-height: 1.56;
+                    font-size: ${baseFontPx}px;
+                    line-height: ${lineHeightPx}px;
+                    font-weight: $baseFontWeight;
                     word-break: break-word;
                     overflow-wrap: anywhere;
                 }
 
                 p {
-                    margin: 0 0 10px 0;
+                    margin: 0 0 8px 0;
                 }
 
                 p:last-child {
@@ -305,15 +350,15 @@ private fun buildRichMessageHtml(
                 }
 
                 h1, h2, h3 {
-                    margin: 0 0 10px 0;
-                    line-height: 1.32;
+                    margin: 0 0 8px 0;
+                    line-height: 1.28;
                     font-weight: 800;
                     color: $colorCss;
                 }
 
-                h1 { font-size: 1.22em; }
-                h2 { font-size: 1.14em; }
-                h3 { font-size: 1.07em; }
+                h1 { font-size: ${baseFontPx * 1.08f}px; }
+                h2 { font-size: ${baseFontPx * 1.04f}px; }
+                h3 { font-size: ${baseFontPx * 1.01f}px; }
 
                 strong {
                     font-weight: 800;
@@ -321,7 +366,7 @@ private fun buildRichMessageHtml(
 
                 code {
                     font-family: "SFMono-Regular", Menlo, monospace;
-                    font-size: 0.94em;
+                    font-size: 0.95em;
                     background: rgba(255, 255, 255, 0.10);
                     padding: 0.10em 0.34em;
                     border-radius: 0.42em;
@@ -330,12 +375,12 @@ private fun buildRichMessageHtml(
                 hr {
                     border: none;
                     height: 1px;
-                    margin: 10px 0;
+                    margin: 8px 0;
                     background: rgba(255, 255, 255, 0.18);
                 }
 
                 ul {
-                    margin: 0 0 10px 0;
+                    margin: 0 0 8px 0;
                     padding-left: 1.1em;
                 }
 
@@ -343,25 +388,27 @@ private fun buildRichMessageHtml(
                     margin: 0 0 4px 0;
                 }
 
+                .math-host {
+                    display: block;
+                    margin: 6px 0;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                }
+
                 .katex {
                     color: $colorCss;
+                    font-size: 1.00em;
                 }
 
                 .katex-display {
-                    margin: 0.42em 0;
+                    margin: 0.18em 0;
                     overflow-x: auto;
                     overflow-y: hidden;
-                    padding: 0.12em 0;
+                    padding: 0.10em 0;
                 }
             </style>
-            <script
-                defer
-                src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"
-            ></script>
-            <script
-                defer
-                src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"
-            ></script>
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
         </head>
         <body>
             <div id="content">$bodyHtml</div>
@@ -389,9 +436,14 @@ private fun buildRichMessageHtml(
 }
 
 private fun markdownToHtml(markdown: String): String {
-    val normalized = markdown
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
+    val tokens = linkedMapOf<String, String>()
+    fun stash(value: String): String {
+        val key = "@@TOKEN_${tokens.size}@@"
+        tokens[key] = value
+        return key
+    }
+
+    val normalized = preprocessDisplayMathBlocks(markdown, ::escapeHtml, ::stash)
         .trim()
 
     if (normalized.isBlank()) return "<p>……</p>"
@@ -402,7 +454,7 @@ private fun markdownToHtml(markdown: String): String {
 
     fun flushParagraph() {
         if (paragraphLines.isEmpty()) return
-        val content = paragraphLines.joinToString("<br/>") { formatInlineMarkdown(it) }
+        val content = paragraphLines.joinToString("<br/>") { formatInlineMarkdown(it, ::stash) }
         builder.append("<p>").append(content).append("</p>")
         paragraphLines.clear()
     }
@@ -412,7 +464,7 @@ private fun markdownToHtml(markdown: String): String {
         builder.append("<ul>")
         listItems.forEach { item ->
             builder.append("<li>")
-                .append(formatInlineMarkdown(item))
+                .append(formatInlineMarkdown(item, ::stash))
                 .append("</li>")
         }
         builder.append("</ul>")
@@ -428,42 +480,36 @@ private fun markdownToHtml(markdown: String): String {
                 flushParagraph()
                 flushList()
             }
-
             trimmed.matches(Regex("""---+""")) -> {
                 flushParagraph()
                 flushList()
                 builder.append("<hr/>")
             }
-
             trimmed.startsWith("### ") -> {
                 flushParagraph()
                 flushList()
                 builder.append("<h3>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("### ").trim()))
+                    .append(formatInlineMarkdown(trimmed.removePrefix("### ").trim(), ::stash))
                     .append("</h3>")
             }
-
             trimmed.startsWith("## ") -> {
                 flushParagraph()
                 flushList()
                 builder.append("<h2>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("## ").trim()))
+                    .append(formatInlineMarkdown(trimmed.removePrefix("## ").trim(), ::stash))
                     .append("</h2>")
             }
-
             trimmed.startsWith("# ") -> {
                 flushParagraph()
                 flushList()
                 builder.append("<h1>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("# ").trim()))
+                    .append(formatInlineMarkdown(trimmed.removePrefix("# ").trim(), ::stash))
                     .append("</h1>")
             }
-
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
                 flushParagraph()
                 listItems += trimmed.drop(2).trim()
             }
-
             else -> {
                 flushList()
                 paragraphLines += line
@@ -474,25 +520,79 @@ private fun markdownToHtml(markdown: String): String {
     flushParagraph()
     flushList()
 
-    return builder.toString().ifBlank { "<p>……</p>" }
+    var html = builder.toString().ifBlank { "<p>……</p>" }
+    tokens.forEach { (key, value) ->
+        html = html.replace(key, value)
+    }
+    return html
 }
 
-private fun formatInlineMarkdown(text: String): String {
-    val codeSpans = mutableListOf<String>()
-    var working = escapeHtml(text)
+private fun preprocessDisplayMathBlocks(
+    source: String,
+    escape: (String) -> String,
+    stash: (String) -> String
+): String {
+    val lines = source.replace("\r\n", "\n").replace('\r', '\n').lines()
+    val output = mutableListOf<String>()
+    var index = 0
+    while (index < lines.size) {
+        val trimmed = lines[index].trim()
+        when (trimmed) {
+            "\\[" -> {
+                index += 1
+                val body = StringBuilder()
+                while (index < lines.size && lines[index].trim() != "\\]") {
+                    if (body.isNotEmpty()) body.append('\n')
+                    body.append(lines[index].trimEnd())
+                    index += 1
+                }
+                val token = stash("<div class=\"math-host\">\\[${escape(body.toString())}\\]</div>")
+                output += token
+                if (index < lines.size && lines[index].trim() == "\\]") index += 1
+            }
+            "$$" -> {
+                index += 1
+                val body = StringBuilder()
+                while (index < lines.size && lines[index].trim() != "$$") {
+                    if (body.isNotEmpty()) body.append('\n')
+                    body.append(lines[index].trimEnd())
+                    index += 1
+                }
+                val token = stash("<div class=\"math-host\">$$${escape(body.toString())}$$</div>")
+                output += token
+                if (index < lines.size && lines[index].trim() == "$$") index += 1
+            }
+            else -> {
+                output += lines[index]
+                index += 1
+            }
+        }
+    }
+    return output.joinToString("\n")
+}
+
+private fun formatInlineMarkdown(
+    text: String,
+    stash: (String) -> String
+): String {
+    var working = text
 
     working = Regex("""`([^`]+)`""").replace(working) { match ->
-        val token = "@@CODE${codeSpans.size}@@"
-        codeSpans += "<code>${match.groupValues[1]}</code>"
-        token
+        stash("<code>${escapeHtml(match.groupValues[1])}</code>")
     }
+
+    working = inlineMathRegex.replace(working) { match ->
+        stash("\\(${escapeHtml(match.groupValues[1])}\\)")
+    }
+
+    working = fencedMathRegex.replace(working) { match ->
+        stash("<span class=\"math-host\">$$${escapeHtml(match.groupValues[1])}$$</span>")
+    }
+
+    working = escapeHtml(working)
 
     working = Regex("""\*\*(.+?)\*\*""").replace(working) {
         "<strong>${it.groupValues[1]}</strong>"
-    }
-
-    codeSpans.forEachIndexed { index, html ->
-        working = working.replace("@@CODE$index@@", html)
     }
 
     return working
