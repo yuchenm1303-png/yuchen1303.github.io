@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
@@ -139,7 +138,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
                                 .imePadding()
-                                .offset(y = if (isKeyboardOpen && state.currentTab == AppTab.Assistant) 48.dp else 0.dp)
                                 .padding(horizontal = 12.dp)
                         ) {
                             CachedAppTabHost(
