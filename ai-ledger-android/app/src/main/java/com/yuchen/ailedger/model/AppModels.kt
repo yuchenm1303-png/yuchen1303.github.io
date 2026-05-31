@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.model
 
+import androidx.compose.runtime.Immutable
+
 const val BUILTIN_THEME_BACKGROUND_PATH = "__builtin_theme_background__"
 
 enum class AppTab(val title: String, val icon: String) {
@@ -59,6 +61,7 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
     }
 }
 
+@Immutable
 data class BackdropDebugParams(
     val scale: Float = 2.00f,
     val radius: Float = 7f,
@@ -76,6 +79,7 @@ data class BackdropDebugParams(
     val moonRimAlpha: Float = 0.42f
 )
 
+@Immutable
 data class GlassBorderStyle(
     val outerStrokeAlpha: Float = 0.40f,
     val innerStrokeAlpha: Float = 0f,
@@ -103,6 +107,7 @@ data class GlassBorderStyle(
     val openGlSampleRadiusScale: Float = 0f
 )
 
+@Immutable
 data class ModelCardGlassStyle(
     val bodyAlpha: Float = 0.35f,
     val innerMist: Float = 2.50f,
@@ -150,6 +155,7 @@ enum class ChatModel(val id: String, val label: String, val shortLabel: String) 
 
 enum class LedgerRecordType(val label: String) { Expense("支出"), Income("收入") }
 
+@Immutable
 data class ChatMessage(
     val id: String,
     val text: String,
@@ -163,10 +169,13 @@ data class ChatMessage(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Immutable
 data class StatSummary(val title: String, val value: String)
 
+@Immutable
 data class ToolEntry(val title: String, val subtitle: String, val icon: String = "✦")
 
+@Immutable
 data class LedgerRecord(
     val id: String,
     val title: String,
@@ -176,6 +185,7 @@ data class LedgerRecord(
     val dateLabel: String
 )
 
+@Immutable
 data class AssistantUiState(
     val currentTab: AppTab = AppTab.Assistant,
     val quality: RenderQuality = RenderQuality.Balanced,

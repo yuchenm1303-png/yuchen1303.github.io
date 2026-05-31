@@ -86,7 +86,10 @@ class AssistantViewModel(
     }
 
     fun deleteLedgerRecord(id: String) { uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id }) }
-    fun updateComposer(text: String) { uiState = uiState.copy(composerText = text) }
+    fun updateComposer(text: String) {
+        if (text == uiState.composerText) return
+        uiState = uiState.copy(composerText = text)
+    }
     fun submitComposer() {
         val text = uiState.composerText.trim()
         if (text.isBlank() || uiState.isSending) return

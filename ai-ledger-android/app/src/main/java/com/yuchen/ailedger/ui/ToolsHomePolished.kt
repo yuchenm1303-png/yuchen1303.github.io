@@ -69,6 +69,25 @@ import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.ToolEntry
 import kotlinx.coroutines.delay
 
+private val LedgerCategoriesV2 = listOf("餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他")
+private val LedgerCategoryRowsV2 = LedgerCategoriesV2.chunked(4)
+
+private val DefaultToolEntriesV2 = listOf(
+    ToolEntry("账单中心", "手动记账、预算、分类和最近明细"),
+    ToolEntry("数据统计", "按周、月、年查看趋势"),
+    ToolEntry("提醒闹钟", "创建提醒和闹钟"),
+    ToolEntry("应用控制", "打开微信、支付宝等应用"),
+    ToolEntry("快捷指令", "保存常用任务"),
+    ToolEntry("任务记录", "查看助手执行历史")
+)
+
+private data class LedgerTotalsV2(
+    val monthExpense: Float,
+    val monthIncome: Float,
+    val todayExpense: Float,
+    val recordCount: Int
+)
+
 @Composable
 fun ToolsScreenV2(
     state: AssistantUiState,
@@ -144,6 +163,7 @@ private fun ToolsHeaderV2() {
 
 @Composable
 private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
+    val totals = remember(state.ledgerRecords) { ledgerTotalsV2(state.ledgerRecords) }
     OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
@@ -179,8 +199,8 @@ private fun ToolsHeroV2(state: AssistantUiState, onOpenTool: (String) -> Unit) {
                     modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HeroFrostMetric("记录", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
-                    HeroFrostMetric("今日", todayExpenseTextV2(state), Modifier.weight(1f))
+                    HeroFrostMetric("记录", "${totals.recordCount} 笔", Modifier.weight(1f))
+                    HeroFrostMetric("今日", formatMoneyV2(totals.todayExpense), Modifier.weight(1f))
                     HeroFrostMetric("预算", "¥${state.ledgerBudgetText.ifBlank { "0" }}", Modifier.weight(1f))
                 }
             }
@@ -318,11 +338,9 @@ private fun LedgerCenterV2(
 
 @Composable
 private fun LedgerSummaryV2(state: AssistantUiState) {
-    val monthExpense = state.ledgerRecords.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }.toFloat()
-    val monthIncome = state.ledgerRecords.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }.toFloat()
-    val todayExpense = state.ledgerRecords.filter { it.dateLabel == "今天" && it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }.toFloat()
-    val budget = state.ledgerBudgetText.toFloatOrNull() ?: 0f
-    val remain = budget - monthExpense
+    val totals = remember(state.ledgerRecords) { ledgerTotalsV2(state.ledgerRecords) }
+    val budget = remember(state.ledgerBudgetText) { state.ledgerBudgetText.toFloatOrNull() ?: 0f }
+    val remain = budget - totals.monthExpense
     OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.04f,
@@ -337,14 +355,14 @@ private fun LedgerSummaryV2(state: AssistantUiState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("本月支出", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(formatMoneyV2(monthExpense), color = Color.White, fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
+                    Text(formatMoneyV2(totals.monthExpense), color = Color.White, fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black)
                 }
                 Text(if (remain >= 0f) "剩余 ${formatMoneyV2(remain)}" else "超支 ${formatMoneyV2(-remain)}", color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                MiniToolMetric("今日", formatMoneyV2(todayExpense), state, Modifier.weight(1f))
-                MiniToolMetric("收入", formatMoneyV2(monthIncome), state, Modifier.weight(1f))
-                MiniToolMetric("记录", "${state.ledgerRecords.size} 笔", state, Modifier.weight(1f))
+                MiniToolMetric("今日", formatMoneyV2(totals.todayExpense), state, Modifier.weight(1f))
+                MiniToolMetric("收入", formatMoneyV2(totals.monthIncome), state, Modifier.weight(1f))
+                MiniToolMetric("记录", "${totals.recordCount} 笔", state, Modifier.weight(1f))
             }
         }
     }
@@ -516,10 +534,9 @@ private fun ToolInputV2(
 
 @Composable
 private fun CategoryRowV2(state: AssistantUiState, onCategoryChange: (String) -> Unit) {
-    val categories = listOf("餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他")
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text("分类", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        categories.chunked(4).forEach { row ->
+        LedgerCategoryRowsV2.forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { category ->
                     TypeChipV2(category, state.ledgerDraftCategory == category, state, Modifier.weight(1f)) { onCategoryChange(category) }
@@ -675,16 +692,7 @@ private fun Modifier.toolGlyphGlow(glow: Float, accent: Color): Modifier = drawW
     }
 }
 
-private fun toolEntriesV2(state: AssistantUiState): List<ToolEntry> = state.tools.ifEmpty {
-    listOf(
-        ToolEntry("账单中心", "手动记账、预算、分类和最近明细"),
-        ToolEntry("数据统计", "按周、月、年查看趋势"),
-        ToolEntry("提醒闹钟", "创建提醒和闹钟"),
-        ToolEntry("应用控制", "打开微信、支付宝等应用"),
-        ToolEntry("快捷指令", "保存常用任务"),
-        ToolEntry("任务记录", "查看助手执行历史")
-    )
-}
+private fun toolEntriesV2(state: AssistantUiState): List<ToolEntry> = state.tools.ifEmpty { DefaultToolEntriesV2 }
 
 private fun displayToolTitleV2(title: String): String = when {
     title.contains("账单") -> "账单中心"
@@ -724,8 +732,27 @@ private fun toolAccentV2(title: String): Color = when (displayToolTitleV2(title)
     else -> Color.White
 }
 
-private fun todayExpenseTextV2(state: AssistantUiState): String = formatMoneyV2(
-    state.ledgerRecords.filter { it.dateLabel == "今天" && it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }.toFloat()
-)
+private fun ledgerTotalsV2(records: List<LedgerRecord>): LedgerTotalsV2 {
+    var monthExpense = 0f
+    var monthIncome = 0f
+    var todayExpense = 0f
+    records.forEach { record ->
+        when (record.type) {
+            LedgerRecordType.Expense -> {
+                monthExpense += record.amount
+                if (record.dateLabel == "今天") todayExpense += record.amount
+            }
+            LedgerRecordType.Income -> {
+                monthIncome += record.amount
+            }
+        }
+    }
+    return LedgerTotalsV2(
+        monthExpense = monthExpense,
+        monthIncome = monthIncome,
+        todayExpense = todayExpense,
+        recordCount = records.size
+    )
+}
 
 private fun formatMoneyV2(value: Float): String = "¥${String.format("%.2f", value)}"
