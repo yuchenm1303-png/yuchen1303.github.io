@@ -54,9 +54,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.SpanStyle
@@ -380,14 +380,14 @@ private fun MessageBubbleV2(
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
     val rawText = messageText(message)
-    val shouldTypewriter = !fromUser && !sending && showActions && message.status == MessageStatus.Sent && rawText.length > 24
-    val typewriterState = rememberTypewriterTextStateV2(message.id, rawText, shouldTypewriter)
-    val animatedRawText = typewriterState.first
-    val typewriterFinished = typewriterState.second
-    val typewriterActive = shouldTypewriter && !typewriterFinished
+    val shouldReveal = !fromUser && !sending && showActions && message.status == MessageStatus.Sent && rawText.length > 24
+    val revealState = rememberRevealTextStateV2(message.id, rawText, shouldReveal)
+    val revealedText = revealState.first
+    val revealFinished = revealState.second
+    val revealActive = shouldReveal && !revealFinished
     val longReply = !fromUser && !sending && rawText.length >= 520
     var expanded by remember(message.id) { mutableStateOf(true) }
-    val displayBaseText = if (sending) rawText else animatedRawText
+    val displayBaseText = if (sending) rawText else revealedText
     val displayText = if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
     val contentAlpha by animateFloatAsState(
         targetValue = if (sending) 0.88f else 1f,
@@ -442,20 +442,20 @@ private fun MessageBubbleV2(
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
-                        active = typewriterActive,
+                        active = revealActive,
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer { alpha = contentAlpha }
                     )
-                    if (typewriterActive) {
+                    if (revealActive) {
                         TypewriterTrailV2()
                     }
-                    if (longReply && typewriterFinished) {
+                    if (longReply && revealFinished) {
                         LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
                     }
                 }
                 if (!fromUser) MessageBadgeV2(message)
-                if (showActions && !fromUser && !sending && typewriterFinished) {
+                if (showActions && !fromUser && !sending && revealFinished) {
                     MessageActionsV2(
                         message = message,
                         onCopyMessage = onCopyMessage,
@@ -484,12 +484,12 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 SweepingProgressTextV2(progressLabel, fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold)
-                ThinkingDotsV2(size = 4, color = Color(0xFF8DF9EA).copy(alpha = 0.76f))
+                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 SweepingProgressTextV2(progressLabel, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
-                ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
+                ThinkingDotsV2(size = 7, color = Color.White.copy(alpha = 0.66f))
             }
         }
     }
@@ -502,24 +502,24 @@ private fun SweepingProgressTextV2(
     lineHeight: TextUnit,
     fontWeight: FontWeight
 ) {
-    val transition = rememberInfiniteTransition(label = "progress-label-sweep")
+    val transition = rememberInfiniteTransition(label = "progress-label-dark-sweep")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1760, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "progress-label-sweep-phase"
+        animationSpec = infiniteRepeatable(animation = tween(1640, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "progress-label-dark-sweep-phase"
     )
-    val startX = phase * 340f - 210f
+    val startX = phase * 360f - 220f
     val brush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.44f),
-            Color.White.copy(alpha = 0.72f),
-            Color(0xFF8DF9EA).copy(alpha = 0.92f),
-            Color.White.copy(alpha = 0.56f),
-            Color.White.copy(alpha = 0.36f)
+            Color.White.copy(alpha = 0.62f),
+            Color.White.copy(alpha = 0.58f),
+            Color.Black.copy(alpha = 0.82f),
+            Color.White.copy(alpha = 0.62f),
+            Color.White.copy(alpha = 0.54f)
         ),
         start = Offset(startX, 0f),
-        end = Offset(startX + 190f, 0f)
+        end = Offset(startX + 180f, 0f)
     )
     Text(
         text = text,
@@ -560,7 +560,7 @@ private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean
 }
 
 @Composable
-private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabled: Boolean): Pair<String, Boolean> {
+private fun rememberRevealTextStateV2(messageId: String, text: String, enabled: Boolean): Pair<String, Boolean> {
     var visibleCount by remember(messageId, text) { mutableStateOf(if (enabled) 0 else text.length) }
     LaunchedEffect(messageId, text, enabled) {
         if (!enabled) {
@@ -568,29 +568,47 @@ private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabl
             return@LaunchedEffect
         }
         visibleCount = 0
-        delay(90)
+        delay(120)
         while (visibleCount < text.length) {
-            visibleCount = (visibleCount + typewriterStepV2(text.length, visibleCount)).coerceAtMost(text.length)
-            delay(typewriterDelayV2(text.length, visibleCount))
+            visibleCount = nextRevealBoundaryV2(text, visibleCount)
+            delay(revealDelayV2(text.length, visibleCount))
         }
     }
     val safeCount = visibleCount.coerceIn(0, text.length)
     return text.take(safeCount) to (safeCount >= text.length)
 }
 
-private fun typewriterStepV2(total: Int, index: Int): Int = when {
-    total > 1600 -> 44
-    total > 800 -> 34
-    total > 320 -> 24
-    index < 120 -> 12
-    else -> 16
+private fun nextRevealBoundaryV2(text: String, current: Int): Int {
+    if (current >= text.length) return text.length
+    val baseStep = when {
+        text.length > 1600 -> 180
+        text.length > 900 -> 140
+        text.length > 420 -> 96
+        else -> 68
+    }
+    val softTarget = (current + baseStep).coerceAtMost(text.length)
+    val punctuationWindowEnd = (softTarget + 44).coerceAtMost(text.length)
+    val paragraph = text.indexOf('\n', startIndex = softTarget).takeIf { it in softTarget until punctuationWindowEnd }
+    if (paragraph != null) return (paragraph + 1).coerceAtMost(text.length)
+    val punctuation = findFirstRevealBreakV2(text, softTarget, punctuationWindowEnd)
+    if (punctuation > 0) return punctuation.coerceAtMost(text.length)
+    return softTarget
 }
 
-private fun typewriterDelayV2(total: Int, index: Int): Long = when {
-    index < 120 -> 96L
-    total > 800 -> 82L
-    total > 320 -> 88L
-    else -> 104L
+private fun findFirstRevealBreakV2(text: String, start: Int, end: Int): Int {
+    val breaks = setOf('。', '！', '？', '；', '.', '!', '?', ';', '，', ',')
+    for (index in start until end) {
+        if (text[index] in breaks) return index + 1
+    }
+    return -1
+}
+
+private fun revealDelayV2(total: Int, index: Int): Long = when {
+    total > 1600 -> 230L
+    total > 900 -> 210L
+    total > 420 -> 190L
+    index < 120 -> 180L
+    else -> 200L
 }
 
 @Composable
@@ -614,25 +632,38 @@ private fun GeneratingMessageContentV2(
         )
         return
     }
-    val transition = rememberInfiniteTransition(label = "message-wide-fade-tail")
-    val breath by transition.animateFloat(
-        initialValue = 0.38f,
+    val transition = rememberInfiniteTransition(label = "message-wide-diagonal-fade")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(720, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "message-wide-fade-tail-alpha"
+        animationSpec = infiniteRepeatable(animation = tween(1450, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "message-wide-diagonal-fade-phase"
     )
-    val tailSize = 58.coerceAtMost(text.length)
+    val tailSize = 150.coerceAtMost(text.length)
     val stableText = text.dropLast(tailSize)
     val fadingText = text.takeLast(tailSize)
+    val diagonalStart = phase * 360f - 140f
+    val tailBrush = Brush.linearGradient(
+        colors = listOf(
+            color.copy(alpha = 0.18f),
+            color.copy(alpha = 0.38f),
+            color.copy(alpha = 0.78f),
+            Color.White.copy(alpha = 0.90f),
+            color.copy(alpha = 0.64f),
+            color.copy(alpha = 0.34f)
+        ),
+        start = Offset(diagonalStart, 44f),
+        end = Offset(diagonalStart + 260f, -20f)
+    )
     val annotated = buildAnnotatedString {
         append(stableText)
-        withStyle(SpanStyle(color = color.copy(alpha = 0.32f + breath * 0.58f))) {
+        withStyle(SpanStyle(brush = tailBrush)) {
             append(fadingText)
         }
     }
     Text(
         text = annotated,
-        color = color.copy(alpha = 0.82f),
+        color = color.copy(alpha = 0.84f),
         fontSize = fontSize,
         lineHeight = lineHeight,
         fontWeight = fontWeight,
@@ -644,26 +675,26 @@ private fun GeneratingMessageContentV2(
 private fun TypewriterTrailV2() {
     val transition = rememberInfiniteTransition(label = "assistant-typewriter-trail")
     val breath by transition.animateFloat(
-        initialValue = 0.58f,
+        initialValue = 0.50f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1120, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(animation = tween(1280, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "assistant-typewriter-trail-alpha"
     )
     Row(
-        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.26f + breath * 0.15f },
+        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.20f + breath * 0.12f },
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "正在生成",
-            color = Color(0xFF8DF9EA).copy(alpha = 0.50f),
+            color = Color.White.copy(alpha = 0.42f),
             fontSize = 8.sp,
             lineHeight = 10.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1
         )
         Spacer(Modifier.size(5.dp))
-        ThinkingDotsV2(size = 3, color = Color(0xFF8DF9EA).copy(alpha = 0.58f))
+        ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.42f))
     }
 }
 
