@@ -265,10 +265,18 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
                     )
                 }
-                if (!fromUser) {
-                    SourceBadgeRow(message)
-                       if (message.status == MessageStatus.Sent) {
-                          MessageDataCards(message, state)
+               if (!fromUser) {
+    SourceBadgeRow(message)
+
+    if (message.status == MessageStatus.Sent) {
+        Text(
+            text = "卡片调试：sources=${message.webSources.size}, structured=${message.structuredData != null}",
+            color = Color(0xFF8DF9EA).copy(alpha = 0.78f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        MessageDataCards(message, state)
     }
 }
             }
