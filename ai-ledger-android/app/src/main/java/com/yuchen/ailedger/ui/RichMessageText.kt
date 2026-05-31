@@ -144,7 +144,7 @@ fun RichMessageContent(
         if (lineHeight != TextUnit.Unspecified) {
             with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
         } else {
-            textSizePx * 1.30f
+            textSizePx * 1.28f
         }
     }
 
@@ -369,6 +369,7 @@ private fun appendDisplayFormula(
     textColor: Int,
     textSizePx: Float
 ) {
+    trimExtraBlankBeforeBlock(builder)
     appendCompactSeparator(builder)
     appendFormula(builder, context, token.latex, true, textColor, textSizePx)
     builder.append('\n')
@@ -386,7 +387,7 @@ private fun appendFormula(
     if (cleanLatex.isBlank()) return
     try {
         val drawable = JLatexMathDrawable.builder(cleanLatex)
-            .textSize(if (display) textSizePx * 0.86f else textSizePx * 0.86f)
+            .textSize(if (display) textSizePx * 0.82f else textSizePx * 0.84f)
             .color(textColor)
             .align(if (display) JLatexMathDrawable.ALIGN_CENTER else JLatexMathDrawable.ALIGN_LEFT)
             .padding(0)
@@ -423,6 +424,12 @@ private fun appendCompactBlankLine(builder: SpannableStringBuilder) {
     if (!builder.endsWith("\n\n")) {
         if (!builder.endsWith("\n")) builder.append('\n')
         builder.append('\n')
+    }
+}
+
+private fun trimExtraBlankBeforeBlock(builder: SpannableStringBuilder) {
+    while (builder.endsWith("\n\n")) {
+        builder.delete(builder.length - 1, builder.length)
     }
 }
 
@@ -478,7 +485,7 @@ private class FormulaDrawableSpan(
         if (fm != null) {
             val paintFm = paint.fontMetricsInt
             if (display) {
-                val pad = (textSizePx * 0.04f).toInt().coerceAtLeast(1)
+                val pad = (textSizePx * 0.02f).toInt().coerceAtLeast(1)
                 fm.ascent = -rect.height() - pad
                 fm.descent = pad
                 fm.top = fm.ascent
@@ -507,12 +514,12 @@ private class FormulaDrawableSpan(
         paint: Paint
     ) {
         val transY = if (display) {
-            y - drawable.bounds.height() - (textSizePx * 0.02f).toInt()
+            y - drawable.bounds.height()
         } else {
             val paintFm = paint.fontMetricsInt
             val textHeight = paintFm.descent - paintFm.ascent
             val centeredY = y + paintFm.ascent + (textHeight - drawable.bounds.height()) / 2
-            centeredY - (textSizePx * 0.18f).toInt()
+            centeredY + (textSizePx * 0.04f).toInt()
         }
         canvas.save()
         canvas.translate(x, transY.toFloat())
