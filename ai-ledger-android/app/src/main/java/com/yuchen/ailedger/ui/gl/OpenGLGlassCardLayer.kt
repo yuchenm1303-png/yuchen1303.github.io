@@ -151,15 +151,17 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     fun syncSamplingFromWindowPosition(): Boolean = textureView.syncSamplingFromWindowPosition()
 
-    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
-        latestRadius = radius
-        latestIntensity = intensity
+ fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
+    latestRadius = radius
+    latestIntensity = intensity
 
-        val opticalWidth = max(stableSurfaceWidth.toFloat(), width.coerceAtLeast(1f))
-        val opticalHeight = max(stableSurfaceHeight.toFloat(), height.coerceAtLeast(1f))
-
-        return textureView.setGlassSpec(opticalWidth, opticalHeight, latestRadius, latestIntensity)
-    }
+    return textureView.setGlassSpec(
+        width.coerceAtLeast(1f),
+        height.coerceAtLeast(1f),
+        latestRadius,
+        latestIntensity
+    )
+}
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
         textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
