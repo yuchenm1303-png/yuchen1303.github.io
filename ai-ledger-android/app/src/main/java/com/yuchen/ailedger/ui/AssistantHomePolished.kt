@@ -407,7 +407,14 @@ private fun MessageBubbleV2(
                         ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
                     }
                 } else {
-                    Text(messageText(message), color = messageTextColor(message, fromUser), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium)
+                    RichMessageContent(
+                        text = messageText(message),
+                        color = messageTextColor(message, fromUser),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
                 if (!fromUser) MessageBadgeV2(message)
                 if (showActions && !fromUser && !sending) {
