@@ -117,7 +117,7 @@
   function shiftDate(iso, days) { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); }
   function currentMonthPrefix() { return todayISO().slice(0, 7); }
   function formatCurrency(value) { return `¥${Number(value || 0).toFixed(2)}`; }
-  function escapeHtml(value) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;'); }
+  function escapeHtml(value) { return String(value ?? '').replaceAll('&', '&').replaceAll('<', '<').replaceAll('>', '>').replaceAll('"', '"').replaceAll("'", '&#039;'); }
 
   function showToast(message) {
     if (!els.toast) return;
@@ -413,17 +413,41 @@
     const visualHeight = Math.round(viewport?.height || window.innerHeight || 0);
     const offsetTop = Math.round(viewport?.offsetTop || 0);
     if (!visualHeight) return;
+
     stableVisualHeight = Math.max(stableVisualHeight || visualHeight, visualHeight);
     const keyboardGap = Math.max(0, stableVisualHeight - visualHeight - offsetTop);
+    
+    const isQuickAi = document.body.classList.contains('quick-ai-entry');
     const keyboardOpen = document.activeElement === els.aiInput && keyboardGap > CHAT_KEYBOARD_GAP;
+
     document.documentElement.style.setProperty('--app-visual-vh', `${visualHeight}px`);
     document.documentElement.style.setProperty('--app-stable-vh', `${stableVisualHeight}px`);
     document.documentElement.style.setProperty('--keyboard-gap', `${keyboardOpen ? keyboardGap : 0}px`);
+
     document.body.classList.toggle('keyboard-open', keyboardOpen);
     document.body.classList.toggle('chat-input-focused', document.activeElement === els.aiInput);
+
+    // ==================== Quick AI Spacer 处理 ====================
+    const spacer = document.getElementById('keyboardSpacer');
+    if (spacer) {
+        if (isQuickAi && keyboardOpen) {
+            spacer.style.height = `${Math.max(58, keyboardGap - 20)}px`;
+            spacer.style.background = 'rgba(255,255,255,0.06)';
+            spacer.style.borderRadius = '20px 20px 0 0';
+        } else {
+            spacer.style.height = '0px';
+            spacer.style.background = 'transparent';
+        }
+    }
+    // ============================================================
+
     if (keyboardOpen) scrollChatToBottom(false);
+
     clearTimeout(resizeSettleTimer);
-    resizeSettleTimer = setTimeout(() => { document.body.classList.remove('viewport-resizing'); if (document.activeElement === els.aiInput) scrollChatToBottom(false); }, 180);
+    resizeSettleTimer = setTimeout(() => {
+        document.body.classList.remove('viewport-resizing');
+        if (document.activeElement === els.aiInput) scrollChatToBottom(false);
+    }, 180);
   }
 
   function scheduleViewportSync() { document.body.classList.add('viewport-resizing'); cancelAnimationFrame(viewportFrame); viewportFrame = requestAnimationFrame(syncViewportMetrics); }
