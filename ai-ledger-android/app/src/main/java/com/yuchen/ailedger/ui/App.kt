@@ -26,7 +26,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -55,6 +58,11 @@ private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val ENABLE_OPENGL_GLASS_PROBE = false
 
+private data class PendingMobileAction(
+    val originalText: String,
+    val command: MobileCommand,
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
@@ -71,20 +79,41 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
-    val submitOrRunLocalMobileCommand = remember(state.composerText, state.isSending, systemActionRouter) {
+    var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
+    val submitOrRunLocalMobileCommand = remember(state.composerText, state.isSending, systemActionRouter, pendingMobileAction) {
         {
             val text = state.composerText.trim()
-            val command = if (!state.isSending) MobileCommandParser.parse(text) else null
-            if (text.isNotBlank() && command != null) {
-                val result = executeMobileCommand(systemActionRouter, command)
-                viewModel.acceptExecutedMobileCommand(
-                    userText = text,
-                    command = command,
-                    ok = result.first,
-                    resultMessage = result.second
-                )
-            } else {
-                viewModel.submitComposer()
+            val pending = pendingMobileAction
+            when {
+                text.isNotBlank() && !state.isSending && pending != null && isConfirmMobileActionText(text) -> {
+                    val result = executeMobileCommand(systemActionRouter, pending.command)
+                    pendingMobileAction = null
+                    viewModel.acceptExecutedMobileCommand(
+                        userText = text,
+                        command = pending.command,
+                        ok = result.first,
+                        resultMessage = result.second
+                    )
+                }
+                text.isNotBlank() && !state.isSending && pending != null && isCancelMobileActionText(text) -> {
+                    pendingMobileAction = null
+                    viewModel.acceptExecutedMobileCommand(
+                        userText = text,
+                        command = pending.command,
+                        ok = false,
+                        resultMessage = "已取消这个手机动作。"
+                    )
+                }
+                text.isNotBlank() && !state.isSending -> {
+                    val command = MobileCommandParser.parse(text)
+                    if (command != null) {
+                        pendingMobileAction = PendingMobileAction(originalText = text, command = command)
+                        viewModel.previewMobileCommand(text, command)
+                    } else {
+                        viewModel.submitComposer()
+                    }
+                }
+                else -> viewModel.submitComposer()
             }
         }
     }
@@ -236,6 +265,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+private fun isConfirmMobileActionText(text: String): Boolean {
+    return Regex("^(确认|好|好的|执行|开始|打开|设置|导航|去吧|可以)$").matches(text.trim())
+}
+
+private fun isCancelMobileActionText(text: String): Boolean {
+    return Regex("^(取消|算了|不用了|先别|不要|否|不执行)$").matches(text.trim())
 }
 
 private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand): Pair<Boolean, String> {
