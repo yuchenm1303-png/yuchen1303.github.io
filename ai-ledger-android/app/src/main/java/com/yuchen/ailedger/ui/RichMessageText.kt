@@ -96,6 +96,35 @@ fun Text(
 }
 
 @Composable
+fun RichMessageContent(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null
+) {
+    val resolvedColor = if (color != Color.Unspecified) color else Color.White.copy(alpha = 0.86f)
+    if (richMessageTokenRegex.containsMatchIn(text)) {
+        RichMessageText(
+            text = text,
+            textColor = resolvedColor,
+            modifier = modifier.fillMaxWidth()
+        )
+        return
+    }
+
+    MaterialText(
+        text = text,
+        modifier = modifier,
+        color = resolvedColor,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = fontWeight
+    )
+}
+
+@Composable
 private fun RichMessageText(
     text: String,
     textColor: Color,
