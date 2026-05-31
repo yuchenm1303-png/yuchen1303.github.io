@@ -374,9 +374,15 @@ private fun MessageBubbleV2(
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
     val rawText = messageText(message)
+    val hasLiveText = hasStreamingLiveTextV2(rawText)
+    val shouldTypewriter = !fromUser && !sending && showActions && message.status == MessageStatus.Sent && rawText.length > 24
+    val typewriterState = rememberTypewriterTextStateV2(message.id, rawText, shouldTypewriter)
+    val animatedRawText = typewriterState.first
+    val typewriterFinished = typewriterState.second
     val longReply = !fromUser && !sending && rawText.length >= 520
     var expanded by remember(message.id) { mutableStateOf(true) }
-    val displayText = if (longReply && !expanded) rawText.take(420).trimEnd() + "…" else rawText
+    val displayBaseText = if (sending) rawText else animatedRawText
+    val displayText = if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
     val contentAlpha by animateFloatAsState(
         targetValue = if (sending) 0.88f else 1f,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
@@ -399,7 +405,7 @@ private fun MessageBubbleV2(
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
+                .fillMaxWidth(if (fromUser) 0.76f else if (sending) 0.74f else 0.90f)
                 .graphicsLayer {
                     alpha = visual.alpha
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(visual.originX, visual.originY)
@@ -434,12 +440,12 @@ private fun MessageBubbleV2(
                             .fillMaxWidth()
                             .graphicsLayer { alpha = contentAlpha }
                     )
-                    if (longReply) {
+                    if (longReply && typewriterFinished) {
                         LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
                     }
                 }
                 if (!fromUser) MessageBadgeV2(message)
-                if (showActions && !fromUser && !sending) {
+                if (showActions && !fromUser && !sending && typewriterFinished) {
                     MessageActionsV2(
                         message = message,
                         onCopyMessage = onCopyMessage,
@@ -448,13 +454,24 @@ private fun MessageBubbleV2(
                 }
             }
         }
+        if (sending && !fromUser) {
+            Spacer(Modifier.size(7.dp))
+            ThinkingSideNotesV2(
+                messageId = message.id,
+                hasLiveText = hasLiveText,
+                liveTextLength = if (hasLiveText) rawText.length else 0,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(top = 9.dp)
+            )
+        }
     }
 }
 
 @Composable
 private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier = Modifier) {
     val text = messageText(message)
-    val hasLiveText = text.isNotBlank() && !isThinkingPlaceholderV2(text)
+    val hasLiveText = hasStreamingLiveTextV2(text)
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
@@ -474,6 +491,68 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Text(progressLabel, color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
                 ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThinkingSideNotesV2(
+    messageId: String,
+    hasLiveText: Boolean,
+    liveTextLength: Int,
+    modifier: Modifier = Modifier
+) {
+    var stage by remember(messageId) { mutableStateOf(0) }
+    LaunchedEffect(messageId, hasLiveText) {
+        if (hasLiveText) {
+            stage = 3
+            return@LaunchedEffect
+        }
+        stage = 0
+        delay(620)
+        stage = 1
+        delay(980)
+        stage = 2
+    }
+    val transition = rememberInfiniteTransition(label = "thinking-side-notes-breath")
+    val breath by transition.animateFloat(
+        initialValue = 0.74f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1680, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "thinking-side-notes-alpha"
+    )
+    val notes = if (hasLiveText) {
+        listOf("片段接收中", "已生成 ${liveTextLength.coerceAtMost(999)} 字", "继续补全")
+    } else {
+        when (stage) {
+            0 -> listOf("建立连接", "同步模型", "等待首字")
+            1 -> listOf("理解需求", "整理上下文", "压缩要点")
+            else -> listOf("组织结构", "生成草稿", "准备输出")
+        }
+    }
+    Column(
+        modifier = modifier.graphicsLayer { alpha = 0.24f + breath * 0.10f },
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        notes.take(3).forEachIndexed { index, note ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    Modifier
+                        .size((2 + index).dp)
+                        .graphicsLayer { alpha = 0.32f - index * 0.06f }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF8DF9EA))
+                )
+                Text(
+                    text = note,
+                    color = Color.White.copy(alpha = 0.42f - index * 0.06f),
+                    fontSize = 8.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -505,6 +584,40 @@ private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean
 }
 
 @Composable
+private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabled: Boolean): Pair<String, Boolean> {
+    var visibleCount by remember(messageId, text) { mutableStateOf(if (enabled) 0 else text.length) }
+    LaunchedEffect(messageId, text, enabled) {
+        if (!enabled) {
+            visibleCount = text.length
+            return@LaunchedEffect
+        }
+        visibleCount = 0
+        delay(70)
+        while (visibleCount < text.length) {
+            visibleCount = (visibleCount + typewriterStepV2(text.length, visibleCount)).coerceAtMost(text.length)
+            delay(typewriterDelayV2(text.length, visibleCount))
+        }
+    }
+    val safeCount = visibleCount.coerceIn(0, text.length)
+    return text.take(safeCount) to (safeCount >= text.length)
+}
+
+private fun typewriterStepV2(total: Int, index: Int): Int = when {
+    total > 1600 -> 24
+    total > 800 -> 16
+    total > 320 -> 9
+    index < 80 -> 4
+    else -> 6
+}
+
+private fun typewriterDelayV2(total: Int, index: Int): Long = when {
+    index < 80 -> 10L
+    total > 800 -> 7L
+    total > 320 -> 9L
+    else -> 12L
+}
+
+@Composable
 private fun LongReplyToggleV2(expanded: Boolean, onToggle: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -520,6 +633,10 @@ private fun LongReplyToggleV2(expanded: Boolean, onToggle: () -> Unit) {
                 .padding(horizontal = 9.dp, vertical = 4.dp)
         )
     }
+}
+
+private fun hasStreamingLiveTextV2(text: String): Boolean {
+    return text.isNotBlank() && !isThinkingPlaceholderV2(text)
 }
 
 private fun isThinkingPlaceholderV2(text: String): Boolean {
