@@ -25,7 +25,7 @@ import kotlinx.coroutines.delay
 val LocalPageActive = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 
-private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
+private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
 private const val DEFAULT_PREWARM_DELAY_MS = 360L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 96L
 
@@ -56,6 +56,7 @@ fun CachedAppTabHost(
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
+        if (orderedPrewarmTabs.isEmpty()) return@LaunchedEffect
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEach { tab ->
             visitedTabs = visitedTabs + tab
@@ -99,7 +100,7 @@ fun CachedAppTabHost(
                                 translationY = with(density) { offsetDp.toDp().toPx() }
                             }
                     ) {
-                        key(tab, activationTicks[tab] ?: 0) {
+                        key(tab) {
                             content(tab)
                         }
                     }

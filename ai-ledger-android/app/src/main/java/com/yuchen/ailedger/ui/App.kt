@@ -64,6 +64,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    val assistantBottomPadding = if (isKeyboardOpen) 8.dp else 68.dp
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -147,6 +148,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 when (tab) {
                                     AppTab.Assistant -> AssistantScreenV2(
                                         state = state,
+                                        bottomPadding = assistantBottomPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = viewModel::submitComposer,
                                         onStopGenerating = viewModel::stopGenerating,

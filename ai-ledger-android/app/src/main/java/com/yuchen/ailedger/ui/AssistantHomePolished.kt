@@ -66,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,6 +82,7 @@ import kotlin.math.sin
 @Composable
 fun AssistantScreenV2(
     state: AssistantUiState,
+    bottomPadding: Dp = 68.dp,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
     onStopGenerating: () -> Unit,
@@ -96,7 +98,7 @@ fun AssistantScreenV2(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 12.dp, bottom = 68.dp),
+            .padding(top = 12.dp, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
@@ -225,8 +227,14 @@ private fun ChatPanelV2(
     val activeMessageIds = remember(state.messages) { state.messages.map { it.id }.toSet() }
     SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
     val lastMessageId = state.messages.lastOrNull()?.id
-    LaunchedEffect(lastMessageId) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    val lastMessageStatus = state.messages.lastOrNull()?.status
+    LaunchedEffect(lastMessageId, state.isSending) {
+        if (state.messages.isEmpty()) return@LaunchedEffect
+        if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
+            listState.scrollToItem(state.messages.lastIndex)
+        } else {
+            listState.animateScrollToItem(state.messages.lastIndex)
+        }
     }
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
         Box(
