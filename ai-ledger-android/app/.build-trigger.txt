@@ -1,3 +1,3 @@
-Trigger target: OpenGL viewport source fix
-Purpose: apply fullscreen OpenGL viewport source fix for Shell glass.
+Fix target: folded model label adaptive placement
+Purpose: trigger Build Compose Android APK after optimizing collapsed model names for expanded model count.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
