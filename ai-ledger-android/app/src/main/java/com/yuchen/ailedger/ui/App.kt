@@ -47,6 +47,8 @@ import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.MobileCommand
+import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
 
 private const val COMPACT_DP_SCALE = 0.90f
@@ -68,7 +70,24 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
-    remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
+    val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
+    val submitOrRunLocalMobileCommand = remember(state.composerText, state.isSending, systemActionRouter) {
+        {
+            val text = state.composerText.trim()
+            val command = if (!state.isSending) MobileCommandParser.parse(text) else null
+            if (text.isNotBlank() && command != null) {
+                val result = executeMobileCommand(systemActionRouter, command)
+                viewModel.acceptExecutedMobileCommand(
+                    userText = text,
+                    command = command,
+                    ok = result.first,
+                    resultMessage = result.second
+                )
+            } else {
+                viewModel.submitComposer()
+            }
+        }
+    }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
@@ -150,7 +169,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                         state = state,
                                         bottomPadding = assistantBottomPadding,
                                         onComposerChange = viewModel::updateComposer,
-                                        onSend = viewModel::submitComposer,
+                                        onSend = submitOrRunLocalMobileCommand,
                                         onStopGenerating = viewModel::stopGenerating,
                                         onDraftCommand = viewModel::insertCommandDraft,
                                         onModelSelected = viewModel::selectModel,
@@ -215,6 +234,29 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     }
                 }
             }
+        }
+    }
+}
+
+private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand): Pair<Boolean, String> {
+    if (router == null) return false to "当前页面没有拿到 Android Activity，暂时无法执行手机动作。"
+    return when (command) {
+        is MobileCommand.SetAlarm -> {
+            val ok = router.setAlarm(command.hour, command.minute, command.label)
+            ok to if (ok) "已打开系统闹钟确认界面。" else "无法打开系统闹钟。"
+        }
+        is MobileCommand.OpenApp -> {
+            val packageName = command.packageName
+            if (packageName.isNullOrBlank()) {
+                false to "暂时还没有“${command.appName}”的包名映射。"
+            } else {
+                val ok = router.openApp(packageName, command.appName)
+                ok to if (ok) "已尝试打开${command.appName}。" else "没有找到${command.appName}。"
+            }
+        }
+        is MobileCommand.Navigate -> {
+            val ok = router.startNavigation(command.destination)
+            ok to if (ok) "已打开地图导航。" else "没有可用的地图应用。"
         }
     }
 }
