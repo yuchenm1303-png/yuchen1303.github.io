@@ -345,11 +345,11 @@ class AiWorkerClient(
             val data = body.toJsonOrNull()
 
             if (status !in 200..299) {
-                val code = data?.optString("code")?.ifBlank { "HTTP $status" } ?: "HTTP $status"
-                val message = data?.optString("error")
-                    ?.ifBlank { data.optString("message") }
-                    ?.ifBlank { null }
-                    ?: body.take(120).ifBlank { "云端 AI 调用失败：$code" }
+                val code = data?.optString("code").notBlankOrNull() ?: "HTTP $status"
+                val message = data?.optString("error").notBlankOrNull()
+                    ?: data?.optString("message").notBlankOrNull()
+                    ?: body.take(120).takeIf { it.isNotBlank() }
+                    ?: "云端 AI 调用失败：$code"
 
                 throw IOException(message)
             }
@@ -360,15 +360,13 @@ class AiWorkerClient(
             if (reply.isBlank()) throw IOException("云端没有返回有效回复")
 
             val rawModel =
-                data?.optString("model")?.takeIf { it.isNotBlank() }
-                    ?: data?.optString("modelId")?.takeIf { it.isNotBlank() }
+                data?.optString("model").notBlankOrNull()
+                    ?: data?.optString("modelId").notBlankOrNull()
                     ?: route.resolved.id
 
-            val rawVersion = data?.optString("version")?.takeIf { it.isNotBlank() }
-
-            val serverLabel = data?.optString("modelLabel")
-                ?.ifBlank { data.optString("modelName") }
-                ?.ifBlank { null }
+            val rawVersion = data?.optString("version").notBlankOrNull()
+            val serverLabel = data?.optString("modelLabel").notBlankOrNull()
+                ?: data?.optString("modelName").notBlankOrNull()
 
             val resolvedLabel = serverLabel ?: modelLabelFromId(rawModel) ?: route.resolved.label
             val displayLabel =
@@ -380,14 +378,14 @@ class AiWorkerClient(
 
             AiChatResponse(
                 reply = reply,
-                source = data?.optString("source")?.ifBlank { "cloud_ai" } ?: "cloud_ai",
+                source = data?.optString("source").notBlankOrNull() ?: "cloud_ai",
                 model = rawModel,
                 modelLabel = displayLabel,
                 version = rawVersion,
                 webSources = parseWebSources(data),
                 structuredData = parseStructuredData(data),
                 searchUsed = data?.optBoolean("searchUsed", false) ?: false,
-                searchProvider = data?.optString("searchProvider")?.ifBlank { null }
+                searchProvider = data?.optString("searchProvider").notBlankOrNull()
             )
         } catch (error: SocketTimeoutException) {
             throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error)
@@ -430,27 +428,28 @@ class AiWorkerClient(
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                val url = item.optString("url")
-                    .ifBlank { item.optString("link") }
-                    .ifBlank { item.optString("href") }
-                val title = item.optString("title")
-                    .ifBlank { item.optString("name") }
-                    .ifBlank { url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" } }
-                val snippet = item.optString("snippet")
-                    .ifBlank { item.optString("summary") }
-                    .ifBlank { item.optString("content") }
-                val domain = item.optString("domain")
-                    .ifBlank { url.substringAfter("://").substringBefore('/') }
+                val url = item.optString("url").notBlankOrNull()
+                    ?: item.optString("link").notBlankOrNull()
+                    ?: item.optString("href").notBlankOrNull()
+                    ?: ""
+                val title = item.optString("title").notBlankOrNull()
+                    ?: item.optString("name").notBlankOrNull()
+                    ?: url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" }
+                val snippet = item.optString("snippet").notBlankOrNull()
+                    ?: item.optString("summary").notBlankOrNull()
+                    ?: item.optString("content").notBlankOrNull()
+                    ?: ""
+                val domain = item.optString("domain").notBlankOrNull()
+                    ?: url.substringAfter("://").substringBefore('/')
                 add(
                     WebSource(
                         title = title.take(80),
                         url = url,
                         domain = domain.take(60),
                         snippet = snippet.take(180),
-                        publishedAt = item.optString("publishedAt")
-                            .ifBlank { item.optString("published") }
-                            .ifBlank { item.optString("date") }
-                            .ifBlank { null }
+                        publishedAt = item.optString("publishedAt").notBlankOrNull()
+                            ?: item.optString("published").notBlankOrNull()
+                            ?: item.optString("date").notBlankOrNull()
                     )
                 )
             }
@@ -463,28 +462,25 @@ class AiWorkerClient(
             ?: data?.optJSONObject("data")?.optJSONObject("structuredData")
             ?: return null
 
-        val type = item.optString("type")
-            .ifBlank { data.optString("type") }
-            .ifBlank { "realtime" }
-        val title = item.optString("title")
-            .ifBlank { item.optString("name") }
-            .ifBlank { structuredTypeLabel(type) }
-        val subtitle = item.optString("subtitle")
-            .ifBlank { item.optString("symbol") }
-            .ifBlank { item.optString("location") }
-            .ifBlank { null }
+        val type = item.optString("type").notBlankOrNull()
+            ?: data.optString("type").notBlankOrNull()
+            ?: "realtime"
+        val title = item.optString("title").notBlankOrNull()
+            ?: item.optString("name").notBlankOrNull()
+            ?: structuredTypeLabel(type)
+        val subtitle = item.optString("subtitle").notBlankOrNull()
+            ?: item.optString("symbol").notBlankOrNull()
+            ?: item.optString("location").notBlankOrNull()
         val metrics = parseStructuredMetrics(item)
-        val rawText = item.optString("rawText")
-            .ifBlank { item.optString("summary") }
-            .ifBlank { null }
+        val rawText = item.optString("rawText").notBlankOrNull()
+            ?: item.optString("summary").notBlankOrNull()
 
         return StructuredDataCard(
             type = type,
             title = title,
             subtitle = subtitle,
-            timestamp = item.optString("timestamp")
-                .ifBlank { item.optString("updatedAt") }
-                .ifBlank { null },
+            timestamp = item.optString("timestamp").notBlankOrNull()
+                ?: item.optString("updatedAt").notBlankOrNull(),
             metrics = metrics,
             rawText = rawText
         )
@@ -496,15 +492,15 @@ class AiWorkerClient(
             return buildList {
                 for (index in 0 until explicit.length()) {
                     val metric = explicit.optJSONObject(index) ?: continue
-                    val label = metric.optString("label").ifBlank { metric.optString("name") }
-                    val value = metric.optString("value").ifBlank { metric.optString("text") }
-                    if (label.isBlank() || value.isBlank()) continue
+                    val label = metric.optString("label").notBlankOrNull() ?: metric.optString("name").notBlankOrNull()
+                    val value = metric.optString("value").notBlankOrNull() ?: metric.optString("text").notBlankOrNull()
+                    if (label.isNullOrBlank() || value.isNullOrBlank()) continue
                     add(
                         StructuredMetric(
                             label = label.take(24),
                             value = value.take(40),
-                            unit = metric.optString("unit").ifBlank { null },
-                            detail = metric.optString("detail").ifBlank { null }
+                            unit = metric.optString("unit").notBlankOrNull(),
+                            detail = metric.optString("detail").notBlankOrNull()
                         )
                     )
                 }
@@ -513,7 +509,7 @@ class AiWorkerClient(
 
         val preferredKeys = listOf("price", "change", "changePercent", "temperature", "condition", "humidity", "rate", "from", "to", "score", "status")
         return preferredKeys.mapNotNull { key ->
-            val value = item.optString(key).takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val value = item.optString(key).notBlankOrNull() ?: return@mapNotNull null
             StructuredMetric(label = structuredMetricLabel(key), value = value)
         }.take(8)
     }
@@ -565,6 +561,8 @@ class AiWorkerClient(
         if (modelId.isNullOrBlank()) return null
         return ChatModel.fromId(modelId).takeIf { it != ChatModel.Auto }?.label
     }
+
+    private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
         val recent = filter { message ->
