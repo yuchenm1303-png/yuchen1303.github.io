@@ -10,6 +10,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,12 +38,24 @@ fun CachedAppTabHost(
     content: @Composable (AppTab) -> Unit
 ) {
     var visitedTabs by remember { mutableStateOf(setOf(currentTab)) }
+    var revealedTabs by remember { mutableStateOf(setOf(currentTab)) }
+    val activationRevisions = remember {
+        mutableStateMapOf<AppTab, Int>().apply {
+            AppTab.entries.forEach { put(it, 0) }
+        }
+    }
     val orderedPrewarmTabs = remember(prewarmTabs) {
         AppTab.entries.filter { tab -> tab in prewarmTabs }
     }
 
     LaunchedEffect(currentTab) {
-        if (currentTab !in visitedTabs) visitedTabs = visitedTabs + currentTab
+        if (currentTab !in visitedTabs) {
+            visitedTabs = visitedTabs + currentTab
+        }
+        if (currentTab !in revealedTabs) {
+            revealedTabs = revealedTabs + currentTab
+            activationRevisions[currentTab] = (activationRevisions[currentTab] ?: 0) + 1
+        }
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
@@ -59,12 +73,18 @@ fun CachedAppTabHost(
                 val density = LocalDensity.current
                 val alpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
-                    animationSpec = tween(durationMillis = if (active) 180 else 90, easing = FastOutSlowInEasing),
+                    animationSpec = tween(
+                        durationMillis = if (active) 180 else 90,
+                        easing = FastOutSlowInEasing
+                    ),
                     label = "tabAlpha-${tab.name}"
                 )
                 val offsetDp by animateFloatAsState(
                     targetValue = if (active) 0f else 8f,
-                    animationSpec = tween(durationMillis = if (active) 220 else 90, easing = FastOutSlowInEasing),
+                    animationSpec = tween(
+                        durationMillis = if (active) 220 else 90,
+                        easing = FastOutSlowInEasing
+                    ),
                     label = "tabOffset-${tab.name}"
                 )
 
@@ -81,7 +101,9 @@ fun CachedAppTabHost(
                                 translationY = with(density) { offsetDp.toDp().toPx() }
                             }
                     ) {
-                        content(tab)
+                        key(tab, activationRevisions[tab] ?: 0) {
+                            content(tab)
+                        }
                     }
                 }
             }
