@@ -436,6 +436,19 @@ body.viewport-resizing .record-item {
   animation: none !important;
 }
 
+/* Quick AI 键盘空白填充 */
+.keyboard-spacer {
+    height: 0;
+    transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    margin-top: 4px;
+    overflow: hidden;
+}
+
+body.quick-ai-entry .keyboard-spacer {
+    transition: height 0.22s ease;
+}
+
 @keyframes typingPulse {
   0%, 80%, 100% {
     transform: translateY(0);
