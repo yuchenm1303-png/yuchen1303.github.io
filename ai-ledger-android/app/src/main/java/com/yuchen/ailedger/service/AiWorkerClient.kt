@@ -4,6 +4,9 @@ import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.StructuredDataCard
+import com.yuchen.ailedger.model.StructuredMetric
+import com.yuchen.ailedger.model.WebSource
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -26,7 +29,11 @@ data class AiChatResponse(
     val source: String = "cloud_ai",
     val model: String? = null,
     val modelLabel: String? = null,
-    val version: String? = null
+    val version: String? = null,
+    val webSources: List<WebSource> = emptyList(),
+    val structuredData: StructuredDataCard? = null,
+    val searchUsed: Boolean = false,
+    val searchProvider: String? = null
 )
 
 private data class ModelRoute(
@@ -282,12 +289,20 @@ class AiWorkerClient(
                 put("requireCitationsWhenForced", true)
                 put("keepAutoSearchWhenOff", false)
             })
+            put("structuredRealtime", JSONObject().apply {
+                put("enabled", onlineEnabled)
+                put("supportedTypes", JSONArray(listOf("stock", "weather", "exchange_rate", "sports")))
+            })
+            put("responseFormat", JSONObject().apply {
+                put("includeSources", true)
+                put("includeStructuredData", true)
+            })
             put("accessPolicy", "cn_gateway_primary")
             put("primaryEndpointRole", "aliyun_cn_gateway")
             put("fallbackEndpointRole", "cloudflare_worker")
 
             put("client", "android-compose")
-            put("clientVersion", "compose-native-cn-gateway-primary-v2")
+            put("clientVersion", "compose-native-web-data-v1")
             put("now", System.currentTimeMillis())
         }
     }
@@ -368,7 +383,11 @@ class AiWorkerClient(
                 source = data?.optString("source")?.ifBlank { "cloud_ai" } ?: "cloud_ai",
                 model = rawModel,
                 modelLabel = displayLabel,
-                version = rawVersion
+                version = rawVersion,
+                webSources = parseWebSources(data),
+                structuredData = parseStructuredData(data),
+                searchUsed = data?.optBoolean("searchUsed", false) ?: false,
+                searchProvider = data?.optString("searchProvider")?.ifBlank { null }
             )
         } catch (error: SocketTimeoutException) {
             throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error)
@@ -400,6 +419,126 @@ class AiWorkerClient(
         if (shouldFallback) {
             throw IOException(error.ifBlank { "当前入口不支持该模型，正在尝试备用入口。" })
         }
+    }
+
+    private fun parseWebSources(data: JSONObject?): List<WebSource> {
+        val array = data?.optJSONArray("sources")
+            ?: data?.optJSONArray("webSources")
+            ?: data?.optJSONObject("data")?.optJSONArray("sources")
+            ?: return emptyList()
+
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val url = item.optString("url")
+                    .ifBlank { item.optString("link") }
+                    .ifBlank { item.optString("href") }
+                val title = item.optString("title")
+                    .ifBlank { item.optString("name") }
+                    .ifBlank { url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" } }
+                val snippet = item.optString("snippet")
+                    .ifBlank { item.optString("summary") }
+                    .ifBlank { item.optString("content") }
+                val domain = item.optString("domain")
+                    .ifBlank { url.substringAfter("://").substringBefore('/') }
+                add(
+                    WebSource(
+                        title = title.take(80),
+                        url = url,
+                        domain = domain.take(60),
+                        snippet = snippet.take(180),
+                        publishedAt = item.optString("publishedAt")
+                            .ifBlank { item.optString("published") }
+                            .ifBlank { item.optString("date") }
+                            .ifBlank { null }
+                    )
+                )
+            }
+        }.take(6)
+    }
+
+    private fun parseStructuredData(data: JSONObject?): StructuredDataCard? {
+        val item = data?.optJSONObject("structuredData")
+            ?: data?.optJSONObject("structured")
+            ?: data?.optJSONObject("data")?.optJSONObject("structuredData")
+            ?: return null
+
+        val type = item.optString("type")
+            .ifBlank { data.optString("type") }
+            .ifBlank { "realtime" }
+        val title = item.optString("title")
+            .ifBlank { item.optString("name") }
+            .ifBlank { structuredTypeLabel(type) }
+        val subtitle = item.optString("subtitle")
+            .ifBlank { item.optString("symbol") }
+            .ifBlank { item.optString("location") }
+            .ifBlank { null }
+        val metrics = parseStructuredMetrics(item)
+        val rawText = item.optString("rawText")
+            .ifBlank { item.optString("summary") }
+            .ifBlank { null }
+
+        return StructuredDataCard(
+            type = type,
+            title = title,
+            subtitle = subtitle,
+            timestamp = item.optString("timestamp")
+                .ifBlank { item.optString("updatedAt") }
+                .ifBlank { null },
+            metrics = metrics,
+            rawText = rawText
+        )
+    }
+
+    private fun parseStructuredMetrics(item: JSONObject): List<StructuredMetric> {
+        val explicit = item.optJSONArray("metrics")
+        if (explicit != null) {
+            return buildList {
+                for (index in 0 until explicit.length()) {
+                    val metric = explicit.optJSONObject(index) ?: continue
+                    val label = metric.optString("label").ifBlank { metric.optString("name") }
+                    val value = metric.optString("value").ifBlank { metric.optString("text") }
+                    if (label.isBlank() || value.isBlank()) continue
+                    add(
+                        StructuredMetric(
+                            label = label.take(24),
+                            value = value.take(40),
+                            unit = metric.optString("unit").ifBlank { null },
+                            detail = metric.optString("detail").ifBlank { null }
+                        )
+                    )
+                }
+            }.take(8)
+        }
+
+        val preferredKeys = listOf("price", "change", "changePercent", "temperature", "condition", "humidity", "rate", "from", "to", "score", "status")
+        return preferredKeys.mapNotNull { key ->
+            val value = item.optString(key).takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            StructuredMetric(label = structuredMetricLabel(key), value = value)
+        }.take(8)
+    }
+
+    private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
+        "stock" -> "股票行情"
+        "weather" -> "天气"
+        "exchange_rate", "rate", "currency" -> "汇率"
+        "sports" -> "比赛"
+        else -> "实时数据"
+    }
+
+    private fun structuredMetricLabel(key: String): String = when (key) {
+        "price" -> "价格"
+        "change" -> "涨跌"
+        "changePercent" -> "涨跌幅"
+        "temperature" -> "温度"
+        "condition" -> "天气"
+        "humidity" -> "湿度"
+        "rate" -> "汇率"
+        "from" -> "来源币种"
+        "to" -> "目标币种"
+        "score" -> "比分"
+        "status" -> "状态"
+        else -> key
     }
 
     private fun extractReply(data: JSONObject?, body: String): String {
