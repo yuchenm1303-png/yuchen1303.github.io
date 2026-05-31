@@ -345,7 +345,9 @@ class AiWorkerClient(
     }
 
     companion object {
-        const val DEFAULT_ENDPOINT = "https://ai-ledger-parser.552078638.workers.dev"
-        val DEFAULT_FALLBACK_ENDPOINTS = listOf(DEFAULT_ENDPOINT)
+        const val ALIYUN_CN_ENDPOINT = "https://ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
+        const val CLOUDFLARE_WORKER_ENDPOINT = "https://ai-ledger-parser.552078638.workers.dev"
+        const val DEFAULT_ENDPOINT = ALIYUN_CN_ENDPOINT
+        val DEFAULT_FALLBACK_ENDPOINTS = listOf(CLOUDFLARE_WORKER_ENDPOINT)
     }
 }
