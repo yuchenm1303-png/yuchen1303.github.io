@@ -143,7 +143,7 @@ class AssistantViewModel(
                     replaceMessage(
                         pendingMessage.id,
                         pendingMessage.copy(
-                            text = decorateReply(response),
+                            text = decorateReply(response, onlineEnabled),
                             status = MessageStatus.Sent,
                             source = response.source,
                             model = response.model,
@@ -221,7 +221,7 @@ class AssistantViewModel(
     private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
 
-    private fun decorateReply(response: AiChatResponse): String {
+    private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
         val sections = mutableListOf(response.reply.trim())
 
         response.structuredData?.let { data ->
@@ -251,6 +251,10 @@ class AssistantViewModel(
             sections += "联网来源$provider:\n$sources"
         }
 
+        if (onlineEnabled && response.structuredData == null && response.webSources.isEmpty()) {
+            sections += "联网诊断：App 已发送联网请求，但后端没有返回 structuredData 或 sources[]。请确认阿里云函数已部署 web-data-v2 版本，并且普通搜索已配置 TAVILY_API_KEY。"
+        }
+
         return sections.filter { it.isNotBlank() }.joinToString("\n\n")
     }
 
@@ -274,7 +278,7 @@ class AssistantViewModel(
     fun setBackdropDebugParams(params: BackdropDebugParams) { uiState = uiState.copy(backdropParams = params) }
     fun updateBackdropDebugParams(block: (BackdropDebugParams) -> BackdropDebugParams) { setBackdropDebugParams(block(uiState.backdropParams)) }
     fun setGlassBorderStyle(style: GlassBorderStyle) { uiState = uiState.copy(glassBorderStyle = style) }
-    fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) { setGlassBorderStyle(block(uiState.glassBorderStyle)) }
+    fun updateGlassBorderStyle(block: (GlassBorderStyle) -> GlassBorderStyle) { setGlassBorderStyle(block(uiState.glassBorderStyle) }
     fun setModelCardGlassStyle(style: ModelCardGlassStyle) { uiState = uiState.copy(modelCardGlassStyle = style) }
 
     fun setRainbowPrismStyle(style: RainbowPrismStyle) {
