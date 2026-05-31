@@ -379,6 +379,7 @@ private fun MessageBubbleV2(
     val typewriterState = rememberTypewriterTextStateV2(message.id, rawText, shouldTypewriter)
     val animatedRawText = typewriterState.first
     val typewriterFinished = typewriterState.second
+    val typewriterActive = shouldTypewriter && !typewriterFinished
     val longReply = !fromUser && !sending && rawText.length >= 520
     var expanded by remember(message.id) { mutableStateOf(true) }
     val displayBaseText = if (sending) rawText else animatedRawText
@@ -440,6 +441,9 @@ private fun MessageBubbleV2(
                             .fillMaxWidth()
                             .graphicsLayer { alpha = contentAlpha }
                     )
+                    if (typewriterActive) {
+                        TypewriterTrailV2()
+                    }
                     if (longReply && typewriterFinished) {
                         LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
                     }
@@ -603,18 +607,45 @@ private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabl
 }
 
 private fun typewriterStepV2(total: Int, index: Int): Int = when {
-    total > 1600 -> 24
-    total > 800 -> 16
-    total > 320 -> 9
-    index < 80 -> 4
-    else -> 6
+    total > 1600 -> 10
+    total > 800 -> 7
+    total > 320 -> 4
+    index < 120 -> 2
+    else -> 3
 }
 
 private fun typewriterDelayV2(total: Int, index: Int): Long = when {
-    index < 80 -> 10L
-    total > 800 -> 7L
-    total > 320 -> 9L
-    else -> 12L
+    index < 120 -> 8L
+    total > 800 -> 6L
+    total > 320 -> 7L
+    else -> 9L
+}
+
+@Composable
+private fun TypewriterTrailV2() {
+    val transition = rememberInfiniteTransition(label = "assistant-typewriter-trail")
+    val breath by transition.animateFloat(
+        initialValue = 0.62f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(820, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "assistant-typewriter-trail-alpha"
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.36f + breath * 0.18f },
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "正在生成",
+            color = Color(0xFF8DF9EA).copy(alpha = 0.58f),
+            fontSize = 8.sp,
+            lineHeight = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+        Spacer(Modifier.size(5.dp))
+        ThinkingDotsV2(size = 3, color = Color(0xFF8DF9EA).copy(alpha = 0.62f))
+    }
 }
 
 @Composable
