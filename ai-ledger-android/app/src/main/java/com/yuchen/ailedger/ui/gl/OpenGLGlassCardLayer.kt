@@ -123,6 +123,7 @@ fun OpenGLGlassCardLayer(
         )
     }
 }
+}
 
 private class OpenGLGlassCardTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: CardGlassEglThread? = null
