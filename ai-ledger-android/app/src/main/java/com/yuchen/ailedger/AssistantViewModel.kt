@@ -26,6 +26,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -142,7 +143,7 @@ class AssistantViewModel(
                     replaceMessage(
                         pendingMessage.id,
                         pendingMessage.copy(
-                            text = response.reply,
+                            text = decorateReply(response),
                             status = MessageStatus.Sent,
                             source = response.source,
                             model = response.model,
@@ -219,6 +220,39 @@ class AssistantViewModel(
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
     private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
+
+    private fun decorateReply(response: AiChatResponse): String {
+        val sections = mutableListOf(response.reply.trim())
+
+        response.structuredData?.let { data ->
+            val metrics = data.metrics.take(6).joinToString("\n") { metric ->
+                val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+                val detail = metric.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
+                "- ${metric.label}: ${metric.value}$unit$detail"
+            }
+            val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · ")
+            val block = buildString {
+                append("实时数据：")
+                append(header.ifBlank { data.type })
+                if (metrics.isNotBlank()) append("\n").append(metrics)
+                data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+            }
+            sections += block
+        }
+
+        if (response.webSources.isNotEmpty()) {
+            val provider = response.searchProvider?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+            val sources = response.webSources.take(4).mapIndexed { index, source ->
+                val domain = source.domain.ifBlank { source.url.substringAfter("://").substringBefore('/') }
+                val title = source.title.ifBlank { domain.ifBlank { "来源 ${index + 1}" } }
+                val date = source.publishedAt?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                "${index + 1}. $title${if (domain.isNotBlank()) " · $domain" else ""}$date"
+            }.joinToString("\n")
+            sections += "联网来源$provider:\n$sources"
+        }
+
+        return sections.filter { it.isNotBlank() }.joinToString("\n\n")
+    }
 
     fun selectQuality(quality: RenderQuality) { uiState = uiState.copy(quality = quality); viewModelScope.launch { preferencesStore.setRenderQuality(quality) } }
     fun setShowPreviewConversation(showPreviewConversation: Boolean) { uiState = uiState.copy(showPreviewConversation = showPreviewConversation); viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) } }
