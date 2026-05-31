@@ -42,6 +42,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
@@ -59,6 +60,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -72,6 +74,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
+import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
@@ -95,6 +99,15 @@ fun AssistantScreenV2(
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
+    var modelPanelExpanded by remember { mutableStateOf(false) }
+var composerFocused by remember { mutableStateOf(false) }
+
+val shellAnchor = when {
+    modelPanelExpanded && composerFocused -> OpenGLGlassSurfaceAnchor.Center
+    modelPanelExpanded -> OpenGLGlassSurfaceAnchor.Bottom
+    composerFocused -> OpenGLGlassSurfaceAnchor.Top
+    else -> OpenGLGlassSurfaceAnchor.Center
+}
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -105,30 +118,35 @@ fun AssistantScreenV2(
             AssistantHeroV2(state = state)
         }
         AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
-            ModelAndNetworkPanel(
-                state = state,
-                onModelSelected = onModelSelected,
-                onToggleOnline = onToggleOnline
-            )
+           ModelAndNetworkPanel(
+    state = state,
+    expanded = modelPanelExpanded,
+    onExpandedChange = { modelPanelExpanded = it },
+    onModelSelected = onModelSelected,
+    onToggleOnline = onToggleOnline
+)
         }
         AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
-            ChatPanelV2(
-                state = state,
-                modifier = Modifier.fillMaxWidth(),
-                onDraftCommand = onDraftCommand,
-                onPickImage = onPickImage,
-                onCopyMessage = onCopyMessage,
-                onRetryMessage = onRetryMessage
-            )
+           CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
+    ChatPanelV2(
+        state = state,
+        modifier = Modifier.fillMaxWidth(),
+        onDraftCommand = onDraftCommand,
+        onPickImage = onPickImage,
+        onCopyMessage = onCopyMessage,
+        onRetryMessage = onRetryMessage
+    )
+}
         }
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(
-                state = state,
-                onComposerChange = onComposerChange,
-                onSend = onSend,
-                onStopGenerating = onStopGenerating,
-                onPickImage = onPickImage
-            )
+          ComposerBarV2(
+    state = state,
+    onComposerChange = onComposerChange,
+    onSend = onSend,
+    onStopGenerating = onStopGenerating,
+    onPickImage = onPickImage,
+    onComposerFocusChange = { composerFocused = it }
+)
         }
     }
     onOpenTools.hashCode()
@@ -173,10 +191,11 @@ private fun AssistantHeroV2(state: AssistantUiState) {
 @Composable
 private fun ModelAndNetworkPanel(
     state: AssistantUiState,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onModelSelected: (ChatModel) -> Unit,
     onToggleOnline: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
     val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
     val panelHeight by animateDpAsState(
@@ -191,11 +210,13 @@ private fun ModelAndNetworkPanel(
             state = state,
             expanded = expanded,
             modifier = Modifier.fillMaxWidth().height(panelHeight),
-            onToggleExpanded = { if (!state.isSending) expanded = !expanded },
+           onToggleExpanded = {
+    if (!state.isSending) onExpandedChange(!expanded)
+}
             onSelected = { model ->
                 if (!state.isSending) {
                     onModelSelected(model)
-                    expanded = false
+                    onExpandedChange(false)
                 }
             }
         )
@@ -806,7 +827,8 @@ private fun ComposerBarV2(
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
     onStopGenerating: () -> Unit,
-    onPickImage: () -> Unit
+    onPickImage: () -> Unit,
+    onComposerFocusChange: (Boolean) -> Unit
 ) {
     val view = androidx.compose.ui.platform.LocalView.current
     val inputMethodManager = remember(view) {
@@ -823,13 +845,29 @@ private fun ComposerBarV2(
     val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(state, state.composerText, onComposerChange, keyboardSendAction, Modifier.weight(1f), "和我说点什么...")
+        ComposerInputV2(
+    state,
+    state.composerText,
+    onComposerChange,
+    keyboardSendAction,
+    onComposerFocusChange,
+    Modifier.weight(1f),
+    "和我说点什么..."
+)
         SendButtonV2(state, onClick = buttonAction)
     }
 }
 
 @Composable
-private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange: (String) -> Unit, onSend: () -> Unit, modifier: Modifier, placeholder: String) {
+private fun ComposerInputV2(
+    state: AssistantUiState,
+    text: String,
+    onTextChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onFocusChange: (Boolean) -> Unit,
+    modifier: Modifier,
+    placeholder: String
+) {
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Card) {
         Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
             BasicTextField(
@@ -841,7 +879,9 @@ private fun ComposerInputV2(state: AssistantUiState, text: String, onTextChange:
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
-                modifier = Modifier.fillMaxWidth()
+               modifier = Modifier
+                      .fillMaxWidth()
+                      .onFocusChanged { onFocusChange(it.isFocused) }
             )
             AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
                 Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
