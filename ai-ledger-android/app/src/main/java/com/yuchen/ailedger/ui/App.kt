@@ -97,12 +97,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 }
                 text.isNotBlank() && !state.isSending && pending != null && isCancelMobileActionText(text) -> {
                     pendingMobileAction = null
-                    viewModel.acceptExecutedMobileCommand(
-                        userText = text,
-                        command = pending.command,
-                        ok = false,
-                        resultMessage = "已取消这个手机动作。"
-                    )
+                    viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !state.isSending -> {
                     val command = MobileCommandParser.parse(text)
