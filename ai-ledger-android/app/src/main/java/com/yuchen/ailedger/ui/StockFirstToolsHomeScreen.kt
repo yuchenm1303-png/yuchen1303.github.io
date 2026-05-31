@@ -1,5 +1,14 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 
 @Composable
 fun StockFirstToolsHomeScreen(
@@ -31,15 +47,83 @@ fun StockFirstToolsHomeScreen(
         contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
-        item { StockToolsHeader() }
-        item { StockMarketHeroEntry(state, onOpenTool) }
-        item { StockToolsQuickRow(state, onOpenTool) }
-        item { StockToolEntryCard("股票行情", "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) } }
-        item { StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", state) { onOpenTool("账单中心") } }
-        item { StockToolEntryCard("数据统计", "按周、月、年查看趋势", state) { onOpenTool("数据统计") } }
-        item { StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", state) { onOpenTool("提醒闹钟") } }
-        item { StockToolEntryCard("应用控制", "打开微信、支付宝等应用", state) { onOpenTool("应用控制") } }
-        item { StockToolEntryCard("快捷指令", "保存常用任务", state) { onOpenTool("快捷指令") } }
+        item {
+            ToolsEntrance(delayMs = 0, initialOffsetY = -8, initialScale = 0.985f) {
+                StockToolsHeader()
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 42, initialOffsetY = 18, initialScale = 0.968f) {
+                StockMarketHeroEntry(state, onOpenTool)
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 78, initialOffsetY = 18, initialScale = 0.972f) {
+                StockToolsQuickRow(state, onOpenTool)
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 110, initialOffsetY = 20, initialScale = 0.968f) {
+                StockToolEntryCard("股票行情", "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 136, initialOffsetY = 22, initialScale = 0.965f) {
+                StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", state) { onOpenTool("账单中心") }
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 162, initialOffsetY = 24, initialScale = 0.965f) {
+                StockToolEntryCard("数据统计", "按周、月、年查看趋势", state) { onOpenTool("数据统计") }
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 188, initialOffsetY = 24, initialScale = 0.962f) {
+                StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", state) { onOpenTool("提醒闹钟") }
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 214, initialOffsetY = 26, initialScale = 0.962f) {
+                StockToolEntryCard("应用控制", "打开微信、支付宝等应用", state) { onOpenTool("应用控制") }
+            }
+        }
+        item {
+            ToolsEntrance(delayMs = 240, initialOffsetY = 26, initialScale = 0.96f) {
+                StockToolEntryCard("快捷指令", "保存常用任务", state) { onOpenTool("快捷指令") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolsEntrance(
+    delayMs: Long,
+    modifier: Modifier = Modifier,
+    initialOffsetY: Int = 24,
+    initialScale: Float = 0.96f,
+    content: @Composable () -> Unit
+) {
+    val pageActive = LocalPageActive.current
+    val activationTick = LocalPageActivationTick.current
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pageActive, activationTick, delayMs) {
+        if (!pageActive) return@LaunchedEffect
+        visible = false
+        yield()
+        if (delayMs > 0L) delay(delayMs)
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+            slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+    ) {
+        content()
     }
 }
 
