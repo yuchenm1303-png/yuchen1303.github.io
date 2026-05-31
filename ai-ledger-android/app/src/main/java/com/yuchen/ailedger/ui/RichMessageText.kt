@@ -137,7 +137,7 @@ fun RichMessageContent(
         if (lineHeight != TextUnit.Unspecified) {
             with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
         } else {
-            textSizePx * 1.42f
+            textSizePx * 1.34f
         }
     }
 
@@ -196,7 +196,7 @@ private fun buildRichMessageSpannable(
         val line = rawLine.trimEnd()
         val trimmed = line.trim()
         if (trimmed.isEmpty()) {
-            appendBlankLine(builder)
+            appendCompactBlankLine(builder)
             return@forEach
         }
 
@@ -208,32 +208,29 @@ private fun buildRichMessageSpannable(
 
         when {
             trimmed.matches(Regex("""---+""")) -> {
-                appendSingleNewline(builder)
+                appendCompactSeparator(builder)
                 appendStyled(builder, "────────", RelativeSizeSpan(0.96f), StyleSpan(Typeface.NORMAL))
-                appendSingleNewline(builder)
             }
             headingRegex.matches(trimmed) -> {
                 val match = headingRegex.matchEntire(trimmed)!!
                 val level = match.groupValues[1].length.coerceIn(1, 6)
                 val headingText = match.groupValues[2].trim()
                 val size = when (level) {
-                    1 -> 1.06f
-                    2 -> 1.04f
-                    3 -> 1.02f
+                    1 -> 1.04f
+                    2 -> 1.03f
+                    3 -> 1.01f
                     else -> 1.00f
                 }
-                appendSingleNewline(builder)
+                appendCompactSeparator(builder)
                 appendInline(builder, headingText, context, formulaTokens, textColor, textSizePx)
                 builder.setSpan(RelativeSizeSpan(size), findLineStart(builder), builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 builder.setSpan(WeightSpan(Typeface.BOLD), findLineStart(builder), builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                appendSingleNewline(builder)
             }
             bulletRegex.matches(trimmed) -> {
                 val content = bulletRegex.matchEntire(trimmed)!!.groupValues[1]
-                appendSingleNewline(builder)
+                appendCompactSeparator(builder)
                 builder.append("• ")
                 appendInline(builder, content, context, formulaTokens, textColor, textSizePx)
-                appendSingleNewline(builder)
             }
             tableDividerRegex.matches(trimmed) -> {
             }
@@ -243,15 +240,13 @@ private fun buildRichMessageSpannable(
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                 if (cells.isNotEmpty()) {
-                    appendSingleNewline(builder)
+                    appendCompactSeparator(builder)
                     appendInline(builder, cells.joinToString("    "), context, formulaTokens, textColor, textSizePx)
-                    appendSingleNewline(builder)
                 }
             }
             else -> {
-                appendSingleNewline(builder)
+                appendCompactSeparator(builder)
                 appendInline(builder, line.trim(), context, formulaTokens, textColor, textSizePx)
-                appendSingleNewline(builder)
             }
         }
     }
@@ -373,9 +368,9 @@ private fun appendDisplayFormula(
     textColor: Int,
     textSizePx: Float
 ) {
-    appendSingleNewline(builder)
+    appendCompactSeparator(builder)
     appendFormula(builder, context, token.latex, true, textColor, textSizePx)
-    appendSingleNewline(builder)
+    builder.append('\n')
 }
 
 private fun appendFormula(
@@ -390,7 +385,7 @@ private fun appendFormula(
     if (cleanLatex.isBlank()) return
     try {
         val drawable = JLatexMathDrawable.builder(cleanLatex)
-            .textSize(if (display) textSizePx * 0.92f else textSizePx * 0.88f)
+            .textSize(if (display) textSizePx * 0.90f else textSizePx * 0.88f)
             .color(textColor)
             .align(if (display) JLatexMathDrawable.ALIGN_CENTER else JLatexMathDrawable.ALIGN_LEFT)
             .padding(0)
@@ -417,15 +412,16 @@ private fun appendStyled(
     }
 }
 
-private fun appendSingleNewline(builder: SpannableStringBuilder) {
+private fun appendCompactSeparator(builder: SpannableStringBuilder) {
     if (builder.isEmpty()) return
-    if (builder.last() != '\n') builder.append('\n')
+    if (builder.last() != '\n') {
+        builder.append('\n')
+    }
 }
 
-private fun appendBlankLine(builder: SpannableStringBuilder) {
+private fun appendCompactBlankLine(builder: SpannableStringBuilder) {
     if (builder.isEmpty()) return
-    if (!builder.endsWith("\n\n")) {
-        if (!builder.endsWith("\n")) builder.append('\n')
+    if (!builder.endsWith("\n")) {
         builder.append('\n')
     }
 }
