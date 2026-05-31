@@ -175,48 +175,6 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     fun requestRender() = textureView.requestRender()
 }
 
-    private fun applyStableSurfaceSize(width: Int, height: Int): Boolean {
-        val targetWidth = width.coerceAtLeast(1)
-        val targetHeight = height.coerceAtLeast(1)
-        val changed = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
-
-        stableSurfaceWidth = targetWidth
-        stableSurfaceHeight = targetHeight
-
-        val lp = textureView.layoutParams
-        val layoutDirty = lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
-        if (layoutDirty) {
-            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
-        }
-
-        return changed || layoutDirty
-    }
-
-    fun setSamplingRootView(rootView: View): Boolean = textureView.setSamplingRootView(rootView)
-
-    fun syncSamplingFromWindowPosition(): Boolean = textureView.syncSamplingFromWindowPosition()
-
-    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
-        latestRadius = radius
-        latestIntensity = intensity
-        val opticalWidth = max(stableSurfaceWidth.toFloat(), width.coerceAtLeast(1f))
-        val opticalHeight = max(stableSurfaceHeight.toFloat(), height.coerceAtLeast(1f))
-        return textureView.setGlassSpec(opticalWidth, opticalHeight, radius, intensity)
-    }
-
-    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
-        textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
-
-    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
-        textureView.setPressSpec(progress, centerX, centerY)
-
-    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean =
-        textureView.setBackdropTextures(blurBitmap, lensBitmap)
-
-    fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
-
-    fun requestRender() = textureView.requestRender()
-}
 private class OpenGLGlassCardTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: CardGlassEglThread? = null
     private var latestBlurBitmap: Bitmap? = null
