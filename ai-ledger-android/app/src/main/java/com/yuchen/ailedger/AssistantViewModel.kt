@@ -109,6 +109,50 @@ class AssistantViewModel(
         sendPendingRequest(requestMessages, pendingMessage)
     }
 
+    fun previewMobileCommand(userText: String, command: MobileCommand) {
+        val cleanText = userText.trim()
+        if (cleanText.isBlank() || uiState.isSending) return
+        val now = System.currentTimeMillis()
+        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val assistantMessage = ChatMessage(
+            id = "assistant-${now + 1}",
+            text = buildString {
+                append(commandReplyPrefix(command))
+                append("\n\n")
+                append("动作：${command.title}\n")
+                append("详情：${command.summary}\n\n")
+                append("回复“确认”执行，或回复“取消”。")
+            },
+            role = MessageRole.Assistant,
+            source = "local_mobile",
+            modelLabel = "待确认"
+        )
+        uiState = uiState.copy(
+            messages = uiState.messages + userMessage + assistantMessage,
+            composerText = "",
+            isSending = false
+        )
+    }
+
+    fun cancelMobileCommand(userText: String, command: MobileCommand) {
+        val cleanText = userText.trim()
+        if (cleanText.isBlank() || uiState.isSending) return
+        val now = System.currentTimeMillis()
+        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val assistantMessage = ChatMessage(
+            id = "assistant-${now + 1}",
+            text = "已取消这个手机动作：${command.title} · ${command.summary}。",
+            role = MessageRole.Assistant,
+            source = "local_mobile",
+            modelLabel = "已取消"
+        )
+        uiState = uiState.copy(
+            messages = uiState.messages + userMessage + assistantMessage,
+            composerText = "",
+            isSending = false
+        )
+    }
+
     fun acceptExecutedMobileCommand(userText: String, command: MobileCommand, ok: Boolean, resultMessage: String) {
         val cleanText = userText.trim()
         if (cleanText.isBlank() || uiState.isSending) return
