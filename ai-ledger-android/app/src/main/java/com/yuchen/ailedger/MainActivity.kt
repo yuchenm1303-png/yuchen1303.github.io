@@ -22,9 +22,7 @@ class MainActivity : ComponentActivity() {
     private fun prepareWindow(window: Window) {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        // 由 Compose 的 imePadding() 统一处理键盘避让，避免系统窗口 resize 与 Compose 布局动画叠加，
-        // 减少 OpenGL 主玻璃在键盘展开/收起时的 Surface 重算和背景采样抖动。
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.navigationBarDividerColor = Color.TRANSPARENT
         }
