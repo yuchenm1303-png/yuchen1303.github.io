@@ -10,7 +10,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +22,7 @@ import com.yuchen.ailedger.model.AppTab
 import kotlinx.coroutines.delay
 
 val LocalPageActive = compositionLocalOf { true }
+val LocalPageActivationTick = compositionLocalOf { 0 }
 
 private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
 private const val DEFAULT_PREWARM_DELAY_MS = 360L
@@ -38,8 +38,7 @@ fun CachedAppTabHost(
     content: @Composable (AppTab) -> Unit
 ) {
     var visitedTabs by remember { mutableStateOf(setOf(currentTab)) }
-    var revealedTabs by remember { mutableStateOf(setOf(currentTab)) }
-    val activationRevisions = remember {
+    val activationTicks = remember {
         mutableStateMapOf<AppTab, Int>().apply {
             AppTab.entries.forEach { put(it, 0) }
         }
@@ -52,10 +51,7 @@ fun CachedAppTabHost(
         if (currentTab !in visitedTabs) {
             visitedTabs = visitedTabs + currentTab
         }
-        if (currentTab !in revealedTabs) {
-            revealedTabs = revealedTabs + currentTab
-            activationRevisions[currentTab] = (activationRevisions[currentTab] ?: 0) + 1
-        }
+        activationTicks[currentTab] = (activationTicks[currentTab] ?: 0) + 1
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
@@ -90,6 +86,7 @@ fun CachedAppTabHost(
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
+                    LocalPageActivationTick provides (activationTicks[tab] ?: 0),
                     LocalGlassItemRegistry provides if (active) LocalGlassItemRegistry.current else null
                 ) {
                     Box(
@@ -101,9 +98,7 @@ fun CachedAppTabHost(
                                 translationY = with(density) { offsetDp.toDp().toPx() }
                             }
                     ) {
-                        key(tab, activationRevisions[tab] ?: 0) {
-                            content(tab)
-                        }
+                        content(tab)
                     }
                 }
             }
