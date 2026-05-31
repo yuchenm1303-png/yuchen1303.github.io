@@ -28,6 +28,7 @@ import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
+import com.yuchen.ailedger.service.MobileCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,6 +107,36 @@ class AssistantViewModel(
         val requestMessages = uiState.messages + userMessage
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages, pendingMessage)
+    }
+
+    fun acceptExecutedMobileCommand(userText: String, command: MobileCommand, ok: Boolean, resultMessage: String) {
+        val cleanText = userText.trim()
+        if (cleanText.isBlank() || uiState.isSending) return
+        val now = System.currentTimeMillis()
+        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val assistantText = buildString {
+            append(commandReplyPrefix(command))
+            append("\n\n")
+            append(if (ok) "执行结果：$resultMessage" else "执行失败：$resultMessage")
+        }
+        val assistantMessage = ChatMessage(
+            id = "assistant-${now + 1}",
+            text = assistantText,
+            role = MessageRole.Assistant,
+            source = "local_mobile",
+            modelLabel = "手机动作"
+        )
+        uiState = uiState.copy(
+            messages = uiState.messages + userMessage + assistantMessage,
+            composerText = "",
+            isSending = false
+        )
+    }
+
+    private fun commandReplyPrefix(command: MobileCommand): String = when (command) {
+        is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"
+        is MobileCommand.OpenApp -> "我理解为要打开“${command.appName}”。"
+        is MobileCommand.Navigate -> "我理解为要导航到“${command.destination}”。"
     }
 
     fun retryMessage(messageId: String) {
@@ -218,7 +249,7 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = "assistant-${System.currentTimeMillis()}", text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
     }
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
-    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
+    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
