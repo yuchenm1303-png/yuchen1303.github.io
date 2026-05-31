@@ -56,7 +56,7 @@ class AiWorkerClient(
         onlineEnabled: Boolean = false
     ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
-        val endpoints = endpointPlan()
+        val endpoints = endpointPlan(route)
         if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
 
         val payload = buildPayload(messages, route, onlineEnabled)
@@ -87,19 +87,19 @@ class AiWorkerClient(
 
     /**
      * 入口选择策略：
-     * - Android 客户端统一优先请求阿里云国内入口，保证大陆网络下基础聊天稳定可用。
-     * - Qwen / DeepSeek 由国内入口优先承接。
-     * - Gemini / Mistral / GPT OSS / Workers AI 也先交给国内入口尝试代理；如果国内入口不支持或不可用，再 fallback 到 Cloudflare。
+     * - Qwen / DeepSeek 属于国内稳定模型，只走阿里云国内入口，避免国内入口报错后继续等待 Cloudflare 超时。
+     * - Gemini / Mistral / GPT OSS / Workers AI 先交给阿里云国内入口尝试代理；如果国内入口明确不支持，再 fallback 到 Cloudflare。
      * - Cloudflare 继续作为海外模型和海外网络环境的备用通道，不因为国内入口优先而被删除。
      * - 联网按钮只作为 payload 能力标记传给后端，不直接改变 App 端入口顺序。
      */
-    private fun endpointPlan(): List<String> {
+    private fun endpointPlan(route: ModelRoute): List<String> {
         val cn = config.endpoint.trim().trimEnd('/')
         val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT)
             .trim()
             .trimEnd('/')
 
-        return endpointPool(cn, listOf(cf))
+        val resolvedIsCnModel = route.resolved == ChatModel.Kimi || route.resolved == ChatModel.DeepSeekV4
+        return if (resolvedIsCnModel) endpointPool(cn, emptyList()) else endpointPool(cn, listOf(cf))
     }
 
     private fun resolveModelRoute(
@@ -287,7 +287,7 @@ class AiWorkerClient(
             put("fallbackEndpointRole", "cloudflare_worker")
 
             put("client", "android-compose")
-            put("clientVersion", "compose-native-cn-gateway-primary-v1")
+            put("clientVersion", "compose-native-cn-gateway-primary-v2")
             put("now", System.currentTimeMillis())
         }
     }
