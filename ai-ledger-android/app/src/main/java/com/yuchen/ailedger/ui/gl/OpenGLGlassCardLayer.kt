@@ -100,26 +100,10 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
-    private var pendingSurfaceWidth = 1
-    private var pendingSurfaceHeight = 1
     private var lastRootWidth = 1
-    private var lastRootHeight = 1
 
     private var latestRadius = 24f
     private var latestIntensity = 1f
-
-    private val settleStableSizeRunnable = Runnable {
-        val changed = applyStableSurfaceSize(pendingSurfaceWidth, pendingSurfaceHeight)
-        if (changed) {
-            textureView.setGlassSpec(
-                stableSurfaceWidth.toFloat(),
-                stableSurfaceHeight.toFloat(),
-                latestRadius,
-                latestIntensity
-            )
-            textureView.requestRender()
-        }
-    }
 
     init {
         clipChildren = true
@@ -130,40 +114,66 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         addView(textureView, LayoutParams(1, 1))
     }
 
-    override fun onDetachedFromWindow() {
-        removeCallbacks(settleStableSizeRunnable)
-        super.onDetachedFromWindow()
-    }
-
     fun setStableSurfaceSize(width: Int, height: Int, rootWidth: Int, rootHeight: Int): Boolean {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
         val safeRootWidth = rootWidth.coerceAtLeast(1)
-        val safeRootHeight = rootHeight.coerceAtLeast(1)
-
-        pendingSurfaceWidth = safeWidth
-        pendingSurfaceHeight = safeHeight
 
         val rootWidthChanged = kotlin.math.abs(safeRootWidth - lastRootWidth) > 2
         lastRootWidth = safeRootWidth
-        lastRootHeight = safeRootHeight
 
-        val needsImmediateGrow =
-            safeWidth > stableSurfaceWidth ||
-                safeHeight > stableSurfaceHeight ||
-                rootWidthChanged
-
-        return if (needsImmediateGrow) {
-            removeCallbacks(settleStableSizeRunnable)
-            val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
-            val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
-            applyStableSurfaceSize(targetWidth, targetHeight)
+        val targetWidth = if (rootWidthChanged) {
+            safeWidth
         } else {
-            removeCallbacks(settleStableSizeRunnable)
-            postDelayed(settleStableSizeRunnable, 180L)
-            false
+            max(stableSurfaceWidth, safeWidth)
         }
+
+        val targetHeight = if (rootWidthChanged) {
+            safeHeight
+        } else {
+            max(stableSurfaceHeight, safeHeight)
+        }
+
+        val changed = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
+        stableSurfaceWidth = targetWidth
+        stableSurfaceHeight = targetHeight
+
+        val lp = textureView.layoutParams
+        val layoutDirty = lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
+        if (layoutDirty) {
+            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
+        }
+
+        return changed || layoutDirty
     }
+
+    fun setSamplingRootView(rootView: View): Boolean = textureView.setSamplingRootView(rootView)
+
+    fun syncSamplingFromWindowPosition(): Boolean = textureView.syncSamplingFromWindowPosition()
+
+    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
+        latestRadius = radius
+        latestIntensity = intensity
+
+        val opticalWidth = max(stableSurfaceWidth.toFloat(), width.coerceAtLeast(1f))
+        val opticalHeight = max(stableSurfaceHeight.toFloat(), height.coerceAtLeast(1f))
+
+        return textureView.setGlassSpec(opticalWidth, opticalHeight, latestRadius, latestIntensity)
+    }
+
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
+        textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
+
+    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
+        textureView.setPressSpec(progress, centerX, centerY)
+
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean =
+        textureView.setBackdropTextures(blurBitmap, lensBitmap)
+
+    fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
+
+    fun requestRender() = textureView.requestRender()
+}
 
     private fun applyStableSurfaceSize(width: Int, height: Int): Boolean {
         val targetWidth = width.coerceAtLeast(1)
