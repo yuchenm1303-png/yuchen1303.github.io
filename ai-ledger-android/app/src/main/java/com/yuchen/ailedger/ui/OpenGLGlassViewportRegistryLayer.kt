@@ -6,7 +6,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.ui.gl.OpenGLGlassViewportItem
 import com.yuchen.ailedger.ui.gl.OpenGLGlassViewportLayer
-import kotlin.math.roundToInt
 
 @Composable
 fun OpenGLGlassViewportRegistryLayer(
@@ -23,10 +22,10 @@ fun OpenGLGlassViewportRegistryLayer(
         val offset = item.coordinates.offsetRelativeTo(origin)
         OpenGLGlassViewportItem(
             key = item.key.toString(),
-            left = offset.x.roundToInt().toFloat(),
-            top = offset.y.roundToInt().toFloat(),
-            width = size.width.coerceAtLeast(1).toFloat(),
-            height = size.height.coerceAtLeast(1).toFloat(),
+            left = offset.x,
+            top = offset.y,
+            width = size.width.toFloat(),
+            height = size.height.toFloat(),
             radiusPx = with(density) { item.radius.dp.toPx() },
             intensity = item.glassIntensity
         )
