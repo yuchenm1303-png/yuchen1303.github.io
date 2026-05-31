@@ -39,6 +39,7 @@ import kotlin.math.roundToInt
 private const val GLASS_SPEC_EPSILON_PX = 0.5f
 private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
 private const val GLASS_INTENSITY_EPSILON = 0.006f
+private const val GLASS_STABLE_SAMPLE_ANCHOR_Y = 0.42f
 private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
 
@@ -189,6 +190,9 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestOriginY = 0f
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
+    private var stableSampleAnchorY: Float? = null
+    private var stableSampleRootWidth = 1f
+    private var stableSampleRootHeight = 1f
     private var latestPressProgress = 0f
     private var latestPressCenterX = 0.5f
     private var latestPressCenterY = 0.5f
@@ -272,21 +276,40 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         return dirty
     }
 
-    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
-        val nextRootWidth = rootWidth.coerceAtLeast(1f)
-        val nextRootHeight = rootHeight.coerceAtLeast(1f)
-        val dirty = abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
-            abs(originY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
-            abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
-            abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
-        latestOriginX = originX
-        latestOriginY = originY
-        latestRootWidth = nextRootWidth
-        latestRootHeight = nextRootHeight
-        if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
-        return dirty
+   fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
+    val nextRootWidth = rootWidth.coerceAtLeast(1f)
+    val nextRootHeight = rootHeight.coerceAtLeast(1f)
+
+    val anchorLocalY = latestHeight.coerceAtLeast(1f) * GLASS_STABLE_SAMPLE_ANCHOR_Y
+    val currentAnchorY = originY + anchorLocalY
+
+    val rootChanged =
+        abs(nextRootWidth - stableSampleRootWidth) > GLASS_SPEC_EPSILON_PX ||
+            abs(nextRootHeight - stableSampleRootHeight) > GLASS_SPEC_EPSILON_PX
+
+    val anchorY = if (rootChanged || stableSampleAnchorY == null) {
+        stableSampleRootWidth = nextRootWidth
+        stableSampleRootHeight = nextRootHeight
+        currentAnchorY.also { stableSampleAnchorY = it }
+    } else {
+        stableSampleAnchorY ?: currentAnchorY
     }
 
+    val anchoredOriginY = anchorY - anchorLocalY
+
+    val dirty = abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
+        abs(anchoredOriginY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
+        abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
+        abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
+
+    latestOriginX = originX
+    latestOriginY = anchoredOriginY
+    latestRootWidth = nextRootWidth
+    latestRootHeight = nextRootHeight
+
+    if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+    return dirty
+}
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean {
         val nextProgress = progress.coerceIn(0f, 1f)
         val nextCenterX = centerX.coerceIn(0f, 1f)
