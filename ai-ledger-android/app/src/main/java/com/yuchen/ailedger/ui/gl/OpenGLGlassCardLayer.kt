@@ -41,6 +41,9 @@ private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
 private const val GLASS_INTENSITY_EPSILON = 0.006f
 private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
+private const val GLASS_STABLE_SAMPLE_ANCHOR_Y = 0.44f
+private const val GLASS_STABLE_SAMPLE_MAX_SHIFT_PX = 24f
+private const val GLASS_STABLE_SAMPLE_STRENGTH = 0.78f
 
 @Composable
 fun OpenGLGlassCardLayer(
@@ -71,30 +74,31 @@ fun OpenGLGlassCardLayer(
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
-AndroidView(
-    modifier = Modifier.matchParentSize(),
-    factory = { context -> OpenGLGlassCardHostView(context) },
-    update = { view ->
-        val surfaceDirty = view.setStableSurfaceSize(
-            width = widthPx.roundToInt(),
-            height = heightPx.roundToInt(),
-            rootWidth = rootWidthPx.roundToInt(),
-            rootHeight = rootHeightPx.roundToInt()
+        AndroidView(
+            modifier = Modifier.matchParentSize(),
+            factory = { context -> OpenGLGlassCardHostView(context) },
+            update = { view ->
+                val surfaceDirty = view.setStableSurfaceSize(
+                    width = widthPx.roundToInt(),
+                    height = heightPx.roundToInt(),
+                    rootWidth = rootWidthPx.roundToInt(),
+                    rootHeight = rootHeightPx.roundToInt()
+                )
+                val rootDirty = view.setSamplingRootView(rootView)
+                val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
+                val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+                val pressDirty = view.setPressSpec(press, pressX, pressY)
+                val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
+                val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
+                val styleDirty = view.setGlassStyle(border)
+                if (surfaceDirty || rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
+                    view.requestRender()
+                }
+            }
         )
-        val rootDirty = view.setSamplingRootView(rootView)
-        val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
-        val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
-        val pressDirty = view.setPressSpec(press, pressX, pressY)
-        val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
-        val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
-        val styleDirty = view.setGlassStyle(border)
-        if (surfaceDirty || rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
-            view.requestRender()
-        }
-    }
-)
     }
 }
+
 private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private val textureView = OpenGLGlassCardTextureView(context)
 
@@ -122,17 +126,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         val rootWidthChanged = kotlin.math.abs(safeRootWidth - lastRootWidth) > 2
         lastRootWidth = safeRootWidth
 
-        val targetWidth = if (rootWidthChanged) {
-            safeWidth
-        } else {
-            max(stableSurfaceWidth, safeWidth)
-        }
-
-        val targetHeight = if (rootWidthChanged) {
-            safeHeight
-        } else {
-            max(stableSurfaceHeight, safeHeight)
-        }
+        val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
+        val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
 
         val changed = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
         stableSurfaceWidth = targetWidth
@@ -140,9 +135,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         val lp = textureView.layoutParams
         val layoutDirty = lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
-        if (layoutDirty) {
-            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
-        }
+        if (layoutDirty) textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
 
         return changed || layoutDirty
     }
@@ -151,17 +144,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     fun syncSamplingFromWindowPosition(): Boolean = textureView.syncSamplingFromWindowPosition()
 
- fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
-    latestRadius = radius
-    latestIntensity = intensity
-
-    return textureView.setGlassSpec(
-        width.coerceAtLeast(1f),
-        height.coerceAtLeast(1f),
-        latestRadius,
-        latestIntensity
-    )
-}
+    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
+        latestRadius = radius
+        latestIntensity = intensity
+        return textureView.setGlassSpec(width.coerceAtLeast(1f), height.coerceAtLeast(1f), latestRadius, latestIntensity)
+    }
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
         textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
@@ -272,23 +259,21 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
         return dirty
     }
 
-  fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
-    val nextRootWidth = rootWidth.coerceAtLeast(1f)
-    val nextRootHeight = rootHeight.coerceAtLeast(1f)
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
+        val nextRootWidth = rootWidth.coerceAtLeast(1f)
+        val nextRootHeight = rootHeight.coerceAtLeast(1f)
+        val dirty = abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
+            abs(originY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
+            abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
+            abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
+        latestOriginX = originX
+        latestOriginY = originY
+        latestRootWidth = nextRootWidth
+        latestRootHeight = nextRootHeight
+        if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+        return dirty
+    }
 
-    val dirty = abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
-        abs(originY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
-        abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
-        abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
-
-    latestOriginX = originX
-    latestOriginY = originY
-    latestRootWidth = nextRootWidth
-    latestRootHeight = nextRootHeight
-
-    if (dirty) renderThread?.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
-    return dirty
-}
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean {
         val nextProgress = progress.coerceIn(0f, 1f)
         val nextCenterX = centerX.coerceIn(0f, 1f)
@@ -472,6 +457,7 @@ private data class CardGlassDrawSpec(
     val cardIntensity: Float,
     val cardOriginX: Float,
     val cardOriginY: Float,
+    val stableSampleAnchorY: Float,
     val rootWidth: Float,
     val rootHeight: Float,
     val pressProgress: Float,
@@ -506,6 +492,9 @@ private class OpenGLGlassCardRenderer {
     private var cardIntensity = 1f
     private var cardOriginX = 0f
     private var cardOriginY = 0f
+    private var stableSampleAnchorY = 0f
+    private var stableSampleAnchorReady = false
+    private var stableSampleRootHeight = 1f
     private var rootWidth = 1f
     private var rootHeight = 1f
     private var pressProgress = 0f
@@ -517,6 +506,7 @@ private class OpenGLGlassCardRenderer {
     private var positionHandle = 0
     private var resolutionHandle = 0
     private var cardOriginHandle = 0
+    private var samplingAnchorHandle = 0
     private var rootResolutionHandle = 0
     private var rectHandle = 0
     private var radiusHandle = 0
@@ -537,6 +527,7 @@ private class OpenGLGlassCardRenderer {
             cardHeight = height.coerceAtLeast(1f)
             cardRadius = radius
             cardIntensity = intensity
+            updateStableSampleAnchorLocked()
         }
     }
 
@@ -546,7 +537,24 @@ private class OpenGLGlassCardRenderer {
             cardOriginY = originY
             this.rootWidth = rootWidth.coerceAtLeast(1f)
             this.rootHeight = rootHeight.coerceAtLeast(1f)
+            updateStableSampleAnchorLocked()
         }
+    }
+
+    private fun updateStableSampleAnchorLocked() {
+        val currentAnchorY = cardOriginY + cardHeight * GLASS_STABLE_SAMPLE_ANCHOR_Y
+        if (!stableSampleAnchorReady || abs(rootHeight - stableSampleRootHeight) > 2f) {
+            stableSampleAnchorY = currentAnchorY
+            stableSampleAnchorReady = true
+            stableSampleRootHeight = rootHeight
+            return
+        }
+        stableSampleRootHeight = rootHeight
+        val limitedDelta = (stableSampleAnchorY - currentAnchorY).coerceIn(
+            -GLASS_STABLE_SAMPLE_MAX_SHIFT_PX,
+            GLASS_STABLE_SAMPLE_MAX_SHIFT_PX
+        )
+        stableSampleAnchorY = currentAnchorY + limitedDelta * GLASS_STABLE_SAMPLE_STRENGTH
     }
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) {
@@ -575,6 +583,7 @@ private class OpenGLGlassCardRenderer {
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         resolutionHandle = GLES20.glGetUniformLocation(program, "uResolution")
         cardOriginHandle = GLES20.glGetUniformLocation(program, "uCardOrigin")
+        samplingAnchorHandle = GLES20.glGetUniformLocation(program, "uSamplingAnchor")
         rootResolutionHandle = GLES20.glGetUniformLocation(program, "uRootResolution")
         rectHandle = GLES20.glGetUniformLocation(program, "uRect")
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
@@ -618,6 +627,7 @@ private class OpenGLGlassCardRenderer {
                 cardIntensity = cardIntensity,
                 cardOriginX = cardOriginX,
                 cardOriginY = cardOriginY,
+                stableSampleAnchorY = stableSampleAnchorY,
                 rootWidth = rootWidth,
                 rootHeight = rootHeight,
                 pressProgress = pressProgress,
@@ -631,6 +641,13 @@ private class OpenGLGlassCardRenderer {
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES20.glUniform2f(cardOriginHandle, drawSpec.cardOriginX, drawSpec.cardOriginY)
+        GLES20.glUniform4f(
+            samplingAnchorHandle,
+            drawSpec.stableSampleAnchorY,
+            GLASS_STABLE_SAMPLE_ANCHOR_Y,
+            GLASS_STABLE_SAMPLE_MAX_SHIFT_PX,
+            GLASS_STABLE_SAMPLE_STRENGTH
+        )
         GLES20.glUniform2f(rootResolutionHandle, drawSpec.rootWidth, drawSpec.rootHeight)
         GLES20.glUniform4f(rectHandle, 0f, 0f, drawSpec.cardWidth, drawSpec.cardHeight)
         GLES20.glUniform1f(radiusHandle, drawSpec.cardRadius.coerceIn(2f, max(drawSpec.cardWidth, drawSpec.cardHeight)))
@@ -765,6 +782,7 @@ private class OpenGLGlassCardRenderer {
             precision mediump float;
             uniform vec2 uResolution;
             uniform vec2 uCardOrigin;
+            uniform vec4 uSamplingAnchor; // x stableRootY, y anchorFraction, z maxShiftPx, w strength
             uniform vec2 uRootResolution;
             uniform vec4 uRect;
             uniform float uRadius;
@@ -791,7 +809,14 @@ private class OpenGLGlassCardRenderer {
             }
 
             vec2 globalUv(vec2 localCoord) {
-                return clamp((uCardOrigin + localCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
+                float anchorFraction = clamp(uSamplingAnchor.y, 0.15, 0.85);
+                float localAnchorY = anchorFraction * max(uRect.w, 1.0);
+                float currentRootAnchorY = uCardOrigin.y + localAnchorY;
+                float rawShiftY = clamp(uSamplingAnchor.x - currentRootAnchorY, -uSamplingAnchor.z, uSamplingAnchor.z) * clamp(uSamplingAnchor.w, 0.0, 1.0);
+                float dist = abs(localCoord.y - localAnchorY) / max(uRect.w, 1.0);
+                float centerBand = 1.0 - smoothstep(0.14, 0.52, dist);
+                vec2 anchoredCoord = localCoord + vec2(0.0, rawShiftY * centerBand);
+                return clamp((uCardOrigin + anchoredCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
             }
 
             vec3 fallbackBackdrop(vec2 uv) {
