@@ -34,14 +34,6 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.unit.IntSize
 
 private const val GLASS_SPEC_EPSILON_PX = 0.5f
 private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
@@ -73,31 +65,13 @@ fun OpenGLGlassCardLayer(
     val pressX = pressCenter.x.coerceIn(0f, 1f)
     val pressY = pressCenter.y.coerceIn(0f, 1f)
 
-    BoxWithConstraints(modifier = modifier.clipToBounds()) {
-    val widthIntPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1)
-    val heightIntPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1)
-    val widthPx = widthIntPx.toFloat()
-    val heightPx = heightIntPx.toFloat()
-    val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
-    val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
-
-    var stableSurfaceSize by remember(rootWidthPx, rootHeightPx) {
-        mutableStateOf(IntSize(widthIntPx, heightIntPx))
-    }
-
-    val stableWidth = max(stableSurfaceSize.width, widthIntPx)
-    val stableHeight = max(stableSurfaceSize.height, heightIntPx)
-
-    if (stableWidth != stableSurfaceSize.width || stableHeight != stableSurfaceSize.height) {
-        stableSurfaceSize = IntSize(stableWidth, stableHeight)
-    }
-
-    val surfaceWidthDp = with(density) { stableSurfaceSize.width.toDp() }
-    val surfaceHeightDp = with(density) { stableSurfaceSize.height.toDp() }
-
-    Box(Modifier.matchParentSize().clipToBounds()) {
+    BoxWithConstraints(modifier = modifier) {
+        val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
+        val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
+        val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+        val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
         AndroidView(
-            modifier = Modifier.size(surfaceWidthDp, surfaceHeightDp),
+            modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardTextureView(context) },
             update = { view ->
                 val rootDirty = view.setSamplingRootView(rootView)
@@ -107,22 +81,12 @@ fun OpenGLGlassCardLayer(
                 val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-
-                if (
-                    rootDirty ||
-                    specDirty ||
-                    samplingDirty ||
-                    pressDirty ||
-                    preDrawSamplingDirty ||
-                    textureDirty ||
-                    styleDirty
-                ) {
+                if (rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
             }
         )
     }
-}
 }
 
 private class OpenGLGlassCardTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
