@@ -1,11 +1,14 @@
 package com.yuchen.ailedger.ui
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
-import android.text.style.ImageSpan
+import android.text.style.DynamicDrawableSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
@@ -31,12 +34,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import ru.noties.jlatexmath.JLatexMathDrawable
 
 private val richMessageTokenRegex = Regex(
-    pattern = """(\*\*.+?\*\*)|(\\\\\(.+?\\\\\))|(\\\\\[.+?\\\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$""",
+    pattern = """(\*\*.+?\*\*)|(\\\\\(.+?\\\\\))|(\\\\\[.+?\\\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
     options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
 )
 
 private val headingRegex = Regex("""^\s*(#{1,6})\s*(.+?)\s*$""")
 private val bulletRegex = Regex("""^\s*[-*•]\s+(.+?)\s*$""")
+private val quoteRegex = Regex("""^\s*>\s*(.+?)\s*$""")
+private val sampleLabelRegex = Regex("""^\s*【样本\d+】\s*$""")
 private val tableRowRegex = Regex("""^\s*\|(.+)\|\s*$""")
 private val tableDividerRegex = Regex("""^\s*\|?\s*[:\-]+(?:\s*\|\s*[:\-]+)+\s*\|?\s*$""")
 private val displayBracketFormulaRegex = Regex("""(?s)\\\[(.+?)\\\]""")
@@ -211,6 +216,15 @@ private fun buildRichMessageSpannable(
                 appendCompactSeparator(builder)
                 appendStyled(builder, "────────", RelativeSizeSpan(0.96f), StyleSpan(Typeface.NORMAL))
             }
+            sampleLabelRegex.matches(trimmed) -> {
+                appendCompactSeparator(builder)
+                appendStyled(builder, trimmed, RelativeSizeSpan(0.92f), WeightSpan(Typeface.BOLD))
+            }
+            quoteRegex.matches(trimmed) -> {
+                val content = quoteRegex.matchEntire(trimmed)!!.groupValues[1]
+                appendCompactSeparator(builder)
+                appendInline(builder, content, context, formulaTokens, textColor, textSizePx)
+            }
             headingRegex.matches(trimmed) -> {
                 val match = headingRegex.matchEntire(trimmed)!!
                 val level = match.groupValues[1].length.coerceIn(1, 6)
@@ -241,7 +255,7 @@ private fun buildRichMessageSpannable(
                     .filter { it.isNotEmpty() }
                 if (cells.isNotEmpty()) {
                     appendCompactSeparator(builder)
-                    appendInline(builder, cells.joinToString("    "), context, formulaTokens, textColor, textSizePx)
+                    appendInline(builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx)
                 }
             }
             else -> {
@@ -298,17 +312,6 @@ private fun extractFormulaTokens(source: String): Pair<String, Map<String, Formu
 private fun appendInline(
     builder: SpannableStringBuilder,
     source: String,
-    formulaTokens: Map<String, FormulaToken>,
-    textColor: Int,
-    textSizePx: Float,
-    context: Context
-) {
-    appendInline(builder, source, context, formulaTokens, textColor, textSizePx)
-}
-
-private fun appendInline(
-    builder: SpannableStringBuilder,
-    source: String,
     context: Context,
     formulaTokens: Map<String, FormulaToken>,
     textColor: Int,
@@ -336,23 +339,17 @@ private fun appendInline(
         if (match.range.first > cursor) {
             builder.append(working.substring(cursor, match.range.first))
         }
-        val token = match.value
-        when {
-            token.startsWith("@@FORMULA_") -> {
+        when (val token = match.value) {
+            in formulaTokens.keys -> {
                 val formula = formulaTokens[token]
                 if (formula != null) {
-                    appendFormula(builder, context, formula.latex, false, textColor, textSizePx)
-                } else {
-                    builder.append(token)
+                    appendFormula(builder, context, formula.latex, formula.display, textColor, textSizePx)
                 }
             }
-            token.startsWith("@@CODE_") -> {
-                appendStyled(builder, codeTokens[token].orEmpty(), TypefaceSpanCompat(Typeface.MONOSPACE))
+            else -> when {
+                token.startsWith("@@CODE_") -> appendStyled(builder, codeTokens[token].orEmpty(), TypefaceSpanCompat(Typeface.MONOSPACE))
+                token.startsWith("@@BOLD_") -> appendStyled(builder, boldTokens[token].orEmpty(), WeightSpan(Typeface.BOLD))
             }
-            token.startsWith("@@BOLD_") -> {
-                appendStyled(builder, boldTokens[token].orEmpty(), WeightSpan(Typeface.BOLD))
-            }
-            else -> builder.append(token)
         }
         cursor = match.range.last + 1
     }
@@ -393,7 +390,7 @@ private fun appendFormula(
         drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
         val start = builder.length
         builder.append('\uFFFC')
-        builder.setSpan(ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        builder.setSpan(CenteredDrawableSpan(drawable), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     } catch (_: Throwable) {
         builder.append(cleanLatex)
     }
@@ -414,14 +411,13 @@ private fun appendStyled(
 
 private fun appendCompactSeparator(builder: SpannableStringBuilder) {
     if (builder.isEmpty()) return
-    if (builder.last() != '\n') {
-        builder.append('\n')
-    }
+    if (builder.last() != '\n') builder.append('\n')
 }
 
 private fun appendCompactBlankLine(builder: SpannableStringBuilder) {
     if (builder.isEmpty()) return
-    if (!builder.endsWith("\n")) {
+    if (!builder.endsWith("\n\n")) {
+        if (!builder.endsWith("\n")) builder.append('\n')
         builder.append('\n')
     }
 }
@@ -457,5 +453,50 @@ private class TypefaceSpanCompat(private val typeface: Typeface) : MetricAffecti
     override fun updateMeasureState(textPaint: TextPaint) = apply(textPaint)
     private fun apply(textPaint: TextPaint) {
         textPaint.typeface = typeface
+    }
+}
+
+private class CenteredDrawableSpan(
+    private val drawable: Drawable
+) : DynamicDrawableSpan(ALIGN_BASELINE) {
+    override fun getDrawable(): Drawable = drawable
+
+    override fun getSize(
+        paint: Paint,
+        text: CharSequence?,
+        start: Int,
+        end: Int,
+        fm: Paint.FontMetricsInt?
+    ): Int {
+        val rect = drawable.bounds
+        if (fm != null) {
+            val paintFm = paint.fontMetricsInt
+            val fontHeight = paintFm.descent - paintFm.ascent
+            val drawableHeight = rect.height()
+            val centerY = paintFm.ascent + fontHeight / 2
+            fm.ascent = centerY - drawableHeight / 2
+            fm.descent = fm.ascent + drawableHeight
+            fm.top = fm.ascent
+            fm.bottom = fm.descent
+        }
+        return rect.right
+    }
+
+    override fun draw(
+        canvas: Canvas,
+        text: CharSequence?,
+        start: Int,
+        end: Int,
+        x: Float,
+        top: Int,
+        y: Int,
+        bottom: Int,
+        paint: Paint
+    ) {
+        val transY = top + ((bottom - top) - drawable.bounds.height()) / 2
+        canvas.save()
+        canvas.translate(x, transY.toFloat())
+        drawable.draw(canvas)
+        canvas.restore()
     }
 }
