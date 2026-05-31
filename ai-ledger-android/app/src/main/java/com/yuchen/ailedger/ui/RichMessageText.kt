@@ -122,7 +122,7 @@ private fun RichMessageText(
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
                 isLongClickable = false
-                hapticFeedbackEnabled = false
+                isHapticFeedbackEnabled = false
 
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
