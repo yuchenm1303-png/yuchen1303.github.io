@@ -50,6 +50,8 @@ private val inlineFormulaRegex = Regex("""(?s)\\\((.+?)\\\)""")
 private val boldRegex = Regex("""\*\*(.+?)\*\*""")
 private val codeRegex = Regex("""`([^`]+)`""")
 private val tokenRegex = Regex("""(@@FORMULA_\d+@@)|(@@CODE_\d+@@)|(@@BOLD_\d+@@)""")
+private val leadingFormulaGapRegex = Regex("""\n{2,}(@@FORMULA_\d+@@)""")
+private val trailingFormulaGapRegex = Regex("""(@@FORMULA_\d+@@)\n{2,}""")
 
 private data class FormulaToken(
     val key: String,
@@ -142,7 +144,7 @@ fun RichMessageContent(
         if (lineHeight != TextUnit.Unspecified) {
             with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
         } else {
-            textSizePx * 1.34f
+            textSizePx * 1.30f
         }
     }
 
@@ -306,6 +308,8 @@ private fun extractFormulaTokens(source: String): Pair<String, Map<String, Formu
         tokens[key] = FormulaToken(key, match.groupValues[1].trim(), false)
         key
     }
+    working = leadingFormulaGapRegex.replace(working, "\n$1")
+    working = trailingFormulaGapRegex.replace(working, "$1\n")
     return working to tokens
 }
 
@@ -382,7 +386,7 @@ private fun appendFormula(
     if (cleanLatex.isBlank()) return
     try {
         val drawable = JLatexMathDrawable.builder(cleanLatex)
-            .textSize(if (display) textSizePx * 0.90f else textSizePx * 0.88f)
+            .textSize(if (display) textSizePx * 0.86f else textSizePx * 0.86f)
             .color(textColor)
             .align(if (display) JLatexMathDrawable.ALIGN_CENTER else JLatexMathDrawable.ALIGN_LEFT)
             .padding(0)
@@ -390,7 +394,7 @@ private fun appendFormula(
         drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
         val start = builder.length
         builder.append('\uFFFC')
-        builder.setSpan(CenteredDrawableSpan(drawable), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        builder.setSpan(FormulaDrawableSpan(drawable, display, textSizePx), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     } catch (_: Throwable) {
         builder.append(cleanLatex)
     }
@@ -456,8 +460,10 @@ private class TypefaceSpanCompat(private val typeface: Typeface) : MetricAffecti
     }
 }
 
-private class CenteredDrawableSpan(
-    private val drawable: Drawable
+private class FormulaDrawableSpan(
+    private val drawable: Drawable,
+    private val display: Boolean,
+    private val textSizePx: Float
 ) : DynamicDrawableSpan(ALIGN_BASELINE) {
     override fun getDrawable(): Drawable = drawable
 
@@ -471,15 +477,22 @@ private class CenteredDrawableSpan(
         val rect = drawable.bounds
         if (fm != null) {
             val paintFm = paint.fontMetricsInt
-            val fontHeight = paintFm.descent - paintFm.ascent
-            val drawableHeight = rect.height()
-            val centerY = paintFm.ascent + fontHeight / 2
-            fm.ascent = centerY - drawableHeight / 2
-            fm.descent = fm.ascent + drawableHeight
-            fm.top = fm.ascent
-            fm.bottom = fm.descent
+            if (display) {
+                val pad = (textSizePx * 0.04f).toInt().coerceAtLeast(1)
+                fm.ascent = -rect.height() - pad
+                fm.descent = pad
+                fm.top = fm.ascent
+                fm.bottom = fm.descent
+            } else {
+                val textHeight = paintFm.descent - paintFm.ascent
+                val extra = ((rect.height() - textHeight) / 2).coerceAtLeast(0)
+                fm.ascent = paintFm.ascent - extra
+                fm.descent = paintFm.descent + extra
+                fm.top = fm.ascent
+                fm.bottom = fm.descent
+            }
         }
-        return rect.right
+        return rect.width()
     }
 
     override fun draw(
@@ -493,7 +506,14 @@ private class CenteredDrawableSpan(
         bottom: Int,
         paint: Paint
     ) {
-        val transY = top + ((bottom - top) - drawable.bounds.height()) / 2
+        val transY = if (display) {
+            y - drawable.bounds.height() - (textSizePx * 0.02f).toInt()
+        } else {
+            val paintFm = paint.fontMetricsInt
+            val textHeight = paintFm.descent - paintFm.ascent
+            val centeredY = y + paintFm.ascent + (textHeight - drawable.bounds.height()) / 2
+            centeredY - (textSizePx * 0.18f).toInt()
+        }
         canvas.save()
         canvas.translate(x, transY.toFloat())
         drawable.draw(canvas)
