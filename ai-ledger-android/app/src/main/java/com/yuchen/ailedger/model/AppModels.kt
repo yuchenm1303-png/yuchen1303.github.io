@@ -156,6 +156,33 @@ enum class ChatModel(val id: String, val label: String, val shortLabel: String) 
 enum class LedgerRecordType(val label: String) { Expense("支出"), Income("收入") }
 
 @Immutable
+data class WebSource(
+    val title: String = "",
+    val url: String = "",
+    val domain: String = "",
+    val snippet: String = "",
+    val publishedAt: String? = null
+)
+
+@Immutable
+data class StructuredMetric(
+    val label: String,
+    val value: String,
+    val unit: String? = null,
+    val detail: String? = null
+)
+
+@Immutable
+data class StructuredDataCard(
+    val type: String,
+    val title: String,
+    val subtitle: String? = null,
+    val timestamp: String? = null,
+    val metrics: List<StructuredMetric> = emptyList(),
+    val rawText: String? = null
+)
+
+@Immutable
 data class ChatMessage(
     val id: String,
     val text: String,
@@ -166,6 +193,10 @@ data class ChatMessage(
     val modelLabel: String? = null,
     val version: String? = null,
     val errorText: String? = null,
+    val webSources: List<WebSource> = emptyList(),
+    val structuredData: StructuredDataCard? = null,
+    val searchUsed: Boolean = false,
+    val searchProvider: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
