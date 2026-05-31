@@ -17,6 +17,7 @@ import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -36,6 +37,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+
 private const val GLASS_SPEC_EPSILON_PX = 0.5f
 private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
 private const val GLASS_INTENSITY_EPSILON = 0.006f
@@ -46,6 +48,16 @@ private const val GLASS_STABLE_EDGE_EPSILON_PX = 0.75f
 private const val GLASS_STABLE_ANCHOR_FAST_SMOOTHING = 0.72f
 private const val GLASS_STABLE_ANCHOR_SOFT_SMOOTHING = 0.42f
 
+enum class OpenGLGlassSurfaceAnchor(val fraction: Float) {
+    Top(0f),
+    Center(0.44f),
+    Bottom(1f)
+}
+
+val LocalOpenGLGlassSurfaceAnchor = compositionLocalOf {
+    OpenGLGlassSurfaceAnchor.Center
+}
+    
 @Composable
 fun OpenGLGlassCardLayer(
     radius: Int,
@@ -60,7 +72,7 @@ fun OpenGLGlassCardLayer(
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
     val rootView = LocalView.current
-
+    val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
@@ -79,6 +91,7 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardHostView(context) },
             update = { view ->
+                val anchorDirty = view.setStableSurfaceAnchor(surfaceAnchor)
                 val surfaceDirty = view.setStableSurfaceSize(
                     width = widthPx.roundToInt(),
                     height = heightPx.roundToInt(),
@@ -92,8 +105,8 @@ fun OpenGLGlassCardLayer(
                 val preDrawSamplingDirty = view.syncSamplingFromWindowPosition()
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (surfaceDirty || rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
-                    view.requestRender()
+                if (anchorDirty || surfaceDirty || rootDirty || specDirty || samplingDirty || pressDirty || preDrawSamplingDirty || textureDirty || styleDirty) {
+                   view.requestRender()
                 }
             }
         )
@@ -124,6 +137,12 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         addView(textureView, LayoutParams(1, 1))
     }
 
+    fun setStableSurfaceAnchor(anchorY: Float): Boolean {
+    val nextAnchor = anchorY.coerceIn(0f, 1f)
+    val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
+    stableSurfaceAnchorY = nextAnchor
+    return dirty
+}
     fun setStableSurfaceSize(width: Int, height: Int, rootWidth: Int, rootHeight: Int): Boolean {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
@@ -134,7 +153,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
         val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
-        val anchorY = updateStableSurfaceAnchor(safeHeight, reset = rootWidthChanged)
+        val anchorY = stableSurfaceAnchorY
         val targetOffsetY = if (targetHeight > safeHeight) {
             ((targetHeight - safeHeight) * anchorY).roundToInt()
         } else {
