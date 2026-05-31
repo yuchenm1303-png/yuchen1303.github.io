@@ -1,3 +1,3 @@
-Trigger target: 7ce9c0e5907e2a0caa0548626011f5fac59c170e
-Purpose: trigger Build Compose Android APK after switching primary endpoint to Aliyun FC and keeping Cloudflare worker as fallback.
+Trigger target: 9f813e94649a7d36110b67fc52b422b1a5f4e1f2
+Purpose: trigger Build Compose Android APK after fixing endpoint routing for overseas models.
 Trigger path: ai-ledger-android/app/.build-trigger.txt
