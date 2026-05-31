@@ -1,21 +1,22 @@
 package com.yuchen.ailedger.ui
 
-import android.graphics.Color as AndroidColor
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import android.content.Context
+import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.ImageSpan
+import android.text.style.MetricAffectingSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
+import android.widget.TextView
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -26,23 +27,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
+import ru.noties.jlatexmath.JLatexMathDrawable
 
 private val richMessageTokenRegex = Regex(
     pattern = """(\*\*.+?\*\*)|(\\\\\(.+?\\\\\))|(\\\\\[.+?\\\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,3}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+""",
     options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
 )
 
-private val inlineMathRegex = Regex(
-    pattern = """\\\((.+?)\\\)""",
+private val inlineTokenRegex = Regex(
+    pattern = """(@@FORMULA_\d+@@)|(\\\[(.+?)\\\])|(\\\((.+?)\\\))|(\*\*(.+?)\*\*)|(`([^`]+)`)""",
     options = setOf(RegexOption.DOT_MATCHES_ALL)
 )
 
-private val fencedMathRegex = Regex(
-    pattern = """\$\$(.+?)\$\$""",
-    options = setOf(RegexOption.DOT_MATCHES_ALL)
+private data class FormulaToken(
+    val key: String,
+    val latex: String,
+    val display: Boolean
 )
 
 @Composable
@@ -119,422 +121,207 @@ fun RichMessageContent(
 ) {
     val density = LocalDensity.current
     val resolvedColor = if (color != Color.Unspecified) color else Color.White.copy(alpha = 0.86f)
-    val cssFontPx = remember(fontSize, density) {
+    val textSizePx = remember(fontSize, density) {
         if (fontSize != TextUnit.Unspecified) {
-            (with(density) { fontSize.toPx() } / density.density).coerceAtLeast(12f)
+            with(density) { fontSize.toPx() }.coerceAtLeast(12f)
         } else {
-            13.2f
+            with(density) { 14f * fontScale }.coerceAtLeast(12f)
         }
     }
-    val cssLineHeightPx = remember(lineHeight, cssFontPx, density) {
+    val lineHeightPx = remember(lineHeight, textSizePx, density) {
         if (lineHeight != TextUnit.Unspecified) {
-            (with(density) { lineHeight.toPx() } / density.density).coerceAtLeast(cssFontPx + 2f)
+            with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
         } else {
-            cssFontPx * 1.42f
+            textSizePx * 1.42f
         }
     }
 
-    if (richMessageTokenRegex.containsMatchIn(text)) {
-        RichMessageText(
+    if (!richMessageTokenRegex.containsMatchIn(text)) {
+        MaterialText(
             text = text,
-            textColor = resolvedColor,
-            modifier = modifier.fillMaxWidth(),
-            baseFontPx = cssFontPx,
-            lineHeightPx = cssLineHeightPx,
-            baseFontWeight = if (fontWeight == FontWeight.Bold || fontWeight == FontWeight.ExtraBold || fontWeight == FontWeight.Black) 700 else 500
+            modifier = modifier,
+            color = resolvedColor,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
         )
         return
     }
 
-    MaterialText(
-        text = text,
-        modifier = modifier,
-        color = resolvedColor,
-        fontSize = fontSize,
-        lineHeight = lineHeight,
-        fontWeight = fontWeight
-    )
-}
-
-@Composable
-private fun RichMessageText(
-    text: String,
-    textColor: Color,
-    modifier: Modifier = Modifier,
-    baseFontPx: Float,
-    lineHeightPx: Float,
-    baseFontWeight: Int
-) {
-    val density = LocalDensity.current
-    val minHeightPx = with(density) { 22.dp.roundToPx() }
-    var contentHeightPx by remember(text, density.density, density.fontScale, baseFontPx, lineHeightPx) {
-        mutableIntStateOf(minHeightPx)
-    }
-    val html = remember(text, textColor, baseFontPx, lineHeightPx, baseFontWeight) {
-        buildRichMessageHtml(
-            markdown = text,
-            textColor = textColor,
-            baseFontPx = baseFontPx,
-            lineHeightPx = lineHeightPx,
-            baseFontWeight = baseFontWeight
-        )
-    }
-
     AndroidView(
-        modifier = modifier.height(with(density) { maxOf(contentHeightPx, minHeightPx).toDp() }),
+        modifier = modifier,
         factory = { context ->
-            WebView(context).apply {
-                setBackgroundColor(AndroidColor.TRANSPARENT)
-                overScrollMode = WebView.OVER_SCROLL_NEVER
-                isVerticalScrollBarEnabled = false
-                isHorizontalScrollBarEnabled = false
-                isLongClickable = false
-                isHapticFeedbackEnabled = false
-                setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
-
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = false
-                settings.allowContentAccess = false
-                settings.allowFileAccess = false
-                settings.javaScriptCanOpenWindowsAutomatically = false
-                settings.setSupportZoom(false)
-                settings.builtInZoomControls = false
-                settings.displayZoomControls = false
-                settings.loadsImagesAutomatically = true
-                settings.defaultTextEncodingName = "utf-8"
-
-                webChromeClient = WebChromeClient()
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        super.onPageFinished(view, url)
-                        scheduleHeightMeasurements(view) { measured ->
-                            if (measured > 0 && measured != contentHeightPx) {
-                                contentHeightPx = maxOf(measured, minHeightPx)
-                            }
-                        }
-                    }
-
-                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest?): Boolean = true
-
-                    @Deprecated("Deprecated in Java")
-                    override fun shouldOverrideUrlLoading(view: WebView, url: String?): Boolean = true
-                }
-
-                tag = html
-                loadDataWithBaseURL(
-                    "https://app.local/",
-                    html,
-                    "text/html",
-                    "utf-8",
-                    null
-                )
+            TextView(context).apply {
+                includeFontPadding = false
+                setTextColor(resolvedColor.toArgb())
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSizePx)
+                setLineSpacing(lineHeightPx - textSizePx, 1f)
+                textAlignment = TextView.TEXT_ALIGNMENT_VIEW_START
+                setTextIsSelectable(false)
             }
         },
-        update = { webView ->
-            if (webView.tag != html) {
-                webView.tag = html
-                webView.loadDataWithBaseURL(
-                    "https://app.local/",
-                    html,
-                    "text/html",
-                    "utf-8",
-                    null
-                )
-            } else {
-                scheduleHeightMeasurements(webView) { measured ->
-                    if (measured > 0 && measured != contentHeightPx) {
-                        contentHeightPx = maxOf(measured, minHeightPx)
-                    }
-                }
-            }
+        update = { textView ->
+            textView.setTextColor(resolvedColor.toArgb())
+            textView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSizePx)
+            textView.setLineSpacing(lineHeightPx - textSizePx, 1f)
+            textView.text = buildRichMessageSpannable(
+                context = textView.context,
+                raw = text,
+                textColor = resolvedColor.toArgb(),
+                textSizePx = textSizePx,
+                baseFontWeight = if (fontWeight == FontWeight.Bold || fontWeight == FontWeight.ExtraBold || fontWeight == FontWeight.Black) Typeface.BOLD else Typeface.NORMAL
+            )
         }
     )
 }
 
-private fun scheduleHeightMeasurements(
-    webView: WebView,
-    onMeasured: (Int) -> Unit
-) {
-    val delays = longArrayOf(0L, 60L, 160L, 320L, 720L)
-    delays.forEach { delayMillis ->
-        webView.postDelayed(
-            { measureContentHeight(webView, onMeasured) },
-            delayMillis
-        )
-    }
-}
-
-private fun measureContentHeight(
-    webView: WebView,
-    onMeasured: (Int) -> Unit
-) {
-    webView.evaluateJavascript(
-        """
-        (function() {
-            var body = document.body;
-            var html = document.documentElement;
-            var value = Math.max(
-                body ? body.scrollHeight : 0,
-                body ? body.offsetHeight : 0,
-                html ? html.scrollHeight : 0,
-                html ? html.offsetHeight : 0
-            );
-            return String(value || 0);
-        })();
-        """.trimIndent()
-    ) { rawValue ->
-        val cssHeight = rawValue
-            ?.removePrefix("\"")
-            ?.removeSuffix("\"")
-            ?.toFloatOrNull()
-            ?: return@evaluateJavascript
-
-        val measuredPx = (cssHeight * webView.resources.displayMetrics.density)
-            .roundToInt()
-            .coerceAtLeast(1)
-
-        onMeasured(measuredPx)
-    }
-}
-
-private fun buildRichMessageHtml(
-    markdown: String,
-    textColor: Color,
-    baseFontPx: Float,
-    lineHeightPx: Float,
+private fun buildRichMessageSpannable(
+    context: Context,
+    raw: String,
+    textColor: Int,
+    textSizePx: Float,
     baseFontWeight: Int
-): String {
-    val colorCss = textColor.toCssRgba()
-    val bodyHtml = markdownToHtml(markdown)
-
-    return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8" />
-            <meta
-                name="viewport"
-                content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-            />
-            <link
-                rel="stylesheet"
-                href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css"
-            />
-            <style>
-                html, body {
-                    margin: 0;
-                    padding: 0;
-                    background: transparent;
-                    color: $colorCss;
-                    overflow: hidden;
-                }
-
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                }
-
-                #content {
-                    font-size: ${baseFontPx}px;
-                    line-height: ${lineHeightPx}px;
-                    font-weight: $baseFontWeight;
-                    word-break: break-word;
-                    overflow-wrap: anywhere;
-                }
-
-                p {
-                    margin: 0 0 8px 0;
-                }
-
-                p:last-child {
-                    margin-bottom: 0;
-                }
-
-                h1, h2, h3 {
-                    margin: 0 0 8px 0;
-                    line-height: 1.28;
-                    font-weight: 800;
-                    color: $colorCss;
-                }
-
-                h1 { font-size: ${baseFontPx * 1.08f}px; }
-                h2 { font-size: ${baseFontPx * 1.04f}px; }
-                h3 { font-size: ${baseFontPx * 1.01f}px; }
-
-                strong {
-                    font-weight: 800;
-                }
-
-                code {
-                    font-family: "SFMono-Regular", Menlo, monospace;
-                    font-size: 0.95em;
-                    background: rgba(255, 255, 255, 0.10);
-                    padding: 0.10em 0.34em;
-                    border-radius: 0.42em;
-                }
-
-                hr {
-                    border: none;
-                    height: 1px;
-                    margin: 8px 0;
-                    background: rgba(255, 255, 255, 0.18);
-                }
-
-                ul {
-                    margin: 0 0 8px 0;
-                    padding-left: 1.1em;
-                }
-
-                li {
-                    margin: 0 0 4px 0;
-                }
-
-                .math-host {
-                    display: block;
-                    margin: 6px 0;
-                    overflow-x: auto;
-                    overflow-y: hidden;
-                }
-
-                .katex {
-                    color: $colorCss;
-                    font-size: 1.00em;
-                }
-
-                .katex-display {
-                    margin: 0.18em 0;
-                    overflow-x: auto;
-                    overflow-y: hidden;
-                    padding: 0.10em 0;
-                }
-            </style>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/contrib/auto-render.min.js"></script>
-        </head>
-        <body>
-            <div id="content">$bodyHtml</div>
-            <script>
-                window.addEventListener("load", function() {
-                    try {
-                        if (window.renderMathInElement) {
-                            renderMathInElement(document.getElementById("content"), {
-                                delimiters: [
-                                    { left: "$$", right: "$$", display: true },
-                                    { left: "\\\\[", right: "\\\\]", display: true },
-                                    { left: "\\\\(", right: "\\\\)", display: false }
-                                ],
-                                throwOnError: false,
-                                strict: "ignore"
-                            });
-                        }
-                    } catch (error) {
-                    }
-                });
-            </script>
-        </body>
-        </html>
-    """.trimIndent()
-}
-
-private fun markdownToHtml(markdown: String): String {
-    val tokens = linkedMapOf<String, String>()
-    fun stash(value: String): String {
-        val key = "@@TOKEN_${tokens.size}@@"
-        tokens[key] = value
-        return key
-    }
-
-    val normalized = preprocessDisplayMathBlocks(markdown, ::escapeHtml, ::stash)
+): CharSequence {
+    val (preprocessed, tokenMap) = preprocessDisplayMathBlocks(raw)
+    val builder = SpannableStringBuilder()
+    val lines = preprocessed
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
         .trim()
+        .lines()
 
-    if (normalized.isBlank()) return "<p>……</p>"
-
-    val builder = StringBuilder()
-    val paragraphLines = mutableListOf<String>()
-    val listItems = mutableListOf<String>()
-
-    fun flushParagraph() {
-        if (paragraphLines.isEmpty()) return
-        val content = paragraphLines.joinToString("<br/>") { formatInlineMarkdown(it, ::stash) }
-        builder.append("<p>").append(content).append("</p>")
-        paragraphLines.clear()
-    }
-
-    fun flushList() {
-        if (listItems.isEmpty()) return
-        builder.append("<ul>")
-        listItems.forEach { item ->
-            builder.append("<li>")
-                .append(formatInlineMarkdown(item, ::stash))
-                .append("</li>")
-        }
-        builder.append("</ul>")
-        listItems.clear()
-    }
-
-    normalized.lines().forEach { rawLine ->
-        val line = rawLine.trimEnd()
+    lines.forEachIndexed { index, sourceLine ->
+        val line = sourceLine.trimEnd()
         val trimmed = line.trim()
 
         when {
             trimmed.isEmpty() -> {
-                flushParagraph()
-                flushList()
+                if (builder.isNotEmpty() && !builder.endsWith("\n\n")) {
+                    builder.append("\n\n")
+                }
             }
             trimmed.matches(Regex("""---+""")) -> {
-                flushParagraph()
-                flushList()
-                builder.append("<hr/>")
+                appendStyledSegment(builder, "────────", RelativeSizeSpan(0.96f), StyleSpan(Typeface.NORMAL))
+                if (index != lines.lastIndex) builder.append('\n')
             }
             trimmed.startsWith("### ") -> {
-                flushParagraph()
-                flushList()
-                builder.append("<h3>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("### ").trim(), ::stash))
-                    .append("</h3>")
+                appendStyledSegment(builder, trimmed.removePrefix("### ").trim(), RelativeSizeSpan(1.01f), StyleSpan(Typeface.BOLD))
+                if (index != lines.lastIndex) builder.append('\n')
             }
             trimmed.startsWith("## ") -> {
-                flushParagraph()
-                flushList()
-                builder.append("<h2>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("## ").trim(), ::stash))
-                    .append("</h2>")
+                appendStyledSegment(builder, trimmed.removePrefix("## ").trim(), RelativeSizeSpan(1.03f), StyleSpan(Typeface.BOLD))
+                if (index != lines.lastIndex) builder.append('\n')
             }
             trimmed.startsWith("# ") -> {
-                flushParagraph()
-                flushList()
-                builder.append("<h1>")
-                    .append(formatInlineMarkdown(trimmed.removePrefix("# ").trim(), ::stash))
-                    .append("</h1>")
+                appendStyledSegment(builder, trimmed.removePrefix("# ").trim(), RelativeSizeSpan(1.05f), StyleSpan(Typeface.BOLD))
+                if (index != lines.lastIndex) builder.append('\n')
             }
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-                flushParagraph()
-                listItems += trimmed.drop(2).trim()
+                builder.append("• ")
+                appendInlineMarkdown(builder, trimmed.drop(2).trim(), context, tokenMap, textColor, textSizePx)
+                if (index != lines.lastIndex) builder.append('\n')
             }
             else -> {
-                flushList()
-                paragraphLines += line
+                appendInlineMarkdown(builder, line, context, tokenMap, textColor, textSizePx)
+                if (index != lines.lastIndex) builder.append('\n')
             }
         }
     }
 
-    flushParagraph()
-    flushList()
-
-    var html = builder.toString().ifBlank { "<p>……</p>" }
-    tokens.forEach { (key, value) ->
-        html = html.replace(key, value)
+    if (baseFontWeight == Typeface.BOLD && builder.isNotEmpty()) {
+        builder.setSpan(WeightSpan(Typeface.NORMAL), 0, builder.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
     }
-    return html
+    return builder
 }
 
-private fun preprocessDisplayMathBlocks(
+private fun appendInlineMarkdown(
+    builder: SpannableStringBuilder,
     source: String,
-    escape: (String) -> String,
-    stash: (String) -> String
-): String {
+    context: Context,
+    tokenMap: Map<String, FormulaToken>,
+    textColor: Int,
+    textSizePx: Float
+) {
+    var cursor = 0
+    inlineTokenRegex.findAll(source).forEach { match ->
+        if (match.range.first > cursor) {
+            builder.append(source.substring(cursor, match.range.first))
+        }
+        val token = match.value
+        when {
+            token.startsWith("@@FORMULA_") -> {
+                val formulaToken = tokenMap[token]
+                if (formulaToken != null) appendFormula(builder, context, formulaToken.latex, formulaToken.display, textColor, textSizePx) else builder.append(token)
+            }
+            token.startsWith("\\[") && token.endsWith("\\]") -> {
+                appendFormula(builder, context, token.removePrefix("\\[").removeSuffix("\\]").trim(), true, textColor, textSizePx)
+            }
+            token.startsWith("\\(") && token.endsWith("\\)") -> {
+                appendFormula(builder, context, token.removePrefix("\\(").removeSuffix("\\)").trim(), false, textColor, textSizePx)
+            }
+            token.startsWith("**") && token.endsWith("**") -> {
+                appendStyledSegment(builder, token.removePrefix("**").removeSuffix("**"), WeightSpan(Typeface.BOLD))
+            }
+            token.startsWith("`") && token.endsWith("`") -> {
+                appendStyledSegment(builder, token.removePrefix("`").removeSuffix("`"), TypefaceSpanCompat(Typeface.MONOSPACE))
+            }
+            else -> builder.append(token)
+        }
+        cursor = match.range.last + 1
+    }
+    if (cursor < source.length) {
+        builder.append(source.substring(cursor))
+    }
+}
+
+private fun appendFormula(
+    builder: SpannableStringBuilder,
+    context: Context,
+    latex: String,
+    display: Boolean,
+    textColor: Int,
+    textSizePx: Float
+) {
+    val cleanLatex = latex.replace('\n', ' ').trim()
+    if (cleanLatex.isBlank()) return
+    try {
+        val drawable = JLatexMathDrawable.builder(cleanLatex)
+            .textSize(if (display) textSizePx * 1.06f else textSizePx * 0.98f)
+            .color(textColor)
+            .align(if (display) JLatexMathDrawable.ALIGN_CENTER else JLatexMathDrawable.ALIGN_LEFT)
+            .padding(if (display) 2 else 0)
+            .build()
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        if (display && builder.isNotEmpty() && builder.last() != '\n') builder.append('\n')
+        val start = builder.length
+        builder.append('\uFFFC')
+        builder.setSpan(ImageSpan(drawable, ImageSpan.ALIGN_BASELINE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (display) builder.append('\n')
+    } catch (_: Throwable) {
+        builder.append(if (display) "[$cleanLatex]" else cleanLatex)
+    }
+}
+
+private fun appendStyledSegment(
+    builder: SpannableStringBuilder,
+    text: String,
+    vararg spans: Any
+) {
+    if (text.isEmpty()) return
+    val start = builder.length
+    builder.append(text)
+    spans.forEach { span ->
+        builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun preprocessDisplayMathBlocks(source: String): Pair<String, Map<String, FormulaToken>> {
     val lines = source.replace("\r\n", "\n").replace('\r', '\n').lines()
     val output = mutableListOf<String>()
+    val tokens = linkedMapOf<String, FormulaToken>()
     var index = 0
+    var tokenIndex = 0
+
     while (index < lines.size) {
         val trimmed = lines[index].trim()
         when (trimmed) {
@@ -543,11 +330,12 @@ private fun preprocessDisplayMathBlocks(
                 val body = StringBuilder()
                 while (index < lines.size && lines[index].trim() != "\\]") {
                     if (body.isNotEmpty()) body.append('\n')
-                    body.append(lines[index].trimEnd())
+                    body.append(lines[index].trim())
                     index += 1
                 }
-                val token = stash("<div class=\"math-host\">\\[${escape(body.toString())}\\]</div>")
-                output += token
+                val key = "@@FORMULA_${tokenIndex++}@@"
+                tokens[key] = FormulaToken(key, body.toString(), true)
+                output += key
                 if (index < lines.size && lines[index].trim() == "\\]") index += 1
             }
             "$$" -> {
@@ -555,11 +343,12 @@ private fun preprocessDisplayMathBlocks(
                 val body = StringBuilder()
                 while (index < lines.size && lines[index].trim() != "$$") {
                     if (body.isNotEmpty()) body.append('\n')
-                    body.append(lines[index].trimEnd())
+                    body.append(lines[index].trim())
                     index += 1
                 }
-                val token = stash("<div class=\"math-host\">$$${escape(body.toString())}$$</div>")
-                output += token
+                val key = "@@FORMULA_${tokenIndex++}@@"
+                tokens[key] = FormulaToken(key, body.toString(), true)
+                output += key
                 if (index < lines.size && lines[index].trim() == "$$") index += 1
             }
             else -> {
@@ -568,49 +357,27 @@ private fun preprocessDisplayMathBlocks(
             }
         }
     }
-    return output.joinToString("\n")
+
+    return output.joinToString("\n") to tokens
 }
 
-private fun formatInlineMarkdown(
-    text: String,
-    stash: (String) -> String
-): String {
-    var working = text
-
-    working = Regex("""`([^`]+)`""").replace(working) { match ->
-        stash("<code>${escapeHtml(match.groupValues[1])}</code>")
-    }
-
-    working = inlineMathRegex.replace(working) { match ->
-        stash("\\(${escapeHtml(match.groupValues[1])}\\)")
-    }
-
-    working = fencedMathRegex.replace(working) { match ->
-        stash("<span class=\"math-host\">$$${escapeHtml(match.groupValues[1])}$$</span>")
-    }
-
-    working = escapeHtml(working)
-
-    working = Regex("""\*\*(.+?)\*\*""").replace(working) {
-        "<strong>${it.groupValues[1]}</strong>"
-    }
-
-    return working
+private fun CharSequence.endsWith(value: String): Boolean {
+    if (length < value.length) return false
+    return substring(length - value.length, length) == value
 }
 
-private fun escapeHtml(value: String): String {
-    return value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
+private class WeightSpan(private val typefaceStyle: Int) : MetricAffectingSpan() {
+    override fun updateDrawState(textPaint: TextPaint) = apply(textPaint)
+    override fun updateMeasureState(textPaint: TextPaint) = apply(textPaint)
+    private fun apply(textPaint: TextPaint) {
+        textPaint.typeface = Typeface.create(textPaint.typeface, typefaceStyle)
+    }
 }
 
-private fun Color.toCssRgba(): String {
-    val r = (red * 255f).roundToInt().coerceIn(0, 255)
-    val g = (green * 255f).roundToInt().coerceIn(0, 255)
-    val b = (blue * 255f).roundToInt().coerceIn(0, 255)
-    val a = alpha.coerceIn(0f, 1f)
-    return "rgba($r, $g, $b, $a)"
+private class TypefaceSpanCompat(private val typeface: Typeface) : MetricAffectingSpan() {
+    override fun updateDrawState(textPaint: TextPaint) = apply(textPaint)
+    override fun updateMeasureState(textPaint: TextPaint) = apply(textPaint)
+    private fun apply(textPaint: TextPaint) {
+        textPaint.typeface = typeface
+    }
 }
