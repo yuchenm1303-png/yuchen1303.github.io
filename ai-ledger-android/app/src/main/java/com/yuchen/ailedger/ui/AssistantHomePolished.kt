@@ -102,10 +102,31 @@ fun AssistantScreenV2(
     var modelPanelExpanded by remember { mutableStateOf(false) }
 var composerFocused by remember { mutableStateOf(false) }
 
+var modelAnchorHeld by remember { mutableStateOf(false) }
+var keyboardAnchorHeld by remember { mutableStateOf(false) }
+
+LaunchedEffect(modelPanelExpanded) {
+    if (modelPanelExpanded) {
+        modelAnchorHeld = true
+    } else {
+        delay(760L)
+        if (!modelPanelExpanded) modelAnchorHeld = false
+    }
+}
+
+LaunchedEffect(composerFocused) {
+    if (composerFocused) {
+        keyboardAnchorHeld = true
+    } else {
+        delay(760L)
+        if (!composerFocused) keyboardAnchorHeld = false
+    }
+}
+
 val shellAnchor = when {
-    modelPanelExpanded && composerFocused -> OpenGLGlassSurfaceAnchor.Center
-    modelPanelExpanded -> OpenGLGlassSurfaceAnchor.Bottom
-    composerFocused -> OpenGLGlassSurfaceAnchor.Top
+    modelAnchorHeld && keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Center
+    modelAnchorHeld -> OpenGLGlassSurfaceAnchor.Bottom
+    keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
     else -> OpenGLGlassSurfaceAnchor.Center
 }
     Column(
