@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -232,7 +233,7 @@ private fun ChatPanelV2(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(if (state.isSending) "正在思考" else "可上下滑动")
+                    ChatStatusV2(if (state.isSending) "正在接收" else "可上下滑动")
                 }
                 Box(
                     Modifier
@@ -372,6 +373,15 @@ private fun MessageBubbleV2(
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
+    val rawText = messageText(message)
+    val longReply = !fromUser && !sending && rawText.length >= 520
+    var expanded by remember(message.id) { mutableStateOf(true) }
+    val displayText = if (longReply && !expanded) rawText.take(420).trimEnd() + "…" else rawText
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (sending) 0.88f else 1f,
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
+        label = "message-content-state-alpha"
+    )
     SideEffect {
         bubbleLayerState.updateBubbleVisual(
             id = message.id,
@@ -400,21 +410,33 @@ private fun MessageBubbleV2(
                 }
                 .clip(RoundedCornerShape(bubbleRadius.dp))
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                Modifier
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .animateContentSize(animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 if (sending) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("正在思考", color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
-                        ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
-                    }
+                    StreamingAssistantContentV2(
+                        message = message,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = contentAlpha }
+                    )
                 } else {
                     RichMessageContent(
-                        text = messageText(message),
+                        text = displayText,
                         color = messageTextColor(message, fromUser),
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = contentAlpha }
                     )
+                    if (longReply) {
+                        LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
+                    }
                 }
                 if (!fromUser) MessageBadgeV2(message)
                 if (showActions && !fromUser && !sending) {
@@ -427,6 +449,82 @@ private fun MessageBubbleV2(
             }
         }
     }
+}
+
+@Composable
+private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier = Modifier) {
+    val text = messageText(message)
+    val hasLiveText = text.isNotBlank() && !isThinkingPlaceholderV2(text)
+    val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (hasLiveText) {
+            RichMessageContent(
+                text = text,
+                color = Color.White.copy(alpha = 0.86f),
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(progressLabel, color = Color(0xFF8DF9EA).copy(alpha = 0.58f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold)
+                ThinkingDotsV2(size = 4, color = Color(0xFF8DF9EA).copy(alpha = 0.76f))
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text(progressLabel, color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean): String {
+    var stage by remember(messageId) { mutableStateOf(0) }
+    LaunchedEffect(messageId, hasLiveText) {
+        if (hasLiveText) {
+            stage = 3
+            return@LaunchedEffect
+        }
+        stage = 0
+        delay(760)
+        stage = 1
+        delay(1320)
+        stage = 2
+    }
+    return if (hasLiveText) {
+        "正在接收"
+    } else {
+        when (stage) {
+            0 -> "正在连接云端"
+            1 -> "云端处理中"
+            else -> "正在整理回复"
+        }
+    }
+}
+
+@Composable
+private fun LongReplyToggleV2(expanded: Boolean, onToggle: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = if (expanded) "收起长回复 ︿" else "展开全文 ﹀",
+            color = Color.White.copy(alpha = 0.56f),
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.055f))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 9.dp, vertical = 4.dp)
+        )
+    }
+}
+
+private fun isThinkingPlaceholderV2(text: String): Boolean {
+    val clean = text.trim()
+    return clean == "正在思考…" || clean == "正在重新生成…" || clean == "正在思考" || clean == "正在重新生成"
 }
 
 @Composable
