@@ -265,7 +265,12 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
                     )
                 }
-                if (!fromUser) SourceBadgeRow(message)
+                if (!fromUser) {
+                    SourceBadgeRow(message)
+                       if (message.status == MessageStatus.Sent) {
+                          MessageDataCards(message, state)
+    }
+}
             }
         }
     }
