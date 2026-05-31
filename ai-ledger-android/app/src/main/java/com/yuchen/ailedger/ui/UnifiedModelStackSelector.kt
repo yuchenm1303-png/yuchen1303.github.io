@@ -44,7 +44,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -88,6 +87,13 @@ private data class ModelCardGeometry(
     val overshoot: Float
 )
 
+private data class FoldedLabelPlacement(
+    val xFraction: Float,
+    val yFraction: Float,
+    val scale: Float,
+    val alpha: Float
+)
+
 private val AutoModelTheme = ModelCardPrismTheme(Color(0xFF77FFF0), Color.White, Color(0xFF07142D), Color(0xFF62FFF0), Color(0xFFFF70D9), Color(0xFF8EA2FF), Color(0xFFFFE08A), 0.00f)
 private val GeminiModelTheme = ModelCardPrismTheme(Color(0xFF2F8CFF), Color(0xFFE2F7FF), Color(0xFF061A42), Color(0xFF37F6FF), Color(0xFF4F6CFF), Color(0xFF126BFF), Color(0xFFBEEFFF), 0.98f)
 private val KimiModelTheme = ModelCardPrismTheme(Color(0xFFE35CFF), Color(0xFFFFE0FF), Color(0xFF2A0C45), Color(0xFFFF7AE4), Color(0xFFB85CFF), Color(0xFFFF4FC6), Color(0xFFFFB5F0), 1.00f)
@@ -114,6 +120,25 @@ private fun ChatModel.modelExpandedLayoutSlot(): Int = when (this) {
     ChatModel.Gemini -> 5
     ChatModel.DeepSeekV4 -> 6
     ChatModel.GptOss -> 7
+}
+
+private fun foldedLabelPlacement(stackRank: Int, totalBackCount: Int): FoldedLabelPlacement {
+    val count = totalBackCount.coerceAtLeast(1)
+    val index = (stackRank - 1).coerceIn(0, count - 1)
+    val t = if (count <= 1) 0f else index.toFloat() / (count - 1).toFloat()
+    return FoldedLabelPlacement(
+        xFraction = modelLerpFloat(0.74f, 0.18f, t),
+        yFraction = modelLerpFloat(0.25f, 0.66f, t),
+        scale = modelLerpFloat(0.98f, 0.76f, t),
+        alpha = modelLerpFloat(0.66f, 0.36f, t)
+    )
+}
+
+private fun foldedLabelFontSize(label: String) = when {
+    label.length >= 8 -> 6.3.sp
+    label.length >= 6 -> 6.8.sp
+    label.length >= 5 -> 7.3.sp
+    else -> 8.sp
 }
 
 @Composable
@@ -144,6 +169,7 @@ internal fun UnifiedParentModelStackSelector(
         val halfWidth = (maxWidth - gap) / 2f
         val selectedModel = state.selectedModel
         val behindModels = remember(selectedModel) { models.filter { it != selectedModel } }
+        val totalBackCount = behindModels.size
 
         Box(Modifier.fillMaxSize()) {
             models.forEachIndexed { index, model ->
@@ -219,12 +245,12 @@ internal fun UnifiedParentModelStackSelector(
                 val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
 
                 if (!fullCardNeeded) {
-                    FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, stackCompression, layerFactor, (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
+                    FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, totalBackCount, stackCompression, layerFactor, (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
                     return@forEachIndexed
                 }
 
                 val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
-                if (foldedBlend > 0.001f) FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, stackCompression, layerFactor, foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
+                if (foldedBlend > 0.001f) FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, totalBackCount, stackCompression, layerFactor, foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
                 val positivePress = pressValue.coerceAtLeast(0f)
@@ -290,14 +316,14 @@ internal fun UnifiedParentModelStackSelector(
                             if (!currentExpanded) scope.launch { stackPressAnim.stop(); stackPressAnim.animateTo(-0.070f, tween(142, easing = ModelPressRelease)); stackPressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow)) }
                         }
                     }
-                ) { UnifiedModelCardContent(model, selected, stackRank, selection, targetProgress, stackReveal, theme) }
+                ) { UnifiedModelCardContent(model, selected, stackRank, totalBackCount, selection, targetProgress, stackReveal, theme) }
             }
         }
     }
 }
 
 @Composable
-private fun FoldedModelBackPlate(width: Dp, height: Dp, zIndex: Float, geometry: ModelCardGeometry, style: ModelCardGlassStyle, theme: ModelCardPrismTheme, stackRank: Int, stackCompression: Float, layerFactor: Float, alpha: Float, model: ChatModel) {
+private fun FoldedModelBackPlate(width: Dp, height: Dp, zIndex: Float, geometry: ModelCardGeometry, style: ModelCardGlassStyle, theme: ModelCardPrismTheme, stackRank: Int, totalBackCount: Int, stackCompression: Float, layerFactor: Float, alpha: Float, model: ChatModel) {
     Box(modifier = Modifier.width(width).height(height).zIndex(zIndex).graphicsLayer {
         translationX = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor
         translationY = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor
@@ -305,27 +331,40 @@ private fun FoldedModelBackPlate(width: Dp, height: Dp, zIndex: Float, geometry:
         scaleY = 1f - stackCompression * 0.046f * layerFactor
         this.alpha = alpha
         shadowElevation = 0f
-    }.drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)) { FoldedModelBackPlateLabel(model = model, stackRank = stackRank, theme = theme) }
+    }.drawFoldedModelBackPlate(style, theme, stackRank, stackCompression)) { FoldedModelBackPlateLabel(model = model, stackRank = stackRank, totalBackCount = totalBackCount, theme = theme) }
 }
 
 @Composable
-private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, theme: ModelCardPrismTheme) {
+private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, totalBackCount: Int, theme: ModelCardPrismTheme) {
     val density = LocalDensity.current
-    val labelShiftX = with(density) { (stackRank * 22).dp.toPx() }
-    val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
-    val labelAlpha = (0.70f - stackRank * 0.065f).coerceIn(0.38f, 0.66f)
-    Box(Modifier.fillMaxSize()) {
-        Text(model.shortLabel, modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer { alpha = labelAlpha; translationX = -labelShiftX; translationY = labelShiftY }, color = theme.bright.copy(alpha = 0.90f), fontSize = 8.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Clip)
+    val placement = remember(stackRank, totalBackCount) { foldedLabelPlacement(stackRank, totalBackCount) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val xPx = with(density) { maxWidth.toPx() * placement.xFraction }
+        val yPx = with(density) { maxHeight.toPx() * placement.yFraction }
+        Text(
+            text = model.shortLabel,
+            modifier = Modifier.align(Alignment.TopStart).graphicsLayer {
+                alpha = placement.alpha
+                translationX = xPx
+                translationY = yPx
+                scaleX = placement.scale
+                scaleY = placement.scale
+            },
+            color = theme.bright.copy(alpha = 0.90f),
+            fontSize = foldedLabelFontSize(model.shortLabel),
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
     }
 }
 
 @Composable
-private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, stackRank: Int, selection: Float, expansionProgress: Float, stackReveal: Float, theme: ModelCardPrismTheme) {
+private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, stackRank: Int, totalBackCount: Int, selection: Float, expansionProgress: Float, stackReveal: Float, theme: ModelCardPrismTheme) {
     val density = LocalDensity.current
     val fullTextAlpha = if (selected) 1f else expansionProgress.coerceIn(0f, 1f) * 0.92f
     val stackLabelAlpha = if (selected) 0f else modelSmooth(stackReveal.coerceIn(0f, 1f)) * 0.62f
-    val labelShiftX = with(density) { (stackRank * 24).dp.toPx() }
-    val labelShiftY = with(density) { ((stackRank - 1) * 4).dp.toPx() }
+    val placement = remember(stackRank, totalBackCount) { foldedLabelPlacement(stackRank, totalBackCount) }
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         Box(Modifier.size(20.dp))
         Box(Modifier.weight(1f).fillMaxSize()) {
@@ -333,7 +372,27 @@ private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, stackRa
                 Text(model.shortLabel, color = Color.White.copy(alpha = modelLerpFloat(0.88f, 0.985f, selection)), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(model.id, color = Color.White.copy(alpha = modelLerpFloat(0.46f, 0.62f, selection)), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (!selected) Text(model.shortLabel, modifier = Modifier.align(Alignment.CenterEnd).graphicsLayer { alpha = stackLabelAlpha; translationX = -labelShiftX; translationY = labelShiftY }, color = theme.bright.copy(alpha = 0.86f), fontSize = 8.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Clip)
+            if (!selected) {
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val xPx = with(density) { maxWidth.toPx() * placement.xFraction }
+                    val yPx = with(density) { maxHeight.toPx() * placement.yFraction }
+                    Text(
+                        text = model.shortLabel,
+                        modifier = Modifier.align(Alignment.TopStart).graphicsLayer {
+                            alpha = placement.alpha * stackLabelAlpha
+                            translationX = xPx
+                            translationY = yPx
+                            scaleX = placement.scale
+                            scaleY = placement.scale
+                        },
+                        color = theme.bright.copy(alpha = 0.86f),
+                        fontSize = foldedLabelFontSize(model.shortLabel),
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip
+                    )
+                }
+            }
         }
     }
 }
@@ -427,8 +486,16 @@ private fun modelDockingProgress(phase: Float, overshoot: Float): Float {
     }
 }
 
-private fun modelEaseOutCubic(value: Float): Float { val x = 1f - value.coerceIn(0f, 1f); return 1f - x * x * x }
-private fun modelSmoother(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * x * (x * (x * 6f - 15f) + 10f) }
+private fun modelEaseOutCubic(value: Float): Float {
+    val x = 1f - value.coerceIn(0f, 1f)
+    return 1f - x * x * x
+}
+
+private fun modelSmoother(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
+}
+
 private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
