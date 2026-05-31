@@ -212,7 +212,7 @@ private fun ModelAndNetworkPanel(
             modifier = Modifier.fillMaxWidth().height(panelHeight),
            onToggleExpanded = {
     if (!state.isSending) onExpandedChange(!expanded)
-}
+},
             onSelected = { model ->
                 if (!state.isSending) {
                     onModelSelected(model)
