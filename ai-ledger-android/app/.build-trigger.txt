@@ -1,3 +1,2 @@
-Trigger target: 00d74315ce90d1156d1edc60ef8e9c8f69fb736a
-Purpose: trigger Build Compose Android APK after adding cloud endpoint fallback support.
-Trigger path: ai-ledger-android/app/.build-trigger.txt
+Trigger build
+Path: ai-ledger-android/app/.build-trigger.txt
