@@ -1,3 +1,5 @@
 package androidx.compose.ui.graphics
 
-typealias Offset = androidx.compose.ui.geometry.Offset
+fun Offset(x: Float, y: Float): androidx.compose.ui.geometry.Offset {
+    return androidx.compose.ui.geometry.Offset(x, y)
+}
