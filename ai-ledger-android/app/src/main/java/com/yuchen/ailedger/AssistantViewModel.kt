@@ -139,7 +139,22 @@ class AssistantViewModel(
                     aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled)
                 }
                 if (activePendingMessageId == pendingMessage.id) {
-                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = response.reply, status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null))
+                    replaceMessage(
+                        pendingMessage.id,
+                        pendingMessage.copy(
+                            text = response.reply,
+                            status = MessageStatus.Sent,
+                            source = response.source,
+                            model = response.model,
+                            modelLabel = response.modelLabel ?: selectedModel.label,
+                            version = response.version,
+                            errorText = null,
+                            webSources = response.webSources,
+                            structuredData = response.structuredData,
+                            searchUsed = response.searchUsed,
+                            searchProvider = response.searchProvider
+                        )
+                    )
                 }
             } catch (error: CancellationException) {
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
