@@ -41,7 +41,10 @@ private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
 private const val GLASS_INTENSITY_EPSILON = 0.006f
 private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
-private const val GLASS_STABLE_SURFACE_ANCHOR_Y = 0.44f
+private const val GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
+private const val GLASS_STABLE_EDGE_EPSILON_PX = 0.75f
+private const val GLASS_STABLE_ANCHOR_FAST_SMOOTHING = 0.72f
+private const val GLASS_STABLE_ANCHOR_SOFT_SMOOTHING = 0.42f
 
 @Composable
 fun OpenGLGlassCardLayer(
@@ -103,7 +106,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
     private var stableSurfaceOffsetY = 0
+    private var stableSurfaceAnchorY = GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y
     private var lastRootWidth = 1
+    private var lastHostTopInWindow: Int? = null
+    private var lastHostBottomInWindow: Int? = null
+    private val hostWindowLocation = IntArray(2)
 
     private var latestRadius = 24f
     private var latestIntensity = 1f
@@ -127,8 +134,9 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
         val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
+        val anchorY = updateStableSurfaceAnchor(safeHeight, reset = rootWidthChanged)
         val targetOffsetY = if (targetHeight > safeHeight) {
-            ((targetHeight - safeHeight) * GLASS_STABLE_SURFACE_ANCHOR_Y).roundToInt()
+            ((targetHeight - safeHeight) * anchorY).roundToInt()
         } else {
             0
         }
@@ -150,6 +158,44 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         }
 
         return changed || layoutDirty
+    }
+
+    private fun updateStableSurfaceAnchor(safeHeight: Int, reset: Boolean): Float {
+        if (!isAttachedToWindow) {
+            if (reset) stableSurfaceAnchorY = GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y
+            lastHostTopInWindow = null
+            lastHostBottomInWindow = null
+            return stableSurfaceAnchorY
+        }
+
+        getLocationInWindow(hostWindowLocation)
+        val top = hostWindowLocation[1]
+        val bottom = top + safeHeight
+        val previousTop = lastHostTopInWindow
+        val previousBottom = lastHostBottomInWindow
+        lastHostTopInWindow = top
+        lastHostBottomInWindow = bottom
+
+        if (reset || previousTop == null || previousBottom == null) {
+            stableSurfaceAnchorY = GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y
+            return stableSurfaceAnchorY
+        }
+
+        val topDelta = (top - previousTop).toFloat()
+        val bottomDelta = (bottom - previousBottom).toFloat()
+        val heightDelta = bottomDelta - topDelta
+        if (abs(heightDelta) <= GLASS_STABLE_EDGE_EPSILON_PX) return stableSurfaceAnchorY
+
+        val topStable = abs(topDelta) <= GLASS_STABLE_EDGE_EPSILON_PX && abs(bottomDelta) > GLASS_STABLE_EDGE_EPSILON_PX
+        val bottomStable = abs(bottomDelta) <= GLASS_STABLE_EDGE_EPSILON_PX && abs(topDelta) > GLASS_STABLE_EDGE_EPSILON_PX
+        val targetAnchor = when {
+            topStable -> 0f
+            bottomStable -> 1f
+            else -> (-topDelta / heightDelta).coerceIn(0f, 1f)
+        }
+        val smoothing = if (topStable || bottomStable) GLASS_STABLE_ANCHOR_FAST_SMOOTHING else GLASS_STABLE_ANCHOR_SOFT_SMOOTHING
+        stableSurfaceAnchorY += (targetAnchor - stableSurfaceAnchorY) * smoothing
+        return stableSurfaceAnchorY.coerceIn(0f, 1f)
     }
 
     fun setSamplingRootView(rootView: View): Boolean = textureView.setSamplingRootView(rootView)
