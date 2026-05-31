@@ -54,13 +54,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
@@ -374,7 +380,6 @@ private fun MessageBubbleV2(
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     val visual = chatBubbleVisualTransform(appear, fromUser)
     val rawText = messageText(message)
-    val hasLiveText = hasStreamingLiveTextV2(rawText)
     val shouldTypewriter = !fromUser && !sending && showActions && message.status == MessageStatus.Sent && rawText.length > 24
     val typewriterState = rememberTypewriterTextStateV2(message.id, rawText, shouldTypewriter)
     val animatedRawText = typewriterState.first
@@ -406,7 +411,7 @@ private fun MessageBubbleV2(
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(if (fromUser) 0.76f else if (sending) 0.74f else 0.90f)
+                .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
                 .graphicsLayer {
                     alpha = visual.alpha
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(visual.originX, visual.originY)
@@ -431,12 +436,13 @@ private fun MessageBubbleV2(
                             .graphicsLayer { alpha = contentAlpha }
                     )
                 } else {
-                    RichMessageContent(
+                    GeneratingMessageContentV2(
                         text = displayText,
                         color = messageTextColor(message, fromUser),
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                        active = typewriterActive,
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer { alpha = contentAlpha }
@@ -458,17 +464,6 @@ private fun MessageBubbleV2(
                 }
             }
         }
-        if (sending && !fromUser) {
-            Spacer(Modifier.size(7.dp))
-            ThinkingSideNotesV2(
-                messageId = message.id,
-                hasLiveText = hasLiveText,
-                liveTextLength = if (hasLiveText) rawText.length else 0,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(top = 9.dp)
-            )
-        }
     }
 }
 
@@ -488,12 +483,12 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
                 modifier = Modifier.fillMaxWidth()
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(progressLabel, color = Color(0xFF8DF9EA).copy(alpha = 0.58f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold)
+                SweepingProgressTextV2(progressLabel, fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold)
                 ThinkingDotsV2(size = 4, color = Color(0xFF8DF9EA).copy(alpha = 0.76f))
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                Text(progressLabel, color = Color.White.copy(alpha = 0.84f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                SweepingProgressTextV2(progressLabel, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
                 ThinkingDotsV2(size = 7, color = Color(0xFF8DF9EA).copy(alpha = 0.92f))
             }
         }
@@ -501,65 +496,42 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
 }
 
 @Composable
-private fun ThinkingSideNotesV2(
-    messageId: String,
-    hasLiveText: Boolean,
-    liveTextLength: Int,
-    modifier: Modifier = Modifier
+private fun SweepingProgressTextV2(
+    text: String,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight
 ) {
-    var stage by remember(messageId) { mutableStateOf(0) }
-    LaunchedEffect(messageId, hasLiveText) {
-        if (hasLiveText) {
-            stage = 3
-            return@LaunchedEffect
-        }
-        stage = 0
-        delay(620)
-        stage = 1
-        delay(980)
-        stage = 2
-    }
-    val transition = rememberInfiniteTransition(label = "thinking-side-notes-breath")
-    val breath by transition.animateFloat(
-        initialValue = 0.74f,
+    val transition = rememberInfiniteTransition(label = "progress-label-sweep")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1680, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "thinking-side-notes-alpha"
+        animationSpec = infiniteRepeatable(animation = tween(1760, easing = LinearEasing), repeatMode = RepeatMode.Restart),
+        label = "progress-label-sweep-phase"
     )
-    val notes = if (hasLiveText) {
-        listOf("片段接收中", "已生成 ${liveTextLength.coerceAtMost(999)} 字", "继续补全")
-    } else {
-        when (stage) {
-            0 -> listOf("建立连接", "同步模型", "等待首字")
-            1 -> listOf("理解需求", "整理上下文", "压缩要点")
-            else -> listOf("组织结构", "生成草稿", "准备输出")
-        }
-    }
-    Column(
-        modifier = modifier.graphicsLayer { alpha = 0.24f + breath * 0.10f },
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        notes.take(3).forEachIndexed { index, note ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(
-                    Modifier
-                        .size((2 + index).dp)
-                        .graphicsLayer { alpha = 0.32f - index * 0.06f }
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFF8DF9EA))
-                )
-                Text(
-                    text = note,
-                    color = Color.White.copy(alpha = 0.42f - index * 0.06f),
-                    fontSize = 8.sp,
-                    lineHeight = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+    val startX = phase * 340f - 210f
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            Color.White.copy(alpha = 0.44f),
+            Color.White.copy(alpha = 0.72f),
+            Color(0xFF8DF9EA).copy(alpha = 0.92f),
+            Color.White.copy(alpha = 0.56f),
+            Color.White.copy(alpha = 0.36f)
+        ),
+        start = Offset(startX, 0f),
+        end = Offset(startX + 190f, 0f)
+    )
+    Text(
+        text = text,
+        style = TextStyle(
+            brush = brush,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable
@@ -596,7 +568,7 @@ private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabl
             return@LaunchedEffect
         }
         visibleCount = 0
-        delay(70)
+        delay(90)
         while (visibleCount < text.length) {
             visibleCount = (visibleCount + typewriterStepV2(text.length, visibleCount)).coerceAtMost(text.length)
             delay(typewriterDelayV2(text.length, visibleCount))
@@ -607,44 +579,91 @@ private fun rememberTypewriterTextStateV2(messageId: String, text: String, enabl
 }
 
 private fun typewriterStepV2(total: Int, index: Int): Int = when {
-    total > 1600 -> 10
-    total > 800 -> 7
-    total > 320 -> 4
-    index < 120 -> 2
-    else -> 3
+    total > 1600 -> 44
+    total > 800 -> 34
+    total > 320 -> 24
+    index < 120 -> 12
+    else -> 16
 }
 
 private fun typewriterDelayV2(total: Int, index: Int): Long = when {
-    index < 120 -> 8L
-    total > 800 -> 6L
-    total > 320 -> 7L
-    else -> 9L
+    index < 120 -> 96L
+    total > 800 -> 82L
+    total > 320 -> 88L
+    else -> 104L
+}
+
+@Composable
+private fun GeneratingMessageContentV2(
+    text: String,
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!active) {
+        RichMessageContent(
+            text = text,
+            color = color,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight,
+            modifier = modifier
+        )
+        return
+    }
+    val transition = rememberInfiniteTransition(label = "message-wide-fade-tail")
+    val breath by transition.animateFloat(
+        initialValue = 0.38f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(720, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "message-wide-fade-tail-alpha"
+    )
+    val tailSize = 58.coerceAtMost(text.length)
+    val stableText = text.dropLast(tailSize)
+    val fadingText = text.takeLast(tailSize)
+    val annotated = buildAnnotatedString {
+        append(stableText)
+        withStyle(SpanStyle(color = color.copy(alpha = 0.32f + breath * 0.58f))) {
+            append(fadingText)
+        }
+    }
+    Text(
+        text = annotated,
+        color = color.copy(alpha = 0.82f),
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = fontWeight,
+        modifier = modifier
+    )
 }
 
 @Composable
 private fun TypewriterTrailV2() {
     val transition = rememberInfiniteTransition(label = "assistant-typewriter-trail")
     val breath by transition.animateFloat(
-        initialValue = 0.62f,
+        initialValue = 0.58f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(820, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(animation = tween(1120, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
         label = "assistant-typewriter-trail-alpha"
     )
     Row(
-        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.36f + breath * 0.18f },
+        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.26f + breath * 0.15f },
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "正在生成",
-            color = Color(0xFF8DF9EA).copy(alpha = 0.58f),
+            color = Color(0xFF8DF9EA).copy(alpha = 0.50f),
             fontSize = 8.sp,
             lineHeight = 10.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1
         )
         Spacer(Modifier.size(5.dp))
-        ThinkingDotsV2(size = 3, color = Color(0xFF8DF9EA).copy(alpha = 0.62f))
+        ThinkingDotsV2(size = 3, color = Color(0xFF8DF9EA).copy(alpha = 0.58f))
     }
 }
 
