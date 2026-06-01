@@ -1,6 +1,6 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.BasicTextField
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
