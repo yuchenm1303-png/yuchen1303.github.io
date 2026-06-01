@@ -51,6 +51,10 @@ val LocalOpenGLGlassSurfaceAnchor = compositionLocalOf {
     OpenGLGlassSurfaceAnchor.Center
 }
 
+val LocalOpenGLGlassViewportTopInset = compositionLocalOf {
+    0.dp
+}
+
 @Composable
 fun OpenGLGlassCardLayer(
     radius: Int,
@@ -65,6 +69,7 @@ fun OpenGLGlassCardLayer(
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
+    val viewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -78,6 +83,8 @@ fun OpenGLGlassCardLayer(
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
+        val safeViewportTopInsetPx = viewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
+        val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
         AndroidView(
@@ -91,8 +98,19 @@ fun OpenGLGlassCardLayer(
                     rootWidth = rootWidthPx.roundToInt(),
                     rootHeight = rootHeightPx.roundToInt()
                 )
-                val specDirty = view.setGlassSpec(widthPx, heightPx, radiusPx, intensity)
-                val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y, rootWidthPx, rootHeightPx)
+                val specDirty = view.setGlassSpec(
+                    width = widthPx,
+                    height = viewportHeightPx,
+                    rectOffsetY = safeViewportTopInsetPx,
+                    radius = radiusPx,
+                    intensity = intensity
+                )
+                val samplingDirty = view.setSamplingSpec(
+                    originX = cardOrigin.x,
+                    originY = cardOrigin.y + safeViewportTopInsetPx,
+                    rootWidth = rootWidthPx,
+                    rootHeight = rootHeightPx
+                )
                 val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
@@ -109,7 +127,6 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
-
     private var visibleSurfaceWidth = 1
     private var visibleSurfaceHeight = 1
 
@@ -120,6 +137,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private var latestGlassWidth = 1f
     private var latestGlassHeight = 1f
+    private var latestRectOffsetY = 0f
     private var latestRadius = 24f
     private var latestIntensity = 1f
 
@@ -211,9 +229,16 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         }
     }
 
-    fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
+    fun setGlassSpec(
+        width: Float,
+        height: Float,
+        rectOffsetY: Float,
+        radius: Float,
+        intensity: Float
+    ): Boolean {
         latestGlassWidth = width.coerceAtLeast(1f)
         latestGlassHeight = height.coerceAtLeast(1f)
+        latestRectOffsetY = rectOffsetY
         latestRadius = radius
         latestIntensity = intensity
 
@@ -266,7 +291,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         textureView.setGlassSpec(
             latestGlassWidth.coerceAtLeast(1f),
             latestGlassHeight.coerceAtLeast(1f),
-            0f,
+            latestRectOffsetY,
             latestRadius,
             latestIntensity
         )
