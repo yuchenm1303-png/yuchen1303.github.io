@@ -61,7 +61,11 @@ class AssistantViewModel(
                     customBackgroundPath = preferences.customBackgroundPath,
                     glassIntensity = preferences.glassIntensity,
                     motionIntensity = preferences.motionIntensity,
-                    rainbowPrismStyle = preferences.rainbowPrismStyle
+                    rainbowPrismStyle = preferences.rainbowPrismStyle,
+                    navigationHomeAddress = preferences.navigationHomeAddress,
+                    navigationSchoolAddress = preferences.navigationSchoolAddress,
+                    navigationCompanyAddress = preferences.navigationCompanyAddress,
+                    navigationDormAddress = preferences.navigationDormAddress
                 )
             }
         }
@@ -175,6 +179,27 @@ class AssistantViewModel(
             composerText = "",
             isSending = false
         )
+    }
+
+    fun saveNavigationAddress(userText: String, slot: String, address: String, label: String) {
+        val cleanText = userText.trim()
+        val cleanAddress = address.trim().take(80)
+        if (cleanText.isBlank() || cleanAddress.isBlank() || uiState.isSending) return
+        val now = System.currentTimeMillis()
+        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val assistantMessage = ChatMessage(
+            id = "assistant-${now + 1}",
+            text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress",
+            role = MessageRole.Assistant,
+            source = "local_mobile",
+            modelLabel = "导航偏好"
+        )
+        uiState = uiState.copy(
+            messages = uiState.messages + userMessage + assistantMessage,
+            composerText = "",
+            isSending = false
+        )
+        viewModelScope.launch { preferencesStore.setNavigationAddress(slot, cleanAddress) }
     }
 
     private fun commandReplyPrefix(command: MobileCommand): String = when (command) {
