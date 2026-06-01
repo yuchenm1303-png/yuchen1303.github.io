@@ -13,7 +13,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -85,6 +85,11 @@ import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.sin
 
+private val ModelPanelExpansionEasing = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
+private const val MODEL_PANEL_EXPAND_MS = 620
+private const val MODEL_PANEL_COLLAPSE_MS = 430
+private const val MODEL_PANEL_ANCHOR_THRESHOLD = 0.08f
+
 @Composable
 fun AssistantScreenV2(
     state: AssistantUiState,
@@ -103,32 +108,21 @@ fun AssistantScreenV2(
 ) {
     var modelPanelExpanded by remember { mutableStateOf(false) }
     var composerFocused by remember { mutableStateOf(false) }
-
-    var modelAnchorHeld by remember { mutableStateOf(false) }
     var keyboardAnchorHeld by remember { mutableStateOf(false) }
 
     val collapsedPanelHeight = 58.dp
     val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
     val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
-    val modelPanelVisualHeight by animateDpAsState(
-        targetValue = if (modelPanelExpanded) expandedPanelHeight else collapsedPanelHeight,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-stack-panel-height"
+    val modelPanelExpansion by animateFloatAsState(
+        targetValue = if (modelPanelExpanded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (modelPanelExpanded) MODEL_PANEL_EXPAND_MS else MODEL_PANEL_COLLAPSE_MS,
+            easing = ModelPanelExpansionEasing
+        ),
+        label = "model-stack-panel-expansion"
     )
-    val modelExpandDelta = if (modelPanelVisualHeight > collapsedPanelHeight) {
-        modelPanelVisualHeight - collapsedPanelHeight
-    } else {
-        0.dp
-    }
-
-    LaunchedEffect(modelPanelExpanded) {
-        if (modelPanelExpanded) {
-            modelAnchorHeld = true
-        } else {
-            delay(760L)
-            if (!modelPanelExpanded) modelAnchorHeld = false
-        }
-    }
+    val modelPanelVisualHeight = collapsedPanelHeight + (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
+    val modelExpandDelta = (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
 
     LaunchedEffect(composerFocused) {
         if (composerFocused) {
@@ -139,9 +133,10 @@ fun AssistantScreenV2(
         }
     }
 
+    val modelAnchorActive = modelPanelExpanded || modelPanelExpansion > MODEL_PANEL_ANCHOR_THRESHOLD
     val shellAnchor = when {
-        modelAnchorHeld && keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Center
-        modelAnchorHeld -> OpenGLGlassSurfaceAnchor.Bottom
+        modelAnchorActive && keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Center
+        modelAnchorActive -> OpenGLGlassSurfaceAnchor.Bottom
         keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
         else -> OpenGLGlassSurfaceAnchor.Center
     }
