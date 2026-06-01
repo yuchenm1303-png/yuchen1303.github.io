@@ -118,6 +118,10 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var latestRadius = 24f
     private var latestIntensity = 1f
 
+    private var latestOriginX = 0f
+private var latestOriginY = 0f
+private var latestRootWidth = 1f
+private var latestRootHeight = 1f
     init {
         clipChildren = true
         clipToPadding = true
@@ -250,10 +254,6 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestRectOffsetY = 0f
     private var latestRadius = 24f
     private var latestIntensity = 1f
-    private var latestOriginX = 0f
-    private var latestOriginY = 0f
-    private var latestRootWidth = 1f
-    private var latestRootHeight = 1f
     private var latestOriginX = 0f
     private var latestOriginY = 0f
     private var latestRootWidth = 1f
