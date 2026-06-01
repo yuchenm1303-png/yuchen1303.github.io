@@ -77,7 +77,7 @@ fun GlassPanel(
                 content()
                 Box(
                     Modifier
-                        .matchParentSize()
+                        .fillMaxSize()
                         .openGlShellEdgeLightOverlay(
                             quality = quality,
                             radius = radius,
