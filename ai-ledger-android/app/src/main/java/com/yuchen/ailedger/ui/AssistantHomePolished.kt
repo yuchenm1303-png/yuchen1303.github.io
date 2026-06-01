@@ -33,8 +33,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.zIndex
-import androidx.compose.foundation.layout.requiredHeight
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -64,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -256,37 +255,75 @@ private fun ModelAndNetworkPanel(
     onModelSelected: (ChatModel) -> Unit,
     onToggleOnline: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(layoutHeight)
+    FixedHeightOverflowSlot(
+        layoutHeight = layoutHeight,
+        visualHeight = panelHeight,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        UnifiedParentModelStackSelector(
-            state = state,
-            expanded = expanded,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .requiredHeight(panelHeight)
-                .wrapContentSize(Alignment.TopStart, unbounded = true),
-            onToggleExpanded = {
-                if (!state.isSending) onExpandedChange(!expanded)
-            },
-            onSelected = { model ->
-                if (!state.isSending) {
-                    onModelSelected(model)
-                    onExpandedChange(false)
+                .height(panelHeight)
+        ) {
+            UnifiedParentModelStackSelector(
+                state = state,
+                expanded = expanded,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(panelHeight),
+                onToggleExpanded = {
+                    if (!state.isSending) onExpandedChange(!expanded)
+                },
+                onSelected = { model ->
+                    if (!state.isSending) {
+                        onModelSelected(model)
+                        onExpandedChange(false)
+                    }
                 }
+            )
+            NetworkDropletCapsule(
+                state = state,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(0.30f)
+                    .height(58.dp),
+                enabled = !state.isSending,
+                onClick = onToggleOnline
+            )
+        }
+    }
+}
+
+@Composable
+private fun FixedHeightOverflowSlot(
+    layoutHeight: Dp,
+    visualHeight: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Layout(
+        content = content,
+        modifier = modifier
+    ) { measurables, constraints ->
+        val layoutHeightPx = layoutHeight.roundToPx().coerceAtLeast(1)
+        val visualHeightPx = visualHeight.roundToPx().coerceAtLeast(layoutHeightPx)
+        val width = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth
+        } else {
+            constraints.minWidth.coerceAtLeast(1)
+        }
+        val panelConstraints = constraints.copy(
+            minWidth = width,
+            maxWidth = width,
+            minHeight = visualHeightPx,
+            maxHeight = visualHeightPx
+        )
+        val placeables = measurables.map { it.measure(panelConstraints) }
+        layout(width, layoutHeightPx) {
+            placeables.forEach { placeable ->
+                placeable.placeRelative(0, 0)
             }
-        )
-        NetworkDropletCapsule(
-            state = state,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .fillMaxWidth(0.30f)
-                .height(58.dp),
-            enabled = !state.isSending,
-            onClick = onToggleOnline
-        )
+        }
     }
 }
 
