@@ -276,7 +276,7 @@ private fun MessageBubble(message: ChatMessage, state: AssistantUiState) {
             fontWeight = FontWeight.Bold
         )
 
-        MessageDataCards(message, state)
+        MessageDataCards(message)
     }
 }
             }

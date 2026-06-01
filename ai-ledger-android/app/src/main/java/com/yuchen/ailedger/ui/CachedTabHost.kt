@@ -38,7 +38,7 @@ fun CachedAppTabHost(
     prewarmStepDelayMs: Long = DEFAULT_PREWARM_STEP_DELAY_MS,
     content: @Composable (AppTab) -> Unit
 ) {
-    var visitedTabs by remember { mutableStateOf(setOf(currentTab)) }
+    var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
     val activationTicks = remember {
         mutableStateMapOf<AppTab, Int>().apply {
             AppTab.entries.forEach { put(it, 0) }
@@ -49,24 +49,30 @@ fun CachedAppTabHost(
     }
 
     LaunchedEffect(currentTab) {
-        if (currentTab !in visitedTabs) {
-            visitedTabs = visitedTabs + currentTab
-        }
+        renderedTabs = renderedTabs + currentTab
         activationTicks[currentTab] = (activationTicks[currentTab] ?: 0) + 1
+    }
+
+    LaunchedEffect(currentTab, renderedTabs) {
+        val inactiveTabs = renderedTabs - currentTab
+        if (inactiveTabs.isNotEmpty()) {
+            delay(140L)
+            renderedTabs = renderedTabs - inactiveTabs
+        }
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
         if (orderedPrewarmTabs.isEmpty()) return@LaunchedEffect
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEach { tab ->
-            visitedTabs = visitedTabs + tab
+            renderedTabs = renderedTabs + tab
             if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
         }
     }
 
     Box(modifier) {
         AppTab.entries.forEach { tab ->
-            if (tab in visitedTabs) {
+            if (tab in renderedTabs) {
                 val active = tab == currentTab
                 val density = LocalDensity.current
                 val alpha by animateFloatAsState(

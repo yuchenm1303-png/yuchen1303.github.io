@@ -14,8 +14,6 @@ import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -54,7 +52,6 @@ import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
-import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
@@ -423,9 +420,3 @@ private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCom
 }
 
 const val STOCK_MARKET_TOOL_TITLE = "股票行情"
-
-@Composable
-private fun BottomDockSeparationMist(quality: RenderQuality, modifier: Modifier = Modifier) {
-    Box(modifier = modifier.fillMaxWidth().height(0.dp))
-    quality.hashCode()
-}

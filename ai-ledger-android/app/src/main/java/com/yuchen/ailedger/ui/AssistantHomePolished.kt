@@ -153,7 +153,7 @@ fun AssistantScreenV2(
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2(state = state)
+            AssistantHeroV2()
         }
 
         AssistantEntrance(
@@ -206,10 +206,6 @@ fun AssistantScreenV2(
         }
     }
 
-    onOpenTools.hashCode()
-    onOpenSettings.hashCode()
-    onCopyMessage.hashCode()
-    onRetryMessage.hashCode()
 }
 
 @Composable
@@ -236,13 +232,12 @@ private fun AssistantEntrance(
 }
 
 @Composable
-private fun AssistantHeroV2(state: AssistantUiState) {
+private fun AssistantHeroV2() {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
         Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
         Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
         Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
-    state.quality.hashCode()
 }
 
 @Composable
@@ -401,7 +396,6 @@ private fun ChatPanelV2(
                         items(state.messages, key = { it.id }) { message ->
                             AnimatedMessageBubbleV2(
                                 message = message,
-                                state = state,
                                 chatPhase = chatPhase,
                                 bubbleLayerState = bubbleLayerState,
                                 showActions = message.id == lastActionableMessageId,
@@ -461,7 +455,6 @@ private fun phaseSpeedForMessage(id: String): Float {
 @Composable
 private fun AnimatedMessageBubbleV2(
     message: ChatMessage,
-    state: AssistantUiState,
     chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
     showActions: Boolean,
@@ -489,7 +482,6 @@ private fun AnimatedMessageBubbleV2(
     ) {
         MessageBubbleV2(
             message = message,
-            state = state,
             chatPhase = chatPhase,
             bubbleLayerState = bubbleLayerState,
             appear = appear,
@@ -505,7 +497,6 @@ private fun AnimatedMessageBubbleV2(
 @Composable
 private fun MessageBubbleV2(
     message: ChatMessage,
-    state: AssistantUiState,
     chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
     appear: Float = 1f,
@@ -602,7 +593,7 @@ private fun MessageBubbleV2(
                 if (!fromUser) {
                     MessageBadgeV2(message)
                     if (!sending && message.status == MessageStatus.Sent) {
-                        MessageDataCards(message, state)
+                        MessageDataCards(message)
                     }
                 }
                 if (showActions && !fromUser && !sending && revealFinished) {

@@ -23,14 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.StructuredMetric
 import com.yuchen.ailedger.model.WebSource
 
 @Composable
-fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
+fun MessageDataCards(message: ChatMessage) {
     if (message.structuredData == null && message.webSources.isEmpty()) return
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
@@ -39,8 +38,6 @@ fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
             WebSourcesCard(message.webSources, message.searchProvider)
         }
     }
-
-    state.quality.hashCode()
 }
 
 @Composable

@@ -7,7 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -73,7 +73,7 @@ fun GlassPanel(
         intensity = null
     ) {
         if (role == GlassRole.Shell) {
-            Box(Modifier.matchParentSize()) {
+            Box(Modifier.fillMaxSize()) {
                 content()
                 Box(
                     Modifier

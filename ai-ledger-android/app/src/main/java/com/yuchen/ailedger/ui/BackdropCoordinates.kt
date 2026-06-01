@@ -164,22 +164,28 @@ data class GlassRenderItem(
 
 class GlassItemRegistry {
     private val items = linkedMapOf<Any, GlassRenderItem>()
+    private var cachedSnapshot: List<GlassRenderItem> = emptyList()
     var version by mutableLongStateOf(0L)
         private set
 
     fun upsert(item: GlassRenderItem) {
         val previous = items[item.key]
         items[item.key] = item
-        if (previous != item) version = System.nanoTime()
+        if (previous != item) invalidate()
     }
 
     fun remove(key: Any) {
-        if (items.remove(key) != null) version = System.nanoTime()
+        if (items.remove(key) != null) invalidate()
     }
 
     fun snapshot(): List<GlassRenderItem> {
         version
-        return items.values.toList()
+        return cachedSnapshot
+    }
+
+    private fun invalidate() {
+        cachedSnapshot = items.values.toList()
+        version = System.nanoTime()
     }
 }
 

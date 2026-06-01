@@ -164,6 +164,8 @@ private fun buildBlurredBackdropBitmap(
         contrast = params.contrast.coerceIn(0.70f, 1.35f),
         saturation = params.saturation.coerceIn(0.50f, 1.60f)
     )
+    if (blurred !== source && !blurred.isRecycled) blurred.recycle()
+    if (!source.isRecycled) source.recycle()
 
     return BlurredBackdropBitmap(
         image = tuned.asImageBitmap(),
@@ -255,7 +257,11 @@ private fun drawGlow(canvas: Canvas, paint: Paint, cx: Float, cy: Float, rx: Flo
 private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
     if (radius <= 0 || iterations <= 0) return input
     var current = input.copy(Bitmap.Config.ARGB_8888, false)
-    repeat(iterations) { current = boxBlurOnce(current, radius) }
+    repeat(iterations) {
+        val next = boxBlurOnce(current, radius)
+        if (current !== input && !current.isRecycled) current.recycle()
+        current = next
+    }
     return current
 }
 

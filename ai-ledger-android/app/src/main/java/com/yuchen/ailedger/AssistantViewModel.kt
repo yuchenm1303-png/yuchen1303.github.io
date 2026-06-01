@@ -36,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 class AssistantViewModel(
     application: Application,
@@ -51,6 +52,7 @@ class AssistantViewModel(
 
     private var activeSendJob: Job? = null
     private var activePendingMessageId: String? = null
+    private val localIdSeed = AtomicLong(System.currentTimeMillis())
 
     init {
         viewModelScope.launch {
@@ -88,7 +90,7 @@ class AssistantViewModel(
         val amount = uiState.ledgerDraftAmount.toFloatOrNull() ?: return
         val title = uiState.ledgerDraftTitle.trim().ifBlank { if (uiState.ledgerDraftType == LedgerRecordType.Income) "未命名收入" else "未命名支出" }
         if (amount <= 0f) return
-        val record = LedgerRecord("record-${System.currentTimeMillis()}", title.take(24), amount, uiState.ledgerDraftType, uiState.ledgerDraftCategory, "今天")
+        val record = LedgerRecord(nextLocalId("record"), title.take(24), amount, uiState.ledgerDraftType, uiState.ledgerDraftCategory, "今天")
         uiState = uiState.copy(ledgerRecords = listOf(record) + uiState.ledgerRecords, ledgerDraftTitle = "", ledgerDraftAmount = "")
         appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。", source = "local_ledger")
     }
@@ -107,9 +109,8 @@ class AssistantViewModel(
     fun sendUserCommand(text: String) {
         val cleanText = text.trim()
         if (cleanText.isBlank() || uiState.isSending) return
-        val now = System.currentTimeMillis()
-        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
-        val pendingMessage = ChatMessage(id = "assistant-${now + 1}", text = "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         val requestMessages = uiState.messages + userMessage
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages, pendingMessage)
@@ -118,9 +119,8 @@ class AssistantViewModel(
     fun previewMobileCommand(userText: String, command: MobileCommand) {
         val cleanText = userText.trim()
         if (cleanText.isBlank() || uiState.isSending) return
-        val now = System.currentTimeMillis()
-        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
-        val assistantMessage = buildMobileCommandPreviewMessage("assistant-${now + 1}", command)
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
+        val assistantMessage = buildMobileCommandPreviewMessage(nextLocalId("assistant"), command)
         uiState = uiState.copy(
             messages = uiState.messages + userMessage + assistantMessage,
             composerText = "",
@@ -131,10 +131,9 @@ class AssistantViewModel(
     fun cancelMobileCommand(userText: String, command: MobileCommand) {
         val cleanText = userText.trim()
         if (cleanText.isBlank() || uiState.isSending) return
-        val now = System.currentTimeMillis()
-        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
         val assistantMessage = ChatMessage(
-            id = "assistant-${now + 1}",
+            id = nextLocalId("assistant"),
             text = "已取消这个手机动作：${command.title} · ${command.summary}。",
             role = MessageRole.Assistant,
             source = "local_mobile",
@@ -150,15 +149,14 @@ class AssistantViewModel(
     fun acceptExecutedMobileCommand(userText: String, command: MobileCommand, ok: Boolean, resultMessage: String) {
         val cleanText = userText.trim()
         if (cleanText.isBlank() || uiState.isSending) return
-        val now = System.currentTimeMillis()
-        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
         val assistantText = buildString {
             append(commandReplyPrefix(command))
             append("\n\n")
             append(if (ok) "执行结果：$resultMessage" else "执行失败：$resultMessage")
         }
         val assistantMessage = ChatMessage(
-            id = "assistant-${now + 1}",
+            id = nextLocalId("assistant"),
             text = assistantText,
             role = MessageRole.Assistant,
             source = "local_mobile",
@@ -187,10 +185,9 @@ class AssistantViewModel(
         val cleanText = userText.trim()
         val cleanAddress = address.trim().take(80)
         if (cleanText.isBlank() || cleanAddress.isBlank() || uiState.isSending) return
-        val now = System.currentTimeMillis()
-        val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
         val assistantMessage = ChatMessage(
-            id = "assistant-${now + 1}",
+            id = nextLocalId("assistant"),
             text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress",
             role = MessageRole.Assistant,
             source = "local_mobile",
@@ -261,7 +258,7 @@ class AssistantViewModel(
         if (assistantIndex <= 0) return
         val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() } ?: return
         val requestMessages = uiState.messages.take(assistantIndex)
-        val pendingMessage = ChatMessage(id = "assistant-${System.currentTimeMillis()}", text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage)
     }
@@ -368,7 +365,7 @@ class AssistantViewModel(
     fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false) }
     fun onImagePickedForAssistant(uri: Uri?) { if (uri != null) appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local") }
     fun appendAssistantNotice(text: String, source: String? = null) {
-        uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = "assistant-${System.currentTimeMillis()}", text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
+        uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = nextLocalId("assistant"), text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
     }
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
     private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
@@ -494,4 +491,5 @@ class AssistantViewModel(
         viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) }
     }
     private fun detectPreset(glass: Float, motion: Float): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
+    private fun nextLocalId(prefix: String): String = "$prefix-${localIdSeed.incrementAndGet()}"
 }

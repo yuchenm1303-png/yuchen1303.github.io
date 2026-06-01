@@ -26,6 +26,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
@@ -60,7 +61,7 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
         val filePath = path?.takeIf { File(it).exists() }
         if (filePath != null) {
             image = withContext(Dispatchers.IO) {
-                BitmapFactory.decodeFile(filePath)?.asImageBitmap()
+                decodeDisplaySizedBitmap(filePath)?.asImageBitmap()
             }
         }
     }
@@ -89,6 +90,27 @@ private object PresetNightSkyImageCache {
 
 fun decodePresetNightSkyBitmap(context: Context): Bitmap? {
     return BitmapFactory.decodeResource(context.resources, R.drawable.preset_night_sky)
+}
+
+private fun decodeDisplaySizedBitmap(path: String): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    val sourceMaxSide = max(bounds.outWidth, bounds.outHeight)
+    val targetMaxSide = 2400
+    var sampleSize = 1
+    while (sourceMaxSide / (sampleSize * 2) >= targetMaxSide) {
+        sampleSize *= 2
+    }
+
+    return BitmapFactory.decodeFile(
+        path,
+        BitmapFactory.Options().apply {
+            inSampleSize = sampleSize.coerceAtLeast(1)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+    )
 }
 
 fun DrawScope.drawCoverImage(image: ImageBitmap, alpha: Float = 1f) {
