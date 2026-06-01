@@ -119,9 +119,10 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var latestIntensity = 1f
 
     private var latestOriginX = 0f
-private var latestOriginY = 0f
-private var latestRootWidth = 1f
-private var latestRootHeight = 1f
+    private var latestOriginY = 0f
+    private var latestRootWidth = 1f
+    private var latestRootHeight = 1f
+
     init {
         clipChildren = true
         clipToPadding = true
@@ -134,7 +135,15 @@ private var latestRootHeight = 1f
     fun setStableSurfaceAnchor(anchorY: Float): Boolean {
         val nextAnchor = anchorY.coerceIn(0f, 1f)
         val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
-        stableSurfaceAnchorY = nextAnchor
+        if (dirty) {
+            stableSurfaceAnchorY = nextAnchor
+            recomputeStableSurfaceOffset()
+            applyStableSurfaceAnchor()
+            if (!geometryAwaitingLayout) {
+                syncGlassSpecToTexture()
+                syncSamplingSpecToTexture()
+            }
+        }
         return dirty
     }
 
@@ -148,52 +157,53 @@ private var latestRootHeight = 1f
 
         val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
         val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
-        val targetOffsetY = if (targetHeight > safeHeight) {
-    ((targetHeight - safeHeight) * stableSurfaceAnchorY).roundToInt()
-} else {
-    0
-}
-val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
-val offsetChanged = targetOffsetY != stableSurfaceOffsetY
+        val targetOffsetY = stableOffsetFor(targetHeight, safeHeight)
 
-stableSurfaceWidth = targetWidth
-stableSurfaceHeight = targetHeight
-stableSurfaceOffsetY = targetOffsetY
+        val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
+        val offsetChanged = targetOffsetY != stableSurfaceOffsetY
 
-val lp = textureView.layoutParams as? LayoutParams
-val layoutParamDirty = lp == null || lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
-if (layoutParamDirty) {
-    textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
-}
+        stableSurfaceWidth = targetWidth
+        stableSurfaceHeight = targetHeight
+        stableSurfaceOffsetY = targetOffsetY
 
-val layoutChanged = sizeChanged || layoutParamDirty
-if (layoutChanged) {
-    geometryAwaitingLayout = true
-    requestLayout()
-} else if (offsetChanged) {
-    val glassDirty = syncGlassSpecToTexture()
-    val samplingDirty = syncSamplingSpecToTexture()
-    if (glassDirty || samplingDirty) {
-        textureView.requestRender()
+        val lp = textureView.layoutParams as? LayoutParams
+        val layoutParamDirty = lp == null || lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
+        if (layoutParamDirty) {
+            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
+        }
+
+        val layoutChanged = sizeChanged || layoutParamDirty
+        if (layoutChanged) {
+            geometryAwaitingLayout = true
+            requestLayout()
+        } else if (offsetChanged) {
+            applyStableSurfaceAnchor()
+            val glassDirty = syncGlassSpecToTexture()
+            val samplingDirty = syncSamplingSpecToTexture()
+            if (glassDirty || samplingDirty) {
+                textureView.requestRender()
+            }
+        }
+
+        return layoutChanged || offsetChanged
     }
-}
 
-return layoutChanged || offsetChanged
-override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-    textureView.layout(
-        0,
-        0,
-        stableSurfaceWidth,
-        stableSurfaceHeight
-    )
-    geometryAwaitingLayout = false
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        textureView.layout(
+            0,
+            0,
+            stableSurfaceWidth,
+            stableSurfaceHeight
+        )
+        applyStableSurfaceAnchor()
+        geometryAwaitingLayout = false
 
-    val glassDirty = syncGlassSpecToTexture()
-    val samplingDirty = syncSamplingSpecToTexture()
-    if (glassDirty || samplingDirty) {
-        textureView.requestRender()
+        val glassDirty = syncGlassSpecToTexture()
+        val samplingDirty = syncSamplingSpecToTexture()
+        if (glassDirty || samplingDirty) {
+            textureView.requestRender()
+        }
     }
-}
 
     fun setGlassSpec(width: Float, height: Float, radius: Float, intensity: Float): Boolean {
         latestGlassWidth = width.coerceAtLeast(1f)
@@ -207,33 +217,17 @@ override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom:
         }
     }
 
-    private fun syncGlassSpecToTexture(): Boolean = textureView.setGlassSpec(
-    latestGlassWidth,
-    max(latestGlassHeight, stableSurfaceHeight.toFloat()),
-    -stableSurfaceOffsetY.toFloat(),
-    latestRadius,
-    latestIntensity
-)
-
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
-    latestOriginX = originX
-    latestOriginY = originY
-    latestRootWidth = rootWidth
-    latestRootHeight = rootHeight
-    return if (geometryAwaitingLayout) {
-        false
-    } else {
-        syncSamplingSpecToTexture()
+        latestOriginX = originX
+        latestOriginY = originY
+        latestRootWidth = rootWidth
+        latestRootHeight = rootHeight
+        return if (geometryAwaitingLayout) {
+            false
+        } else {
+            syncSamplingSpecToTexture()
+        }
     }
-}
-
-private fun syncSamplingSpecToTexture(): Boolean =
-    textureView.setSamplingSpec(
-        latestOriginX,
-        latestOriginY - stableSurfaceOffsetY.toFloat(),
-        latestRootWidth,
-        latestRootHeight
-    )
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
         textureView.setPressSpec(progress, centerX, centerY)
@@ -248,6 +242,35 @@ private fun syncSamplingSpecToTexture(): Boolean =
             textureView.requestRender()
         }
     }
+
+    private fun stableOffsetFor(stableHeight: Int, visibleHeight: Int): Int {
+        if (stableHeight <= visibleHeight) return 0
+        return ((stableHeight - visibleHeight) * stableSurfaceAnchorY).roundToInt()
+    }
+
+    private fun recomputeStableSurfaceOffset() {
+        val visibleHeight = latestGlassHeight.roundToInt().coerceAtLeast(1)
+        stableSurfaceOffsetY = stableOffsetFor(stableSurfaceHeight, visibleHeight)
+    }
+
+    private fun applyStableSurfaceAnchor() {
+        textureView.translationY = -stableSurfaceOffsetY.toFloat()
+    }
+
+    private fun syncGlassSpecToTexture(): Boolean = textureView.setGlassSpec(
+        max(latestGlassWidth, stableSurfaceWidth.toFloat()),
+        max(latestGlassHeight, stableSurfaceHeight.toFloat()),
+        0f,
+        latestRadius,
+        latestIntensity
+    )
+
+    private fun syncSamplingSpecToTexture(): Boolean = textureView.setSamplingSpec(
+        latestOriginX,
+        latestOriginY - stableSurfaceOffsetY.toFloat(),
+        latestRootWidth,
+        latestRootHeight
+    )
 }
 
 private class OpenGLGlassCardTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
