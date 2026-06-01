@@ -31,7 +31,11 @@ data class AssistantPreferences(
     val customBackgroundPath: String? = null,
     val glassIntensity: Float = 1f,
     val motionIntensity: Float = 1f,
-    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle()
+    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
+    val navigationHomeAddress: String = "",
+    val navigationSchoolAddress: String = "",
+    val navigationCompanyAddress: String = "",
+    val navigationDormAddress: String = ""
 )
 
 class AssistantPreferencesStore(private val context: Context) {
@@ -51,6 +55,10 @@ class AssistantPreferencesStore(private val context: Context) {
         val rainbowSweepMax = floatPreferencesKey("rainbow_sweep_max")
         val legacyRainbowDiagonalSweep = floatPreferencesKey("rainbow_diagonal_sweep")
         val rainbowHalo = floatPreferencesKey("rainbow_halo")
+        val navigationHomeAddress = stringPreferencesKey("navigation_home_address")
+        val navigationSchoolAddress = stringPreferencesKey("navigation_school_address")
+        val navigationCompanyAddress = stringPreferencesKey("navigation_company_address")
+        val navigationDormAddress = stringPreferencesKey("navigation_dorm_address")
     }
 
     val preferencesFlow: Flow<AssistantPreferences> = context.assistantPreferencesDataStore.data
@@ -77,7 +85,11 @@ class AssistantPreferencesStore(private val context: Context) {
                     sweepMin = sweepMin,
                     sweepMax = sweepMax,
                     rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo).coerceIn(0f, 2f)
-                )
+                ),
+                navigationHomeAddress = preferences[Keys.navigationHomeAddress].orEmpty(),
+                navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
+                navigationCompanyAddress = preferences[Keys.navigationCompanyAddress].orEmpty(),
+                navigationDormAddress = preferences[Keys.navigationDormAddress].orEmpty()
             )
         }
 
@@ -128,6 +140,18 @@ class AssistantPreferencesStore(private val context: Context) {
             it[Keys.rainbowSweepMin] = minValue
             it[Keys.rainbowSweepMax] = maxValue
             it[Keys.rainbowHalo] = style.rainbowHalo.coerceIn(0f, 2f)
+        }
+    }
+
+    suspend fun setNavigationAddress(slot: String, address: String) {
+        val cleanAddress = address.trim().take(80)
+        context.assistantPreferencesDataStore.edit { preferences ->
+            when (slot) {
+                "home" -> preferences[Keys.navigationHomeAddress] = cleanAddress
+                "school" -> preferences[Keys.navigationSchoolAddress] = cleanAddress
+                "company" -> preferences[Keys.navigationCompanyAddress] = cleanAddress
+                "dorm" -> preferences[Keys.navigationDormAddress] = cleanAddress
+            }
         }
     }
 }
