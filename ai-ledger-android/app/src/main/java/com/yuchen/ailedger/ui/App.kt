@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,8 +49,11 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
+import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
@@ -64,6 +68,12 @@ private data class PendingMobileAction(
     val command: MobileCommand,
 )
 
+private data class NavigationPreferenceUpdate(
+    val slot: String,
+    val label: String,
+    val address: String,
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
@@ -73,6 +83,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val clipboardManager = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
+    val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
     val assistantBottomPadding = if (isKeyboardOpen) 8.dp else 68.dp
@@ -81,6 +92,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
+    val latestMessageId = state.messages.lastOrNull()?.id
+
+    LaunchedEffect(latestMessageId) {
+        val update = parseCloudNavigationPreferenceUpdate(state.messages) ?: return@LaunchedEffect
+        if (!isNavigationPreferenceAlreadySaved(state, update)) {
+            preferencesStore.setNavigationAddress(update.slot, update.address)
+        }
+    }
+
     val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction) {
         { quickReply: String ->
             val pending = pendingMobileAction
@@ -285,6 +305,54 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): NavigationPreferenceUpdate? {
+    val latestAssistant = messages.lastOrNull { it.role == MessageRole.Assistant && it.text.isNotBlank() } ?: return null
+    val source = latestAssistant.source.orEmpty()
+    if (!source.startsWith("cloud")) return null
+    val previousUser = messages.takeWhile { it.id != latestAssistant.id }
+        .lastOrNull { it.role == MessageRole.User }
+        ?.text
+        .orEmpty()
+    val combined = previousUser + "\n" + latestAssistant.text
+    val slot = inferNavigationPreferenceSlot(combined) ?: return null
+    val address = extractCloudNavigationAddress(latestAssistant.text) ?: return null
+    val label = when (slot) {
+        "home" -> "家"
+        "school" -> "学校"
+        "company" -> "公司"
+        "dorm" -> "宿舍"
+        else -> return null
+    }
+    return NavigationPreferenceUpdate(slot = slot, label = label, address = address)
+}
+
+private fun inferNavigationPreferenceSlot(text: String): String? = when {
+    Regex("家|回家|去家里|到家").containsMatchIn(text) -> "home"
+    Regex("学校|校园|校区").containsMatchIn(text) -> "school"
+    Regex("公司|单位|上班").containsMatchIn(text) -> "company"
+    Regex("宿舍|寝室|寝舍").containsMatchIn(text) -> "dorm"
+    else -> null
+}
+
+private fun extractCloudNavigationAddress(text: String): String? {
+    val explicit = Regex("地址[:：]\\s*([^\n。]+)").find(text)?.groupValues?.getOrNull(1)?.trim()
+    if (!explicit.isNullOrBlank()) return explicit.take(80)
+    val setAs = Regex("设置为[:：]?\\s*([^\n。]+)").find(text)?.groupValues?.getOrNull(1)?.trim()
+    if (!setAs.isNullOrBlank()) return setAs.removePrefix("📍").trim().take(80)
+    return null
+}
+
+private fun isNavigationPreferenceAlreadySaved(state: AssistantUiState, update: NavigationPreferenceUpdate): Boolean {
+    val current = when (update.slot) {
+        "home" -> state.navigationHomeAddress
+        "school" -> state.navigationSchoolAddress
+        "company" -> state.navigationCompanyAddress
+        "dorm" -> state.navigationDormAddress
+        else -> ""
+    }
+    return current.trim() == update.address.trim()
 }
 
 private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
