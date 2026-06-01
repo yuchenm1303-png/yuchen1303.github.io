@@ -32,9 +32,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassViewportTopInset
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -181,8 +181,7 @@ fun AssistantScreenV2(
             initialScale = 0.955f
         ) {
             CompositionLocalProvider(
-                LocalOpenGLGlassSurfaceAnchor provides shellAnchor,
-                LocalOpenGLGlassViewportTopInset provides modelExpandDelta
+                LocalOpenGLGlassSurfaceAnchor provides shellAnchor
             ) {
                 ChatPanelV2(
                     state = state,
@@ -267,7 +266,8 @@ private fun ModelAndNetworkPanel(
             expanded = expanded,
             modifier = Modifier
                 .fillMaxWidth()
-                .requiredHeight(panelHeight),
+                .requiredHeight(panelHeight)
+                .wrapContentSize(Alignment.TopStart, unbounded = true),
             onToggleExpanded = {
                 if (!state.isSending) onExpandedChange(!expanded)
             },
@@ -316,21 +316,23 @@ private fun ChatPanelV2(
             listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
-    GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 30, modifier.fillMaxWidth(), GlassRole.Shell) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = modifier.fillMaxWidth(),
+        role = GlassRole.Shell,
+        viewportTopInset = viewportTopInset
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
+                .clip(RoundedCornerShape(30.dp))
                 .clipToBounds()
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(top = viewportTopInset)
-                    .clip(RoundedCornerShape(30.dp))
-                    .clipToBounds()
-            ) {
-                RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
-                Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
+            Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
@@ -375,7 +377,6 @@ private fun ChatPanelV2(
                         item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                     }
                 }
-            }
             }
         }
     }
