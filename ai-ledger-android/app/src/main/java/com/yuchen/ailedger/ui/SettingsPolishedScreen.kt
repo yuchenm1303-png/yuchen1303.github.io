@@ -6,6 +6,8 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -35,8 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -137,14 +138,34 @@ private fun SettingsHeader() {
 }
 
 @Composable
-private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    FrostInfoGlassPanel(
-        radius = 17.44f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.078f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth().height(176.dp)
+private fun SettingsGlassFrame(
+    modifier: Modifier = Modifier,
+    radius: Int = 28,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(radius.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color(0xFF151A4F).copy(alpha = 0.42f))
+            .border(1.dp, Color.White.copy(alpha = 0.28f), shape)
     ) {
+        FrostInfoGlassPanel(
+            radius = 17.44f,
+            backdropAlpha = 1f,
+            frostAlpha = 0.088f,
+            dimAlpha = 0f,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
+    SettingsGlassFrame(modifier = Modifier.height(176.dp), radius = 30) {
         Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -252,13 +273,7 @@ private fun SettingsIconBadge(text: String, active: Boolean) {
 
 @Composable
 private fun SettingsDetailPanel(panel: SettingsPanel, state: AssistantUiState, aiEndpoint: String, onQualityChange: (RenderQuality) -> Unit, onPreviewConversationChange: (Boolean) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit, onBackdropChange: (BackdropDebugParams) -> Unit, onBorderChange: (GlassBorderStyle) -> Unit, onUploadBackgroundClick: () -> Unit, onClearCustomBackgroundClick: () -> Unit) {
-    FrostInfoGlassPanel(
-        radius = 17.44f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.085f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    SettingsGlassFrame(radius = 28) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             DetailHeader(panelTitle(panel), panelSubtitle(panel))
             Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
