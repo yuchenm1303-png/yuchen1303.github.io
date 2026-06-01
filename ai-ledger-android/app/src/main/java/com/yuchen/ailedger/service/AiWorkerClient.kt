@@ -24,6 +24,24 @@ data class AiWorkerConfig(
     val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS
 )
 
+data class CloudMobileAction(
+    val type: String,
+    val title: String? = null,
+    val destination: String? = null,
+    val appName: String? = null,
+    val packageName: String? = null,
+    val hour: Int? = null,
+    val minute: Int? = null,
+    val label: String? = null
+)
+
+data class CloudPreferenceUpdate(
+    val type: String,
+    val slot: String,
+    val label: String,
+    val value: String
+)
+
 data class AiChatResponse(
     val reply: String,
     val source: String = "cloud_ai",
@@ -32,6 +50,8 @@ data class AiChatResponse(
     val version: String? = null,
     val webSources: List<WebSource> = emptyList(),
     val structuredData: StructuredDataCard? = null,
+    val mobileAction: CloudMobileAction? = null,
+    val preferenceUpdate: CloudPreferenceUpdate? = null,
     val searchUsed: Boolean = false,
     val searchProvider: String? = null
 )
@@ -293,16 +313,45 @@ class AiWorkerClient(
                 put("enabled", onlineEnabled)
                 put("supportedTypes", JSONArray(listOf("stock", "weather", "exchange_rate", "sports")))
             })
+            put("commandProtocol", JSONObject().apply {
+                put("enabled", true)
+                put("version", 1)
+                put("client", "android-compose")
+                put("returnNaturalReply", true)
+                put("requireConfirmationForActions", true)
+                put("supportedMobileActions", JSONArray(listOf("set_alarm", "open_app", "navigate")))
+                put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
+                put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
+                put("schema", JSONObject().apply {
+                    put("mobileAction", JSONObject().apply {
+                        put("type", "set_alarm | open_app | navigate")
+                        put("destination", "导航目的地，仅 navigate 使用")
+                        put("appName", "应用名，仅 open_app 使用")
+                        put("packageName", "可选包名，仅 open_app 使用")
+                        put("hour", "0-23，仅 set_alarm 使用")
+                        put("minute", "0-59，仅 set_alarm 使用")
+                        put("label", "闹钟标签或动作说明")
+                    })
+                    put("preferenceUpdate", JSONObject().apply {
+                        put("type", "navigation_address")
+                        put("slot", "home | school | company | dorm")
+                        put("label", "家 | 学校 | 公司 | 宿舍")
+                        put("value", "用户希望保存的完整地址")
+                    })
+                })
+            })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
+                put("includeMobileAction", true)
+                put("includePreferenceUpdate", true)
             })
             put("accessPolicy", "cn_gateway_primary")
             put("primaryEndpointRole", "aliyun_cn_gateway")
             put("fallbackEndpointRole", "cloudflare_worker")
 
             put("client", "android-compose")
-            put("clientVersion", "compose-native-web-data-v1")
+            put("clientVersion", "compose-native-command-protocol-v1")
             put("now", System.currentTimeMillis())
         }
     }
@@ -384,6 +433,8 @@ class AiWorkerClient(
                 version = rawVersion,
                 webSources = parseWebSources(data),
                 structuredData = parseStructuredData(data),
+                mobileAction = parseCloudMobileAction(data),
+                preferenceUpdate = parseCloudPreferenceUpdate(data),
                 searchUsed = data?.optBoolean("searchUsed", false) ?: false,
                 searchProvider = data?.optString("searchProvider").notBlankOrNull()
             )
@@ -514,6 +565,62 @@ class AiWorkerClient(
         }.take(8)
     }
 
+    private fun parseCloudMobileAction(data: JSONObject?): CloudMobileAction? {
+        val item = data?.optJSONObject("mobileAction")
+            ?: data?.optJSONObject("command")
+            ?: data?.optJSONObject("data")?.optJSONObject("mobileAction")
+            ?: data?.optJSONObject("result")?.optJSONObject("mobileAction")
+            ?: return null
+        val rawType = item.optString("type").notBlankOrNull()
+            ?: item.optString("action").notBlankOrNull()
+            ?: return null
+        val type = rawType.lowercase().replace('-', '_')
+        if (type !in setOf("set_alarm", "open_app", "navigate")) return null
+        return CloudMobileAction(
+            type = type,
+            title = item.optString("title").notBlankOrNull(),
+            destination = item.optString("destination").notBlankOrNull()
+                ?: item.optString("target").notBlankOrNull(),
+            appName = item.optString("appName").notBlankOrNull()
+                ?: item.optString("app").notBlankOrNull(),
+            packageName = item.optString("packageName").notBlankOrNull()
+                ?: item.optString("package").notBlankOrNull(),
+            hour = item.optIntOrNull("hour"),
+            minute = item.optIntOrNull("minute"),
+            label = item.optString("label").notBlankOrNull()
+                ?: item.optString("message").notBlankOrNull()
+        )
+    }
+
+    private fun parseCloudPreferenceUpdate(data: JSONObject?): CloudPreferenceUpdate? {
+        val item = data?.optJSONObject("preferenceUpdate")
+            ?: data?.optJSONObject("preference")
+            ?: data?.optJSONObject("data")?.optJSONObject("preferenceUpdate")
+            ?: data?.optJSONObject("result")?.optJSONObject("preferenceUpdate")
+            ?: return null
+        val type = item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
+        if (type != "navigation_address") return null
+        val slot = item.optString("slot").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
+        if (slot !in setOf("home", "school", "company", "dorm")) return null
+        val value = item.optString("value").notBlankOrNull()
+            ?: item.optString("address").notBlankOrNull()
+            ?: item.optString("destination").notBlankOrNull()
+            ?: return null
+        val label = item.optString("label").notBlankOrNull() ?: when (slot) {
+            "home" -> "家"
+            "school" -> "学校"
+            "company" -> "公司"
+            "dorm" -> "宿舍"
+            else -> slot
+        }
+        return CloudPreferenceUpdate(
+            type = type,
+            slot = slot,
+            label = label.take(12),
+            value = value.trim().take(80)
+        )
+    }
+
     private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
         "stock" -> "股票行情"
         "weather" -> "天气"
@@ -563,6 +670,15 @@ class AiWorkerClient(
     }
 
     private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
+
+    private fun JSONObject.optIntOrNull(key: String): Int? {
+        if (!has(key) || isNull(key)) return null
+        return try {
+            getInt(key)
+        } catch (_: Exception) {
+            optString(key).toIntOrNull()
+        }
+    }
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
         val recent = filter { message ->
