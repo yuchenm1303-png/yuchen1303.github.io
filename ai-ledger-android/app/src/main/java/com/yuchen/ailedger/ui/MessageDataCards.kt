@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,7 +75,8 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
 
 @Composable
 private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
-    val previewCount = 2.coerceAtMost(sources.size)
+    var expanded by remember(sources) { mutableStateOf(false) }
+    val previewCount = if (expanded) sources.size else 2.coerceAtMost(sources.size)
     val hiddenCount = (sources.size - previewCount).coerceAtLeast(0)
 
     LightweightDataCard {
@@ -85,21 +91,37 @@ private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
             }
 
             sources.take(previewCount).forEachIndexed { index, source ->
-                WebSourceRow(index + 1, source)
+                WebSourceRow(index + 1, source, expanded = expanded)
             }
 
             if (hiddenCount > 0) {
-                Text(
-                    text = "还有 $hiddenCount 条来源已收起",
-                    color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                SourceTogglePill(text = "展开全部 ${sources.size} 条来源") {
+                    expanded = true
+                }
+            } else if (expanded && sources.size > 2) {
+                SourceTogglePill(text = "收起来源") {
+                    expanded = false
+                }
             }
         }
     }
+}
+
+@Composable
+private fun SourceTogglePill(text: String, onClick: () -> Unit) {
+    Text(
+        text = text,
+        color = Color(0xFF9FD8FF).copy(alpha = 0.74f),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Black,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.07f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp)
+    )
 }
 
 @Composable
@@ -115,7 +137,7 @@ private fun LightweightDataCard(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun WebSourceRow(index: Int, source: WebSource) {
+private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -130,7 +152,16 @@ private fun WebSourceRow(index: Int, source: WebSource) {
             Text(source.title.ifBlank { source.domain.ifBlank { "来源 $index" } }, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = listOf(source.domain, source.publishedAt.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (source.snippet.isNotBlank()) Text(source.snippet, color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (source.snippet.isNotBlank()) {
+                Text(
+                    source.snippet,
+                    color = Color.White.copy(alpha = 0.50f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    maxLines = if (expanded) 2 else 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
