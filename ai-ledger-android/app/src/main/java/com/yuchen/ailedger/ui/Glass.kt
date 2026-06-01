@@ -1,6 +1,13 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -9,10 +16,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -20,13 +32,18 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
+import kotlinx.coroutines.launch
 
 enum class GlassRole(
     val fillScale: Float,
@@ -77,6 +94,29 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     }
 }
 
+private fun glassSmoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+private fun ordinaryGlassElasticity(role: GlassRole, size: Size): Float {
+    if (role == GlassRole.Shell) return 0f
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val maxSide = maxOf(w, h)
+    val maxSideDamp = ((720f - maxSide) / 520f).coerceIn(0.24f, 1f)
+    val heightDamp = ((360f - h) / 260f).coerceIn(0.50f, 1f)
+    val roleGain = when (role) {
+        GlassRole.Chip -> 1.00f
+        GlassRole.Floating -> 0.94f
+        GlassRole.Flex -> 0.82f
+        GlassRole.Card -> 0.68f
+        GlassRole.Nav -> 0.54f
+        GlassRole.Shell -> 0f
+    }
+    return (maxSideDamp * heightDamp * roleGain).coerceIn(0.16f, 1f)
+}
+
 @Composable
 fun GlassPanel(
     quality: RenderQuality,
@@ -90,19 +130,84 @@ fun GlassPanel(
     content: @Composable () -> Unit
 ) {
     val effectiveRadius = effectiveGlassRadius(radius, role)
-    val effectiveIntensity = intensity ?: glassIntensity
+    val baseIntensity = intensity ?: glassIntensity
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+    val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
-    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
-    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
-    val key = remember { Any() }
     val density = LocalDensity.current
     val safeViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
     val safeViewportTopInsetPx = with(density) { safeViewportTopInset.toPx() }
-    val pressedGlassIntensity = effectiveIntensity
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
+    val key = remember { Any() }
+
+    val shellPressEnabled = role == GlassRole.Shell && motionIntensity > 0.02f
+    val shellPress = remember { Animatable(0f) }
+    val shellOpenGlPressAnim = remember { Animatable(0f) }
+    val shellPressScope = rememberCoroutineScope()
+    var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    var shellPressCenter by remember { mutableStateOf(Offset(0.50f, 0.42f)) }
+
+    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(-0.14f, 1.08f) else 0f
+    val shellPressCompression = glassSmoothStep((shellPressValue.coerceAtLeast(0f) / 0.72f).coerceIn(0f, 1f))
+    val shellOpenGlPress = if (shellPressEnabled) shellOpenGlPressAnim.value.coerceIn(0f, 1f) else 0f
+    val shellPressRebound = glassSmoothStep((-shellPressValue / 0.10f).coerceIn(0f, 1f))
+    val shellSurfaceOpticsPress = if (shellPressEnabled) {
+        maxOf(shellPressValue.coerceAtLeast(0f), shellOpenGlPress * 0.62f, shellPressRebound * 0.24f)
+    } else 0f
+    val pressedGlassIntensity = baseIntensity * (1f + shellPressCompression * 0.10f)
+
+    val shellPressModifier = if (shellPressEnabled) {
+        Modifier
+            .onSizeChanged { size ->
+                shellPressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
+            }
+            .pointerInput(motionIntensity) {
+                awaitEachGesture {
+                    fun updatePressCenter(position: Offset) {
+                        shellPressCenter = Offset(
+                            x = (position.x / shellPressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                            y = (position.y / shellPressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        )
+                    }
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
+                    shellPressScope.launch {
+                        shellPress.stop()
+                        if (shellPress.value < 0.18f) shellPress.snapTo(0.18f)
+                        shellPress.animateTo(0.42f, tween(150, easing = FastOutSlowInEasing))
+                        shellPress.animateTo(0.70f, tween(520, easing = FastOutSlowInEasing))
+                    }
+                    shellPressScope.launch {
+                        shellOpenGlPressAnim.stop()
+                        shellOpenGlPressAnim.animateTo(0.28f, tween(220, easing = FastOutSlowInEasing))
+                        shellOpenGlPressAnim.animateTo(0.84f, tween(520, easing = FastOutSlowInEasing))
+                    }
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) break
+                        }
+                        if (event.changes.none { it.pressed }) break
+                    }
+                    shellPressScope.launch {
+                        shellOpenGlPressAnim.stop()
+                        shellOpenGlPressAnim.animateTo(0f, tween(560, easing = FastOutSlowInEasing))
+                    }
+                    shellPressScope.launch {
+                        shellPress.stop()
+                        shellPress.animateTo(-0.060f, tween(170, easing = FastOutSlowInEasing))
+                        shellPress.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow))
+                    }
+                }
+            }
+    } else Modifier
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -124,7 +229,17 @@ fun GlassPanel(
 
     Box(
         modifier = modifier
+            .then(shellPressModifier)
             .onPlaced { coordinates.coordinates = it }
+            .graphicsLayer {
+                if (shellPressEnabled) {
+                    transformOrigin = TransformOrigin(shellPressCenter.x, shellPressCenter.y)
+                    scaleX = 1f + shellPressCompression * 0.014f - shellPressRebound * 0.004f
+                    scaleY = 1f - shellPressCompression * 0.022f + shellPressRebound * 0.008f
+                    translationY = shellPressCompression * 2.10f - shellPressRebound * 0.80f
+                    shadowElevation = shellPressCompression * 0.45f
+                }
+            }
     ) {
         if (useCardOpenGlBackdrop) {
             OpenGLGlassCardLayer(
@@ -132,6 +247,8 @@ fun GlassPanel(
                 glassIntensity = pressedGlassIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize(),
+                pressProgress = shellOpenGlPress,
+                pressCenter = shellPressCenter,
                 viewportTopInsetPx = safeViewportTopInsetPx
             )
         }
@@ -171,8 +288,8 @@ fun GlassPanel(
                         .glassSkin(
                             quality = quality,
                             radius = effectiveRadius,
-                            shimmer = rememberGlassShimmer(quality, motionIntensity),
-                            breathe = rememberGlassBreath(quality, motionIntensity),
+                            shimmer = shimmer + shellPressCompression * 0.030f,
+                            breathe = breathe,
                             glassIntensity = pressedGlassIntensity,
                             includeShadow = false
                         )
@@ -180,6 +297,18 @@ fun GlassPanel(
             }
 
             content()
+
+            if (shellPressEnabled && shellSurfaceOpticsPress > 0.001f) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .shellPressSurfaceOptics(
+                            press = shellSurfaceOpticsPress,
+                            radius = effectiveRadius,
+                            pressCenter = shellPressCenter
+                        )
+                )
+            }
         }
     }
 }
@@ -192,23 +321,170 @@ fun PressableGlass(
     radius: Int,
     modifier: Modifier = Modifier,
     role: GlassRole = GlassRole.Chip,
-    onClick: () -> Unit = {},
     intensity: Float? = null,
+    onClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
-    val effectiveIntensity = intensity ?: glassIntensity
-    GlassPanel(
-        quality = quality,
-        glassIntensity = effectiveIntensity,
-        motionIntensity = motionIntensity,
-        radius = radius,
-        modifier = modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick
+    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val baseIntensity = intensity ?: glassIntensity
+    val interaction = remember { MutableInteractionSource() }
+    val pressScope = rememberCoroutineScope()
+    val ordinaryPress = remember { Animatable(0f) }
+    val ordinaryLens = remember { Animatable(0f) }
+    var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
+    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    val motion = motionIntensity.coerceIn(0f, 1f)
+    val ordinaryPressEnabled = role != GlassRole.Shell && motion > 0.02f
+    val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * motion else 0f
+    val pressValue = if (ordinaryPressEnabled) ordinaryPress.value.coerceIn(-0.20f, 1.32f) else 0f
+    val positivePress = pressValue.coerceAtLeast(0f)
+    val rebound = glassSmoothStep((-pressValue / 0.18f).coerceIn(0f, 1f))
+    val pressCompression = glassSmoothStep((positivePress / 0.94f).coerceIn(0f, 1f))
+    val lensValue = if (ordinaryPressEnabled) ordinaryLens.value.coerceIn(0f, 1.12f) else 0f
+    val opticsPress = maxOf(positivePress, lensValue * 0.86f, rebound * 0.28f)
+    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.040f + 0.150f * elasticity))
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+    val breathe = rememberGlassBreath(quality, motionIntensity)
+    val coordinates = remember { GlassCoordinateSource() }
+    val registry = LocalGlassItemRegistry.current
+    val backdrop = LocalGlassBackdrop.current
+    val cardBackdrop = LocalBlurredBackdrop.current
+    val key = remember { Any() }
+    val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
+    val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
+    val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
+
+    if (useUnifiedBackdrop) {
+        SideEffect {
+            registry?.upsert(
+                GlassRenderItem(
+                    key = key,
+                    coordinates = coordinates,
+                    radius = effectiveRadius,
+                    role = role,
+                    quality = quality,
+                    glassIntensity = pressedIntensity,
+                    edgeStrength = UNIFIED_EDGE_STRENGTH,
+                    backdropAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f)
+                )
+            )
+        }
+    }
+    DisposableEffect(registry, key, useUnifiedBackdrop) { onDispose { registry?.remove(key) } }
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { size -> pressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat()) }
+            .pointerInput(ordinaryPressEnabled, motionIntensity, role) {
+                if (!ordinaryPressEnabled) return@pointerInput
+                awaitEachGesture {
+                    fun updatePressCenter(position: Offset) {
+                        pressCenter = Offset(
+                            (position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                            (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        )
+                    }
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
+                    pressScope.launch {
+                        ordinaryPress.stop()
+                        if (ordinaryPress.value < 0.22f) ordinaryPress.snapTo(0.22f)
+                        ordinaryPress.animateTo(1.02f, tween(180, easing = FastOutSlowInEasing))
+                    }
+                    pressScope.launch {
+                        ordinaryLens.stop()
+                        if (ordinaryLens.value < 0.18f) ordinaryLens.snapTo(0.18f)
+                        ordinaryLens.animateTo(0.92f, tween(240, easing = FastOutSlowInEasing))
+                    }
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) break
+                        }
+                        if (event.changes.none { it.pressed }) break
+                    }
+                    pressScope.launch {
+                        ordinaryPress.stop()
+                        ordinaryPress.animateTo(-0.145f, tween(130, easing = FastOutSlowInEasing))
+                        ordinaryPress.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
+                    }
+                    pressScope.launch {
+                        ordinaryLens.stop()
+                        ordinaryLens.animateTo(0f, tween(460, easing = FastOutSlowInEasing))
+                    }
+                }
+            }
+            .onPlaced { coordinates.coordinates = it }
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
+                scaleX = 1f + pressCompression * (0.006f + 0.049f * elasticity) - rebound * 0.018f * elasticity
+                scaleY = 1f - pressCompression * (0.010f + 0.064f * elasticity) + rebound * 0.030f * elasticity
+                translationY = pressCompression * (0.70f + 3.90f * elasticity) - rebound * 1.55f * elasticity
+                shadowElevation = pressCompression * (0.16f + 0.66f * elasticity)
+            }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity)
+    ) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(radius = effectiveRadius, glassIntensity = pressedIntensity, coordinateSource = coordinates, modifier = Modifier.matchParentSize())
+        } else if (!useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
+            SampledWeatherGlassBackdrop(Modifier.matchParentSize(), effectiveRadius, coordinates, backdrop.quality, backdrop.motionIntensity, backdrop.theme, blurForRole(role), UNIFIED_GLASS_BACKDROP_ALPHA * pressedIntensity.coerceIn(0.70f, 1.25f))
+            SampledWeatherEdgeRefraction(Modifier.matchParentSize(), effectiveRadius, coordinates, backdrop.quality, backdrop.motionIntensity, backdrop.theme, UNIFIED_EDGE_STRENGTH)
+        }
+        if (!useCardOpenGlBackdrop) {
+            Box(Modifier.matchParentSize().glassSkin(quality, effectiveRadius, shimmer + 0.030f * pressCompression, breathe, pressedIntensity, includeShadow = false))
+        }
+        content()
+        if (ordinaryPressEnabled && opticsPress > 0.001f) {
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, effectiveRadius, pressCenter, role, elasticity))
+        }
+    }
+}
+
+private fun Modifier.ordinaryPressSurfaceOptics(
+    press: Float,
+    radius: Int,
+    pressCenter: Offset,
+    role: GlassRole,
+    elasticity: Float
+): Modifier = drawWithContent {
+    val e = elasticity.coerceIn(0.08f, 1f)
+    val safePress = press.coerceIn(0f, 1.28f)
+    if (safePress < 0.001f || role == GlassRole.Shell) {
+        drawContent()
+        return@drawWithContent
+    }
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val maxSide = maxOf(w, h)
+    val centerNorm = Offset(pressCenter.x.coerceIn(0f, 1f), pressCenter.y.coerceIn(0f, 1f))
+    val center = Offset(centerNorm.x * w, centerNorm.y * h)
+    val p = glassSmoothStep((safePress / 0.92f).coerceIn(0f, 1f)) * e
+    val chroma = when (role) {
+        GlassRole.Chip -> 1.00f
+        GlassRole.Floating -> 0.95f
+        GlassRole.Flex -> 0.82f
+        GlassRole.Card -> 0.66f
+        GlassRole.Nav -> 0.58f
+        GlassRole.Shell -> 0f
+    }
+    drawContent()
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.150f * p),
+                Color(0xFF9DFFF1).copy(alpha = 0.080f * p * chroma),
+                Color(0xFFFF8FE7).copy(alpha = 0.052f * p * chroma),
+                Color.Transparent
+            ),
+            center = center,
+            radius = maxSide * (0.32f + 0.16f * p)
         ),
-        role = role,
-        content = content
+        size = Size(w, h),
+        cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx()),
+        blendMode = BlendMode.Screen
     )
 }
 
@@ -232,6 +508,58 @@ private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float): Modifi
             spotColor = Color.White.copy(alpha = material.shadowSpot)
         )
         .clip(shape)
+}
+
+private fun Modifier.shellPressSurfaceOptics(
+    press: Float,
+    radius: Int,
+    pressCenter: Offset
+): Modifier = drawWithContent {
+    drawContent()
+    val safePress = press.coerceIn(0f, 1.08f)
+    if (safePress < 0.001f) return@drawWithContent
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val maxSide = maxOf(w, h)
+    val p = glassSmoothStep((safePress / 0.72f).coerceIn(0f, 1f))
+    val centerNorm = Offset(pressCenter.x.coerceIn(0f, 1f), pressCenter.y.coerceIn(0f, 1f))
+    val center = Offset(centerNorm.x * w, centerNorm.y * h)
+    val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+    val rimInset = 0.56.dp.toPx()
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.090f * p),
+                Color(0xFFB8F7FF).copy(alpha = 0.044f * p),
+                Color(0xFFFF8BE8).copy(alpha = 0.026f * p),
+                Color.Transparent
+            ),
+            center = center,
+            radius = maxSide * (0.72f + 0.18f * p)
+        ),
+        size = Size(w, h),
+        cornerRadius = cornerRadius,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF6ADB).copy(alpha = 0.16f * p),
+                Color.White.copy(alpha = 0.26f * p),
+                Color(0xFF62FFF0).copy(alpha = 0.18f * p),
+                Color.Transparent
+            ),
+            start = Offset(w * -0.16f, h * 0.04f),
+            end = Offset(w * 0.96f, h * 0.74f)
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = cornerRadius,
+        style = Stroke(0.80.dp.toPx() + 0.35.dp.toPx() * p),
+        blendMode = BlendMode.Plus
+    )
 }
 
 fun Modifier.glassSkin(
