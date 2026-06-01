@@ -17,6 +17,11 @@ import org.json.JSONObject
 private const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 
+private val embeddedCommandRegex = Regex(
+    pattern = """\[\[AI_LEDGER_COMMAND:(\{.*?\})]]""",
+    options = setOf(RegexOption.DOT_MATCHES_ALL)
+)
+
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
     val fallbackEndpoints: List<String> = AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS,
@@ -274,7 +279,8 @@ class AiWorkerClient(
         route: ModelRoute,
         onlineEnabled: Boolean
     ): JSONObject {
-        val workerMessages = messages.toWorkerMessages()
+        val commandInstruction = commandProtocolSystemPrompt()
+        val workerMessages = messages.toWorkerMessages(commandInstruction)
         val latestUserText = latestUserText(messages)
         val resolvedId = route.resolved.id
         val searchMode = if (onlineEnabled) "force" else "off"
@@ -283,6 +289,8 @@ class AiWorkerClient(
             put("action", "chat")
             put("intent", "chat")
             put("messages", workerMessages)
+            put("systemPrompt", commandInstruction)
+            put("commandProtocolInstruction", commandInstruction)
             put("message", latestUserText)
             put("prompt", latestUserText)
             put("text", latestUserText)
@@ -322,6 +330,8 @@ class AiWorkerClient(
                 put("supportedMobileActions", JSONArray(listOf("set_alarm", "open_app", "navigate")))
                 put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
                 put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
+                put("fallbackTransport", "embedded_marker")
+                put("embeddedMarker", "[[AI_LEDGER_COMMAND:{...}]]")
                 put("schema", JSONObject().apply {
                     put("mobileAction", JSONObject().apply {
                         put("type", "set_alarm | open_app | navigate")
@@ -345,6 +355,7 @@ class AiWorkerClient(
                 put("includeStructuredData", true)
                 put("includeMobileAction", true)
                 put("includePreferenceUpdate", true)
+                put("includeEmbeddedCommandMarker", true)
             })
             put("accessPolicy", "cn_gateway_primary")
             put("primaryEndpointRole", "aliyun_cn_gateway")
@@ -355,6 +366,22 @@ class AiWorkerClient(
             put("now", System.currentTimeMillis())
         }
     }
+
+    private fun commandProtocolSystemPrompt(): String = """
+        你正在服务一个 Android Compose AI 助手。你可以正常用中文回复用户，但当用户表达以下意图时，必须额外输出机器可读标记，格式必须完全如下：
+        [[AI_LEDGER_COMMAND:{"preferenceUpdate":{"type":"navigation_address","slot":"home|school|company|dorm","label":"家|学校|公司|宿舍","value":"完整地址"}}]]
+        或：
+        [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"navigate","destination":"目的地"}}]]
+        [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"open_app","appName":"应用名","packageName":"可选包名"}}]]
+        [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"set_alarm","hour":8,"minute":0,"label":"提醒内容"}}]]
+
+        规则：
+        1. 用户说“把家/学校/公司/宿舍设置为……”“以后回家就是……”“家在……”时，返回 preferenceUpdate，slot 只能是 home、school、company、dorm。
+        2. 用户要求导航、打开应用、设置闹钟时，返回 mobileAction。导航、闹钟、打开应用都需要用户在本地确认后才会执行。
+        3. 标记必须追加在回复末尾，不要解释这个标记，不要把标记放进代码块。
+        4. 没有手机动作或偏好更新时，不要输出标记。
+        5. 自然语言回复可以保留，但不要声称你已经直接调用了手机系统；只能说“我已识别/已保存/请确认”。
+    """.trimIndent()
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
         val knownChatPath =
@@ -405,8 +432,10 @@ class AiWorkerClient(
 
             throwIfServerReturnedFallbackSignal(data)
 
-            val reply = extractReply(data, body).trim()
-            if (reply.isBlank()) throw IOException("云端没有返回有效回复")
+            val rawReply = extractReply(data, body).trim()
+            val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
+            val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
+            if (displayReply.isBlank() && embeddedCommand == null) throw IOException("云端没有返回有效回复")
 
             val rawModel =
                 data?.optString("model").notBlankOrNull()
@@ -425,16 +454,24 @@ class AiWorkerClient(
                     resolvedLabel
                 }
 
+            val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
+            val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
+            val fallbackReply = when {
+                parsedMobileAction != null -> "我识别到一个手机动作，请确认后执行。"
+                parsedPreferenceUpdate != null -> "我已识别到一项偏好更新。"
+                else -> rawReply
+            }
+
             AiChatResponse(
-                reply = reply,
+                reply = displayReply.ifBlank { fallbackReply },
                 source = data?.optString("source").notBlankOrNull() ?: "cloud_ai",
                 model = rawModel,
                 modelLabel = displayLabel,
                 version = rawVersion,
                 webSources = parseWebSources(data),
                 structuredData = parseStructuredData(data),
-                mobileAction = parseCloudMobileAction(data),
-                preferenceUpdate = parseCloudPreferenceUpdate(data),
+                mobileAction = parsedMobileAction,
+                preferenceUpdate = parsedPreferenceUpdate,
                 searchUsed = data?.optBoolean("searchUsed", false) ?: false,
                 searchProvider = data?.optString("searchProvider").notBlankOrNull()
             )
@@ -621,6 +658,15 @@ class AiWorkerClient(
         )
     }
 
+    private fun extractEmbeddedCommandJson(text: String): JSONObject? {
+        val payload = embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1) ?: return null
+        return payload.toJsonOrNull()
+    }
+
+    private fun stripEmbeddedCommandMarker(text: String): String {
+        return embeddedCommandRegex.replace(text, "").trim()
+    }
+
     private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
         "stock" -> "股票行情"
         "weather" -> "天气"
@@ -680,7 +726,7 @@ class AiWorkerClient(
         }
     }
 
-    private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
+    private fun List<ChatMessage>.toWorkerMessages(systemInstruction: String): JSONArray {
         val recent = filter { message ->
             when (message.role) {
                 MessageRole.User -> message.text.isNotBlank() && message.status != MessageStatus.Sending
@@ -691,6 +737,10 @@ class AiWorkerClient(
         val clean = recent.dropWhile { it.role != MessageRole.User }
 
         return JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "system")
+                put("content", systemInstruction)
+            })
             clean.forEach { message ->
                 put(JSONObject().apply {
                     put("role", if (message.role == MessageRole.User) "user" else "assistant")
