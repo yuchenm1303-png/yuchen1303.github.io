@@ -14,6 +14,7 @@ import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.widget.TextView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -233,6 +234,7 @@ private fun MobileCommandInlineCard(
     lineHeight: TextUnit,
     fontWeight: FontWeight?
 ) {
+    val quickReply = LocalMobileCommandQuickReply.current
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         if (data.intro.isNotBlank()) {
             MaterialText(
@@ -286,8 +288,8 @@ private fun MobileCommandInlineCard(
             )
             if (data.pending) {
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    MobileCommandChip("回复 确认")
-                    MobileCommandChip("回复 取消", dim = true)
+                    MobileCommandChip("确认执行", onClick = { quickReply?.invoke("确认") })
+                    MobileCommandChip("取消", dim = true, onClick = { quickReply?.invoke("取消") })
                 }
             } else if (!data.result.isNullOrBlank()) {
                 MaterialText(
@@ -303,11 +305,13 @@ private fun MobileCommandInlineCard(
 }
 
 @Composable
-private fun MobileCommandChip(text: String, dim: Boolean = false) {
+private fun MobileCommandChip(text: String, dim: Boolean = false, onClick: (() -> Unit)? = null) {
+    val clickableModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Box(
         Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color.White.copy(alpha = if (dim) 0.055f else 0.105f))
+            .then(clickableModifier)
             .padding(horizontal = 9.dp, vertical = 4.dp)
     ) {
         MaterialText(
