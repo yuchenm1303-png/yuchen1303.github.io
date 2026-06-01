@@ -279,7 +279,7 @@ class AssistantViewModel(
     private fun sendPendingRequest(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage) {
         activeSendJob?.cancel()
         val selectedModel = uiState.selectedModel
-        val onlineEnabled = uiState.onlineEnabled
+        val onlineEnabled = uiState.onlineEnabled || shouldAutoEnableOnline(requestMessages)
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
             try {
@@ -373,6 +373,31 @@ class AssistantViewModel(
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
     private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
+    private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
+        val latestUserText = messages
+            .lastOrNull { it.role == MessageRole.User }
+            ?.text
+            ?.trim()
+            .orEmpty()
+
+        if (latestUserText.isBlank()) return false
+        if (hasNoOnlineIntent(latestUserText)) return false
+
+        val realtimePattern = Regex(
+            pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)",
+            option = RegexOption.IGNORE_CASE
+        )
+
+        return realtimePattern.containsMatchIn(latestUserText)
+    }
+
+    private fun hasNoOnlineIntent(text: String): Boolean {
+        val noOnlinePattern = Regex(
+            pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)",
+            option = RegexOption.IGNORE_CASE
+        )
+        return noOnlinePattern.containsMatchIn(text)
+    }
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
         val sections = mutableListOf(response.reply.trim())
