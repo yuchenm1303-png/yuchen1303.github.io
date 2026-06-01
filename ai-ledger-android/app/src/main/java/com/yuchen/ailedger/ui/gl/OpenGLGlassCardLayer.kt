@@ -62,14 +62,16 @@ fun OpenGLGlassCardLayer(
     coordinateSource: GlassCoordinateSource? = null,
     modifier: Modifier = Modifier,
     pressProgress: Float = 0f,
-    pressCenter: Offset = Offset(0.5f, 0.5f)
+    pressCenter: Offset = Offset(0.5f, 0.5f),
+    viewportTopInsetPx: Float = 0f
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
-    val viewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
+    val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
+    val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
 
     val blurBitmap = backdrop.image.asAndroidBitmap()
     val lensBitmap = backdrop.lensImage.asAndroidBitmap()
@@ -83,7 +85,7 @@ fun OpenGLGlassCardLayer(
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
-        val safeViewportTopInsetPx = viewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
+        val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
