@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.Box
@@ -33,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -83,13 +86,18 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
-    val assistantBottomPadding = if (isKeyboardOpen) 8.dp else 68.dp
+    val assistantBottomPadding = 68.dp
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val latestMessageId = state.messages.lastOrNull()?.id
+    val bottomBarAlpha by animateFloatAsState(
+        targetValue = if (isKeyboardOpen) 0f else 1f,
+        animationSpec = tween(durationMillis = 140),
+        label = "bottom-bar-ime-alpha"
+    )
 
     LaunchedEffect(latestMessageId) {
         parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
@@ -284,20 +292,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 }
                             }
                         }
-                        if (!isKeyboardOpen) {
-                            PrismaticCapsuleBottomBar(
-                                currentTab = state.currentTab,
-                                quality = state.quality,
-                                glassIntensity = state.glassIntensity,
-                                motionIntensity = state.motionIntensity,
-                                onTabChange = viewModel::selectTab,
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                                    .zIndex(1000f)
-                            )
-                        }
+                        PrismaticCapsuleBottomBar(
+                            currentTab = state.currentTab,
+                            quality = state.quality,
+                            glassIntensity = state.glassIntensity,
+                            motionIntensity = state.motionIntensity,
+                            onTabChange = { tab -> if (!isKeyboardOpen) viewModel.selectTab(tab) },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .graphicsLayer { alpha = bottomBarAlpha }
+                                .zIndex(1000f)
+                        )
                     }
                 }
             }
