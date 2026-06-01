@@ -80,6 +80,29 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
+    val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction) {
+        { quickReply: String ->
+            val pending = pendingMobileAction
+            if (!state.isSending && pending != null) {
+                when (quickReply) {
+                    "确认" -> {
+                        val result = executeMobileCommand(systemActionRouter, pending.command)
+                        pendingMobileAction = null
+                        viewModel.acceptExecutedMobileCommand(
+                            userText = quickReply,
+                            command = pending.command,
+                            ok = result.first,
+                            resultMessage = result.second
+                        )
+                    }
+                    "取消" -> {
+                        pendingMobileAction = null
+                        viewModel.cancelMobileCommand(quickReply, pending.command)
+                    }
+                }
+            }
+        }
+    }
     val submitOrRunLocalMobileCommand = remember(state.composerText, state.isSending, systemActionRouter, pendingMobileAction) {
         {
             val text = state.composerText.trim()
@@ -161,7 +184,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
                 LocalGlassItemRegistry provides glassRegistry,
-                LocalRainbowPrismStyle provides state.rainbowPrismStyle
+                LocalRainbowPrismStyle provides state.rainbowPrismStyle,
+                LocalMobileCommandQuickReply provides runPendingMobileAction
             ) {
                 Box(Modifier.fillMaxSize().nestedScroll(glassScrollInvalidation)) {
                     WeatherNightBackground(
