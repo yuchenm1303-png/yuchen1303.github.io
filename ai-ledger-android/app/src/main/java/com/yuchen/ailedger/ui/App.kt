@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
@@ -61,6 +62,12 @@ private const val ENABLE_OPENGL_GLASS_PROBE = false
 private data class PendingMobileAction(
     val originalText: String,
     val command: MobileCommand,
+)
+
+private data class NavigationAddressUpdate(
+    val slot: String,
+    val label: String,
+    val address: String,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -103,7 +110,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-    val submitOrRunLocalMobileCommand = remember(state.composerText, state.isSending, systemActionRouter, pendingMobileAction) {
+    val submitOrRunLocalMobileCommand = remember(state, systemActionRouter, pendingMobileAction) {
         {
             val text = state.composerText.trim()
             val pending = pendingMobileAction
@@ -123,12 +130,17 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !state.isSending -> {
-                    val command = MobileCommandParser.parse(text)
-                    if (command != null) {
-                        pendingMobileAction = PendingMobileAction(originalText = text, command = command)
-                        viewModel.previewMobileCommand(text, command)
+                    val addressUpdate = parseNavigationAddressUpdate(text)
+                    if (addressUpdate != null) {
+                        viewModel.saveNavigationAddress(text, addressUpdate.slot, addressUpdate.address, addressUpdate.label)
                     } else {
-                        viewModel.submitComposer()
+                        val command = MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
+                        if (command != null) {
+                            pendingMobileAction = PendingMobileAction(originalText = text, command = command)
+                            viewModel.previewMobileCommand(text, command)
+                        } else {
+                            viewModel.submitComposer()
+                        }
                     }
                 }
                 else -> viewModel.submitComposer()
@@ -284,6 +296,44 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+private fun parseNavigationAddressUpdate(text: String): NavigationAddressUpdate? {
+    val clean = text.trim()
+    val match = Regex("(?:把|将|设置|设定)?(家|学校|公司|单位|宿舍|寝室)(?:地址|位置)?(?:设置为|设为|改成|记为|是|在)\\s*([^，。；;\\n]+)").find(clean) ?: return null
+    val rawSlot = match.groupValues[1]
+    val address = match.groupValues[2].trim()
+        .removePrefix("在")
+        .removePrefix("到")
+        .trim()
+    if (address.isBlank()) return null
+    val slot = when (rawSlot) {
+        "家" -> "home"
+        "学校" -> "school"
+        "公司", "单位" -> "company"
+        "宿舍", "寝室" -> "dorm"
+        else -> return null
+    }
+    val label = when (slot) {
+        "home" -> "家"
+        "school" -> "学校"
+        "company" -> "公司"
+        "dorm" -> "宿舍"
+        else -> rawSlot
+    }
+    return NavigationAddressUpdate(slot, label, address)
+}
+
+private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
+    if (this !is MobileCommand.Navigate) return this
+    val resolved = when (destination) {
+        "家" -> state.navigationHomeAddress
+        "学校" -> state.navigationSchoolAddress
+        "公司" -> state.navigationCompanyAddress
+        "宿舍", "寝室" -> state.navigationDormAddress
+        else -> ""
+    }.ifBlank { destination }
+    return copy(destination = resolved)
 }
 
 private fun isConfirmMobileActionText(text: String): Boolean {
