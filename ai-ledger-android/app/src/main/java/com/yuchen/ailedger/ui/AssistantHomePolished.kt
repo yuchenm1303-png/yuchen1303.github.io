@@ -25,6 +25,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -126,7 +127,6 @@ fun AssistantScreenV2(
     }
     val modelPanelExpansion = modelStackExpansion.value.coerceIn(0f, 1f)
     val modelPanelVisualHeight = collapsedPanelHeight + (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
-    val modelExpandDelta = (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
 
     LaunchedEffect(composerFocused) {
         if (composerFocused) {
@@ -145,64 +145,75 @@ fun AssistantScreenV2(
         else -> OpenGLGlassSurfaceAnchor.Center
     }
 
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 12.dp, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(top = 12.dp, bottom = bottomPadding)
     ) {
-        AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2()
-        }
+        val modelExpandDelta = modelStackContactDeltaDp(
+            progress = modelPanelExpansion,
+            expanding = modelPanelExpanded,
+            selectedModel = state.selectedModel,
+            availableWidthDp = maxWidth.value
+        ).dp
 
-        AssistantEntrance(
-            delayMs = 46,
-            modifier = Modifier.zIndex(4f),
-            initialOffsetY = 16,
-            initialScale = 0.965f
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            ModelAndNetworkPanel(
-                state = state,
-                expanded = modelPanelExpanded,
-                expansionProgress = modelPanelExpansion,
-                panelHeight = modelPanelVisualHeight,
-                layoutHeight = collapsedPanelHeight,
-                onExpandedChange = { modelPanelExpanded = it },
-                onModelSelected = onModelSelected,
-                onToggleOnline = onToggleOnline
-            )
-        }
+            AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
+                AssistantHeroV2()
+            }
 
-        AssistantEntrance(
-            delayMs = 92,
-            modifier = Modifier.weight(1f),
-            initialOffsetY = 30,
-            initialScale = 0.955f
-        ) {
-            CompositionLocalProvider(
-                LocalOpenGLGlassSurfaceAnchor provides shellAnchor
+            AssistantEntrance(
+                delayMs = 46,
+                modifier = Modifier.zIndex(4f),
+                initialOffsetY = 16,
+                initialScale = 0.965f
             ) {
-                ChatPanelV2(
+                ModelAndNetworkPanel(
                     state = state,
-                    modifier = Modifier.fillMaxWidth(),
-                    viewportTopInset = modelExpandDelta,
-                    onDraftCommand = onDraftCommand,
-                    onPickImage = onPickImage,
-                    onCopyMessage = onCopyMessage,
-                    onRetryMessage = onRetryMessage
+                    expanded = modelPanelExpanded,
+                    expansionProgress = modelPanelExpansion,
+                    panelHeight = modelPanelVisualHeight,
+                    layoutHeight = collapsedPanelHeight,
+                    onExpandedChange = { modelPanelExpanded = it },
+                    onModelSelected = onModelSelected,
+                    onToggleOnline = onToggleOnline
                 )
             }
-        }
 
-        AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(
-                state = state,
-                onComposerChange = onComposerChange,
-                onSend = onSend,
-                onStopGenerating = onStopGenerating,
-                onPickImage = onPickImage,
-                onComposerFocusChange = { composerFocused = it }
-            )
+            AssistantEntrance(
+                delayMs = 92,
+                modifier = Modifier.weight(1f),
+                initialOffsetY = 30,
+                initialScale = 0.955f
+            ) {
+                CompositionLocalProvider(
+                    LocalOpenGLGlassSurfaceAnchor provides shellAnchor
+                ) {
+                    ChatPanelV2(
+                        state = state,
+                        modifier = Modifier.fillMaxWidth(),
+                        viewportTopInset = modelExpandDelta,
+                        onDraftCommand = onDraftCommand,
+                        onPickImage = onPickImage,
+                        onCopyMessage = onCopyMessage,
+                        onRetryMessage = onRetryMessage
+                    )
+                }
+            }
+
+            AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
+                ComposerBarV2(
+                    state = state,
+                    onComposerChange = onComposerChange,
+                    onSend = onSend,
+                    onStopGenerating = onStopGenerating,
+                    onPickImage = onPickImage,
+                    onComposerFocusChange = { composerFocused = it }
+                )
+            }
         }
     }
 

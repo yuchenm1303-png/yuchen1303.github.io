@@ -52,7 +52,6 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
 import kotlinx.coroutines.launch
@@ -109,16 +108,6 @@ private fun ChatModel.modelCardPrismTheme(): ModelCardPrismTheme = when (this) {
     ChatModel.GptOss -> GptOssModelTheme
 }
 
-private fun ChatModel.modelExpandedLayoutSlot(): Int = when (this) {
-    ChatModel.Auto -> 0
-    ChatModel.Kimi -> 2
-    ChatModel.Workers -> 4
-    ChatModel.Mistral -> 3
-    ChatModel.Gemini -> 5
-    ChatModel.DeepSeekV4 -> 6
-    ChatModel.GptOss -> 7
-}
-
 private fun foldedLabelPlacement(stackRank: Int, totalBackCount: Int): FoldedLabelPlacement {
     val count = totalBackCount.coerceAtLeast(1)
     val index = (stackRank - 1).coerceIn(0, count - 1)
@@ -159,13 +148,13 @@ internal fun UnifiedParentModelStackSelector(
         val stackPress = stackPressAnim.value.coerceIn(0f, 1f)
         val stackExpansionProgress = expansionProgress.coerceIn(0f, 1f)
 
-        val gap = 10.dp
-        val rowStep = 74.dp
-        val collapsedHeight = 56.dp
-        val expandedHeight = 64.dp
-        val reservedGap = 8.dp
-        val collapsedWidth = (maxWidth - reservedGap) * 0.642f
-        val halfWidth = (maxWidth - gap) / 2f
+        val gap = MODEL_CARD_GAP_DP.dp
+        val collapsedHeight = MODEL_CARD_COLLAPSED_HEIGHT_DP.dp
+        val expandedHeight = MODEL_CARD_EXPANDED_HEIGHT_DP.dp
+        val reservedGap = MODEL_CARD_RESERVED_GAP_DP.dp
+        val availableWidth = maxWidth
+        val collapsedWidth = (availableWidth - reservedGap) * 0.642f
+        val halfWidth = (availableWidth - gap) / 2f
         val selectedModel = state.selectedModel
         val behindModels = remember(selectedModel) { models.filter { it != selectedModel } }
         val totalBackCount = behindModels.size
@@ -186,20 +175,22 @@ internal fun UnifiedParentModelStackSelector(
                 var band by remember(model.id) { mutableStateOf(0) }
                 var strength by remember(model.id) { mutableStateOf(1f) }
 
-                val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, layoutSlot, stackRank) {
-                    val expandedX = if (layoutSlot % 2 == 1) halfWidth + gap else 0.dp
-                    val expandedY = rowStep * (layoutSlot / 2).toFloat()
-                    val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
-                    val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
-                    val collapsedXPx = with(density) { collapsedX.toPx() }
-                    val collapsedYPx = with(density) { collapsedY.toPx() }
-                    val expandedXPx = with(density) { expandedX.toPx() }
-                    val expandedYPx = with(density) { expandedY.toPx() }
-                    val motionX = expandedXPx - collapsedXPx
-                    val motionY = expandedYPx - collapsedYPx
-                    val travelTotal = abs(motionX) + abs(motionY) + 0.001f
-                    val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
-                    ModelCardGeometry(collapsedXPx, collapsedYPx, expandedXPx, expandedYPx, abs(motionX) / travelTotal, abs(motionY) / travelTotal, 0.040f + 0.020f * distanceWeight)
+                val geometry = remember(density.density, availableWidth, selectedModel, layoutSlot, stackRank) {
+                    val dpGeometry = modelStackGeometryDp(
+                        availableWidthDp = availableWidth.value,
+                        selected = selected,
+                        layoutSlot = layoutSlot,
+                        stackRank = stackRank
+                    )
+                    ModelCardGeometry(
+                        collapsedXPx = with(density) { dpGeometry.collapsedX.dp.toPx() },
+                        collapsedYPx = with(density) { dpGeometry.collapsedY.dp.toPx() },
+                        expandedXPx = with(density) { dpGeometry.expandedX.dp.toPx() },
+                        expandedYPx = with(density) { dpGeometry.expandedY.dp.toPx() },
+                        horizontalMotion = dpGeometry.horizontalMotion,
+                        verticalMotion = dpGeometry.verticalMotion,
+                        overshoot = dpGeometry.overshoot
+                    )
                 }
 
                 val selectionProgress by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = tween(if (selected) 520 else 260, delayMillis = if (selected) 28 else 0, easing = FastOutSlowInEasing), label = "model-card-selection-material-${model.id}")
@@ -207,32 +198,32 @@ internal fun UnifiedParentModelStackSelector(
 
                 val fullCardNeeded = selected || expanded || stackExpansionProgress > 0.012f
                 val layerFactor = when (stackRank) { 1 -> 0.82f; 2 -> 0.62f; 3 -> 0.44f; else -> 0.28f }
-                val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
+                val stackCompression = modelStackVisualSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
 
                 if (!fullCardNeeded) {
                     FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, totalBackCount, stackCompression, layerFactor, (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
                     return@forEachIndexed
                 }
 
-                val foldedBlend = if (!selected && !expanded) modelSmooth(((0.16f - stackExpansionProgress) / 0.16f).coerceIn(0f, 1f)) else 0f
+                val foldedBlend = if (!selected && !expanded) modelStackVisualSmooth(((0.16f - stackExpansionProgress) / 0.16f).coerceIn(0f, 1f)) else 0f
                 if (foldedBlend > 0.001f) FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, totalBackCount, stackCompression, layerFactor, foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
                 val positivePress = pressValue.coerceAtLeast(0f)
-                val compression = modelSmooth((positivePress / 0.72f).coerceIn(0f, 1f))
-                val rebound = modelSmooth((-pressValue / 0.11f).coerceIn(0f, 1f))
+                val compression = modelStackVisualSmooth((positivePress / 0.72f).coerceIn(0f, 1f))
+                val rebound = modelStackVisualSmooth((-pressValue / 0.11f).coerceIn(0f, 1f))
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
-                val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
+                val selection = modelStackVisualSmooth(selectionProgress.coerceIn(0f, 1f))
                 val capsuleLaunch = 0f
-                val rawVisual = modelRankedStackProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = true)
-                val targetProgress = modelSmooth(rawVisual)
+                val rawVisual = modelStackRankedProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = true)
+                val targetProgress = modelStackVisualSmooth(rawVisual)
                 val stackReveal = 1f - targetProgress
-                val rawMotion = modelRankedStackProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = false)
+                val rawMotion = modelStackRankedProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = false)
                 val motionPhase = if (expanded) rawMotion else 1f - rawMotion
-                val pathProgress = modelDockingProgress(motionPhase, geometry.overshoot)
+                val pathProgress = modelStackDockingProgress(motionPhase, geometry.overshoot)
                 val p = if (expanded) pathProgress else 1f - pathProgress
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
-                val dockGlow = modelSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
+                val dockGlow = modelStackVisualSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
                 val materialPress = maxOf(positivePress, delayed * 0.92f, rebound * 0.42f, capsuleLaunch * 0.10f, dockGlow * 0.030f, selectionBurst * 0.18f).coerceIn(0f, 1.08f)
 
@@ -329,7 +320,7 @@ private fun FoldedModelBackPlateLabel(model: ChatModel, stackRank: Int, totalBac
 private fun UnifiedModelCardContent(model: ChatModel, selected: Boolean, stackRank: Int, totalBackCount: Int, selection: Float, expansionProgress: Float, stackReveal: Float, theme: ModelCardPrismTheme) {
     val density = LocalDensity.current
     val fullTextAlpha = if (selected) 1f else expansionProgress.coerceIn(0f, 1f) * 0.92f
-    val stackLabelAlpha = if (selected) 0f else modelSmooth(stackReveal.coerceIn(0f, 1f)) * 0.62f
+    val stackLabelAlpha = if (selected) 0f else modelStackVisualSmooth(stackReveal.coerceIn(0f, 1f)) * 0.62f
     val placement = remember(stackRank, totalBackCount) { foldedLabelPlacement(stackRank, totalBackCount) }
     Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         Box(Modifier.size(20.dp))
@@ -386,10 +377,10 @@ private fun Modifier.drawModelCardGlassSurface(style: ModelCardGlassStyle, theme
     val radius = minOf(size.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
     val corner = CornerRadius(radius, radius)
     val press = materialPress.coerceIn(0f, 1.12f)
-    val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
-    val optics = modelSmooth((maxOf(delayed, press * 0.72f) / 1.04f).coerceIn(0f, 1f))
+    val compression = modelStackVisualSmooth((press / 0.72f).coerceIn(0f, 1f))
+    val optics = modelStackVisualSmooth((maxOf(delayed, press * 0.72f) / 1.04f).coerceIn(0f, 1f))
     val selectedGlow = selection.coerceIn(0f, 1f)
-    val collapsedReveal = modelSmooth(stackReveal.coerceIn(0f, 1f))
+    val collapsedReveal = modelStackVisualSmooth(stackReveal.coerceIn(0f, 1f))
     val stackBoost = collapsedReveal * if (selected) 0.45f else 1.12f
     val themeBoost = (theme.themeWeight * (0.62f + selectedGlow * 0.70f + stackBoost * 0.40f)).coerceIn(0f, 1.55f)
     val body = energy * s(style.bodyAlpha, 6f)
@@ -428,63 +419,18 @@ private fun Modifier.drawModelCardGlassSurface(style: ModelCardGlassStyle, theme
         if (selectedGlow > 0.001f) drawRoundRect(brush = selectedRainbow, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(1.42.dp.toPx()), blendMode = BlendMode.Plus)
         drawRoundRect(brush = combinedRim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(0.96.dp.toPx() + 0.20.dp.toPx() * collapsedReveal), blendMode = BlendMode.Screen)
         if (press > 0.001f) {
-            val flow = modelSmooth((maxOf(press, delayed) / 0.62f).coerceIn(0f, 1f))
+            val flow = modelStackVisualSmooth((maxOf(press, delayed) / 0.62f).coerceIn(0f, 1f))
             val shift = (seed - 0.5f) * 0.36f
             val sweepX = if (direction >= 0f) -0.24f + shift + flow * 1.42f else 1.24f + shift - flow * 1.42f
             val startY = when (band % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
             val endY = when (band % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
-            val bandAlpha = modelSmooth((press / 0.50f).coerceIn(0f, 1f)) * strength.coerceIn(0.70f, 1.68f)
+            val bandAlpha = modelStackVisualSmooth((press / 0.50f).coerceIn(0f, 1f)) * strength.coerceIn(0.70f, 1.68f)
             val flowingRim = Brush.linearGradient(listOf(Color.Transparent, theme.main.copy(alpha = 0.450f * bandAlpha), theme.bright.copy(alpha = 0.330f * bandAlpha), theme.prismA.copy(alpha = 0.255f * bandAlpha), theme.prismB.copy(alpha = 0.225f * bandAlpha), theme.prismC.copy(alpha = 0.210f * bandAlpha), Color.Transparent), Offset(size.width * (sweepX - 0.30f), size.height * startY), Offset(size.width * (sweepX + 0.26f), size.height * endY))
             drawRoundRect(brush = flowingRim, topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()), size = Size(size.width - 1.24.dp.toPx(), size.height - 1.24.dp.toPx()), cornerRadius = corner, style = Stroke(1.34.dp.toPx()), blendMode = BlendMode.Plus)
         }
     }
 }
 
-private fun modelDockingProgress(phase: Float, overshoot: Float): Float {
-    val t = phase.coerceIn(0f, 1f)
-    val out = overshoot.coerceIn(0.030f, 0.070f)
-    return when {
-        t < 0.16f -> modelLerpRawFloat(0f, 0.34f, modelEaseOutCubic(t / 0.16f))
-        t < 0.54f -> modelLerpRawFloat(0.34f, 0.88f, modelSmoother((t - 0.16f) / 0.38f))
-        t < 0.74f -> modelLerpRawFloat(0.88f, 1f + out, modelEaseOutCubic((t - 0.54f) / 0.20f))
-        t < 0.88f -> modelLerpRawFloat(1f + out, 1f + out * 0.34f, modelSmoother((t - 0.74f) / 0.14f))
-        else -> modelLerpRawFloat(1f + out * 0.34f, 1f, modelSmoother((t - 0.88f) / 0.12f))
-    }
-}
-
-private fun modelRankedStackProgress(
-    progress: Float,
-    expanding: Boolean,
-    stackRank: Int,
-    totalBackCount: Int,
-    visual: Boolean
-): Float {
-    val safeProgress = progress.coerceIn(0f, 1f)
-    if (stackRank <= 0) return safeProgress
-
-    val rank = stackRank.coerceAtLeast(1)
-    val delayStep = if (visual) 0.026f else 0.034f
-    val collapseStep = if (visual) 0.014f else 0.018f
-    val delay = if (expanding) {
-        rank * delayStep
-    } else {
-        rank.coerceAtMost(totalBackCount.coerceAtLeast(1)) * collapseStep
-    }.coerceIn(0f, 0.22f)
-    val span = (1f - delay).coerceAtLeast(0.58f)
-    return ((safeProgress - delay) / span).coerceIn(0f, 1f)
-}
-
-private fun modelEaseOutCubic(value: Float): Float {
-    val x = 1f - value.coerceIn(0f, 1f)
-    return 1f - x * x * x
-}
-
-private fun modelSmoother(value: Float): Float {
-    val x = value.coerceIn(0f, 1f)
-    return x * x * x * (x * (x * 6f - 15f) + 10f)
-}
-
 private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction.coerceIn(0f, 1f)
 private fun modelLerpRawFloat(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
-private fun modelSmooth(value: Float): Float { val x = value.coerceIn(0f, 1f); return x * x * (3f - 2f * x) }
