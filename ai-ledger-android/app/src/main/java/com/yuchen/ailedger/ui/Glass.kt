@@ -192,8 +192,8 @@ fun PressableGlass(
     radius: Int,
     modifier: Modifier = Modifier,
     role: GlassRole = GlassRole.Chip,
-    intensity: Float? = null,
     onClick: () -> Unit = {},
+    intensity: Float? = null,
     content: @Composable () -> Unit
 ) {
     val effectiveIntensity = intensity ?: glassIntensity
