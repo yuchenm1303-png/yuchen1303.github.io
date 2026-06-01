@@ -105,7 +105,6 @@ fun OpenGLGlassCardLayer(
 
 private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private val textureView = OpenGLGlassCardTextureView(context)
-    private val windowLocation = IntArray(2)
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
@@ -113,7 +112,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var stableSurfaceAnchorY = GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y
     private var lastRootWidth = 1
     private var geometryAwaitingLayout = false
-    private var lockedBottomInWindow: Int? = null
+
+    private var lockedBottomInBackdrop: Float? = null
     private var lastChildTop = 0
 
     private var latestGlassWidth = 1f
@@ -142,8 +142,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
         if (dirty) {
             stableSurfaceAnchorY = nextAnchor
-            updateBottomLockForAnchor()
+            if (!isBottomAnchor()) {
+                lockedBottomInBackdrop = null
+            }
             if (!geometryAwaitingLayout) {
+                ensureBottomLockIfNeeded()
                 layoutStableSurfaceChild()
                 syncGlassSpecToTexture()
                 syncSamplingSpecToTexture()
@@ -157,24 +160,36 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         val safeHeight = height.coerceAtLeast(1)
         val safeRootWidth = rootWidth.coerceAtLeast(1)
 
+        val oldChildTop = stableSurfaceChildTop()
+
         val rootWidthChanged = abs(safeRootWidth - lastRootWidth) > 2
-        if (rootWidthChanged) lockedBottomInWindow = null
+        if (rootWidthChanged) {
+            lockedBottomInBackdrop = null
+        }
         lastRootWidth = safeRootWidth
         visibleSurfaceHeight = safeHeight
-        updateBottomLockForAnchor()
+        ensureBottomLockIfNeeded()
 
         val targetWidth = if (rootWidthChanged) {
             safeWidth
         } else {
             max(stableSurfaceWidth, safeWidth)
         }
+
         val targetHeight = if (rootWidthChanged) {
             safeHeight
         } else {
             max(stableSurfaceHeight, safeHeight)
         }
 
+        val newChildTop = stableSurfaceChildTop(
+            surfaceHeight = targetHeight,
+            visibleHeight = safeHeight
+        )
+
         val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
+        val childTopChanged = oldChildTop != newChildTop
+
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
 
@@ -182,12 +197,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         val layoutParamDirty = lp == null ||
             lp.width != stableSurfaceWidth ||
             lp.height != stableSurfaceHeight
+
         if (layoutParamDirty) {
             textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
         }
 
-        val nextChildTop = stableSurfaceChildTop()
-        val childTopChanged = nextChildTop != lastChildTop
         val layoutChanged = sizeChanged || layoutParamDirty
 
         if (layoutChanged) {
@@ -207,7 +221,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         visibleSurfaceHeight = (bottom - top).coerceAtLeast(1)
-        updateBottomLockForAnchor()
+        ensureBottomLockIfNeeded()
         layoutStableSurfaceChild()
         geometryAwaitingLayout = false
 
@@ -219,7 +233,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     }
 
     override fun onDetachedFromWindow() {
-        lockedBottomInWindow = null
+        lockedBottomInBackdrop = null
         super.onDetachedFromWindow()
     }
 
@@ -242,9 +256,14 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         latestRootWidth = rootWidth
         latestRootHeight = rootHeight
 
+        if (isBottomAnchor() && lockedBottomInBackdrop == null) {
+            lockedBottomInBackdrop = latestOriginY + visibleSurfaceHeight.toFloat()
+        }
+
         return if (geometryAwaitingLayout) {
             false
         } else {
+            layoutStableSurfaceChild()
             syncSamplingSpecToTexture()
         }
     }
@@ -266,36 +285,36 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private fun isBottomAnchor(): Boolean = stableSurfaceAnchorY >= 0.999f
 
-    private fun updateBottomLockForAnchor() {
-        if (isBottomAnchor()) {
-            captureBottomLockIfNeeded()
+    private fun ensureBottomLockIfNeeded() {
+        if (isBottomAnchor() && lockedBottomInBackdrop == null) {
+            lockedBottomInBackdrop = latestOriginY + visibleSurfaceHeight.toFloat()
+        } else if (!isBottomAnchor()) {
+            lockedBottomInBackdrop = null
+        }
+    }
+
+    private fun stableSurfaceChildTop(
+        surfaceHeight: Int = stableSurfaceHeight,
+        visibleHeight: Int = visibleSurfaceHeight
+    ): Int {
+        if (surfaceHeight <= visibleHeight) return 0
+
+        val lockedBottom = lockedBottomInBackdrop
+        if (isBottomAnchor() && lockedBottom != null) {
+            val childTop = (lockedBottom - latestOriginY - surfaceHeight.toFloat()).roundToInt()
+            return childTop.coerceAtMost(0)
+        }
+
+        return -((surfaceHeight - visibleHeight) * stableSurfaceAnchorY).roundToInt()
+    }
+
+    private fun stableSurfaceOriginY(): Float {
+        val lockedBottom = lockedBottomInBackdrop
+        return if (isBottomAnchor() && lockedBottom != null) {
+            lockedBottom - stableSurfaceHeight.toFloat()
         } else {
-            lockedBottomInWindow = null
+            latestOriginY + lastChildTop.toFloat()
         }
-    }
-
-    private fun captureBottomLockIfNeeded() {
-        if (lockedBottomInWindow != null || !isAttachedToWindow) return
-        getLocationInWindow(windowLocation)
-        val currentHeight = height.takeIf { it > 0 } ?: visibleSurfaceHeight
-        lockedBottomInWindow = windowLocation[1] + currentHeight.coerceAtLeast(1)
-    }
-
-    private fun stableSurfaceChildTop(): Int {
-        if (stableSurfaceHeight <= visibleSurfaceHeight) return 0
-
-        if (isBottomAnchor()) {
-            captureBottomLockIfNeeded()
-            val lockedBottom = lockedBottomInWindow
-            if (lockedBottom != null && isAttachedToWindow) {
-                getLocationInWindow(windowLocation)
-                val rawTop = lockedBottom - windowLocation[1] - stableSurfaceHeight
-                return if (rawTop > 0) 0 else rawTop
-            }
-            return visibleSurfaceHeight - stableSurfaceHeight
-        }
-
-        return -((stableSurfaceHeight - visibleSurfaceHeight) * stableSurfaceAnchorY).roundToInt()
     }
 
     private fun layoutStableSurfaceChild() {
@@ -323,7 +342,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private fun syncSamplingSpecToTexture(): Boolean =
         textureView.setSamplingSpec(
             latestOriginX,
-            latestOriginY + lastChildTop.toFloat(),
+            stableSurfaceOriginY(),
             latestRootWidth,
             latestRootHeight
         )
