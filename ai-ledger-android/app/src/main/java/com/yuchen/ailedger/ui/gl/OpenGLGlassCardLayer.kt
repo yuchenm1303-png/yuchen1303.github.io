@@ -144,7 +144,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         val targetWidth = if (rootWidthChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
         val targetHeight = if (rootWidthChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
-        val targetOffsetY = 0
+        val targetOffsetY = if (targetHeight > safeHeight) {
+    ((targetHeight - safeHeight) * stableSurfaceAnchorY).roundToInt()
+} else {
+    0
+}
 
         val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
         val offsetChanged = targetOffsetY != stableSurfaceOffsetY
@@ -174,7 +178,10 @@ override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom:
         stableSurfaceHeight
     )
     geometryAwaitingLayout = false
-    if (syncGlassSpecToTexture()) {
+
+    val glassDirty = syncGlassSpecToTexture()
+    val samplingDirty = syncSamplingSpecToTexture()
+    if (glassDirty || samplingDirty) {
         textureView.requestRender()
     }
 }
@@ -192,15 +199,32 @@ override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom:
     }
 
     private fun syncGlassSpecToTexture(): Boolean = textureView.setGlassSpec(
-        latestGlassWidth,
-        latestGlassHeight,
-        stableSurfaceOffsetY.toFloat(),
-        latestRadius,
-        latestIntensity
-    )
+    latestGlassWidth,
+    max(latestGlassHeight, stableSurfaceHeight.toFloat()),
+    -stableSurfaceOffsetY.toFloat(),
+    latestRadius,
+    latestIntensity
+)
 
-    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean =
-        textureView.setSamplingSpec(originX, originY, rootWidth, rootHeight)
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float): Boolean {
+    latestOriginX = originX
+    latestOriginY = originY
+    latestRootWidth = rootWidth
+    latestRootHeight = rootHeight
+    return if (geometryAwaitingLayout) {
+        false
+    } else {
+        syncSamplingSpecToTexture()
+    }
+}
+
+private fun syncSamplingSpecToTexture(): Boolean =
+    textureView.setSamplingSpec(
+        latestOriginX,
+        latestOriginY - stableSurfaceOffsetY.toFloat(),
+        latestRootWidth,
+        latestRootHeight
+    )
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
         textureView.setPressSpec(progress, centerX, centerY)
@@ -230,6 +254,10 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestOriginY = 0f
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
+    private var latestOriginX = 0f
+    private var latestOriginY = 0f
+    private var latestRootWidth = 1f
+    private var latestRootHeight = 1f
     private var latestPressProgress = 0f
     private var latestPressCenterX = 0.5f
     private var latestPressCenterY = 0.5f
@@ -247,7 +275,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float, intensity: Float): Boolean {
         val nextWidth = width.coerceAtLeast(1f)
         val nextHeight = height.coerceAtLeast(1f)
-        val nextRectOffsetY = rectOffsetY.coerceAtLeast(0f)
+        val nextRectOffsetY = rectOffsetY
         val dirty = abs(nextWidth - latestWidth) > GLASS_SPEC_EPSILON_PX ||
             abs(nextHeight - latestHeight) > GLASS_SPEC_EPSILON_PX ||
             abs(nextRectOffsetY - latestRectOffsetY) > GLASS_SPEC_EPSILON_PX ||
@@ -524,7 +552,7 @@ private class OpenGLGlassCardRenderer {
         synchronized(specLock) {
             cardWidth = width.coerceAtLeast(1f)
             cardHeight = height.coerceAtLeast(1f)
-            this.rectOffsetY = rectOffsetY.coerceAtLeast(0f)
+            this.rectOffsetY = rectOffsetY
             cardRadius = radius
             cardIntensity = intensity
         }
