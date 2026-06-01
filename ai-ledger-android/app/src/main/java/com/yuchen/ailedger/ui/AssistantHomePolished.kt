@@ -32,6 +32,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassViewportTopInset
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -100,35 +103,50 @@ fun AssistantScreenV2(
     onRetryMessage: (String) -> Unit
 ) {
     var modelPanelExpanded by remember { mutableStateOf(false) }
-var composerFocused by remember { mutableStateOf(false) }
+    var composerFocused by remember { mutableStateOf(false) }
 
-var modelAnchorHeld by remember { mutableStateOf(false) }
-var keyboardAnchorHeld by remember { mutableStateOf(false) }
+    var modelAnchorHeld by remember { mutableStateOf(false) }
+    var keyboardAnchorHeld by remember { mutableStateOf(false) }
 
-LaunchedEffect(modelPanelExpanded) {
-    if (modelPanelExpanded) {
-        modelAnchorHeld = true
+    val collapsedPanelHeight = 58.dp
+    val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
+    val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
+    val modelPanelVisualHeight by animateDpAsState(
+        targetValue = if (modelPanelExpanded) expandedPanelHeight else collapsedPanelHeight,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "model-stack-panel-height"
+    )
+    val modelExpandDelta = if (modelPanelVisualHeight > collapsedPanelHeight) {
+        modelPanelVisualHeight - collapsedPanelHeight
     } else {
-        delay(760L)
-        if (!modelPanelExpanded) modelAnchorHeld = false
+        0.dp
     }
-}
 
-LaunchedEffect(composerFocused) {
-    if (composerFocused) {
-        keyboardAnchorHeld = true
-    } else {
-        delay(760L)
-        if (!composerFocused) keyboardAnchorHeld = false
+    LaunchedEffect(modelPanelExpanded) {
+        if (modelPanelExpanded) {
+            modelAnchorHeld = true
+        } else {
+            delay(760L)
+            if (!modelPanelExpanded) modelAnchorHeld = false
+        }
     }
-}
 
-val shellAnchor = when {
-    modelAnchorHeld && keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Center
-    modelAnchorHeld -> OpenGLGlassSurfaceAnchor.Bottom
-    keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
-    else -> OpenGLGlassSurfaceAnchor.Center
-}
+    LaunchedEffect(composerFocused) {
+        if (composerFocused) {
+            keyboardAnchorHeld = true
+        } else {
+            delay(760L)
+            if (!composerFocused) keyboardAnchorHeld = false
+        }
+    }
+
+    val shellAnchor = when {
+        modelAnchorHeld && keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Center
+        modelAnchorHeld -> OpenGLGlassSurfaceAnchor.Bottom
+        keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
+        else -> OpenGLGlassSurfaceAnchor.Center
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -138,38 +156,58 @@ val shellAnchor = when {
         AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
             AssistantHeroV2(state = state)
         }
-        AssistantEntrance(delayMs = 46, initialOffsetY = 16, initialScale = 0.965f) {
-           ModelAndNetworkPanel(
-    state = state,
-    expanded = modelPanelExpanded,
-    onExpandedChange = { modelPanelExpanded = it },
-    onModelSelected = onModelSelected,
-    onToggleOnline = onToggleOnline
-)
+
+        AssistantEntrance(
+            delayMs = 46,
+            modifier = Modifier.zIndex(4f),
+            initialOffsetY = 16,
+            initialScale = 0.965f
+        ) {
+            ModelAndNetworkPanel(
+                state = state,
+                expanded = modelPanelExpanded,
+                panelHeight = modelPanelVisualHeight,
+                layoutHeight = collapsedPanelHeight,
+                onExpandedChange = { modelPanelExpanded = it },
+                onModelSelected = onModelSelected,
+                onToggleOnline = onToggleOnline
+            )
         }
-        AssistantEntrance(delayMs = 92, modifier = Modifier.weight(1f), initialOffsetY = 30, initialScale = 0.955f) {
-           CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
-    ChatPanelV2(
-        state = state,
-        modifier = Modifier.fillMaxWidth(),
-        onDraftCommand = onDraftCommand,
-        onPickImage = onPickImage,
-        onCopyMessage = onCopyMessage,
-        onRetryMessage = onRetryMessage
-    )
-}
+
+        AssistantEntrance(
+            delayMs = 92,
+            modifier = Modifier.weight(1f),
+            initialOffsetY = 30,
+            initialScale = 0.955f
+        ) {
+            CompositionLocalProvider(
+                LocalOpenGLGlassSurfaceAnchor provides shellAnchor,
+                LocalOpenGLGlassViewportTopInset provides modelExpandDelta
+            ) {
+                ChatPanelV2(
+                    state = state,
+                    modifier = Modifier.fillMaxWidth(),
+                    viewportTopInset = modelExpandDelta,
+                    onDraftCommand = onDraftCommand,
+                    onPickImage = onPickImage,
+                    onCopyMessage = onCopyMessage,
+                    onRetryMessage = onRetryMessage
+                )
+            }
         }
+
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
-          ComposerBarV2(
-    state = state,
-    onComposerChange = onComposerChange,
-    onSend = onSend,
-    onStopGenerating = onStopGenerating,
-    onPickImage = onPickImage,
-    onComposerFocusChange = { composerFocused = it }
-)
+            ComposerBarV2(
+                state = state,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage,
+                onComposerFocusChange = { composerFocused = it }
+            )
         }
     }
+
     onOpenTools.hashCode()
     onOpenSettings.hashCode()
     onCopyMessage.hashCode()
@@ -213,27 +251,26 @@ private fun AssistantHeroV2(state: AssistantUiState) {
 private fun ModelAndNetworkPanel(
     state: AssistantUiState,
     expanded: Boolean,
+    panelHeight: Dp,
+    layoutHeight: Dp,
     onExpandedChange: (Boolean) -> Unit,
     onModelSelected: (ChatModel) -> Unit,
     onToggleOnline: () -> Unit
 ) {
-    val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
-    val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
-    val panelHeight by animateDpAsState(
-        targetValue = if (expanded) expandedPanelHeight else 58.dp,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
-        label = "model-stack-panel-height"
-    )
     Box(
-        modifier = Modifier.fillMaxWidth().height(panelHeight)
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(layoutHeight)
     ) {
         UnifiedParentModelStackSelector(
             state = state,
             expanded = expanded,
-            modifier = Modifier.fillMaxWidth().height(panelHeight),
-           onToggleExpanded = {
-    if (!state.isSending) onExpandedChange(!expanded)
-},
+            modifier = Modifier
+                .fillMaxWidth()
+                .requiredHeight(panelHeight),
+            onToggleExpanded = {
+                if (!state.isSending) onExpandedChange(!expanded)
+            },
             onSelected = { model ->
                 if (!state.isSending) {
                     onModelSelected(model)
@@ -257,6 +294,7 @@ private fun ModelAndNetworkPanel(
 private fun ChatPanelV2(
     state: AssistantUiState,
     modifier: Modifier,
+    viewportTopInset: Dp = 0.dp,
     onDraftCommand: (String) -> Unit,
     onPickImage: () -> Unit,
     onCopyMessage: (String) -> Unit,
@@ -282,11 +320,17 @@ private fun ChatPanelV2(
         Box(
             Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(30.dp))
                 .clipToBounds()
         ) {
-            RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
-            Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = viewportTopInset)
+                    .clip(RoundedCornerShape(30.dp))
+                    .clipToBounds()
+            ) {
+                RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
+                Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
@@ -331,6 +375,7 @@ private fun ChatPanelV2(
                         item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
                     }
                 }
+            }
             }
         }
     }
