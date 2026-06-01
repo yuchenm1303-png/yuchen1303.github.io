@@ -95,6 +95,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val latestMessageId = state.messages.lastOrNull()?.id
 
     LaunchedEffect(latestMessageId) {
+        parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
         val update = parseCloudNavigationPreferenceUpdate(state.messages) ?: return@LaunchedEffect
         if (!isNavigationPreferenceAlreadySaved(state, update)) {
             preferencesStore.setNavigationAddress(update.slot, update.address)
@@ -305,6 +306,29 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
+    val latest = messages.lastOrNull { it.role == MessageRole.Assistant && it.source == "local_mobile" } ?: return null
+    if (!latest.text.contains("动作：") || !latest.text.contains("详情：") || !latest.text.contains("确认")) return null
+    val title = latest.text.lineSequence().firstOrNull { it.trim().startsWith("动作：") }?.substringAfter("动作：")?.trim().orEmpty()
+    val detail = latest.text.lineSequence().firstOrNull { it.trim().startsWith("详情：") }?.substringAfter("详情：")?.trim().orEmpty()
+    val command = when {
+        title.contains("闹钟") -> parseAlarmCommandDetail(detail)
+        title.contains("打开") -> MobileCommand.OpenApp(appName = detail, packageName = null)
+        title.contains("导航") -> MobileCommand.Navigate(destination = detail.removePrefix("到 ").trim(), mode = "driving")
+        else -> null
+    } ?: return null
+    return PendingMobileAction(originalText = "云端结构化动作", command = command)
+}
+
+private fun parseAlarmCommandDetail(detail: String): MobileCommand.SetAlarm? {
+    val time = Regex("(\\d{1,2})[:：](\\d{1,2})").find(detail) ?: return null
+    val hour = time.groupValues[1].toIntOrNull()?.takeIf { it in 0..23 } ?: return null
+    val minute = time.groupValues[2].toIntOrNull()?.takeIf { it in 0..59 } ?: 0
+    val label = detail.substringAfter("·", "AI 助手提醒").trim().ifBlank { "AI 助手提醒" }
+    val dateLabel = detail.substringBefore(" ", "今天").trim().ifBlank { "今天" }
+    return MobileCommand.SetAlarm(hour = hour, minute = minute, label = label, dateLabel = dateLabel)
 }
 
 private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): NavigationPreferenceUpdate? {
