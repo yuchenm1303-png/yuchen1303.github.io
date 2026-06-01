@@ -39,6 +39,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import kotlin.random.Random
@@ -132,6 +135,7 @@ fun GlassPanel(
     radius: Int,
     modifier: Modifier = Modifier,
     role: GlassRole = GlassRole.Card,
+    viewportTopInset: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
     val effectiveRadius = effectiveGlassRadius(radius, role)
@@ -143,6 +147,10 @@ fun GlassPanel(
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
+    val density = LocalDensity.current
+    val shellViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
+    val shellViewportTopInsetPx = with(density) { shellViewportTopInset.toPx() }
+    val shellUsesInsetViewport = role == GlassRole.Shell && shellViewportTopInset > 0.dp
     val useCardOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && !viewportOwnsShell && roleUsesCardBoundOpenGl(role) && cardBackdrop != null
     val useUnifiedBackdrop = registry != null && roleUsesUnifiedBackdrop(role) && !useCardOpenGlBackdrop && !viewportOwnsShell
     val key = remember { Any() }
@@ -264,6 +272,97 @@ fun GlassPanel(
     }
     DisposableEffect(registry, key, useUnifiedBackdrop) { onDispose { registry?.remove(key) } }
 
+    if (shellUsesInsetViewport) {
+    Box(
+        modifier = modifier
+            .then(shellPressModifier)
+            .onPlaced { coordinates.coordinates = it }
+            .graphicsLayer {
+                if (shellPressEnabled) {
+                    transformOrigin = TransformOrigin(shellPressCenter.x, shellPressCenter.y)
+                    scaleX = 1f + shellPressCompression * 0.014f - shellPressRebound * 0.004f
+                    scaleY = 1f - shellPressCompression * 0.022f + shellPressRebound * 0.008f
+                    translationY = shellPressCompression * 2.10f - shellPressRebound * 0.80f
+                    shadowElevation = shellPressCompression * 0.45f
+                }
+            }
+    ) {
+        if (useCardOpenGlBackdrop) {
+            OpenGLGlassCardLayer(
+                radius = effectiveRadius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize(),
+                pressProgress = shellOpenGlPress,
+                pressCenter = shellPressCenter,
+                viewportTopInsetPx = shellViewportTopInsetPx
+            )
+        }
+
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(top = shellViewportTopInset)
+                .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity)
+        ) {
+            if (!useCardOpenGlBackdrop && !useUnifiedBackdrop && !viewportOwnsShell && backdrop != null) {
+                SampledWeatherGlassBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    blurRadiusDp = blurForRole(role),
+                    liftAlpha = UNIFIED_GLASS_BACKDROP_ALPHA * pressedGlassIntensity.coerceIn(0.70f, 1.25f)
+                )
+                SampledWeatherEdgeRefraction(
+                    modifier = Modifier.matchParentSize(),
+                    radius = effectiveRadius,
+                    coordinateSource = coordinates,
+                    quality = backdrop.quality,
+                    motionIntensity = backdrop.motionIntensity,
+                    theme = backdrop.theme,
+                    strength = UNIFIED_EDGE_STRENGTH
+                )
+            }
+
+            if (!useCardOpenGlBackdrop) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .glassSkin(
+                            quality,
+                            effectiveRadius,
+                            shimmer + shellPressCompression * 0.030f,
+                            breathe,
+                            pressedGlassIntensity,
+                            includeShadow = false
+                        )
+                )
+            }
+
+            content()
+
+            if (shellPressEnabled) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .shellPressSurfaceOptics(
+                            press = shellSurfaceOpticsPress,
+                            radius = effectiveRadius,
+                            pressCenter = shellPressCenter,
+                            rimFlowSeed = shellRimFlowSeed,
+                            rimFlowDirection = shellRimFlowDirection,
+                            rimFlowBand = shellRimFlowBand,
+                            rimFlowStrength = shellRimFlowStrength,
+                            prismEdgeHighlight = prismEdgeHighlight
+                        )
+                )
+            }
+        }
+    }
+} else {
     Box(
         modifier = modifier
             .then(shellPressModifier)
@@ -309,14 +408,24 @@ fun GlassPanel(
                 strength = UNIFIED_EDGE_STRENGTH
             )
         }
+
         if (!useCardOpenGlBackdrop) {
             Box(
                 Modifier
                     .matchParentSize()
-                    .glassSkin(quality, effectiveRadius, shimmer + shellPressCompression * 0.030f, breathe, pressedGlassIntensity, includeShadow = false)
+                    .glassSkin(
+                        quality,
+                        effectiveRadius,
+                        shimmer + shellPressCompression * 0.030f,
+                        breathe,
+                        pressedGlassIntensity,
+                        includeShadow = false
+                    )
             )
         }
+
         content()
+
         if (shellPressEnabled) {
             Box(
                 Modifier
@@ -335,6 +444,7 @@ fun GlassPanel(
         }
     }
 }
+
 
 @Composable
 fun PressableGlass(
