@@ -29,6 +29,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -245,26 +246,28 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 modifier = Modifier.fillMaxSize()
                             ) { tab ->
                                 when (tab) {
-                                    AppTab.Assistant -> AssistantScreenV2(
-                                        state = state,
-                                        bottomPadding = assistantBottomPadding,
-                                        onComposerChange = viewModel::updateComposer,
-                                        onSend = submitOrRunLocalMobileCommand,
-                                        onStopGenerating = viewModel::stopGenerating,
-                                        onDraftCommand = viewModel::insertCommandDraft,
-                                        onModelSelected = viewModel::selectModel,
-                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                        onToggleOnline = viewModel::toggleOnline,
-                                        onCopyMessage = { text ->
-                                            if (text.isNotBlank()) {
-                                                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                                            }
-                                        },
-                                        onRetryMessage = viewModel::retryMessage
-                                    )
+                                    AppTab.Assistant -> key(isKeyboardOpen) {
+                                        AssistantScreenV2(
+                                            state = state,
+                                            bottomPadding = assistantBottomPadding,
+                                            onComposerChange = viewModel::updateComposer,
+                                            onSend = submitOrRunLocalMobileCommand,
+                                            onStopGenerating = viewModel::stopGenerating,
+                                            onDraftCommand = viewModel::insertCommandDraft,
+                                            onModelSelected = viewModel::selectModel,
+                                            onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                            onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                            onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                            onToggleOnline = viewModel::toggleOnline,
+                                            onCopyMessage = { text ->
+                                                if (text.isNotBlank()) {
+                                                    clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            onRetryMessage = viewModel::retryMessage
+                                        )
+                                    }
                                     AppTab.Tools -> {
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
