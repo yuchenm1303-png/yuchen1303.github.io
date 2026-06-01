@@ -28,6 +28,8 @@ import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
+import com.yuchen.ailedger.service.CloudMobileAction
+import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -118,19 +120,7 @@ class AssistantViewModel(
         if (cleanText.isBlank() || uiState.isSending) return
         val now = System.currentTimeMillis()
         val userMessage = ChatMessage(id = "user-$now", text = cleanText, role = MessageRole.User)
-        val assistantMessage = ChatMessage(
-            id = "assistant-${now + 1}",
-            text = buildString {
-                append(commandReplyPrefix(command))
-                append("\n\n")
-                append("动作：${command.title}\n")
-                append("详情：${command.summary}\n\n")
-                append("回复“确认”执行，或回复“取消”。")
-            },
-            role = MessageRole.Assistant,
-            source = "local_mobile",
-            modelLabel = "待确认"
-        )
+        val assistantMessage = buildMobileCommandPreviewMessage("assistant-${now + 1}", command)
         uiState = uiState.copy(
             messages = uiState.messages + userMessage + assistantMessage,
             composerText = "",
@@ -181,6 +171,18 @@ class AssistantViewModel(
         )
     }
 
+    fun updateNavigationAddress(slot: String, address: String) {
+        val cleanAddress = address.trim().take(80)
+        uiState = when (slot) {
+            "home" -> uiState.copy(navigationHomeAddress = cleanAddress)
+            "school" -> uiState.copy(navigationSchoolAddress = cleanAddress)
+            "company" -> uiState.copy(navigationCompanyAddress = cleanAddress)
+            "dorm" -> uiState.copy(navigationDormAddress = cleanAddress)
+            else -> uiState
+        }
+        viewModelScope.launch { preferencesStore.setNavigationAddress(slot, cleanAddress) }
+    }
+
     fun saveNavigationAddress(userText: String, slot: String, address: String, label: String) {
         val cleanText = userText.trim()
         val cleanAddress = address.trim().take(80)
@@ -199,13 +201,58 @@ class AssistantViewModel(
             composerText = "",
             isSending = false
         )
-        viewModelScope.launch { preferencesStore.setNavigationAddress(slot, cleanAddress) }
+        updateNavigationAddress(slot, cleanAddress)
+    }
+
+    private fun buildMobileCommandPreviewMessage(id: String, command: MobileCommand): ChatMessage {
+        return ChatMessage(
+            id = id,
+            text = buildString {
+                append(commandReplyPrefix(command))
+                append("\n\n")
+                append("动作：${command.title}\n")
+                append("详情：${command.summary}\n\n")
+                append("回复“确认”执行，或回复“取消”。")
+            },
+            role = MessageRole.Assistant,
+            source = "local_mobile",
+            modelLabel = "待确认"
+        )
     }
 
     private fun commandReplyPrefix(command: MobileCommand): String = when (command) {
         is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"
         is MobileCommand.OpenApp -> "我理解为要打开“${command.appName}”。"
         is MobileCommand.Navigate -> "我理解为要导航到“${command.destination}”。"
+    }
+
+    private fun CloudMobileAction.toMobileCommand(): MobileCommand? {
+        return when (type) {
+            "set_alarm" -> {
+                val safeHour = hour?.takeIf { it in 0..23 } ?: return null
+                val safeMinute = minute?.takeIf { it in 0..59 } ?: 0
+                MobileCommand.SetAlarm(
+                    hour = safeHour,
+                    minute = safeMinute,
+                    label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒",
+                    dateLabel = "今天"
+                )
+            }
+            "open_app" -> {
+                val name = appName?.takeIf { it.isNotBlank() } ?: title?.takeIf { it.isNotBlank() } ?: return null
+                MobileCommand.OpenApp(appName = name, packageName = packageName)
+            }
+            "navigate" -> {
+                val target = destination?.takeIf { it.isNotBlank() } ?: return null
+                MobileCommand.Navigate(destination = target, mode = "driving")
+            }
+            else -> null
+        }
+    }
+
+    private fun applyCloudPreferenceUpdate(update: CloudPreferenceUpdate) {
+        if (update.type != "navigation_address") return
+        updateNavigationAddress(update.slot, update.value)
     }
 
     fun retryMessage(messageId: String) {
@@ -240,22 +287,28 @@ class AssistantViewModel(
                     aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled)
                 }
                 if (activePendingMessageId == pendingMessage.id) {
-                    replaceMessage(
-                        pendingMessage.id,
-                        pendingMessage.copy(
-                            text = decorateReply(response, onlineEnabled),
-                            status = MessageStatus.Sent,
-                            source = response.source,
-                            model = response.model,
-                            modelLabel = response.modelLabel ?: selectedModel.label,
-                            version = response.version,
-                            errorText = null,
-                            webSources = response.webSources,
-                            structuredData = response.structuredData,
-                            searchUsed = response.searchUsed,
-                            searchProvider = response.searchProvider
+                    response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
+                    val cloudCommand = response.mobileAction?.toMobileCommand()
+                    if (cloudCommand != null) {
+                        replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
+                    } else {
+                        replaceMessage(
+                            pendingMessage.id,
+                            pendingMessage.copy(
+                                text = decorateReply(response, onlineEnabled),
+                                status = MessageStatus.Sent,
+                                source = response.source,
+                                model = response.model,
+                                modelLabel = response.modelLabel ?: selectedModel.label,
+                                version = response.version,
+                                errorText = null,
+                                webSources = response.webSources,
+                                structuredData = response.structuredData,
+                                searchUsed = response.searchUsed,
+                                searchProvider = response.searchProvider
+                            )
                         )
-                    )
+                    }
                 }
             } catch (error: CancellationException) {
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
@@ -323,6 +376,12 @@ class AssistantViewModel(
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
         val sections = mutableListOf(response.reply.trim())
+
+        response.preferenceUpdate?.let { update ->
+            if (update.type == "navigation_address") {
+                sections += "已保存导航偏好：${update.label} · ${update.value}"
+            }
+        }
 
         response.structuredData?.let { data ->
             val metrics = data.metrics.take(6).joinToString("\n") { metric ->
