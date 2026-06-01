@@ -64,12 +64,6 @@ private data class PendingMobileAction(
     val command: MobileCommand,
 )
 
-private data class NavigationAddressUpdate(
-    val slot: String,
-    val label: String,
-    val address: String,
-)
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
@@ -130,17 +124,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !state.isSending -> {
-                    val addressUpdate = parseNavigationAddressUpdate(text)
-                    if (addressUpdate != null) {
-                        viewModel.saveNavigationAddress(text, addressUpdate.slot, addressUpdate.address, addressUpdate.label)
+                    val command = MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
+                    if (command != null) {
+                        pendingMobileAction = PendingMobileAction(originalText = text, command = command)
+                        viewModel.previewMobileCommand(text, command)
                     } else {
-                        val command = MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
-                        if (command != null) {
-                            pendingMobileAction = PendingMobileAction(originalText = text, command = command)
-                            viewModel.previewMobileCommand(text, command)
-                        } else {
-                            viewModel.submitComposer()
-                        }
+                        viewModel.submitComposer()
                     }
                 }
                 else -> viewModel.submitComposer()
@@ -296,32 +285,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-}
-
-private fun parseNavigationAddressUpdate(text: String): NavigationAddressUpdate? {
-    val clean = text.trim()
-    val match = Regex("(?:把|将|设置|设定)?(家|学校|公司|单位|宿舍|寝室)(?:地址|位置)?(?:设置为|设为|改成|记为|是|在)\\s*([^，。；;\\n]+)").find(clean) ?: return null
-    val rawSlot = match.groupValues[1]
-    val address = match.groupValues[2].trim()
-        .removePrefix("在")
-        .removePrefix("到")
-        .trim()
-    if (address.isBlank()) return null
-    val slot = when (rawSlot) {
-        "家" -> "home"
-        "学校" -> "school"
-        "公司", "单位" -> "company"
-        "宿舍", "寝室" -> "dorm"
-        else -> return null
-    }
-    val label = when (slot) {
-        "home" -> "家"
-        "school" -> "学校"
-        "company" -> "公司"
-        "dorm" -> "宿舍"
-        else -> rawSlot
-    }
-    return NavigationAddressUpdate(slot, label, address)
 }
 
 private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
