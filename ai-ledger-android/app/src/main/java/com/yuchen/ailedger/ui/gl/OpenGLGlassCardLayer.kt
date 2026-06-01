@@ -153,27 +153,32 @@ private var latestRootHeight = 1f
 } else {
     0
 }
+val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
+val offsetChanged = targetOffsetY != stableSurfaceOffsetY
 
-        val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
-        val offsetChanged = targetOffsetY != stableSurfaceOffsetY
+stableSurfaceWidth = targetWidth
+stableSurfaceHeight = targetHeight
+stableSurfaceOffsetY = targetOffsetY
 
-        stableSurfaceWidth = targetWidth
-        stableSurfaceHeight = targetHeight
-        stableSurfaceOffsetY = targetOffsetY
+val lp = textureView.layoutParams as? LayoutParams
+val layoutParamDirty = lp == null || lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
+if (layoutParamDirty) {
+    textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
+}
 
-        val lp = textureView.layoutParams as? LayoutParams
-        val layoutParamDirty = lp == null || lp.width != stableSurfaceWidth || lp.height != stableSurfaceHeight
-        if (layoutParamDirty) {
-            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
-        }
-
-        if (sizeChanged || offsetChanged || layoutParamDirty) {
-            geometryAwaitingLayout = true
-            requestLayout()
-        }
-
-        return sizeChanged || offsetChanged || layoutParamDirty
+val layoutChanged = sizeChanged || layoutParamDirty
+if (layoutChanged) {
+    geometryAwaitingLayout = true
+    requestLayout()
+} else if (offsetChanged) {
+    val glassDirty = syncGlassSpecToTexture()
+    val samplingDirty = syncSamplingSpecToTexture()
+    if (glassDirty || samplingDirty) {
+        textureView.requestRender()
     }
+}
+
+return layoutChanged || offsetChanged
 override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
     textureView.layout(
         0,
