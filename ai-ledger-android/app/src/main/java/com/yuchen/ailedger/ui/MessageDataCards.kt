@@ -34,6 +34,8 @@ fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
             WebSourcesCard(message.webSources, message.searchProvider)
         }
     }
+
+    state.quality.hashCode()
 }
 
 @Composable
@@ -68,6 +70,9 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
 
 @Composable
 private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
+    val previewCount = 2.coerceAtMost(sources.size)
+    val hiddenCount = (sources.size - previewCount).coerceAtLeast(0)
+
     LightweightDataCard {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -79,8 +84,19 @@ private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
                 }
             }
 
-            sources.take(4).forEachIndexed { index, source ->
+            sources.take(previewCount).forEachIndexed { index, source ->
                 WebSourceRow(index + 1, source)
+            }
+
+            if (hiddenCount > 0) {
+                Text(
+                    text = "还有 $hiddenCount 条来源已收起",
+                    color = Color.White.copy(alpha = 0.42f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -114,7 +130,7 @@ private fun WebSourceRow(index: Int, source: WebSource) {
             Text(source.title.ifBlank { source.domain.ifBlank { "来源 $index" } }, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val meta = listOf(source.domain, source.publishedAt.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (source.snippet.isNotBlank()) Text(source.snippet, color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (source.snippet.isNotBlank()) Text(source.snippet, color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
