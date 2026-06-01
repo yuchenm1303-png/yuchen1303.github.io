@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,8 +61,6 @@ private val ModelPressPreload = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.00f)
 private val ModelPressSink = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1.00f)
 private val ModelPressRelease = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 private val ModelPressPulse = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
-private val ModelStackTravel = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
-private val ModelStackVisual = CubicBezierEasing(0.18f, 0.00f, 0.14f, 1.00f)
 private const val ModelStackTapMaxMillis = 450L
 
 private data class ModelCardPrismTheme(
@@ -145,6 +142,7 @@ private fun foldedLabelFontSize(label: String) = when {
 internal fun UnifiedParentModelStackSelector(
     state: AssistantUiState,
     expanded: Boolean,
+    expansionProgress: Float,
     modifier: Modifier,
     onToggleExpanded: () -> Unit,
     onSelected: (ChatModel) -> Unit
@@ -159,6 +157,7 @@ internal fun UnifiedParentModelStackSelector(
         val currentOnSelected by rememberUpdatedState(onSelected)
         val stackPressAnim = remember { Animatable(0f) }
         val stackPress = stackPressAnim.value.coerceIn(0f, 1f)
+        val stackExpansionProgress = expansionProgress.coerceIn(0f, 1f)
 
         val gap = 10.dp
         val rowStep = 74.dp
@@ -180,18 +179,12 @@ internal fun UnifiedParentModelStackSelector(
                 val scope = rememberCoroutineScope()
                 val pressAnim = remember(model.id) { Animatable(0f) }
                 val opticsAnim = remember(model.id) { Animatable(0f) }
-                val visualAnim = remember(model.id) { Animatable(if (expanded) 1f else 0f) }
-                val motionAnim = remember(model.id) { Animatable(if (expanded) 1f else 0f) }
-                val capsuleAnim = remember(model.id) { Animatable(0f) }
-                val foldedBlendAnim = remember(model.id) { Animatable(1f) }
                 var cardSize by remember(model.id) { mutableStateOf(Size(1f, 1f)) }
                 var center by remember(model.id) { mutableStateOf(Offset(0.50f, 0.42f)) }
                 var seed by remember(model.id) { mutableStateOf(0.50f) }
                 var direction by remember(model.id) { mutableStateOf(1f) }
                 var band by remember(model.id) { mutableStateOf(0) }
                 var strength by remember(model.id) { mutableStateOf(1f) }
-                var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
-                var hasModelStackEntered by remember(model.id) { mutableStateOf(false) }
 
                 val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, layoutSlot, stackRank) {
                     val expandedX = if (layoutSlot % 2 == 1) halfWidth + gap else 0.dp
@@ -212,35 +205,7 @@ internal fun UnifiedParentModelStackSelector(
                 val selectionProgress by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = tween(if (selected) 520 else 260, delayMillis = if (selected) 28 else 0, easing = FastOutSlowInEasing), label = "model-card-selection-material-${model.id}")
                 val selectedPulse by animateFloatAsState(targetValue = if (selected) 1.008f else 1f, animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow), label = "model-card-selected-${model.id}")
 
-                LaunchedEffect(expanded, selected, model.id) {
-                    val target = if (expanded) 1f else 0f
-                    if (!hasModelStackEntered && !expanded) {
-                        hasModelStackEntered = true
-                        renderAsFullCard = false
-                        foldedBlendAnim.snapTo(1f)
-                        visualAnim.snapTo(0f)
-                        motionAnim.snapTo(0f)
-                        capsuleAnim.snapTo(0f)
-                        return@LaunchedEffect
-                    }
-                    hasModelStackEntered = true
-                    renderAsFullCard = true
-                    foldedBlendAnim.stop(); foldedBlendAnim.snapTo(0f)
-                    capsuleAnim.stop(); capsuleAnim.snapTo(0f)
-                    val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
-                    val motionDuration = if (expanded) (520 + stackRank * 38).coerceAtMost(660) else if (selected) 450 else 420 + reverseRank * 32
-                    val visualDuration = if (expanded) (405 + stackRank * 28).coerceAtMost(520) else if (selected) 370 else 350 + reverseRank * 24
-                    launch { visualAnim.stop(); visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual)) }
-                    motionAnim.stop()
-                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
-                    if (!expanded && !selected) {
-                        foldedBlendAnim.stop()
-                        foldedBlendAnim.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
-                        renderAsFullCard = false
-                    }
-                }
-
-                val fullCardNeeded = selected || expanded || renderAsFullCard
+                val fullCardNeeded = selected || expanded || stackExpansionProgress > 0.012f
                 val layerFactor = when (stackRank) { 1 -> 0.82f; 2 -> 0.62f; 3 -> 0.44f; else -> 0.28f }
                 val stackCompression = modelSmooth((stackPress * layerFactor / 0.72f).coerceIn(0f, 1f))
 
@@ -249,7 +214,7 @@ internal fun UnifiedParentModelStackSelector(
                     return@forEachIndexed
                 }
 
-                val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
+                val foldedBlend = if (!selected && !expanded) modelSmooth(((0.16f - stackExpansionProgress) / 0.16f).coerceIn(0f, 1f)) else 0f
                 if (foldedBlend > 0.001f) FoldedModelBackPlate(collapsedWidth, collapsedHeight, 18f - index, geometry, style, theme, stackRank, totalBackCount, stackCompression, layerFactor, foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f), model)
 
                 val pressValue = pressAnim.value.coerceIn(-0.16f, 1.12f)
@@ -258,10 +223,11 @@ internal fun UnifiedParentModelStackSelector(
                 val rebound = modelSmooth((-pressValue / 0.11f).coerceIn(0f, 1f))
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
-                val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
-                val targetProgress = modelSmooth(visualAnim.value.coerceIn(0f, 1f))
+                val capsuleLaunch = 0f
+                val rawVisual = modelRankedStackProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = true)
+                val targetProgress = modelSmooth(rawVisual)
                 val stackReveal = 1f - targetProgress
-                val rawMotion = motionAnim.value.coerceIn(0f, 1f)
+                val rawMotion = modelRankedStackProgress(stackExpansionProgress, expanded, stackRank, totalBackCount, visual = false)
                 val motionPhase = if (expanded) rawMotion else 1f - rawMotion
                 val pathProgress = modelDockingProgress(motionPhase, geometry.overshoot)
                 val p = if (expanded) pathProgress else 1f - pathProgress
@@ -484,6 +450,28 @@ private fun modelDockingProgress(phase: Float, overshoot: Float): Float {
         t < 0.88f -> modelLerpRawFloat(1f + out, 1f + out * 0.34f, modelSmoother((t - 0.74f) / 0.14f))
         else -> modelLerpRawFloat(1f + out * 0.34f, 1f, modelSmoother((t - 0.88f) / 0.12f))
     }
+}
+
+private fun modelRankedStackProgress(
+    progress: Float,
+    expanding: Boolean,
+    stackRank: Int,
+    totalBackCount: Int,
+    visual: Boolean
+): Float {
+    val safeProgress = progress.coerceIn(0f, 1f)
+    if (stackRank <= 0) return safeProgress
+
+    val rank = stackRank.coerceAtLeast(1)
+    val delayStep = if (visual) 0.026f else 0.034f
+    val collapseStep = if (visual) 0.014f else 0.018f
+    val delay = if (expanding) {
+        rank * delayStep
+    } else {
+        rank.coerceAtMost(totalBackCount.coerceAtLeast(1)) * collapseStep
+    }.coerceIn(0f, 0.22f)
+    val span = (1f - delay).coerceAtLeast(0.58f)
+    return ((safeProgress - delay) / span).coerceIn(0f, 1f)
 }
 
 private fun modelEaseOutCubic(value: Float): Float {

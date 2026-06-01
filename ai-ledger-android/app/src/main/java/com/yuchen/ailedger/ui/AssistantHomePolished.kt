@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -109,18 +110,21 @@ fun AssistantScreenV2(
     var modelPanelExpanded by remember { mutableStateOf(false) }
     var composerFocused by remember { mutableStateOf(false) }
     var keyboardAnchorHeld by remember { mutableStateOf(false) }
+    val modelStackExpansion = remember { Animatable(if (modelPanelExpanded) 1f else 0f) }
 
     val collapsedPanelHeight = 58.dp
     val modelRowCount = ((ChatModel.entries.size + 1) / 2).coerceAtLeast(1)
     val expandedPanelHeight = (64 + 74 * (modelRowCount - 1)).dp
-    val modelPanelExpansion by animateFloatAsState(
-        targetValue = if (modelPanelExpanded) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (modelPanelExpanded) MODEL_PANEL_EXPAND_MS else MODEL_PANEL_COLLAPSE_MS,
-            easing = ModelPanelExpansionEasing
-        ),
-        label = "model-stack-panel-expansion"
-    )
+    LaunchedEffect(modelPanelExpanded) {
+        modelStackExpansion.animateTo(
+            targetValue = if (modelPanelExpanded) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (modelPanelExpanded) MODEL_PANEL_EXPAND_MS else MODEL_PANEL_COLLAPSE_MS,
+                easing = ModelPanelExpansionEasing
+            )
+        )
+    }
+    val modelPanelExpansion = modelStackExpansion.value.coerceIn(0f, 1f)
     val modelPanelVisualHeight = collapsedPanelHeight + (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
     val modelExpandDelta = (expandedPanelHeight - collapsedPanelHeight) * modelPanelExpansion
 
@@ -160,6 +164,7 @@ fun AssistantScreenV2(
             ModelAndNetworkPanel(
                 state = state,
                 expanded = modelPanelExpanded,
+                expansionProgress = modelPanelExpansion,
                 panelHeight = modelPanelVisualHeight,
                 layoutHeight = collapsedPanelHeight,
                 onExpandedChange = { modelPanelExpanded = it },
@@ -239,6 +244,7 @@ private fun AssistantHeroV2() {
 private fun ModelAndNetworkPanel(
     state: AssistantUiState,
     expanded: Boolean,
+    expansionProgress: Float,
     panelHeight: Dp,
     layoutHeight: Dp,
     onExpandedChange: (Boolean) -> Unit,
@@ -258,6 +264,7 @@ private fun ModelAndNetworkPanel(
             UnifiedParentModelStackSelector(
                 state = state,
                 expanded = expanded,
+                expansionProgress = expansionProgress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(panelHeight),

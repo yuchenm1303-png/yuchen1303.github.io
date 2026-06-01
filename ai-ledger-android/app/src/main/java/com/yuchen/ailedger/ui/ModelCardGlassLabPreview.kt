@@ -23,6 +23,7 @@ internal fun ModelCardGlassLabPreview(
     UnifiedParentModelStackSelector(
         state = previewState,
         expanded = true,
+        expansionProgress = 1f,
         modifier = modifier,
         onToggleExpanded = {},
         onSelected = { previewModel = it }
