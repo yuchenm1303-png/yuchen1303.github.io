@@ -109,6 +109,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
+
     private var visibleSurfaceWidth = 1
     private var visibleSurfaceHeight = 1
 
@@ -139,15 +140,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     fun setStableSurfaceAnchor(anchorY: Float): Boolean {
         val nextAnchor = anchorY.coerceIn(0f, 1f)
         val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
-        if (dirty) {
-            stableSurfaceAnchorY = nextAnchor
-            layoutStableSurfaceChild()
-            if (!geometryAwaitingLayout) {
-                syncGlassSpecToTexture()
-                syncSamplingSpecToTexture()
-            }
-        }
-        return dirty
+        if (dirty) stableSurfaceAnchorY = nextAnchor
+        return false
     }
 
     fun setStableSurfaceSize(width: Int, height: Int, rootWidth: Int, rootHeight: Int): Boolean {
@@ -155,8 +149,6 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         val safeHeight = height.coerceAtLeast(1)
         val safeRootWidth = rootWidth.coerceAtLeast(1)
         val safeRootHeight = rootHeight.coerceAtLeast(1)
-
-        val oldChildTop = stableSurfaceChildTop()
 
         val rootSizeChanged =
             abs(safeRootWidth - lastRootWidth) > 2 ||
@@ -179,15 +171,9 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
             max(stableSurfaceHeight, safeHeight)
         }
 
-        val newChildTop = stableSurfaceChildTop(
-            surfaceHeight = targetHeight,
-            visibleHeight = safeHeight
-        )
-
         val sizeChanged =
             targetWidth != stableSurfaceWidth ||
             targetHeight != stableSurfaceHeight
-        val childTopChanged = oldChildTop != newChildTop
 
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
@@ -203,20 +189,12 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         }
 
         val layoutChanged = sizeChanged || layoutParamDirty
-
         if (layoutChanged) {
             geometryAwaitingLayout = true
             requestLayout()
-        } else if (childTopChanged) {
-            layoutStableSurfaceChild()
-            val glassDirty = syncGlassSpecToTexture()
-            val samplingDirty = syncSamplingSpecToTexture()
-            if (glassDirty || samplingDirty) {
-                textureView.requestRender()
-            }
         }
 
-        return layoutChanged || childTopChanged
+        return layoutChanged
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -274,25 +252,13 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         }
     }
 
-    private fun stableSurfaceChildTop(
-        surfaceHeight: Int = stableSurfaceHeight,
-        visibleHeight: Int = visibleSurfaceHeight
-    ): Int {
-        if (surfaceHeight <= visibleHeight) return 0
-        return -((surfaceHeight - visibleHeight) * stableSurfaceAnchorY).roundToInt()
-    }
-
-    private fun currentRectOffsetY(): Float =
-        -stableSurfaceChildTop().toFloat()
-
     private fun layoutStableSurfaceChild() {
-        val childTop = stableSurfaceChildTop()
         textureView.translationY = 0f
         textureView.layout(
             0,
-            childTop,
+            0,
             stableSurfaceWidth,
-            childTop + stableSurfaceHeight
+            stableSurfaceHeight
         )
     }
 
@@ -300,7 +266,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         textureView.setGlassSpec(
             latestGlassWidth.coerceAtLeast(1f),
             latestGlassHeight.coerceAtLeast(1f),
-            currentRectOffsetY(),
+            0f,
             latestRadius,
             latestIntensity
         )
