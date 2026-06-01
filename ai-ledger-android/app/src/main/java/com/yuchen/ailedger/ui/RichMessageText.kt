@@ -13,11 +13,24 @@ import android.text.style.MetricAffectingSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.widget.TextView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
@@ -30,11 +43,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import ru.noties.jlatexmath.JLatexMathDrawable
 
 private val richMessageTokenRegex = Regex(
-    pattern = """(\*\*.+?\*\*)|(\\\\\(.+?\\\\\))|(\\\\\[.+?\\\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
+    pattern = """(\*\*.+?\*\*)|(\\\(.+?\\\))|(\\\[.+?\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
     options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
 )
 
@@ -57,6 +72,15 @@ private data class FormulaToken(
     val key: String,
     val latex: String,
     val display: Boolean
+)
+
+private data class MobileCommandPanelData(
+    val intro: String,
+    val title: String,
+    val detail: String,
+    val status: String,
+    val result: String?,
+    val pending: Boolean
 )
 
 @Composable
@@ -148,6 +172,19 @@ fun RichMessageContent(
         }
     }
 
+    val mobileCommandPanel = remember(text) { parseMobileCommandPanel(text) }
+    if (mobileCommandPanel != null) {
+        MobileCommandInlineCard(
+            data = mobileCommandPanel,
+            modifier = modifier,
+            color = resolvedColor,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
+        )
+        return
+    }
+
     if (!richMessageTokenRegex.containsMatchIn(text)) {
         MaterialText(
             text = text,
@@ -185,6 +222,163 @@ fun RichMessageContent(
             )
         }
     )
+}
+
+@Composable
+private fun MobileCommandInlineCard(
+    data: MobileCommandPanelData,
+    modifier: Modifier,
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight?
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (data.intro.isNotBlank()) {
+            MaterialText(
+                text = data.intro,
+                color = color,
+                fontSize = fontSize,
+                lineHeight = lineHeight,
+                fontWeight = fontWeight ?: FontWeight.Medium
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = 0.078f))
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (data.pending) Color(0xFF8DF9EA).copy(alpha = 0.90f) else Color.White.copy(alpha = 0.58f))
+                )
+                MaterialText(
+                    text = data.title,
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.weight(1f))
+                MaterialText(
+                    text = data.status,
+                    color = if (data.pending) Color(0xFF8DF9EA).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.58f),
+                    fontSize = 9.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+            }
+            MaterialText(
+                text = data.detail,
+                color = Color.White.copy(alpha = 0.74f),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+            if (data.pending) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MobileCommandChip("回复 确认")
+                    MobileCommandChip("回复 取消", dim = true)
+                }
+            } else if (!data.result.isNullOrBlank()) {
+                MaterialText(
+                    text = data.result,
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileCommandChip(text: String, dim: Boolean = false) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = if (dim) 0.055f else 0.105f))
+            .padding(horizontal = 9.dp, vertical = 4.dp)
+    ) {
+        MaterialText(
+            text = text,
+            color = Color.White.copy(alpha = if (dim) 0.50f else 0.78f),
+            fontSize = 9.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+    }
+}
+
+private fun parseMobileCommandPanel(text: String): MobileCommandPanelData? {
+    val clean = text.trim()
+    if (clean.isBlank()) return null
+    if (clean.contains("动作：") && clean.contains("详情：")) {
+        val lines = clean.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val intro = lines.firstOrNull().orEmpty()
+        val title = lines.firstOrNull { it.startsWith("动作：") }?.removePrefix("动作：")?.trim().orEmpty()
+        val detail = lines.firstOrNull { it.startsWith("详情：") }?.removePrefix("详情：")?.trim().orEmpty()
+        if (title.isBlank() || detail.isBlank()) return null
+        return MobileCommandPanelData(
+            intro = intro,
+            title = title,
+            detail = detail,
+            status = "待确认",
+            result = "回复“确认”执行，或回复“取消”。",
+            pending = true
+        )
+    }
+    if (clean.startsWith("已取消这个手机动作：")) {
+        val payload = clean.removePrefix("已取消这个手机动作：").removeSuffix("。")
+        val title = payload.substringBefore("·").trim().ifBlank { "手机动作" }
+        val detail = payload.substringAfter("·", "已取消").trim()
+        return MobileCommandPanelData(
+            intro = "已取消这个手机动作。",
+            title = title,
+            detail = detail,
+            status = "已取消",
+            result = null,
+            pending = false
+        )
+    }
+    val resultLabel = when {
+        clean.contains("执行结果：") -> "执行结果："
+        clean.contains("执行失败：") -> "执行失败："
+        else -> null
+    } ?: return null
+    val intro = clean.substringBefore(resultLabel).trim().lineSequence().firstOrNull().orEmpty()
+    val result = clean.substringAfter(resultLabel).trim()
+    return MobileCommandPanelData(
+        intro = intro,
+        title = inferMobileCommandTitle(clean),
+        detail = inferMobileCommandDetail(clean),
+        status = if (resultLabel.contains("失败")) "未完成" else "已执行",
+        result = result,
+        pending = false
+    )
+}
+
+private fun inferMobileCommandTitle(text: String): String = when {
+    text.contains("设置闹钟") -> "设置系统闹钟"
+    text.contains("打开“") -> "打开手机应用"
+    text.contains("导航到") -> "地图导航"
+    else -> "手机动作"
+}
+
+private fun inferMobileCommandDetail(text: String): String {
+    val firstLine = text.lineSequence().firstOrNull()?.trim().orEmpty()
+    return firstLine.removePrefix("我理解为要").removeSuffix("。").ifBlank { "已处理手机动作" }
 }
 
 private fun buildRichMessageSpannable(
