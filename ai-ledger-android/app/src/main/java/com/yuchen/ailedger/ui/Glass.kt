@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -87,9 +86,11 @@ fun GlassPanel(
     modifier: Modifier = Modifier,
     role: GlassRole = GlassRole.Card,
     viewportTopInset: Dp = 0.dp,
+    intensity: Float? = null,
     content: @Composable () -> Unit
 ) {
     val effectiveRadius = effectiveGlassRadius(radius, role)
+    val effectiveIntensity = intensity ?: glassIntensity
     val coordinates = remember { GlassCoordinateSource() }
     val registry = LocalGlassItemRegistry.current
     val backdrop = LocalGlassBackdrop.current
@@ -101,7 +102,7 @@ fun GlassPanel(
     val density = LocalDensity.current
     val safeViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
     val safeViewportTopInsetPx = with(density) { safeViewportTopInset.toPx() }
-    val pressedGlassIntensity = glassIntensity
+    val pressedGlassIntensity = effectiveIntensity
 
     if (useUnifiedBackdrop) {
         SideEffect {
@@ -191,12 +192,14 @@ fun PressableGlass(
     radius: Int,
     modifier: Modifier = Modifier,
     role: GlassRole = GlassRole.Chip,
+    intensity: Float? = null,
     onClick: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
+    val effectiveIntensity = intensity ?: glassIntensity
     GlassPanel(
         quality = quality,
-        glassIntensity = glassIntensity,
+        glassIntensity = effectiveIntensity,
         motionIntensity = motionIntensity,
         radius = radius,
         modifier = modifier.clickable(
