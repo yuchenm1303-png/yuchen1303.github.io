@@ -759,12 +759,8 @@ private class OpenGLGlassCardRenderer {
                 return clamp(uv, 0.0, 1.0);
             }
 
-            vec2 visualToTextureCoord(vec2 visualCoord) {
-                return uRect.xy + visualCoord;
-            }
-
-            vec2 globalUv(vec2 textureCoord) {
-                return clamp((uCardOrigin + textureCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
+            vec2 globalUv(vec2 visualCoord) {
+                return clamp((uCardOrigin + visualCoord) / max(uRootResolution, vec2(1.0)), 0.0, 1.0);
             }
 
             vec3 fallbackBackdrop(vec2 uv) {
@@ -852,15 +848,15 @@ private class OpenGLGlassCardRenderer {
                 vec2 baseFar = coord - n * (pull * 1.85);
                 vec2 baseOut = coord + n * (pull * 0.45);
 
-                vec3 c = sourceLensBackdrop(globalUv(visualToTextureCoord(baseIn))) * 0.28;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseFar))) * 0.18;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseOut))) * 0.12;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseIn + t * smear))) * 0.14;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseIn - t * smear))) * 0.14;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseIn + t * smear * 1.85))) * 0.07;
-                c += sourceLensBackdrop(globalUv(visualToTextureCoord(baseIn - t * smear * 1.85))) * 0.07;
+                vec3 c = sourceLensBackdrop(globalUv(baseIn)) * 0.28;
+                c += sourceLensBackdrop(globalUv(baseFar)) * 0.18;
+                c += sourceLensBackdrop(globalUv(baseOut)) * 0.12;
+                c += sourceLensBackdrop(globalUv(baseIn + t * smear)) * 0.14;
+                c += sourceLensBackdrop(globalUv(baseIn - t * smear)) * 0.14;
+                c += sourceLensBackdrop(globalUv(baseIn + t * smear * 1.85)) * 0.07;
+                c += sourceLensBackdrop(globalUv(baseIn - t * smear * 1.85)) * 0.07;
 
-                vec3 soft = blurBackdrop(globalUv(visualToTextureCoord(baseIn)), band) * 0.45 + c * 0.55;
+                vec3 soft = blurBackdrop(globalUv(baseIn), band) * 0.45 + c * 0.55;
                 float signal = colorSignal(c);
                 float dragAlpha = band * (0.035 + sat(max(uRefraction.z, 0.0)) * 0.105 + core * 0.030) * signal;
                 return mix(vec3(0.0), soft, sat(dragAlpha));
@@ -915,7 +911,7 @@ private class OpenGLGlassCardRenderer {
                 float pressField = pressFieldAt(visualCoord, rectSize, pressCenter, press);
                 float pressWide = press * pow(sat(1.0 - length((visualCoord / rectSize - pressCenter) * vec2(min(rectSize.x / max(rectSize.y, 1.0), 2.2), 1.0)) * 0.58), 1.25);
                 vec2 inwardPx = softLimitPx((pressCenterPx - visualCoord) * (0.028 * press + 0.070 * pressField), 24.0 + press * 18.0);
-                vec2 pressedCoord = visualToTextureCoord(visualCoord + inwardPx);
+                vec2 pressedCoord = visualCoord + inwardPx;
 
                 vec2 bgUv = globalUv(pressedCoord);
                 float stepPx = 2.0;
