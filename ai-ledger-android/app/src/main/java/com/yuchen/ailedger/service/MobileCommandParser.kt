@@ -31,7 +31,35 @@ sealed class MobileCommand {
         override val title: String = "地图导航"
         override val summary: String = "到 $destination"
     }
+
+    data class IntentPlan(
+        val planSummary: String,
+        val riskLevel: String,
+        val steps: List<IntentPlanStep>,
+        val fallback: String? = null,
+    ) : MobileCommand() {
+        override val title: String = "执行任务计划"
+        override val summary: String = planSummary.ifBlank { "共 ${steps.size} 步" }
+    }
 }
+
+data class IntentPlanStep(
+    val capability: String,
+    val title: String? = null,
+    val appName: String? = null,
+    val packageName: String? = null,
+    val destination: String? = null,
+    val text: String? = null,
+    val url: String? = null,
+    val phoneNumber: String? = null,
+    val hour: Int? = null,
+    val minute: Int? = null,
+    val label: String? = null,
+    val slot: String? = null,
+    val value: String? = null,
+    val contactName: String? = null,
+    val message: String? = null,
+)
 
 object MobileCommandParser {
     fun parse(text: String): MobileCommand? {
