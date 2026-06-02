@@ -29,7 +29,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,6 +59,7 @@ import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
+import kotlinx.coroutines.delay
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -88,9 +88,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    var keepAssistantCompactAfterIme by remember { mutableStateOf(false) }
+    LaunchedEffect(isKeyboardOpen) {
+        if (isKeyboardOpen) {
+            keepAssistantCompactAfterIme = true
+        } else if (keepAssistantCompactAfterIme) {
+            delay(260L)
+            keepAssistantCompactAfterIme = false
+        }
+    }
+    val compactForImeTransition = isKeyboardOpen || keepAssistantCompactAfterIme
     val assistantBottomPadding by animateDpAsState(
-        targetValue = if (isKeyboardOpen) 8.dp else 68.dp,
-        animationSpec = tween(durationMillis = 160),
+        targetValue = if (compactForImeTransition) 8.dp else 68.dp,
+        animationSpec = tween(durationMillis = 180),
         label = "assistant-ime-bottom-padding"
     )
     val compactDensity = remember(density.density, density.fontScale) {
@@ -100,7 +110,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val latestMessageId = state.messages.lastOrNull()?.id
     val bottomBarAlpha by animateFloatAsState(
-        targetValue = if (isKeyboardOpen) 0f else 1f,
+        targetValue = if (compactForImeTransition) 0f else 1f,
         animationSpec = tween(durationMillis = 140),
         label = "bottom-bar-ime-alpha"
     )
@@ -246,28 +256,26 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 modifier = Modifier.fillMaxSize()
                             ) { tab ->
                                 when (tab) {
-                                    AppTab.Assistant -> key(isKeyboardOpen) {
-                                        AssistantScreenV2(
-                                            state = state,
-                                            bottomPadding = assistantBottomPadding,
-                                            onComposerChange = viewModel::updateComposer,
-                                            onSend = submitOrRunLocalMobileCommand,
-                                            onStopGenerating = viewModel::stopGenerating,
-                                            onDraftCommand = viewModel::insertCommandDraft,
-                                            onModelSelected = viewModel::selectModel,
-                                            onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                            onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                            onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                            onToggleOnline = viewModel::toggleOnline,
-                                            onCopyMessage = { text ->
-                                                if (text.isNotBlank()) {
-                                                    clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            onRetryMessage = viewModel::retryMessage
-                                        )
-                                    }
+                                    AppTab.Assistant -> AssistantScreenV2(
+                                        state = state,
+                                        bottomPadding = assistantBottomPadding,
+                                        onComposerChange = viewModel::updateComposer,
+                                        onSend = submitOrRunLocalMobileCommand,
+                                        onStopGenerating = viewModel::stopGenerating,
+                                        onDraftCommand = viewModel::insertCommandDraft,
+                                        onModelSelected = viewModel::selectModel,
+                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                        onToggleOnline = viewModel::toggleOnline,
+                                        onCopyMessage = { text ->
+                                            if (text.isNotBlank()) {
+                                                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        onRetryMessage = viewModel::retryMessage
+                                    )
                                     AppTab.Tools -> {
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
@@ -305,7 +313,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
-                            onTabChange = { tab -> if (!isKeyboardOpen) viewModel.selectTab(tab) },
+                            onTabChange = { tab -> if (!compactForImeTransition) viewModel.selectTab(tab) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
