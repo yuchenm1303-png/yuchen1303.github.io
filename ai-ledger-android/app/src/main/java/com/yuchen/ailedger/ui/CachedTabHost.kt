@@ -25,9 +25,9 @@ import kotlinx.coroutines.delay
 val LocalPageActive = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 
-private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
-private const val DEFAULT_PREWARM_DELAY_MS = 360L
-private const val DEFAULT_PREWARM_STEP_DELAY_MS = 96L
+private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
+private const val DEFAULT_PREWARM_DELAY_MS = 720L
+private const val DEFAULT_PREWARM_STEP_DELAY_MS = 180L
 
 @Composable
 fun CachedAppTabHost(
@@ -51,14 +51,6 @@ fun CachedAppTabHost(
     LaunchedEffect(currentTab) {
         renderedTabs = renderedTabs + currentTab
         activationTicks[currentTab] = (activationTicks[currentTab] ?: 0) + 1
-    }
-
-    LaunchedEffect(currentTab, renderedTabs) {
-        val inactiveTabs = renderedTabs - currentTab
-        if (inactiveTabs.isNotEmpty()) {
-            delay(140L)
-            renderedTabs = renderedTabs - inactiveTabs
-        }
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
@@ -95,6 +87,7 @@ fun CachedAppTabHost(
                 CompositionLocalProvider(
                     LocalPageActive provides active,
                     LocalPageActivationTick provides (activationTicks[tab] ?: 0),
+                    LocalOpenGLGlassViewportActive provides !active,
                     LocalGlassItemRegistry provides if (active) LocalGlassItemRegistry.current else null
                 ) {
                     Box(
