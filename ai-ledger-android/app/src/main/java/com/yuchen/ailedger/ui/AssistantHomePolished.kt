@@ -88,7 +88,9 @@ import kotlin.math.sin
 @Composable
 fun AssistantScreenV2(
     state: AssistantUiState,
-    bottomPadding: Dp = 68.dp,
+    bottomPadding: Dp = 8.dp,
+    bottomDockVisible: Boolean = true,
+    bottomDockPadding: Dp = 68.dp,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
     onStopGenerating: () -> Unit,
@@ -120,7 +122,13 @@ fun AssistantScreenV2(
     } else {
         0.dp
     }
-    val bottomDockExpanded = bottomPadding >= 40.dp
+    val composerBottomPadding by animateDpAsState(
+        targetValue = if (bottomDockVisible) bottomDockPadding else 0.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "composer-bottom-dock-padding"
+    )
+    val composerOverlayPadding = composerBottomPadding + 92.dp
+
     LaunchedEffect(modelPanelExpanded) {
         if (modelPanelExpanded) {
             modelAnchorHeld = true
@@ -146,68 +154,81 @@ fun AssistantScreenV2(
         else -> OpenGLGlassSurfaceAnchor.Center
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 12.dp, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(top = 12.dp, bottom = bottomPadding)
     ) {
-        AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2()
-        }
-
-        AssistantEntrance(
-            delayMs = 46,
-            modifier = Modifier.zIndex(4f),
-            initialOffsetY = 16,
-            initialScale = 0.965f
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            ModelAndNetworkPanel(
-                state = state,
-                expanded = modelPanelExpanded,
-                panelHeight = modelPanelVisualHeight,
-                layoutHeight = collapsedPanelHeight,
-                onExpandedChange = { modelPanelExpanded = it },
-                onModelSelected = onModelSelected,
-                onToggleOnline = onToggleOnline
-            )
-        }
+            AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
+                AssistantHeroV2()
+            }
 
-        AssistantEntrance(
-            delayMs = 92,
-            modifier = Modifier.weight(1f),
-            initialOffsetY = 30,
-            initialScale = 0.955f
-        ) {
-            CompositionLocalProvider(
-                LocalOpenGLGlassSurfaceAnchor provides shellAnchor
+            AssistantEntrance(
+                delayMs = 46,
+                modifier = Modifier.zIndex(4f),
+                initialOffsetY = 16,
+                initialScale = 0.965f
             ) {
-                ChatPanelV2(
-state = state,
-modifier = Modifier.fillMaxWidth(),
-viewportTopInset = modelExpandDelta,
-bottomDockExpanded = bottomDockExpanded,
-onDraftCommand = onDraftCommand,
-onPickImage = onPickImage,
-onCopyMessage = onCopyMessage,
-onRetryMessage = onRetryMessage
-)
+                ModelAndNetworkPanel(
+                    state = state,
+                    expanded = modelPanelExpanded,
+                    panelHeight = modelPanelVisualHeight,
+                    layoutHeight = collapsedPanelHeight,
+                    onExpandedChange = { modelPanelExpanded = it },
+                    onModelSelected = onModelSelected,
+                    onToggleOnline = onToggleOnline
+                )
+            }
+
+            AssistantEntrance(
+                delayMs = 92,
+                modifier = Modifier.weight(1f),
+                initialOffsetY = 30,
+                initialScale = 0.955f
+            ) {
+                CompositionLocalProvider(
+                    LocalOpenGLGlassSurfaceAnchor provides shellAnchor
+                ) {
+                    ChatPanelV2(
+                        state = state,
+                        modifier = Modifier.fillMaxWidth(),
+                        viewportTopInset = modelExpandDelta,
+                        bottomOverlayPadding = composerOverlayPadding,
+                        onDraftCommand = onDraftCommand,
+                        onPickImage = onPickImage,
+                        onCopyMessage = onCopyMessage,
+                        onRetryMessage = onRetryMessage
+                    )
+                }
             }
         }
 
-        AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
+        AssistantEntrance(
+            delayMs = 138,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = composerBottomPadding),
+            initialOffsetY = 18,
+            initialScale = 0.965f
+        ) {
             ComposerBarV2(
                 state = state,
                 onComposerChange = onComposerChange,
                 onSend = onSend,
                 onStopGenerating = onStopGenerating,
                 onPickImage = onPickImage,
-                onComposerFocusChange = { composerFocused = it }
+                onComposerFocusChange = { composerFocused = it },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
-
 }
+
 
 @Composable
 private fun AssistantEntrance(
@@ -325,14 +346,14 @@ private fun FixedHeightOverflowSlot(
 
 @Composable
 private fun ChatPanelV2(
-state: AssistantUiState,
-modifier: Modifier,
-viewportTopInset: Dp = 0.dp,
-bottomDockExpanded: Boolean = false,
-onDraftCommand: (String) -> Unit,
-onPickImage: () -> Unit,
-onCopyMessage: (String) -> Unit,
-onRetryMessage: (String) -> Unit
+    state: AssistantUiState,
+    modifier: Modifier,
+    viewportTopInset: Dp = 0.dp,
+    bottomOverlayPadding: Dp = 96.dp,
+    onDraftCommand: (String) -> Unit,
+    onPickImage: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
@@ -350,14 +371,6 @@ onRetryMessage: (String) -> Unit
             listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
-    LaunchedEffect(bottomDockExpanded, lastMessageId) {
-if (state.messages.isEmpty()) return@LaunchedEffect
-if (bottomDockExpanded) {
-listState.scrollToItem(state.messages.lastIndex)
-delay(180L)
-listState.animateScrollToItem(state.messages.lastIndex)
-}
-}
     GlassPanel(
         quality = state.quality,
         glassIntensity = state.glassIntensity,
@@ -400,7 +413,7 @@ listState.animateScrollToItem(state.messages.lastIndex)
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 0.dp, bottom = 72.dp),
+                        contentPadding = PaddingValues(top = 0.dp, bottom = bottomOverlayPadding),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         items(state.messages, key = { it.id }) { message ->
@@ -422,6 +435,7 @@ listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
 }
+
 
 @Composable
 private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
@@ -938,7 +952,8 @@ private fun ComposerBarV2(
     onSend: () -> Unit,
     onStopGenerating: () -> Unit,
     onPickImage: () -> Unit,
-    onComposerFocusChange: (Boolean) -> Unit
+    onComposerFocusChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val view = androidx.compose.ui.platform.LocalView.current
     val inputMethodManager = remember(view) {
@@ -953,7 +968,7 @@ private fun ComposerBarV2(
         }
     }
     val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.fillMaxWidth()) {
         RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
         ComposerInputV2(
     state,
