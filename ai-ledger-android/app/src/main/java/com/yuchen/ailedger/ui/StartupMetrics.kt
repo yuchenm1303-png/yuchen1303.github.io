@@ -19,6 +19,9 @@ object StartupMetrics {
     private var jankFrameCount = 0
     private var totalFrameMs = 0f
     private var maxFrameMs = 0f
+    private var fpsWindowStartMs = 0L
+    private var fpsWindowFrames = 0
+    private var recentFps = 0f
     private val _frameStats = mutableStateOf(StartupFrameStats())
     private val _warmupState = mutableStateOf("首页加载中")
 
@@ -65,6 +68,7 @@ object StartupMetrics {
         }
         if (frameMonitorStarted) return
         frameMonitorStarted = true
+        fpsWindowStartMs = SystemClock.elapsedRealtime()
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
@@ -79,6 +83,9 @@ object StartupMetrics {
         jankFrameCount = 0
         totalFrameMs = 0f
         maxFrameMs = 0f
+        fpsWindowStartMs = SystemClock.elapsedRealtime()
+        fpsWindowFrames = 0
+        recentFps = 0f
         _frameStats.value = StartupFrameStats()
         mark("帧统计已重置")
     }
@@ -101,11 +108,20 @@ object StartupMetrics {
                 val frameMs = (frameTimeNanos - lastFrameNanos) / 1_000_000f
                 if (frameMs in 0.1f..1000f) {
                     frameCount += 1
+                    fpsWindowFrames += 1
                     totalFrameMs += frameMs
                     if (frameMs > maxFrameMs) maxFrameMs = frameMs
                     if (frameMs >= 24f) longFrameCount += 1
                     if (frameMs >= 33f) jankFrameCount += 1
-                    if (frameCount % 15 == 0) publishFrameStats()
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - fpsWindowStartMs >= 700L) {
+                        recentFps = fpsWindowFrames * 1000f / (now - fpsWindowStartMs).coerceAtLeast(1L)
+                        fpsWindowStartMs = now
+                        fpsWindowFrames = 0
+                        publishFrameStats()
+                    } else if (frameCount % 30 == 0) {
+                        publishFrameStats()
+                    }
                 }
             }
             lastFrameNanos = frameTimeNanos
@@ -117,6 +133,7 @@ object StartupMetrics {
         val avg = if (frameCount > 0) totalFrameMs / frameCount else 0f
         _frameStats.value = StartupFrameStats(
             frameCount = frameCount,
+            currentFps = recentFps,
             avgFrameMs = avg,
             maxFrameMs = maxFrameMs,
             longFrameCount = longFrameCount,
@@ -140,14 +157,16 @@ data class StartupMetricEvent(
 
 data class StartupFrameStats(
     val frameCount: Int = 0,
+    val currentFps: Float = 0f,
     val avgFrameMs: Float = 0f,
     val maxFrameMs: Float = 0f,
     val longFrameCount: Int = 0,
     val jankFrameCount: Int = 0
 ) {
     fun compactLabel(): String {
+        val fps = (currentFps * 10).toInt() / 10f
         val avg = (avgFrameMs * 10).toInt() / 10f
         val max = (maxFrameMs * 10).toInt() / 10f
-        return "帧 ${avg}ms / max ${max}ms / 长帧 $longFrameCount / 卡顿 $jankFrameCount"
+        return "FPS ${fps} / 帧 ${avg}ms / max ${max}ms / 长帧 $longFrameCount / 卡顿 $jankFrameCount"
     }
 }
