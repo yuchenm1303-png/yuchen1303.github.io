@@ -3,22 +3,37 @@ package com.yuchen.ailedger
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
+import com.yuchen.ailedger.ui.StartupMetrics
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        StartupMetrics.markOnce("Activity onCreate")
         super.onCreate(savedInstanceState)
+        StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
+        StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
+        installFirstFrameProbe(window.decorView)
+        installStartupMetricsOverlay(window.decorView)
         setContent {
+            StartupMetrics.markOnce("Compose 首次进入")
             AiAssistantNativeApp()
         }
+        StartupMetrics.markOnce("setContent 调用完成")
     }
 
     private fun prepareWindow(window: Window) {
@@ -51,5 +66,86 @@ class MainActivity : ComponentActivity() {
             imeWasVisible = imeVisible
             insets
         }
+    }
+
+    private fun installFirstFrameProbe(root: View) {
+        root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (root.viewTreeObserver.isAlive) {
+                    root.viewTreeObserver.removeOnPreDrawListener(this)
+                }
+                StartupMetrics.markOnce("首帧 preDraw")
+                root.post { StartupMetrics.markOnce("首帧后主线程回调") }
+                return true
+            }
+        })
+    }
+
+    private fun installStartupMetricsOverlay(root: View) {
+        val parent = root as? ViewGroup ?: return
+        val handler = Handler(Looper.getMainLooper())
+        val overlay = TextView(this).apply {
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(0x99101A35.toInt())
+            setPadding(10, 7, 10, 7)
+            maxLines = 14
+            isClickable = true
+            alpha = 0.92f
+        }
+        var expanded = false
+
+        fun updateText() {
+            val events = StartupMetrics.events
+            val last = events.lastOrNull()
+            overlay.text = if (!expanded) {
+                "性能 ${last?.elapsedMs ?: 0}ms"
+            } else {
+                buildString {
+                    append("首启性能时间线\n")
+                    if (events.isEmpty()) {
+                        append("暂无数据")
+                    } else {
+                        events.takeLast(12).forEach { event ->
+                            append(event.compactLabel())
+                            append("  ")
+                            append(event.name)
+                            append('\n')
+                        }
+                    }
+                    append("\n点我收起")
+                }
+            }
+        }
+
+        overlay.setOnClickListener {
+            expanded = !expanded
+            updateText()
+        }
+
+        val layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            topMargin = 42
+            rightMargin = 10
+        }
+        parent.addView(overlay, layoutParams)
+        updateText()
+
+        val ticker = object : Runnable {
+            override fun run() {
+                updateText()
+                handler.postDelayed(this, 500L)
+            }
+        }
+        handler.post(ticker)
+        overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) {
+                handler.removeCallbacks(ticker)
+            }
+        })
     }
 }
