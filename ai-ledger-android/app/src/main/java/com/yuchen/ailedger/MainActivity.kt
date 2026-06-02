@@ -7,7 +7,6 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.Gravity
-import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -73,17 +72,6 @@ class MainActivity : ComponentActivity() {
         attrs.preferredRefreshRate = bestMode.refreshRate
         window.attributes = attrs
         StartupMetrics.markOnce("高刷请求：${bestMode.refreshRate.toInt()}Hz")
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.decorView.post {
-                window.decorView.setFrameRate(
-                    bestMode.refreshRate,
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
-                )
-                StartupMetrics.markOnce("View frameRate hint：${bestMode.refreshRate.toInt()}Hz")
-            }
-        }
     }
 
     private fun currentDisplay(): Display? {
