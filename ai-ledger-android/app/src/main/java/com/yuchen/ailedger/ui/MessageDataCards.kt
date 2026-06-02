@@ -23,13 +23,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.StructuredMetric
 import com.yuchen.ailedger.model.WebSource
 
 @Composable
-fun MessageDataCards(message: ChatMessage) {
+fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
     if (message.structuredData == null && message.webSources.isEmpty()) return
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
@@ -38,6 +39,8 @@ fun MessageDataCards(message: ChatMessage) {
             WebSourcesCard(message.webSources, message.searchProvider)
         }
     }
+
+    state.quality.hashCode()
 }
 
 @Composable
@@ -73,6 +76,7 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
 @Composable
 private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
     var expanded by remember(sources) { mutableStateOf(false) }
+    val openWebSource = LocalWebSourceOpener.current
     val previewCount = if (expanded) sources.size else 2.coerceAtMost(sources.size)
     val hiddenCount = (sources.size - previewCount).coerceAtLeast(0)
 
@@ -88,7 +92,23 @@ private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
             }
 
             sources.take(previewCount).forEachIndexed { index, source ->
-                WebSourceRow(index + 1, source, expanded = expanded)
+                WebSourceRow(
+                    index = index + 1,
+                    source = source,
+                    expanded = expanded,
+                    onOpen = {
+                        val url = source.url.trim()
+                        if (url.startsWith("http://") || url.startsWith("https://")) {
+                            openWebSource(
+                                WebPreviewSource(
+                                    title = source.title.ifBlank { source.domain.ifBlank { "来源 ${index + 1}" } },
+                                    url = url,
+                                    domain = source.domain
+                                )
+                            )
+                        }
+                    }
+                )
             }
 
             if (hiddenCount > 0) {
@@ -134,8 +154,17 @@ private fun LightweightDataCard(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean, onOpen: () -> Unit) {
+    val hasUrl = source.url.startsWith("http://") || source.url.startsWith("https://")
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = hasUrl, onClick = onOpen)
+            .padding(vertical = 2.dp)
+    ) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
@@ -146,7 +175,10 @@ private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean) {
             Text(index.toString(), color = Color.White.copy(alpha = 0.72f), fontSize = 9.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(source.title.ifBlank { source.domain.ifBlank { "来源 $index" } }, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(source.title.ifBlank { source.domain.ifBlank { "来源 $index" } }, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (hasUrl) Text("打开", color = Color(0xFF9FD8FF).copy(alpha = 0.58f), fontSize = 9.sp, fontWeight = FontWeight.Black)
+            }
             val meta = listOf(source.domain, source.publishedAt.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (source.snippet.isNotBlank()) {
