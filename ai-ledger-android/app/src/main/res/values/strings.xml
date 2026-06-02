@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AI助手</string>
+    <string name="ai_agent_accessibility_description">允许 AI 助手读取当前屏幕上的文字、按钮和输入框，用于手机智能体观察。当前版本只观察屏幕，不会自动点击或输入。</string>
 </resources>
