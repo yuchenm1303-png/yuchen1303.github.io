@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.yuchen.ailedger.model.AssistantUiState
 
 data class WebPreviewSource(
     val title: String,
@@ -61,7 +60,6 @@ data class WebPreviewSource(
 @Composable
 fun InAppWebBrowserOverlay(
     target: WebPreviewSource?,
-    state: AssistantUiState,
     onDismiss: () -> Unit
 ) {
     val safeTarget = target ?: return
@@ -75,7 +73,7 @@ fun InAppWebBrowserOverlay(
             enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.975f, animationSpec = tween(220, easing = FastOutSlowInEasing)),
             exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.985f, animationSpec = tween(140))
         ) {
-            WebBrowserDialogContent(target = safeTarget, state = state, onDismiss = onDismiss)
+            WebBrowserDialogContent(target = safeTarget, onDismiss = onDismiss)
         }
     }
 }
@@ -84,7 +82,6 @@ fun InAppWebBrowserOverlay(
 @Composable
 private fun WebBrowserDialogContent(
     target: WebPreviewSource,
-    state: AssistantUiState,
     onDismiss: () -> Unit
 ) {
     var progress by remember(target.url) { mutableStateOf(0) }
@@ -237,8 +234,6 @@ private fun WebBrowserDialogContent(
             }
         }
     }
-
-    state.quality.hashCode()
 }
 
 @Composable
