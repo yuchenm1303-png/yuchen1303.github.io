@@ -17,9 +17,12 @@ sealed class MobileCommand {
     data class OpenApp(
         val appName: String,
         val packageName: String?,
+        val launchUri: String? = null,
     ) : MobileCommand() {
         override val title: String = "打开手机应用"
-        override val summary: String = if (packageName.isNullOrBlank()) appName else "$appName · $packageName"
+        override val summary: String = listOf(appName, packageName, launchUri)
+            .filter { !it.isNullOrBlank() }
+            .joinToString(" · ")
     }
 
     data class Navigate(
