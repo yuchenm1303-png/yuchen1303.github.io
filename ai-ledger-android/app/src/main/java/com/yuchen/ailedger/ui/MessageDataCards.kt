@@ -23,14 +23,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.StructuredMetric
 import com.yuchen.ailedger.model.WebSource
 
 @Composable
-fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
+fun MessageDataCards(message: ChatMessage) {
     if (message.structuredData == null && message.webSources.isEmpty()) return
 
     var webPreviewSource by remember(message.id) { mutableStateOf<WebPreviewSource?>(null) }
@@ -48,11 +47,8 @@ fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
 
     InAppWebBrowserOverlay(
         target = webPreviewSource,
-        state = state,
         onDismiss = { webPreviewSource = null }
     )
-
-    state.quality.hashCode()
 }
 
 @Composable
@@ -62,13 +58,32 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 DataDot(Color(0xFF8DF9EA))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(data.title, color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        data.title,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     val meta = listOfNotNull(data.subtitle, data.timestamp).joinToString(" · ")
                     if (meta.isNotBlank()) {
-                        Text(meta, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            meta,
+                            color = Color.White.copy(alpha = 0.48f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
-                Text(typeLabel(data.type), color = Color(0xFF8DF9EA).copy(alpha = 0.78f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                Text(
+                    typeLabel(data.type),
+                    color = Color(0xFF8DF9EA).copy(alpha = 0.78f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
             }
 
             data.metrics.chunked(2).forEach { row ->
@@ -79,7 +94,14 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
             }
 
             data.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
-                Text(raw, color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(
+                    raw,
+                    color = Color.White.copy(alpha = 0.56f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -102,7 +124,14 @@ private fun WebSourcesCard(
                 Text("联网来源", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
                 Text("${sources.size} 条", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 provider?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, color = Color(0xFF9FD8FF).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        it,
+                        color = Color(0xFF9FD8FF).copy(alpha = 0.72f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
@@ -191,7 +220,15 @@ private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean, onOpe
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(source.title.ifBlank { source.domain.ifBlank { "来源 $index" } }, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(
+                    source.title.ifBlank { source.domain.ifBlank { "来源 $index" } },
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 if (hasUrl) Text("打开", color = Color(0xFF9FD8FF).copy(alpha = 0.58f), fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
             val meta = listOf(source.domain, source.publishedAt.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ")
