@@ -292,8 +292,8 @@ internal fun UnifiedParentModelStackSelector(
                     motionAnim.animateTo(
                         targetValue = target,
                         animationSpec = spring(
-                            dampingRatio = if (expanded) 0.78f else 0.86f,
-                            stiffness = if (expanded) Spring.StiffnessMediumLow else Spring.StiffnessMedium
+                            dampingRatio = if (expanded) 0.64f else 0.74f,
+                            stiffness = if (expanded) Spring.StiffnessLow else Spring.StiffnessMediumLow
                         )
                     )
                     if (!expanded && !selected && launchedTransitionKey === currentStackTransitionKey) {
@@ -390,7 +390,12 @@ internal fun UnifiedParentModelStackSelector(
                 val clampedMotion = rawMotion.coerceIn(0f, 1f)
                 val targetProgress = modelBlendedShapeProgress(visualProgress, clampedMotion)
                 val stackReveal = 1f - targetProgress
-                val p = rawMotion.coerceIn(-geometry.overshoot * 0.72f, 1f + geometry.overshoot)
+                val p = modelSoftLimit(
+                    value = rawMotion,
+                    min = -geometry.overshoot * 0.40f,
+                    max = 1f + geometry.overshoot * 0.52f,
+                    softness = geometry.overshoot * 0.48f
+                )
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
                 val dockGlow = modelSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
@@ -407,8 +412,8 @@ internal fun UnifiedParentModelStackSelector(
                 val height = modelLerpDp(collapsedHeight, expandedHeight, targetProgress)
                 val releaseStretchX = capsuleLaunch * (0.014f * geometry.horizontalMotion - 0.004f * geometry.verticalMotion)
                 val releaseStretchY = capsuleLaunch * (0.006f * geometry.verticalMotion - 0.008f * geometry.horizontalMotion)
-                val dockScaleX = dockGlow * (0.0038f * geometry.horizontalMotion - 0.0014f * geometry.verticalMotion)
-                val dockScaleY = dockGlow * (0.0032f * geometry.verticalMotion - 0.0018f * geometry.horizontalMotion)
+                val dockScaleX = dockGlow * (0.0105f * geometry.horizontalMotion - 0.0030f * geometry.verticalMotion)
+                val dockScaleY = dockGlow * (0.0080f * geometry.verticalMotion - 0.0042f * geometry.horizontalMotion)
                 val scaleX = selectedPulse * (1f + compression * 0.055f - rebound * 0.010f + releaseStretchX + dockScaleX)
                 val scaleY = selectedPulse * (1f - compression * 0.064f + rebound * 0.028f + releaseStretchY + dockScaleY)
                 val sinkY = compression * 4.10f - rebound * 1.05f + capsuleLaunch * 0.20f + dockGlow * 0.18f
@@ -1106,6 +1111,20 @@ private fun modelSmoother(value: Float): Float {
 
 private fun modelBlendedShapeProgress(visual: Float, motion: Float): Float {
     return modelSmooth(modelLerpRawFloat(visual.coerceIn(0f, 1f), motion.coerceIn(0f, 1f), ModelShapeMotionBlend).coerceIn(0f, 1f))
+}
+
+private fun modelSoftLimit(value: Float, min: Float, max: Float, softness: Float): Float {
+    val safeSoftness = softness.coerceAtLeast(0.001f)
+    return when {
+        value < min -> min - safeSoftness * modelSoftSaturate((min - value) / safeSoftness)
+        value > max -> max + safeSoftness * modelSoftSaturate((value - max) / safeSoftness)
+        else -> value
+    }
+}
+
+private fun modelSoftSaturate(value: Float): Float {
+    val x = value.coerceAtLeast(0f)
+    return x / (1f + x)
 }
 
 private fun modelLerpDp(start: Dp, end: Dp, fraction: Float): Dp = start + (end - start) * fraction.coerceIn(0f, 1f)
