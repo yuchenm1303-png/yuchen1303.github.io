@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.Window
+import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prepareWindow(window)
+        installImeFocusReset(window)
         setContent {
             AiAssistantNativeApp()
         }
@@ -34,6 +36,20 @@ class MainActivity : ComponentActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
+    private fun installImeFocusReset(window: Window) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        var imeWasVisible = false
+        window.decorView.setOnApplyWindowInsetsListener { view, insets ->
+            val imeVisible = insets.isVisible(WindowInsets.Type.ime())
+            if (imeWasVisible && !imeVisible) {
+                window.currentFocus?.clearFocus()
+                view.clearFocus()
+            }
+            imeWasVisible = imeVisible
+            insets
         }
     }
 }
