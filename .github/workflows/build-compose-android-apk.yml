@@ -28,9 +28,9 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
-      - name: Build Compose debug APK
+      - name: Build Compose APKs
         working-directory: ai-ledger-android
-        run: gradle -p . :app:assembleDebug
+        run: gradle -p . :app:assembleDebug :app:assemblePerformance
 
       - name: Upload materialized home sources
         if: always()
@@ -45,9 +45,16 @@ jobs:
             ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt
           if-no-files-found: error
 
-      - name: Upload Compose APK
+      - name: Upload Compose debug APK
         uses: actions/upload-artifact@v4
         with:
           name: ai-assistant-compose-debug-apk
           path: ai-ledger-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Compose performance APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-assistant-compose-performance-apk
+          path: ai-ledger-android/app/build/outputs/apk/performance/app-performance.apk
           if-no-files-found: error
