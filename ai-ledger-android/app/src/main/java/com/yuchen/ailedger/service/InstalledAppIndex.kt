@@ -24,10 +24,9 @@ class InstalledAppIndex(
         val query = normalizeAppName(rawQuery)
         if (query.isBlank()) return null
         val apps = getLaunchableApps()
-        if (apps.isEmpty()) return null
-
         val queryCandidates = aliasCandidates(query)
-        return apps
+
+        val scannedMatch = apps
             .mapNotNull { app ->
                 val label = normalizeAppName(app.label)
                 val score = queryCandidates.maxOfOrNull { candidate -> scoreNameMatch(candidate, label) } ?: 0
@@ -35,6 +34,9 @@ class InstalledAppIndex(
             }
             .maxWithOrNull(compareBy<Pair<InstalledAppEntry, Int>> { it.second }.thenByDescending { it.first.label.length })
             ?.first
+        if (scannedMatch != null) return scannedMatch
+
+        return knownAppFallback(queryCandidates)
     }
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
@@ -61,9 +63,28 @@ class InstalledAppIndex(
         return apps
     }
 
+    private fun knownAppFallback(candidates: List<String>): InstalledAppEntry? {
+        val known = listOf(
+            InstalledAppEntry("微信", "com.tencent.mm"),
+            InstalledAppEntry("支付宝", "com.eg.android.AlipayGphone"),
+            InstalledAppEntry("高德地图", "com.autonavi.minimap"),
+            InstalledAppEntry("百度地图", "com.baidu.BaiduMap"),
+            InstalledAppEntry("QQ", "com.tencent.mobileqq"),
+            InstalledAppEntry("淘宝", "com.taobao.taobao"),
+            InstalledAppEntry("京东", "com.jingdong.app.mall"),
+            InstalledAppEntry("哔哩哔哩", "tv.danmaku.bili"),
+            InstalledAppEntry("抖音", "com.ss.android.ugc.aweme"),
+            InstalledAppEntry("小红书", "com.xingin.xhs")
+        )
+        return known.firstOrNull { app ->
+            val label = normalizeAppName(app.label)
+            candidates.any { candidate -> scoreNameMatch(candidate, label) > 0 }
+        }
+    }
+
     private fun aliasCandidates(query: String): List<String> {
         val aliases = when (query) {
-            "b站", "bili", "bilibili" -> listOf("哔哩哔哩", "bilibili", "b站")
+            "b站", "bili", "bilibili", "哔哩", "哔哩哔哩" -> listOf("哔哩哔哩", "bilibili", "b站", "哔哩")
             "微信", "wechat", "wx" -> listOf("微信", "wechat")
             "支付宝", "alipay" -> listOf("支付宝", "alipay")
             "qq" -> listOf("qq", "腾讯qq")
