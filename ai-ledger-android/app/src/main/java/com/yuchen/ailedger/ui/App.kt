@@ -395,9 +395,9 @@ private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): N
 
 private fun isNavigationPreferenceAlreadySaved(state: AssistantUiState, update: NavigationPreferenceUpdate): Boolean {
     return when (update.slot) {
-        "home" -> state.homeAddress == update.address
-        "school" -> state.schoolAddress == update.address
-        "company" -> state.companyAddress == update.address
+        "home" -> state.navigationHomeAddress == update.address
+        "school" -> state.navigationSchoolAddress == update.address
+        "company" -> state.navigationCompanyAddress == update.address
         else -> false
     }
 }
@@ -408,9 +408,9 @@ private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): Mob
     if (!url.startsWith("app://navigate/")) return this
     val slot = url.removePrefix("app://navigate/")
     val address = when (slot) {
-        "home" -> state.homeAddress
-        "school" -> state.schoolAddress
-        "company" -> state.companyAddress
+        "home" -> state.navigationHomeAddress
+        "school" -> state.navigationSchoolAddress
+        "company" -> state.navigationCompanyAddress
         else -> ""
     }
     if (address.isBlank()) return this
