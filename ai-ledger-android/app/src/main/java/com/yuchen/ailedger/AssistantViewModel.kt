@@ -31,6 +31,7 @@ import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
+import com.yuchen.ailedger.service.ScreenObservationStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,6 +115,35 @@ class AssistantViewModel(
         val requestMessages = uiState.messages + userMessage
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
         sendPendingRequest(requestMessages, pendingMessage)
+    }
+
+    fun previewAgentObservation(userText: String) {
+        val cleanText = userText.trim().ifBlank { "观察当前屏幕" }
+        if (uiState.isSending) return
+        val observation = ScreenObservationStore.observation.value
+        val status = if (observation.enabled) "已连接" else "未开启"
+        val textPreview = observation.textItems.take(6).joinToString(" / ").ifBlank { "暂无文字" }
+        val assistantText = buildString {
+            append("手机智能体观察卡\n\n")
+            append("状态：$status\n")
+            append("当前应用：${observation.packageName.ifBlank { "未知" }}\n")
+            append("节点：${observation.nodeCount} 个\n")
+            append("文字：${observation.textItems.size} 条\n")
+            append("按钮：${observation.clickableItems.size} 个\n")
+            append("输入框：${observation.inputItems.size} 个\n")
+            append("可滚动区域：${observation.scrollableItems.size} 个\n")
+            append("屏幕文字预览：$textPreview\n\n")
+            append("当前版本只观察屏幕，不会自动点击或输入。")
+        }
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
+        val assistantMessage = ChatMessage(
+            id = nextLocalId("assistant"),
+            text = assistantText,
+            role = MessageRole.Assistant,
+            source = "local_agent",
+            modelLabel = "手机智能体"
+        )
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
     fun previewMobileCommand(userText: String, command: MobileCommand) {
@@ -368,7 +398,7 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = nextLocalId("assistant"), text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
     }
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
-    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
+    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "local_agent" -> "手机智能体"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
     private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
         val latestUserText = messages
