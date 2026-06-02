@@ -38,14 +38,16 @@ fun CachedAppTabHost(
     prewarmStepDelayMs: Long = DEFAULT_PREWARM_STEP_DELAY_MS,
     content: @Composable (AppTab) -> Unit
 ) {
+    val diagnostics = LocalPerformanceDiagnostics.current
+    val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
     val activationTicks = remember {
         mutableStateMapOf<AppTab, Int>().apply {
             AppTab.entries.forEach { put(it, 0) }
         }
     }
-    val orderedPrewarmTabs = remember(prewarmTabs, currentTab) {
-        AppTab.entries.filter { tab -> tab in prewarmTabs && tab != currentTab }
+    val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
+        AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
 
     LaunchedEffect(currentTab) {
@@ -53,7 +55,11 @@ fun CachedAppTabHost(
         activationTicks[currentTab] = (activationTicks[currentTab] ?: 0) + 1
     }
 
-    LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
+    LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
+        if (diagnostics.pagePrewarmOff) {
+            StartupMetrics.setWarmupState("页面预热已禁用")
+            return@LaunchedEffect
+        }
         if (orderedPrewarmTabs.isEmpty()) {
             StartupMetrics.setWarmupState("所有页面已预热")
             return@LaunchedEffect
@@ -93,8 +99,8 @@ fun CachedAppTabHost(
                 CompositionLocalProvider(
                     LocalPageActive provides active,
                     LocalPageActivationTick provides (activationTicks[tab] ?: 0),
-                    LocalOpenGLGlassViewportActive provides !active,
-                    LocalGlassItemRegistry provides if (active) LocalGlassItemRegistry.current else null
+                    LocalOpenGLGlassViewportActive provides (!active && !diagnostics.openGlGlassOff),
+                    LocalGlassItemRegistry provides if (active && !diagnostics.openGlGlassOff) LocalGlassItemRegistry.current else null
                 ) {
                     Box(
                         modifier = Modifier
