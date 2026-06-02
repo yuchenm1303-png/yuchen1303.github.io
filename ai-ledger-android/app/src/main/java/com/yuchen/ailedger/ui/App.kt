@@ -59,7 +59,6 @@ import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
-import kotlinx.coroutines.delay
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -88,21 +87,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
-    var keepAssistantCompactAfterIme by remember { mutableStateOf(false) }
-    LaunchedEffect(isKeyboardOpen) {
-        if (isKeyboardOpen) {
-            keepAssistantCompactAfterIme = true
-        } else if (keepAssistantCompactAfterIme) {
-            delay(260L)
-            keepAssistantCompactAfterIme = false
-        }
-    }
-    val compactForImeTransition = isKeyboardOpen || keepAssistantCompactAfterIme
-    val assistantBottomPadding by animateDpAsState(
-        targetValue = if (compactForImeTransition) 8.dp else 68.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "assistant-ime-bottom-padding"
-    )
+val bottomDockVisible = !isKeyboardOpen
+val assistantBottomPadding = 8.dp
+val bottomDockPadding = 68.dp
+val bottomBarOffsetY by animateDpAsState(
+    targetValue = if (bottomDockVisible) 0.dp else 24.dp,
+    animationSpec = tween(durationMillis = 180),
+    label = "bottom-bar-offset"
+)
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -110,10 +102,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val latestMessageId = state.messages.lastOrNull()?.id
     val bottomBarAlpha by animateFloatAsState(
-        targetValue = if (compactForImeTransition) 0f else 1f,
-        animationSpec = tween(durationMillis = 140),
-        label = "bottom-bar-ime-alpha"
-    )
+    targetValue = if (bottomDockVisible) 1f else 0f,
+    animationSpec = tween(durationMillis = 140),
+    label = "bottom-bar-ime-alpha"
+)
 
     LaunchedEffect(latestMessageId) {
         parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
@@ -256,9 +248,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 modifier = Modifier.fillMaxSize()
                             ) { tab ->
                                 when (tab) {
-                                    AppTab.Assistant -> AssistantScreenV2(
-                                        state = state,
-                                        bottomPadding = assistantBottomPadding,
+                                    AssistantScreenV2(
+    state = state,
+    bottomPadding = assistantBottomPadding,
+    bottomDockVisible = bottomDockVisible,
+    bottomDockPadding = bottomDockPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = submitOrRunLocalMobileCommand,
                                         onStopGenerating = viewModel::stopGenerating,
@@ -313,12 +307,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
-                            onTabChange = { tab -> if (!compactForImeTransition) viewModel.selectTab(tab) },
+                            onTabChange = { tab -> if (bottomDockVisible) viewModel.selectTab(tab) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
-                                .graphicsLayer { alpha = bottomBarAlpha }
+                                .graphicsLayer {
+    alpha = bottomBarAlpha
+    translationY = bottomBarOffsetY.toPx()
+}
                                 .zIndex(1000f)
                         )
                     }
