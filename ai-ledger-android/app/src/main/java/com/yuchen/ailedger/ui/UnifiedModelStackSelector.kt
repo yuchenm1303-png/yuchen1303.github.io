@@ -279,10 +279,6 @@ internal fun UnifiedParentModelStackSelector(
                     capsuleAnim.snapTo(0f)
 
                     val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
-                    val motionDuration =
-                        if (expanded) (520 + stackRank * 36).coerceAtMost(680)
-                        else if (selected) 460
-                        else 430 + reverseRank * 32
                     val visualDuration =
                         if (expanded) (460 + stackRank * 30).coerceAtMost(610)
                         else if (selected) 430
@@ -293,7 +289,13 @@ internal fun UnifiedParentModelStackSelector(
                         visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual))
                     }
                     motionAnim.stop()
-                    motionAnim.animateTo(target, tween(durationMillis = motionDuration, easing = ModelStackTravel))
+                    motionAnim.animateTo(
+                        targetValue = target,
+                        animationSpec = spring(
+                            dampingRatio = if (expanded) 0.78f else 0.86f,
+                            stiffness = if (expanded) Spring.StiffnessMediumLow else Spring.StiffnessMedium
+                        )
+                    )
                     if (!expanded && !selected && launchedTransitionKey === currentStackTransitionKey) {
                         foldedBlendAnim.stop()
                         foldedBlendAnim.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
@@ -384,12 +386,11 @@ internal fun UnifiedParentModelStackSelector(
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
                 val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
                 val visualProgress = visualAnim.value.coerceIn(0f, 1f)
-                val rawMotion = motionAnim.value.coerceIn(0f, 1f)
-                val targetProgress = modelBlendedShapeProgress(visualProgress, rawMotion)
+                val rawMotion = motionAnim.value
+                val clampedMotion = rawMotion.coerceIn(0f, 1f)
+                val targetProgress = modelBlendedShapeProgress(visualProgress, clampedMotion)
                 val stackReveal = 1f - targetProgress
-                val motionPhase = if (expanded) rawMotion else 1f - rawMotion
-                val pathProgress = modelDockingProgress(motionPhase, geometry.overshoot)
-                val p = if (expanded) pathProgress else 1f - pathProgress
+                val p = rawMotion.coerceIn(-geometry.overshoot * 0.72f, 1f + geometry.overshoot)
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
                 val dockGlow = modelSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
                 val selectionBurst = if (selected) sin(selectionProgress.coerceIn(0f, 1f) * PI.toFloat()).coerceAtLeast(0f) else 0f
