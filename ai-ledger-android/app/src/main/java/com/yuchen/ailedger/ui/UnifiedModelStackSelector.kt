@@ -289,26 +289,18 @@ internal fun UnifiedParentModelStackSelector(
                         visualAnim.stop()
                         visualAnim.animateTo(target, tween(durationMillis = visualDuration, easing = ModelStackVisual))
                     }
-                    if (expanded) {
-                        launch {
-                            capsuleAnim.stop()
-                            capsuleAnim.snapTo(0f)
-                            capsuleAnim.animateTo(1f, tween(durationMillis = 118, easing = ModelPressPulse))
-                            capsuleAnim.animateTo(0f, tween(durationMillis = 420, easing = FastOutSlowInEasing))
-                        }
-                    }
                     motionAnim.stop()
-                    if (expanded) {
-                        val launchTarget = (0.24f + stackRank * 0.018f).coerceAtMost(0.34f)
-                        if (motionAnim.value < launchTarget) {
-                            motionAnim.animateTo(launchTarget, tween(durationMillis = 104, easing = ModelPressPulse))
-                        }
-                    }
                     motionAnim.animateTo(
                         targetValue = target,
                         animationSpec = spring(
-                            dampingRatio = if (expanded) 0.68f else 0.76f,
-                            stiffness = if (expanded) Spring.StiffnessMediumLow else Spring.StiffnessMediumLow
+                            dampingRatio = if (expanded) 0.70f else 0.82f,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        initialVelocity = modelContinuousLaunchVelocity(
+                            expanded = expanded,
+                            stackRank = stackRank,
+                            stackPress = stackPressAnim.value,
+                            cardPress = pressAnim.value
                         )
                     )
                     if (!expanded && !selected && launchedTransitionKey === currentStackTransitionKey) {
@@ -399,17 +391,22 @@ internal fun UnifiedParentModelStackSelector(
                 val rebound = modelSmooth((-pressValue / 0.11f).coerceIn(0f, 1f))
                 val delayed = opticsAnim.value.coerceIn(0f, 1f)
                 val selection = modelSmooth(selectionProgress.coerceIn(0f, 1f))
-                val capsuleLaunch = modelSmooth(capsuleAnim.value.coerceIn(0f, 1f))
                 val visualProgress = visualAnim.value.coerceIn(0f, 1f)
                 val rawMotion = motionAnim.value
+                val motionVelocity = motionAnim.velocity
+                val motionSpeedEnergy = modelCapsuleSpeedEnergy(motionVelocity, expanded)
+                val capsuleLaunch = maxOf(
+                    modelSmooth(capsuleAnim.value.coerceIn(0f, 1f)),
+                    motionSpeedEnergy * 0.42f
+                )
                 val clampedMotion = rawMotion.coerceIn(0f, 1f)
                 val targetProgress = modelBlendedShapeProgress(visualProgress, clampedMotion)
                 val stackReveal = 1f - targetProgress
                 val p = modelSoftLimit(
                     value = rawMotion,
-                    min = -geometry.overshoot * 0.40f,
-                    max = 1f + geometry.overshoot * 0.52f,
-                    softness = geometry.overshoot * 0.48f
+                    min = -geometry.overshoot * 0.34f,
+                    max = 1f + geometry.overshoot * 0.46f,
+                    softness = geometry.overshoot * 0.68f
                 )
                 val overshootAmount = if (expanded) (p - 1f).coerceAtLeast(0f) else (-p).coerceAtLeast(0f)
                 val dockGlow = modelSmooth((overshootAmount / geometry.overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f))
@@ -437,15 +434,17 @@ internal fun UnifiedParentModelStackSelector(
                 val motionDx = geometry.expandedXPx - geometry.collapsedXPx
                 val motionDy = geometry.expandedYPx - geometry.collapsedYPx
                 val motionLength = sqrt(motionDx * motionDx + motionDy * motionDy).coerceAtLeast(1f)
-                val arcDirection = if ((layoutSlot + stackRank) % 2 == 0) 1f else -1f
-                val arcOffset = modelDockingArcOffset(
+                val lateralOffset = modelContinuousCapsuleSideOffset(
                     progress = p,
+                    velocity = motionVelocity,
                     distancePx = motionLength,
                     overshoot = geometry.overshoot,
-                    direction = arcDirection
+                    expanded = expanded,
+                    layoutSlot = layoutSlot,
+                    stackRank = stackRank
                 )
-                val xPx = baseX + (-motionDy / motionLength) * arcOffset
-                val yPx = baseY + (motionDx / motionLength) * arcOffset + sinkY
+                val xPx = baseX + (-motionDy / motionLength) * lateralOffset
+                val yPx = baseY + (motionDx / motionLength) * lateralOffset + sinkY
                 val alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress) * (1f - foldedBlend).coerceIn(0f, 1f)
                 val energy = if (selected) {
                     modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection)
@@ -1140,17 +1139,47 @@ private fun modelBlendedShapeProgress(visual: Float, motion: Float): Float {
     return modelSmooth(modelLerpRawFloat(visual.coerceIn(0f, 1f), motion.coerceIn(0f, 1f), ModelShapeMotionBlend).coerceIn(0f, 1f))
 }
 
-private fun modelDockingArcOffset(progress: Float, distancePx: Float, overshoot: Float, direction: Float): Float {
-    val safeDistance = distancePx.coerceAtLeast(1f)
-    val amplitude = (safeDistance * 0.030f).coerceIn(5.5f, 14.5f)
-    val t = progress.coerceIn(0f, 1f)
-    val landing = modelSmooth(((t - 0.56f) / 0.44f).coerceIn(0f, 1f))
-    val landingArc = sin(landing * PI.toFloat()) * amplitude
-    val launch = sin((t / 0.58f).coerceIn(0f, 1f) * PI.toFloat()) *
-        amplitude * 0.34f * (1f - modelSmooth(((t - 0.34f) / 0.36f).coerceIn(0f, 1f)))
+private fun modelContinuousLaunchVelocity(
+    expanded: Boolean,
+    stackRank: Int,
+    stackPress: Float,
+    cardPress: Float
+): Float {
+    if (!expanded) return 0f
+    val pressEnergy = maxOf(stackPress, cardPress.coerceAtLeast(0f)).coerceIn(0f, 1f)
+    val stackMass = 1f - (stackRank * 0.040f).coerceIn(0f, 0.22f)
+    return (1.08f + pressEnergy * 0.64f) * stackMass
+}
+
+private fun modelCapsuleSpeedEnergy(velocity: Float, expanded: Boolean): Float {
+    val forwardVelocity = if (expanded) velocity else -velocity
+    return modelSmooth((forwardVelocity.coerceAtLeast(0f) / 2.25f).coerceIn(0f, 1f))
+}
+
+private fun modelContinuousCapsuleSideOffset(
+    progress: Float,
+    velocity: Float,
+    distancePx: Float,
+    overshoot: Float,
+    expanded: Boolean,
+    layoutSlot: Int,
+    stackRank: Int
+): Float {
+    if (!expanded) return 0f
+    val distance = distancePx.coerceAtLeast(1f)
+    val amplitude = (distance * 0.020f).coerceIn(3.5f, 10.5f)
+    val t = progress.coerceIn(0f, 1.18f)
+    val approachWindow = modelSmoother(((t - 0.68f) / 0.24f).coerceIn(0f, 1f))
+    val settleWindow = 1f - modelSmoother(((t - 0.98f) / 0.18f).coerceIn(0f, 1f))
+    val forwardSpeed = modelCapsuleSpeedEnergy(velocity, expanded)
     val overshootT = ((progress - 1f) / overshoot.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-    val overshootArc = -sin(overshootT * PI.toFloat()) * amplitude * 0.22f
-    return direction * (landingArc + launch + overshootArc)
+    val overshootTail = 4f * modelSmoother(overshootT) * (1f - modelSmoother(overshootT))
+    val direction = if ((layoutSlot + stackRank) % 2 == 0) 1f else -1f
+    val side = amplitude * (
+        approachWindow * settleWindow * forwardSpeed +
+            overshootTail * 0.22f
+    )
+    return direction * side
 }
 
 private fun modelSoftLimit(value: Float, min: Float, max: Float, softness: Float): Float {
