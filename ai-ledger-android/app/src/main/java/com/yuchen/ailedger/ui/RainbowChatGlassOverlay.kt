@@ -21,6 +21,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 val LocalRainbowPrismStyle = compositionLocalOf { RainbowPrismStyle() }
 
@@ -29,6 +30,7 @@ private const val RAINBOW_PHASE_A_SECONDS = 9.2
 private const val RAINBOW_PHASE_B_SECONDS = 13.7
 private const val RAINBOW_PHASE_C_SECONDS = 11.1
 private const val RAINBOW_TAU = PI * 2.0
+private const val RAINBOW_FRAME_DELAY_MS = 33L
 
 @Composable
 fun RainbowChatGlassOverlay(
@@ -47,9 +49,9 @@ fun RainbowChatGlassOverlay(
         }
         val startNanos = withFrameNanos { it }
         while (true) {
-            withFrameNanos { frameNanos ->
-                elapsedNanos = (frameNanos - startNanos).coerceAtLeast(0L)
-            }
+            val frameNanos = withFrameNanos { it }
+            elapsedNanos = (frameNanos - startNanos).coerceAtLeast(0L)
+            delay(RAINBOW_FRAME_DELAY_MS)
         }
     }
 
