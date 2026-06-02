@@ -160,11 +160,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     fun setStableSurfaceAnchor(anchorY: Float): Boolean {
         val nextAnchor = anchorY.coerceIn(0f, 1f)
         val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
-        if (!dirty) return false
-
-        stableSurfaceAnchorY = nextAnchor
-        layoutStableSurfaceChild()
-        return true
+        if (dirty) stableSurfaceAnchorY = nextAnchor
+        return false
     }
 
     fun setStableSurfaceSize(width: Int, height: Int, rootWidth: Int, rootHeight: Int): Boolean {
@@ -284,18 +281,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private fun layoutStableSurfaceChild() {
         textureView.translationY = 0f
-
-        val extraWidth = (stableSurfaceWidth - visibleSurfaceWidth).coerceAtLeast(0)
-        val extraHeight = (stableSurfaceHeight - visibleSurfaceHeight).coerceAtLeast(0)
-
-        val childLeft = -(extraWidth / 2f).roundToInt()
-        val childTop = -(extraHeight * stableSurfaceAnchorY).roundToInt()
-
         textureView.layout(
-            childLeft,
-            childTop,
-            childLeft + stableSurfaceWidth,
-            childTop + stableSurfaceHeight
+            0,
+            0,
+            stableSurfaceWidth,
+            stableSurfaceHeight
         )
     }
 
