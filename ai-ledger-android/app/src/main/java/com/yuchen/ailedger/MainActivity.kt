@@ -5,7 +5,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Display
 import android.view.Gravity
+import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -26,6 +28,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
+        requestHighRefreshRate(window)
         StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
         installFirstFrameProbe(window.decorView)
@@ -52,6 +55,43 @@ class MainActivity : ComponentActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
+    private fun requestHighRefreshRate(window: Window) {
+        val display = currentDisplay() ?: return
+        val bestMode = display.supportedModes
+            .filter { it.refreshRate > 60f }
+            .maxByOrNull { it.refreshRate }
+            ?: run {
+                StartupMetrics.markOnce("高刷请求：未发现高刷模式")
+                return
+            }
+
+        val attrs = window.attributes
+        attrs.preferredDisplayModeId = bestMode.modeId
+        attrs.preferredRefreshRate = bestMode.refreshRate
+        window.attributes = attrs
+        StartupMetrics.markOnce("高刷请求：${bestMode.refreshRate.toInt()}Hz")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.decorView.post {
+                window.decorView.setFrameRate(
+                    bestMode.refreshRate,
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                )
+                StartupMetrics.markOnce("View frameRate hint：${bestMode.refreshRate.toInt()}Hz")
+            }
+        }
+    }
+
+    private fun currentDisplay(): Display? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
         }
     }
 
