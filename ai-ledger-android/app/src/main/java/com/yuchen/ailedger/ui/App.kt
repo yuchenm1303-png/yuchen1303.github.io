@@ -25,10 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -130,7 +130,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             if (!state.isSending && pending != null) {
                 when (quickReply) {
                     "确认" -> {
-                        val result = executeMobileCommand(systemActionRouter, pending.command, installedAppIndex)
+                        val result = executeMobileCommand(systemActionRouter, pending.command)
                         pendingMobileAction = null
                         viewModel.acceptExecutedMobileCommand(
                             userText = quickReply,
@@ -153,7 +153,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             val pending = pendingMobileAction
             when {
                 text.isNotBlank() && !state.isSending && pending != null && isConfirmMobileActionText(text) -> {
-                    val result = executeMobileCommand(systemActionRouter, pending.command, installedAppIndex)
+                    val result = executeMobileCommand(systemActionRouter, pending.command)
                     pendingMobileAction = null
                     viewModel.acceptExecutedMobileCommand(
                         userText = text,
@@ -349,8 +349,8 @@ private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: Instal
     val prefix = prefixes.firstOrNull { trimmed.startsWith(it) } ?: return null
     val appName = trimmed.removePrefix(prefix).trim()
     if (appName.isBlank()) return null
-    val match = installedAppIndex.findBestMatch(appName) ?: return null
-    return MobileCommand.OpenApp(label = match.label, packageName = match.packageName)
+    val match = installedAppIndex.findBestApp(appName) ?: return null
+    return MobileCommand.OpenApp(appName = match.label, packageName = match.packageName)
 }
 
 private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
@@ -367,11 +367,7 @@ private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage
         "open_app" -> {
             val packageName = parts.getOrNull(1).orEmpty()
             val label = parts.getOrNull(2).orEmpty().ifBlank { packageName }
-            if (packageName.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenApp(label, packageName))
-        }
-        "open_url" -> {
-            val url = parts.getOrNull(1).orEmpty()
-            if (url.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenUrl(url))
+            if (packageName.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenApp(appName = label, packageName = packageName))
         }
         else -> null
     }
@@ -403,31 +399,35 @@ private fun isNavigationPreferenceAlreadySaved(state: AssistantUiState, update: 
 }
 
 private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
-    if (this !is MobileCommand.OpenUrl) return this
-    val url = url
-    if (!url.startsWith("app://navigate/")) return this
-    val slot = url.removePrefix("app://navigate/")
-    val address = when (slot) {
+    if (this !is MobileCommand.Navigate) return this
+    val resolvedDestination = when (destination) {
         "home" -> state.navigationHomeAddress
         "school" -> state.navigationSchoolAddress
         "company" -> state.navigationCompanyAddress
-        else -> ""
+        else -> destination
     }
-    if (address.isBlank()) return this
-    return MobileCommand.OpenUrl("geo:0,0?q=${android.net.Uri.encode(address)}")
+    return if (resolvedDestination.isBlank()) this else copy(destination = resolvedDestination)
 }
 
 private fun isConfirmMobileActionText(text: String): Boolean = text.trim() in setOf("确认", "好的", "打开", "执行", "确定")
 private fun isCancelMobileActionText(text: String): Boolean = text.trim() in setOf("取消", "不用", "算了")
 
-private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand, installedAppIndex: InstalledAppIndex): Pair<Boolean, String> {
+private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand): Pair<Boolean, String> {
     if (router == null) return false to "当前环境无法执行手机动作。"
     return when (command) {
-        is MobileCommand.OpenApp -> router.openApp(command.packageName).let { ok ->
-            ok to if (ok) "已尝试打开 ${command.label}。" else "没有找到 ${command.label}，请确认是否已安装。"
+        is MobileCommand.OpenApp -> {
+            val opened = when {
+                !command.launchUri.isNullOrBlank() -> router.openDeepLink(command.launchUri, command.packageName, command.appName)
+                !command.packageName.isNullOrBlank() -> router.openApp(command.packageName, command.appName)
+                else -> false
+            }
+            opened to if (opened) "已尝试打开 ${command.appName}。" else "没有找到 ${command.appName}，请确认是否已安装。"
         }
-        is MobileCommand.OpenUrl -> router.openUrl(command.url).let { ok ->
-            ok to if (ok) "已尝试打开链接。" else "无法打开这个链接。"
+        is MobileCommand.Navigate -> router.startNavigation(command.destination).let { ok ->
+            ok to if (ok) "已尝试打开导航。" else "没有可用的地图应用。"
+        }
+        is MobileCommand.SetAlarm -> router.setAlarm(command.hour, command.minute, command.label).let { ok ->
+            ok to if (ok) "已尝试设置闹钟。" else "无法打开系统闹钟。"
         }
     }
 }
