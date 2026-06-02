@@ -10,6 +10,13 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
+import android.opengl.GLES20
+import android.opengl.GLUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -18,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -28,6 +36,9 @@ import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -91,6 +102,7 @@ fun rememberBlurredBackdropBitmap(
     LaunchedEffect(cacheKey) {
         BlurredBackdropMemoryCache.get(cacheKey)?.let { cached ->
             bitmap = cached
+            BackdropTextureWarmup.warmUp(cached)
             return@LaunchedEffect
         }
 
@@ -105,7 +117,9 @@ fun rememberBlurredBackdropBitmap(
                     params = params.quantized(),
                     customBackgroundPath = customBackgroundPath,
                     presetBitmap = preset
-                )
+                ).also { backdrop ->
+                    BackdropTextureWarmup.warmUp(backdrop)
+                }
             }.getOrNull()
         }
         if (next != null) {
@@ -114,6 +128,165 @@ fun rememberBlurredBackdropBitmap(
         }
     }
     return bitmap
+}
+
+private object BackdropTextureWarmup {
+    @Volatile private var warmedBlur: Bitmap? = null
+    @Volatile private var warmedLens: Bitmap? = null
+
+    fun warmUp(backdrop: BlurredBackdropBitmap) {
+        val blur = backdrop.image.asAndroidBitmap()
+        val lens = backdrop.lensImage.asAndroidBitmap()
+        if (blur === warmedBlur && lens === warmedLens) return
+        synchronized(this) {
+            if (blur === warmedBlur && lens === warmedLens) return
+            runCatching { warmUpEglTextureUpload(blur, lens) }
+            warmedBlur = blur
+            warmedLens = lens
+        }
+    }
+}
+
+private fun warmUpEglTextureUpload(blur: Bitmap, lens: Bitmap) {
+    val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+    if (display == EGL14.EGL_NO_DISPLAY) return
+    val version = IntArray(2)
+    if (!EGL14.eglInitialize(display, version, 0, version, 1)) return
+
+    var context: EGLContext = EGL14.EGL_NO_CONTEXT
+    var surface: EGLSurface = EGL14.EGL_NO_SURFACE
+    try {
+        val config = chooseWarmupConfig(display) ?: return
+        context = EGL14.eglCreateContext(
+            display,
+            config,
+            EGL14.EGL_NO_CONTEXT,
+            intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
+            0
+        )
+        if (context == EGL14.EGL_NO_CONTEXT) return
+        surface = EGL14.eglCreatePbufferSurface(
+            display,
+            config,
+            intArrayOf(EGL14.EGL_WIDTH, 8, EGL14.EGL_HEIGHT, 8, EGL14.EGL_NONE),
+            0
+        )
+        if (surface == EGL14.EGL_NO_SURFACE) return
+        if (!EGL14.eglMakeCurrent(display, surface, surface, context)) return
+
+        val program = buildWarmupProgram()
+        val textures = IntArray(2)
+        GLES20.glGenTextures(2, textures, 0)
+        configureWarmupTexture(textures[0])
+        configureWarmupTexture(textures[1])
+        uploadWarmupBitmap(textures[0], blur)
+        uploadWarmupBitmap(textures[1], lens)
+
+        GLES20.glViewport(0, 0, 8, 8)
+        GLES20.glUseProgram(program)
+        val position = GLES20.glGetAttribLocation(program, "aPosition")
+        val sampler = GLES20.glGetUniformLocation(program, "uTexture")
+        val vertices = warmupVertices()
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[0])
+        GLES20.glUniform1i(sampler, 0)
+        vertices.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, vertices)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDeleteTextures(2, textures, 0)
+        GLES20.glDeleteProgram(program)
+        GLES20.glFinish()
+    } finally {
+        EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+        if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
+        if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
+        EGL14.eglTerminate(display)
+    }
+}
+
+private fun chooseWarmupConfig(display: EGLDisplay): EGLConfig? {
+    val attrs = intArrayOf(
+        EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+        EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+        EGL14.EGL_RED_SIZE, 8,
+        EGL14.EGL_GREEN_SIZE, 8,
+        EGL14.EGL_BLUE_SIZE, 8,
+        EGL14.EGL_ALPHA_SIZE, 8,
+        EGL14.EGL_DEPTH_SIZE, 0,
+        EGL14.EGL_STENCIL_SIZE, 0,
+        EGL14.EGL_NONE
+    )
+    val configs = arrayOfNulls<EGLConfig>(1)
+    val count = IntArray(1)
+    val ok = EGL14.eglChooseConfig(display, attrs, 0, configs, 0, configs.size, count, 0)
+    return if (ok && count[0] > 0) configs[0] else null
+}
+
+private fun configureWarmupTexture(id: Int) {
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+}
+
+private fun uploadWarmupBitmap(id: Int, bitmap: Bitmap) {
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+    GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+    GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
+}
+
+private fun warmupVertices(): FloatBuffer {
+    return ByteBuffer.allocateDirect(8 * Float.SIZE_BYTES)
+        .order(ByteOrder.nativeOrder())
+        .asFloatBuffer()
+        .apply {
+            put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
+            position(0)
+        }
+}
+
+private fun buildWarmupProgram(): Int {
+    val vertex = compileWarmupShader(
+        GLES20.GL_VERTEX_SHADER,
+        """
+            attribute vec2 aPosition;
+            varying vec2 vUv;
+            void main() {
+                vUv = aPosition * 0.5 + 0.5;
+                gl_Position = vec4(aPosition, 0.0, 1.0);
+            }
+        """.trimIndent()
+    )
+    val fragment = compileWarmupShader(
+        GLES20.GL_FRAGMENT_SHADER,
+        """
+            precision mediump float;
+            varying vec2 vUv;
+            uniform sampler2D uTexture;
+            void main() {
+                gl_FragColor = texture2D(uTexture, vUv);
+            }
+        """.trimIndent()
+    )
+    val program = GLES20.glCreateProgram()
+    GLES20.glAttachShader(program, vertex)
+    GLES20.glAttachShader(program, fragment)
+    GLES20.glLinkProgram(program)
+    GLES20.glDeleteShader(vertex)
+    GLES20.glDeleteShader(fragment)
+    return program
+}
+
+private fun compileWarmupShader(type: Int, source: String): Int {
+    val shader = GLES20.glCreateShader(type)
+    GLES20.glShaderSource(shader, source)
+    GLES20.glCompileShader(shader)
+    return shader
 }
 
 private fun BackdropDebugParams.cacheKey(): String = buildString {
