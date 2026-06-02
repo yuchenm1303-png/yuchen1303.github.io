@@ -22,6 +22,7 @@ import com.yuchen.ailedger.ui.StartupMetrics
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         StartupMetrics.markOnce("Activity onCreate")
+        StartupMetrics.startFrameMonitor()
         super.onCreate(savedInstanceState)
         StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
@@ -87,22 +88,28 @@ class MainActivity : ComponentActivity() {
         val overlay = TextView(this).apply {
             textSize = 10f
             setTextColor(Color.WHITE)
-            setBackgroundColor(0x99101A35.toInt())
-            setPadding(10, 7, 10, 7)
-            maxLines = 14
+            setBackgroundColor(0xAA101A35.toInt())
+            setPadding(12, 8, 12, 8)
+            maxLines = 18
             isClickable = true
-            alpha = 0.92f
+            alpha = 0.94f
         }
         var expanded = false
 
         fun updateText() {
             val events = StartupMetrics.events
             val last = events.lastOrNull()
+            val frames = StartupMetrics.frameStats
+            val warmup = StartupMetrics.warmupState
             overlay.text = if (!expanded) {
-                "性能 ${last?.elapsedMs ?: 0}ms"
+                "性能 ${last?.elapsedMs ?: 0}ms · ${frames.compactLabel()} · $warmup"
             } else {
                 buildString {
-                    append("首启性能时间线\n")
+                    append("性能监测\n")
+                    append(frames.compactLabel()).append('\n')
+                    append("页面：").append(warmup).append('\n')
+                    append("启动：").append(last?.elapsedMs ?: 0).append("ms\n\n")
+                    append("时间线\n")
                     if (events.isEmpty()) {
                         append("暂无数据")
                     } else {
@@ -128,8 +135,8 @@ class MainActivity : ComponentActivity() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
-            topMargin = 42
-            rightMargin = 10
+            topMargin = getStatusBarHeightPx() + 12.dpPx()
+            rightMargin = 10.dpPx()
         }
         parent.addView(overlay, layoutParams)
         updateText()
@@ -148,4 +155,11 @@ class MainActivity : ComponentActivity() {
             }
         })
     }
+
+    private fun getStatusBarHeightPx(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 24.dpPx()
+    }
+
+    private fun Int.dpPx(): Int = (this * resources.displayMetrics.density).toInt()
 }
