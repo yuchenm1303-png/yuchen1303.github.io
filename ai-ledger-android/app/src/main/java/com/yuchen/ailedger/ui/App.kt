@@ -89,6 +89,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
     var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
     var dockCollapsedByIme by remember { mutableStateOf(imeBottomPx >= imeOpenThresholdPx) }
+    var diagnostics by remember { mutableStateOf(PerformanceDiagnosticsState()) }
+    val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
     val imeHidden = imeBottomPx == 0
     val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
     val nextDockCollapsedByIme = when {
@@ -221,26 +223,27 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
+                LocalPerformanceDiagnostics provides diagnostics,
                 LocalOverscrollConfiguration provides null,
-                LocalGlassBackdrop provides GlassBackdropSpec(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle),
+                LocalGlassBackdrop provides GlassBackdropSpec(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle),
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
-                LocalGlassItemRegistry provides glassRegistry,
+                LocalGlassItemRegistry provides if (diagnostics.openGlGlassOff) null else glassRegistry,
                 LocalRainbowPrismStyle provides state.rainbowPrismStyle,
                 LocalMobileCommandQuickReply provides runPendingMobileAction
             ) {
                 Box(Modifier.fillMaxSize().nestedScroll(glassScrollInvalidation)) {
                     WeatherNightBackground(
                         quality = state.quality,
-                        motionIntensity = state.motionIntensity,
+                        motionIntensity = effectiveMotionIntensity,
                         theme = state.backgroundTheme,
                         params = state.backdropParams,
                         customBackgroundPath = state.customBackgroundPath,
                         modifier = Modifier.fillMaxSize().onPlaced { backdropOrigin.coordinates = it }
                     )
-                    if (!ENABLE_OPENGL_GLASS_PROBE) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
-                    OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE, modifier = Modifier.fillMaxSize())
+                    if (!ENABLE_OPENGL_GLASS_PROBE && !diagnostics.openGlGlassOff) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
+                    OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE && !diagnostics.openGlGlassOff, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Box(
                             modifier = Modifier
@@ -257,7 +260,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             ) { tab ->
                                 when (tab) {
                                     AppTab.Assistant -> AssistantScreenV2(
-                                        state = state,
+                                        state = state.copy(motionIntensity = effectiveMotionIntensity),
                                         bottomPadding = assistantBottomPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = submitOrRunLocalMobileCommand,
@@ -279,19 +282,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     AppTab.Tools -> {
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
-                                                state = state,
+                                                state = state.copy(motionIntensity = effectiveMotionIntensity),
                                                 onBack = viewModel::closeTool,
                                                 onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                             )
                                         } else {
                                             StockFirstToolsHomeScreen(
-                                                state = state,
+                                                state = state.copy(motionIntensity = effectiveMotionIntensity),
                                                 onOpenTool = viewModel::openTool
                                             )
                                         }
                                     }
                                     AppTab.Settings -> SettingsPolishedScreen(
-                                        state = state,
+                                        state = state.copy(motionIntensity = effectiveMotionIntensity),
                                         aiEndpoint = viewModel.aiEndpoint,
                                         onQualityChange = viewModel::selectQuality,
                                         onPreviewConversationChange = viewModel::setShowPreviewConversation,
@@ -307,12 +310,20 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
+                            PerformanceDiagnosticsPanel(
+                                state = diagnostics,
+                                onStateChange = { diagnostics = it },
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(top = 76.dp, start = 4.dp)
+                                    .zIndex(2000f)
+                            )
                         }
                         PrismaticCapsuleBottomBar(
                             currentTab = state.currentTab,
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
-                            motionIntensity = state.motionIntensity,
+                            motionIntensity = effectiveMotionIntensity,
                             onTabChange = { tab -> if (bottomDockClickable) viewModel.selectTab(tab) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -331,134 +342,92 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
 }
 
-private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand.OpenApp? {
-    val clean = text.trim()
-    val target = Regex("^(?:打开|启动|进入|进|帮我打开)\\s*(.+)$").find(clean)
-        ?.groupValues
-        ?.getOrNull(1)
-        ?.trim()
-        ?.removeSuffix("应用")
-        ?.removeSuffix("app")
-        ?.trim()
-        ?: return null
-    if (target.isBlank()) return null
-    val app = installedAppIndex.findBestApp(target) ?: return null
-    return MobileCommand.OpenApp(appName = app.label, packageName = app.packageName)
+private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand? {
+    val trimmed = text.trim()
+    if (trimmed.isBlank()) return null
+    val prefixes = listOf("打开", "启动", "开启")
+    val prefix = prefixes.firstOrNull { trimmed.startsWith(it) } ?: return null
+    val appName = trimmed.removePrefix(prefix).trim()
+    if (appName.isBlank()) return null
+    val match = installedAppIndex.findBestMatch(appName) ?: return null
+    return MobileCommand.OpenApp(label = match.label, packageName = match.packageName)
 }
 
 private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
-    val latest = messages.lastOrNull { it.role == MessageRole.Assistant && it.source == "local_mobile" } ?: return null
-    if (!latest.text.contains("动作：") || !latest.text.contains("详情：") || !latest.text.contains("确认")) return null
-    val title = latest.text.lineSequence().firstOrNull { it.trim().startsWith("动作：") }?.substringAfter("动作：")?.trim().orEmpty()
-    val detail = latest.text.lineSequence().firstOrNull { it.trim().startsWith("详情：") }?.substringAfter("详情：")?.trim().orEmpty()
-    val command = when {
-        title.contains("闹钟") -> parseAlarmCommandDetail(detail)
-        title.contains("打开") || title.contains("Open") -> MobileCommand.OpenApp(appName = detail, packageName = null)
-        title.contains("导航") || title.contains("Navigate") -> MobileCommand.Navigate(destination = detail.removePrefix("到 ").trim(), mode = "driving")
+    val latest = messages.lastOrNull { it.role == MessageRole.Assistant } ?: return null
+    val text = latest.text
+    val marker = "[mobile_command:"
+    val start = text.indexOf(marker)
+    if (start < 0) return null
+    val end = text.indexOf("]", startIndex = start)
+    if (end <= start) return null
+    val body = text.substring(start + marker.length, end)
+    val parts = body.split("|", limit = 3)
+    return when (parts.firstOrNull()) {
+        "open_app" -> {
+            val packageName = parts.getOrNull(1).orEmpty()
+            val label = parts.getOrNull(2).orEmpty().ifBlank { packageName }
+            if (packageName.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenApp(label, packageName))
+        }
+        "open_url" -> {
+            val url = parts.getOrNull(1).orEmpty()
+            if (url.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenUrl(url))
+        }
         else -> null
-    } ?: return null
-    return PendingMobileAction(originalText = "云端结构化动作", command = command)
-}
-
-private fun parseAlarmCommandDetail(detail: String): MobileCommand.SetAlarm? {
-    val time = Regex("(\\d{1,2})[:：](\\d{1,2})").find(detail) ?: return null
-    val hour = time.groupValues[1].toIntOrNull()?.takeIf { it in 0..23 } ?: return null
-    val minute = time.groupValues[2].toIntOrNull()?.takeIf { it in 0..59 } ?: 0
-    val label = detail.substringAfter("·", "AI 助手提醒").trim().ifBlank { "AI 助手提醒" }
-    val dateLabel = detail.substringBefore(" ", "今天").trim().ifBlank { "今天" }
-    return MobileCommand.SetAlarm(hour = hour, minute = minute, label = label, dateLabel = dateLabel)
+    }
 }
 
 private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): NavigationPreferenceUpdate? {
-    val latestAssistant = messages.lastOrNull { it.role == MessageRole.Assistant && it.text.isNotBlank() } ?: return null
-    val source = latestAssistant.source.orEmpty()
-    if (!source.startsWith("cloud")) return null
-    val previousUser = messages.takeWhile { it.id != latestAssistant.id }
-        .lastOrNull { it.role == MessageRole.User }
-        ?.text
-        .orEmpty()
-    val combined = previousUser + "\n" + latestAssistant.text
-    val slot = inferNavigationPreferenceSlot(combined) ?: return null
-    val address = extractCloudNavigationAddress(latestAssistant.text) ?: return null
-    val label = when (slot) {
-        "home" -> "家"
-        "school" -> "学校"
-        "company" -> "公司"
-        "dorm" -> "宿舍"
-        else -> return null
-    }
-    return NavigationPreferenceUpdate(slot = slot, label = label, address = address)
-}
-
-private fun inferNavigationPreferenceSlot(text: String): String? = when {
-    Regex("家|回家|去家里|到家").containsMatchIn(text) -> "home"
-    Regex("学校|校园|校区").containsMatchIn(text) -> "school"
-    Regex("公司|单位|上班").containsMatchIn(text) -> "company"
-    Regex("宿舍|寝室|寝舍").containsMatchIn(text) -> "dorm"
-    else -> null
-}
-
-private fun extractCloudNavigationAddress(text: String): String? {
-    val explicit = Regex("地址[:：]\\s*([^\n。]+)").find(text)?.groupValues?.getOrNull(1)?.trim()
-    if (!explicit.isNullOrBlank()) return explicit.take(80)
-    val setAs = Regex("设置为[:：]?\\s*([^\n。]+)").find(text)?.groupValues?.getOrNull(1)?.trim()
-    if (!setAs.isNullOrBlank()) return setAs.removePrefix("📍").trim().take(80)
-    return null
+    val latest = messages.lastOrNull { it.role == MessageRole.Assistant } ?: return null
+    val marker = "[navigation_pref:"
+    val start = latest.text.indexOf(marker)
+    if (start < 0) return null
+    val end = latest.text.indexOf("]", startIndex = start)
+    if (end <= start) return null
+    val body = latest.text.substring(start + marker.length, end)
+    val parts = body.split("|", limit = 3)
+    val slot = parts.getOrNull(0).orEmpty()
+    val label = parts.getOrNull(1).orEmpty()
+    val address = parts.getOrNull(2).orEmpty()
+    if (slot !in setOf("home", "school", "company") || address.isBlank()) return null
+    return NavigationPreferenceUpdate(slot, label, address)
 }
 
 private fun isNavigationPreferenceAlreadySaved(state: AssistantUiState, update: NavigationPreferenceUpdate): Boolean {
-    val current = when (update.slot) {
-        "home" -> state.navigationHomeAddress
-        "school" -> state.navigationSchoolAddress
-        "company" -> state.navigationCompanyAddress
-        "dorm" -> state.navigationDormAddress
-        else -> ""
+    return when (update.slot) {
+        "home" -> state.homeAddress == update.address
+        "school" -> state.schoolAddress == update.address
+        "company" -> state.companyAddress == update.address
+        else -> false
     }
-    return current.trim() == update.address.trim()
 }
 
 private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
-    if (this !is MobileCommand.Navigate) return this
-    val resolved = when (destination) {
-        "家" -> state.navigationHomeAddress
-        "学校" -> state.navigationSchoolAddress
-        "公司" -> state.navigationCompanyAddress
-        "宿舍", "寝室" -> state.navigationDormAddress
+    if (this !is MobileCommand.OpenUrl) return this
+    val url = url
+    if (!url.startsWith("app://navigate/")) return this
+    val slot = url.removePrefix("app://navigate/")
+    val address = when (slot) {
+        "home" -> state.homeAddress
+        "school" -> state.schoolAddress
+        "company" -> state.companyAddress
         else -> ""
-    }.ifBlank { destination }
-    return copy(destination = resolved)
+    }
+    if (address.isBlank()) return this
+    return MobileCommand.OpenUrl("geo:0,0?q=${android.net.Uri.encode(address)}")
 }
 
-private fun isConfirmMobileActionText(text: String): Boolean {
-    return Regex("^(确认|好|好的|执行|开始|打开|设置|导航|去吧|可以)$").matches(text.trim())
-}
+private fun isConfirmMobileActionText(text: String): Boolean = text.trim() in setOf("确认", "好的", "打开", "执行", "确定")
+private fun isCancelMobileActionText(text: String): Boolean = text.trim() in setOf("取消", "不用", "算了")
 
-private fun isCancelMobileActionText(text: String): Boolean {
-    return Regex("^(取消|算了|不用了|先别|不要|否|不执行)$").matches(text.trim())
-}
-
-private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand, installedAppIndex: InstalledAppIndex? = null): Pair<Boolean, String> {
-    if (router == null) return false to "当前页面没有拿到 Android Activity，暂时无法执行手机动作。"
+private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand, installedAppIndex: InstalledAppIndex): Pair<Boolean, String> {
+    if (router == null) return false to "当前环境无法执行手机动作。"
     return when (command) {
-        is MobileCommand.SetAlarm -> {
-            val ok = router.setAlarm(command.hour, command.minute, command.label)
-            ok to if (ok) "已打开系统闹钟确认界面。" else "无法打开系统闹钟。"
+        is MobileCommand.OpenApp -> router.openApp(command.packageName).let { ok ->
+            ok to if (ok) "已尝试打开 ${command.label}。" else "没有找到 ${command.label}，请确认是否已安装。"
         }
-        is MobileCommand.OpenApp -> {
-            val app = command.packageName?.takeIf { it.isNotBlank() }?.let { command.appName to it }
-                ?: installedAppIndex?.findBestApp(command.appName)?.let { it.label to it.packageName }
-            if (app == null) {
-                false to "没有在本机找到“${command.appName}”。"
-            } else {
-                val ok = router.openApp(app.second, app.first)
-                ok to if (ok) "已尝试打开${app.first}。" else "没有找到${app.first}。"
-            }
-        }
-        is MobileCommand.Navigate -> {
-            val ok = router.startNavigation(command.destination)
-            ok to if (ok) "已打开地图导航。" else "没有可用的地图应用。"
+        is MobileCommand.OpenUrl -> router.openUrl(command.url).let { ok ->
+            ok to if (ok) "已尝试打开链接。" else "无法打开这个链接。"
         }
     }
 }
-
-const val STOCK_MARKET_TOOL_TITLE = "股票行情"
