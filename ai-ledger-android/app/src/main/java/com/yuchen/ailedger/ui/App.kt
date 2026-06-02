@@ -100,7 +100,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val bottomDockVisible = !nextDockCollapsedByIme
     val bottomDockClickable = imeHidden
-    val assistantBottomPadding = if (bottomDockVisible) 68.dp else 8.dp
+    // The bottom dock may fade out for the IME, but the Assistant Shell keeps a stable
+    // bottom reserve so keyboard progress does not remeasure the OpenGL glass edge.
+    val assistantBottomPadding = 68.dp
     val bottomBarOffsetY = if (bottomDockVisible) 0.dp else 24.dp
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
