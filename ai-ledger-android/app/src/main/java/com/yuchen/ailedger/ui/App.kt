@@ -87,14 +87,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
-val bottomDockVisible = !isKeyboardOpen
-val assistantBottomPadding = 8.dp
-val bottomDockPadding = 68.dp
-val bottomBarOffsetY by animateDpAsState(
-    targetValue = if (bottomDockVisible) 0.dp else 24.dp,
-    animationSpec = tween(durationMillis = 180),
-    label = "bottom-bar-offset"
-)
+    val bottomDockVisible = !isKeyboardOpen
+    val assistantBottomPadding = 8.dp
+    val bottomDockPadding = 68.dp
+    val bottomBarOffsetY by animateDpAsState(
+        targetValue = if (bottomDockVisible) 0.dp else 24.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "bottom-bar-offset"
+    )
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
@@ -102,10 +102,10 @@ val bottomBarOffsetY by animateDpAsState(
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val latestMessageId = state.messages.lastOrNull()?.id
     val bottomBarAlpha by animateFloatAsState(
-    targetValue = if (bottomDockVisible) 1f else 0f,
-    animationSpec = tween(durationMillis = 140),
-    label = "bottom-bar-ime-alpha"
-)
+        targetValue = if (bottomDockVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 140),
+        label = "bottom-bar-ime-alpha"
+    )
 
     LaunchedEffect(latestMessageId) {
         parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
@@ -248,11 +248,11 @@ val bottomBarOffsetY by animateDpAsState(
                                 modifier = Modifier.fillMaxSize()
                             ) { tab ->
                                 when (tab) {
-                                    AssistantScreenV2(
-    state = state,
-    bottomPadding = assistantBottomPadding,
-    bottomDockVisible = bottomDockVisible,
-    bottomDockPadding = bottomDockPadding,
+                                    AppTab.Assistant -> AssistantScreenV2(
+                                        state = state,
+                                        bottomPadding = assistantBottomPadding,
+                                        bottomDockVisible = bottomDockVisible,
+                                        bottomDockPadding = bottomDockPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = submitOrRunLocalMobileCommand,
                                         onStopGenerating = viewModel::stopGenerating,
@@ -313,9 +313,9 @@ val bottomBarOffsetY by animateDpAsState(
                                 .navigationBarsPadding()
                                 .padding(horizontal = 16.dp, vertical = 6.dp)
                                 .graphicsLayer {
-    alpha = bottomBarAlpha
-    translationY = bottomBarOffsetY.toPx()
-}
+                                    alpha = bottomBarAlpha
+                                    translationY = bottomBarOffsetY.toPx()
+                                }
                                 .zIndex(1000f)
                         )
                     }
