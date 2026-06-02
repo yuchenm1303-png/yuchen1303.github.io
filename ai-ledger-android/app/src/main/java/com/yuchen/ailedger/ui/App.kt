@@ -86,10 +86,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
-    val isKeyboardOpen = WindowInsets.ime.getBottom(density) > 0
-    val bottomDockVisible = !isKeyboardOpen
-    val assistantBottomPadding = 8.dp
-    val bottomDockPadding = 68.dp
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
+    val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
+    LaunchedEffect(imeBottomPx) {
+        previousImeBottomPx = imeBottomPx
+    }
+    val bottomDockVisible = imeBottomPx == 0 || imeIsRetreating
+    val bottomDockClickable = imeBottomPx == 0
+    val assistantBottomPadding by animateDpAsState(
+        targetValue = if (bottomDockVisible) 68.dp else 8.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "assistant-bottom-dock-padding"
+    )
     val bottomBarOffsetY by animateDpAsState(
         targetValue = if (bottomDockVisible) 0.dp else 24.dp,
         animationSpec = tween(durationMillis = 180),
@@ -103,7 +112,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val latestMessageId = state.messages.lastOrNull()?.id
     val bottomBarAlpha by animateFloatAsState(
         targetValue = if (bottomDockVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = 140),
+        animationSpec = tween(durationMillis = 120),
         label = "bottom-bar-ime-alpha"
     )
 
@@ -251,8 +260,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     AppTab.Assistant -> AssistantScreenV2(
                                         state = state,
                                         bottomPadding = assistantBottomPadding,
-                                        bottomDockVisible = bottomDockVisible,
-                                        bottomDockPadding = bottomDockPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = submitOrRunLocalMobileCommand,
                                         onStopGenerating = viewModel::stopGenerating,
@@ -307,7 +314,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = state.motionIntensity,
-                            onTabChange = { tab -> if (bottomDockVisible) viewModel.selectTab(tab) },
+                            onTabChange = { tab -> if (bottomDockClickable) viewModel.selectTab(tab) },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
