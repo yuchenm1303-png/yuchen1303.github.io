@@ -120,7 +120,7 @@ fun AssistantScreenV2(
     } else {
         0.dp
     }
-
+    val bottomDockExpanded = bottomPadding >= 40.dp
     LaunchedEffect(modelPanelExpanded) {
         if (modelPanelExpanded) {
             modelAnchorHeld = true
@@ -183,14 +183,15 @@ fun AssistantScreenV2(
                 LocalOpenGLGlassSurfaceAnchor provides shellAnchor
             ) {
                 ChatPanelV2(
-                    state = state,
-                    modifier = Modifier.fillMaxWidth(),
-                    viewportTopInset = modelExpandDelta,
-                    onDraftCommand = onDraftCommand,
-                    onPickImage = onPickImage,
-                    onCopyMessage = onCopyMessage,
-                    onRetryMessage = onRetryMessage
-                )
+state = state,
+modifier = Modifier.fillMaxWidth(),
+viewportTopInset = modelExpandDelta,
+bottomDockExpanded = bottomDockExpanded,
+onDraftCommand = onDraftCommand,
+onPickImage = onPickImage,
+onCopyMessage = onCopyMessage,
+onRetryMessage = onRetryMessage
+)
             }
         }
 
@@ -324,13 +325,14 @@ private fun FixedHeightOverflowSlot(
 
 @Composable
 private fun ChatPanelV2(
-    state: AssistantUiState,
-    modifier: Modifier,
-    viewportTopInset: Dp = 0.dp,
-    onDraftCommand: (String) -> Unit,
-    onPickImage: () -> Unit,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
+state: AssistantUiState,
+modifier: Modifier,
+viewportTopInset: Dp = 0.dp,
+bottomDockExpanded: Boolean = false,
+onDraftCommand: (String) -> Unit,
+onPickImage: () -> Unit,
+onCopyMessage: (String) -> Unit,
+onRetryMessage: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
@@ -348,6 +350,14 @@ private fun ChatPanelV2(
             listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
+    LaunchedEffect(bottomDockExpanded, lastMessageId) {
+if (state.messages.isEmpty()) return@LaunchedEffect
+if (bottomDockExpanded) {
+listState.scrollToItem(state.messages.lastIndex)
+delay(180L)
+listState.animateScrollToItem(state.messages.lastIndex)
+}
+}
     GlassPanel(
         quality = state.quality,
         glassIntensity = state.glassIntensity,
@@ -390,7 +400,7 @@ private fun ChatPanelV2(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
+                        contentPadding = PaddingValues(top = 0.dp, bottom = 72.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         items(state.messages, key = { it.id }) { message ->
