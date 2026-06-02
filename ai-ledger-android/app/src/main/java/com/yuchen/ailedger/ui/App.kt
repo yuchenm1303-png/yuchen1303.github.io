@@ -53,6 +53,7 @@ import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
@@ -82,6 +83,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
+    val installedAppIndex = remember(context) { InstalledAppIndex(context.applicationContext) }
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
@@ -118,13 +120,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         }
     }
 
-    val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction) {
+    val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction, installedAppIndex) {
         { quickReply: String ->
             val pending = pendingMobileAction
             if (!state.isSending && pending != null) {
                 when (quickReply) {
                     "确认" -> {
-                        val result = executeMobileCommand(systemActionRouter, pending.command)
+                        val result = executeMobileCommand(systemActionRouter, pending.command, installedAppIndex)
                         pendingMobileAction = null
                         viewModel.acceptExecutedMobileCommand(
                             userText = quickReply,
@@ -141,13 +143,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-    val submitOrRunLocalMobileCommand = remember(state, systemActionRouter, pendingMobileAction) {
+    val submitOrRunLocalMobileCommand = remember(state, systemActionRouter, pendingMobileAction, installedAppIndex) {
         {
             val text = state.composerText.trim()
             val pending = pendingMobileAction
             when {
                 text.isNotBlank() && !state.isSending && pending != null && isConfirmMobileActionText(text) -> {
-                    val result = executeMobileCommand(systemActionRouter, pending.command)
+                    val result = executeMobileCommand(systemActionRouter, pending.command, installedAppIndex)
                     pendingMobileAction = null
                     viewModel.acceptExecutedMobileCommand(
                         userText = text,
@@ -161,7 +163,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !state.isSending -> {
-                    val command = MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
+                    val command = parseInstalledAppOpenCommand(text, installedAppIndex)
+                        ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
                     if (command != null) {
                         pendingMobileAction = PendingMobileAction(originalText = text, command = command)
                         viewModel.previewMobileCommand(text, command)
@@ -326,6 +329,21 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
 }
 
+private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand.OpenApp? {
+    val clean = text.trim()
+    val target = Regex("^(?:打开|启动|进入|进|帮我打开)\\s*(.+)$").find(clean)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+        ?.removeSuffix("应用")
+        ?.removeSuffix("app")
+        ?.trim()
+        ?: return null
+    if (target.isBlank()) return null
+    val app = installedAppIndex.findBestApp(target) ?: return null
+    return MobileCommand.OpenApp(appName = app.label, packageName = app.packageName)
+}
+
 private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
     val latest = messages.lastOrNull { it.role == MessageRole.Assistant && it.source == "local_mobile" } ?: return null
     if (!latest.text.contains("动作：") || !latest.text.contains("详情：") || !latest.text.contains("确认")) return null
@@ -333,8 +351,8 @@ private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage
     val detail = latest.text.lineSequence().firstOrNull { it.trim().startsWith("详情：") }?.substringAfter("详情：")?.trim().orEmpty()
     val command = when {
         title.contains("闹钟") -> parseAlarmCommandDetail(detail)
-        title.contains("打开") -> MobileCommand.OpenApp(appName = detail, packageName = null)
-        title.contains("导航") -> MobileCommand.Navigate(destination = detail.removePrefix("到 ").trim(), mode = "driving")
+        title.contains("打开") || title.contains("Open") -> MobileCommand.OpenApp(appName = detail, packageName = null)
+        title.contains("导航") || title.contains("Navigate") -> MobileCommand.Navigate(destination = detail.removePrefix("到 ").trim(), mode = "driving")
         else -> null
     } ?: return null
     return PendingMobileAction(originalText = "云端结构化动作", command = command)
@@ -417,7 +435,7 @@ private fun isCancelMobileActionText(text: String): Boolean {
     return Regex("^(取消|算了|不用了|先别|不要|否|不执行)$").matches(text.trim())
 }
 
-private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand): Pair<Boolean, String> {
+private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCommand, installedAppIndex: InstalledAppIndex? = null): Pair<Boolean, String> {
     if (router == null) return false to "当前页面没有拿到 Android Activity，暂时无法执行手机动作。"
     return when (command) {
         is MobileCommand.SetAlarm -> {
@@ -425,12 +443,13 @@ private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCom
             ok to if (ok) "已打开系统闹钟确认界面。" else "无法打开系统闹钟。"
         }
         is MobileCommand.OpenApp -> {
-            val packageName = command.packageName
-            if (packageName.isNullOrBlank()) {
-                false to "暂时还没有“${command.appName}”的包名映射。"
+            val app = command.packageName?.takeIf { it.isNotBlank() }?.let { command.appName to it }
+                ?: installedAppIndex?.findBestApp(command.appName)?.let { it.label to it.packageName }
+            if (app == null) {
+                false to "没有在本机找到“${command.appName}”。"
             } else {
-                val ok = router.openApp(packageName, command.appName)
-                ok to if (ok) "已尝试打开${command.appName}。" else "没有找到${command.appName}。"
+                val ok = router.openApp(app.second, app.first)
+                ok to if (ok) "已尝试打开${app.first}。" else "没有找到${app.first}。"
             }
         }
         is MobileCommand.Navigate -> {
