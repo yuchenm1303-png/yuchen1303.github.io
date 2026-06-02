@@ -33,12 +33,24 @@ import com.yuchen.ailedger.model.WebSource
 fun MessageDataCards(message: ChatMessage, state: AssistantUiState) {
     if (message.structuredData == null && message.webSources.isEmpty()) return
 
+    var webPreviewSource by remember(message.id) { mutableStateOf<WebPreviewSource?>(null) }
+
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
         message.structuredData?.let { StructuredDataCardView(it) }
         if (message.webSources.isNotEmpty()) {
-            WebSourcesCard(message.webSources, message.searchProvider)
+            WebSourcesCard(
+                sources = message.webSources,
+                provider = message.searchProvider,
+                onOpenSource = { webPreviewSource = it }
+            )
         }
     }
+
+    InAppWebBrowserOverlay(
+        target = webPreviewSource,
+        state = state,
+        onDismiss = { webPreviewSource = null }
+    )
 
     state.quality.hashCode()
 }
@@ -74,9 +86,12 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
 }
 
 @Composable
-private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
+private fun WebSourcesCard(
+    sources: List<WebSource>,
+    provider: String?,
+    onOpenSource: (WebPreviewSource) -> Unit
+) {
     var expanded by remember(sources) { mutableStateOf(false) }
-    val openWebSource = LocalWebSourceOpener.current
     val previewCount = if (expanded) sources.size else 2.coerceAtMost(sources.size)
     val hiddenCount = (sources.size - previewCount).coerceAtLeast(0)
 
@@ -99,7 +114,7 @@ private fun WebSourcesCard(sources: List<WebSource>, provider: String?) {
                     onOpen = {
                         val url = source.url.trim()
                         if (url.startsWith("http://") || url.startsWith("https://")) {
-                            openWebSource(
+                            onOpenSource(
                                 WebPreviewSource(
                                     title = source.title.ifBlank { source.domain.ifBlank { "来源 ${index + 1}" } },
                                     url = url,
