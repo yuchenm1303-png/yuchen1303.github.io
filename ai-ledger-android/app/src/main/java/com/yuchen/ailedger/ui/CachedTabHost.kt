@@ -25,9 +25,9 @@ import kotlinx.coroutines.delay
 val LocalPageActive = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 
-private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
-private const val DEFAULT_PREWARM_DELAY_MS = 1800L
-private const val DEFAULT_PREWARM_STEP_DELAY_MS = 260L
+private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
+private const val DEFAULT_PREWARM_DELAY_MS = 3200L
+private const val DEFAULT_PREWARM_STEP_DELAY_MS = 520L
 
 @Composable
 fun CachedAppTabHost(
@@ -44,8 +44,8 @@ fun CachedAppTabHost(
             AppTab.entries.forEach { put(it, 0) }
         }
     }
-    val orderedPrewarmTabs = remember(prewarmTabs) {
-        AppTab.entries.filter { tab -> tab in prewarmTabs }
+    val orderedPrewarmTabs = remember(prewarmTabs, currentTab) {
+        AppTab.entries.filter { tab -> tab in prewarmTabs && tab != currentTab }
     }
 
     LaunchedEffect(currentTab) {
@@ -54,12 +54,18 @@ fun CachedAppTabHost(
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs) {
-        if (orderedPrewarmTabs.isEmpty()) return@LaunchedEffect
+        if (orderedPrewarmTabs.isEmpty()) {
+            StartupMetrics.setWarmupState("所有页面已预热")
+            return@LaunchedEffect
+        }
+        StartupMetrics.setWarmupState("首页稳定中")
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
-        orderedPrewarmTabs.forEach { tab ->
+        orderedPrewarmTabs.forEachIndexed { index, tab ->
+            StartupMetrics.setWarmupState("预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
             renderedTabs = renderedTabs + tab
             if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
         }
+        StartupMetrics.setWarmupState("所有页面已预热")
     }
 
     Box(modifier) {
