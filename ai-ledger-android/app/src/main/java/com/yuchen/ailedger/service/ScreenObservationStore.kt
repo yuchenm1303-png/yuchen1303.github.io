@@ -16,6 +16,7 @@ data class ObservedScreenNode(
 
 data class ScreenObservation(
     val enabled: Boolean = false,
+    val serviceConnected: Boolean = false,
     val packageName: String = "",
     val windowTitle: String = "",
     val updatedAt: Long = 0L,
@@ -34,7 +35,22 @@ object ScreenObservationStore {
         mutableObservation.value = observation
     }
 
+    fun markConnectedWaitingForWindow() {
+        mutableObservation.value = mutableObservation.value.copy(
+            enabled = true,
+            serviceConnected = true,
+            packageName = "",
+            windowTitle = "",
+            textItems = emptyList(),
+            clickableItems = emptyList(),
+            inputItems = emptyList(),
+            scrollableItems = emptyList(),
+            nodeCount = 0,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
     fun markDisabled() {
-        mutableObservation.value = mutableObservation.value.copy(enabled = false, updatedAt = System.currentTimeMillis())
+        mutableObservation.value = ScreenObservation(updatedAt = System.currentTimeMillis())
     }
 }
