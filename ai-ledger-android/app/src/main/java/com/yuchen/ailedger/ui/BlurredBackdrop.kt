@@ -44,6 +44,23 @@ data class BlurredBackdropBitmap(
 
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 
+private object BlurredBackdropMemoryCache {
+    private const val MAX_ENTRIES = 4
+    private val entries = object : LinkedHashMap<String, BlurredBackdropBitmap>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BlurredBackdropBitmap>?): Boolean {
+            return size > MAX_ENTRIES
+        }
+    }
+
+    @Synchronized
+    fun get(key: String): BlurredBackdropBitmap? = entries[key]
+
+    @Synchronized
+    fun put(key: String, value: BlurredBackdropBitmap) {
+        entries[key] = value
+    }
+}
+
 @Composable
 fun rememberBlurredBackdropBitmap(
     theme: BackgroundTheme,
@@ -52,14 +69,14 @@ fun rememberBlurredBackdropBitmap(
     customBackgroundPath: String? = null
 ): BlurredBackdropBitmap? {
     val view = LocalView.current
-    val context = view.context
+    val context = view.context.applicationContext
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val fallbackWidth = with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
-    val key = params.cacheKey()
+    val paramsKey = params.cacheKey()
     val customKey = when (customBackgroundPath) {
         null -> "default_wallpaper_lowres"
         BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
@@ -68,23 +85,33 @@ fun rememberBlurredBackdropBitmap(
             if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
         }
     }
-    var bitmap by remember(width, height, theme, quality, customKey) { mutableStateOf<BlurredBackdropBitmap?>(null) }
+    val cacheKey = "$width×$height|${theme.storageValue}|${quality.storageValue}|$paramsKey|$customKey"
+    var bitmap by remember(cacheKey) { mutableStateOf(BlurredBackdropMemoryCache.get(cacheKey)) }
 
-    LaunchedEffect(width, height, theme, quality, key, customKey) {
+    LaunchedEffect(cacheKey) {
+        BlurredBackdropMemoryCache.get(cacheKey)?.let { cached ->
+            bitmap = cached
+            return@LaunchedEffect
+        }
+
         if (bitmap != null) delay(120)
         val next = withContext(Dispatchers.Default) {
             runCatching {
+                val preset = if (customBackgroundPath == null) decodePresetNightSkyBitmap(context) else null
                 buildBlurredBackdropBitmap(
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
                     params = params.quantized(),
                     customBackgroundPath = customBackgroundPath,
-                    presetBitmap = decodePresetNightSkyBitmap(context)
+                    presetBitmap = preset
                 )
             }.getOrNull()
         }
-        if (next != null) bitmap = next
+        if (next != null) {
+            BlurredBackdropMemoryCache.put(cacheKey, next)
+            bitmap = next
+        }
     }
     return bitmap
 }
@@ -147,7 +174,6 @@ private fun buildBlurredBackdropBitmap(
         else if (presetBitmap != null) drawBitmapCoverIntoTarget(presetBitmap, source)
         else drawAndroidBackdropSource(source, theme, params)
     }
-    presetBitmap?.recycle()
 
     val lensTuned = tuneBitmapTone(
         input = source,
