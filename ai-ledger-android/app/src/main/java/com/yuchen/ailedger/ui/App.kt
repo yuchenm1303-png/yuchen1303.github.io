@@ -9,9 +9,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.Box
@@ -28,10 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -87,13 +84,21 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
     var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
+    var dockCollapsedByIme by remember { mutableStateOf(imeBottomPx >= imeOpenThresholdPx) }
     val imeHidden = imeBottomPx == 0
     val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
-    LaunchedEffect(imeBottomPx) {
+    val nextDockCollapsedByIme = when {
+        imeHidden || imeIsRetreating -> false
+        imeBottomPx >= imeOpenThresholdPx -> true
+        else -> dockCollapsedByIme
+    }
+    LaunchedEffect(imeBottomPx, nextDockCollapsedByIme) {
+        dockCollapsedByIme = nextDockCollapsedByIme
         previousImeBottomPx = imeBottomPx
     }
-    val bottomDockVisible = imeHidden || imeIsRetreating
+    val bottomDockVisible = !nextDockCollapsedByIme
     val bottomDockClickable = imeHidden
     val assistantBottomPadding = if (bottomDockVisible) 68.dp else 8.dp
     val bottomBarOffsetY = if (bottomDockVisible) 0.dp else 24.dp
