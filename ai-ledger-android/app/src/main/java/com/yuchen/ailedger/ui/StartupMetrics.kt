@@ -3,15 +3,28 @@ package com.yuchen.ailedger.ui
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Choreographer
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 
 object StartupMetrics {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val startMs = SystemClock.elapsedRealtime()
     private val eventNames = linkedSetOf<String>()
     private val _events = mutableStateListOf<StartupMetricEvent>()
+    private var frameMonitorStarted = false
+    private var lastFrameNanos = 0L
+    private var frameCount = 0
+    private var longFrameCount = 0
+    private var jankFrameCount = 0
+    private var totalFrameMs = 0f
+    private var maxFrameMs = 0f
+    private val _frameStats = mutableStateOf(StartupFrameStats())
+    private val _warmupState = mutableStateOf("首页加载中")
 
     val events: List<StartupMetricEvent> get() = _events
+    val frameStats: StartupFrameStats get() = _frameStats.value
+    val warmupState: String get() = _warmupState.value
 
     fun mark(name: String) {
         val now = SystemClock.elapsedRealtime()
@@ -34,14 +47,81 @@ object StartupMetrics {
         mark(name)
     }
 
+    fun setWarmupState(state: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            if (_warmupState.value != state) {
+                _warmupState.value = state
+                mark("预热状态：$state")
+            }
+        } else {
+            mainHandler.post { setWarmupState(state) }
+        }
+    }
+
+    fun startFrameMonitor() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { startFrameMonitor() }
+            return
+        }
+        if (frameMonitorStarted) return
+        frameMonitorStarted = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    fun resetFrameStats() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { resetFrameStats() }
+            return
+        }
+        lastFrameNanos = 0L
+        frameCount = 0
+        longFrameCount = 0
+        jankFrameCount = 0
+        totalFrameMs = 0f
+        maxFrameMs = 0f
+        _frameStats.value = StartupFrameStats()
+        mark("帧统计已重置")
+    }
+
     fun resetForNewRun() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            eventNames.clear()
+            synchronized(eventNames) { eventNames.clear() }
             _events.clear()
+            _warmupState.value = "手动重置"
+            resetFrameStats()
             mark("手动重置")
         } else {
             mainHandler.post { resetForNewRun() }
         }
+    }
+
+    private val frameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (lastFrameNanos != 0L) {
+                val frameMs = (frameTimeNanos - lastFrameNanos) / 1_000_000f
+                if (frameMs in 0.1f..1000f) {
+                    frameCount += 1
+                    totalFrameMs += frameMs
+                    if (frameMs > maxFrameMs) maxFrameMs = frameMs
+                    if (frameMs >= 24f) longFrameCount += 1
+                    if (frameMs >= 33f) jankFrameCount += 1
+                    if (frameCount % 15 == 0) publishFrameStats()
+                }
+            }
+            lastFrameNanos = frameTimeNanos
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    private fun publishFrameStats() {
+        val avg = if (frameCount > 0) totalFrameMs / frameCount else 0f
+        _frameStats.value = StartupFrameStats(
+            frameCount = frameCount,
+            avgFrameMs = avg,
+            maxFrameMs = maxFrameMs,
+            longFrameCount = longFrameCount,
+            jankFrameCount = jankFrameCount
+        )
     }
 
     private fun appendEvent(event: StartupMetricEvent) {
@@ -56,4 +136,18 @@ data class StartupMetricEvent(
     val deltaMs: Long
 ) {
     fun compactLabel(): String = "+${deltaMs}ms / ${elapsedMs}ms"
+}
+
+data class StartupFrameStats(
+    val frameCount: Int = 0,
+    val avgFrameMs: Float = 0f,
+    val maxFrameMs: Float = 0f,
+    val longFrameCount: Int = 0,
+    val jankFrameCount: Int = 0
+) {
+    fun compactLabel(): String {
+        val avg = (avgFrameMs * 10).toInt() / 10f
+        val max = (maxFrameMs * 10).toInt() / 10f
+        return "帧 ${avg}ms / max ${max}ms / 长帧 $longFrameCount / 卡顿 $jankFrameCount"
+    }
 }
