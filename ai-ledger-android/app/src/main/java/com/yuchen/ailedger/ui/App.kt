@@ -90,11 +90,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val imeHidden = imeBottomPx == 0
     val bottomDockVisible = imeHidden
     val bottomDockClickable = imeHidden
-    val assistantBottomPadding by animateDpAsState(
-        targetValue = if (imeHidden) 68.dp else 8.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "assistant-bottom-dock-padding"
-    )
+    val assistantBottomPadding = if (imeHidden) 68.dp else 8.dp
     val bottomBarOffsetY by animateDpAsState(
         targetValue = if (bottomDockVisible) 0.dp else 24.dp,
         animationSpec = tween(durationMillis = 180),
