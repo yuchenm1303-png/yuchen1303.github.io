@@ -25,9 +25,9 @@ import kotlinx.coroutines.delay
 val LocalPageActive = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 
-private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
-private const val DEFAULT_PREWARM_DELAY_MS = 720L
-private const val DEFAULT_PREWARM_STEP_DELAY_MS = 180L
+private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
+private const val DEFAULT_PREWARM_DELAY_MS = 1800L
+private const val DEFAULT_PREWARM_STEP_DELAY_MS = 260L
 
 @Composable
 fun CachedAppTabHost(
