@@ -47,6 +47,13 @@ data class CloudPreferenceUpdate(
     val value: String
 )
 
+data class CloudAgentAction(
+    val capability: String,
+    val title: String? = null,
+    val requiresConfirmation: Boolean = false,
+    val reason: String? = null
+)
+
 data class AiChatResponse(
     val reply: String,
     val source: String = "cloud_ai",
@@ -57,29 +64,19 @@ data class AiChatResponse(
     val structuredData: StructuredDataCard? = null,
     val mobileAction: CloudMobileAction? = null,
     val preferenceUpdate: CloudPreferenceUpdate? = null,
+    val agentAction: CloudAgentAction? = null,
     val searchUsed: Boolean = false,
     val searchProvider: String? = null
 )
 
-private data class ModelRoute(
-    val requested: ChatModel,
-    val resolved: ChatModel,
-    val reason: String
-) {
+private data class ModelRoute(val requested: ChatModel, val resolved: ChatModel, val reason: String) {
     val isAuto: Boolean get() = requested == ChatModel.Auto
 }
 
-private data class RouteScore(
-    val model: ChatModel,
-    val score: Int,
-    val reason: String
-)
+private data class RouteScore(val model: ChatModel, val score: Int, val reason: String)
 
-class AiWorkerClient(
-    private val config: AiWorkerConfig = AiWorkerConfig()
-) {
-    val endpoint: String
-        get() = config.endpoint
+class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
+    val endpoint: String get() = config.endpoint
 
     @Throws(IOException::class)
     fun sendChat(
@@ -90,110 +87,58 @@ class AiWorkerClient(
         val route = resolveModelRoute(messages, modelPreference)
         val endpoints = endpointPlan(route)
         if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
-
         val payload = buildPayload(messages, route, onlineEnabled)
         var lastError: IOException? = null
-
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
                     return postChat(candidate, payload, route)
                 } catch (error: IOException) {
                     lastError = error
-                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
-                        continue@endpointLoop
-                    }
+                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
                 }
             }
         }
-
         throw lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
     }
 
     private fun endpointPool(primary: String, fallbacks: List<String>): List<String> {
-        return (listOf(primary) + fallbacks)
-            .map { it.trim().trimEnd('/') }
-            .filter { it.isNotBlank() }
-            .distinct()
+        return (listOf(primary) + fallbacks).map { it.trim().trimEnd('/') }.filter { it.isNotBlank() }.distinct()
     }
 
-    /**
-     * 入口选择策略：
-     * - Qwen / DeepSeek 属于国内稳定模型，只走阿里云国内入口，避免国内入口报错后继续等待 Cloudflare 超时。
-     * - Gemini / Mistral / GPT OSS / Workers AI 先交给阿里云国内入口尝试代理；如果国内入口明确不支持，再 fallback 到 Cloudflare。
-     * - Cloudflare 继续作为海外模型和海外网络环境的备用通道，不因为国内入口优先而被删除。
-     * - 联网按钮只作为 payload 能力标记传给后端，不直接改变 App 端入口顺序。
-     */
     private fun endpointPlan(route: ModelRoute): List<String> {
         val cn = config.endpoint.trim().trimEnd('/')
-        val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT)
-            .trim()
-            .trimEnd('/')
-
+        val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT).trim().trimEnd('/')
         val resolvedIsCnModel = route.resolved == ChatModel.Kimi || route.resolved == ChatModel.DeepSeekV4
         return if (resolvedIsCnModel) endpointPool(cn, emptyList()) else endpointPool(cn, listOf(cf))
     }
 
-    private fun resolveModelRoute(
-        messages: List<ChatMessage>,
-        modelPreference: ChatModel
-    ): ModelRoute {
-        if (modelPreference != ChatModel.Auto) {
-            return ModelRoute(modelPreference, modelPreference, "manual_selection")
-        }
-
+    private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel): ModelRoute {
+        if (modelPreference != ChatModel.Auto) return ModelRoute(modelPreference, modelPreference, "manual_selection")
         val latest = latestUserText(messages)
         val text = latest.lowercase()
-
         val route = scoreAutoV2(latest, text).maxWithOrNull(
-            compareBy<RouteScore> { it.score }
-                .thenBy { autoTieBreakPriority(it.model) }
+            compareBy<RouteScore> { it.score }.thenBy { autoTieBreakPriority(it.model) }
         ) ?: RouteScore(ChatModel.Kimi, 1, "qwen_default")
-
         return ModelRoute(ChatModel.Auto, route.model, "auto_v2:${route.reason}")
     }
 
     private fun scoreAutoV2(latest: String, text: String): List<RouteScore> {
-        val codeScore =
-            10 * countMatches(text, codeKeywords) +
-                7 * countMatches(text, appDevKeywords) +
-                if (looksLikeCodeOrError(latest, text)) 18 else 0
-
-        val reasoningScore =
-            9 * countMatches(text, reasoningKeywords) +
-                11 * countMatches(text, stemKeywords) +
-                6 * countMatches(text, designKeywords) +
-                if (hasFormulaSignal(latest)) 14 else 0
-
+        val codeScore = 10 * countMatches(text, codeKeywords) + 7 * countMatches(text, appDevKeywords) + if (looksLikeCodeOrError(latest, text)) 18 else 0
+        val reasoningScore = 9 * countMatches(text, reasoningKeywords) + 11 * countMatches(text, stemKeywords) + 6 * countMatches(text, designKeywords) + if (hasFormulaSignal(latest)) 14 else 0
         val translateScore = 10 * countMatches(text, translationKeywords)
-
-        val longWritingScore =
-            8 * countMatches(text, writingKeywords) +
-                when {
-                    latest.length >= 1600 -> 18
-                    latest.length >= 900 -> 12
-                    latest.length >= 420 && hasAny(text, writingKeywords) -> 8
-                    else -> 0
-                }
-
-        val qwenGeneralScore =
-            12 +
-                (if (containsChinese(latest)) 6 else 0) +
-                (if (latest.length < 420) 4 else 0)
-
+        val longWritingScore = 8 * countMatches(text, writingKeywords) + when {
+            latest.length >= 1600 -> 18
+            latest.length >= 900 -> 12
+            latest.length >= 420 && hasAny(text, writingKeywords) -> 8
+            else -> 0
+        }
+        val qwenGeneralScore = 12 + (if (containsChinese(latest)) 6 else 0) + (if (latest.length < 420) 4 else 0)
         return listOf(
             RouteScore(ChatModel.GptOss, codeScore, "code_android_api"),
             RouteScore(ChatModel.DeepSeekV4, reasoningScore, "reasoning_stem_design"),
-            RouteScore(
-                ChatModel.Kimi,
-                qwenGeneralScore + translateScore + longWritingScore / 2,
-                "qwen_general_cn_translation_writing"
-            ),
-            RouteScore(
-                ChatModel.Gemini,
-                if (text.contains("gemini")) 16 else translateScore / 2,
-                "translation_or_explicit_gemini"
-            ),
+            RouteScore(ChatModel.Kimi, qwenGeneralScore + translateScore + longWritingScore / 2, "qwen_general_cn_translation_writing"),
+            RouteScore(ChatModel.Gemini, if (text.contains("gemini")) 16 else translateScore / 2, "translation_or_explicit_gemini"),
             RouteScore(ChatModel.Mistral, longWritingScore, "long_summary_polish")
         )
     }
@@ -209,82 +154,31 @@ class AiWorkerClient(
     }
 
     private fun looksLikeCodeOrError(latest: String, text: String): Boolean {
-        return latest.contains("```") ||
-            latest.contains("Exception") ||
-            latest.contains("Traceback") ||
-            latest.contains("NullPointer") ||
-            latest.contains("Unresolved reference") ||
-            latest.contains("Cannot resolve") ||
-            text.contains("build failed") ||
-            text.contains("stacktrace") ||
-            Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
+        return latest.contains("```") || latest.contains("Exception") || latest.contains("Traceback") || latest.contains("NullPointer") || latest.contains("Unresolved reference") || latest.contains("Cannot resolve") || text.contains("build failed") || text.contains("stacktrace") || Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
     }
 
     private fun hasFormulaSignal(text: String): Boolean {
-        return text.any { it in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } ||
-            Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) ||
-            Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
+        return text.any { it in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } || Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) || Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
     }
 
-    private fun containsChinese(text: String): Boolean {
-        return text.any { it in '\u4e00'..'\u9fff' }
-    }
+    private fun containsChinese(text: String): Boolean = text.any { it in '\u4e00'..'\u9fff' }
+    private fun countMatches(text: String, keywords: List<String>): Int = keywords.count { text.contains(it) }
+    private fun hasAny(text: String, keywords: List<String>): Boolean = keywords.any { text.contains(it) }
 
-    private fun countMatches(text: String, keywords: List<String>): Int {
-        return keywords.count { text.contains(it) }
-    }
+    private val codeKeywords = listOf("代码", "报错", "bug", "修复", "编译", "构建", "函数", "类", "脚本", "依赖", "库", "接口", "api", "kotlin", "compose", "android", "github", "gradle", "cloudflare", "worker", "python", "java", "javascript", "typescript", "html", "css", "json", "http", "request", "response")
+    private val appDevKeywords = listOf("app", "apk", "workflow", "actions", "commit", "分支", "仓库", "源码", "viewmodel", "client", "repository", "compose 原生")
+    private val reasoningKeywords = listOf("推理", "证明", "分析", "为什么", "原理", "思路", "计算", "求解", "推导", "判别", "极限", "偏导", "积分", "二重积分", "链式法则", "全微分")
+    private val stemKeywords = listOf("数学", "电路", "模电", "数电", "单片机", "stm32", "传感器", "建模", "模型", "仿真", "控制", "信号", "滤波", "放大器", "电磁", "物理")
+    private val designKeywords = listOf("方案", "设计", "架构", "策略", "优化", "规划", "迁移", "实现思路", "怎么做", "怎么设计", "技术路线", "系统设计")
+    private val translationKeywords = listOf("什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning", "pronunciation")
+    private val writingKeywords = listOf("总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "论文", "summary", "summarize", "outline", "polish", "rewrite")
 
-    private fun hasAny(text: String, keywords: List<String>): Boolean {
-        return keywords.any { text.contains(it) }
-    }
-
-    private val codeKeywords = listOf(
-        "代码", "报错", "bug", "修复", "编译", "构建", "函数", "类", "脚本", "依赖", "库", "接口", "api",
-        "kotlin", "compose", "android", "github", "gradle", "cloudflare", "worker", "python", "java",
-        "javascript", "typescript", "html", "css", "json", "http", "request", "response"
-    )
-
-    private val appDevKeywords = listOf(
-        "app", "apk", "workflow", "actions", "commit", "分支", "仓库", "源码", "viewmodel",
-        "client", "repository", "compose 原生"
-    )
-
-    private val reasoningKeywords = listOf(
-        "推理", "证明", "分析", "为什么", "原理", "思路", "计算", "求解", "推导", "判别",
-        "极限", "偏导", "积分", "二重积分", "链式法则", "全微分"
-    )
-
-    private val stemKeywords = listOf(
-        "数学", "电路", "模电", "数电", "单片机", "stm32", "传感器", "建模", "模型",
-        "仿真", "控制", "信号", "滤波", "放大器", "电磁", "物理"
-    )
-
-    private val designKeywords = listOf(
-        "方案", "设计", "架构", "策略", "优化", "规划", "迁移", "实现思路", "怎么做",
-        "怎么设计", "技术路线", "系统设计"
-    )
-
-    private val translationKeywords = listOf(
-        "什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词",
-        "词语", "translate", "meaning", "pronunciation"
-    )
-
-    private val writingKeywords = listOf(
-        "总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "论文",
-        "summary", "summarize", "outline", "polish", "rewrite"
-    )
-
-    private fun buildPayload(
-        messages: List<ChatMessage>,
-        route: ModelRoute,
-        onlineEnabled: Boolean
-    ): JSONObject {
+    private fun buildPayload(messages: List<ChatMessage>, route: ModelRoute, onlineEnabled: Boolean): JSONObject {
         val commandInstruction = commandProtocolSystemPrompt()
         val workerMessages = messages.toWorkerMessages(commandInstruction)
         val latestUserText = latestUserText(messages)
         val resolvedId = route.resolved.id
         val searchMode = if (onlineEnabled) "force" else "off"
-
         return JSONObject().apply {
             put("action", "chat")
             put("intent", "chat")
@@ -305,7 +199,6 @@ class AiWorkerClient(
             put("autoRequested", route.isAuto)
             put("autoResolvedModel", resolvedId)
             put("autoRouteReason", route.reason)
-
             put("onlineEnabled", onlineEnabled)
             put("searchEnabled", onlineEnabled)
             put("forceWebSearch", onlineEnabled)
@@ -323,52 +216,38 @@ class AiWorkerClient(
             })
             put("commandProtocol", JSONObject().apply {
                 put("enabled", true)
-                put("version", 1)
+                put("version", 2)
                 put("client", "android-compose")
                 put("returnNaturalReply", true)
                 put("requireConfirmationForActions", true)
+                put("supportedAgentActions", JSONArray(listOf("observe_screen")))
                 put("supportedMobileActions", JSONArray(listOf("set_alarm", "open_app", "navigate")))
                 put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
                 put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
                 put("fallbackTransport", "embedded_marker")
                 put("embeddedMarker", "[[AI_LEDGER_COMMAND:{...}]]")
-                put("schema", JSONObject().apply {
-                    put("mobileAction", JSONObject().apply {
-                        put("type", "set_alarm | open_app | navigate")
-                        put("destination", "导航目的地，仅 navigate 使用")
-                        put("appName", "应用名，仅 open_app 使用")
-                        put("packageName", "可选包名，仅 open_app 使用")
-                        put("hour", "0-23，仅 set_alarm 使用")
-                        put("minute", "0-59，仅 set_alarm 使用")
-                        put("label", "闹钟标签或动作说明")
-                    })
-                    put("preferenceUpdate", JSONObject().apply {
-                        put("type", "navigation_address")
-                        put("slot", "home | school | company | dorm")
-                        put("label", "家 | 学校 | 公司 | 宿舍")
-                        put("value", "用户希望保存的完整地址")
-                    })
-                })
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
                 put("includeMobileAction", true)
                 put("includePreferenceUpdate", true)
+                put("includeAgentAction", true)
                 put("includeEmbeddedCommandMarker", true)
             })
             put("accessPolicy", "cn_gateway_primary")
             put("primaryEndpointRole", "aliyun_cn_gateway")
             put("fallbackEndpointRole", "cloudflare_worker")
-
             put("client", "android-compose")
-            put("clientVersion", "compose-native-command-protocol-v1")
+            put("clientVersion", "compose-native-agent-action-v1")
             put("now", System.currentTimeMillis())
         }
     }
 
     private fun commandProtocolSystemPrompt(): String = """
-        你正在服务一个 Android Compose AI 助手。你可以正常用中文回复用户，但当用户表达以下意图时，必须额外输出机器可读标记，格式必须完全如下：
+        你正在服务一个 Android Compose AI 助手。你可以正常用中文回复用户，但当用户表达手机能力、设备控制或手机智能体意图时，必须额外输出机器可读标记，格式必须完全如下：
+        [[AI_LEDGER_COMMAND:{"agentAction":{"capability":"observe_screen","title":"观察当前屏幕","requiresConfirmation":false,"reason":"用户想让我读取当前手机界面"}}]]
+        或：
         [[AI_LEDGER_COMMAND:{"preferenceUpdate":{"type":"navigation_address","slot":"home|school|company|dorm","label":"家|学校|公司|宿舍","value":"完整地址"}}]]
         或：
         [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"navigate","destination":"目的地"}}]]
@@ -376,31 +255,22 @@ class AiWorkerClient(
         [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"set_alarm","hour":8,"minute":0,"label":"提醒内容"}}]]
 
         规则：
-        1. 用户说“把家/学校/公司/宿舍设置为……”“以后回家就是……”“家在……”时，返回 preferenceUpdate，slot 只能是 home、school、company、dorm。
-        2. 用户要求导航、打开应用、设置闹钟时，返回 mobileAction。导航、闹钟、打开应用都需要用户在本地确认后才会执行。
-        3. 标记必须追加在回复末尾，不要解释这个标记，不要把标记放进代码块。
-        4. 没有手机动作或偏好更新时，不要输出标记。
-        5. 自然语言回复可以保留，但不要声称你已经直接调用了手机系统；只能说“我已识别/已保存/请确认”。
+        1. 用户要求你“看屏幕、观察当前界面、读一下页面、分析当前手机页面、看看现在手机上有什么、查看按钮/输入框/界面状态”等，都返回 agentAction.capability=observe_screen。不要把这类请求当普通知识问答，也不要联网搜索。
+        2. 用户说“把家/学校/公司/宿舍设置为……”“以后回家就是……”“家在……”时，返回 preferenceUpdate，slot 只能是 home、school、company、dorm。
+        3. 用户要求导航、打开应用、设置闹钟时，返回 mobileAction。导航、闹钟、打开应用都需要用户在本地确认后才会执行。
+        4. 目前 agentAction 只允许 observe_screen。禁止输出点击、输入、发送、支付、删除、下单等动作。
+        5. 标记必须追加在回复末尾，不要解释这个标记，不要把标记放进代码块。
+        6. 没有手机动作、偏好更新或智能体动作时，不要输出标记。
+        7. 自然语言回复可以保留，但不要声称你已经直接调用了手机系统；只能说“我已识别，请在本地查看/确认”。
     """.trimIndent()
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
-        val knownChatPath =
-            cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")
-
+        val knownChatPath = cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")
         if (knownChatPath) return listOf(cleanEndpoint)
-
-        return listOf(
-            cleanEndpoint,
-            "$cleanEndpoint/chat",
-            "$cleanEndpoint/api/chat"
-        ).distinct()
+        return listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
     }
 
-    private fun postChat(
-        endpoint: String,
-        payload: JSONObject,
-        route: ModelRoute
-    ): AiChatResponse {
+    private fun postChat(endpoint: String, payload: JSONObject, route: ModelRoute): AiChatResponse {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -410,58 +280,36 @@ class AiWorkerClient(
             setRequestProperty("Accept", "application/json, text/plain")
             setRequestProperty("X-Client", "android-compose")
         }
-
         return try {
-            connection.outputStream.use { stream ->
-                stream.write(payload.toString().toByteArray(Charsets.UTF_8))
-            }
-
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val body = readBody(connection, status)
             val data = body.toJsonOrNull()
-
             if (status !in 200..299) {
                 val code = data?.optString("code").notBlankOrNull() ?: "HTTP $status"
-                val message = data?.optString("error").notBlankOrNull()
-                    ?: data?.optString("message").notBlankOrNull()
-                    ?: body.take(120).takeIf { it.isNotBlank() }
-                    ?: "云端 AI 调用失败：$code"
-
+                val message = data?.optString("error").notBlankOrNull() ?: data?.optString("message").notBlankOrNull() ?: body.take(120).takeIf { it.isNotBlank() } ?: "云端 AI 调用失败：$code"
                 throw IOException(message)
             }
-
             throwIfServerReturnedFallbackSignal(data)
-
             val rawReply = extractReply(data, body).trim()
             val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
             val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
             if (displayReply.isBlank() && embeddedCommand == null) throw IOException("云端没有返回有效回复")
 
-            val rawModel =
-                data?.optString("model").notBlankOrNull()
-                    ?: data?.optString("modelId").notBlankOrNull()
-                    ?: route.resolved.id
-
+            val rawModel = data?.optString("model").notBlankOrNull() ?: data?.optString("modelId").notBlankOrNull() ?: route.resolved.id
             val rawVersion = data?.optString("version").notBlankOrNull()
-            val serverLabel = data?.optString("modelLabel").notBlankOrNull()
-                ?: data?.optString("modelName").notBlankOrNull()
-
+            val serverLabel = data?.optString("modelLabel").notBlankOrNull() ?: data?.optString("modelName").notBlankOrNull()
             val resolvedLabel = serverLabel ?: modelLabelFromId(rawModel) ?: route.resolved.label
-            val displayLabel =
-                if (route.isAuto && !resolvedLabel.startsWith("自动选择")) {
-                    "自动选择 · $resolvedLabel"
-                } else {
-                    resolvedLabel
-                }
-
+            val displayLabel = if (route.isAuto && !resolvedLabel.startsWith("自动选择")) "自动选择 · $resolvedLabel" else resolvedLabel
             val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
             val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
+            val parsedAgentAction = parseCloudAgentAction(data) ?: parseCloudAgentAction(embeddedCommand)
             val fallbackReply = when {
+                parsedAgentAction != null -> "我识别到一个手机智能体动作。"
                 parsedMobileAction != null -> "我识别到一个手机动作，请确认后执行。"
                 parsedPreferenceUpdate != null -> "我已识别到一项偏好更新。"
                 else -> rawReply
             }
-
             AiChatResponse(
                 reply = displayReply.ifBlank { fallbackReply },
                 source = data?.optString("source").notBlankOrNull() ?: "cloud_ai",
@@ -472,6 +320,7 @@ class AiWorkerClient(
                 structuredData = parseStructuredData(data),
                 mobileAction = parsedMobileAction,
                 preferenceUpdate = parsedPreferenceUpdate,
+                agentAction = parsedAgentAction,
                 searchUsed = data?.optBoolean("searchUsed", false) ?: false,
                 searchProvider = data?.optString("searchProvider").notBlankOrNull()
             )
@@ -484,93 +333,39 @@ class AiWorkerClient(
 
     private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
         if (data == null) return
-
         val code = data.optString("code").lowercase()
-        val error = data.optString("error")
-            .ifBlank { data.optString("message") }
+        val error = data.optString("error").ifBlank { data.optString("message") }
         val normalized = "$code $error".lowercase()
-
-        val shouldFallback =
-            data.optBoolean("unsupportedModel", false) ||
-                data.optBoolean("shouldFallback", false) ||
-                normalized.contains("unsupported") ||
-                normalized.contains("not supported") ||
-                normalized.contains("not_configured") ||
-                normalized.contains("model_not_available") ||
-                normalized.contains("provider_not_available") ||
-                normalized.contains("不支持") ||
-                normalized.contains("未配置") ||
-                normalized.contains("不可用")
-
-        if (shouldFallback) {
-            throw IOException(error.ifBlank { "当前入口不支持该模型，正在尝试备用入口。" })
-        }
+        val shouldFallback = data.optBoolean("unsupportedModel", false) || data.optBoolean("shouldFallback", false) || normalized.contains("unsupported") || normalized.contains("not supported") || normalized.contains("not_configured") || normalized.contains("model_not_available") || normalized.contains("provider_not_available") || normalized.contains("不支持") || normalized.contains("未配置") || normalized.contains("不可用")
+        if (shouldFallback) throw IOException(error.ifBlank { "当前入口不支持该模型，正在尝试备用入口。" })
     }
 
     private fun parseWebSources(data: JSONObject?): List<WebSource> {
-        val array = data?.optJSONArray("sources")
-            ?: data?.optJSONArray("webSources")
-            ?: data?.optJSONObject("data")?.optJSONArray("sources")
-            ?: return emptyList()
-
+        val array = data?.optJSONArray("sources") ?: data?.optJSONArray("webSources") ?: data?.optJSONObject("data")?.optJSONArray("sources") ?: return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                val url = item.optString("url").notBlankOrNull()
-                    ?: item.optString("link").notBlankOrNull()
-                    ?: item.optString("href").notBlankOrNull()
-                    ?: ""
-                val title = item.optString("title").notBlankOrNull()
-                    ?: item.optString("name").notBlankOrNull()
-                    ?: url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" }
-                val snippet = item.optString("snippet").notBlankOrNull()
-                    ?: item.optString("summary").notBlankOrNull()
-                    ?: item.optString("content").notBlankOrNull()
-                    ?: ""
-                val domain = item.optString("domain").notBlankOrNull()
-                    ?: url.substringAfter("://").substringBefore('/')
-                add(
-                    WebSource(
-                        title = title.take(80),
-                        url = url,
-                        domain = domain.take(60),
-                        snippet = snippet.take(180),
-                        publishedAt = item.optString("publishedAt").notBlankOrNull()
-                            ?: item.optString("published").notBlankOrNull()
-                            ?: item.optString("date").notBlankOrNull()
-                    )
-                )
+                val url = item.optString("url").notBlankOrNull() ?: item.optString("link").notBlankOrNull() ?: item.optString("href").notBlankOrNull() ?: ""
+                val title = item.optString("title").notBlankOrNull() ?: item.optString("name").notBlankOrNull() ?: url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" }
+                val snippet = item.optString("snippet").notBlankOrNull() ?: item.optString("summary").notBlankOrNull() ?: item.optString("content").notBlankOrNull() ?: ""
+                val domain = item.optString("domain").notBlankOrNull() ?: url.substringAfter("://").substringBefore('/')
+                add(WebSource(title = title.take(80), url = url, domain = domain.take(60), snippet = snippet.take(180), publishedAt = item.optString("publishedAt").notBlankOrNull() ?: item.optString("published").notBlankOrNull() ?: item.optString("date").notBlankOrNull()))
             }
         }.take(6)
     }
 
     private fun parseStructuredData(data: JSONObject?): StructuredDataCard? {
-        val item = data?.optJSONObject("structuredData")
-            ?: data?.optJSONObject("structured")
-            ?: data?.optJSONObject("data")?.optJSONObject("structuredData")
-            ?: return null
-
-        val type = item.optString("type").notBlankOrNull()
-            ?: data.optString("type").notBlankOrNull()
-            ?: "realtime"
-        val title = item.optString("title").notBlankOrNull()
-            ?: item.optString("name").notBlankOrNull()
-            ?: structuredTypeLabel(type)
-        val subtitle = item.optString("subtitle").notBlankOrNull()
-            ?: item.optString("symbol").notBlankOrNull()
-            ?: item.optString("location").notBlankOrNull()
-        val metrics = parseStructuredMetrics(item)
-        val rawText = item.optString("rawText").notBlankOrNull()
-            ?: item.optString("summary").notBlankOrNull()
-
+        val item = data?.optJSONObject("structuredData") ?: data?.optJSONObject("structured") ?: data?.optJSONObject("data")?.optJSONObject("structuredData") ?: return null
+        val type = item.optString("type").notBlankOrNull() ?: data.optString("type").notBlankOrNull() ?: "realtime"
+        val title = item.optString("title").notBlankOrNull() ?: item.optString("name").notBlankOrNull() ?: structuredTypeLabel(type)
+        val subtitle = item.optString("subtitle").notBlankOrNull() ?: item.optString("symbol").notBlankOrNull() ?: item.optString("location").notBlankOrNull()
         return StructuredDataCard(
             type = type,
             title = title,
             subtitle = subtitle,
-            timestamp = item.optString("timestamp").notBlankOrNull()
-                ?: item.optString("updatedAt").notBlankOrNull(),
-            metrics = metrics,
-            rawText = rawText
+            timestamp = item.optString("timestamp").notBlankOrNull() ?: item.optString("updatedAt").notBlankOrNull(),
+            metrics = parseStructuredMetrics(item),
+            rawText = item.optString("rawText").notBlankOrNull() ?: item.optString("summary").notBlankOrNull()
         )
     }
 
@@ -583,18 +378,10 @@ class AiWorkerClient(
                     val label = metric.optString("label").notBlankOrNull() ?: metric.optString("name").notBlankOrNull()
                     val value = metric.optString("value").notBlankOrNull() ?: metric.optString("text").notBlankOrNull()
                     if (label.isNullOrBlank() || value.isNullOrBlank()) continue
-                    add(
-                        StructuredMetric(
-                            label = label.take(24),
-                            value = value.take(40),
-                            unit = metric.optString("unit").notBlankOrNull(),
-                            detail = metric.optString("detail").notBlankOrNull()
-                        )
-                    )
+                    add(StructuredMetric(label = label.take(24), value = value.take(40), unit = metric.optString("unit").notBlankOrNull(), detail = metric.optString("detail").notBlankOrNull()))
                 }
             }.take(8)
         }
-
         val preferredKeys = listOf("price", "change", "changePercent", "temperature", "condition", "humidity", "rate", "from", "to", "score", "status")
         return preferredKeys.mapNotNull { key ->
             val value = item.optString(key).notBlankOrNull() ?: return@mapNotNull null
@@ -603,46 +390,29 @@ class AiWorkerClient(
     }
 
     private fun parseCloudMobileAction(data: JSONObject?): CloudMobileAction? {
-        val item = data?.optJSONObject("mobileAction")
-            ?: data?.optJSONObject("command")
-            ?: data?.optJSONObject("data")?.optJSONObject("mobileAction")
-            ?: data?.optJSONObject("result")?.optJSONObject("mobileAction")
-            ?: return null
-        val rawType = item.optString("type").notBlankOrNull()
-            ?: item.optString("action").notBlankOrNull()
-            ?: return null
+        val item = data?.optJSONObject("mobileAction") ?: data?.optJSONObject("command") ?: data?.optJSONObject("data")?.optJSONObject("mobileAction") ?: data?.optJSONObject("result")?.optJSONObject("mobileAction") ?: return null
+        val rawType = item.optString("type").notBlankOrNull() ?: item.optString("action").notBlankOrNull() ?: return null
         val type = rawType.lowercase().replace('-', '_')
         if (type !in setOf("set_alarm", "open_app", "navigate")) return null
         return CloudMobileAction(
             type = type,
             title = item.optString("title").notBlankOrNull(),
-            destination = item.optString("destination").notBlankOrNull()
-                ?: item.optString("target").notBlankOrNull(),
-            appName = item.optString("appName").notBlankOrNull()
-                ?: item.optString("app").notBlankOrNull(),
-            packageName = item.optString("packageName").notBlankOrNull()
-                ?: item.optString("package").notBlankOrNull(),
+            destination = item.optString("destination").notBlankOrNull() ?: item.optString("target").notBlankOrNull(),
+            appName = item.optString("appName").notBlankOrNull() ?: item.optString("app").notBlankOrNull(),
+            packageName = item.optString("packageName").notBlankOrNull() ?: item.optString("package").notBlankOrNull(),
             hour = item.optIntOrNull("hour"),
             minute = item.optIntOrNull("minute"),
-            label = item.optString("label").notBlankOrNull()
-                ?: item.optString("message").notBlankOrNull()
+            label = item.optString("label").notBlankOrNull() ?: item.optString("message").notBlankOrNull()
         )
     }
 
     private fun parseCloudPreferenceUpdate(data: JSONObject?): CloudPreferenceUpdate? {
-        val item = data?.optJSONObject("preferenceUpdate")
-            ?: data?.optJSONObject("preference")
-            ?: data?.optJSONObject("data")?.optJSONObject("preferenceUpdate")
-            ?: data?.optJSONObject("result")?.optJSONObject("preferenceUpdate")
-            ?: return null
+        val item = data?.optJSONObject("preferenceUpdate") ?: data?.optJSONObject("preference") ?: data?.optJSONObject("data")?.optJSONObject("preferenceUpdate") ?: data?.optJSONObject("result")?.optJSONObject("preferenceUpdate") ?: return null
         val type = item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
         if (type != "navigation_address") return null
         val slot = item.optString("slot").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
         if (slot !in setOf("home", "school", "company", "dorm")) return null
-        val value = item.optString("value").notBlankOrNull()
-            ?: item.optString("address").notBlankOrNull()
-            ?: item.optString("destination").notBlankOrNull()
-            ?: return null
+        val value = item.optString("value").notBlankOrNull() ?: item.optString("address").notBlankOrNull() ?: item.optString("destination").notBlankOrNull() ?: return null
         val label = item.optString("label").notBlankOrNull() ?: when (slot) {
             "home" -> "家"
             "school" -> "学校"
@@ -650,22 +420,23 @@ class AiWorkerClient(
             "dorm" -> "宿舍"
             else -> slot
         }
-        return CloudPreferenceUpdate(
-            type = type,
-            slot = slot,
-            label = label.take(12),
-            value = value.trim().take(80)
+        return CloudPreferenceUpdate(type = type, slot = slot, label = label.take(12), value = value.trim().take(80))
+    }
+
+    private fun parseCloudAgentAction(data: JSONObject?): CloudAgentAction? {
+        val item = data?.optJSONObject("agentAction") ?: data?.optJSONObject("agent") ?: data?.optJSONObject("data")?.optJSONObject("agentAction") ?: data?.optJSONObject("result")?.optJSONObject("agentAction") ?: return null
+        val capability = item.optString("capability").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
+        if (capability != "observe_screen") return null
+        return CloudAgentAction(
+            capability = capability,
+            title = item.optString("title").notBlankOrNull(),
+            requiresConfirmation = item.optBoolean("requiresConfirmation", false),
+            reason = item.optString("reason").notBlankOrNull()
         )
     }
 
-    private fun extractEmbeddedCommandJson(text: String): JSONObject? {
-        val payload = embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1) ?: return null
-        return payload.toJsonOrNull()
-    }
-
-    private fun stripEmbeddedCommandMarker(text: String): String {
-        return embeddedCommandRegex.replace(text, "").trim()
-    }
+    private fun extractEmbeddedCommandJson(text: String): JSONObject? = embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1)?.toJsonOrNull()
+    private fun stripEmbeddedCommandMarker(text: String): String = embeddedCommandRegex.replace(text, "").trim()
 
     private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
         "stock" -> "股票行情"
@@ -692,7 +463,6 @@ class AiWorkerClient(
 
     private fun extractReply(data: JSONObject?, body: String): String {
         if (data == null) return body
-
         return data.optString("reply")
             .ifBlank { data.optString("response") }
             .ifBlank { data.optString("answer") }
@@ -703,27 +473,13 @@ class AiWorkerClient(
             .ifBlank { data.optJSONObject("result")?.optString("text").orEmpty() }
     }
 
-    private fun latestUserText(messages: List<ChatMessage>): String {
-        return messages
-            .lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }
-            ?.text
-            .orEmpty()
-    }
-
-    private fun modelLabelFromId(modelId: String?): String? {
-        if (modelId.isNullOrBlank()) return null
-        return ChatModel.fromId(modelId).takeIf { it != ChatModel.Auto }?.label
-    }
-
+    private fun latestUserText(messages: List<ChatMessage>): String = messages.lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }?.text.orEmpty()
+    private fun modelLabelFromId(modelId: String?): String? = modelId?.takeIf { it.isNotBlank() }?.let { ChatModel.fromId(it).takeIf { model -> model != ChatModel.Auto }?.label }
     private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
 
     private fun JSONObject.optIntOrNull(key: String): Int? {
         if (!has(key) || isNull(key)) return null
-        return try {
-            getInt(key)
-        } catch (_: Exception) {
-            optString(key).toIntOrNull()
-        }
+        return try { getInt(key) } catch (_: Exception) { optString(key).toIntOrNull() }
     }
 
     private fun List<ChatMessage>.toWorkerMessages(systemInstruction: String): JSONArray {
@@ -733,60 +489,34 @@ class AiWorkerClient(
                 MessageRole.Assistant -> message.isCloudAssistantContextMessage()
             }
         }.takeLast(16)
-
         val clean = recent.dropWhile { it.role != MessageRole.User }
-
         return JSONArray().apply {
-            put(JSONObject().apply {
-                put("role", "system")
-                put("content", systemInstruction)
-            })
-            clean.forEach { message ->
-                put(JSONObject().apply {
-                    put("role", if (message.role == MessageRole.User) "user" else "assistant")
-                    put("content", message.text)
-                })
-            }
+            put(JSONObject().apply { put("role", "system"); put("content", systemInstruction) })
+            clean.forEach { message -> put(JSONObject().apply { put("role", if (message.role == MessageRole.User) "user" else "assistant"); put("content", message.text) }) }
         }
     }
 
     private fun ChatMessage.isCloudAssistantContextMessage(): Boolean {
-        if (text.isBlank()) return false
-        if (status != MessageStatus.Sent) return false
-
+        if (text.isBlank() || status != MessageStatus.Sent) return false
         return when (source) {
-            null, "", "local", "local_ledger", "local_mobile", "cloud_fetch_failed", "cloud_error_normalized" -> false
+            null, "", "local", "local_ledger", "local_mobile", "local_agent", "cloud_fetch_failed", "cloud_error_normalized" -> false
             else -> true
         }
     }
 
     private fun readBody(connection: HttpURLConnection, status: Int): String {
-        val stream =
-            if (status in 200..299) connection.inputStream else connection.errorStream
-
-        return stream
-            ?.bufferedReader(Charsets.UTF_8)
-            ?.use { it.readText() }
-            .orEmpty()
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
     }
 
     private fun String.toJsonOrNull(): JSONObject? {
-        return try {
-            takeIf { it.isNotBlank() }?.let { JSONObject(it) }
-        } catch (_: Exception) {
-            null
-        }
+        return try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
     }
 
     companion object {
-        const val ALIYUN_CN_ENDPOINT =
-            "https://ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
-
-        const val CLOUDFLARE_WORKER_ENDPOINT =
-            "https://ai-ledger-parser.552078638.workers.dev"
-
+        const val ALIYUN_CN_ENDPOINT = "https://ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
+        const val CLOUDFLARE_WORKER_ENDPOINT = "https://ai-ledger-parser.552078638.workers.dev"
         const val DEFAULT_ENDPOINT = ALIYUN_CN_ENDPOINT
-
         val DEFAULT_FALLBACK_ENDPOINTS = listOf(CLOUDFLARE_WORKER_ENDPOINT)
     }
 }
