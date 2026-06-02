@@ -19,6 +19,25 @@ class SystemActionRouter(
         return false
     }
 
+    fun openDeepLink(uriText: String, fallbackPackageName: String? = null, fallbackLabel: String? = null): Boolean {
+        val cleanUri = uriText.trim()
+        if (cleanUri.isBlank()) return false
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUri)).apply {
+            if (!fallbackPackageName.isNullOrBlank()) setPackage(fallbackPackageName)
+        }
+        val deepLinkOpened = runCatching {
+            activity.startActivity(intent)
+            true
+        }.getOrElse { false }
+        if (deepLinkOpened) return true
+        return if (!fallbackPackageName.isNullOrBlank()) {
+            openApp(fallbackPackageName, fallbackLabel)
+        } else {
+            toast("无法打开${fallbackLabel ?: "入口"}")
+            false
+        }
+    }
+
     fun startNavigation(target: String): Boolean {
         if (target.isBlank()) return false
         val uri = Uri.parse("geo:0,0?q=${Uri.encode(target)}")
