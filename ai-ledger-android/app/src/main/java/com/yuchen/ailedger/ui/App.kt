@@ -113,7 +113,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
 
     LaunchedEffect(latestMessageId) {
-        parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
+        if (pendingMobileAction == null) {
+            parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
+        }
         val update = parseCloudNavigationPreferenceUpdate(state.messages) ?: return@LaunchedEffect
         if (!isNavigationPreferenceAlreadySaved(state, update)) {
             preferencesStore.setNavigationAddress(update.slot, update.address)
