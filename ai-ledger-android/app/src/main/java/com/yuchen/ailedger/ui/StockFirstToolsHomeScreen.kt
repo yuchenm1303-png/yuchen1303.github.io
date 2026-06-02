@@ -37,6 +37,8 @@ import com.yuchen.ailedger.model.AssistantUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
+const val STOCK_MARKET_TOOL_TITLE = "股票行情"
+
 @Composable
 fun StockFirstToolsHomeScreen(
     state: AssistantUiState,
@@ -64,7 +66,7 @@ fun StockFirstToolsHomeScreen(
         }
         item {
             ToolsEntrance(delayMs = 110, initialOffsetY = 20, initialScale = 0.968f) {
-                StockToolEntryCard("股票行情", "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
+                StockToolEntryCard(STOCK_MARKET_TOOL_TITLE, "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
             }
         }
         item {
@@ -153,7 +155,7 @@ private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (String) -
         ) {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("市场入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                Text("股票行情", color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(STOCK_MARKET_TOOL_TITLE, color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 Text("A股首页、自选、热榜、龙虎榜、板块和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             FrostInfoGlassPanel(
@@ -216,11 +218,11 @@ private fun StockQuickPill(title: String, subtitle: String, target: String, stat
 private fun StockToolEntryCard(title: String, subtitle: String, state: AssistantUiState, onClick: () -> Unit) {
     PressableGlass(
         state.quality,
-        state.glassIntensity * if (title == "股票行情") 1.02f else 0.92f,
+        state.glassIntensity * if (title == STOCK_MARKET_TOOL_TITLE) 1.02f else 0.92f,
         state.motionIntensity,
         24,
         Modifier.fillMaxWidth().height(76.dp),
-        if (title == "股票行情") GlassRole.Floating else GlassRole.Card,
+        if (title == STOCK_MARKET_TOOL_TITLE) GlassRole.Floating else GlassRole.Card,
         onClick = onClick
     ) {
         Row(
@@ -228,7 +230,7 @@ private fun StockToolEntryCard(title: String, subtitle: String, state: Assistant
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp)
         ) {
-            Text(if (title == "股票行情") "股" else title.take(1), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text(if (title == STOCK_MARKET_TOOL_TITLE) "股" else title.take(1), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
