@@ -34,7 +34,7 @@ private data class CitationInlineRender(
 )
 
 @Composable
-fun RichMessageContent(
+fun CitationInlineRichText(
     text: String,
     color: Color,
     fontSize: TextUnit,
