@@ -87,15 +87,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
-    var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
-    val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
-    LaunchedEffect(imeBottomPx) {
-        previousImeBottomPx = imeBottomPx
-    }
-    val bottomDockVisible = imeBottomPx == 0 || imeIsRetreating
-    val bottomDockClickable = imeBottomPx == 0
+    val imeHidden = imeBottomPx == 0
+    val bottomDockVisible = imeHidden
+    val bottomDockClickable = imeHidden
     val assistantBottomPadding by animateDpAsState(
-        targetValue = if (bottomDockVisible) 68.dp else 8.dp,
+        targetValue = if (imeHidden) 68.dp else 8.dp,
         animationSpec = tween(durationMillis = 180),
         label = "assistant-bottom-dock-padding"
     )
