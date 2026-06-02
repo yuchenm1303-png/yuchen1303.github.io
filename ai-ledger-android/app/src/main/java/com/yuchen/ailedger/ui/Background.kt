@@ -71,25 +71,46 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
 @Composable
 private fun rememberPresetNightSkyImage(context: Context): ImageBitmap? {
     val appContext = context.applicationContext
-    return remember(appContext) { PresetNightSkyImageCache.get(appContext) }
+    var image by remember(appContext) { mutableStateOf(PresetNightSkyBitmapCache.peekImage()) }
+    LaunchedEffect(appContext) {
+        if (image == null) {
+            image = withContext(Dispatchers.IO) {
+                PresetNightSkyBitmapCache.getImage(appContext)
+            }
+        }
+    }
+    return image
 }
 
-private object PresetNightSkyImageCache {
+private object PresetNightSkyBitmapCache {
+    @Volatile
+    private var cachedBitmap: Bitmap? = null
+
     @Volatile
     private var cachedImage: ImageBitmap? = null
 
-    fun get(context: Context): ImageBitmap? {
+    fun peekImage(): ImageBitmap? = cachedImage
+
+    fun getImage(context: Context): ImageBitmap? {
         cachedImage?.let { return it }
+        val bitmap = getBitmap(context) ?: return null
         return synchronized(this) {
-            cachedImage ?: decodePresetNightSkyBitmap(context)?.asImageBitmap()?.also { image ->
-                cachedImage = image
+            cachedImage ?: bitmap.asImageBitmap().also { cachedImage = it }
+        }
+    }
+
+    fun getBitmap(context: Context): Bitmap? {
+        cachedBitmap?.let { return it }
+        return synchronized(this) {
+            cachedBitmap ?: BitmapFactory.decodeResource(context.resources, R.drawable.preset_night_sky)?.also { decoded ->
+                cachedBitmap = decoded
             }
         }
     }
 }
 
 fun decodePresetNightSkyBitmap(context: Context): Bitmap? {
-    return BitmapFactory.decodeResource(context.resources, R.drawable.preset_night_sky)
+    return PresetNightSkyBitmapCache.getBitmap(context.applicationContext)
 }
 
 private fun decodeDisplaySizedBitmap(path: String): Bitmap? {
