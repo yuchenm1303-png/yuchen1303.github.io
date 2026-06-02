@@ -28,6 +28,7 @@ import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
+import com.yuchen.ailedger.service.CloudAgentAction
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
@@ -97,10 +98,12 @@ class AssistantViewModel(
     }
 
     fun deleteLedgerRecord(id: String) { uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id }) }
+
     fun updateComposer(text: String) {
         if (text == uiState.composerText) return
         uiState = uiState.copy(composerText = text)
     }
+
     fun submitComposer() {
         val text = uiState.composerText.trim()
         if (text.isBlank() || uiState.isSending) return
@@ -120,6 +123,12 @@ class AssistantViewModel(
     fun previewAgentObservation(userText: String) {
         val cleanText = userText.trim().ifBlank { "观察当前屏幕" }
         if (uiState.isSending) return
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
+        val assistantMessage = buildAgentObservationMessage(nextLocalId("assistant"))
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
+    }
+
+    private fun buildAgentObservationMessage(id: String): ChatMessage {
         val observation = ScreenObservationStore.observation.value
         val status = if (observation.enabled) "已连接" else "未开启"
         val textPreview = observation.textItems.take(6).joinToString(" / ").ifBlank { "暂无文字" }
@@ -135,15 +144,13 @@ class AssistantViewModel(
             append("屏幕文字预览：$textPreview\n\n")
             append("当前版本只观察屏幕，不会自动点击或输入。")
         }
-        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
-        val assistantMessage = ChatMessage(
-            id = nextLocalId("assistant"),
+        return ChatMessage(
+            id = id,
             text = assistantText,
             role = MessageRole.Assistant,
             source = "local_agent",
             modelLabel = "手机智能体"
         )
-        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
     fun previewMobileCommand(userText: String, command: MobileCommand) {
@@ -151,11 +158,7 @@ class AssistantViewModel(
         if (cleanText.isBlank() || uiState.isSending) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
         val assistantMessage = buildMobileCommandPreviewMessage(nextLocalId("assistant"), command)
-        uiState = uiState.copy(
-            messages = uiState.messages + userMessage + assistantMessage,
-            composerText = "",
-            isSending = false
-        )
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
     fun cancelMobileCommand(userText: String, command: MobileCommand) {
@@ -169,11 +172,7 @@ class AssistantViewModel(
             source = "local_mobile",
             modelLabel = "已取消"
         )
-        uiState = uiState.copy(
-            messages = uiState.messages + userMessage + assistantMessage,
-            composerText = "",
-            isSending = false
-        )
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
     fun acceptExecutedMobileCommand(userText: String, command: MobileCommand, ok: Boolean, resultMessage: String) {
@@ -185,18 +184,8 @@ class AssistantViewModel(
             append("\n\n")
             append(if (ok) "执行结果：$resultMessage" else "执行失败：$resultMessage")
         }
-        val assistantMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = assistantText,
-            role = MessageRole.Assistant,
-            source = "local_mobile",
-            modelLabel = "手机动作"
-        )
-        uiState = uiState.copy(
-            messages = uiState.messages + userMessage + assistantMessage,
-            composerText = "",
-            isSending = false
-        )
+        val assistantMessage = ChatMessage(id = nextLocalId("assistant"), text = assistantText, role = MessageRole.Assistant, source = "local_mobile", modelLabel = "手机动作")
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
     fun updateNavigationAddress(slot: String, address: String) {
@@ -223,11 +212,7 @@ class AssistantViewModel(
             source = "local_mobile",
             modelLabel = "导航偏好"
         )
-        uiState = uiState.copy(
-            messages = uiState.messages + userMessage + assistantMessage,
-            composerText = "",
-            isSending = false
-        )
+        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
         updateNavigationAddress(slot, cleanAddress)
     }
 
@@ -258,12 +243,7 @@ class AssistantViewModel(
             "set_alarm" -> {
                 val safeHour = hour?.takeIf { it in 0..23 } ?: return null
                 val safeMinute = minute?.takeIf { it in 0..59 } ?: 0
-                MobileCommand.SetAlarm(
-                    hour = safeHour,
-                    minute = safeMinute,
-                    label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒",
-                    dateLabel = "今天"
-                )
+                MobileCommand.SetAlarm(hour = safeHour, minute = safeMinute, label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒", dateLabel = "今天")
             }
             "open_app" -> {
                 val name = appName?.takeIf { it.isNotBlank() } ?: title?.takeIf { it.isNotBlank() } ?: return null
@@ -276,6 +256,8 @@ class AssistantViewModel(
             else -> null
         }
     }
+
+    private fun CloudAgentAction.canExecuteLocally(): Boolean = capability == "observe_screen"
 
     private fun applyCloudPreferenceUpdate(update: CloudPreferenceUpdate) {
         if (update.type != "navigation_address") return
@@ -310,31 +292,36 @@ class AssistantViewModel(
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled)
-                }
+                val response = withContext(Dispatchers.IO) { aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled) }
                 if (activePendingMessageId == pendingMessage.id) {
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
+                    val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
-                    if (cloudCommand != null) {
-                        replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
-                    } else {
-                        replaceMessage(
-                            pendingMessage.id,
-                            pendingMessage.copy(
-                                text = decorateReply(response, onlineEnabled),
-                                status = MessageStatus.Sent,
-                                source = response.source,
-                                model = response.model,
-                                modelLabel = response.modelLabel ?: selectedModel.label,
-                                version = response.version,
-                                errorText = null,
-                                webSources = response.webSources,
-                                structuredData = response.structuredData,
-                                searchUsed = response.searchUsed,
-                                searchProvider = response.searchProvider
+                    when {
+                        cloudAgentAction?.canExecuteLocally() == true -> {
+                            replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
+                        }
+                        cloudCommand != null -> {
+                            replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
+                        }
+                        else -> {
+                            replaceMessage(
+                                pendingMessage.id,
+                                pendingMessage.copy(
+                                    text = decorateReply(response, onlineEnabled),
+                                    status = MessageStatus.Sent,
+                                    source = response.source,
+                                    model = response.model,
+                                    modelLabel = response.modelLabel ?: selectedModel.label,
+                                    version = response.version,
+                                    errorText = null,
+                                    webSources = response.webSources,
+                                    structuredData = response.structuredData,
+                                    searchUsed = response.searchUsed,
+                                    searchProvider = response.searchProvider
+                                )
                             )
-                        )
+                        }
                     }
                 }
             } catch (error: CancellationException) {
@@ -356,19 +343,11 @@ class AssistantViewModel(
 
     private fun markMessageStopped(id: String) {
         val current = uiState.messages.firstOrNull { it.id == id } ?: return
-        replaceMessage(
-            id,
-            current.copy(
-                text = "已暂停生成。",
-                status = MessageStatus.Sent,
-                source = "local",
-                modelLabel = "已暂停",
-                errorText = null
-            )
-        )
+        replaceMessage(id, current.copy(text = "已暂停生成。", status = MessageStatus.Sent, source = "local", modelLabel = "已暂停", errorText = null))
     }
 
     fun insertCommandDraft(text: String) { uiState = uiState.copy(composerText = text) }
+
     fun cycleModel() {
         if (uiState.isSending) return
         val next = when (uiState.selectedModel) {
@@ -381,40 +360,48 @@ class AssistantViewModel(
         }
         selectModel(next)
     }
+
     fun selectModel(model: ChatModel) {
         if (uiState.isSending) return
         uiState = uiState.copy(selectedModel = model, selectedModelLabel = model.label)
         appendAssistantNotice("已切换为 ${model.label}。", source = "local")
     }
+
     fun toggleOnline() {
         if (uiState.isSending) return
         val enabled = !uiState.onlineEnabled
         uiState = uiState.copy(onlineEnabled = enabled)
         appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
     }
+
     fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false) }
     fun onImagePickedForAssistant(uri: Uri?) { if (uri != null) appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local") }
+
     fun appendAssistantNotice(text: String, source: String? = null) {
         uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = nextLocalId("assistant"), text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
     }
-    private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
-    private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "local_agent" -> "手机智能体"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
-    private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
-    private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
-        val latestUserText = messages
-            .lastOrNull { it.role == MessageRole.User }
-            ?.text
-            ?.trim()
-            .orEmpty()
 
+    private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
+
+    private fun sourceLabel(source: String?): String? = when (source) {
+        "local" -> "本地"
+        "local_ledger" -> "本地记账"
+        "local_mobile" -> "手机动作"
+        "local_agent" -> "手机智能体"
+        "cloud_fetch_failed" -> "云端连接失败"
+        else -> null
+    }
+
+    private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
+
+    private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
+        val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
         if (latestUserText.isBlank()) return false
         if (hasNoOnlineIntent(latestUserText)) return false
-
         val realtimePattern = Regex(
             pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)",
             option = RegexOption.IGNORE_CASE
         )
-
         return realtimePattern.containsMatchIn(latestUserText)
     }
 
@@ -428,13 +415,7 @@ class AssistantViewModel(
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
         val sections = mutableListOf(response.reply.trim())
-
-        response.preferenceUpdate?.let { update ->
-            if (update.type == "navigation_address") {
-                sections += "已保存导航偏好：${update.label} · ${update.value}"
-            }
-        }
-
+        response.preferenceUpdate?.let { update -> if (update.type == "navigation_address") sections += "已保存导航偏好：${update.label} · ${update.value}" }
         response.structuredData?.let { data ->
             val metrics = data.metrics.take(6).joinToString("\n") { metric ->
                 val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
@@ -450,7 +431,6 @@ class AssistantViewModel(
             }
             sections += block
         }
-
         if (response.webSources.isNotEmpty()) {
             val provider = response.searchProvider?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
             val sources = response.webSources.take(4).mapIndexed { index, source ->
@@ -461,11 +441,9 @@ class AssistantViewModel(
             }.joinToString("\n")
             sections += "联网来源$provider:\n$sources"
         }
-
         if (onlineEnabled && response.structuredData == null && response.webSources.isEmpty()) {
             sections += "联网诊断：App 已发送联网请求，但后端没有返回 structuredData 或 sources[]。请确认阿里云函数已部署 web-data-v2 版本，并且普通搜索已配置 TAVILY_API_KEY。"
         }
-
         return sections.filter { it.isNotBlank() }.joinToString("\n\n")
     }
 
@@ -520,6 +498,7 @@ class AssistantViewModel(
         uiState = uiState.copy(glassPreset = preset, glassIntensity = preset.glassIntensity, motionIntensity = preset.motionIntensity)
         viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) }
     }
+
     private fun detectPreset(glass: Float, motion: Float): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
     private fun nextLocalId(prefix: String): String = "$prefix-${localIdSeed.incrementAndGet()}"
 }
