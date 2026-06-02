@@ -87,26 +87,23 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
+    var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
     val imeHidden = imeBottomPx == 0
-    val bottomDockVisible = imeHidden
+    val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
+    LaunchedEffect(imeBottomPx) {
+        previousImeBottomPx = imeBottomPx
+    }
+    val bottomDockVisible = imeHidden || imeIsRetreating
     val bottomDockClickable = imeHidden
-    val assistantBottomPadding = if (imeHidden) 68.dp else 8.dp
-    val bottomBarOffsetY by animateDpAsState(
-        targetValue = if (bottomDockVisible) 0.dp else 24.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "bottom-bar-offset"
-    )
+    val assistantBottomPadding = if (bottomDockVisible) 68.dp else 8.dp
+    val bottomBarOffsetY = if (bottomDockVisible) 0.dp else 24.dp
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val latestMessageId = state.messages.lastOrNull()?.id
-    val bottomBarAlpha by animateFloatAsState(
-        targetValue = if (bottomDockVisible) 1f else 0f,
-        animationSpec = tween(durationMillis = 120),
-        label = "bottom-bar-ime-alpha"
-    )
+    val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
 
     LaunchedEffect(latestMessageId) {
         parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
