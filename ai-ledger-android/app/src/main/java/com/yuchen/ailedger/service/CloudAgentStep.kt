@@ -11,9 +11,12 @@ data class CloudAgentStep(
     val reason: String? = null,
     val riskLevel: String = "low",
     val requiresConfirmation: Boolean = false,
+    val appName: String? = null,
+    val packageName: String? = null,
 ) {
     val typeLabel: String
         get() = when (type) {
+            "open_app" -> "打开应用"
             "tap_node" -> "点击节点"
             "input_text" -> "输入文字"
             "scroll" -> "滚动屏幕"
@@ -25,6 +28,7 @@ data class CloudAgentStep(
 
     companion object {
         val supportedTypes = setOf(
+            "open_app",
             "tap_node",
             "input_text",
             "scroll",
@@ -61,6 +65,10 @@ data class CloudAgentStep(
                     ?: item.optString("rationale").notBlankOrNull(),
                 riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: "low",
                 requiresConfirmation = item.optBoolean("requiresConfirmation", false),
+                appName = item.optString("appName").notBlankOrNull()
+                    ?: item.optString("app").notBlankOrNull(),
+                packageName = item.optString("packageName").notBlankOrNull()
+                    ?: item.optString("package").notBlankOrNull(),
             )
         }
     }
