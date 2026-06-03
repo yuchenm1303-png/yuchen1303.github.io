@@ -1,13 +1,16 @@
 package com.yuchen.ailedger.service
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
@@ -59,7 +62,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun collectNodes(root: AccessibilityNodeInfo): List<ObservedScreenNode> {
-        val result = mutableListOf<ObservedScreenNode>()
+        return collectNodeHandles(root).map { it.observed }
+    }
+
+    private fun collectNodeHandles(root: AccessibilityNodeInfo): List<NodeHandle> {
+        val result = mutableListOf<NodeHandle>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
         queue.add(root to 0)
         var index = 0
@@ -72,17 +79,16 @@ class AiAgentAccessibilityService : AccessibilityService() {
             if (hasUsefulSignal) {
                 val rect = Rect()
                 node.getBoundsInScreen(rect)
-                result.add(
-                    ObservedScreenNode(
-                        id = "n${index++}",
-                        text = text.take(80),
-                        className = node.className?.toString().orEmpty().substringAfterLast('.').take(32),
-                        bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
-                        clickable = node.isClickable || node.isLongClickable,
-                        editable = node.isEditable,
-                        scrollable = node.isScrollable,
-                    )
+                val observed = ObservedScreenNode(
+                    id = "n${index++}",
+                    text = text.take(80),
+                    className = node.className?.toString().orEmpty().substringAfterLast('.').take(32),
+                    bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
+                    clickable = node.isClickable || node.isLongClickable,
+                    editable = node.isEditable,
+                    scrollable = node.isScrollable,
                 )
+                result.add(NodeHandle(observed = observed, node = node, bounds = rect))
             }
             if (depth < MAX_DEPTH) {
                 for (childIndex in 0 until node.childCount) {
@@ -92,6 +98,145 @@ class AiAgentAccessibilityService : AccessibilityService() {
             }
         }
         return result
+    }
+
+    private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
+        return when (step.type) {
+            "open_app" -> executeOpenApp(step)
+            "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
+            "home" -> executeGlobalActionStep(GLOBAL_ACTION_HOME, "回到桌面")
+            "recents" -> executeGlobalActionStep(GLOBAL_ACTION_RECENTS, "打开最近任务")
+            "tap_node" -> executeTapNode(step)
+            "tap_xy" -> executeTapXY(step)
+            "input_text" -> executeInputText(step)
+            "scroll" -> executeScroll(step)
+            "swipe" -> executeSwipe(step)
+            "wait" -> AgentExecutionResult(ok = true, message = "等待 ${step.durationMs ?: DEFAULT_WAIT_MS}ms")
+            "finish" -> AgentExecutionResult(ok = true, message = "任务完成", shouldContinue = false)
+            "need_user_help" -> AgentExecutionResult(ok = false, message = step.reason ?: "需要用户协助", shouldContinue = false)
+            else -> AgentExecutionResult(ok = false, message = "不支持的动作：${step.type}", shouldContinue = false)
+        }
+    }
+
+    private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
+        val explicitPackage = step.packageName?.takeIf { it.isNotBlank() }
+        val app = explicitPackage?.let { InstalledAppEntry(step.appName ?: it, it) }
+            ?: step.appName?.let { InstalledAppIndex(this).findBestApp(it) }
+            ?: step.targetText?.let { InstalledAppIndex(this).findBestApp(it) }
+        val packageName = app?.packageName ?: return AgentExecutionResult(false, "没有找到要打开的应用：${step.appName ?: step.targetText ?: "未知"}", false)
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } ?: return AgentExecutionResult(false, "应用没有可启动入口：$packageName", false)
+        return runCatching {
+            startActivity(launchIntent)
+            AgentExecutionResult(true, "已打开${app.label.ifBlank { packageName }}")
+        }.getOrElse { AgentExecutionResult(false, "打开应用失败：${it.message ?: packageName}", false) }
+    }
+
+    private fun executeGlobalActionStep(action: Int, label: String): AgentExecutionResult {
+        val ok = performGlobalAction(action)
+        return AgentExecutionResult(ok = ok, message = if (ok) "已执行：$label" else "执行失败：$label", shouldContinue = ok)
+    }
+
+    private fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
+        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val handles = collectNodeHandles(root)
+        val target = findTargetHandle(handles, step)
+            ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetNodeId ?: step.targetText ?: "未知"}", false)
+        if (target.node.isClickable && target.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            return AgentExecutionResult(true, "已点击节点 ${target.observed.id} ${target.observed.text}".trim())
+        }
+        return tapRect(target.bounds, "已点击节点 ${target.observed.id}")
+    }
+
+    private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
+        val x = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
+        val y = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
+        return dispatchTap(x, y, "已点击坐标 ${x.toInt()},${y.toInt()}")
+    }
+
+    private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
+        val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
+        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val handles = collectNodeHandles(root)
+        val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable }
+            ?: return AgentExecutionResult(false, "没有找到输入框", false)
+        target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        val ok = target.node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        return AgentExecutionResult(ok = ok, message = if (ok) "已输入文字" else "输入文字失败", shouldContinue = ok)
+    }
+
+    private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
+        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val handles = collectNodeHandles(root)
+        val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
+        val direction = step.direction.orEmpty().lowercase()
+        val action = if (direction in setOf("up", "left", "backward", "previous")) {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+        if (target?.node?.isScrollable == true && target.node.performAction(action)) {
+            return AgentExecutionResult(true, "已滚动节点 ${target.observed.id}")
+        }
+        return executeSwipe(step.copy(type = "swipe", direction = direction.ifBlank { "up" }))
+    }
+
+    private fun executeSwipe(step: CloudAgentStep): AgentExecutionResult {
+        val direction = step.direction.orEmpty().lowercase().ifBlank { "up" }
+        val metrics = resources.displayMetrics
+        val w = metrics.widthPixels.toFloat()
+        val h = metrics.heightPixels.toFloat()
+        val startX: Float
+        val startY: Float
+        val endX: Float
+        val endY: Float
+        when (direction) {
+            "down" -> { startX = w * 0.5f; startY = h * 0.32f; endX = w * 0.5f; endY = h * 0.72f }
+            "left" -> { startX = w * 0.78f; startY = h * 0.5f; endX = w * 0.22f; endY = h * 0.5f }
+            "right" -> { startX = w * 0.22f; startY = h * 0.5f; endX = w * 0.78f; endY = h * 0.5f }
+            else -> { startX = w * 0.5f; startY = h * 0.72f; endX = w * 0.5f; endY = h * 0.32f }
+        }
+        val ok = dispatchSwipe(startX, startY, endX, endY, step.durationMs ?: DEFAULT_SWIPE_MS)
+        return AgentExecutionResult(ok = ok, message = if (ok) "已滑动：$direction" else "滑动失败：$direction", shouldContinue = ok)
+    }
+
+    private fun findTargetHandle(handles: List<NodeHandle>, step: CloudAgentStep): NodeHandle? {
+        step.targetNodeId?.let { id -> handles.firstOrNull { it.observed.id == id }?.let { return it } }
+        val targetText = step.targetText?.takeIf { it.isNotBlank() } ?: step.text?.takeIf { it.isNotBlank() }
+        if (targetText != null) {
+            handles.firstOrNull { it.observed.text == targetText }?.let { return it }
+            handles.firstOrNull { it.observed.text.contains(targetText, ignoreCase = true) }?.let { return it }
+        }
+        return null
+    }
+
+    private fun tapRect(rect: Rect, successMessage: String): AgentExecutionResult {
+        if (rect.isEmpty) return AgentExecutionResult(false, "目标区域无效", false)
+        return dispatchTap(rect.centerX().toFloat(), rect.centerY().toFloat(), successMessage)
+    }
+
+    private fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
+        val path = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS))
+            .build()
+        val ok = dispatchGesture(gesture, null, null)
+        return AgentExecutionResult(ok = ok, message = if (ok) successMessage else "点击手势提交失败", shouldContinue = ok)
+    }
+
+    private fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long): Boolean {
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(endX, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(160L, 900L)))
+            .build()
+        return dispatchGesture(gesture, null, null)
     }
 
     private fun startAgentForegroundNotification() {
@@ -136,6 +281,12 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
+    private data class NodeHandle(
+        val observed: ObservedScreenNode,
+        val node: AccessibilityNodeInfo,
+        val bounds: Rect,
+    )
+
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
 
@@ -146,6 +297,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return snapshot
         }
 
+        fun executeStep(step: CloudAgentStep): AgentExecutionResult {
+            val service = activeService ?: return AgentExecutionResult(false, "无障碍服务未连接", false)
+            return service.executeStepInternal(step)
+        }
+
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
         private const val MAX_NODES = 90
@@ -154,5 +310,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val CLICKABLE_LIMIT = 24
         private const val INPUT_LIMIT = 8
         private const val SCROLLABLE_LIMIT = 8
+        private const val DEFAULT_TAP_MS = 80L
+        private const val DEFAULT_SWIPE_MS = 360L
+        private const val DEFAULT_WAIT_MS = 800L
     }
 }
