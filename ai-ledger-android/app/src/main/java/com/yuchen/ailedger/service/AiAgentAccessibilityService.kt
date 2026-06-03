@@ -21,14 +21,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         activeService = this
         ScreenObservationStore.markConnectedWaitingForWindow()
         startAgentForegroundNotification()
-        updateWindowHintFromRoot()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            updateWindowHintFromRoot(event.packageName?.toString().orEmpty())
-        }
-    }
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() = Unit
 
@@ -37,17 +32,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         ScreenObservationStore.markDisabled()
         super.onDestroy()
-    }
-
-    private fun updateWindowHintFromRoot(packageNameFromEvent: String = "") {
-        val root = rootInActiveWindow
-        val packageName = packageNameFromEvent.ifBlank { root?.packageName?.toString().orEmpty() }
-        val windowTitle = root?.text?.toString().orEmpty()
-        if (packageName.isBlank()) {
-            ScreenObservationStore.markConnectedWaitingForWindow()
-        } else {
-            ScreenObservationStore.updateWindowHint(packageName, windowTitle)
-        }
     }
 
     private fun captureSnapshotInternal(): ScreenObservation {
