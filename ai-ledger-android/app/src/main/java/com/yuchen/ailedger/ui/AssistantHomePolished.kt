@@ -643,49 +643,30 @@ private fun ComposerBarV2(
     }
     val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        AnimatedVisibility(
-            visible = attachment != null,
-            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 },
-            exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
-        ) {
-            if (attachment != null) {
-                ComposerAttachmentCardV2(
-                    state = state,
-                    attachment = attachment,
-                    modifier = Modifier.fillMaxWidth()
-                )
+        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        ComposerInputV2(
+            state = state,
+            text = state.composerText,
+            onTextChange = onComposerChange,
+            onSend = keyboardSendAction,
+            onFocusChange = onComposerFocusChange,
+            modifier = Modifier.weight(1f),
+            placeholder = when {
+                preparing -> "正在准备..."
+                attachment?.isReady == true -> "输入配文..."
+                else -> "和我说点什么..."
             }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-            ComposerInputV2(
-                state = state,
-                text = state.composerText,
-                onTextChange = onComposerChange,
-                onSend = keyboardSendAction,
-                onFocusChange = onComposerFocusChange,
-                modifier = Modifier.weight(1f),
-                placeholder = when {
-                    preparing -> "正在准备视觉附件..."
-                    attachment?.isReady == true -> "输入配文后和图片一起发送..."
-                    else -> "和我说点什么..."
-                }
-            )
-            SendButtonV2(
-                state = state,
-                enabled = state.isSending || canSubmit,
-                onClick = buttonAction
-            )
-        }
+        )
+        SendButtonV2(
+            state = state,
+            enabled = state.isSending || canSubmit,
+            onClick = buttonAction
+        )
     }
 }
 
@@ -804,23 +785,122 @@ private fun ComposerInputV2(
     modifier: Modifier,
     placeholder: String
 ) {
+    val attachment = state.composerAttachments.lastOrNull()
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Card) {
-        Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-            BasicTextField(
-                value = text,
-                onValueChange = { if (!state.isSending) onTextChange(it) },
-                singleLine = true,
-                enabled = true,
-                textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
-                cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSend() }),
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 10.dp, end = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (attachment != null) {
+                InlineComposerAttachmentChipV2(
+                    attachment = attachment,
+                    modifier = Modifier.weight(0.95f)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(if (attachment == null) 1f else 0.82f)
+                    .height(40.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = text,
+                    onValueChange = { if (!state.isSending) onTextChange(it) },
+                    singleLine = true,
+                    enabled = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                    cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { onFocusChange(it.isFocused) }
+                )
+                AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
+                    Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InlineComposerAttachmentChipV2(
+    attachment: ComposerAttachment,
+    modifier: Modifier = Modifier
+) {
+    val progress = attachment.progress.coerceIn(0f, 1f)
+    val statusText = when (attachment.status) {
+        ComposerAttachmentStatus.Preparing -> "准备中"
+        ComposerAttachmentStatus.Uploading -> "上传中"
+        ComposerAttachmentStatus.Ready -> "已就绪"
+        ComposerAttachmentStatus.Failed -> "失败"
+    }
+    val dimensions = if (attachment.width != null && attachment.height != null) {
+        "${attachment.width}×${attachment.height}"
+    } else {
+        "图片"
+    }
+    val sizeText = attachment.sizeBytes?.let { "${max(1, it / 1024)}KB" } ?: "${(progress * 100).toInt()}%"
+    Box(
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (attachment.status == ComposerAttachmentStatus.Failed) {
+                    Color(0xFFFFB4B4).copy(alpha = 0.14f)
+                } else {
+                    Color(0xFF8DF9EA).copy(alpha = 0.13f)
+                }
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 9.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    text = "IMG",
+                    color = if (attachment.status == ComposerAttachmentStatus.Failed) Color(0xFFFFB4B4) else Color(0xFF8DF9EA),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+                Text(
+                    text = "$statusText · $dimensions · $sizeText",
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onFocusChanged { onFocusChange(it.isFocused) }
-            )
-            AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
-                Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceAtLeast(if (attachment.status == ComposerAttachmentStatus.Failed) 1f else 0.08f))
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            if (attachment.status == ComposerAttachmentStatus.Failed) {
+                                Color(0xFFFFB4B4)
+                            } else {
+                                Color(0xFF8DF9EA).copy(alpha = 0.84f)
+                            }
+                        )
+                )
             }
         }
     }
