@@ -194,6 +194,46 @@ data class ChatAttachment(
     val previewUri: String? = null
 )
 
+enum class ComposerAttachmentStatus {
+    Preparing,
+    Ready,
+    Uploading,
+    Failed
+}
+
+@Immutable
+data class ComposerAttachment(
+    val id: String,
+    val localUri: String,
+    val mimeType: String = "image/jpeg",
+    val fileName: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val sizeBytes: Int? = null,
+    val base64Data: String? = null,
+    val previewUri: String? = null,
+    val progress: Float = 0f,
+    val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
+    val errorText: String? = null
+) {
+    val isReady: Boolean
+        get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
+
+    fun toChatAttachment(): ChatAttachment? {
+        val data = base64Data?.takeIf { it.isNotBlank() } ?: return null
+        return ChatAttachment(
+            id = id,
+            mimeType = mimeType,
+            base64Data = data,
+            fileName = fileName,
+            width = width,
+            height = height,
+            sizeBytes = sizeBytes,
+            previewUri = previewUri
+        )
+    }
+}
+
 @Immutable
 data class ChatMessage(
     val id: String,
@@ -254,6 +294,7 @@ data class AssistantUiState(
     val messages: List<ChatMessage> = emptyList(),
     val tools: List<ToolEntry> = emptyList(),
     val composerText: String = "",
+    val composerAttachments: List<ComposerAttachment> = emptyList(),
     val selectedModel: ChatModel = ChatModel.Auto,
     val selectedModelLabel: String = ChatModel.Auto.label,
     val onlineEnabled: Boolean = false,
