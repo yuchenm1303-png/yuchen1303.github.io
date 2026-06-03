@@ -20,23 +20,28 @@ import androidx.activity.compose.setContent
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
 
+private const val ENABLE_STARTUP_FRAME_MONITOR = false
+private const val ENABLE_STARTUP_METRICS_OVERLAY = false
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        StartupMetrics.markOnce("Activity onCreate")
-        StartupMetrics.startFrameMonitor()
+        if (ENABLE_STARTUP_FRAME_MONITOR) {
+            StartupMetrics.markOnce("Activity onCreate")
+            StartupMetrics.startFrameMonitor()
+        }
         super.onCreate(savedInstanceState)
-        StartupMetrics.markOnce("super.onCreate 完成")
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
         requestHighRefreshRate(window)
-        StartupMetrics.markOnce("窗口透明布局完成")
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
-        installFirstFrameProbe(window.decorView)
-        installStartupMetricsOverlay(window.decorView)
+        if (ENABLE_STARTUP_FRAME_MONITOR) installFirstFrameProbe(window.decorView)
+        if (ENABLE_STARTUP_METRICS_OVERLAY) installStartupMetricsOverlay(window.decorView)
         setContent {
-            StartupMetrics.markOnce("Compose 首次进入")
+            if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
             AiAssistantNativeApp()
         }
-        StartupMetrics.markOnce("setContent 调用完成")
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
     }
 
     private fun prepareWindow(window: Window) {
@@ -63,7 +68,7 @@ class MainActivity : ComponentActivity() {
             .filter { it.refreshRate > 60f }
             .maxByOrNull { it.refreshRate }
             ?: run {
-                StartupMetrics.markOnce("高刷请求：未发现高刷模式")
+                if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("高刷请求：未发现高刷模式")
                 return
             }
 
@@ -71,7 +76,7 @@ class MainActivity : ComponentActivity() {
         attrs.preferredDisplayModeId = bestMode.modeId
         attrs.preferredRefreshRate = bestMode.refreshRate
         window.attributes = attrs
-        StartupMetrics.markOnce("高刷请求：${bestMode.refreshRate.toInt()}Hz")
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("高刷请求：${bestMode.refreshRate.toInt()}Hz")
     }
 
     private fun currentDisplay(): Display? {
