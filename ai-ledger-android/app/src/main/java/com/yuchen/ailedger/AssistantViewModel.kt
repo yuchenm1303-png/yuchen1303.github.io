@@ -143,14 +143,7 @@ class AssistantViewModel(
         val userText = if (attachments.isNotEmpty()) listOf(baseText, attachmentMessageFlag(attachments)).joinToString("\n\n") else baseText
         val hasImages = attachments.any { it.mimeType.startsWith("image/") }
         val userMessage = ChatMessage(id = nextLocalId("user"), text = userText, role = MessageRole.User, attachments = attachments)
-        val pendingMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = if (hasImages) "正在理解视觉附件…" else "正在思考…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "cloud_ai",
-            modelLabel = if (hasImages) "Qwen 视觉理解" else uiState.selectedModel.label
-        )
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = if (hasImages) "正在理解视觉附件…" else "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = if (hasImages) "Qwen 视觉理解" else uiState.selectedModel.label)
         val requestMessages = uiState.messages + userMessage
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", composerAttachments = emptyList(), isSending = true)
         sendPendingRequest(requestMessages, pendingMessage)
@@ -168,14 +161,7 @@ class AssistantViewModel(
         val cleanGoal = goal.trim().take(240)
         if (cleanGoal.isBlank() || uiState.isSending) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanGoal, role = MessageRole.User)
-        val pendingMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = "正在读取屏幕并规划下一步…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "local_agent",
-            modelLabel = "手机智能体"
-        )
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在读取屏幕并规划下一步…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local_agent", modelLabel = "手机智能体")
         uiState = uiState.copy(messages = uiState.messages + userMessage + pendingMessage, composerText = "", isSending = true)
         activeSendJob?.cancel()
         activePendingMessageId = pendingMessage.id
@@ -187,9 +173,7 @@ class AssistantViewModel(
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
             } catch (error: Throwable) {
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "智能体规划失败，请稍后重试。"
-                if (activePendingMessageId == pendingMessage.id) {
-                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "local_agent", modelLabel = "规划失败", errorText = friendly))
-                }
+                if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "local_agent", modelLabel = "规划失败", errorText = friendly))
             } finally {
                 if (activePendingMessageId == pendingMessage.id) {
                     activeSendJob = null
@@ -200,24 +184,18 @@ class AssistantViewModel(
         }
     }
 
-    private fun buildAgentPlanningMessage(id: String, goal: String): ChatMessage {
+    private suspend fun buildAgentPlanningMessage(id: String, goal: String): ChatMessage {
         val observation = AiAgentAccessibilityService.captureFreshSnapshot()
-        if (!observation.enabled || !observation.serviceConnected) {
-            AgentAccessibilityGuideActivity.open(getApplication<Application>())
-            return buildAgentGuideMessage(id)
-        }
+        if (!observation.enabled || !observation.serviceConnected) return buildAgentGuideMessage(id)
         val snapshot = observation.toAgentScreenSnapshot()
-        val step = aiWorkerClient.requestAgentStep(goal = goal, snapshot = snapshot, modelPreference = uiState.selectedModel)
+        val selectedModel = uiState.selectedModel
+        val step = withContext(Dispatchers.IO) {
+            aiWorkerClient.requestAgentStep(goal = goal, snapshot = snapshot, modelPreference = selectedModel)
+        }
         return buildAgentStepMessage(id, goal, snapshot.currentApp, snapshot.nodeCount, step)
     }
 
-    private fun buildAgentStepMessage(
-        id: String,
-        goal: String,
-        currentApp: String,
-        nodeCount: Int,
-        step: CloudAgentStep,
-    ): ChatMessage {
+    private fun buildAgentStepMessage(id: String, goal: String, currentApp: String, nodeCount: Int, step: CloudAgentStep): ChatMessage {
         val text = buildString {
             append("手机智能体规划测试\n\n")
             append("目标：$goal\n")
