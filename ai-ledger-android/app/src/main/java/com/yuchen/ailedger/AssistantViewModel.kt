@@ -1,7 +1,10 @@
 package com.yuchen.ailedger
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -15,6 +18,7 @@ import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
+import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.GlassBorderStyle
@@ -33,12 +37,19 @@ import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.ScreenObservationStore
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicLong
+
+private const val ASSISTANT_IMAGE_MAX_DIMENSION = 1280
+private const val ASSISTANT_IMAGE_JPEG_QUALITY = 84
+private const val ASSISTANT_IMAGE_MAX_BYTES = 6 * 1024 * 1024
 
 class AssistantViewModel(
     application: Application,
@@ -375,7 +386,92 @@ class AssistantViewModel(
     }
 
     fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false) }
-    fun onImagePickedForAssistant(uri: Uri?) { if (uri != null) appendAssistantNotice("已选择图片。下一步可以把它接入识图接口，第一阶段先保留图片入口。", source = "local") }
+
+    fun onImagePickedForAssistant(uri: Uri?) {
+        if (uri == null || uiState.isSending) return
+        val prompt = uiState.composerText.trim().ifBlank { "请识别这张图片，说明图中内容，并回答我可能关心的问题。" }
+        val preparingMessage = ChatMessage(
+            id = nextLocalId("assistant"),
+            text = "正在处理图片…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "local",
+            modelLabel = "图片处理"
+        )
+        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "", isSending = true)
+        viewModelScope.launch {
+            try {
+                val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri) }
+                val userMessage = ChatMessage(
+                    id = nextLocalId("user"),
+                    text = prompt,
+                    role = MessageRole.User,
+                    attachments = listOf(attachment)
+                )
+                val pendingMessage = preparingMessage.copy(text = "正在识图…", source = "cloud_ai", modelLabel = "Qwen 识图")
+                val requestMessages = uiState.messages.filterNot { it.id == preparingMessage.id } + userMessage
+                uiState = uiState.copy(messages = requestMessages + pendingMessage)
+                sendPendingRequest(requestMessages, pendingMessage)
+            } catch (error: Throwable) {
+                val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
+                replaceMessage(
+                    preparingMessage.id,
+                    preparingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = "图片处理失败", errorText = friendly)
+                )
+                uiState = uiState.copy(isSending = false)
+            }
+        }
+    }
+
+    private fun encodeAssistantImageAttachment(uri: Uri): ChatAttachment {
+        val resolver = getApplication<Application>().contentResolver
+        val mimeType = resolver.getType(uri)?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            ?: throw IOException("无法读取图片")
+        val rawWidth = bounds.outWidth.takeIf { it > 0 } ?: throw IOException("无法解析图片宽度")
+        val rawHeight = bounds.outHeight.takeIf { it > 0 } ?: throw IOException("无法解析图片高度")
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = imageSampleSize(rawWidth, rawHeight, ASSISTANT_IMAGE_MAX_DIMENSION)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
+            ?: throw IOException("图片解码失败")
+        val scaled = decoded.scaleToMaxDimension(ASSISTANT_IMAGE_MAX_DIMENSION)
+        if (scaled !== decoded) decoded.recycle()
+        val width = scaled.width
+        val height = scaled.height
+        val output = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, ASSISTANT_IMAGE_JPEG_QUALITY, output)
+        scaled.recycle()
+        val bytes = output.toByteArray()
+        if (bytes.size > ASSISTANT_IMAGE_MAX_BYTES) throw IOException("图片压缩后仍然过大，请裁剪后再试。")
+        return ChatAttachment(
+            id = nextLocalId("image"),
+            mimeType = "image/jpeg",
+            base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+            fileName = uri.lastPathSegment?.takeLast(48),
+            width = width,
+            height = height,
+            sizeBytes = bytes.size,
+            previewUri = uri.toString()
+        )
+    }
+
+    private fun imageSampleSize(width: Int, height: Int, maxDimension: Int): Int {
+        var sample = 1
+        while (max(width / sample, height / sample) > maxDimension * 2) sample *= 2
+        return sample.coerceAtLeast(1)
+    }
+
+    private fun Bitmap.scaleToMaxDimension(maxDimension: Int): Bitmap {
+        val longSide = max(width, height)
+        if (longSide <= maxDimension) return this
+        val scale = maxDimension.toFloat() / longSide.toFloat()
+        val nextWidth = (width * scale).toInt().coerceAtLeast(1)
+        val nextHeight = (height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(this, nextWidth, nextHeight, true)
+    }
 
     fun appendAssistantNotice(text: String, source: String? = null) {
         uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = nextLocalId("assistant"), text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source)))
@@ -395,6 +491,7 @@ class AssistantViewModel(
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
 
     private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
+        if (messages.any { it.hasImageAttachments }) return false
         val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
         if (latestUserText.isBlank()) return false
         if (hasNoOnlineIntent(latestUserText)) return false
