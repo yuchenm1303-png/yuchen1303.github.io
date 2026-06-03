@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -87,6 +88,7 @@ private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val ENABLE_OPENGL_GLASS_PROBE = false
 private const val VISUAL_ATTACHMENT_STATUS_PREFIX = "视觉附件 · "
+private const val GLASS_SCROLL_INVALIDATION_INTERVAL_MS = 12L
 
 private data class PendingMobileAction(
     val originalText: String,
@@ -279,18 +281,27 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
-    val glassScrollInvalidation = remember(backdropTicker) {
+    val glassScrollInvalidationClock = remember { LongArray(1) }
+    val glassScrollInvalidation = remember(backdropTicker, glassScrollInvalidationClock) {
         object : NestedScrollConnection {
+            private fun requestCoalescedFrame(force: Boolean = false) {
+                val now = SystemClock.uptimeMillis()
+                if (force || now - glassScrollInvalidationClock[0] >= GLASS_SCROLL_INVALIDATION_INTERVAL_MS) {
+                    glassScrollInvalidationClock[0] = now
+                    backdropTicker.requestFrame(force = force)
+                }
+            }
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available != Offset.Zero) backdropTicker.requestFrame()
+                if (available != Offset.Zero) requestCoalescedFrame()
                 return Offset.Zero
             }
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (consumed != Offset.Zero || available != Offset.Zero) backdropTicker.requestFrame()
+                if (consumed != Offset.Zero || available != Offset.Zero) requestCoalescedFrame()
                 return Offset.Zero
             }
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (available != Velocity.Zero) backdropTicker.requestFrame(force = true)
+                if (available != Velocity.Zero) requestCoalescedFrame(force = true)
                 return Velocity.Zero
             }
         }
