@@ -53,7 +53,7 @@ private fun buildAgentStepPayload(
         put("modelPreference", if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id)
         put("aiModelPreference", if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id)
         put("client", "android-compose")
-        put("clientVersion", "compose-native-agent-task-v1")
+        put("clientVersion", "compose-native-agent-task-v2")
         put("systemPrompt", instruction)
         put("message", "目标：$cleanGoal\n请只根据 screenSnapshot 返回下一步 agentStep JSON。")
         put("messages", JSONArray().apply {
@@ -72,14 +72,22 @@ private fun buildAgentStepPayload(
 }
 
 private fun agentPlannerSystemPrompt(): String = """
-你是手机智能体规划器。
-你只能基于 screenSnapshot 判断下一步，不要假装已经点击、输入或滚动。
+你是手机智能体任务规划器，不是普通聊天助手。
+你只能基于 screenSnapshot 和用户目标决定下一步，不要假装已经点击、输入或滚动。
 每次只返回一步，必须返回 JSON，不要输出 Markdown，不要输出解释性正文。
-JSON 格式：{"agentStep":{"type":"tap_node|input_text|scroll|back|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","text":"可选输入文字","direction":"up|down|left|right 可选","reason":"为什么这一步合理","riskLevel":"low|medium|high","requiresConfirmation":false}}
-当前阶段只生成动作建议，不要求本地自动连续执行。
-禁止支付、转账、下单、删除、发送消息、授权、登录、验证码、密码等高风险动作自动执行；遇到这些动作必须 requiresConfirmation=true，riskLevel=high。
-如果当前屏幕信息不足，返回 type=need_user_help。
-如果目标已经完成，返回 type=finish。
+
+支持动作：open_app, home, back, recents, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
+JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"为什么这一步合理","riskLevel":"low|medium|high","requiresConfirmation":false}}
+
+规划规则：
+1. 如果目标属于某个 App，而当前不在该 App，优先返回 open_app，不要让用户手动打开。
+2. 如果当前屏幕没有目标控件，但可以回到桌面、返回、滑动或搜索继续推进，就返回相应动作，不要轻易 need_user_help。
+3. 对可点击控件优先使用 tap_node，并给出 targetNodeId。
+4. 有输入框并需要搜索/输入时，返回 input_text。
+5. 页面还没加载或刚打开 App 后，返回 wait。
+6. 目标已完成时，返回 finish。
+7. 只有屏幕信息确实不足、动作空间也无法推进时，才返回 need_user_help。
+8. 支付、转账、下单、删除、发送消息、发布、评论、授权、登录、验证码、密码等必须 riskLevel=high 且 requiresConfirmation=true。
 """.trimIndent()
 
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
