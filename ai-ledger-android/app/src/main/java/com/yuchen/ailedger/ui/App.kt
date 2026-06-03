@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -357,7 +358,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     state = state.copy(motionIntensity = effectiveMotionIntensity),
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
-                                        .padding(horizontal = 16.dp, bottom = assistantBottomPadding + 58.dp)
+                                        .padding(start = 16.dp, end = 16.dp, bottom = assistantBottomPadding + 58.dp)
                                         .zIndex(1700f)
                                 )
                             }
@@ -419,21 +420,20 @@ private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modi
                         .background(Color(0xFF8DF9EA).copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
-                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
+                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("视觉附件", color = Color.White.copy(alpha = 0.94f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.ExtraBold)
+                    Text("视觉附件", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                     Text(
                         "$statusText · $metaText",
                         color = Color.White.copy(alpha = 0.56f),
-                        fontSize = androidx.compose.ui.unit.TextUnit.Unspecified,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Text("${(progress * 100).toInt()}%", color = Color.White.copy(alpha = 0.58f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
+                Text("${(progress * 100).toInt()}%", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
             Box(
                 modifier = Modifier
