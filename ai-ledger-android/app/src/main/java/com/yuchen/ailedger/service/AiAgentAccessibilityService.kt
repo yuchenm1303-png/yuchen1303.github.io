@@ -1,9 +1,18 @@
 package com.yuchen.ailedger.service
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.app.NotificationCompat
+import com.yuchen.ailedger.MainActivity
+import com.yuchen.ailedger.R
 import java.util.ArrayDeque
 
 class AiAgentAccessibilityService : AccessibilityService() {
@@ -11,6 +20,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         activeService = this
         ScreenObservationStore.markConnectedWaitingForWindow()
+        startAgentForegroundNotification()
         updateWindowHintFromRoot()
     }
 
@@ -24,6 +34,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (activeService === this) activeService = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
         ScreenObservationStore.markDisabled()
         super.onDestroy()
     }
@@ -99,6 +110,48 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return result
     }
 
+    private fun startAgentForegroundNotification() {
+        ensureNotificationChannel()
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification: Notification = NotificationCompat.Builder(this, AGENT_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(getString(R.string.ai_agent_accessibility_notification_title))
+            .setContentText(getString(R.string.ai_agent_accessibility_notification_text))
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+        try {
+            startForeground(AGENT_NOTIFICATION_ID, notification)
+        } catch (_: Throwable) {
+            // Some ROMs restrict foreground promotion for accessibility services. The service still works after user authorization.
+        }
+    }
+
+    private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            AGENT_CHANNEL_ID,
+            "AI 助手智能体",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "保持 AI 助手智能体待命，用于用户主动发起的屏幕观察。"
+            setShowBadge(false)
+        }
+        manager.createNotificationChannel(channel)
+    }
+
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
 
@@ -109,6 +162,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return snapshot
         }
 
+        private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
+        private const val AGENT_NOTIFICATION_ID = 7301
         private const val MAX_NODES = 90
         private const val MAX_DEPTH = 6
         private const val TEXT_LIMIT = 30
