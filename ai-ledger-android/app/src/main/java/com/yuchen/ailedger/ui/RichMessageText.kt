@@ -84,6 +84,12 @@ private data class MobileCommandPanelData(
     val pending: Boolean
 )
 
+private fun hasRichMessageTokens(source: String): Boolean {
+    if (richMessageTokenRegex.containsMatchIn(source)) return true
+    val normalized = sanitizeRichTextSource(source)
+    return normalized != source && richMessageTokenRegex.containsMatchIn(normalized)
+}
+
 @Composable
 fun Text(
     text: String,
@@ -112,7 +118,7 @@ fun Text(
     val allowRichRendering = maxLines == Int.MAX_VALUE &&
         minLines == 1 &&
         overflow == TextOverflow.Clip &&
-        richMessageTokenRegex.containsMatchIn(text)
+        hasRichMessageTokens(text)
 
     if (allowRichRendering) {
         RichMessageContent(
@@ -186,7 +192,7 @@ fun RichMessageContent(
         return
     }
 
-    if (!richMessageTokenRegex.containsMatchIn(text)) {
+    if (!hasRichMessageTokens(text)) {
         MaterialText(
             text = text,
             modifier = modifier,
