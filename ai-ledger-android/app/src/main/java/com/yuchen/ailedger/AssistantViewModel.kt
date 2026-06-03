@@ -32,6 +32,9 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.AgentTaskController
+import com.yuchen.ailedger.service.AgentTaskPhase
+import com.yuchen.ailedger.service.AgentTaskState
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentAction
@@ -39,6 +42,8 @@ import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.ScreenObservationStore
+import com.yuchen.ailedger.service.requestAgentStep
+import com.yuchen.ailedger.service.toAgentScreenSnapshot
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
@@ -67,6 +72,7 @@ class AssistantViewModel(
 
     private var activeSendJob: Job? = null
     private var activePendingMessageId: String? = null
+    private val agentTaskController = AgentTaskController()
     private val localIdSeed = AtomicLong(System.currentTimeMillis())
 
     init {
@@ -164,6 +170,36 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
+    fun requestAgentNextStep(goal: String) {
+        val cleanGoal = goal.trim().take(240)
+        if (cleanGoal.isBlank() || uiState.isSending) return
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanGoal, role = MessageRole.User)
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在观察屏幕并规划下一步…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local_agent", modelLabel = "手机智能体")
+        uiState = uiState.copy(messages = uiState.messages + userMessage + pendingMessage, composerText = "", isSending = true)
+        activePendingMessageId = pendingMessage.id
+        activeSendJob?.cancel()
+        activeSendJob = viewModelScope.launch {
+            try {
+                val message = planAgentStepMessage(pendingMessage.id, cleanGoal, uiState.selectedModel)
+                if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, message)
+            } catch (error: CancellationException) {
+                if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
+            } catch (error: Throwable) {
+                val friendly = error.message?.takeIf { it.isNotBlank() } ?: "智能体规划失败，请确认无障碍服务已开启并稍后重试。"
+                agentTaskController.fail(friendly)
+                if (activePendingMessageId == pendingMessage.id) {
+                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "local_agent", modelLabel = "手机智能体", errorText = friendly))
+                }
+            } finally {
+                if (activePendingMessageId == pendingMessage.id) {
+                    activeSendJob = null
+                    activePendingMessageId = null
+                    uiState = uiState.copy(isSending = false)
+                }
+            }
+        }
+    }
+
     private fun buildAgentObservationMessage(id: String): ChatMessage {
         val observation = ScreenObservationStore.observation.value
         val status = if (observation.enabled) "已连接" else "未开启"
@@ -181,6 +217,58 @@ class AssistantViewModel(
             append("当前版本只观察屏幕，不会自动点击或输入。")
         }
         return ChatMessage(id = id, text = assistantText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "手机智能体")
+    }
+
+    private suspend fun planAgentStepMessage(id: String, goal: String, selectedModel: ChatModel): ChatMessage {
+        val observation = ScreenObservationStore.observation.value
+        if (!observation.enabled) {
+            val failed = agentTaskController.fail("无障碍服务未连接，无法观察当前屏幕。")
+            return buildAgentTaskMessage(id, failed, MessageStatus.Failed)
+        }
+        val snapshot = observation.toAgentScreenSnapshot()
+        agentTaskController.start(goal)
+        agentTaskController.markPlanning(snapshot)
+        val step = withContext(Dispatchers.IO) {
+            aiWorkerClient.requestAgentStep(goal = goal, snapshot = snapshot, modelPreference = selectedModel)
+        }
+        val task = agentTaskController.acceptStep(step)
+        return buildAgentTaskMessage(id, task)
+    }
+
+    private fun buildAgentTaskMessage(id: String, task: AgentTaskState, status: MessageStatus = MessageStatus.Sent): ChatMessage {
+        val step = task.suggestedStep
+        val assistantText = buildString {
+            append("手机智能体任务\n\n")
+            append("目标：${task.goal.ifBlank { "未设置" }}\n")
+            append("状态：${task.phase.label}\n")
+            if (task.currentApp.isNotBlank()) append("当前应用：${task.currentApp}\n")
+            if (task.snapshotNodeCount > 0) append("屏幕节点：${task.snapshotNodeCount} 个\n")
+            if (step != null) {
+                append("建议动作：${step.typeLabel}\n")
+                step.targetNodeId?.let { append("节点：$it\n") }
+                step.targetText?.let { append("目标控件：$it\n") }
+                step.text?.let { append("输入内容：$it\n") }
+                step.direction?.let { append("方向：$it\n") }
+                step.reason?.let { append("原因：$it\n") }
+                append("风险：${step.riskLevel}\n")
+                append("需要确认：${if (task.phase == AgentTaskPhase.WaitingForUserConfirmation || step.requiresConfirmation) "是" else "否"}\n")
+            }
+            task.errorText?.let { append("错误：$it\n") }
+            if (task.events.isNotEmpty()) {
+                append("\n最近记录：\n")
+                task.events.takeLast(4).forEach { event -> append("- ${event.title}：${event.detail}\n") }
+            }
+            append("\n当前阶段只展示建议，不会自动点击、输入或滚动。")
+        }
+        return ChatMessage(
+            id = id,
+            text = assistantText,
+            role = MessageRole.Assistant,
+            status = status,
+            source = "local_agent",
+            modelLabel = if (task.phase == AgentTaskPhase.WaitingForUserConfirmation) "待确认" else "手机智能体",
+            errorText = task.errorText
+        )
     }
 
     fun previewMobileCommand(userText: String, command: MobileCommand) {
@@ -316,7 +404,10 @@ class AssistantViewModel(
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     when {
-                        cloudAgentAction?.canExecuteLocally() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
+                        cloudAgentAction?.canExecuteLocally() == true -> {
+                            val goal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty().ifBlank { cloudAgentAction.title ?: "观察当前屏幕" }
+                            replaceMessage(pendingMessage.id, planAgentStepMessage(pendingMessage.id, goal, selectedModel))
+                        }
                         cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
                         else -> replaceMessage(
                             pendingMessage.id,
@@ -387,7 +478,10 @@ class AssistantViewModel(
     }
 
     fun clearChat() {
-        if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", composerAttachments = emptyList(), isSending = false)
+        if (!uiState.isSending) {
+            agentTaskController.reset()
+            uiState = uiState.copy(messages = emptyList(), composerText = "", composerAttachments = emptyList(), isSending = false)
+        }
     }
 
     fun removeComposerAttachment(id: String) {
