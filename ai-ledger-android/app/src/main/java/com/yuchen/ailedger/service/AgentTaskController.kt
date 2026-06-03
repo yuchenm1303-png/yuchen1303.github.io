@@ -32,7 +32,7 @@ class AgentTaskController {
             step.type == "finish" -> AgentTaskPhase.Finished
             step.type == "need_user_help" -> AgentTaskPhase.WaitingForUserConfirmation
             needsConfirmation -> AgentTaskPhase.WaitingForUserConfirmation
-            AgentSafetyPolicy.canAutoExecuteInCurrentStage(step) -> AgentTaskPhase.Executing
+            AgentSafetyPolicy.canAutoExecuteInCurrentStage(state.goal, step) -> AgentTaskPhase.Executing
             else -> AgentTaskPhase.WaitingForUserConfirmation
         }
         val detail = buildString {
