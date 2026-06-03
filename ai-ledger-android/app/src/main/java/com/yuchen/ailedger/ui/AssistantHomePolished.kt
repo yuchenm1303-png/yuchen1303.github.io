@@ -677,7 +677,7 @@ private fun MessageBubbleV2(
                         ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.62f))
                     }
                 } else {
-                    Text(
+                    RichMessageContent(
                         text = displayText,
                         color = textColor,
                         fontSize = 14.sp,
