@@ -1086,8 +1086,11 @@ private fun isThinkingPlaceholderV2(text: String): Boolean {
 private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.take(3).forEach { attachment ->
-            val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
-            val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"
+            val attachmentMeta = remember(attachment.width, attachment.height, attachment.sizeBytes) {
+                val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
+                val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"
+                "$dimensions · $size"
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1108,7 +1111,7 @@ private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text("视觉附件", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("$dimensions · $size", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(attachmentMeta, color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -1117,8 +1120,12 @@ private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
 
 @Composable
 private fun MessageBadgeV2(message: ChatMessage) {
-    val text = messageBadgeTextV2(message) ?: return
-    val badgeColor = badgeColorV2(message)
+    val text = remember(message.id, message.status, message.modelLabel, message.source, message.version) {
+        messageBadgeTextV2(message)
+    } ?: return
+    val badgeColor = remember(message.id, message.status, message.source, message.model, message.modelLabel, message.hasImageAttachments) {
+        badgeColorV2(message)
+    }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
         Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1128,11 +1135,14 @@ private fun MessageBadgeV2(message: ChatMessage) {
 @Composable
 private fun MessageUserAttachmentBadgeV2(message: ChatMessage) {
     val attachment = message.attachments.firstOrNull()
-    val dimensions = if (attachment?.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
-    val size = attachment?.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已发送"
+    val attachmentMeta = remember(attachment?.width, attachment?.height, attachment?.sizeBytes) {
+        val dimensions = if (attachment?.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
+        val size = attachment?.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已发送"
+        "$dimensions · $size"
+    }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xFF8DF9EA).copy(alpha = 0.82f)))
-        Text("视觉附件 · $dimensions · $size", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("视觉附件 · $attachmentMeta", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1277,18 +1287,23 @@ private fun InlineComposerAttachmentChipV2(
     modifier: Modifier = Modifier
 ) {
     val progress = attachment.progress.coerceIn(0f, 1f)
-    val statusText = when (attachment.status) {
-        ComposerAttachmentStatus.Preparing -> "准备中"
-        ComposerAttachmentStatus.Uploading -> "上传中"
-        ComposerAttachmentStatus.Ready -> "已就绪"
-        ComposerAttachmentStatus.Failed -> "失败"
+    val statusText = remember(attachment.status) {
+        when (attachment.status) {
+            ComposerAttachmentStatus.Preparing -> "准备中"
+            ComposerAttachmentStatus.Uploading -> "上传中"
+            ComposerAttachmentStatus.Ready -> "已就绪"
+            ComposerAttachmentStatus.Failed -> "失败"
+        }
     }
-    val dimensions = if (attachment.width != null && attachment.height != null) {
-        "${attachment.width}×${attachment.height}"
-    } else {
-        "图片"
+    val attachmentMeta = remember(attachment.width, attachment.height, attachment.sizeBytes, progress) {
+        val dimensions = if (attachment.width != null && attachment.height != null) {
+            "${attachment.width}×${attachment.height}"
+        } else {
+            "图片"
+        }
+        val sizeText = attachment.sizeBytes?.let { "${max(1, it / 1024)}KB" } ?: "${(progress * 100).toInt()}%"
+        "$dimensions · $sizeText"
     }
-    val sizeText = attachment.sizeBytes?.let { "${max(1, it / 1024)}KB" } ?: "${(progress * 100).toInt()}%"
     Box(
         modifier = modifier
             .height(34.dp)
@@ -1316,7 +1331,7 @@ private fun InlineComposerAttachmentChipV2(
                     maxLines = 1
                 )
                 Text(
-                    text = "$statusText · $dimensions · $sizeText",
+                    text = "$statusText · $attachmentMeta",
                     color = Color.White.copy(alpha = 0.72f),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.ExtraBold,
