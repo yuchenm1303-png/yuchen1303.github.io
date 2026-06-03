@@ -50,7 +50,7 @@ import kotlinx.coroutines.withContext
 private const val ASSISTANT_IMAGE_MAX_DIMENSION = 1280
 private const val ASSISTANT_IMAGE_JPEG_QUALITY = 84
 private const val ASSISTANT_IMAGE_MAX_BYTES = 6 * 1024 * 1024
-private const val IMAGE_COMPOSER_STATUS_PREFIX = "🖼 "
+private const val IMAGE_COMPOSER_STATUS_PREFIX = "视觉附件 · "
 
 class AssistantViewModel(
     application: Application,
@@ -367,8 +367,8 @@ class AssistantViewModel(
     fun onImagePickedForAssistant(uri: Uri?) {
         if (uri == null || uiState.isSending) return
         val prompt = uiState.composerText.trim().takeUnless { isImageComposerStatus(it) }.orEmpty().ifBlank { "请识别这张图片，说明图中内容，并回答我可能关心的问题。" }
-        val preparingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在处理图片…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local", modelLabel = "图片处理")
-        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在处理图片…", isSending = true)
+        val preparingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在解析视觉附件…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local", modelLabel = "视觉附件")
+        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在解析图片…", isSending = true)
         viewModelScope.launch {
             try {
                 val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri) }
@@ -378,9 +378,9 @@ class AssistantViewModel(
                     role = MessageRole.User,
                     attachments = listOf(attachment)
                 )
-                val pendingMessage = preparingMessage.copy(text = "正在识图…", source = "cloud_ai", modelLabel = "Qwen 识图")
+                val pendingMessage = preparingMessage.copy(text = "正在进行图像理解…", source = "cloud_ai", modelLabel = "Qwen 识图")
                 val requestMessages = uiState.messages.filterNot { it.id == preparingMessage.id } + userMessage
-                uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在上传识图…")
+                uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}上传至 Qwen 识图…")
                 sendPendingRequest(requestMessages, pendingMessage)
             } catch (error: Throwable) {
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
@@ -413,11 +413,11 @@ class AssistantViewModel(
 
     private fun imageMessageFlag(attachment: ChatAttachment): String {
         val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else null
-        val sizeKb = attachment.sizeBytes?.let { "${max(1, it / 1024)}KB" }
-        return listOfNotNull("🖼 图片已附加", dimensions, sizeKb).joinToString(" · ")
+        val sizeKb = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" }
+        return listOfNotNull("视觉附件", "图片 1 张", dimensions, sizeKb).joinToString(" · ")
     }
 
-    private fun isImageComposerStatus(text: String): Boolean = text.startsWith(IMAGE_COMPOSER_STATUS_PREFIX) && text.contains("图片")
+    private fun isImageComposerStatus(text: String): Boolean = text.startsWith(IMAGE_COMPOSER_STATUS_PREFIX)
 
     private fun imageSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         var sample = 1
