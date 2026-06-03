@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -530,11 +531,11 @@ private fun ChatPanelV2(
                         .fillMaxWidth()
                         .clipToBounds()
                 ) {
-                    ChatBubbleMaterialLayer(
+                    ChatBubbleMaterialLayerHost(
                         layerState = bubbleLayerState,
                         listState = listState,
                         messages = messages,
-                        phase = chatPhase.value,
+                        chatPhase = chatPhase,
                         motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
                     )
@@ -571,6 +572,25 @@ private fun ChatPanelV2(
             }
         }
     }
+}
+
+@Composable
+private fun ChatBubbleMaterialLayerHost(
+    layerState: ChatBubbleLayerState,
+    listState: LazyListState,
+    messages: List<ChatMessage>,
+    chatPhase: State<Float>,
+    motionIntensity: Float,
+    modifier: Modifier = Modifier
+) {
+    ChatBubbleMaterialLayer(
+        layerState = layerState,
+        listState = listState,
+        messages = messages,
+        phase = chatPhase.value,
+        motionIntensity = motionIntensity,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -1060,7 +1080,6 @@ private fun isThinkingPlaceholderV2(text: String): Boolean {
     val clean = text.trim()
     return clean == "正在思考…" || clean == "正在重新生成…" || clean == "正在思考" || clean == "正在重新生成"
 }
-
 
 @Composable
 private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
