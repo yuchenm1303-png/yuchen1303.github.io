@@ -360,7 +360,6 @@ class AssistantViewModel(
     fun removeComposerAttachment(id: String) {
         if (uiState.isSending) return
         uiState = uiState.copy(composerAttachments = uiState.composerAttachments.filterNot { it.id == id })
-        updateComposerStatusForVisualAttachment("")
     }
 
     fun onImagePickedForAssistant(uri: Uri?) {
@@ -368,18 +367,14 @@ class AssistantViewModel(
         val attachmentId = nextLocalId("composer-image")
         val draft = ComposerAttachment(id = attachmentId, localUri = uri.toString(), previewUri = uri.toString(), fileName = uri.lastPathSegment?.takeLast(48), progress = 0.12f, status = ComposerAttachmentStatus.Preparing)
         uiState = uiState.copy(composerAttachments = uiState.composerAttachments + draft)
-        updateComposerStatusForVisualAttachment(visualStatusText(12, "正在读取图片"))
         viewModelScope.launch {
             try {
                 updateComposerAttachment(attachmentId) { it.copy(progress = 0.42f, status = ComposerAttachmentStatus.Preparing) }
-                updateComposerStatusForVisualAttachment(visualStatusText(42, "正在压缩图片"))
                 val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri, attachmentId) }
                 updateComposerAttachment(attachmentId) { it.copy(mimeType = attachment.mimeType, fileName = attachment.fileName, width = attachment.width, height = attachment.height, sizeBytes = attachment.sizeBytes, base64Data = attachment.base64Data, previewUri = attachment.previewUri, progress = 1f, status = ComposerAttachmentStatus.Ready, errorText = null) }
-                updateComposerStatusForVisualAttachment("${VISUAL_ATTACHMENT_STATUS_PREFIX}100% · 已就绪 · ${attachmentMeta(attachment)} · 可输入配文后发送")
             } catch (error: Throwable) {
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
                 updateComposerAttachment(attachmentId) { it.copy(progress = 1f, status = ComposerAttachmentStatus.Failed, errorText = friendly) }
-                updateComposerStatusForVisualAttachment("${VISUAL_ATTACHMENT_STATUS_PREFIX}处理失败 · $friendly")
             }
         }
     }
@@ -388,12 +383,6 @@ class AssistantViewModel(
         uiState = uiState.copy(composerAttachments = uiState.composerAttachments.map { item -> if (item.id == id) block(item) else item })
     }
 
-    private fun updateComposerStatusForVisualAttachment(statusText: String) {
-        val current = uiState.composerText.trim()
-        if (current.isBlank() || current.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) uiState = uiState.copy(composerText = statusText)
-    }
-
-    private fun visualStatusText(percent: Int, text: String): String = "${VISUAL_ATTACHMENT_STATUS_PREFIX}$percent% · $text"
     private fun stripVisualAttachmentStatus(text: String): String = if (text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) "" else text
 
     private fun attachmentMessageFlag(attachments: List<ChatAttachment>): String {
