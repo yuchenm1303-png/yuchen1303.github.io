@@ -675,7 +675,6 @@ private fun AnimatedMessageBubbleV2(
     ) {
         MessageBubbleV2(
             message = message,
-            chatPhase = chatPhase,
             bubbleLayerState = bubbleLayerState,
             appear = appear,
             showActions = showActions,
