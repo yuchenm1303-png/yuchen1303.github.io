@@ -20,7 +20,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private data class CitationInlineToken(
@@ -32,6 +31,25 @@ private data class CitationInlineRender(
     val annotated: AnnotatedString,
     val tokens: List<CitationInlineToken>
 )
+
+@Composable
+fun RichMessageContent(
+    text: String,
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier
+) {
+    CitationInlineRichText(
+        text = text,
+        color = color,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = fontWeight,
+        modifier = modifier
+    )
+}
 
 @Composable
 fun CitationInlineRichText(
