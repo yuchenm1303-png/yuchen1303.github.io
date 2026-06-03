@@ -4,9 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -32,7 +29,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,9 +41,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,32 +53,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
-import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
-import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import com.yuchen.ailedger.model.ChatModel
+import com.yuchen.ailedger.model.ComposerAttachment
+import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
+import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import kotlinx.coroutines.delay
 import kotlin.math.PI
+import kotlin.math.max
 import kotlin.math.sin
 
 @Composable
@@ -103,7 +101,6 @@ fun AssistantScreenV2(
 ) {
     var modelPanelExpanded by remember { mutableStateOf(false) }
     var composerFocused by remember { mutableStateOf(false) }
-
     var modelAnchorHeld by remember { mutableStateOf(false) }
     var keyboardAnchorHeld by remember { mutableStateOf(false) }
 
@@ -179,9 +176,7 @@ fun AssistantScreenV2(
             initialOffsetY = 30,
             initialScale = 0.955f
         ) {
-            CompositionLocalProvider(
-                LocalOpenGLGlassSurfaceAnchor provides shellAnchor
-            ) {
+            CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
                 ChatPanelV2(
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
@@ -207,7 +202,6 @@ fun AssistantScreenV2(
     }
 }
 
-
 @Composable
 private fun AssistantEntrance(
     delayMs: Long,
@@ -225,9 +219,8 @@ private fun AssistantEntrance(
         visible = visible,
         modifier = modifier,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInVertically(spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
-            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+            slideInVertically(spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY },
+        exit = fadeOut(tween(100))
     ) { content() }
 }
 
@@ -296,17 +289,10 @@ private fun FixedHeightOverflowSlot(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Layout(
-        content = content,
-        modifier = modifier
-    ) { measurables, constraints ->
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
         val layoutHeightPx = layoutHeight.roundToPx().coerceAtLeast(1)
         val visualHeightPx = visualHeight.roundToPx().coerceAtLeast(layoutHeightPx)
-        val width = if (constraints.hasBoundedWidth) {
-            constraints.maxWidth
-        } else {
-            constraints.minWidth.coerceAtLeast(1)
-        }
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth.coerceAtLeast(1)
         val panelConstraints = constraints.copy(
             minWidth = width,
             maxWidth = width,
@@ -315,9 +301,7 @@ private fun FixedHeightOverflowSlot(
         )
         val placeables = measurables.map { it.measure(panelConstraints) }
         layout(width, layoutHeightPx) {
-            placeables.forEach { placeable ->
-                placeable.placeRelative(0, 0)
-            }
+            placeables.forEach { placeable -> placeable.placeRelative(0, 0) }
         }
     }
 }
@@ -335,11 +319,9 @@ private fun ChatPanelV2(
     val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
-    var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
-    val activeMessageIds = remember(state.messages) { state.messages.map { it.id }.toSet() }
-    SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
     val lastMessageId = state.messages.lastOrNull()?.id
     val lastMessageStatus = state.messages.lastOrNull()?.status
+
     LaunchedEffect(lastMessageId, state.isSending) {
         if (state.messages.isEmpty()) return@LaunchedEffect
         if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
@@ -348,6 +330,7 @@ private fun ChatPanelV2(
             listState.animateScrollToItem(state.messages.lastIndex)
         }
     }
+
     GlassPanel(
         quality = state.quality,
         glassIntensity = state.glassIntensity,
@@ -368,7 +351,7 @@ private fun ChatPanelV2(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(if (state.isSending) "正在接收" else "可上下滑动")
+                    ChatStatusV2(if (state.isSending) "正在接收" else if (state.composerAttachments.isNotEmpty()) "附件待发送" else "可上下滑动")
                 }
                 Box(
                     Modifier
@@ -394,13 +377,11 @@ private fun ChatPanelV2(
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         items(state.messages, key = { it.id }) { message ->
-                            AnimatedMessageBubbleV2(
+                            MessageBubbleV2(
                                 message = message,
                                 chatPhase = chatPhase,
                                 bubbleLayerState = bubbleLayerState,
                                 showActions = message.id == lastActionableMessageId,
-                                revealAlreadyPlayed = message.id in revealedMessageIds,
-                                onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
                                 onCopyMessage = onCopyMessage,
                                 onRetryMessage = onRetryMessage
                             )
@@ -412,7 +393,6 @@ private fun ChatPanelV2(
         }
     }
 }
-
 
 @Composable
 private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
@@ -426,7 +406,7 @@ private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (Strin
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
                 SuggestionButtonV2("记一笔", state, Modifier.weight(1f)) { onDraftCommand("记一笔 午饭 18 元") }
                 SuggestionButtonV2("设提醒", state, Modifier.weight(1f)) { onDraftCommand("今晚 9 点半提醒我复盘") }
-                SuggestionButtonV2("识图", state, Modifier.weight(1f), onClick = onPickImage)
+                SuggestionButtonV2("上传图片", state, Modifier.weight(1f), onClick = onPickImage)
             }
         }
     }
@@ -444,9 +424,7 @@ private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
     )
 }
 
-private fun phaseOffsetForMessage(id: String): Float {
-    return ((id.hashCode() ushr 1) % 997) / 997f
-}
+private fun phaseOffsetForMessage(id: String): Float = ((id.hashCode() ushr 1) % 997) / 997f
 
 private fun phaseSpeedForMessage(id: String): Float {
     val bucket = (id.hashCode() ushr 2) % 7
@@ -454,56 +432,11 @@ private fun phaseSpeedForMessage(id: String): Float {
 }
 
 @Composable
-private fun AnimatedMessageBubbleV2(
-    message: ChatMessage,
-    chatPhase: State<Float>,
-    bubbleLayerState: ChatBubbleLayerState,
-    showActions: Boolean,
-    revealAlreadyPlayed: Boolean,
-    onRevealCompleted: (String) -> Unit,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
-) {
-    val fromUser = message.role == MessageRole.User
-    var visible by remember(message.id) { mutableStateOf(false) }
-    LaunchedEffect(message.id) { visible = true }
-    val appear by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = 0.48f,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "message-light-bubble-q-appear"
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 3.dp),
-        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
-    ) {
-        MessageBubbleV2(
-            message = message,
-            chatPhase = chatPhase,
-            bubbleLayerState = bubbleLayerState,
-            appear = appear,
-            showActions = showActions,
-            revealAlreadyPlayed = revealAlreadyPlayed,
-            onRevealCompleted = onRevealCompleted,
-            onCopyMessage = onCopyMessage,
-            onRetryMessage = onRetryMessage
-        )
-    }
-}
-
-@Composable
 private fun MessageBubbleV2(
     message: ChatMessage,
     chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
-    appear: Float = 1f,
     showActions: Boolean,
-    revealAlreadyPlayed: Boolean,
-    onRevealCompleted: (String) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
@@ -512,25 +445,15 @@ private fun MessageBubbleV2(
     val bubbleRadius = if (fromUser) 26 else 28
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
-    val visual = chatBubbleVisualTransform(appear, fromUser)
-    val rawText = messageText(message)
-    val shouldReveal = !fromUser && !sending && !revealAlreadyPlayed && showActions && message.status == MessageStatus.Sent && rawText.length > 24
-    val revealState = rememberRevealTextStateV2(message.id, rawText, shouldReveal)
-    val revealedText = revealState.first
-    val revealFinished = revealState.second
-    val revealActive = shouldReveal && !revealFinished
-    LaunchedEffect(message.id, shouldReveal, revealFinished) {
-        if (shouldReveal && revealFinished) onRevealCompleted(message.id)
-    }
-    val longReply = !fromUser && !sending && rawText.length >= 520
-    var expanded by remember(message.id) { mutableStateOf(true) }
-    val displayBaseText = if (sending) rawText else revealedText
-    val displayText = if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (sending) 0.88f else 1f,
-        animationSpec = tween(260, easing = FastOutSlowInEasing),
-        label = "message-content-state-alpha"
+    var visible by remember(message.id) { mutableStateOf(false) }
+    LaunchedEffect(message.id) { visible = true }
+    val appear by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow),
+        label = "message-light-bubble-appear"
     )
+    val visual = chatBubbleVisualTransform(appear, fromUser)
+
     SideEffect {
         bubbleLayerState.updateBubbleVisual(
             id = message.id,
@@ -545,13 +468,19 @@ private fun MessageBubbleV2(
     DisposableEffect(message.id) {
         onDispose { bubbleLayerState.removeBubble(message.id) }
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+        horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(if (fromUser) 0.76f else 0.90f)
                 .graphicsLayer {
                     alpha = visual.alpha
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(visual.originX, visual.originY)
+                    transformOrigin = TransformOrigin(visual.originX, visual.originY)
                     scaleX = visual.scaleX
                     scaleY = visual.scaleY
                     translationX = visual.translationX
@@ -560,49 +489,38 @@ private fun MessageBubbleV2(
                 .clip(RoundedCornerShape(bubbleRadius.dp))
         ) {
             Column(
-                Modifier
+                modifier = Modifier
                     .padding(horizontal = 14.dp, vertical = 10.dp)
                     .animateContentSize(animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 if (sending) {
-                    StreamingAssistantContentV2(
-                        message = message,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { alpha = contentAlpha }
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text(messageText(message), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.62f))
+                    }
                 } else {
-                    GeneratingMessageContentV2(
-                        text = displayText,
+                    Text(
+                        text = messageText(message),
                         color = messageTextColor(message, fromUser),
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
-                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
-                        active = revealActive,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { alpha = contentAlpha }
+                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
                     )
-                    if (revealActive) {
-                        TypewriterTrailV2()
-                    }
-                    if (longReply && revealFinished) {
-                        LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
-                    }
                 }
+
+                if (message.attachments.isNotEmpty()) {
+                    MessageAttachmentListV2(message.attachments)
+                }
+
                 if (!fromUser) {
                     MessageBadgeV2(message)
-                    if (!sending && message.status == MessageStatus.Sent) {
-                        MessageDataCards(message)
-                    }
+                } else if (message.hasImageAttachments) {
+                    MessageUserAttachmentBadgeV2(message)
                 }
-                if (showActions && !fromUser && !sending && revealFinished) {
-                    MessageActionsV2(
-                        message = message,
-                        onCopyMessage = onCopyMessage,
-                        onRetryMessage = onRetryMessage
-                    )
+
+                if (showActions && !fromUser && !sending) {
+                    MessageActionsV2(message, onCopyMessage, onRetryMessage)
                 }
             }
         }
@@ -610,274 +528,62 @@ private fun MessageBubbleV2(
 }
 
 @Composable
-private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier = Modifier) {
-    val text = messageText(message)
-    val hasLiveText = hasStreamingLiveTextV2(text)
-    val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (hasLiveText) {
-            RichMessageContent(
-                text = text,
-                color = Color.White.copy(alpha = 0.86f),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                SweepingProgressTextV2(progressLabel, fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold)
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
+private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        attachments.take(3).forEach { attachment ->
+            val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
+            val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(27.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Color(0xFF8DF9EA).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("IMG", color = Color(0xFF8DF9EA).copy(alpha = 0.88f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("视觉附件", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("$dimensions · $size", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                SweepingProgressTextV2(progressLabel, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
-                ThinkingDotsV2(size = 7, color = Color.White.copy(alpha = 0.66f))
-            }
         }
     }
 }
 
 @Composable
-private fun SweepingProgressTextV2(
-    text: String,
-    fontSize: TextUnit,
-    lineHeight: TextUnit,
-    fontWeight: FontWeight
-) {
-    val transition = rememberInfiniteTransition(label = "progress-label-soft-shadow-sweep")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1880, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "progress-label-soft-shadow-sweep-phase"
-    )
-    val startX = phase * 420f - 260f
-    val brush = Brush.linearGradient(
-        colors = listOf(
-            Color.White.copy(alpha = 0.88f),
-            Color.White.copy(alpha = 0.78f),
-            Color.White.copy(alpha = 0.42f),
-            Color.White.copy(alpha = 0.78f),
-            Color.White.copy(alpha = 0.88f)
-        ),
-        start = Offset(startX, 0f),
-        end = Offset(startX + 260f, 0f)
-    )
-    Text(
-        text = text,
-        style = TextStyle(
-            brush = brush,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            fontWeight = fontWeight
-        ),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
-}
-
-@Composable
-private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean): String {
-    var stage by remember(messageId) { mutableStateOf(0) }
-    LaunchedEffect(messageId, hasLiveText) {
-        if (hasLiveText) {
-            stage = 3
-            return@LaunchedEffect
-        }
-        stage = 0
-        delay(760)
-        stage = 1
-        delay(1320)
-        stage = 2
-    }
-    return if (hasLiveText) {
-        "正在接收"
-    } else {
-        when (stage) {
-            0 -> "正在连接云端"
-            1 -> "云端处理中"
-            else -> "正在整理回复"
-        }
+private fun MessageBadgeV2(message: ChatMessage) {
+    val text = messageBadgeTextV2(message) ?: return
+    val badgeColor = badgeColorV2(message)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
+        Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun rememberRevealTextStateV2(messageId: String, text: String, enabled: Boolean): Pair<String, Boolean> {
-    var visibleCount by remember(messageId, text) { mutableStateOf(if (enabled) 0 else text.length) }
-    LaunchedEffect(messageId, text, enabled) {
-        if (!enabled) {
-            visibleCount = text.length
-            return@LaunchedEffect
-        }
-        visibleCount = 0
-        delay(120)
-        while (visibleCount < text.length) {
-            visibleCount = nextRevealBoundaryV2(text, visibleCount)
-            delay(revealDelayV2(text.length, visibleCount))
-        }
-    }
-    val safeCount = visibleCount.coerceIn(0, text.length)
-    return text.take(safeCount) to (safeCount >= text.length)
-}
-
-private fun nextRevealBoundaryV2(text: String, current: Int): Int {
-    if (current >= text.length) return text.length
-    val baseStep = when {
-        text.length > 1600 -> 180
-        text.length > 900 -> 140
-        text.length > 420 -> 96
-        else -> 68
-    }
-    val softTarget = (current + baseStep).coerceAtMost(text.length)
-    val punctuationWindowEnd = (softTarget + 44).coerceAtMost(text.length)
-    val paragraph = text.indexOf('\n', startIndex = softTarget).takeIf { it in softTarget until punctuationWindowEnd }
-    if (paragraph != null) return (paragraph + 1).coerceAtMost(text.length)
-    val punctuation = findFirstRevealBreakV2(text, softTarget, punctuationWindowEnd)
-    if (punctuation > 0) return punctuation.coerceAtMost(text.length)
-    return softTarget
-}
-
-private fun findFirstRevealBreakV2(text: String, start: Int, end: Int): Int {
-    val breaks = setOf('。', '！', '？', '；', '.', '!', '?', ';', '，', ',')
-    for (index in start until end) {
-        if (text[index] in breaks) return index + 1
-    }
-    return -1
-}
-
-private fun revealDelayV2(total: Int, index: Int): Long = when {
-    total > 1600 -> 230L
-    total > 900 -> 210L
-    total > 420 -> 190L
-    index < 120 -> 180L
-    else -> 200L
-}
-
-@Composable
-private fun GeneratingMessageContentV2(
-    text: String,
-    color: Color,
-    fontSize: TextUnit,
-    lineHeight: TextUnit,
-    fontWeight: FontWeight,
-    active: Boolean,
-    modifier: Modifier = Modifier
-) {
-    if (!active) {
-        RichMessageContent(
-            text = text,
-            color = color,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            fontWeight = fontWeight,
-            modifier = modifier
-        )
-        return
-    }
-    val transition = rememberInfiniteTransition(label = "message-wide-diagonal-fade")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1450, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "message-wide-diagonal-fade-phase"
-    )
-    val tailSize = 150.coerceAtMost(text.length)
-    val stableText = text.dropLast(tailSize)
-    val fadingText = text.takeLast(tailSize)
-    val diagonalStart = phase * 360f - 140f
-    val tailBrush = Brush.linearGradient(
-        colors = listOf(
-            color.copy(alpha = 0.18f),
-            color.copy(alpha = 0.38f),
-            color.copy(alpha = 0.78f),
-            Color.White.copy(alpha = 0.90f),
-            color.copy(alpha = 0.64f),
-            color.copy(alpha = 0.34f)
-        ),
-        start = Offset(diagonalStart, 44f),
-        end = Offset(diagonalStart + 260f, -20f)
-    )
-    val annotated = buildAnnotatedString {
-        append(stableText)
-        withStyle(SpanStyle(brush = tailBrush)) {
-            append(fadingText)
-        }
-    }
-    Text(
-        text = annotated,
-        color = color.copy(alpha = 0.84f),
-        fontSize = fontSize,
-        lineHeight = lineHeight,
-        fontWeight = fontWeight,
-        modifier = modifier
-    )
-}
-
-@Composable
-private fun TypewriterTrailV2() {
-    val transition = rememberInfiniteTransition(label = "assistant-typewriter-trail")
-    val breath by transition.animateFloat(
-        initialValue = 0.50f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1280, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "assistant-typewriter-trail-alpha"
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.20f + breath * 0.12f },
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "正在生成",
-            color = Color.White.copy(alpha = 0.42f),
-            fontSize = 8.sp,
-            lineHeight = 10.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 1
-        )
-        Spacer(Modifier.size(5.dp))
-        ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.42f))
+private fun MessageUserAttachmentBadgeV2(message: ChatMessage) {
+    val attachment = message.attachments.firstOrNull()
+    val dimensions = if (attachment?.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
+    val size = attachment?.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已发送"
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xFF8DF9EA).copy(alpha = 0.82f)))
+        Text("视觉附件 · $dimensions · $size", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun LongReplyToggleV2(expanded: Boolean, onToggle: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = if (expanded) "收起长回复 ︿" else "展开全文 ﹀",
-            color = Color.White.copy(alpha = 0.56f),
-            fontSize = 9.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = 0.055f))
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 9.dp, vertical = 4.dp)
-        )
-    }
-}
-
-private fun hasStreamingLiveTextV2(text: String): Boolean {
-    return text.isNotBlank() && !isThinkingPlaceholderV2(text)
-}
-
-private fun isThinkingPlaceholderV2(text: String): Boolean {
-    val clean = text.trim()
-    return clean == "正在思考…" || clean == "正在重新生成…" || clean == "正在思考" || clean == "正在重新生成"
-}
-
-@Composable
-private fun MessageActionsV2(
-    message: ChatMessage,
-    onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+private fun MessageActionsV2(message: ChatMessage, onCopyMessage: (String) -> Unit, onRetryMessage: (String) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
         TextActionV2("复制") { onCopyMessage(messageText(message)) }
         Spacer(Modifier.size(12.dp))
         TextActionV2(
@@ -888,11 +594,7 @@ private fun MessageActionsV2(
 }
 
 @Composable
-private fun TextActionV2(
-    text: String,
-    color: Color = Color.White.copy(alpha = 0.50f),
-    onClick: () -> Unit
-) {
+private fun TextActionV2(text: String, color: Color = Color.White.copy(alpha = 0.50f), onClick: () -> Unit) {
     Text(
         text = text,
         color = color,
@@ -913,16 +615,6 @@ private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
 }
 
 @Composable
-private fun MessageBadgeV2(message: ChatMessage) {
-    val text = messageBadgeTextV2(message) ?: return
-    val badgeColor = badgeColorV2(message)
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
-        Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
 private fun ComposerBarV2(
     state: AssistantUiState,
     onComposerChange: (String) -> Unit,
@@ -931,11 +623,17 @@ private fun ComposerBarV2(
     onPickImage: () -> Unit,
     onComposerFocusChange: (Boolean) -> Unit
 ) {
-    val view = androidx.compose.ui.platform.LocalView.current
+    val view = LocalView.current
     val inputMethodManager = remember(view) {
         view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
     }
-    val keyboardSendAction = if (state.isSending) ({}) else {
+    val attachment = state.composerAttachments.lastOrNull()
+    val preparing = state.composerAttachments.any {
+        it.status == ComposerAttachmentStatus.Preparing || it.status == ComposerAttachmentStatus.Uploading
+    }
+    val canSubmit = !state.isSending && !preparing && (state.composerText.isNotBlank() || state.composerAttachments.any { it.isReady })
+
+    val keyboardSendAction = if (!canSubmit) ({}) else {
         {
             if (state.composerText.isNotBlank()) {
                 inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
@@ -944,18 +642,155 @@ private fun ComposerBarV2(
         }
     }
     val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
-        ComposerInputV2(
-    state,
-    state.composerText,
-    onComposerChange,
-    keyboardSendAction,
-    onComposerFocusChange,
-    Modifier.weight(1f),
-    "和我说点什么..."
-)
-        SendButtonV2(state, onClick = buttonAction)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = attachment != null,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 },
+            exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
+        ) {
+            if (attachment != null) {
+                ComposerAttachmentCardV2(
+                    state = state,
+                    attachment = attachment,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+            ComposerInputV2(
+                state = state,
+                text = state.composerText,
+                onTextChange = onComposerChange,
+                onSend = keyboardSendAction,
+                onFocusChange = onComposerFocusChange,
+                modifier = Modifier.weight(1f),
+                placeholder = when {
+                    preparing -> "正在准备视觉附件..."
+                    attachment?.isReady == true -> "输入配文后和图片一起发送..."
+                    else -> "和我说点什么..."
+                }
+            )
+            SendButtonV2(
+                state = state,
+                enabled = state.isSending || canSubmit,
+                onClick = buttonAction
+            )
+        }
+    }
+}
+
+@Composable
+private fun ComposerAttachmentCardV2(
+    state: AssistantUiState,
+    attachment: ComposerAttachment,
+    modifier: Modifier = Modifier
+) {
+    val progress = attachment.progress.coerceIn(0f, 1f)
+    val statusText = when (attachment.status) {
+        ComposerAttachmentStatus.Preparing -> "正在准备"
+        ComposerAttachmentStatus.Uploading -> "正在上传"
+        ComposerAttachmentStatus.Ready -> "已就绪，可输入配文后发送"
+        ComposerAttachmentStatus.Failed -> attachment.errorText?.takeIf { it.isNotBlank() } ?: "处理失败"
+    }
+    val dimensions = if (attachment.width != null && attachment.height != null) {
+        "${attachment.width}×${attachment.height}"
+    } else {
+        "读取尺寸中"
+    }
+    val sizeText = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "压缩中"
+
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.96f,
+        motionIntensity = state.motionIntensity,
+        radius = 22,
+        modifier = modifier,
+        role = GlassRole.Floating
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF8DF9EA).copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "IMG",
+                        color = Color(0xFF8DF9EA).copy(alpha = 0.92f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "视觉附件",
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = "$statusText · $dimensions · $sizeText",
+                        color = Color.White.copy(alpha = 0.60f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    color = Color.White.copy(alpha = 0.62f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceAtLeast(if (attachment.status == ComposerAttachmentStatus.Failed) 1f else 0.08f))
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            if (attachment.status == ComposerAttachmentStatus.Failed) {
+                                Color(0xFFFFB4B4)
+                            } else {
+                                Color(0xFF8DF9EA).copy(alpha = 0.80f)
+                            }
+                        )
+                )
+            }
+        }
     }
 }
 
@@ -980,9 +815,9 @@ private fun ComposerInputV2(
                 cursorBrush = SolidColor(Color.White.copy(alpha = 0.86f)),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
-               modifier = Modifier
-                      .fillMaxWidth()
-                      .onFocusChanged { onFocusChange(it.isFocused) }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { onFocusChange(it.isFocused) }
             )
             AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
                 Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -992,10 +827,23 @@ private fun ComposerInputV2(
 }
 
 @Composable
-private fun SendButtonV2(state: AssistantUiState, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 999, Modifier.size(48.dp), GlassRole.Floating, onClick = onClick) {
+private fun SendButtonV2(state: AssistantUiState, enabled: Boolean, onClick: () -> Unit) {
+    PressableGlass(
+        state.quality,
+        state.glassIntensity * if (enabled) 1.02f else 0.82f,
+        state.motionIntensity,
+        999,
+        Modifier.size(48.dp),
+        if (enabled) GlassRole.Floating else GlassRole.Chip,
+        onClick = { if (enabled) onClick() }
+    ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(if (state.isSending) "Ⅱ" else "↑", color = Color.White, fontSize = if (state.isSending) 19.sp else 22.sp, fontWeight = FontWeight.Black)
+            Text(
+                if (state.isSending) "Ⅱ" else "↑",
+                color = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
+                fontSize = if (state.isSending) 19.sp else 22.sp,
+                fontWeight = FontWeight.Black
+            )
         }
     }
 }
@@ -1037,7 +885,6 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
             val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.34f) + 1f) / 2f).coerceIn(0f, 1f)
-            val pulse = ((sin(phase * 2f * PI.toFloat() + index * 1.34f - 0.74f) + 1f) / 2f).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .size(size.dp)
@@ -1045,28 +892,13 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
                         translationY = -5.6f * wave
                         alpha = 0.54f + 0.46f * wave
                         scaleX = 0.76f + 0.42f * wave
-                        scaleY = 0.72f + 0.30f * pulse
+                        scaleY = 0.76f + 0.42f * wave
                     }
-                    .thinkingPearlSurface(color = color, wave = wave, index = index)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(color)
             )
         }
     }
-}
-
-@Composable
-private fun PulseDotV2(active: Boolean, color: Color) {
-    if (!active) {
-        Box(Modifier.size(8.dp).graphicsLayer { alpha = 0.68f }.clip(RoundedCornerShape(999.dp)).background(color))
-        return
-    }
-    val transition = rememberInfiniteTransition(label = "pulse-dot-v2")
-    val pulse by transition.animateFloat(
-        initialValue = 0.76f,
-        targetValue = 1.22f,
-        animationSpec = infiniteRepeatable(animation = tween(860, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "pulse-dot-value-v2"
-    )
-    Box(Modifier.size(8.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.96f }.clip(RoundedCornerShape(999.dp)).background(color))
 }
 
 private fun messageText(message: ChatMessage): String = when (message.status) {
@@ -1078,10 +910,8 @@ private fun messageText(message: ChatMessage): String = when (message.status) {
 private fun stripInlineSourceTextV2(text: String): String {
     val sourceBlockIndex = text.indexOf("\n\n联网来源")
     if (sourceBlockIndex >= 0) return text.substring(0, sourceBlockIndex).trimEnd()
-
     val sourceLineIndex = text.indexOf("\n联网来源")
     if (sourceLineIndex >= 0) return text.substring(0, sourceLineIndex).trimEnd()
-
     return text
 }
 
@@ -1108,7 +938,7 @@ private fun sourceReadableLabelV2(source: String?): String? = when (source) {
     "cloud_ai" -> "云端 AI"
     "workers_ai", "workers_ai_text_fallback" -> "Workers AI"
     "gemini_ai", "gemini_chat", "gemini_text_fallback" -> "Gemini"
-    "qwen", "qwen_chat", "qwen_ai", "dashscope_qwen" -> "Qwen"
+    "qwen", "qwen_chat", "qwen_ai", "dashscope_qwen", "qwen_vision" -> "Qwen"
     "kimi", "nvidia_chat" -> "Qwen"
     "deepseek", "deepseek_chat", "deepseek_v4" -> "DeepSeek"
     "gpt_oss", "nvidia_gpt_oss" -> "GPT OSS"
@@ -1130,6 +960,7 @@ private fun badgeColorV2(message: ChatMessage): Color = when (message.status) {
         when {
             message.source in listOf("web_search_tool", "tavily_web_search", "tavily_ai_summary") -> Color(0xFF8DF9EA)
             message.source in listOf("cloud_fetch_failed", "cloud_error_normalized") -> Color(0xFFFFB4B4)
+            message.hasImageAttachments -> Color(0xFF8DF9EA)
             signal.contains("qwen") || signal.contains("kimi") || signal.contains("千问") -> Color(0xFF8DF9EA)
             signal.contains("deepseek") -> Color(0xFF22D3EE)
             signal.contains("gemini") -> Color(0xFF6AE4FF)
