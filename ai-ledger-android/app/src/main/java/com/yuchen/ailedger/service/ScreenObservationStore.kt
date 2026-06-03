@@ -46,7 +46,23 @@ object ScreenObservationStore {
             inputItems = emptyList(),
             scrollableItems = emptyList(),
             nodeCount = 0,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    fun updateWindowHint(packageName: String, windowTitle: String = "") {
+        val current = mutableObservation.value
+        mutableObservation.value = current.copy(
+            enabled = true,
+            serviceConnected = true,
+            packageName = packageName.ifBlank { current.packageName },
+            windowTitle = windowTitle.ifBlank { current.windowTitle },
+            textItems = emptyList(),
+            clickableItems = emptyList(),
+            inputItems = emptyList(),
+            scrollableItems = emptyList(),
+            nodeCount = 0,
+            updatedAt = System.currentTimeMillis(),
         )
     }
 
