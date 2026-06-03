@@ -1081,6 +1081,7 @@ private fun isThinkingPlaceholderV2(text: String): Boolean {
     return clean == "正在思考…" || clean == "正在重新生成…" || clean == "正在思考" || clean == "正在重新生成"
 }
 
+
 @Composable
 private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
