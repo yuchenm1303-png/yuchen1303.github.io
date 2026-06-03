@@ -177,13 +177,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val assistantScreenState = rememberAssistantScreenState(state, effectiveMotionIntensity, visibleComposerText)
     val stockAndSettingsState = rememberMotionState(state, effectiveMotionIntensity)
     val glassBackdropSpec = remember(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle) {
-        GlassBackdropSpec(
-            quality = state.quality,
-            motionIntensity = effectiveMotionIntensity,
-            theme = state.backgroundTheme,
-            params = state.backdropParams,
-            borderStyle = state.glassBorderStyle,
-        )
+        GlassBackdropSpec(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle)
     }
     val imageOnlyRequest = remember { PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly) }
 
