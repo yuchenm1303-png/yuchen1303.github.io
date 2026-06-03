@@ -2,128 +2,64 @@ package com.yuchen.ailedger.service
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
-import android.os.Handler
-import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.ArrayDeque
 
 class AiAgentAccessibilityService : AccessibilityService() {
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var pendingPublish = false
-    private var lastPublishAt = 0L
-    private var lastSignature = ""
-
-    private val publishRunnable = Runnable {
-        pendingPublish = false
-        publishObservation(force = false)
-    }
-
     override fun onServiceConnected() {
         super.onServiceConnected()
+        activeService = this
         ScreenObservationStore.markConnectedWaitingForWindow()
-        schedulePublish(delayMs = 0L, force = true)
+        updateWindowHintFromRoot()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        when (event?.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> schedulePublish(delayMs = 0L, force = true)
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_SCROLLED -> schedulePublish(delayMs = CONTENT_DEBOUNCE_MS, force = false)
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            updateWindowHintFromRoot(event.packageName?.toString().orEmpty())
         }
     }
 
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(publishRunnable)
+        if (activeService === this) activeService = null
         ScreenObservationStore.markDisabled()
         super.onDestroy()
     }
 
-    private fun schedulePublish(delayMs: Long, force: Boolean) {
-        if (force) {
-            mainHandler.removeCallbacks(publishRunnable)
-            pendingPublish = false
-            publishObservation(force = true)
-            return
+    private fun updateWindowHintFromRoot(packageNameFromEvent: String = "") {
+        val root = rootInActiveWindow
+        val packageName = packageNameFromEvent.ifBlank { root?.packageName?.toString().orEmpty() }
+        val windowTitle = root?.text?.toString().orEmpty()
+        if (packageName.isBlank()) {
+            ScreenObservationStore.markConnectedWaitingForWindow()
+        } else {
+            ScreenObservationStore.updateWindowHint(packageName, windowTitle)
         }
-        val now = System.currentTimeMillis()
-        if (now - lastPublishAt < MIN_PUBLISH_INTERVAL_MS) {
-            if (!pendingPublish) {
-                pendingPublish = true
-                mainHandler.postDelayed(publishRunnable, CONTENT_DEBOUNCE_MS)
-            }
-            return
-        }
-        mainHandler.removeCallbacks(publishRunnable)
-        pendingPublish = true
-        mainHandler.postDelayed(publishRunnable, delayMs)
     }
 
-    private fun publishObservation(force: Boolean) {
+    private fun captureSnapshotInternal(): ScreenObservation {
         val now = System.currentTimeMillis()
-        if (!force && now - lastPublishAt < MIN_PUBLISH_INTERVAL_MS) return
-        lastPublishAt = now
-
-        val root = rootInActiveWindow ?: run {
-            ScreenObservationStore.markConnectedWaitingForWindow()
-            return
-        }
+        val root = rootInActiveWindow ?: return ScreenObservation(
+            enabled = true,
+            serviceConnected = true,
+            updatedAt = now,
+        )
         val packageName = root.packageName?.toString().orEmpty()
         val windowTitle = root.text?.toString().orEmpty()
-
-        if (packageName == applicationContext.packageName) {
-            publishLightweightOwnAppObservation(packageName, windowTitle, now, force)
-            return
-        }
-
         val nodes = collectNodes(root)
-        val textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT)
-        val clickableItems = nodes.filter { it.clickable }.take(CLICKABLE_LIMIT)
-        val inputItems = nodes.filter { it.editable }.take(INPUT_LIMIT)
-        val scrollableItems = nodes.filter { it.scrollable }.take(SCROLLABLE_LIMIT)
-        val signature = buildSignature(packageName, nodes.size, textItems, clickableItems, inputItems, scrollableItems)
-        if (!force && signature == lastSignature) return
-        lastSignature = signature
-        ScreenObservationStore.update(
-            ScreenObservation(
-                enabled = true,
-                serviceConnected = true,
-                packageName = packageName,
-                windowTitle = windowTitle,
-                updatedAt = now,
-                textItems = textItems,
-                clickableItems = clickableItems,
-                inputItems = inputItems,
-                scrollableItems = scrollableItems,
-                nodeCount = nodes.size,
-            )
-        )
-    }
-
-    private fun publishLightweightOwnAppObservation(
-        packageName: String,
-        windowTitle: String,
-        now: Long,
-        force: Boolean
-    ) {
-        val signature = "own-app|$packageName|$windowTitle"
-        if (!force && signature == lastSignature) return
-        lastSignature = signature
-        ScreenObservationStore.update(
-            ScreenObservation(
-                enabled = true,
-                serviceConnected = true,
-                packageName = packageName,
-                windowTitle = windowTitle,
-                updatedAt = now,
-                textItems = listOf("AI Ledger 当前在前台。为保持普通聊天流畅，首页不进行深度节点采集。"),
-                clickableItems = emptyList(),
-                inputItems = emptyList(),
-                scrollableItems = emptyList(),
-                nodeCount = 0,
-            )
+        return ScreenObservation(
+            enabled = true,
+            serviceConnected = true,
+            packageName = packageName,
+            windowTitle = windowTitle,
+            updatedAt = now,
+            textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
+            clickableItems = nodes.filter { it.clickable }.take(CLICKABLE_LIMIT),
+            inputItems = nodes.filter { it.editable }.take(INPUT_LIMIT),
+            scrollableItems = nodes.filter { it.scrollable }.take(SCROLLABLE_LIMIT),
+            nodeCount = nodes.size,
         )
     }
 
@@ -163,26 +99,16 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return result
     }
 
-    private fun buildSignature(
-        packageName: String,
-        nodeCount: Int,
-        textItems: List<String>,
-        clickableItems: List<ObservedScreenNode>,
-        inputItems: List<ObservedScreenNode>,
-        scrollableItems: List<ObservedScreenNode>,
-    ): String {
-        return buildString {
-            append(packageName).append('|').append(nodeCount)
-            append('|').append(textItems.take(8).joinToString("#"))
-            append('|').append(clickableItems.take(8).joinToString("#") { "${it.text}@${it.bounds}" })
-            append('|').append(inputItems.take(4).joinToString("#") { it.bounds })
-            append('|').append(scrollableItems.take(4).joinToString("#") { it.bounds })
-        }
-    }
-
     companion object {
-        private const val MIN_PUBLISH_INTERVAL_MS = 900L
-        private const val CONTENT_DEBOUNCE_MS = 520L
+        @Volatile private var activeService: AiAgentAccessibilityService? = null
+
+        fun captureFreshSnapshot(): ScreenObservation {
+            val service = activeService ?: return ScreenObservation(updatedAt = System.currentTimeMillis())
+            val snapshot = service.captureSnapshotInternal()
+            ScreenObservationStore.update(snapshot)
+            return snapshot
+        }
+
         private const val MAX_NODES = 90
         private const val MAX_DEPTH = 6
         private const val TEXT_LIMIT = 30
