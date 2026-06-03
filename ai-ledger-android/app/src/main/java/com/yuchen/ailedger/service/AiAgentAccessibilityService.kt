@@ -64,12 +64,20 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun publishObservation(force: Boolean) {
         val now = System.currentTimeMillis()
         if (!force && now - lastPublishAt < MIN_PUBLISH_INTERVAL_MS) return
+        lastPublishAt = now
+
         val root = rootInActiveWindow ?: run {
             ScreenObservationStore.markConnectedWaitingForWindow()
             return
         }
         val packageName = root.packageName?.toString().orEmpty()
         val windowTitle = root.text?.toString().orEmpty()
+
+        if (packageName == applicationContext.packageName) {
+            publishLightweightOwnAppObservation(packageName, windowTitle, now, force)
+            return
+        }
+
         val nodes = collectNodes(root)
         val textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT)
         val clickableItems = nodes.filter { it.clickable }.take(CLICKABLE_LIMIT)
@@ -78,7 +86,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val signature = buildSignature(packageName, nodes.size, textItems, clickableItems, inputItems, scrollableItems)
         if (!force && signature == lastSignature) return
         lastSignature = signature
-        lastPublishAt = now
         ScreenObservationStore.update(
             ScreenObservation(
                 enabled = true,
@@ -95,6 +102,31 @@ class AiAgentAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun publishLightweightOwnAppObservation(
+        packageName: String,
+        windowTitle: String,
+        now: Long,
+        force: Boolean
+    ) {
+        val signature = "own-app|$packageName|$windowTitle"
+        if (!force && signature == lastSignature) return
+        lastSignature = signature
+        ScreenObservationStore.update(
+            ScreenObservation(
+                enabled = true,
+                serviceConnected = true,
+                packageName = packageName,
+                windowTitle = windowTitle,
+                updatedAt = now,
+                textItems = listOf("AI Ledger 当前在前台。为保持普通聊天流畅，首页不进行深度节点采集。"),
+                clickableItems = emptyList(),
+                inputItems = emptyList(),
+                scrollableItems = emptyList(),
+                nodeCount = 0,
+            )
+        )
+    }
+
     private fun collectNodes(root: AccessibilityNodeInfo): List<ObservedScreenNode> {
         val result = mutableListOf<ObservedScreenNode>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
@@ -105,10 +137,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
             val text = node.text?.toString()?.takeIf { it.isNotBlank() }
                 ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
                 ?: node.hintText?.toString().orEmpty()
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
             val hasUsefulSignal = text.isNotBlank() || node.isClickable || node.isLongClickable || node.isEditable || node.isScrollable
             if (hasUsefulSignal) {
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
                 result.add(
                     ObservedScreenNode(
                         id = "n${index++}",
@@ -149,8 +181,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        private const val MIN_PUBLISH_INTERVAL_MS = 650L
-        private const val CONTENT_DEBOUNCE_MS = 420L
+        private const val MIN_PUBLISH_INTERVAL_MS = 900L
+        private const val CONTENT_DEBOUNCE_MS = 520L
         private const val MAX_NODES = 90
         private const val MAX_DEPTH = 6
         private const val TEXT_LIMIT = 30
