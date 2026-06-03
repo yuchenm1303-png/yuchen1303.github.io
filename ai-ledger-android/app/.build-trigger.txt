@@ -1,3 +1,3 @@
-Rollback target: 1fb1c98bb2e0d3029598e6f49e531cfa9795deac
-Purpose: trigger Build Compose Android APK after rollback.
-App source code remains at the rollback baseline.
+Purpose: trigger Build Compose Android APK after visual attachment composer UI replacement.
+Scope: ai-ledger-android/app path trigger.
+Note: verify AssistantHomePolished.kt visual attachment card is included in the generated APK.
