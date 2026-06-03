@@ -542,7 +542,8 @@ private fun ChatPanelV2(
                         layerState = bubbleLayerState,
                         listState = listState,
                         messages = messages,
-                                    motionIntensity = state.motionIntensity,
+                        chatPhase = chatPhase,
+                        motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
                     )
                     LazyColumn(
