@@ -34,25 +34,6 @@ private data class CitationInlineRender(
 )
 
 @Composable
-fun RichMessageContent(
-    text: String,
-    color: Color,
-    fontSize: TextUnit,
-    lineHeight: TextUnit,
-    fontWeight: FontWeight,
-    modifier: Modifier = Modifier
-) {
-    CitationInlineRichText(
-        text = text,
-        color = color,
-        fontSize = fontSize,
-        lineHeight = lineHeight,
-        fontWeight = fontWeight,
-        modifier = modifier
-    )
-}
-
-@Composable
 fun CitationInlineRichText(
     text: String,
     color: Color,
