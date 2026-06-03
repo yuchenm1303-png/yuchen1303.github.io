@@ -51,6 +51,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".AgentAccessibilityGuideActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.AiLedger.AgentPermissionDialog" />
+
         <service
             android:name=".service.AiAgentAccessibilityService"
             android:exported="true"
