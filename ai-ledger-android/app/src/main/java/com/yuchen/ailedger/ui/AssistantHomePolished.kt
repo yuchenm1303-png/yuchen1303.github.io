@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
@@ -52,12 +53,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -76,12 +77,45 @@ import com.yuchen.ailedger.model.ComposerAttachment
 import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
 import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.sin
+
+@Immutable
+private data class ChatPanelUiState(
+    val messages: List<ChatMessage>,
+    val isSending: Boolean,
+    val hasComposerAttachment: Boolean,
+    val quality: RenderQuality,
+    val glassIntensity: Float,
+    val motionIntensity: Float
+)
+
+@Immutable
+private data class ComposerBarUiState(
+    val text: String,
+    val attachment: ComposerAttachment?,
+    val preparingAttachment: Boolean,
+    val hasReadyAttachment: Boolean,
+    val isSending: Boolean,
+    val quality: RenderQuality,
+    val glassIntensity: Float,
+    val motionIntensity: Float
+) {
+    val canSubmit: Boolean
+        get() = !isSending && !preparingAttachment && (text.isNotBlank() || hasReadyAttachment)
+
+    val placeholder: String
+        get() = when {
+            preparingAttachment -> "正在准备..."
+            attachment?.isReady == true -> "输入配文..."
+            else -> "和我说点什么..."
+        }
+}
 
 @Composable
 fun AssistantScreenV2(
@@ -143,6 +177,47 @@ fun AssistantScreenV2(
         else -> OpenGLGlassSurfaceAnchor.Center
     }
 
+    val chatPanelState = remember(
+        state.messages,
+        state.isSending,
+        state.composerAttachments,
+        state.quality,
+        state.glassIntensity,
+        state.motionIntensity
+    ) {
+        ChatPanelUiState(
+            messages = state.messages,
+            isSending = state.isSending,
+            hasComposerAttachment = state.composerAttachments.isNotEmpty(),
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity
+        )
+    }
+
+    val composerBarState = remember(
+        state.composerText,
+        state.composerAttachments,
+        state.isSending,
+        state.quality,
+        state.glassIntensity,
+        state.motionIntensity
+    ) {
+        val latestAttachment = state.composerAttachments.lastOrNull()
+        ComposerBarUiState(
+            text = state.composerText,
+            attachment = latestAttachment,
+            preparingAttachment = state.composerAttachments.any {
+                it.status == ComposerAttachmentStatus.Preparing || it.status == ComposerAttachmentStatus.Uploading
+            },
+            hasReadyAttachment = state.composerAttachments.any { it.isReady },
+            isSending = state.isSending,
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -178,7 +253,7 @@ fun AssistantScreenV2(
         ) {
             CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
                 ChatPanelV2(
-                    state = state,
+                    state = chatPanelState,
                     modifier = Modifier.fillMaxWidth(),
                     viewportTopInset = modelExpandDelta,
                     onDraftCommand = onDraftCommand,
@@ -191,7 +266,7 @@ fun AssistantScreenV2(
 
         AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
             ComposerBarV2(
-                state = state,
+                state = composerBarState,
                 onComposerChange = onComposerChange,
                 onSend = onSend,
                 onStopGenerating = onStopGenerating,
@@ -308,7 +383,7 @@ private fun FixedHeightOverflowSlot(
 
 @Composable
 private fun ChatPanelV2(
-    state: AssistantUiState,
+    state: ChatPanelUiState,
     modifier: Modifier,
     viewportTopInset: Dp = 0.dp,
     onDraftCommand: (String) -> Unit,
@@ -319,15 +394,26 @@ private fun ChatPanelV2(
     val listState = rememberLazyListState()
     val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
-    val lastMessageId = state.messages.lastOrNull()?.id
-    val lastMessageStatus = state.messages.lastOrNull()?.status
+    val messages = state.messages
+    val lastMessage = messages.lastOrNull()
+    val lastMessageId = lastMessage?.id
+    val lastMessageStatus = lastMessage?.status
+    val lastMessageIndex = messages.lastIndex
+    val lastActionableMessageId = remember(messages) {
+        messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
+    }
+    val statusText = when {
+        state.isSending -> "正在接收"
+        state.hasComposerAttachment -> "附件待发送"
+        else -> "可上下滑动"
+    }
 
     LaunchedEffect(lastMessageId, state.isSending) {
-        if (state.messages.isEmpty()) return@LaunchedEffect
+        if (messages.isEmpty()) return@LaunchedEffect
         if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
-            listState.scrollToItem(state.messages.lastIndex)
+            listState.scrollToItem(lastMessageIndex)
         } else {
-            listState.animateScrollToItem(state.messages.lastIndex)
+            listState.animateScrollToItem(lastMessageIndex)
         }
     }
 
@@ -346,12 +432,16 @@ private fun ChatPanelV2(
                 .clip(RoundedCornerShape(30.dp))
                 .clipToBounds()
         ) {
-            RainbowChatGlassOverlay(quality = state.quality, motionIntensity = state.motionIntensity, modifier = Modifier.matchParentSize())
+            RainbowChatGlassOverlay(
+                quality = state.quality,
+                motionIntensity = state.motionIntensity,
+                modifier = Modifier.matchParentSize()
+            )
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(if (state.isSending) "正在接收" else if (state.composerAttachments.isNotEmpty()) "附件待发送" else "可上下滑动")
+                    ChatStatusV2(statusText)
                 }
                 Box(
                     Modifier
@@ -359,13 +449,10 @@ private fun ChatPanelV2(
                         .fillMaxWidth()
                         .clipToBounds()
                 ) {
-                    val lastActionableMessageId = remember(state.messages) {
-                        state.messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
-                    }
                     ChatBubbleMaterialLayer(
                         layerState = bubbleLayerState,
                         listState = listState,
-                        messages = state.messages,
+                        messages = messages,
                         phase = chatPhase.value,
                         motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
@@ -376,7 +463,7 @@ private fun ChatPanelV2(
                         contentPadding = PaddingValues(top = 0.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        items(state.messages, key = { it.id }) { message ->
+                        items(messages, key = { it.id }) { message ->
                             MessageBubbleV2(
                                 message = message,
                                 chatPhase = chatPhase,
@@ -386,7 +473,16 @@ private fun ChatPanelV2(
                                 onRetryMessage = onRetryMessage
                             )
                         }
-                        item { StarterSuggestionsV2(state, onDraftCommand, onPickImage) }
+                        item {
+                            StarterSuggestionsV2(
+                                visible = messages.size <= 2,
+                                quality = state.quality,
+                                glassIntensity = state.glassIntensity,
+                                motionIntensity = state.motionIntensity,
+                                onDraftCommand = onDraftCommand,
+                                onPickImage = onPickImage
+                            )
+                        }
                     }
                 }
             }
@@ -395,18 +491,29 @@ private fun ChatPanelV2(
 }
 
 @Composable
-private fun StarterSuggestionsV2(state: AssistantUiState, onDraftCommand: (String) -> Unit, onPickImage: () -> Unit) {
+private fun StarterSuggestionsV2(
+    visible: Boolean,
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    onDraftCommand: (String) -> Unit,
+    onPickImage: () -> Unit
+) {
     AnimatedVisibility(
-        visible = state.messages.size <= 2,
+        visible = visible,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.72f)) { it / 2 },
         exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 2.dp)) {
             Text("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                SuggestionButtonV2("记一笔", state, Modifier.weight(1f)) { onDraftCommand("记一笔 午饭 18 元") }
-                SuggestionButtonV2("设提醒", state, Modifier.weight(1f)) { onDraftCommand("今晚 9 点半提醒我复盘") }
-                SuggestionButtonV2("上传图片", state, Modifier.weight(1f), onClick = onPickImage)
+                SuggestionButtonV2("记一笔", quality, glassIntensity, motionIntensity, Modifier.weight(1f)) {
+                    onDraftCommand("记一笔 午饭 18 元")
+                }
+                SuggestionButtonV2("设提醒", quality, glassIntensity, motionIntensity, Modifier.weight(1f)) {
+                    onDraftCommand("今晚 9 点半提醒我复盘")
+                }
+                SuggestionButtonV2("上传图片", quality, glassIntensity, motionIntensity, Modifier.weight(1f), onClick = onPickImage)
             }
         }
     }
@@ -616,7 +723,7 @@ private fun isActionableCloudAssistantMessageV2(message: ChatMessage): Boolean {
 
 @Composable
 private fun ComposerBarV2(
-    state: AssistantUiState,
+    state: ComposerBarUiState,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
     onStopGenerating: () -> Unit,
@@ -627,15 +734,10 @@ private fun ComposerBarV2(
     val inputMethodManager = remember(view) {
         view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
     }
-    val attachment = state.composerAttachments.lastOrNull()
-    val preparing = state.composerAttachments.any {
-        it.status == ComposerAttachmentStatus.Preparing || it.status == ComposerAttachmentStatus.Uploading
-    }
-    val canSubmit = !state.isSending && !preparing && (state.composerText.isNotBlank() || state.composerAttachments.any { it.isReady })
 
-    val keyboardSendAction = if (!canSubmit) ({}) else {
+    val keyboardSendAction = if (!state.canSubmit) ({}) else {
         {
-            if (state.composerText.isNotBlank()) {
+            if (state.text.isNotBlank()) {
                 inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
             }
             onSend()
@@ -648,144 +750,38 @@ private fun ComposerBarV2(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        RoundIconButtonV2("+", state, size = 48, onClick = onPickImage)
+        RoundIconButtonV2(
+            text = "+",
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            size = 48,
+            onClick = onPickImage
+        )
         ComposerInputV2(
             state = state,
-            text = state.composerText,
             onTextChange = onComposerChange,
             onSend = keyboardSendAction,
             onFocusChange = onComposerFocusChange,
-            modifier = Modifier.weight(1f),
-            placeholder = when {
-                preparing -> "正在准备..."
-                attachment?.isReady == true -> "输入配文..."
-                else -> "和我说点什么..."
-            }
+            modifier = Modifier.weight(1f)
         )
         SendButtonV2(
             state = state,
-            enabled = state.isSending || canSubmit,
+            enabled = state.isSending || state.canSubmit,
             onClick = buttonAction
         )
     }
 }
 
 @Composable
-private fun ComposerAttachmentCardV2(
-    state: AssistantUiState,
-    attachment: ComposerAttachment,
-    modifier: Modifier = Modifier
-) {
-    val progress = attachment.progress.coerceIn(0f, 1f)
-    val statusText = when (attachment.status) {
-        ComposerAttachmentStatus.Preparing -> "正在准备"
-        ComposerAttachmentStatus.Uploading -> "正在上传"
-        ComposerAttachmentStatus.Ready -> "已就绪，可输入配文后发送"
-        ComposerAttachmentStatus.Failed -> attachment.errorText?.takeIf { it.isNotBlank() } ?: "处理失败"
-    }
-    val dimensions = if (attachment.width != null && attachment.height != null) {
-        "${attachment.width}×${attachment.height}"
-    } else {
-        "读取尺寸中"
-    }
-    val sizeText = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "压缩中"
-
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.96f,
-        motionIntensity = state.motionIntensity,
-        radius = 22,
-        modifier = modifier,
-        role = GlassRole.Floating
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF8DF9EA).copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "IMG",
-                        color = Color(0xFF8DF9EA).copy(alpha = 0.92f),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = "视觉附件",
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Text(
-                        text = "$statusText · $dimensions · $sizeText",
-                        color = Color.White.copy(alpha = 0.60f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    color = Color.White.copy(alpha = 0.62f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.10f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress.coerceAtLeast(if (attachment.status == ComposerAttachmentStatus.Failed) 1f else 0.08f))
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            if (attachment.status == ComposerAttachmentStatus.Failed) {
-                                Color(0xFFFFB4B4)
-                            } else {
-                                Color(0xFF8DF9EA).copy(alpha = 0.80f)
-                            }
-                        )
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ComposerInputV2(
-    state: AssistantUiState,
-    text: String,
+    state: ComposerBarUiState,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onFocusChange: (Boolean) -> Unit,
-    modifier: Modifier,
-    placeholder: String
+    modifier: Modifier
 ) {
-    val attachment = state.composerAttachments.lastOrNull()
+    val attachment = state.attachment
     GlassPanel(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(48.dp), GlassRole.Card) {
         Row(
             modifier = Modifier
@@ -807,7 +803,7 @@ private fun ComposerInputV2(
                 contentAlignment = Alignment.CenterStart
             ) {
                 BasicTextField(
-                    value = text,
+                    value = state.text,
                     onValueChange = { if (!state.isSending) onTextChange(it) },
                     singleLine = true,
                     enabled = true,
@@ -819,8 +815,8 @@ private fun ComposerInputV2(
                         .fillMaxWidth()
                         .onFocusChanged { onFocusChange(it.isFocused) }
                 )
-                if (text.isBlank()) {
-                    Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (state.text.isBlank()) {
+                    Text(state.placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -907,7 +903,7 @@ private fun InlineComposerAttachmentChipV2(
 }
 
 @Composable
-private fun SendButtonV2(state: AssistantUiState, enabled: Boolean, onClick: () -> Unit) {
+private fun SendButtonV2(state: ComposerBarUiState, enabled: Boolean, onClick: () -> Unit) {
     PressableGlass(
         state.quality,
         state.glassIntensity * if (enabled) 1.02f else 0.82f,
@@ -929,8 +925,15 @@ private fun SendButtonV2(state: AssistantUiState, enabled: Boolean, onClick: () 
 }
 
 @Composable
-private fun RoundIconButtonV2(text: String, state: AssistantUiState, size: Int = 40, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 0.96f, state.motionIntensity, 999, Modifier.size(size.dp), GlassRole.Floating, onClick = onClick) {
+private fun RoundIconButtonV2(
+    text: String,
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    size: Int = 40,
+    onClick: () -> Unit
+) {
+    PressableGlass(quality, glassIntensity * 0.96f, motionIntensity, 999, Modifier.size(size.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = if (text == "+") 25.sp else 15.sp, fontWeight = FontWeight.Black)
         }
@@ -938,8 +941,15 @@ private fun RoundIconButtonV2(text: String, state: AssistantUiState, size: Int =
 }
 
 @Composable
-private fun SuggestionButtonV2(text: String, state: AssistantUiState, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 20, modifier.height(38.dp), GlassRole.Chip, onClick = onClick) {
+private fun SuggestionButtonV2(
+    text: String,
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    PressableGlass(quality, glassIntensity * 0.92f, motionIntensity, 20, modifier.height(38.dp), GlassRole.Chip, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
