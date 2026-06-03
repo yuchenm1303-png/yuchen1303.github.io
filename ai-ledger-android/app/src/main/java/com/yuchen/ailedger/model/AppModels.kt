@@ -144,7 +144,7 @@ enum class ChatModel(val id: String, val label: String, val shortLabel: String) 
         fun fromId(value: String): ChatModel {
             val clean = value.lowercase().trim().replace("workers_ai", "workers")
             return when {
-                clean == "qwen" || clean == "qwen_max" || clean == "qwen-max" || clean == "qwen_plus" || clean == "qwen-plus" || clean == "kimi" || clean.startsWith("qwen") -> Kimi
+                clean == "qwen" || clean == "qwen_max" || clean == "qwen-max" || clean == "qwen_plus" || clean == "qwen-plus" || clean == "qwen_vision" || clean == "qwen-vision" || clean.contains("omni") || clean == "kimi" || clean.startsWith("qwen") -> Kimi
                 clean == "deepseek" || clean == "deepseek_v4" || clean == "deepseek-v4" || clean.contains("deepseek-v4-pro") -> DeepSeekV4
                 clean == "gptoss" || clean == "gpt_oss" || clean == "gpt-oss" || clean.contains("gpt-oss-120b") -> GptOss
                 else -> entries.firstOrNull { it.id == clean || it.name.lowercase() == clean } ?: Auto
@@ -183,6 +183,18 @@ data class StructuredDataCard(
 )
 
 @Immutable
+data class ChatAttachment(
+    val id: String,
+    val mimeType: String = "image/jpeg",
+    val base64Data: String,
+    val fileName: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val sizeBytes: Int? = null,
+    val previewUri: String? = null
+)
+
+@Immutable
 data class ChatMessage(
     val id: String,
     val text: String,
@@ -197,8 +209,12 @@ data class ChatMessage(
     val structuredData: StructuredDataCard? = null,
     val searchUsed: Boolean = false,
     val searchProvider: String? = null,
+    val attachments: List<ChatAttachment> = emptyList(),
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val hasImageAttachments: Boolean
+        get() = attachments.any { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
+}
 
 @Immutable
 data class StatSummary(val title: String, val value: String)
