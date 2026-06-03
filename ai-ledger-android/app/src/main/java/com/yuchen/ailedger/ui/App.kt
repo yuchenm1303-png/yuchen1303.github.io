@@ -185,9 +185,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             borderStyle = state.glassBorderStyle,
         )
     }
-    val activeGlassRegistry = remember(diagnostics.openGlGlassOff, glassRegistryToken()) {
-        if (diagnostics.openGlGlassOff) null else glassRegistryToken()
-    }
     val imageOnlyRequest = remember { PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
