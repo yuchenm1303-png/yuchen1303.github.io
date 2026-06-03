@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -1242,7 +1243,7 @@ private fun ComposerInputV2(
                         .fillMaxWidth()
                         .onFocusChanged { onFocusChange(it.isFocused) }
                 )
-                AnimatedVisibility(visible = state.text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
+                androidx.compose.animation.AnimatedVisibility(visible = state.text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
                     Text(state.placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -1412,13 +1413,13 @@ private fun ThinkingDotsV2(size: Int, color: Color) {
                         scaleX = 0.76f + 0.42f * wave
                         scaleY = 0.72f + 0.30f * pulse
                     }
-                    .thinkingPearlSurface(color = color, wave = wave, index = index)
+                    .assistantHomeThinkingPearlSurface(color = color, wave = wave, index = index)
             )
         }
     }
 }
 
-private fun Modifier.thinkingPearlSurface(color: Color, wave: Float, index: Int): Modifier {
+private fun Modifier.assistantHomeThinkingPearlSurface(color: Color, wave: Float, index: Int): Modifier {
     val highlightAlpha = (0.22f + wave * 0.26f).coerceIn(0f, 0.56f)
     val bodyAlpha = (0.48f + wave * 0.30f).coerceIn(0f, 0.88f)
     val shadowAlpha = (0.18f + index * 0.025f).coerceIn(0f, 0.30f)
