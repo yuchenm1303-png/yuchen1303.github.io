@@ -690,15 +690,19 @@ private fun MessageBubbleV2(
                     MessageAttachmentListV2(message.attachments)
                 }
 
-                if (!fromUser) {
-                    MessageBadgeV2(message)
-                } else if (message.hasImageAttachments) {
-                    MessageUserAttachmentBadgeV2(message)
-                }
+               if (!fromUser) {
+    MessageBadgeV2(message)
+} else if (message.hasImageAttachments) {
+    MessageUserAttachmentBadgeV2(message)
+}
 
-                if (showActions && !fromUser && !sending) {
-                    MessageActionsV2(message, onCopyMessage, onRetryMessage)
-                }
+if (!fromUser && !sending && message.status == MessageStatus.Sent) {
+    MessageDataCards(message)
+}
+
+if (showActions && !fromUser && !sending) {
+    MessageActionsV2(message, onCopyMessage, onRetryMessage)
+}
             }
         }
     }
