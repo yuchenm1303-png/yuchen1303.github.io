@@ -1,9 +1,12 @@
 package com.yuchen.ailedger.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +48,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
@@ -53,6 +57,7 @@ import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
@@ -111,10 +116,31 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
-    val latestMessageId = state.messages.lastOrNull()?.id
     val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+    }
 
-    LaunchedEffect(latestMessageId) {
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+            } else {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+        }
+    }
+
+    LaunchedEffect(state.messages) {
+        ChatNotificationManager.showPersistentChatEntry(context, state.messages)
         if (pendingMobileAction == null) {
             parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
         }
