@@ -36,9 +36,12 @@ import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentAction
+import com.yuchen.ailedger.service.CloudAgentStep
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
+import com.yuchen.ailedger.service.requestAgentStep
+import com.yuchen.ailedger.service.toAgentScreenSnapshot
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
@@ -117,9 +120,7 @@ class AssistantViewModel(
         appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。", source = "local_ledger")
     }
 
-    fun deleteLedgerRecord(id: String) {
-        uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id })
-    }
+    fun deleteLedgerRecord(id: String) { uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id }) }
 
     fun updateComposer(text: String) {
         if (text == uiState.composerText) return
@@ -135,6 +136,8 @@ class AssistantViewModel(
         val attachments = uiState.composerAttachments.mapNotNull { it.takeIf { item -> item.isReady }?.toChatAttachment() }
         if (uiState.isSending || hasPreparingAttachment) return
         if (cleanText.isBlank() && attachments.isEmpty()) return
+        if (attachments.isEmpty() && isAgentEntryCommand(cleanText)) { previewAgentObservation(cleanText); return }
+        if (attachments.isEmpty() && shouldPlanAsAgentTask(cleanText)) { requestAgentNextStep(cleanText); return }
 
         val baseText = cleanText.ifBlank { "请根据视觉附件进行分析。" }
         val userText = if (attachments.isNotEmpty()) listOf(baseText, attachmentMessageFlag(attachments)).joinToString("\n\n") else baseText
@@ -161,32 +164,107 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
-    private fun buildAgentObservationMessage(id: String): ChatMessage {
+    fun requestAgentNextStep(goal: String) {
+        val cleanGoal = goal.trim().take(240)
+        if (cleanGoal.isBlank() || uiState.isSending) return
+        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanGoal, role = MessageRole.User)
+        val pendingMessage = ChatMessage(
+            id = nextLocalId("assistant"),
+            text = "正在读取屏幕并规划下一步…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "local_agent",
+            modelLabel = "手机智能体"
+        )
+        uiState = uiState.copy(messages = uiState.messages + userMessage + pendingMessage, composerText = "", isSending = true)
+        activeSendJob?.cancel()
+        activePendingMessageId = pendingMessage.id
+        activeSendJob = viewModelScope.launch {
+            try {
+                val message = buildAgentPlanningMessage(pendingMessage.id, cleanGoal)
+                if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, message)
+            } catch (error: CancellationException) {
+                if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
+            } catch (error: Throwable) {
+                val friendly = error.message?.takeIf { it.isNotBlank() } ?: "智能体规划失败，请稍后重试。"
+                if (activePendingMessageId == pendingMessage.id) {
+                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "local_agent", modelLabel = "规划失败", errorText = friendly))
+                }
+            } finally {
+                if (activePendingMessageId == pendingMessage.id) {
+                    activeSendJob = null
+                    activePendingMessageId = null
+                    uiState = uiState.copy(isSending = false)
+                }
+            }
+        }
+    }
+
+    private fun buildAgentPlanningMessage(id: String, goal: String): ChatMessage {
         val observation = AiAgentAccessibilityService.captureFreshSnapshot()
         if (!observation.enabled || !observation.serviceConnected) {
             AgentAccessibilityGuideActivity.open(getApplication<Application>())
-            val guideText = buildString {
-                append("手机智能体开启引导\n\n")
-                append("状态：未开启\n")
-                append("我已为你弹出开启引导。请点击弹窗里的“去开启”，然后在系统无障碍设置里打开“AI助手”。\n\n")
-                append("说明：Android 不允许 App 直接替你打开无障碍权限，所以需要你在系统页手动确认一次。开启后回到 App，再发送“观察当前屏幕”或“打开智能体”即可使用。")
-            }
-            return ChatMessage(id = id, text = guideText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "需要开启")
+            return buildAgentGuideMessage(id)
         }
+        val snapshot = observation.toAgentScreenSnapshot()
+        val step = aiWorkerClient.requestAgentStep(goal = goal, snapshot = snapshot, modelPreference = uiState.selectedModel)
+        return buildAgentStepMessage(id, goal, snapshot.currentApp, snapshot.nodeCount, step)
+    }
+
+    private fun buildAgentStepMessage(
+        id: String,
+        goal: String,
+        currentApp: String,
+        nodeCount: Int,
+        step: CloudAgentStep,
+    ): ChatMessage {
+        val text = buildString {
+            append("手机智能体规划测试\n\n")
+            append("目标：$goal\n")
+            append("当前应用：${currentApp.ifBlank { "未知" }}\n")
+            append("可读节点：$nodeCount 个\n")
+            append("建议动作：${step.typeLabel}\n")
+            step.targetNodeId?.let { append("节点：$it\n") }
+            step.targetText?.let { append("目标控件：$it\n") }
+            step.text?.let { append("输入内容：$it\n") }
+            step.direction?.let { append("方向：$it\n") }
+            step.reason?.let { append("原因：$it\n") }
+            append("风险：${step.riskLevel}\n")
+            append("需要确认：${if (step.requiresConfirmation) "是" else "否"}\n\n")
+            append("当前测试阶段：云端已经给出下一步规划，但暂不自动点击、输入或滚动。")
+        }
+        return ChatMessage(id = id, text = text, role = MessageRole.Assistant, source = "local_agent", modelLabel = "规划测试")
+    }
+
+    private fun buildAgentObservationMessage(id: String): ChatMessage {
+        val observation = AiAgentAccessibilityService.captureFreshSnapshot()
+        if (!observation.enabled || !observation.serviceConnected) return buildAgentGuideMessage(id)
         val textPreview = observation.textItems.take(6).joinToString(" / ").ifBlank { "暂无文字" }
         val assistantText = buildString {
             append("手机智能体观察卡\n\n")
             append("状态：已连接\n")
             append("当前应用：${observation.packageName.ifBlank { "未知" }}\n")
-            append("节点：${observation.nodeCount} 个\n")
+            append("可读节点：${observation.nodeCount} 个\n")
             append("文字：${observation.textItems.size} 条\n")
             append("按钮：${observation.clickableItems.size} 个\n")
             append("输入框：${observation.inputItems.size} 个\n")
             append("可滚动区域：${observation.scrollableItems.size} 个\n")
             append("屏幕文字预览：$textPreview\n\n")
-            append("当前为按需快照模式：只有请求观察或规划时才抓取节点，不会持续后台扫描。")
+            append("当前为按需快照模式：只有请求观察或规划时才抓取节点，不会持续后台扫描。\n")
+            append("你现在可以直接说：帮我打开微信找到文件传输助手。")
         }
         return ChatMessage(id = id, text = assistantText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "手机智能体")
+    }
+
+    private fun buildAgentGuideMessage(id: String): ChatMessage {
+        AgentAccessibilityGuideActivity.open(getApplication<Application>())
+        val guideText = buildString {
+            append("手机智能体开启引导\n\n")
+            append("状态：未开启\n")
+            append("我已为你弹出开启引导。请点击弹窗里的“去开启”，然后在系统无障碍设置里打开“AI助手”。\n\n")
+            append("开启后回到 App，可以直接测试：帮我打开微信找到文件传输助手。")
+        }
+        return ChatMessage(id = id, text = guideText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "需要开启")
     }
 
     fun previewMobileCommand(userText: String, command: MobileCommand) {
@@ -300,7 +378,11 @@ class AssistantViewModel(
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     when {
-                        cloudAgentAction?.canExecuteLocally() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
+                        cloudAgentAction?.canExecuteLocally() == true -> {
+                            val goal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
+                            if (shouldPlanAsAgentTask(goal)) replaceMessage(pendingMessage.id, buildAgentPlanningMessage(pendingMessage.id, goal))
+                            else replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
+                        }
                         cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
                         else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider))
                     }
@@ -433,6 +515,21 @@ class AssistantViewModel(
         val realtimePattern = Regex(pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)", option = RegexOption.IGNORE_CASE)
         return realtimePattern.containsMatchIn(latestUserText)
     }
+
+    private fun shouldPlanAsAgentTask(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isBlank()) return false
+        if (isAgentEntryCommand(clean)) return false
+        val taskWords = listOf("帮我", "替我", "自动", "去", "找到", "查找", "搜索", "进入", "点击", "输入", "打开", "滑动", "返回")
+        val appWords = listOf("微信", "QQ", "哔哩", "B站", "小红书", "抖音", "淘宝", "京东", "支付宝", "高德", "百度地图", "浏览器")
+        return (taskWords.any { clean.contains(it, ignoreCase = true) } && appWords.any { clean.contains(it, ignoreCase = true) }) || clean.contains("手机智能体")
+    }
+
+    private fun isAgentEntryCommand(text: String): Boolean {
+        val clean = text.trim()
+        return clean in setOf("打开智能体", "开启智能体", "启动智能体", "观察屏幕", "观察当前屏幕", "看屏幕", "看一下屏幕", "看一下当前屏幕")
+    }
+
     private fun hasNoOnlineIntent(text: String): Boolean = Regex(pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)", option = RegexOption.IGNORE_CASE).containsMatchIn(text)
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
