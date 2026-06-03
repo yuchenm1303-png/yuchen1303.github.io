@@ -819,7 +819,7 @@ private fun ComposerInputV2(
                         .fillMaxWidth()
                         .onFocusChanged { onFocusChange(it.isFocused) }
                 )
-                AnimatedVisibility(visible = text.isBlank(), enter = fadeIn(tween(160)), exit = fadeOut(tween(100))) {
+                if (text.isBlank()) {
                     Text(placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
