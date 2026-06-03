@@ -23,10 +23,12 @@ class InstalledAppIndex(
     fun findBestApp(rawQuery: String): InstalledAppEntry? {
         val query = normalizeAppName(rawQuery)
         if (query.isBlank()) return null
-        val apps = getLaunchableApps()
         val queryCandidates = aliasCandidates(query)
 
-        val scannedMatch = apps
+        knownAppFallback(queryCandidates)?.let { return it }
+
+        val apps = getLaunchableApps()
+        return apps
             .mapNotNull { app ->
                 val label = normalizeAppName(app.label)
                 val score = queryCandidates.maxOfOrNull { candidate -> scoreNameMatch(candidate, label) } ?: 0
@@ -34,9 +36,6 @@ class InstalledAppIndex(
             }
             .maxWithOrNull(compareBy<Pair<InstalledAppEntry, Int>> { it.second }.thenByDescending { it.first.label.length })
             ?.first
-        if (scannedMatch != null) return scannedMatch
-
-        return knownAppFallback(queryCandidates)
     }
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
@@ -64,19 +63,7 @@ class InstalledAppIndex(
     }
 
     private fun knownAppFallback(candidates: List<String>): InstalledAppEntry? {
-        val known = listOf(
-            InstalledAppEntry("微信", "com.tencent.mm"),
-            InstalledAppEntry("支付宝", "com.eg.android.AlipayGphone"),
-            InstalledAppEntry("高德地图", "com.autonavi.minimap"),
-            InstalledAppEntry("百度地图", "com.baidu.BaiduMap"),
-            InstalledAppEntry("QQ", "com.tencent.mobileqq"),
-            InstalledAppEntry("淘宝", "com.taobao.taobao"),
-            InstalledAppEntry("京东", "com.jingdong.app.mall"),
-            InstalledAppEntry("哔哩哔哩", "tv.danmaku.bili"),
-            InstalledAppEntry("抖音", "com.ss.android.ugc.aweme"),
-            InstalledAppEntry("小红书", "com.xingin.xhs")
-        )
-        return known.firstOrNull { app ->
+        return KNOWN_APPS.firstOrNull { app ->
             val label = normalizeAppName(app.label)
             candidates.any { candidate -> scoreNameMatch(candidate, label) > 0 }
         }
@@ -117,5 +104,17 @@ class InstalledAppIndex(
 
     companion object {
         private const val CACHE_TTL_MS = 60_000L
+        private val KNOWN_APPS = listOf(
+            InstalledAppEntry("微信", "com.tencent.mm"),
+            InstalledAppEntry("支付宝", "com.eg.android.AlipayGphone"),
+            InstalledAppEntry("高德地图", "com.autonavi.minimap"),
+            InstalledAppEntry("百度地图", "com.baidu.BaiduMap"),
+            InstalledAppEntry("QQ", "com.tencent.mobileqq"),
+            InstalledAppEntry("淘宝", "com.taobao.taobao"),
+            InstalledAppEntry("京东", "com.jingdong.app.mall"),
+            InstalledAppEntry("哔哩哔哩", "tv.danmaku.bili"),
+            InstalledAppEntry("抖音", "com.ss.android.ugc.aweme"),
+            InstalledAppEntry("小红书", "com.xingin.xhs")
+        )
     }
 }
