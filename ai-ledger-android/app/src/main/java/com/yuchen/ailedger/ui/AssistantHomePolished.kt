@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -54,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -116,6 +114,20 @@ private data class ComposerBarUiState(
             else -> "和我说点什么..."
         }
 }
+
+@Immutable
+private data class ModelPanelUiState(
+    val selectedModel: ChatModel,
+    val selectedModelLabel: String,
+    val onlineEnabled: Boolean,
+    val isSending: Boolean,
+    val quality: RenderQuality,
+    val glassIntensity: Float,
+    val motionIntensity: Float,
+    val modelCardGlassStyle: com.yuchen.ailedger.model.ModelCardGlassStyle
+)
+
+private var assistantHomeEntrancePlayedInProcess = false
 
 @Composable
 fun AssistantScreenV2(
@@ -218,6 +230,29 @@ fun AssistantScreenV2(
         )
     }
 
+    val modelPanelState = remember(
+        state.selectedModel,
+        state.selectedModelLabel,
+        state.onlineEnabled,
+        state.isSending,
+        state.quality,
+        state.glassIntensity,
+        state.motionIntensity,
+        state.modelCardGlassStyle
+    ) {
+        ModelPanelUiState(
+            selectedModel = state.selectedModel,
+            selectedModelLabel = state.selectedModelLabel,
+            onlineEnabled = state.onlineEnabled,
+            isSending = state.isSending,
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            modelCardGlassStyle = state.modelCardGlassStyle
+        )
+    }
+    val modelSelectorState = rememberModelSelectorLegacyState(state, modelPanelState)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -235,7 +270,8 @@ fun AssistantScreenV2(
             initialScale = 0.965f
         ) {
             ModelAndNetworkPanel(
-                state = state,
+                state = modelPanelState,
+                selectorState = modelSelectorState,
                 expanded = modelPanelExpanded,
                 panelHeight = modelPanelVisualHeight,
                 layoutHeight = collapsedPanelHeight,
@@ -285,9 +321,12 @@ private fun AssistantEntrance(
     initialScale: Float = 0.96f,
     content: @Composable () -> Unit
 ) {
-    var visible by remember { mutableStateOf(false) }
+    var visible by remember { mutableStateOf(assistantHomeEntrancePlayedInProcess) }
     LaunchedEffect(Unit) {
-        if (delayMs > 0L) delay(delayMs)
+        if (!assistantHomeEntrancePlayedInProcess) {
+            if (delayMs > 0L) delay(delayMs)
+            assistantHomeEntrancePlayedInProcess = true
+        }
         visible = true
     }
     AnimatedVisibility(
@@ -310,7 +349,8 @@ private fun AssistantHeroV2() {
 
 @Composable
 private fun ModelAndNetworkPanel(
-    state: AssistantUiState,
+    state: ModelPanelUiState,
+    selectorState: AssistantUiState,
     expanded: Boolean,
     panelHeight: Dp,
     layoutHeight: Dp,
@@ -329,7 +369,7 @@ private fun ModelAndNetworkPanel(
                 .height(panelHeight)
         ) {
             UnifiedParentModelStackSelector(
-                state = state,
+                state = selectorState,
                 expanded = expanded,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -345,7 +385,7 @@ private fun ModelAndNetworkPanel(
                 }
             )
             NetworkDropletCapsule(
-                state = state,
+                state = selectorState,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .fillMaxWidth(0.30f)
@@ -354,6 +394,34 @@ private fun ModelAndNetworkPanel(
                 onClick = onToggleOnline
             )
         }
+    }
+}
+
+@Composable
+private fun rememberModelSelectorLegacyState(
+    source: AssistantUiState,
+    modelState: ModelPanelUiState
+): AssistantUiState {
+    return remember(
+        modelState.selectedModel,
+        modelState.selectedModelLabel,
+        modelState.onlineEnabled,
+        modelState.isSending,
+        modelState.quality,
+        modelState.glassIntensity,
+        modelState.motionIntensity,
+        modelState.modelCardGlassStyle
+    ) {
+        source.copy(
+            selectedModel = modelState.selectedModel,
+            selectedModelLabel = modelState.selectedModelLabel,
+            onlineEnabled = modelState.onlineEnabled,
+            isSending = modelState.isSending,
+            quality = modelState.quality,
+            glassIntensity = modelState.glassIntensity,
+            motionIntensity = modelState.motionIntensity,
+            modelCardGlassStyle = modelState.modelCardGlassStyle
+        )
     }
 }
 
@@ -550,6 +618,8 @@ private fun MessageBubbleV2(
     val fromUser = message.role == MessageRole.User
     val sending = message.status == MessageStatus.Sending && !fromUser
     val bubbleRadius = if (fromUser) 26 else 28
+    val displayText = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
+    val textColor = remember(message.id, message.status, fromUser) { messageTextColor(message, fromUser) }
     val phaseOffset = remember(message.id) { phaseOffsetForMessage(message.id) }
     val speedFactor = remember(message.id) { phaseSpeedForMessage(message.id) }
     var visible by remember(message.id) { mutableStateOf(false) }
@@ -603,13 +673,13 @@ private fun MessageBubbleV2(
             ) {
                 if (sending) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text(messageText(message), color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(displayText, color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
                         ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.62f))
                     }
                 } else {
                     Text(
-                        text = messageText(message),
-                        color = messageTextColor(message, fromUser),
+                        text = displayText,
+                        color = textColor,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium
