@@ -281,29 +281,42 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         ) {
                             CachedAppTabHost(currentTab = state.currentTab, modifier = Modifier.fillMaxSize()) { tab ->
                                 when (tab) {
-                                    AppTab.Assistant -> AssistantScreenV2(
-                                        state = state.copy(
-                                            motionIntensity = effectiveMotionIntensity,
-                                            composerText = visibleComposerTextForAssistant(state.composerText)
-                                        ),
-                                        bottomPadding = assistantBottomPadding,
-                                        onComposerChange = viewModel::updateComposer,
-                                        onSend = submitOrRunLocalMobileCommand,
-                                        onStopGenerating = viewModel::stopGenerating,
-                                        onDraftCommand = viewModel::insertCommandDraft,
-                                        onModelSelected = viewModel::selectModel,
-                                        onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                        onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                        onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
-                                        onToggleOnline = viewModel::toggleOnline,
-                                        onCopyMessage = { text ->
-                                            if (text.isNotBlank()) {
-                                                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                    AppTab.Assistant -> {
+                                        Box(Modifier.fillMaxSize()) {
+                                            AssistantScreenV2(
+                                                state = state.copy(
+                                                    motionIntensity = effectiveMotionIntensity,
+                                                    composerText = visibleComposerTextForAssistant(state.composerText)
+                                                ),
+                                                bottomPadding = assistantBottomPadding,
+                                                onComposerChange = viewModel::updateComposer,
+                                                onSend = submitOrRunLocalMobileCommand,
+                                                onStopGenerating = viewModel::stopGenerating,
+                                                onDraftCommand = viewModel::insertCommandDraft,
+                                                onModelSelected = viewModel::selectModel,
+                                                onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                                onOpenTools = { viewModel.selectTab(AppTab.Tools) },
+                                                onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                                onToggleOnline = viewModel::toggleOnline,
+                                                onCopyMessage = { text ->
+                                                    if (text.isNotBlank()) {
+                                                        clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                                                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                onRetryMessage = viewModel::retryMessage
+                                            )
+                                            if (state.composerAttachments.isNotEmpty()) {
+                                                VisualAttachmentFloatingCard(
+                                                    state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                                    modifier = Modifier
+                                                        .align(Alignment.BottomCenter)
+                                                        .padding(start = 24.dp, end = 24.dp, bottom = assistantBottomPadding + 58.dp)
+                                                        .zIndex(2600f)
+                                                )
                                             }
-                                        },
-                                        onRetryMessage = viewModel::retryMessage
-                                    )
+                                        }
+                                    }
                                     AppTab.Tools -> {
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
@@ -360,16 +373,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 }
                                 .zIndex(1000f)
                         )
-                        if (state.currentTab == AppTab.Assistant && state.composerAttachments.isNotEmpty()) {
-                            VisualAttachmentFloatingCard(
-                                state = state.copy(motionIntensity = effectiveMotionIntensity),
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .navigationBarsPadding()
-                                    .padding(start = 24.dp, end = 24.dp, bottom = assistantBottomPadding + 72.dp)
-                                    .zIndex(2400f)
-                            )
-                        }
                     }
                 }
             }
