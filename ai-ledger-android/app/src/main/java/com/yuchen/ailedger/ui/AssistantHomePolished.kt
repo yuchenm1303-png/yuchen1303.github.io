@@ -36,7 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Text
+import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -341,9 +341,9 @@ private fun AssistantEntrance(
 @Composable
 private fun AssistantHeroV2() {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        Text("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-        Text("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
-        Text("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        MaterialText("AI ASSISTANT", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+        MaterialText("AI 助手", color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black)
+        MaterialText("直接说需求，我来帮你拆成动作。", color = Color.White.copy(alpha = 0.54f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -507,7 +507,7 @@ private fun ChatPanelV2(
             )
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    MaterialText("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
                     ChatStatusV2(statusText)
                 }
@@ -573,7 +573,7 @@ private fun StarterSuggestionsV2(
         exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 2.dp)) {
-            Text("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            MaterialText("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
                 SuggestionButtonV2("记一笔", quality, glassIntensity, motionIntensity, Modifier.weight(1f)) {
                     onDraftCommand("记一笔 午饭 18 元")
@@ -673,7 +673,7 @@ private fun MessageBubbleV2(
             ) {
                 if (sending) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text(displayText, color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+                        MaterialText(displayText, color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
                         ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.62f))
                     }
                 } else {
@@ -726,11 +726,11 @@ private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
                         .background(Color(0xFF8DF9EA).copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("IMG", color = Color(0xFF8DF9EA).copy(alpha = 0.88f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                    MaterialText("IMG", color = Color(0xFF8DF9EA).copy(alpha = 0.88f), fontSize = 8.sp, fontWeight = FontWeight.Black)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text("视觉附件", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("$dimensions · $size", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MaterialText("视觉附件", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                    MaterialText("$dimensions · $size", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -743,7 +743,7 @@ private fun MessageBadgeV2(message: ChatMessage) {
     val badgeColor = badgeColorV2(message)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
-        Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        MaterialText(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -754,7 +754,7 @@ private fun MessageUserAttachmentBadgeV2(message: ChatMessage) {
     val size = attachment?.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已发送"
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(Color(0xFF8DF9EA).copy(alpha = 0.82f)))
-        Text("视觉附件 · $dimensions · $size", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        MaterialText("视觉附件 · $dimensions · $size", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -772,7 +772,7 @@ private fun MessageActionsV2(message: ChatMessage, onCopyMessage: (String) -> Un
 
 @Composable
 private fun TextActionV2(text: String, color: Color = Color.White.copy(alpha = 0.50f), onClick: () -> Unit) {
-    Text(
+    MaterialText(
         text = text,
         color = color,
         fontSize = 9.sp,
@@ -886,7 +886,7 @@ private fun ComposerInputV2(
                         .onFocusChanged { onFocusChange(it.isFocused) }
                 )
                 if (state.text.isBlank()) {
-                    Text(state.placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MaterialText(state.placeholder, color = Color.White.copy(alpha = 0.42f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -930,14 +930,14 @@ private fun InlineComposerAttachmentChipV2(
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(
+                MaterialText(
                     text = "IMG",
                     color = if (attachment.status == ComposerAttachmentStatus.Failed) Color(0xFFFFB4B4) else Color(0xFF8DF9EA),
                     fontSize = 8.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1
                 )
-                Text(
+                MaterialText(
                     text = "$statusText · $dimensions · $sizeText",
                     color = Color.White.copy(alpha = 0.72f),
                     fontSize = 9.sp,
@@ -984,7 +984,7 @@ private fun SendButtonV2(state: ComposerBarUiState, enabled: Boolean, onClick: (
         onClick = { if (enabled) onClick() }
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
+            MaterialText(
                 if (state.isSending) "Ⅱ" else "↑",
                 color = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
                 fontSize = if (state.isSending) 19.sp else 22.sp,
@@ -1005,7 +1005,7 @@ private fun RoundIconButtonV2(
 ) {
     PressableGlass(quality, glassIntensity * 0.96f, motionIntensity, 999, Modifier.size(size.dp), GlassRole.Floating, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = if (text == "+") 25.sp else 15.sp, fontWeight = FontWeight.Black)
+            MaterialText(text, color = Color.White.copy(alpha = 0.92f), fontSize = if (text == "+") 25.sp else 15.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -1021,7 +1021,7 @@ private fun SuggestionButtonV2(
 ) {
     PressableGlass(quality, glassIntensity * 0.92f, motionIntensity, 20, modifier.height(38.dp), GlassRole.Chip, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            MaterialText(text, color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
     }
 }
@@ -1029,7 +1029,7 @@ private fun SuggestionButtonV2(
 @Composable
 private fun ChatStatusV2(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(text, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        MaterialText(text, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
