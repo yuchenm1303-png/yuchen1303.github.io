@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
 private const val ASSISTANT_IMAGE_MAX_DIMENSION = 1280
 private const val ASSISTANT_IMAGE_JPEG_QUALITY = 84
 private const val ASSISTANT_IMAGE_MAX_BYTES = 6 * 1024 * 1024
+private const val IMAGE_COMPOSER_STATUS_PREFIX = "🖼 "
 
 class AssistantViewModel(
     application: Application,
@@ -117,13 +118,13 @@ class AssistantViewModel(
 
     fun submitComposer() {
         val text = uiState.composerText.trim()
-        if (text.isBlank() || uiState.isSending) return
+        if (text.isBlank() || uiState.isSending || isImageComposerStatus(text)) return
         sendUserCommand(text)
     }
 
     fun sendUserCommand(text: String) {
         val cleanText = text.trim()
-        if (cleanText.isBlank() || uiState.isSending) return
+        if (cleanText.isBlank() || uiState.isSending || isImageComposerStatus(cleanText)) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
         val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         val requestMessages = uiState.messages + userMessage
@@ -155,13 +156,7 @@ class AssistantViewModel(
             append("屏幕文字预览：$textPreview\n\n")
             append("当前版本只观察屏幕，不会自动点击或输入。")
         }
-        return ChatMessage(
-            id = id,
-            text = assistantText,
-            role = MessageRole.Assistant,
-            source = "local_agent",
-            modelLabel = "手机智能体"
-        )
+        return ChatMessage(id = id, text = assistantText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "手机智能体")
     }
 
     fun previewMobileCommand(userText: String, command: MobileCommand) {
@@ -176,13 +171,7 @@ class AssistantViewModel(
         val cleanText = userText.trim()
         if (cleanText.isBlank() || uiState.isSending) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
-        val assistantMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = "已取消这个手机动作：${command.title} · ${command.summary}。",
-            role = MessageRole.Assistant,
-            source = "local_mobile",
-            modelLabel = "已取消"
-        )
+        val assistantMessage = ChatMessage(id = nextLocalId("assistant"), text = "已取消这个手机动作：${command.title} · ${command.summary}。", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "已取消")
         uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
@@ -216,13 +205,7 @@ class AssistantViewModel(
         val cleanAddress = address.trim().take(80)
         if (cleanText.isBlank() || cleanAddress.isBlank() || uiState.isSending) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
-        val assistantMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress",
-            role = MessageRole.Assistant,
-            source = "local_mobile",
-            modelLabel = "导航偏好"
-        )
+        val assistantMessage = ChatMessage(id = nextLocalId("assistant"), text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "导航偏好")
         uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
         updateNavigationAddress(slot, cleanAddress)
     }
@@ -293,7 +276,7 @@ class AssistantViewModel(
         if (pendingId != null) markMessageStopped(pendingId)
         activeSendJob = null
         activePendingMessageId = null
-        uiState = uiState.copy(isSending = false)
+        uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
     }
 
     private fun sendPendingRequest(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage) {
@@ -309,30 +292,24 @@ class AssistantViewModel(
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     when {
-                        cloudAgentAction?.canExecuteLocally() == true -> {
-                            replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
-                        }
-                        cloudCommand != null -> {
-                            replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
-                        }
-                        else -> {
-                            replaceMessage(
-                                pendingMessage.id,
-                                pendingMessage.copy(
-                                    text = decorateReply(response, onlineEnabled),
-                                    status = MessageStatus.Sent,
-                                    source = response.source,
-                                    model = response.model,
-                                    modelLabel = response.modelLabel ?: selectedModel.label,
-                                    version = response.version,
-                                    errorText = null,
-                                    webSources = response.webSources,
-                                    structuredData = response.structuredData,
-                                    searchUsed = response.searchUsed,
-                                    searchProvider = response.searchProvider
-                                )
+                        cloudAgentAction?.canExecuteLocally() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
+                        cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
+                        else -> replaceMessage(
+                            pendingMessage.id,
+                            pendingMessage.copy(
+                                text = decorateReply(response, onlineEnabled),
+                                status = MessageStatus.Sent,
+                                source = response.source,
+                                model = response.model,
+                                modelLabel = response.modelLabel ?: selectedModel.label,
+                                version = response.version,
+                                errorText = null,
+                                webSources = response.webSources,
+                                structuredData = response.structuredData,
+                                searchUsed = response.searchUsed,
+                                searchProvider = response.searchProvider
                             )
-                        }
+                        )
                     }
                 }
             } catch (error: CancellationException) {
@@ -346,7 +323,7 @@ class AssistantViewModel(
                 if (activePendingMessageId == pendingMessage.id) {
                     activeSendJob = null
                     activePendingMessageId = null
-                    uiState = uiState.copy(isSending = false)
+                    uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
                 }
             }
         }
@@ -389,54 +366,39 @@ class AssistantViewModel(
 
     fun onImagePickedForAssistant(uri: Uri?) {
         if (uri == null || uiState.isSending) return
-        val prompt = uiState.composerText.trim().ifBlank { "请识别这张图片，说明图中内容，并回答我可能关心的问题。" }
-        val preparingMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = "正在处理图片…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "local",
-            modelLabel = "图片处理"
-        )
-        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "", isSending = true)
+        val prompt = uiState.composerText.trim().takeUnless { isImageComposerStatus(it) }.orEmpty().ifBlank { "请识别这张图片，说明图中内容，并回答我可能关心的问题。" }
+        val preparingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在处理图片…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local", modelLabel = "图片处理")
+        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在处理图片…", isSending = true)
         viewModelScope.launch {
             try {
                 val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri) }
                 val userMessage = ChatMessage(
                     id = nextLocalId("user"),
-                    text = prompt,
+                    text = listOf(prompt, imageMessageFlag(attachment)).joinToString("\n\n"),
                     role = MessageRole.User,
                     attachments = listOf(attachment)
                 )
                 val pendingMessage = preparingMessage.copy(text = "正在识图…", source = "cloud_ai", modelLabel = "Qwen 识图")
                 val requestMessages = uiState.messages.filterNot { it.id == preparingMessage.id } + userMessage
-                uiState = uiState.copy(messages = requestMessages + pendingMessage)
+                uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在上传识图…")
                 sendPendingRequest(requestMessages, pendingMessage)
             } catch (error: Throwable) {
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
-                replaceMessage(
-                    preparingMessage.id,
-                    preparingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = "图片处理失败", errorText = friendly)
-                )
-                uiState = uiState.copy(isSending = false)
+                replaceMessage(preparingMessage.id, preparingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = "图片处理失败", errorText = friendly))
+                uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
             }
         }
     }
 
     private fun encodeAssistantImageAttachment(uri: Uri): ChatAttachment {
         val resolver = getApplication<Application>().contentResolver
-        val mimeType = resolver.getType(uri)?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            ?: throw IOException("无法读取图片")
+        val canOpen = resolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds); true } ?: false
+        if (!canOpen) throw IOException("无法读取图片")
         val rawWidth = bounds.outWidth.takeIf { it > 0 } ?: throw IOException("无法解析图片宽度")
         val rawHeight = bounds.outHeight.takeIf { it > 0 } ?: throw IOException("无法解析图片高度")
-        val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = imageSampleSize(rawWidth, rawHeight, ASSISTANT_IMAGE_MAX_DIMENSION)
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
-            ?: throw IOException("图片解码失败")
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = imageSampleSize(rawWidth, rawHeight, ASSISTANT_IMAGE_MAX_DIMENSION); inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) } ?: throw IOException("图片解码失败")
         val scaled = decoded.scaleToMaxDimension(ASSISTANT_IMAGE_MAX_DIMENSION)
         if (scaled !== decoded) decoded.recycle()
         val width = scaled.width
@@ -446,17 +408,16 @@ class AssistantViewModel(
         scaled.recycle()
         val bytes = output.toByteArray()
         if (bytes.size > ASSISTANT_IMAGE_MAX_BYTES) throw IOException("图片压缩后仍然过大，请裁剪后再试。")
-        return ChatAttachment(
-            id = nextLocalId("image"),
-            mimeType = "image/jpeg",
-            base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
-            fileName = uri.lastPathSegment?.takeLast(48),
-            width = width,
-            height = height,
-            sizeBytes = bytes.size,
-            previewUri = uri.toString()
-        )
+        return ChatAttachment(id = nextLocalId("image"), mimeType = "image/jpeg", base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP), fileName = uri.lastPathSegment?.takeLast(48), width = width, height = height, sizeBytes = bytes.size, previewUri = uri.toString())
     }
+
+    private fun imageMessageFlag(attachment: ChatAttachment): String {
+        val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else null
+        val sizeKb = attachment.sizeBytes?.let { "${max(1, it / 1024)}KB" }
+        return listOfNotNull("🖼 图片已附加", dimensions, sizeKb).joinToString(" · ")
+    }
+
+    private fun isImageComposerStatus(text: String): Boolean = text.startsWith(IMAGE_COMPOSER_STATUS_PREFIX) && text.contains("图片")
 
     private fun imageSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         var sample = 1
@@ -495,18 +456,12 @@ class AssistantViewModel(
         val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
         if (latestUserText.isBlank()) return false
         if (hasNoOnlineIntent(latestUserText)) return false
-        val realtimePattern = Regex(
-            pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)",
-            option = RegexOption.IGNORE_CASE
-        )
+        val realtimePattern = Regex(pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)", option = RegexOption.IGNORE_CASE)
         return realtimePattern.containsMatchIn(latestUserText)
     }
 
     private fun hasNoOnlineIntent(text: String): Boolean {
-        val noOnlinePattern = Regex(
-            pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)",
-            option = RegexOption.IGNORE_CASE
-        )
+        val noOnlinePattern = Regex(pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)", option = RegexOption.IGNORE_CASE)
         return noOnlinePattern.containsMatchIn(text)
     }
 
@@ -520,12 +475,7 @@ class AssistantViewModel(
                 "- ${metric.label}: ${metric.value}$unit$detail"
             }
             val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · ")
-            val block = buildString {
-                append("实时数据：")
-                append(header.ifBlank { data.type })
-                if (metrics.isNotBlank()) append("\n").append(metrics)
-                data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
-            }
+            val block = buildString { append("实时数据："); append(header.ifBlank { data.type }); if (metrics.isNotBlank()) append("\n").append(metrics); data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) } }
             sections += block
         }
         if (response.webSources.isNotEmpty()) {
@@ -546,21 +496,9 @@ class AssistantViewModel(
 
     fun selectQuality(quality: RenderQuality) { uiState = uiState.copy(quality = quality); viewModelScope.launch { preferencesStore.setRenderQuality(quality) } }
     fun setShowPreviewConversation(showPreviewConversation: Boolean) { uiState = uiState.copy(showPreviewConversation = showPreviewConversation); viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) } }
-    fun setBackgroundTheme(backgroundTheme: BackgroundTheme) {
-        uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = BUILTIN_THEME_BACKGROUND_PATH)
-        viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme); preferencesStore.setCustomBackgroundPath(null) }
-    }
-    fun importCustomBackground(uri: Uri) {
-        viewModelScope.launch {
-            val savedPath = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }
-            uiState = uiState.copy(customBackgroundPath = savedPath)
-            preferencesStore.setCustomBackgroundPath(savedPath)
-        }
-    }
-    fun clearCustomBackground() {
-        uiState = uiState.copy(customBackgroundPath = null)
-        viewModelScope.launch { withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }; preferencesStore.setCustomBackgroundPath(null) }
-    }
+    fun setBackgroundTheme(backgroundTheme: BackgroundTheme) { uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = BUILTIN_THEME_BACKGROUND_PATH); viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme); preferencesStore.setCustomBackgroundPath(null) } }
+    fun importCustomBackground(uri: Uri) { viewModelScope.launch { val savedPath = withContext(Dispatchers.IO) { customBackgroundStore.saveFromUri(uri) }; uiState = uiState.copy(customBackgroundPath = savedPath); preferencesStore.setCustomBackgroundPath(savedPath) } }
+    fun clearCustomBackground() { uiState = uiState.copy(customBackgroundPath = null); viewModelScope.launch { withContext(Dispatchers.IO) { customBackgroundStore.clearCustomBackground() }; preferencesStore.setCustomBackgroundPath(null) } }
     fun setBackdropDebugParams(params: BackdropDebugParams) { uiState = uiState.copy(backdropParams = params) }
     fun updateBackdropDebugParams(block: (BackdropDebugParams) -> BackdropDebugParams) { setBackdropDebugParams(block(uiState.backdropParams)) }
     fun setGlassBorderStyle(style: GlassBorderStyle) { uiState = uiState.copy(glassBorderStyle = style) }
@@ -570,31 +508,14 @@ class AssistantViewModel(
     fun setRainbowPrismStyle(style: RainbowPrismStyle) {
         val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
         val maxValue = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-        val clamped = RainbowPrismStyle(
-            overall = style.overall.coerceIn(0f, 2f),
-            edgeHighlight = style.edgeHighlight.coerceIn(0f, 2f),
-            sweepMin = minValue,
-            sweepMax = maxValue,
-            rainbowHalo = style.rainbowHalo.coerceIn(0f, 2f)
-        )
+        val clamped = RainbowPrismStyle(overall = style.overall.coerceIn(0f, 2f), edgeHighlight = style.edgeHighlight.coerceIn(0f, 2f), sweepMin = minValue, sweepMax = maxValue, rainbowHalo = style.rainbowHalo.coerceIn(0f, 2f))
         uiState = uiState.copy(rainbowPrismStyle = clamped)
         viewModelScope.launch { preferencesStore.setRainbowPrismStyle(clamped) }
     }
 
-    fun setGlassIntensity(value: Float) {
-        val clamped = value.coerceIn(0.6f, 1.4f)
-        uiState = uiState.copy(glassIntensity = clamped, glassPreset = detectPreset(clamped, uiState.motionIntensity))
-        viewModelScope.launch { preferencesStore.setGlassIntensity(clamped) }
-    }
-    fun setMotionIntensity(value: Float) {
-        val clamped = value.coerceIn(0f, 1.4f)
-        uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped))
-        viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) }
-    }
-    fun setGlassPreset(preset: GlassPreset) {
-        uiState = uiState.copy(glassPreset = preset, glassIntensity = preset.glassIntensity, motionIntensity = preset.motionIntensity)
-        viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) }
-    }
+    fun setGlassIntensity(value: Float) { val clamped = value.coerceIn(0.6f, 1.4f); uiState = uiState.copy(glassIntensity = clamped, glassPreset = detectPreset(clamped, uiState.motionIntensity)); viewModelScope.launch { preferencesStore.setGlassIntensity(clamped) } }
+    fun setMotionIntensity(value: Float) { val clamped = value.coerceIn(0f, 1.4f); uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped)); viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) } }
+    fun setGlassPreset(preset: GlassPreset) { uiState = uiState.copy(glassPreset = preset, glassIntensity = preset.glassIntensity, motionIntensity = preset.motionIntensity); viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) } }
 
     private fun detectPreset(glass: Float, motion: Float): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
     private fun nextLocalId(prefix: String): String = "$prefix-${localIdSeed.incrementAndGet()}"
