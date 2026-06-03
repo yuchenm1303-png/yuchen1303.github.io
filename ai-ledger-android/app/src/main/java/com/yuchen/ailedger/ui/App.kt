@@ -201,7 +201,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val visibleComposerText = remember(state.composerText) { visibleComposerTextForAssistant(state.composerText) }
     val assistantScreenState = rememberAssistantScreenState(state, effectiveMotionIntensity, visibleComposerText)
     val stockAndSettingsState = rememberMotionState(state, effectiveMotionIntensity)
-    val attachmentOverlayState = rememberAttachmentOverlayState(state, effectiveMotionIntensity)
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -383,15 +382,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 },
                                                 onRetryMessage = viewModel::retryMessage
                                             )
-                                            attachmentOverlayState?.let { overlay ->
-                                                VisualAttachmentFloatingCard(
-                                                    overlay = overlay,
-                                                    modifier = Modifier
-                                                        .align(Alignment.BottomCenter)
-                                                        .padding(start = 24.dp, end = 24.dp, bottom = assistantBottomPadding + 58.dp)
-                                                        .zIndex(2600f)
-                                                )
-                                            }
                                         }
                                     }
                                     AppTab.Tools -> {
@@ -521,91 +511,8 @@ private fun rememberMotionState(state: AssistantUiState, effectiveMotionIntensit
     }
 }
 
-@Composable
-private fun rememberAttachmentOverlayState(
-    state: AssistantUiState,
-    effectiveMotionIntensity: Float,
-): VisualAttachmentOverlayState? {
-    val attachment = state.composerAttachments.lastOrNull()
-    return remember(attachment, state.quality, state.glassIntensity, effectiveMotionIntensity) {
-        attachment?.let {
-            VisualAttachmentOverlayState(
-                attachment = it,
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
-                motionIntensity = effectiveMotionIntensity,
-            )
-        }
-    }
-}
-
-@Composable
-private fun VisualAttachmentFloatingCard(overlay: VisualAttachmentOverlayState, modifier: Modifier = Modifier) {
-    val attachment = overlay.attachment
-    val progress = attachment.progress.coerceIn(0f, 1f)
-    val statusText = visualAttachmentStatusText(attachment)
-    val metaText = visualAttachmentMetaText(attachment)
-    GlassPanel(
-        quality = overlay.quality,
-        glassIntensity = overlay.glassIntensity * 0.96f,
-        motionIntensity = overlay.motionIntensity,
-        radius = 24,
-        modifier = modifier.fillMaxWidth(),
-        role = GlassRole.Floating
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF8DF9EA).copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("视觉附件", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("$statusText · $metaText", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text("${(progress * 100).toInt()}%", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.Black)
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.10f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress.coerceAtLeast(if (attachment.status == ComposerAttachmentStatus.Failed) 1f else 0.08f))
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (attachment.status == ComposerAttachmentStatus.Failed) Color(0xFFFFB4B4) else Color(0xFF8DF9EA).copy(alpha = 0.78f))
-                )
-            }
-        }
-    }
-}
-
 private fun visibleComposerTextForAssistant(text: String): String {
     return if (text.trim().startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) "" else text
-}
-
-private fun visualAttachmentStatusText(attachment: ComposerAttachment): String {
-    return when (attachment.status) {
-        ComposerAttachmentStatus.Preparing -> "正在准备"
-        ComposerAttachmentStatus.Uploading -> "正在上传"
-        ComposerAttachmentStatus.Ready -> "已就绪，可配文发送"
-        ComposerAttachmentStatus.Failed -> attachment.errorText?.take(36) ?: "处理失败"
-    }
-}
-
-private fun visualAttachmentMetaText(attachment: ComposerAttachment): String {
-    val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "读取尺寸中"
-    val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "压缩中"
-    return "$dimensions · $size"
 }
 
 private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand? {
