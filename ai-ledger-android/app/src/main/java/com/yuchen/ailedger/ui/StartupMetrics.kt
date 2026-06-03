@@ -6,6 +6,12 @@ import android.os.SystemClock
 import android.view.Choreographer
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import kotlin.math.abs
+
+private const val FRAME_STATS_PUBLISH_INTERVAL_MS = 1000L
+private const val FRAME_STATS_FORCE_PUBLISH_EVERY_N_FRAMES = 120
+private const val FPS_CHANGE_THRESHOLD = 0.7f
+private const val FRAME_MS_CHANGE_THRESHOLD = 0.4f
 
 object StartupMetrics {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -114,13 +120,13 @@ object StartupMetrics {
                     if (frameMs >= 24f) longFrameCount += 1
                     if (frameMs >= 33f) jankFrameCount += 1
                     val now = SystemClock.elapsedRealtime()
-                    if (now - fpsWindowStartMs >= 700L) {
+                    if (now - fpsWindowStartMs >= FRAME_STATS_PUBLISH_INTERVAL_MS) {
                         recentFps = fpsWindowFrames * 1000f / (now - fpsWindowStartMs).coerceAtLeast(1L)
                         fpsWindowStartMs = now
                         fpsWindowFrames = 0
-                        publishFrameStats()
-                    } else if (frameCount % 30 == 0) {
-                        publishFrameStats()
+                        publishFrameStats(force = false)
+                    } else if (frameCount % FRAME_STATS_FORCE_PUBLISH_EVERY_N_FRAMES == 0) {
+                        publishFrameStats(force = true)
                     }
                 }
             }
@@ -129,9 +135,9 @@ object StartupMetrics {
         }
     }
 
-    private fun publishFrameStats() {
+    private fun publishFrameStats(force: Boolean) {
         val avg = if (frameCount > 0) totalFrameMs / frameCount else 0f
-        _frameStats.value = StartupFrameStats(
+        val next = StartupFrameStats(
             frameCount = frameCount,
             currentFps = recentFps,
             avgFrameMs = avg,
@@ -139,6 +145,9 @@ object StartupMetrics {
             longFrameCount = longFrameCount,
             jankFrameCount = jankFrameCount
         )
+        if (force || next.shouldPublishOver(_frameStats.value)) {
+            _frameStats.value = next
+        }
     }
 
     private fun appendEvent(event: StartupMetricEvent) {
@@ -168,5 +177,15 @@ data class StartupFrameStats(
         val avg = (avgFrameMs * 10).toInt() / 10f
         val max = (maxFrameMs * 10).toInt() / 10f
         return "FPS ${fps} / 帧 ${avg}ms / max ${max}ms / 长帧 $longFrameCount / 卡顿 $jankFrameCount"
+    }
+
+    fun shouldPublishOver(previous: StartupFrameStats): Boolean {
+        return frameCount == 0 ||
+            previous.frameCount == 0 ||
+            abs(currentFps - previous.currentFps) >= FPS_CHANGE_THRESHOLD ||
+            abs(avgFrameMs - previous.avgFrameMs) >= FRAME_MS_CHANGE_THRESHOLD ||
+            abs(maxFrameMs - previous.maxFrameMs) >= FRAME_MS_CHANGE_THRESHOLD ||
+            longFrameCount != previous.longFrameCount ||
+            jankFrameCount != previous.jankFrameCount
     }
 }
