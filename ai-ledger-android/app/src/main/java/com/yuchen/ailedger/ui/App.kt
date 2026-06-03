@@ -15,26 +15,16 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -46,7 +36,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -57,12 +46,9 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -72,17 +58,13 @@ import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
-import com.yuchen.ailedger.model.ComposerAttachment
-import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
-import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
-import kotlin.math.max
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -140,13 +122,6 @@ private data class ChatMessagesSideEffectKey(
     }
 }
 
-private data class VisualAttachmentOverlayState(
-    val attachment: ComposerAttachment,
-    val quality: RenderQuality,
-    val glassIntensity: Float,
-    val motionIntensity: Float,
-)
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
@@ -180,12 +155,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val bottomDockClickable = imeHidden
     val assistantBottomPadding = if (bottomDockVisible) 68.dp else 8.dp
     val bottomBarOffsetY = if (bottomDockVisible) 0.dp else 24.dp
+    val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
     val compactDensity = remember(density.density, density.fontScale) {
         Density(density = density.density * COMPACT_DP_SCALE, fontScale = density.fontScale * COMPACT_FONT_SCALE)
     }
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
-    val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
     val currentMessages by rememberUpdatedState(state.messages)
     val commandSnapshot by rememberUpdatedState(
         MobileCommandSnapshot(
@@ -201,6 +176,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val visibleComposerText = remember(state.composerText) { visibleComposerTextForAssistant(state.composerText) }
     val assistantScreenState = rememberAssistantScreenState(state, effectiveMotionIntensity, visibleComposerText)
     val stockAndSettingsState = rememberMotionState(state, effectiveMotionIntensity)
+    val glassBackdropSpec = remember(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle) {
+        GlassBackdropSpec(
+            quality = state.quality,
+            motionIntensity = effectiveMotionIntensity,
+            theme = state.backgroundTheme,
+            params = state.backdropParams,
+            borderStyle = state.glassBorderStyle,
+        )
+    }
+    val activeGlassRegistry = remember(diagnostics.openGlGlassOff, glassRegistryToken()) {
+        if (diagnostics.openGlGlassOff) null else glassRegistryToken()
+    }
+    val imageOnlyRequest = remember { PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -280,6 +268,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
     val glassRegistry = remember { GlassItemRegistry() }
+    val activeRegistry = remember(diagnostics.openGlGlassOff, glassRegistry) {
+        if (diagnostics.openGlGlassOff) null else glassRegistry
+    }
     val glassScrollInvalidationClock = remember { LongArray(1) }
     val glassScrollInvalidation = remember(backdropTicker, glassScrollInvalidationClock) {
         object : NestedScrollConnection {
@@ -311,6 +302,26 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val assistantImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         viewModel.onImagePickedForAssistant(uri)
     }
+    val onPickBackground = remember(backgroundPicker, imageOnlyRequest) {
+        { backgroundPicker.launch(imageOnlyRequest) }
+    }
+    val onPickAssistantImage = remember(assistantImagePicker, imageOnlyRequest) {
+        { assistantImagePicker.launch(imageOnlyRequest) }
+    }
+    val onOpenTools = remember(viewModel) { { viewModel.selectTab(AppTab.Tools) } }
+    val onOpenSettings = remember(viewModel) { { viewModel.selectTab(AppTab.Settings) } }
+    val onOpenAssistant = remember(viewModel) { { viewModel.selectTab(AppTab.Assistant) } }
+    val onBottomTabChange = remember(bottomDockClickable, viewModel) {
+        { tab: AppTab -> if (bottomDockClickable) viewModel.selectTab(tab) }
+    }
+    val onCopyMessage = remember(clipboardManager, context) {
+        { text: String ->
+            if (text.isNotBlank()) {
+                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
+                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val blurredBackdrop = rememberBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
@@ -329,11 +340,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             CompositionLocalProvider(
                 LocalPerformanceDiagnostics provides diagnostics,
                 LocalOverscrollConfiguration provides null,
-                LocalGlassBackdrop provides GlassBackdropSpec(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle),
+                LocalGlassBackdrop provides glassBackdropSpec,
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
-                LocalGlassItemRegistry provides if (diagnostics.openGlGlassOff) null else glassRegistry,
+                LocalGlassItemRegistry provides activeRegistry,
                 LocalRainbowPrismStyle provides state.rainbowPrismStyle,
                 LocalMobileCommandQuickReply provides runPendingMobileAction
             ) {
@@ -370,16 +381,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 onStopGenerating = viewModel::stopGenerating,
                                                 onDraftCommand = viewModel::insertCommandDraft,
                                                 onModelSelected = viewModel::selectModel,
-                                                onPickImage = { assistantImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                                                onOpenTools = { viewModel.selectTab(AppTab.Tools) },
-                                                onOpenSettings = { viewModel.selectTab(AppTab.Settings) },
+                                                onPickImage = onPickAssistantImage,
+                                                onOpenTools = onOpenTools,
+                                                onOpenSettings = onOpenSettings,
                                                 onToggleOnline = viewModel::toggleOnline,
-                                                onCopyMessage = { text ->
-                                                    if (text.isNotBlank()) {
-                                                        clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI 回复", text))
-                                                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
+                                                onCopyMessage = onCopyMessage,
                                                 onRetryMessage = viewModel::retryMessage
                                             )
                                         }
@@ -389,7 +395,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                             AStockMarketScreenV2(
                                                 state = stockAndSettingsState,
                                                 onBack = viewModel::closeTool,
-                                                onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
+                                                onOpenAssistant = onOpenAssistant
                                             )
                                         } else {
                                             StockFirstToolsHomeScreen(
@@ -410,7 +416,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                         onRainbowPrismChange = viewModel::setRainbowPrismStyle,
                                         onBackdropChange = viewModel::setBackdropDebugParams,
                                         onBorderChange = viewModel::setGlassBorderStyle,
-                                        onUploadBackgroundClick = { backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                        onUploadBackgroundClick = onPickBackground,
                                         onClearCustomBackgroundClick = viewModel::clearCustomBackground
                                     )
                                 }
@@ -429,7 +435,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                             quality = state.quality,
                             glassIntensity = state.glassIntensity,
                             motionIntensity = effectiveMotionIntensity,
-                            onTabChange = { tab -> if (bottomDockClickable) viewModel.selectTab(tab) },
+                            onTabChange = onBottomTabChange,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
