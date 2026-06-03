@@ -476,7 +476,12 @@ private fun ChatPanelV2(
     var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val messages = state.messages
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
-    SideEffect { bubbleLayerState.removeMissing(activeMessageIds) }
+    LaunchedEffect(activeMessageIds) {
+        bubbleLayerState.removeMissing(activeMessageIds)
+        if (revealedMessageIds.any { it !in activeMessageIds }) {
+            revealedMessageIds = revealedMessageIds.intersect(activeMessageIds)
+        }
+    }
     val lastMessage = messages.lastOrNull()
     val lastMessageId = lastMessage?.id
     val lastMessageStatus = lastMessage?.status
@@ -484,10 +489,12 @@ private fun ChatPanelV2(
     val lastActionableMessageId = remember(messages) {
         messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
     }
-    val statusText = when {
-        state.isSending -> "正在接收"
-        state.hasComposerAttachment -> "附件待发送"
-        else -> "可上下滑动"
+    val statusText = remember(state.isSending, state.hasComposerAttachment) {
+        when {
+            state.isSending -> "正在接收"
+            state.hasComposerAttachment -> "附件待发送"
+            else -> "可上下滑动"
+        }
     }
 
     LaunchedEffect(lastMessageId, state.isSending) {
@@ -535,8 +542,7 @@ private fun ChatPanelV2(
                         layerState = bubbleLayerState,
                         listState = listState,
                         messages = messages,
-                        chatPhase = chatPhase,
-                        motionIntensity = state.motionIntensity,
+                                    motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
                     )
                     LazyColumn(
@@ -548,7 +554,6 @@ private fun ChatPanelV2(
                         items(messages, key = { it.id }) { message ->
                             AnimatedMessageBubbleV2(
                                 message = message,
-                                chatPhase = chatPhase,
                                 bubbleLayerState = bubbleLayerState,
                                 showActions = message.id == lastActionableMessageId,
                                 revealAlreadyPlayed = message.id in revealedMessageIds,
@@ -644,7 +649,6 @@ private fun phaseSpeedForMessage(id: String): Float {
 @Composable
 private fun AnimatedMessageBubbleV2(
     message: ChatMessage,
-    chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
@@ -686,7 +690,6 @@ private fun AnimatedMessageBubbleV2(
 @Composable
 private fun MessageBubbleV2(
     message: ChatMessage,
-    chatPhase: State<Float>,
     bubbleLayerState: ChatBubbleLayerState,
     appear: Float = 1f,
     showActions: Boolean,
@@ -806,7 +809,7 @@ private fun MessageBubbleV2(
             }
 
             if (showActions && !fromUser && !sending && revealFinished) {
-                MessageActionsV2(message, onCopyMessage, onRetryMessage)
+                MessageActionsV2(message, copyText = rawText, onCopyMessage = onCopyMessage, onRetryMessage = onRetryMessage)
             }
         }
     }
@@ -815,8 +818,8 @@ private fun MessageBubbleV2(
 
 @Composable
 private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier = Modifier) {
-    val text = messageText(message)
-    val hasLiveText = hasStreamingLiveTextV2(text)
+    val text = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
+    val hasLiveText = remember(text) { hasStreamingLiveTextV2(text) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
@@ -1084,8 +1087,9 @@ private fun isThinkingPlaceholderV2(text: String): Boolean {
 
 @Composable
 private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
+    val visibleAttachments = remember(attachments) { attachments.take(3) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        attachments.take(3).forEach { attachment ->
+        visibleAttachments.forEach { attachment ->
             val attachmentMeta = remember(attachment.width, attachment.height, attachment.sizeBytes) {
                 val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
                 val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"
@@ -1147,13 +1151,21 @@ private fun MessageUserAttachmentBadgeV2(message: ChatMessage) {
 }
 
 @Composable
-private fun MessageActionsV2(message: ChatMessage, onCopyMessage: (String) -> Unit, onRetryMessage: (String) -> Unit) {
+private fun MessageActionsV2(
+    message: ChatMessage,
+    copyText: String,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+    val retryColor = remember(message.status) {
+        if (message.status == MessageStatus.Failed) Color(0xFFFFB4B4) else Color.White.copy(alpha = 0.50f)
+    }
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-        TextActionV2("复制") { onCopyMessage(messageText(message)) }
+        TextActionV2("复制") { onCopyMessage(copyText) }
         Spacer(Modifier.size(12.dp))
         TextActionV2(
             text = "重试",
-            color = if (message.status == MessageStatus.Failed) Color(0xFFFFB4B4) else Color.White.copy(alpha = 0.50f)
+            color = retryColor
         ) { onRetryMessage(message.id) }
     }
 }
@@ -1193,15 +1205,23 @@ private fun ComposerBarV2(
         view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
     }
 
-    val keyboardSendAction = if (!state.canSubmit) ({}) else {
-        {
-            if (state.text.isNotBlank()) {
-                inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+    val canSubmit = state.canSubmit
+    val textIsNotBlank = state.text.isNotBlank()
+    val keyboardSendAction = remember(canSubmit, textIsNotBlank, inputMethodManager, view, onSend) {
+        if (!canSubmit) {
+            {}
+        } else {
+            {
+                if (textIsNotBlank) {
+                    inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
+                }
+                onSend()
             }
-            onSend()
         }
     }
-    val buttonAction = if (state.isSending) onStopGenerating else keyboardSendAction
+    val buttonAction = remember(state.isSending, onStopGenerating, keyboardSendAction) {
+        if (state.isSending) onStopGenerating else keyboardSendAction
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
