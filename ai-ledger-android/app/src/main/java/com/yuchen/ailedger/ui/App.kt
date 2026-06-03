@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +74,8 @@ import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ComposerAttachment
 import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
@@ -94,6 +97,52 @@ private data class NavigationPreferenceUpdate(
     val slot: String,
     val label: String,
     val address: String,
+)
+
+private data class MobileCommandSnapshot(
+    val composerText: String,
+    val isSending: Boolean,
+    val navigationHomeAddress: String,
+    val navigationSchoolAddress: String,
+    val navigationCompanyAddress: String,
+    val navigationDormAddress: String,
+)
+
+private data class ChatMessagesSideEffectKey(
+    val messageCount: Int,
+    val notificationSignature: String,
+    val latestAssistantSignature: String,
+) {
+    companion object {
+        fun from(messages: List<ChatMessage>): ChatMessagesSideEffectKey {
+            val visibleMessages = messages
+                .asSequence()
+                .filter { it.text.isNotBlank() }
+                .filterNot { it.status == MessageStatus.Sending }
+                .takeLastCompat(6)
+            val notificationSignature = visibleMessages.joinToString("|") { message ->
+                "${message.id}:${message.role.name}:${message.status.name}:${message.createdAt}:${message.text.stableShortHash()}"
+            }
+            val latestAssistant = messages.lastOrNull { it.role == MessageRole.Assistant }
+            val latestAssistantSignature = when {
+                latestAssistant == null -> "none"
+                latestAssistant.status == MessageStatus.Sending -> "${latestAssistant.id}:sending"
+                else -> "${latestAssistant.id}:${latestAssistant.status.name}:${latestAssistant.text.stableShortHash()}"
+            }
+            return ChatMessagesSideEffectKey(
+                messageCount = messages.size,
+                notificationSignature = notificationSignature,
+                latestAssistantSignature = latestAssistantSignature,
+            )
+        }
+    }
+}
+
+private data class VisualAttachmentOverlayState(
+    val attachment: ComposerAttachment,
+    val quality: RenderQuality,
+    val glassIntensity: Float,
+    val motionIntensity: Float,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -135,10 +184,27 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val bottomBarAlpha = if (bottomDockVisible) 1f else 0f
+    val currentMessages by rememberUpdatedState(state.messages)
+    val commandSnapshot by rememberUpdatedState(
+        MobileCommandSnapshot(
+            composerText = state.composerText,
+            isSending = state.isSending,
+            navigationHomeAddress = state.navigationHomeAddress,
+            navigationSchoolAddress = state.navigationSchoolAddress,
+            navigationCompanyAddress = state.navigationCompanyAddress,
+            navigationDormAddress = state.navigationDormAddress,
+        )
+    )
+    val messageSideEffectKey = remember(state.messages) { ChatMessagesSideEffectKey.from(state.messages) }
+    val visibleComposerText = remember(state.composerText) { visibleComposerTextForAssistant(state.composerText) }
+    val assistantScreenState = rememberAssistantScreenState(state, effectiveMotionIntensity, visibleComposerText)
+    val stockAndSettingsState = rememberMotionState(state, effectiveMotionIntensity)
+    val attachmentOverlayState = rememberAttachmentOverlayState(state, effectiveMotionIntensity)
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+        if (granted) ChatNotificationManager.showPersistentChatEntry(context, currentMessages, force = true)
     }
 
     LaunchedEffect(Unit) {
@@ -147,24 +213,26 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            if (granted) ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+            if (granted) ChatNotificationManager.showPersistentChatEntry(context, currentMessages, force = true)
             else notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+            ChatNotificationManager.showPersistentChatEntry(context, currentMessages, force = true)
         }
     }
 
-    LaunchedEffect(state.messages) {
-        ChatNotificationManager.showPersistentChatEntry(context, state.messages)
-        if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
-        val update = parseCloudNavigationPreferenceUpdate(state.messages) ?: return@LaunchedEffect
-        if (!isNavigationPreferenceAlreadySaved(state, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
+    LaunchedEffect(messageSideEffectKey) {
+        val messages = currentMessages
+        ChatNotificationManager.showPersistentChatEntry(context, messages)
+        if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(messages)?.let { pendingMobileAction = it }
+        val update = parseCloudNavigationPreferenceUpdate(messages) ?: return@LaunchedEffect
+        if (!isNavigationPreferenceAlreadySaved(commandSnapshot, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
     }
 
-    val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction, installedAppIndex) {
+    val runPendingMobileAction = remember(systemActionRouter, viewModel) {
         { quickReply: String ->
+            val snapshot = commandSnapshot
             val pending = pendingMobileAction
-            if (!state.isSending && pending != null) {
+            if (!snapshot.isSending && pending != null) {
                 when (quickReply) {
                     "确认" -> {
                         val result = executeMobileCommand(systemActionRouter, pending.command)
@@ -179,23 +247,24 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-    val submitOrRunLocalMobileCommand = remember(state, systemActionRouter, pendingMobileAction, installedAppIndex) {
+    val submitOrRunLocalMobileCommand = remember(systemActionRouter, installedAppIndex, viewModel) {
         {
-            val text = state.composerText.trim()
+            val snapshot = commandSnapshot
+            val text = snapshot.composerText.trim()
             val pending = pendingMobileAction
             when {
-                text.isNotBlank() && !state.isSending && pending != null && isConfirmMobileActionText(text) -> {
+                text.isNotBlank() && !snapshot.isSending && pending != null && isConfirmMobileActionText(text) -> {
                     val result = executeMobileCommand(systemActionRouter, pending.command)
                     pendingMobileAction = null
                     viewModel.acceptExecutedMobileCommand(text, pending.command, result.first, result.second)
                 }
-                text.isNotBlank() && !state.isSending && pending != null && isCancelMobileActionText(text) -> {
+                text.isNotBlank() && !snapshot.isSending && pending != null && isCancelMobileActionText(text) -> {
                     pendingMobileAction = null
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
-                text.isNotBlank() && !state.isSending && !text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX) -> {
+                text.isNotBlank() && !snapshot.isSending && !text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX) -> {
                     val command = parseInstalledAppOpenCommand(text, installedAppIndex)
-                        ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
+                        ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(snapshot)
                     if (command != null) {
                         pendingMobileAction = PendingMobileAction(originalText = text, command = command)
                         viewModel.previewMobileCommand(text, command)
@@ -284,10 +353,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     AppTab.Assistant -> {
                                         Box(Modifier.fillMaxSize()) {
                                             AssistantScreenV2(
-                                                state = state.copy(
-                                                    motionIntensity = effectiveMotionIntensity,
-                                                    composerText = visibleComposerTextForAssistant(state.composerText)
-                                                ),
+                                                state = assistantScreenState,
                                                 bottomPadding = assistantBottomPadding,
                                                 onComposerChange = viewModel::updateComposer,
                                                 onSend = submitOrRunLocalMobileCommand,
@@ -306,9 +372,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 },
                                                 onRetryMessage = viewModel::retryMessage
                                             )
-                                            if (state.composerAttachments.isNotEmpty()) {
+                                            attachmentOverlayState?.let { overlay ->
                                                 VisualAttachmentFloatingCard(
-                                                    state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                                    overlay = overlay,
                                                     modifier = Modifier
                                                         .align(Alignment.BottomCenter)
                                                         .padding(start = 24.dp, end = 24.dp, bottom = assistantBottomPadding + 58.dp)
@@ -320,19 +386,19 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     AppTab.Tools -> {
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
-                                                state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                                state = stockAndSettingsState,
                                                 onBack = viewModel::closeTool,
                                                 onOpenAssistant = { viewModel.selectTab(AppTab.Assistant) }
                                             )
                                         } else {
                                             StockFirstToolsHomeScreen(
-                                                state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                                state = stockAndSettingsState,
                                                 onOpenTool = viewModel::openTool
                                             )
                                         }
                                     }
                                     AppTab.Settings -> SettingsPolishedScreen(
-                                        state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                        state = stockAndSettingsState,
                                         aiEndpoint = viewModel.aiEndpoint,
                                         onQualityChange = viewModel::selectQuality,
                                         onPreviewConversationChange = viewModel::setShowPreviewConversation,
@@ -381,15 +447,117 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 }
 
 @Composable
-private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modifier = Modifier) {
-    val attachment = state.composerAttachments.lastOrNull() ?: return
+private fun rememberAssistantScreenState(
+    state: AssistantUiState,
+    effectiveMotionIntensity: Float,
+    visibleComposerText: String,
+): AssistantUiState {
+    return remember(
+        state.currentTab,
+        state.quality,
+        state.showPreviewConversation,
+        state.glassPreset,
+        state.backgroundTheme,
+        state.customBackgroundPath,
+        state.glassIntensity,
+        effectiveMotionIntensity,
+        state.rainbowPrismStyle,
+        state.modelCardGlassStyle,
+        state.backdropParams,
+        state.glassBorderStyle,
+        state.navigationHomeAddress,
+        state.navigationSchoolAddress,
+        state.navigationCompanyAddress,
+        state.navigationDormAddress,
+        state.stats,
+        state.messages,
+        state.tools,
+        visibleComposerText,
+        state.composerAttachments,
+        state.selectedModel,
+        state.selectedModelLabel,
+        state.onlineEnabled,
+        state.isSending,
+        state.selectedToolTitle,
+        state.ledgerRecords,
+        state.ledgerBudgetText,
+        state.ledgerDraftTitle,
+        state.ledgerDraftAmount,
+        state.ledgerDraftType,
+        state.ledgerDraftCategory,
+    ) {
+        state.copy(
+            motionIntensity = effectiveMotionIntensity,
+            composerText = visibleComposerText,
+        )
+    }
+}
+
+@Composable
+private fun rememberMotionState(state: AssistantUiState, effectiveMotionIntensity: Float): AssistantUiState {
+    return remember(
+        state.currentTab,
+        state.quality,
+        state.showPreviewConversation,
+        state.glassPreset,
+        state.backgroundTheme,
+        state.customBackgroundPath,
+        state.glassIntensity,
+        effectiveMotionIntensity,
+        state.rainbowPrismStyle,
+        state.modelCardGlassStyle,
+        state.backdropParams,
+        state.glassBorderStyle,
+        state.navigationHomeAddress,
+        state.navigationSchoolAddress,
+        state.navigationCompanyAddress,
+        state.navigationDormAddress,
+        state.stats,
+        state.tools,
+        state.selectedModel,
+        state.selectedModelLabel,
+        state.onlineEnabled,
+        state.isSending,
+        state.selectedToolTitle,
+        state.ledgerRecords,
+        state.ledgerBudgetText,
+        state.ledgerDraftTitle,
+        state.ledgerDraftAmount,
+        state.ledgerDraftType,
+        state.ledgerDraftCategory,
+    ) {
+        state.copy(motionIntensity = effectiveMotionIntensity)
+    }
+}
+
+@Composable
+private fun rememberAttachmentOverlayState(
+    state: AssistantUiState,
+    effectiveMotionIntensity: Float,
+): VisualAttachmentOverlayState? {
+    val attachment = state.composerAttachments.lastOrNull()
+    return remember(attachment, state.quality, state.glassIntensity, effectiveMotionIntensity) {
+        attachment?.let {
+            VisualAttachmentOverlayState(
+                attachment = it,
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
+                motionIntensity = effectiveMotionIntensity,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VisualAttachmentFloatingCard(overlay: VisualAttachmentOverlayState, modifier: Modifier = Modifier) {
+    val attachment = overlay.attachment
     val progress = attachment.progress.coerceIn(0f, 1f)
     val statusText = visualAttachmentStatusText(attachment)
     val metaText = visualAttachmentMetaText(attachment)
     GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.96f,
-        motionIntensity = state.motionIntensity,
+        quality = overlay.quality,
+        glassIntensity = overlay.glassIntensity * 0.96f,
+        motionIntensity = overlay.motionIntensity,
         radius = 24,
         modifier = modifier.fillMaxWidth(),
         role = GlassRole.Floating
@@ -461,7 +629,7 @@ private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: Instal
 }
 
 private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
-    val latest = messages.lastOrNull { it.role == MessageRole.Assistant } ?: return null
+    val latest = messages.lastOrNull { it.role == MessageRole.Assistant && it.status == MessageStatus.Sent } ?: return null
     val text = latest.text
     val marker = "[mobile_command:"
     val start = text.indexOf(marker)
@@ -481,7 +649,7 @@ private fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage
 }
 
 private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): NavigationPreferenceUpdate? {
-    val latest = messages.lastOrNull { it.role == MessageRole.Assistant } ?: return null
+    val latest = messages.lastOrNull { it.role == MessageRole.Assistant && it.status == MessageStatus.Sent } ?: return null
     val marker = "[navigation_pref:"
     val start = latest.text.indexOf(marker)
     if (start < 0) return null
@@ -496,21 +664,22 @@ private fun parseCloudNavigationPreferenceUpdate(messages: List<ChatMessage>): N
     return NavigationPreferenceUpdate(slot, label, address)
 }
 
-private fun isNavigationPreferenceAlreadySaved(state: AssistantUiState, update: NavigationPreferenceUpdate): Boolean {
+private fun isNavigationPreferenceAlreadySaved(snapshot: MobileCommandSnapshot, update: NavigationPreferenceUpdate): Boolean {
     return when (update.slot) {
-        "home" -> state.navigationHomeAddress == update.address
-        "school" -> state.navigationSchoolAddress == update.address
-        "company" -> state.navigationCompanyAddress == update.address
+        "home" -> snapshot.navigationHomeAddress == update.address
+        "school" -> snapshot.navigationSchoolAddress == update.address
+        "company" -> snapshot.navigationCompanyAddress == update.address
         else -> false
     }
 }
 
-private fun MobileCommand.resolveNavigationAddress(state: AssistantUiState): MobileCommand {
+private fun MobileCommand.resolveNavigationAddress(snapshot: MobileCommandSnapshot): MobileCommand {
     if (this !is MobileCommand.Navigate) return this
     val resolvedDestination = when (destination) {
-        "home" -> state.navigationHomeAddress
-        "school" -> state.navigationSchoolAddress
-        "company" -> state.navigationCompanyAddress
+        "home" -> snapshot.navigationHomeAddress
+        "school" -> snapshot.navigationSchoolAddress
+        "company" -> snapshot.navigationCompanyAddress
+        "dorm" -> snapshot.navigationDormAddress
         else -> destination
     }
     return if (resolvedDestination.isBlank()) this else copy(destination = resolvedDestination)
@@ -533,4 +702,21 @@ private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCom
         is MobileCommand.Navigate -> router.startNavigation(command.destination).let { ok -> ok to if (ok) "已尝试打开导航。" else "没有可用的地图应用。" }
         is MobileCommand.SetAlarm -> router.setAlarm(command.hour, command.minute, command.label).let { ok -> ok to if (ok) "已尝试设置闹钟。" else "无法打开系统闹钟。" }
     }
+}
+
+private fun Sequence<ChatMessage>.takeLastCompat(count: Int): List<ChatMessage> {
+    if (count <= 0) return emptyList()
+    val buffer = ArrayDeque<ChatMessage>(count)
+    forEach { message ->
+        if (buffer.size == count) buffer.removeFirst()
+        buffer.addLast(message)
+    }
+    return buffer.toList()
+}
+
+private fun String.stableShortHash(): Int {
+    return replace('\n', ' ')
+        .trim()
+        .take(180)
+        .hashCode()
 }
