@@ -32,6 +32,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentAction
@@ -162,8 +163,8 @@ class AssistantViewModel(
     }
 
     private fun buildAgentObservationMessage(id: String): ChatMessage {
-        val observation = ScreenObservationStore.observation.value
-        val status = if (observation.enabled) "已连接" else "未开启"
+        val observation = AiAgentAccessibilityService.captureFreshSnapshot()
+        val status = if (observation.enabled && observation.serviceConnected) "已连接" else "未开启"
         val textPreview = observation.textItems.take(6).joinToString(" / ").ifBlank { "暂无文字" }
         val assistantText = buildString {
             append("手机智能体观察卡\n\n")
@@ -175,7 +176,7 @@ class AssistantViewModel(
             append("输入框：${observation.inputItems.size} 个\n")
             append("可滚动区域：${observation.scrollableItems.size} 个\n")
             append("屏幕文字预览：$textPreview\n\n")
-            append("当前版本只观察屏幕，不会自动点击或输入。")
+            append("当前为按需快照模式：只有请求观察或规划时才抓取节点，不会持续后台扫描。")
         }
         return ChatMessage(id = id, text = assistantText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "手机智能体")
     }
