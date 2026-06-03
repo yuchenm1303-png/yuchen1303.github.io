@@ -21,6 +21,8 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
+import com.yuchen.ailedger.model.ComposerAttachment
+import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.LedgerRecord
@@ -50,7 +52,6 @@ import kotlinx.coroutines.withContext
 private const val ASSISTANT_IMAGE_MAX_DIMENSION = 1280
 private const val ASSISTANT_IMAGE_JPEG_QUALITY = 84
 private const val ASSISTANT_IMAGE_MAX_BYTES = 6 * 1024 * 1024
-private const val IMAGE_COMPOSER_STATUS_PREFIX = "视觉附件 · "
 
 class AssistantViewModel(
     application: Application,
@@ -117,18 +118,41 @@ class AssistantViewModel(
     }
 
     fun submitComposer() {
-        val text = uiState.composerText.trim()
-        if (text.isBlank() || uiState.isSending || isImageComposerStatus(text)) return
-        sendUserCommand(text)
+        sendUserCommand(uiState.composerText)
     }
 
     fun sendUserCommand(text: String) {
         val cleanText = text.trim()
-        if (cleanText.isBlank() || uiState.isSending || isImageComposerStatus(cleanText)) return
-        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
-        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在思考…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
+        val hasPreparingAttachment = uiState.composerAttachments.any {
+            it.status == ComposerAttachmentStatus.Preparing || it.status == ComposerAttachmentStatus.Uploading
+        }
+        val attachments = uiState.composerAttachments.mapNotNull { it.takeIf { item -> item.isReady }?.toChatAttachment() }
+        if (uiState.isSending || hasPreparingAttachment) return
+        if (cleanText.isBlank() && attachments.isEmpty()) return
+
+        val userText = cleanText.ifBlank { "请根据视觉附件进行分析。" }
+        val hasImages = attachments.any { it.mimeType.startsWith("image/") }
+        val userMessage = ChatMessage(
+            id = nextLocalId("user"),
+            text = userText,
+            role = MessageRole.User,
+            attachments = attachments
+        )
+        val pendingMessage = ChatMessage(
+            id = nextLocalId("assistant"),
+            text = if (hasImages) "正在理解视觉附件…" else "正在思考…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "cloud_ai",
+            modelLabel = if (hasImages) "Qwen 视觉理解" else uiState.selectedModel.label
+        )
         val requestMessages = uiState.messages + userMessage
-        uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
+        uiState = uiState.copy(
+            messages = requestMessages + pendingMessage,
+            composerText = "",
+            composerAttachments = emptyList(),
+            isSending = true
+        )
         sendPendingRequest(requestMessages, pendingMessage)
     }
 
@@ -262,7 +286,7 @@ class AssistantViewModel(
         if (uiState.isSending) return
         val assistantIndex = uiState.messages.indexOfFirst { it.id == messageId && it.role == MessageRole.Assistant }
         if (assistantIndex <= 0) return
-        val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() } ?: return
+        val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && (it.text.isNotBlank() || it.hasImageAttachments) } ?: return
         val requestMessages = uiState.messages.take(assistantIndex)
         val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
         uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
@@ -276,7 +300,7 @@ class AssistantViewModel(
         if (pendingId != null) markMessageStopped(pendingId)
         activeSendJob = null
         activePendingMessageId = null
-        uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
+        uiState = uiState.copy(isSending = false)
     }
 
     private fun sendPendingRequest(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage) {
@@ -323,7 +347,7 @@ class AssistantViewModel(
                 if (activePendingMessageId == pendingMessage.id) {
                     activeSendJob = null
                     activePendingMessageId = null
-                    uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
+                    uiState = uiState.copy(isSending = false)
                 }
             }
         }
@@ -362,35 +386,61 @@ class AssistantViewModel(
         appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
     }
 
-    fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", isSending = false) }
+    fun clearChat() {
+        if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", composerAttachments = emptyList(), isSending = false)
+    }
+
+    fun removeComposerAttachment(id: String) {
+        if (uiState.isSending) return
+        uiState = uiState.copy(composerAttachments = uiState.composerAttachments.filterNot { it.id == id })
+    }
 
     fun onImagePickedForAssistant(uri: Uri?) {
         if (uri == null || uiState.isSending) return
-        val prompt = uiState.composerText.trim().takeUnless { isImageComposerStatus(it) }.orEmpty().ifBlank { "请识别这张图片，说明图中内容，并回答我可能关心的问题。" }
-        val preparingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在解析视觉附件…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local", modelLabel = "视觉附件")
-        uiState = uiState.copy(messages = uiState.messages + preparingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}正在解析图片…", isSending = true)
+        val attachmentId = nextLocalId("composer-image")
+        val draft = ComposerAttachment(
+            id = attachmentId,
+            localUri = uri.toString(),
+            previewUri = uri.toString(),
+            fileName = uri.lastPathSegment?.takeLast(48),
+            progress = 0.12f,
+            status = ComposerAttachmentStatus.Preparing
+        )
+        uiState = uiState.copy(composerAttachments = uiState.composerAttachments + draft)
         viewModelScope.launch {
             try {
-                val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri) }
-                val userMessage = ChatMessage(
-                    id = nextLocalId("user"),
-                    text = listOf(prompt, imageMessageFlag(attachment)).joinToString("\n\n"),
-                    role = MessageRole.User,
-                    attachments = listOf(attachment)
-                )
-                val pendingMessage = preparingMessage.copy(text = "正在进行图像理解…", source = "cloud_ai", modelLabel = "Qwen 识图")
-                val requestMessages = uiState.messages.filterNot { it.id == preparingMessage.id } + userMessage
-                uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "${IMAGE_COMPOSER_STATUS_PREFIX}上传至 Qwen 识图…")
-                sendPendingRequest(requestMessages, pendingMessage)
+                updateComposerAttachment(attachmentId) { it.copy(progress = 0.42f, status = ComposerAttachmentStatus.Preparing) }
+                val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri, attachmentId) }
+                updateComposerAttachment(attachmentId) {
+                    it.copy(
+                        mimeType = attachment.mimeType,
+                        fileName = attachment.fileName,
+                        width = attachment.width,
+                        height = attachment.height,
+                        sizeBytes = attachment.sizeBytes,
+                        base64Data = attachment.base64Data,
+                        previewUri = attachment.previewUri,
+                        progress = 1f,
+                        status = ComposerAttachmentStatus.Ready,
+                        errorText = null
+                    )
+                }
             } catch (error: Throwable) {
                 val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
-                replaceMessage(preparingMessage.id, preparingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = "图片处理失败", errorText = friendly))
-                uiState = uiState.copy(isSending = false, composerText = if (isImageComposerStatus(uiState.composerText)) "" else uiState.composerText)
+                updateComposerAttachment(attachmentId) {
+                    it.copy(progress = 1f, status = ComposerAttachmentStatus.Failed, errorText = friendly)
+                }
             }
         }
     }
 
-    private fun encodeAssistantImageAttachment(uri: Uri): ChatAttachment {
+    private fun updateComposerAttachment(id: String, block: (ComposerAttachment) -> ComposerAttachment) {
+        uiState = uiState.copy(
+            composerAttachments = uiState.composerAttachments.map { item -> if (item.id == id) block(item) else item }
+        )
+    }
+
+    private fun encodeAssistantImageAttachment(uri: Uri, attachmentId: String = nextLocalId("image")): ChatAttachment {
         val resolver = getApplication<Application>().contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         val canOpen = resolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds); true } ?: false
@@ -408,16 +458,8 @@ class AssistantViewModel(
         scaled.recycle()
         val bytes = output.toByteArray()
         if (bytes.size > ASSISTANT_IMAGE_MAX_BYTES) throw IOException("图片压缩后仍然过大，请裁剪后再试。")
-        return ChatAttachment(id = nextLocalId("image"), mimeType = "image/jpeg", base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP), fileName = uri.lastPathSegment?.takeLast(48), width = width, height = height, sizeBytes = bytes.size, previewUri = uri.toString())
+        return ChatAttachment(id = attachmentId, mimeType = "image/jpeg", base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP), fileName = uri.lastPathSegment?.takeLast(48), width = width, height = height, sizeBytes = bytes.size, previewUri = uri.toString())
     }
-
-    private fun imageMessageFlag(attachment: ChatAttachment): String {
-        val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else null
-        val sizeKb = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" }
-        return listOfNotNull("视觉附件", "图片 1 张", dimensions, sizeKb).joinToString(" · ")
-    }
-
-    private fun isImageComposerStatus(text: String): Boolean = text.startsWith(IMAGE_COMPOSER_STATUS_PREFIX)
 
     private fun imageSampleSize(width: Int, height: Int, maxDimension: Int): Int {
         var sample = 1
