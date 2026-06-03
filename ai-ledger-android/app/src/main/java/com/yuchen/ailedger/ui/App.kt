@@ -83,6 +83,7 @@ import kotlin.math.max
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val ENABLE_OPENGL_GLASS_PROBE = false
+private const val VISUAL_ATTACHMENT_STATUS_PREFIX = "视觉附件 · "
 
 private data class PendingMobileAction(
     val originalText: String,
@@ -146,11 +147,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            if (granted) {
-                ChatNotificationManager.showPersistentChatEntry(context, state.messages)
-            } else {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+            if (granted) ChatNotificationManager.showPersistentChatEntry(context, state.messages)
+            else notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             ChatNotificationManager.showPersistentChatEntry(context, state.messages)
         }
@@ -158,13 +156,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
     LaunchedEffect(state.messages) {
         ChatNotificationManager.showPersistentChatEntry(context, state.messages)
-        if (pendingMobileAction == null) {
-            parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
-        }
+        if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(state.messages)?.let { pendingMobileAction = it }
         val update = parseCloudNavigationPreferenceUpdate(state.messages) ?: return@LaunchedEffect
-        if (!isNavigationPreferenceAlreadySaved(state, update)) {
-            preferencesStore.setNavigationAddress(update.slot, update.address)
-        }
+        if (!isNavigationPreferenceAlreadySaved(state, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
     }
 
     val runPendingMobileAction = remember(state.isSending, systemActionRouter, pendingMobileAction, installedAppIndex) {
@@ -175,12 +169,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     "确认" -> {
                         val result = executeMobileCommand(systemActionRouter, pending.command)
                         pendingMobileAction = null
-                        viewModel.acceptExecutedMobileCommand(
-                            userText = quickReply,
-                            command = pending.command,
-                            ok = result.first,
-                            resultMessage = result.second
-                        )
+                        viewModel.acceptExecutedMobileCommand(quickReply, pending.command, result.first, result.second)
                     }
                     "取消" -> {
                         pendingMobileAction = null
@@ -198,18 +187,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 text.isNotBlank() && !state.isSending && pending != null && isConfirmMobileActionText(text) -> {
                     val result = executeMobileCommand(systemActionRouter, pending.command)
                     pendingMobileAction = null
-                    viewModel.acceptExecutedMobileCommand(
-                        userText = text,
-                        command = pending.command,
-                        ok = result.first,
-                        resultMessage = result.second
-                    )
+                    viewModel.acceptExecutedMobileCommand(text, pending.command, result.first, result.second)
                 }
                 text.isNotBlank() && !state.isSending && pending != null && isCancelMobileActionText(text) -> {
                     pendingMobileAction = null
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
-                text.isNotBlank() && !state.isSending -> {
+                text.isNotBlank() && !state.isSending && !text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX) -> {
                     val command = parseInstalledAppOpenCommand(text, installedAppIndex)
                         ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(state)
                     if (command != null) {
@@ -232,12 +216,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 if (available != Offset.Zero) backdropTicker.requestFrame()
                 return Offset.Zero
             }
-
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 if (consumed != Offset.Zero || available != Offset.Zero) backdropTicker.requestFrame()
                 return Offset.Zero
             }
-
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (available != Velocity.Zero) backdropTicker.requestFrame(force = true)
                 return Velocity.Zero
@@ -297,13 +279,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .imePadding()
                                 .padding(horizontal = 12.dp)
                         ) {
-                            CachedAppTabHost(
-                                currentTab = state.currentTab,
-                                modifier = Modifier.fillMaxSize()
-                            ) { tab ->
+                            CachedAppTabHost(currentTab = state.currentTab, modifier = Modifier.fillMaxSize()) { tab ->
                                 when (tab) {
                                     AppTab.Assistant -> AssistantScreenV2(
-                                        state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                        state = state.copy(
+                                            motionIntensity = effectiveMotionIntensity,
+                                            composerText = visibleComposerTextForAssistant(state.composerText)
+                                        ),
                                         bottomPadding = assistantBottomPadding,
                                         onComposerChange = viewModel::updateComposer,
                                         onSend = submitOrRunLocalMobileCommand,
@@ -353,15 +335,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
-                            if (state.currentTab == AppTab.Assistant && state.composerAttachments.isNotEmpty()) {
-                                VisualAttachmentFloatingCard(
-                                    state = state.copy(motionIntensity = effectiveMotionIntensity),
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(start = 16.dp, end = 16.dp, bottom = assistantBottomPadding + 58.dp)
-                                        .zIndex(1700f)
-                                )
-                            }
                             PerformanceDiagnosticsPanel(
                                 state = diagnostics,
                                 onStateChange = { diagnostics = it },
@@ -387,6 +360,16 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 }
                                 .zIndex(1000f)
                         )
+                        if (state.currentTab == AppTab.Assistant && state.composerAttachments.isNotEmpty()) {
+                            VisualAttachmentFloatingCard(
+                                state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding()
+                                    .padding(start = 24.dp, end = 24.dp, bottom = assistantBottomPadding + 72.dp)
+                                    .zIndex(2400f)
+                            )
+                        }
                     }
                 }
             }
@@ -408,10 +391,7 @@ private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modi
         modifier = modifier.fillMaxWidth(),
         role = GlassRole.Floating
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier
@@ -424,14 +404,7 @@ private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modi
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("视觉附件", color = Color.White.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-                    Text(
-                        "$statusText · $metaText",
-                        color = Color.White.copy(alpha = 0.56f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text("$statusText · $metaText", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("${(progress * 100).toInt()}%", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
@@ -452,6 +425,10 @@ private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modi
             }
         }
     }
+}
+
+private fun visibleComposerTextForAssistant(text: String): String {
+    return if (text.trim().startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) "" else text
 }
 
 private fun visualAttachmentStatusText(attachment: ComposerAttachment): String {
@@ -550,11 +527,7 @@ private fun executeMobileCommand(router: SystemActionRouter?, command: MobileCom
             }
             opened to if (opened) "已尝试打开 ${command.appName}。" else "没有找到 ${command.appName}，请确认是否已安装。"
         }
-        is MobileCommand.Navigate -> router.startNavigation(command.destination).let { ok ->
-            ok to if (ok) "已尝试打开导航。" else "没有可用的地图应用。"
-        }
-        is MobileCommand.SetAlarm -> router.setAlarm(command.hour, command.minute, command.label).let { ok ->
-            ok to if (ok) "已尝试设置闹钟。" else "无法打开系统闹钟。"
-        }
+        is MobileCommand.Navigate -> router.startNavigation(command.destination).let { ok -> ok to if (ok) "已尝试打开导航。" else "没有可用的地图应用。" }
+        is MobileCommand.SetAlarm -> router.setAlarm(command.hour, command.minute, command.label).let { ok -> ok to if (ok) "已尝试设置闹钟。" else "无法打开系统闹钟。" }
     }
 }
