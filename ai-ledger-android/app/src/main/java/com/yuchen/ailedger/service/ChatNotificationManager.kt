@@ -23,20 +23,34 @@ object ChatNotificationManager {
     private const val CHANNEL_ID = "ai_chat_entry"
     private const val CHANNEL_NAME = "AI 助手常驻入口"
     private const val NOTIFICATION_ID = 1303
+    private const val EMPTY_NOTIFICATION_SIGNATURE = "empty"
     const val ACTION_OPEN_CHAT = "com.yuchen.ailedger.action.OPEN_CHAT"
+
+    @Volatile
+    private var channelReady = false
+
+    @Volatile
+    private var lastNotificationSignature: String? = null
 
     fun showPersistentChatEntry(
         context: Context,
-        messages: List<ChatMessage> = emptyList()
+        messages: List<ChatMessage> = emptyList(),
+        force: Boolean = false
     ) {
         val appContext = context.applicationContext
         if (!canPostNotifications(appContext)) return
-        ensureChannel(appContext)
 
         val visibleMessages = messages
+            .asSequence()
             .filter { it.text.isNotBlank() }
             .filterNot { it.status == MessageStatus.Sending }
-            .takeLast(6)
+            .takeLastCompat(6)
+
+        val signature = visibleMessages.notificationSignature()
+        if (!force && signature == lastNotificationSignature) return
+
+        ensureChannel(appContext)
+        if (!force && signature == lastNotificationSignature) return
 
         val user = Person.Builder().setName("你").build()
         val assistant = Person.Builder()
@@ -78,6 +92,7 @@ object ChatNotificationManager {
             .build()
 
         notify(appContext, notification)
+        lastNotificationSignature = signature
     }
 
     fun canPostNotifications(context: Context): Boolean {
@@ -89,7 +104,7 @@ object ChatNotificationManager {
     }
 
     private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || channelReady) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -102,6 +117,7 @@ object ChatNotificationManager {
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
+        channelReady = true
     }
 
     private fun buildOpenAppIntent(context: Context): PendingIntent {
@@ -120,6 +136,33 @@ object ChatNotificationManager {
     @SuppressLint("MissingPermission")
     private fun notify(context: Context, notification: android.app.Notification) {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun Sequence<ChatMessage>.takeLastCompat(count: Int): List<ChatMessage> {
+        if (count <= 0) return emptyList()
+        val buffer = ArrayDeque<ChatMessage>(count)
+        forEach { message ->
+            if (buffer.size == count) buffer.removeFirst()
+            buffer.addLast(message)
+        }
+        return buffer.toList()
+    }
+
+    private fun List<ChatMessage>.notificationSignature(): String {
+        if (isEmpty()) return EMPTY_NOTIFICATION_SIGNATURE
+        return joinToString(separator = "|") { message ->
+            buildString {
+                append(message.id)
+                append(':')
+                append(message.role.name)
+                append(':')
+                append(message.status.name)
+                append(':')
+                append(message.createdAt)
+                append(':')
+                append(message.text.toNotificationLine())
+            }
+        }
     }
 
     private fun String.toNotificationLine(): String {
