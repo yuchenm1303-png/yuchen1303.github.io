@@ -14,16 +14,26 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -34,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -44,6 +55,8 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -56,12 +69,15 @@ import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.ComposerAttachment
+import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
+import kotlin.math.max
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -336,6 +352,15 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
+                            if (state.currentTab == AppTab.Assistant && state.composerAttachments.isNotEmpty()) {
+                                VisualAttachmentFloatingCard(
+                                    state = state.copy(motionIntensity = effectiveMotionIntensity),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(horizontal = 16.dp, bottom = assistantBottomPadding + 58.dp)
+                                        .zIndex(1700f)
+                                )
+                            }
                             PerformanceDiagnosticsPanel(
                                 state = diagnostics,
                                 onStateChange = { diagnostics = it },
@@ -366,6 +391,82 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+@Composable
+private fun VisualAttachmentFloatingCard(state: AssistantUiState, modifier: Modifier = Modifier) {
+    val attachment = state.composerAttachments.lastOrNull() ?: return
+    val progress = attachment.progress.coerceIn(0f, 1f)
+    val statusText = visualAttachmentStatusText(attachment)
+    val metaText = visualAttachmentMetaText(attachment)
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.96f,
+        motionIntensity = state.motionIntensity,
+        radius = 24,
+        modifier = modifier.fillMaxWidth(),
+        role = GlassRole.Floating
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF8DF9EA).copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
+                    Text("VIS", color = Color(0xFF8DF9EA).copy(alpha = 0.92f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("视觉附件", color = Color.White.copy(alpha = 0.94f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        "$statusText · $metaText",
+                        color = Color.White.copy(alpha = 0.56f),
+                        fontSize = androidx.compose.ui.unit.TextUnit.Unspecified,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text("${(progress * 100).toInt()}%", color = Color.White.copy(alpha = 0.58f), fontSize = androidx.compose.ui.unit.TextUnit.Unspecified, fontWeight = FontWeight.Black)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceAtLeast(if (attachment.status == ComposerAttachmentStatus.Failed) 1f else 0.08f))
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (attachment.status == ComposerAttachmentStatus.Failed) Color(0xFFFFB4B4) else Color(0xFF8DF9EA).copy(alpha = 0.78f))
+                )
+            }
+        }
+    }
+}
+
+private fun visualAttachmentStatusText(attachment: ComposerAttachment): String {
+    return when (attachment.status) {
+        ComposerAttachmentStatus.Preparing -> "正在准备"
+        ComposerAttachmentStatus.Uploading -> "正在上传"
+        ComposerAttachmentStatus.Ready -> "已就绪，可配文发送"
+        ComposerAttachmentStatus.Failed -> attachment.errorText?.take(36) ?: "处理失败"
+    }
+}
+
+private fun visualAttachmentMetaText(attachment: ComposerAttachment): String {
+    val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "读取尺寸中"
+    val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "压缩中"
+    return "$dimensions · $size"
 }
 
 private fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand? {
