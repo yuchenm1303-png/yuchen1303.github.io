@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
@@ -16,6 +17,7 @@ import org.json.JSONObject
 
 private const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 private const val DEFAULT_READ_TIMEOUT_MS = 45_000
+private const val QWEN_VISION_ROUTE_ID = "qwen_vision"
 
 private val embeddedCommandRegex = Regex(
     pattern = """\[\[AI_LEDGER_COMMAND:(\{.*?\})]]""",
@@ -114,6 +116,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     }
 
     private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel): ModelRoute {
+        if (messages.hasImageAttachments()) {
+            return ModelRoute(modelPreference, ChatModel.Kimi, "qwen_vision_image_attachment")
+        }
         if (modelPreference != ChatModel.Auto) return ModelRoute(modelPreference, modelPreference, "manual_selection")
         val latest = latestUserText(messages)
         val text = latest.lowercase()
@@ -177,11 +182,13 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         val commandInstruction = commandProtocolSystemPrompt()
         val workerMessages = messages.toWorkerMessages(commandInstruction)
         val latestUserText = latestUserText(messages)
-        val resolvedId = route.resolved.id
-        val searchMode = if (onlineEnabled) "force" else "off"
+        val hasImage = messages.hasImageAttachments()
+        val imageArray = messages.latestUserImageAttachments().toImageJsonArray()
+        val resolvedId = if (hasImage) QWEN_VISION_ROUTE_ID else route.resolved.id
+        val searchMode = if (onlineEnabled && !hasImage) "force" else "off"
         return JSONObject().apply {
             put("action", "chat")
-            put("intent", "chat")
+            put("intent", if (hasImage) "vision_chat" else "chat")
             put("messages", workerMessages)
             put("systemPrompt", commandInstruction)
             put("commandProtocolInstruction", commandInstruction)
@@ -199,19 +206,30 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("autoRequested", route.isAuto)
             put("autoResolvedModel", resolvedId)
             put("autoRouteReason", route.reason)
-            put("onlineEnabled", onlineEnabled)
-            put("searchEnabled", onlineEnabled)
-            put("forceWebSearch", onlineEnabled)
+            put("hasImage", hasImage)
+            put("hasImages", hasImage)
+            put("imageCount", imageArray.length())
+            put("images", imageArray)
+            put("attachments", imageArray)
+            put("vision", JSONObject().apply {
+                put("enabled", hasImage)
+                put("provider", "qwen")
+                put("route", QWEN_VISION_ROUTE_ID)
+                put("modelEnv", "QWEN_VISION_MODEL")
+            })
+            put("onlineEnabled", onlineEnabled && !hasImage)
+            put("searchEnabled", onlineEnabled && !hasImage)
+            put("forceWebSearch", onlineEnabled && !hasImage)
             put("webSearchMode", searchMode)
             put("searchMode", searchMode)
             put("webSearch", JSONObject().apply {
                 put("mode", searchMode)
-                put("force", onlineEnabled)
+                put("force", onlineEnabled && !hasImage)
                 put("requireCitationsWhenForced", true)
                 put("keepAutoSearchWhenOff", false)
             })
             put("structuredRealtime", JSONObject().apply {
-                put("enabled", onlineEnabled)
+                put("enabled", onlineEnabled && !hasImage)
                 put("supportedTypes", JSONArray(listOf("stock", "weather", "exchange_rate", "sports")))
             })
             put("commandProtocol", JSONObject().apply {
@@ -239,7 +257,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("primaryEndpointRole", "aliyun_cn_gateway")
             put("fallbackEndpointRole", "cloudflare_worker")
             put("client", "android-compose")
-            put("clientVersion", "compose-native-agent-action-v1")
+            put("clientVersion", if (hasImage) "compose-native-qwen-vision-v1" else "compose-native-agent-action-v1")
             put("now", System.currentTimeMillis())
         }
     }
@@ -296,10 +314,10 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
             if (displayReply.isBlank() && embeddedCommand == null) throw IOException("云端没有返回有效回复")
 
-            val rawModel = data?.optString("model").notBlankOrNull() ?: data?.optString("modelId").notBlankOrNull() ?: route.resolved.id
+            val rawModel = data?.optString("model").notBlankOrNull() ?: data?.optString("modelId").notBlankOrNull() ?: if (payload.optBoolean("hasImage")) QWEN_VISION_ROUTE_ID else route.resolved.id
             val rawVersion = data?.optString("version").notBlankOrNull()
             val serverLabel = data?.optString("modelLabel").notBlankOrNull() ?: data?.optString("modelName").notBlankOrNull()
-            val resolvedLabel = serverLabel ?: modelLabelFromId(rawModel) ?: route.resolved.label
+            val resolvedLabel = serverLabel ?: modelLabelFromId(rawModel) ?: if (rawModel == QWEN_VISION_ROUTE_ID) "Qwen 识图 · Omni Plus" else route.resolved.label
             val displayLabel = if (route.isAuto && !resolvedLabel.startsWith("自动选择")) "自动选择 · $resolvedLabel" else resolvedLabel
             val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
             val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
@@ -482,17 +500,52 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         return try { getInt(key) } catch (_: Exception) { optString(key).toIntOrNull() }
     }
 
+    private fun List<ChatMessage>.hasImageAttachments(): Boolean = any { it.hasImageAttachments }
+
+    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> {
+        return lastOrNull { it.role == MessageRole.User && it.hasImageAttachments }?.attachments?.filter { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }.orEmpty()
+    }
+
+    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray {
+        return JSONArray().apply {
+            forEach { attachment ->
+                put(JSONObject().apply {
+                    put("id", attachment.id)
+                    put("type", "image")
+                    put("mimeType", attachment.mimeType)
+                    put("mediaType", attachment.mimeType)
+                    put("base64Data", attachment.base64Data)
+                    put("data", attachment.base64Data)
+                    put("imageBase64", attachment.base64Data)
+                    put("fileName", attachment.fileName.orEmpty())
+                    attachment.width?.let { put("width", it) }
+                    attachment.height?.let { put("height", it) }
+                    attachment.sizeBytes?.let { put("sizeBytes", it) }
+                })
+            }
+        }
+    }
+
     private fun List<ChatMessage>.toWorkerMessages(systemInstruction: String): JSONArray {
         val recent = filter { message ->
             when (message.role) {
-                MessageRole.User -> message.text.isNotBlank() && message.status != MessageStatus.Sending
+                MessageRole.User -> (message.text.isNotBlank() || message.hasImageAttachments) && message.status != MessageStatus.Sending
                 MessageRole.Assistant -> message.isCloudAssistantContextMessage()
             }
         }.takeLast(16)
         val clean = recent.dropWhile { it.role != MessageRole.User }
         return JSONArray().apply {
             put(JSONObject().apply { put("role", "system"); put("content", systemInstruction) })
-            clean.forEach { message -> put(JSONObject().apply { put("role", if (message.role == MessageRole.User) "user" else "assistant"); put("content", message.text) }) }
+            clean.forEach { message ->
+                put(JSONObject().apply {
+                    put("role", if (message.role == MessageRole.User) "user" else "assistant")
+                    put("content", message.text)
+                    if (message.role == MessageRole.User && message.hasImageAttachments) {
+                        put("attachments", message.attachments.filter { it.base64Data.isNotBlank() }.toImageJsonArray())
+                        put("images", message.attachments.filter { it.base64Data.isNotBlank() }.toImageJsonArray())
+                    }
+                })
+            }
         }
     }
 
