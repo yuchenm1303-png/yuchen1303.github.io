@@ -39,7 +39,6 @@ import com.yuchen.ailedger.service.CloudAgentAction
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.MobileCommand
-import com.yuchen.ailedger.service.ScreenObservationStore
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
@@ -164,11 +163,20 @@ class AssistantViewModel(
 
     private fun buildAgentObservationMessage(id: String): ChatMessage {
         val observation = AiAgentAccessibilityService.captureFreshSnapshot()
-        val status = if (observation.enabled && observation.serviceConnected) "已连接" else "未开启"
+        if (!observation.enabled || !observation.serviceConnected) {
+            AgentAccessibilityGuideActivity.open(getApplication<Application>())
+            val guideText = buildString {
+                append("手机智能体开启引导\n\n")
+                append("状态：未开启\n")
+                append("我已为你弹出开启引导。请点击弹窗里的“去开启”，然后在系统无障碍设置里打开“AI助手”。\n\n")
+                append("说明：Android 不允许 App 直接替你打开无障碍权限，所以需要你在系统页手动确认一次。开启后回到 App，再发送“观察当前屏幕”或“打开智能体”即可使用。")
+            }
+            return ChatMessage(id = id, text = guideText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "需要开启")
+        }
         val textPreview = observation.textItems.take(6).joinToString(" / ").ifBlank { "暂无文字" }
         val assistantText = buildString {
             append("手机智能体观察卡\n\n")
-            append("状态：$status\n")
+            append("状态：已连接\n")
             append("当前应用：${observation.packageName.ifBlank { "未知" }}\n")
             append("节点：${observation.nodeCount} 个\n")
             append("文字：${observation.textItems.size} 条\n")
