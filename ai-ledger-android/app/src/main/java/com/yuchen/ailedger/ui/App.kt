@@ -60,10 +60,13 @@ import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
+import kotlinx.coroutines.delay
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val ENABLE_OPENGL_GLASS_PROBE = false
+private const val SHOW_PERFORMANCE_DIAGNOSTICS_PANEL = false
+private const val STARTUP_NOTIFICATION_DELAY_MS = 2200L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -82,6 +85,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
     var dockCollapsedByIme by remember { mutableStateOf(imeBottomPx >= imeOpenThresholdPx) }
     var diagnostics by remember { mutableStateOf(PerformanceDiagnosticsState()) }
+    var notificationSideEffectsReady by remember { mutableStateOf(false) }
     val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
     val imeHidden = imeBottomPx == 0
     val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
@@ -131,6 +135,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
 
     LaunchedEffect(Unit) {
+        delay(STARTUP_NOTIFICATION_DELAY_MS)
+        notificationSideEffectsReady = true
+    }
+
+    LaunchedEffect(notificationSideEffectsReady) {
+        if (!notificationSideEffectsReady) return@LaunchedEffect
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 context,
@@ -143,9 +153,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         }
     }
 
-    LaunchedEffect(messageSideEffectKey) {
+    LaunchedEffect(messageSideEffectKey, notificationSideEffectsReady) {
         val messages = currentMessages
-        ChatNotificationManager.showPersistentChatEntry(context, messages)
+        if (notificationSideEffectsReady) ChatNotificationManager.showPersistentChatEntry(context, messages)
         if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(messages)?.let { pendingMobileAction = it }
         val update = parseCloudNavigationPreferenceUpdate(messages) ?: return@LaunchedEffect
         if (!isNavigationPreferenceAlreadySaved(commandSnapshot, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
@@ -354,14 +364,16 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
-                            PerformanceDiagnosticsPanel(
-                                state = diagnostics,
-                                onStateChange = { diagnostics = it },
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(top = 76.dp, start = 4.dp)
-                                    .zIndex(2000f)
-                            )
+                            if (SHOW_PERFORMANCE_DIAGNOSTICS_PANEL) {
+                                PerformanceDiagnosticsPanel(
+                                    state = diagnostics,
+                                    onStateChange = { diagnostics = it },
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(top = 76.dp, start = 4.dp)
+                                        .zIndex(2000f)
+                                )
+                            }
                         }
                         PrismaticCapsuleBottomBar(
                             currentTab = state.currentTab,
