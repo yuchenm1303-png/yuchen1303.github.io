@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
@@ -29,7 +31,44 @@ val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
-private const val PAGE_HEAVY_EFFECTS_ALPHA_GATE = 0.82f
+private val PageEnterEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
+private val PageExitEasing = CubicBezierEasing(0.24f, 0.00f, 0.20f, 1.00f)
+
+private data class PageMotionProfile(
+    val enterMillis: Int,
+    val exitMillis: Int,
+    val enterOffsetDp: Float,
+    val enterScale: Float,
+    val heavyEffectsAlphaGate: Float,
+    val transformOriginY: Float
+)
+
+private fun motionProfileFor(tab: AppTab): PageMotionProfile = when (tab) {
+    AppTab.Assistant -> PageMotionProfile(
+        enterMillis = 260,
+        exitMillis = 110,
+        enterOffsetDp = 10f,
+        enterScale = 0.990f,
+        heavyEffectsAlphaGate = 0.72f,
+        transformOriginY = 0.58f
+    )
+    AppTab.Tools -> PageMotionProfile(
+        enterMillis = 320,
+        exitMillis = 120,
+        enterOffsetDp = 16f,
+        enterScale = 0.982f,
+        heavyEffectsAlphaGate = 0.80f,
+        transformOriginY = 0.46f
+    )
+    AppTab.Settings -> PageMotionProfile(
+        enterMillis = 230,
+        exitMillis = 100,
+        enterOffsetDp = 8f,
+        enterScale = 0.994f,
+        heavyEffectsAlphaGate = 0.74f,
+        transformOriginY = 0.40f
+    )
+}
 
 @Composable
 fun CachedAppTabHost(
@@ -80,24 +119,33 @@ fun CachedAppTabHost(
             if (tab in renderedTabs) {
                 val active = tab == currentTab
                 val density = LocalDensity.current
+                val profile = remember(tab) { motionProfileFor(tab) }
                 val alpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
                     animationSpec = tween(
-                        durationMillis = if (active) 180 else 90,
-                        easing = FastOutSlowInEasing
+                        durationMillis = if (active) profile.enterMillis else profile.exitMillis,
+                        easing = if (active) PageEnterEasing else PageExitEasing
                     ),
                     label = "tabAlpha-${tab.name}"
                 )
                 val offsetDp by animateFloatAsState(
-                    targetValue = if (active) 0f else 8f,
+                    targetValue = if (active) 0f else profile.enterOffsetDp,
                     animationSpec = tween(
-                        durationMillis = if (active) 220 else 90,
-                        easing = FastOutSlowInEasing
+                        durationMillis = if (active) profile.enterMillis + 40 else profile.exitMillis,
+                        easing = if (active) PageEnterEasing else FastOutSlowInEasing
                     ),
                     label = "tabOffset-${tab.name}"
                 )
+                val scale by animateFloatAsState(
+                    targetValue = if (active) 1f else profile.enterScale,
+                    animationSpec = tween(
+                        durationMillis = if (active) profile.enterMillis + 60 else profile.exitMillis,
+                        easing = if (active) PageEnterEasing else FastOutSlowInEasing
+                    ),
+                    label = "tabScale-${tab.name}"
+                )
                 val visibleDuringTransition = active || alpha > 0.001f
-                val heavyEffectsEnabled = active && alpha >= PAGE_HEAVY_EFFECTS_ALPHA_GATE && !diagnostics.openGlGlassOff
+                val heavyEffectsEnabled = active && alpha >= profile.heavyEffectsAlphaGate && !diagnostics.openGlGlassOff
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
@@ -119,7 +167,10 @@ fun CachedAppTabHost(
                             .zIndex(if (active) 1f else -1f)
                             .graphicsLayer {
                                 this.alpha = alpha
-                                translationY = with(density) { offsetDp.toDp().toPx() }
+                                translationY = with(density) { offsetDp.dp.toPx() }
+                                scaleX = scale
+                                scaleY = scale
+                                transformOrigin = TransformOrigin(0.50f, profile.transformOriginY)
                             }
                     ) {
                         key(tab) {
