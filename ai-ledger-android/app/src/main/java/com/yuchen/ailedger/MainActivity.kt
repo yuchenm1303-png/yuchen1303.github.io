@@ -1,6 +1,8 @@
 package com.yuchen.ailedger
 
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -17,6 +19,8 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.yuchen.ailedger.service.AgentOverlayService
+import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
 
@@ -41,6 +45,7 @@ class MainActivity : ComponentActivity() {
             if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
             AiAssistantNativeApp()
         }
+        installAgentSwitchOverlay(window.decorView)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
     }
 
@@ -102,6 +107,55 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun installAgentSwitchOverlay(root: View) {
+        val parent = root as? ViewGroup ?: return
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val switchView = TextView(this).apply {
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding((10 * density).toInt(), (5 * density).toInt(), (10 * density).toInt(), (5 * density).toInt())
+            isClickable = true
+            alpha = 0.96f
+        }
+
+        fun refresh() {
+            val enabled = AgentRuntimeController.isEnabled()
+            switchView.text = if (enabled) "Agent  开" else "Agent  关"
+            switchView.setTextColor(if (enabled) Color.WHITE else 0xCCDFE5F5.toInt())
+            switchView.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                if (enabled) intArrayOf(0xCC20DCCF.toInt(), 0xAA536DFF.toInt()) else intArrayOf(0x44FFFFFF, 0x22FFFFFF)
+            ).apply {
+                cornerRadius = 999f
+                setStroke((1.1f * density).toInt().coerceAtLeast(1), if (enabled) 0x88E8FFFB.toInt() else 0x44FFFFFF)
+            }
+        }
+
+        switchView.setOnClickListener {
+            val next = !AgentRuntimeController.isEnabled()
+            AgentRuntimeController.setEnabled(next)
+            if (next) {
+                if (AgentOverlayService.requestPermissionIfNeeded(this)) {
+                    AgentOverlayService.ensureStarted(applicationContext)
+                }
+            } else {
+                AgentOverlayService.stop(applicationContext)
+            }
+            refresh()
+        }
+        refresh()
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP or Gravity.START
+        ).apply {
+            leftMargin = (66 * density).toInt()
+            topMargin = (178 * density).toInt()
+        }
+        parent.addView(switchView, params)
+    }
+
     private fun installFirstFrameProbe(root: View) {
         root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
@@ -157,42 +211,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-        overlay.setOnClickListener {
-            expanded = !expanded
-            updateText()
-        }
-
-        val layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            topMargin = getStatusBarHeightPx() + 12.dpPx()
-            rightMargin = 10.dpPx()
-        }
-        parent.addView(overlay, layoutParams)
-        updateText()
-
+        overlay.setOnClickListener { expanded = !expanded; updateText() }
+        parent.addView(
+            overlay,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START
+            ).apply { leftMargin = 24; topMargin = 64 }
+        )
         val ticker = object : Runnable {
             override fun run() {
                 updateText()
-                handler.postDelayed(this, 500L)
+                handler.postDelayed(this, 450L)
             }
         }
-        handler.post(ticker)
-        overlay.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) = Unit
-            override fun onViewDetachedFromWindow(v: View) {
-                handler.removeCallbacks(ticker)
-            }
-        })
+        ticker.run()
     }
-
-    private fun getStatusBarHeightPx(): Int {
-        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 24.dpPx()
-    }
-
-    private fun Int.dpPx(): Int = (this * resources.displayMetrics.density).toInt()
 }
