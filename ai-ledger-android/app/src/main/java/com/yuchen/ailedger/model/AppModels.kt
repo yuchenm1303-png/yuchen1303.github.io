@@ -298,6 +298,7 @@ data class AssistantUiState(
     val selectedModel: ChatModel = ChatModel.Auto,
     val selectedModelLabel: String = ChatModel.Auto.label,
     val onlineEnabled: Boolean = false,
+    val agentEnabled: Boolean = true,
     val isSending: Boolean = false,
     val selectedToolTitle: String? = null,
     val ledgerRecords: List<LedgerRecord> = emptyList(),
@@ -306,4 +307,13 @@ data class AssistantUiState(
     val ledgerDraftAmount: String = "",
     val ledgerDraftType: LedgerRecordType = LedgerRecordType.Expense,
     val ledgerDraftCategory: String = "餐饮"
+)
+
+@Immutable
+data class RainbowPrismStyle(
+    val overall: Float = 1.00f,
+    val edgeHighlight: Float = 1.00f,
+    val sweepMin: Float = 0.15f,
+    val sweepMax: Float = 0.65f,
+    val rainbowHalo: Float = 0.80f
 )
