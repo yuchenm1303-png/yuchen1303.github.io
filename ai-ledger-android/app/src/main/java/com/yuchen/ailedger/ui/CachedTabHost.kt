@@ -49,6 +49,10 @@ fun CachedAppTabHost(
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
+    val parentGlassBackdrop = LocalGlassBackdrop.current
+    val parentBlurredBackdrop = LocalBlurredBackdrop.current
+    val parentBackdropTicker = LocalBackdropFrameTicker.current
+    val parentGlassRegistry = LocalGlassItemRegistry.current
 
     LaunchedEffect(currentTab) {
         renderedTabs = renderedTabs + currentTab
@@ -100,7 +104,10 @@ fun CachedAppTabHost(
                     LocalPageActive provides active,
                     LocalPageActivationTick provides (activationTicks[tab] ?: 0),
                     LocalOpenGLGlassViewportActive provides (!active && !diagnostics.openGlGlassOff),
-                    LocalGlassItemRegistry provides if (active && !diagnostics.openGlGlassOff) LocalGlassItemRegistry.current else null
+                    LocalGlassBackdrop provides if (active) parentGlassBackdrop else null,
+                    LocalBlurredBackdrop provides if (active) parentBlurredBackdrop else null,
+                    LocalBackdropFrameTicker provides if (active) parentBackdropTicker else null,
+                    LocalGlassItemRegistry provides if (active && !diagnostics.openGlGlassOff) parentGlassRegistry else null
                 ) {
                     Box(
                         modifier = Modifier
