@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.app.Notification
 import android.app.NotificationChannel
@@ -22,6 +23,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
+        configureServiceInfo()
         ScreenObservationStore.markConnectedWaitingForWindow()
         startAgentForegroundNotification()
     }
@@ -41,6 +43,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    private fun configureServiceInfo() {
+        val current = serviceInfo ?: return
+        current.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+            AccessibilityEvent.TYPE_VIEW_SCROLLED or
+            AccessibilityEvent.TYPE_VIEW_CLICKED or
+            AccessibilityEvent.TYPE_VIEW_FOCUSED
+        current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        current.flags = current.flags or
+            AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+        current.notificationTimeout = 80L
+        serviceInfo = current
+    }
+
     private fun captureSnapshotInternal(): ScreenObservation {
         val now = System.currentTimeMillis()
         val root = rootInActiveWindow ?: return ScreenObservation(
@@ -50,7 +68,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         )
         val packageName = root.packageName?.toString().orEmpty()
         val windowTitle = root.text?.toString().orEmpty()
-        val nodes = collectNodes(root)
+        val capture = collectNodeHandles(root, MAX_SNAPSHOT_NODES)
+        val nodes = capture.handles.map { it.observed }
         return ScreenObservation(
             enabled = true,
             serviceConnected = true,
@@ -58,24 +77,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
             windowTitle = windowTitle,
             updatedAt = now,
             textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
-            clickableItems = nodes.filter { it.clickable }.take(CLICKABLE_LIMIT),
-            inputItems = nodes.filter { it.editable }.take(INPUT_LIMIT),
-            scrollableItems = nodes.filter { it.scrollable }.take(SCROLLABLE_LIMIT),
-            nodeCount = nodes.size,
+            clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
+            inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
+            scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
+            nodeCount = capture.rawNodeCount,
         )
     }
 
-    private fun collectNodes(root: AccessibilityNodeInfo): List<ObservedScreenNode> {
-        return collectNodeHandles(root, MAX_SNAPSHOT_NODES).map { it.observed }
-    }
-
-    private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): List<NodeHandle> {
+    private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): NodeCapture {
         val result = mutableListOf<NodeHandle>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
         queue.add(root to 0)
+        var rawCount = 0
         var index = 0
         while (queue.isNotEmpty() && result.size < limit) {
             val (node, depth) = queue.removeFirst()
+            rawCount += 1
             node.toHandleOrNull("n${index}")?.let { handle ->
                 result.add(handle)
                 index += 1
@@ -87,13 +104,33 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 }
             }
         }
-        return result
+        while (queue.isNotEmpty()) {
+            rawCount += 1
+            queue.removeFirst()
+        }
+        return NodeCapture(rawNodeCount = rawCount, handles = result)
     }
 
     private fun AccessibilityNodeInfo.safeText(): String {
         return text?.toString()?.takeIf { it.isNotBlank() }
             ?: contentDescription?.toString()?.takeIf { it.isNotBlank() }
-            ?: hintText?.toString().orEmpty()
+            ?: hintText?.toString()?.takeIf { it.isNotBlank() }
+            ?: collectChildText(CHILD_TEXT_FALLBACK_LIMIT)
+    }
+
+    private fun AccessibilityNodeInfo.collectChildText(limit: Int): String {
+        val parts = mutableListOf<String>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        for (childIndex in 0 until childCount) getChild(childIndex)?.let { queue.add(it) }
+        while (queue.isNotEmpty() && parts.size < limit) {
+            val child = queue.removeFirst()
+            val text = child.text?.toString()?.takeIf { it.isNotBlank() }
+                ?: child.contentDescription?.toString()?.takeIf { it.isNotBlank() }
+                ?: child.hintText?.toString()?.takeIf { it.isNotBlank() }
+            if (!text.isNullOrBlank()) parts += text.take(24)
+            for (childIndex in 0 until child.childCount) child.getChild(childIndex)?.let { queue.add(it) }
+        }
+        return parts.distinct().joinToString(" ").take(80)
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
@@ -145,7 +182,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 return tapRect(handle.bounds, "已坐标点击 ${handle.observed.text.ifBlank { quickText }}")
             }
         }
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
         val target = findTargetHandle(handles, step)
             ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetNodeId ?: step.targetText ?: "未知"}", false)
         performClickSmart(target.node)?.let {
@@ -163,7 +200,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
         val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
         val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable }
             ?: return AgentExecutionResult(false, "没有找到输入框", false)
         target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -176,7 +213,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
         val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
         val direction = step.direction.orEmpty().lowercase()
         val action = if (direction in setOf("up", "left", "backward", "previous")) {
@@ -214,23 +251,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
             .mapNotNull { it.toHandleOrNull("n-fast") }
             .firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
         if (exact != null) return exact
-        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES).firstOrNull { handle ->
+        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES).handles.firstOrNull { handle ->
             handle.observed.text == targetText || handle.observed.text.contains(targetText, ignoreCase = true)
         }
     }
 
     private fun AccessibilityNodeInfo.toHandleOrNull(id: String): NodeHandle? {
-        val text = safeText()
         val clickableNode = nearestClickableNode()
         val scrollableNode = nearestScrollableNode()
-        val hasUsefulSignal = text.isNotBlank() || clickableNode != null || isEditable || scrollableNode != null
-        if (!hasUsefulSignal) return null
         val actionNode = when {
             isEditable -> this
             clickableNode != null -> clickableNode
             scrollableNode != null -> scrollableNode
             else -> this
         }
+        val text = safeText().ifBlank { actionNode.safeText() }
+        val hasUsefulSignal = text.isNotBlank() || clickableNode != null || isEditable || scrollableNode != null
+        if (!hasUsefulSignal) return null
         val rect = Rect()
         actionNode.getBoundsInScreen(rect)
         if (rect.isEmpty) getBoundsInScreen(rect)
@@ -238,7 +275,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val observed = ObservedScreenNode(
             id = id,
             text = text.take(80),
-            className = className?.toString().orEmpty().substringAfterLast('.').take(32),
+            className = actionNode.className?.toString().orEmpty().substringAfterLast('.').take(32),
             bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
             clickable = clickableNode != null,
             editable = isEditable,
@@ -368,6 +405,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
+    private data class NodeCapture(
+        val rawNodeCount: Int,
+        val handles: List<NodeHandle>,
+    )
+
     private data class NodeHandle(
         val observed: ObservedScreenNode,
         val node: AccessibilityNodeInfo,
@@ -391,16 +433,17 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 120
-        private const val MAX_EXECUTION_NODES = 160
-        private const val FAST_TEXT_FALLBACK_NODES = 80
-        private const val MAX_DEPTH = 8
-        private const val TEXT_LIMIT = 40
-        private const val CLICKABLE_LIMIT = 36
-        private const val INPUT_LIMIT = 10
-        private const val SCROLLABLE_LIMIT = 12
-        private const val CLICK_PARENT_DEPTH = 6
-        private const val SCROLL_PARENT_DEPTH = 8
+        private const val MAX_SNAPSHOT_NODES = 180
+        private const val MAX_EXECUTION_NODES = 220
+        private const val FAST_TEXT_FALLBACK_NODES = 120
+        private const val MAX_DEPTH = 12
+        private const val CHILD_TEXT_FALLBACK_LIMIT = 6
+        private const val TEXT_LIMIT = 50
+        private const val CLICKABLE_LIMIT = 48
+        private const val INPUT_LIMIT = 12
+        private const val SCROLLABLE_LIMIT = 16
+        private const val CLICK_PARENT_DEPTH = 10
+        private const val SCROLL_PARENT_DEPTH = 12
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
