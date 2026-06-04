@@ -28,13 +28,21 @@ class AgentTaskRunner(
         maxSteps: Int = DEFAULT_MAX_STEPS,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
+        if (!AgentRuntimeController.isEnabled()) {
+            val message = "智能体已关闭，请先打开 Agent 开关。"
+            AgentRuntimeController.finishTask(message, completed = false)
+            return AgentTaskRunResult(false, false, message, logs)
+        }
+        AgentRuntimeController.startTask(goal)
         val targetApp = detectTargetApp(goal)
         val memory = AgentRunMemory(goal = goal, targetApp = targetApp)
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
             val observation = captureOnce()
             if (!observation.enabled || !observation.serviceConnected) {
-                return AgentTaskRunResult(false, false, "无障碍服务未开启", logs)
+                val message = "无障碍服务未开启"
+                AgentRuntimeController.failTask(message)
+                return AgentTaskRunResult(false, false, message, logs)
             }
             val snapshot = observation.toAgentScreenSnapshot()
             memory.observe(snapshot)
@@ -43,7 +51,10 @@ class AgentTaskRunner(
             if (preflight != null) {
                 val result = executeAndRecord(preflight, snapshot.currentApp, logs)
                 memory.remember(preflight, result)
-                if (!result.ok || !result.shouldContinue) return AgentTaskRunResult(false, false, result.message, logs)
+                if (!result.ok || !result.shouldContinue) {
+                    AgentRuntimeController.finishTask(result.message, completed = false)
+                    return AgentTaskRunResult(false, false, result.message, logs)
+                }
                 delayForStep(preflight)
                 return@repeat
             }
@@ -57,6 +68,7 @@ class AgentTaskRunner(
                 )
                 val done = AgentExecutionResult(true, "目标应用已打开", false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
+                AgentRuntimeController.finishTask(finishStep.reason ?: "任务完成", completed = true)
                 return AgentTaskRunResult(true, false, finishStep.reason ?: "任务完成", logs)
             }
 
@@ -67,30 +79,42 @@ class AgentTaskRunner(
             if (cloudStep.type == "finish") {
                 val done = AgentExecutionResult(true, "任务完成", false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, done)
+                AgentRuntimeController.finishTask(cloudStep.reason ?: "任务完成", completed = true)
                 return AgentTaskRunResult(true, false, cloudStep.reason ?: "任务完成", logs)
             }
 
             val chosenStep = chooseAction(goal, snapshot, cloudStep, memory)
             if (chosenStep == null) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, null)
-                return AgentTaskRunResult(false, false, cloudStep.reason ?: "当前屏幕没有足够线索继续推进", logs)
+                val message = cloudStep.reason ?: "当前屏幕没有足够线索继续推进"
+                AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(false, false, message, logs)
             }
 
             if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                return AgentTaskRunResult(false, true, "动作需要确认：${chosenStep.typeLabel}", logs)
+                val message = "动作需要确认：${chosenStep.typeLabel}"
+                AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(false, true, message, logs)
             }
             if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                return AgentTaskRunResult(false, false, chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}", logs)
+                val message = chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}"
+                AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(false, false, message, logs)
             }
 
             val result = executeAndRecord(chosenStep, snapshot.currentApp, logs)
             memory.remember(chosenStep, result)
-            if (!result.ok || !result.shouldContinue) return AgentTaskRunResult(false, false, result.message, logs)
+            if (!result.ok || !result.shouldContinue) {
+                AgentRuntimeController.finishTask(result.message, completed = false)
+                return AgentTaskRunResult(false, false, result.message, logs)
+            }
             delayForStep(chosenStep)
         }
-        return AgentTaskRunResult(false, false, "已达到最大执行步数，请检查当前页面后继续。", logs)
+        val message = "已达到最大执行步数，请检查当前页面后继续。"
+        AgentRuntimeController.finishTask(message, completed = false)
+        return AgentTaskRunResult(false, false, message, logs)
     }
 
     private suspend fun captureOnce(): ScreenObservation {
@@ -102,7 +126,9 @@ class AgentTaskRunner(
         currentApp: String,
         logs: MutableList<AgentTaskStepLog>,
     ): AgentExecutionResult {
+        AgentRuntimeController.noteAction(step)
         val result = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+        AgentRuntimeController.noteResult(step, result)
         logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
         return result
     }
@@ -114,7 +140,7 @@ class AgentTaskRunner(
             "input_text" -> INPUT_DELAY_MS
             "scroll", "swipe" -> SCROLL_DELAY_MS
             "wait" -> DEFAULT_WAIT_DELAY_MS
-            "back", "home", "recents" -> GLOBAL_ACTION_DELAY_MS
+            "back", "home", "recents", "notifications", "quick_settings" -> GLOBAL_ACTION_DELAY_MS
             "finish", "need_user_help" -> 0L
             else -> DEFAULT_STEP_DELAY_MS
         }
@@ -176,7 +202,7 @@ class AgentTaskRunner(
             "scroll", "swipe" -> if (hasUsefulVisibleAction(snapshot, context)) 18 else 38
             "wait" -> if (snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT) 40 else 16
             "back" -> if (memory.repeatedCloudRejects >= 1) 42 else 18
-            "home", "recents" -> 16
+            "home", "recents", "notifications", "quick_settings" -> 16
             else -> 34
         } - if (memory.isLikelyRepeated(step)) REPEATED_ACTION_PENALTY else 0
         return ScoredStep(step, score)
@@ -228,18 +254,31 @@ class AgentTaskRunner(
             )
         }
 
-        if (snapshot.scrollableNodes.isNotEmpty() && memory.scrollAttempts < MAX_SCROLL_ATTEMPTS && !hasUsefulVisibleAction(snapshot, context)) {
-            candidates += ScoredStep(
-                step = CloudAgentStep(
-                    type = "scroll",
-                    targetNodeId = snapshot.scrollableNodes.first().id,
-                    direction = if (memory.scrollAttempts % 2 == 0) "down" else "up",
-                    reason = "本地控制器：当前屏幕没有可靠入口，再滚动扩大搜索范围。",
-                    riskLevel = "low",
-                    requiresConfirmation = false,
-                ),
-                score = SCROLL_FALLBACK_SCORE,
-            )
+        if (memory.scrollAttempts < MAX_SCROLL_ATTEMPTS && !hasUsefulVisibleAction(snapshot, context)) {
+            if (snapshot.scrollableNodes.isNotEmpty()) {
+                candidates += ScoredStep(
+                    step = CloudAgentStep(
+                        type = "scroll",
+                        targetNodeId = snapshot.scrollableNodes.first().id,
+                        direction = if (memory.scrollAttempts % 2 == 0) "down" else "up",
+                        reason = "本地控制器：当前屏幕没有可靠入口，再滚动扩大搜索范围。",
+                        riskLevel = "low",
+                        requiresConfirmation = false,
+                    ),
+                    score = SCROLL_FALLBACK_SCORE,
+                )
+            } else if (snapshot.nodeCount >= LOW_SIGNAL_NODE_COUNT || snapshot.texts.isNotEmpty()) {
+                candidates += ScoredStep(
+                    step = CloudAgentStep(
+                        type = "swipe",
+                        direction = if (memory.scrollAttempts % 2 == 0) "up" else "down",
+                        reason = "本地控制器：当前屏幕没有暴露滚动节点，使用普通滑动手势继续探索。",
+                        riskLevel = "low",
+                        requiresConfirmation = false,
+                    ),
+                    score = SWIPE_FALLBACK_SCORE,
+                )
+            }
         }
 
         if (memory.waitAttempts < MAX_WAIT_ATTEMPTS && snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT) {
@@ -423,16 +462,9 @@ class AgentTaskRunner(
         var waitAttempts: Int = 0,
         var backAttempts: Int = 0,
         var repeatedCloudRejects: Int = 0,
-        private var lastSnapshotSignature: String = "",
         private val recentStepKeys: MutableList<String> = mutableListOf(),
     ) {
-        fun observe(snapshot: AgentScreenSnapshot) {
-            lastSnapshotSignature = listOf(
-                snapshot.currentApp,
-                snapshot.texts.take(8).joinToString("|"),
-                snapshot.clickableNodes.take(8).joinToString("|") { it.text },
-            ).joinToString("#")
-        }
+        fun observe(snapshot: AgentScreenSnapshot) = Unit
 
         fun remember(step: CloudAgentStep, result: AgentExecutionResult) {
             recentStepKeys += stepKey(step)
@@ -487,6 +519,7 @@ class AgentTaskRunner(
         private const val INPUT_SEARCH_SCORE = 64
         private const val INPUT_NORMAL_SCORE = 48
         private const val SCROLL_FALLBACK_SCORE = 22
+        private const val SWIPE_FALLBACK_SCORE = 20
         private const val WAIT_LOW_SIGNAL_SCORE = 36
         private const val BACK_RECOVERY_SCORE = 34
 
