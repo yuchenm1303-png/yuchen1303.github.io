@@ -20,7 +20,7 @@ import androidx.activity.compose.setContent
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
 
-private const val ENABLE_STARTUP_FRAME_MONITOR = true
+private const val ENABLE_STARTUP_FRAME_MONITOR = false
 private const val ENABLE_STARTUP_METRICS_OVERLAY = false
 
 class MainActivity : ComponentActivity() {
