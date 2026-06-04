@@ -560,16 +560,16 @@ private fun ChatPanelV2(
                                 onRetryMessage = onRetryMessage
                             )
                         }
-                    }
-
-                    StarterSuggestionsOverlayV2(
-                        visible = messages.size <= 1,
-                        quality = state.quality,
-                        glassIntensity = state.glassIntensity,
-                        motionIntensity = state.motionIntensity,
-                        onDraftCommand = onDraftCommand,
-                        onPickImage = onPickImage
-                    )
+                        item {
+                            StarterSuggestionsV2(
+                                visible = messages.size <= 2,
+                                quality = state.quality,
+                                glassIntensity = state.glassIntensity,
+                                motionIntensity = state.motionIntensity,
+                                onDraftCommand = onDraftCommand,
+                                onPickImage = onPickImage
+                            )
+                        }
                     }
                 }
             }
@@ -594,34 +594,6 @@ private fun ChatBubbleMaterialLayerHost(
         motionIntensity = motionIntensity,
         modifier = modifier
     )
-}
-
-@Composable
-private fun StarterSuggestionsOverlayV2(
-    visible: Boolean,
-    quality: RenderQuality,
-    glassIntensity: Float,
-    motionIntensity: Float,
-    onDraftCommand: (String) -> Unit,
-    onPickImage: () -> Unit
-) {
-    if (!visible) return
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 12.dp),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        StarterSuggestionsV2(
-            visible = true,
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = motionIntensity,
-            onDraftCommand = onDraftCommand,
-            onPickImage = onPickImage
-        )
-    }
 }
 
 @Composable
