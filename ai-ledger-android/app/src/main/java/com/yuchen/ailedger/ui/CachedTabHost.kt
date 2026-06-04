@@ -104,7 +104,10 @@ fun CachedAppTabHost(
                     LocalPageVisible provides visibleDuringTransition,
                     LocalPageActivationTick provides if (active) currentActivationTick else 0,
                     LocalPageHeavyEffectsEnabled provides heavyEffectsEnabled,
-                    LocalOpenGLGlassViewportActive provides heavyEffectsEnabled,
+                    // Keep this false for Shell cards. In GlassPanel, a true viewport flag means
+                    // an external OpenGL viewport owns the Shell, which intentionally skips the
+                    // card-bound OpenGLGlassCardLayer. Our app uses single-card Shell OpenGL.
+                    LocalOpenGLGlassViewportActive provides false,
                     LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
                     LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
                     LocalBackdropFrameTicker provides if (heavyEffectsEnabled) parentBackdropTicker else null,
