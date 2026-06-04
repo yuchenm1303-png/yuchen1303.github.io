@@ -28,11 +28,11 @@ class AgentTaskRunner(
         maxSteps: Int = DEFAULT_MAX_STEPS,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
-        val targetApp = detectTargetApp(goal)
+        val targetApp = AgentTargetAppResolver.resolve(goal)
         var localOpenAppAttempts = 0
         var recoveryAttempts = 0
 
-        repeat(maxSteps) { index ->
+        repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) { index ->
             val observation = withContext(Dispatchers.Default) {
                 AiAgentAccessibilityService.captureFreshSnapshot()
             }
@@ -74,7 +74,7 @@ class AgentTaskRunner(
                     val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(recovery) }
                     logs += AgentTaskStepLog(index + 1, snapshot.currentApp, recovery, execution)
                     if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-                    delay(recovery.durationMs?.coerceIn(350L, 2_500L) ?: DEFAULT_STEP_DELAY_MS)
+                    delay(recovery.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
                     return@repeat
                 }
                 logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, null)
@@ -92,14 +92,14 @@ class AgentTaskRunner(
             val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
             logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, execution)
             if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-            delay(step.durationMs?.coerceIn(350L, 2_500L) ?: DEFAULT_STEP_DELAY_MS)
+            delay(step.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
         }
         return AgentTaskRunResult(false, false, "已达到最大执行步数，请检查当前页面后继续。", logs)
     }
 
     private suspend fun waitForPackage(packageName: String) {
-        repeat(6) {
-            delay(500L)
+        repeat(2) {
+            delay(650L)
             val now = withContext(Dispatchers.Default) { AiAgentAccessibilityService.captureFreshSnapshot() }
             if (now.packageName == packageName) return
         }
@@ -108,7 +108,7 @@ class AgentTaskRunner(
     private fun buildRecoveryStep(
         goal: String,
         snapshot: AgentScreenSnapshot,
-        targetApp: TargetApp?,
+        targetApp: AgentTargetApp?,
         attempt: Int,
     ): CloudAgentStep? {
         if (targetApp != null && snapshot.currentApp != targetApp.packageName && attempt < MAX_OPEN_APP_ATTEMPTS) {
@@ -121,17 +121,17 @@ class AgentTaskRunner(
                 requiresConfirmation = false,
             )
         }
-        findClickableByKeywords(snapshot, listOf("搜索", "查找", "search"))?.let { node ->
+        findClickableByKeywords(snapshot, listOf("搜索", "查找", "search", "发现", "通讯录"))?.let { node ->
             return CloudAgentStep(
                 type = "tap_node",
                 targetNodeId = node.id,
                 targetText = node.text,
-                reason = "自我纠错：当前目标未直接出现，先进入搜索入口。",
+                reason = "自我纠错：当前目标未直接出现，先进入可能的搜索或导航入口。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             )
         }
-        val targetPhrase = extractTargetPhrase(goal, targetApp)
+        val targetPhrase = AgentTargetAppResolver.extractSearchKeyword(goal, targetApp)
         if (snapshot.inputNodes.isNotEmpty() && targetPhrase.isNotBlank()) {
             val input = snapshot.inputNodes.first()
             return CloudAgentStep(
@@ -172,38 +172,12 @@ class AgentTaskRunner(
         }
     }
 
-    private fun extractTargetPhrase(goal: String, targetApp: TargetApp?): String {
-        var text = goal
-        targetApp?.aliases.orEmpty().forEach { text = text.replace(it, "", ignoreCase = true) }
-        listOf("帮我", "替我", "打开", "找到", "进入", "搜索", "查找", "一下", "应用", "app").forEach {
-            text = text.replace(it, "", ignoreCase = true)
-        }
-        return text.replace(Regex("[，。,.、\\s]+"), "").take(24)
-    }
-
-    private fun detectTargetApp(goal: String): TargetApp? {
-        val clean = goal.lowercase().replace(" ", "")
-        return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(alias.lowercase()) } }
-    }
-
-    private data class TargetApp(
-        val label: String,
-        val packageName: String,
-        val aliases: List<String>,
-    )
-
     companion object {
-        private const val DEFAULT_MAX_STEPS = 10
-        private const val DEFAULT_STEP_DELAY_MS = 900L
-        private const val MAX_OPEN_APP_ATTEMPTS = 2
-        private const val MAX_RECOVERY_ATTEMPTS = 3
-
-        private val TARGET_APPS = listOf(
-            TargetApp("微信", "com.tencent.mm", listOf("微信", "wechat", "wx")),
-            TargetApp("QQ", "com.tencent.mobileqq", listOf("qq", "腾讯qq")),
-            TargetApp("哔哩哔哩", "tv.danmaku.bili", listOf("哔哩", "哔哩哔哩", "b站", "bilibili")),
-            TargetApp("小红书", "com.xingin.xhs", listOf("小红书")),
-            TargetApp("抖音", "com.ss.android.ugc.aweme", listOf("抖音", "douyin")),
-        )
+        private const val DEFAULT_MAX_STEPS = 6
+        private const val DEFAULT_STEP_DELAY_MS = 1_100L
+        private const val MIN_STEP_DELAY_MS = 650L
+        private const val MAX_STEP_DELAY_MS = 2_500L
+        private const val MAX_OPEN_APP_ATTEMPTS = 1
+        private const val MAX_RECOVERY_ATTEMPTS = 2
     }
 }
