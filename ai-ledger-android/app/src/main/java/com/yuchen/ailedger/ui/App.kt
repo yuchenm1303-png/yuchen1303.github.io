@@ -394,7 +394,7 @@ private fun rememberAssistantScreenState(
     state: AssistantUiState,
     effectiveMotionIntensity: Float,
     visibleComposerText: String,
-): AssistantUiState {
+): AssistantHomeUiState {
     return remember(
         state.quality,
         state.glassIntensity,
@@ -409,9 +409,19 @@ private fun rememberAssistantScreenState(
         state.onlineEnabled,
         state.isSending,
     ) {
-        state.copy(
+        AssistantHomeUiState(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
             motionIntensity = effectiveMotionIntensity,
+            rainbowPrismStyle = state.rainbowPrismStyle,
+            modelCardGlassStyle = state.modelCardGlassStyle,
+            messages = state.messages,
             composerText = visibleComposerText,
+            composerAttachments = state.composerAttachments,
+            selectedModel = state.selectedModel,
+            selectedModelLabel = state.selectedModelLabel,
+            onlineEnabled = state.onlineEnabled,
+            isSending = state.isSending
         )
     }
 }
