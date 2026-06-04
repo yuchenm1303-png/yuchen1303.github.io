@@ -21,6 +21,7 @@ internal data class AssistantHomeUiState(
     val selectedModel: ChatModel,
     val selectedModelLabel: String,
     val onlineEnabled: Boolean,
+    val agentEnabled: Boolean,
     val isSending: Boolean
 )
 
