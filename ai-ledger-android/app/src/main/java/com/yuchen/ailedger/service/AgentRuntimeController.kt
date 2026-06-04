@@ -31,6 +31,43 @@ object AgentRuntimeController {
             running = if (value) mutableProgress.value.running else false,
             status = if (value) "待命" else "已关闭",
             currentAction = if (value) "等待任务" else "智能体自动执行已暂停",
+            lastResult = if (value) mutableProgress.value.lastResult else "",
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    fun startTask(goal: String) {
+        val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
+        mutableProgress.value = AgentOverlayProgress(
+            enabled = mutableEnabled.value,
+            running = true,
+            title = "AI 智能体",
+            status = "准备执行",
+            currentAction = cleanGoal,
+            logs = listOf("目标：$cleanGoal"),
+        )
+    }
+
+    fun finishTask(message: String, completed: Boolean) {
+        val resultText = message.trim().take(72).ifBlank { if (completed) "任务完成" else "任务暂停" }
+        mutableProgress.value = mutableProgress.value.copy(
+            running = false,
+            status = if (completed) "已完成" else "已暂停",
+            currentAction = if (completed) "任务完成" else "任务已暂停",
+            lastResult = resultText,
+            logs = (mutableProgress.value.logs + "最终：$resultText").takeLast(MAX_LOGS),
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
+    fun failTask(message: String) {
+        val resultText = message.trim().take(72).ifBlank { "智能体执行失败" }
+        mutableProgress.value = mutableProgress.value.copy(
+            running = false,
+            status = "执行失败",
+            currentAction = "任务异常",
+            lastResult = resultText,
+            logs = (mutableProgress.value.logs + "失败：$resultText").takeLast(MAX_LOGS),
             updatedAt = System.currentTimeMillis(),
         )
     }
