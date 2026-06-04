@@ -52,8 +52,9 @@ class AgentTaskRunner(
                 val result = executeAndRecord(preflight, snapshot.currentApp, logs)
                 memory.remember(preflight, result)
                 if (!result.ok || !result.shouldContinue) {
-                    AgentRuntimeController.finishTask(result.message, completed = false)
-                    return AgentTaskRunResult(false, false, result.message, logs)
+                    val message = memory.withDebug(result.message)
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
                 }
                 delayForStep(preflight)
                 return@repeat
@@ -68,8 +69,9 @@ class AgentTaskRunner(
                 )
                 val done = AgentExecutionResult(true, "目标应用已打开", false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
-                AgentRuntimeController.finishTask(finishStep.reason ?: "任务完成", completed = true)
-                return AgentTaskRunResult(true, false, finishStep.reason ?: "任务完成", logs)
+                val message = memory.withDebug(finishStep.reason ?: "任务完成")
+                AgentRuntimeController.finishTask(message, completed = true)
+                return AgentTaskRunResult(true, false, message, logs)
             }
 
             val cloudStep = withContext(Dispatchers.IO) {
@@ -79,27 +81,28 @@ class AgentTaskRunner(
             if (cloudStep.type == "finish") {
                 val done = AgentExecutionResult(true, "任务完成", false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, done)
-                AgentRuntimeController.finishTask(cloudStep.reason ?: "任务完成", completed = true)
-                return AgentTaskRunResult(true, false, cloudStep.reason ?: "任务完成", logs)
+                val message = memory.withDebug(cloudStep.reason ?: "任务完成")
+                AgentRuntimeController.finishTask(message, completed = true)
+                return AgentTaskRunResult(true, false, message, logs)
             }
 
             val chosenStep = chooseAction(goal, snapshot, cloudStep, memory)
             if (chosenStep == null) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, null)
-                val message = cloudStep.reason ?: "当前屏幕没有足够线索继续推进"
+                val message = memory.withDebug(cloudStep.reason ?: "当前屏幕没有足够线索继续推进")
                 AgentRuntimeController.finishTask(message, completed = false)
                 return AgentTaskRunResult(false, false, message, logs)
             }
 
             if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                val message = "动作需要确认：${chosenStep.typeLabel}"
+                val message = memory.withDebug("动作需要确认：${chosenStep.typeLabel}")
                 AgentRuntimeController.finishTask(message, completed = false)
                 return AgentTaskRunResult(false, true, message, logs)
             }
             if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                val message = chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}"
+                val message = memory.withDebug(chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}")
                 AgentRuntimeController.finishTask(message, completed = false)
                 return AgentTaskRunResult(false, false, message, logs)
             }
@@ -107,12 +110,13 @@ class AgentTaskRunner(
             val result = executeAndRecord(chosenStep, snapshot.currentApp, logs)
             memory.remember(chosenStep, result)
             if (!result.ok || !result.shouldContinue) {
-                AgentRuntimeController.finishTask(result.message, completed = false)
-                return AgentTaskRunResult(false, false, result.message, logs)
+                val message = memory.withDebug(result.message)
+                AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(false, false, message, logs)
             }
             delayForStep(chosenStep)
         }
-        val message = "已达到最大执行步数，请检查当前页面后继续。"
+        val message = memory.withDebug("已达到最大执行步数，请检查当前页面后继续。")
         AgentRuntimeController.finishTask(message, completed = false)
         return AgentTaskRunResult(false, false, message, logs)
     }
@@ -463,8 +467,15 @@ class AgentTaskRunner(
         var backAttempts: Int = 0,
         var repeatedCloudRejects: Int = 0,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
+        var lastDebugLine: String = "",
     ) {
-        fun observe(snapshot: AgentScreenSnapshot) = Unit
+        fun observe(snapshot: AgentScreenSnapshot) {
+            lastDebugLine = "调试：app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount} · 文字=${snapshot.texts.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size}"
+        }
+
+        fun withDebug(message: String): String {
+            return if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
+        }
 
         fun remember(step: CloudAgentStep, result: AgentExecutionResult) {
             recentStepKeys += stepKey(step)
