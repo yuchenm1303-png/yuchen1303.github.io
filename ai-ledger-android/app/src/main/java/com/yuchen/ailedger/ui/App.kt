@@ -313,8 +313,18 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 when (tab) {
                                     AppTab.Assistant -> {
                                         Box(Modifier.fillMaxSize()) {
+                                            val assistantHeavyEffectsEnabled = LocalPageHeavyEffectsEnabled.current
+                                            val stagedAssistantScreenState = remember(
+                                                assistantScreenState,
+                                                assistantHeavyEffectsEnabled,
+                                                effectiveMotionIntensity
+                                            ) {
+                                                assistantScreenState.copy(
+                                                    motionIntensity = if (assistantHeavyEffectsEnabled) effectiveMotionIntensity else 0f
+                                                )
+                                            }
                                             AssistantScreenV2(
-                                                state = assistantScreenState,
+                                                state = stagedAssistantScreenState,
                                                 bottomPadding = assistantBottomPadding,
                                                 onComposerChange = viewModel::updateComposer,
                                                 onSend = submitOrRunLocalMobileCommand,
