@@ -1,6 +1,10 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -72,5 +76,39 @@ internal data class ModelSelectorUiState(
         glassIntensity = glassIntensity,
         motionIntensity = motionIntensity,
         modelCardGlassStyle = modelCardGlassStyle
+    )
+}
+
+@Composable
+internal fun AssistantScreenV2(
+    state: AssistantHomeUiState,
+    bottomPadding: Dp = 68.dp,
+    onComposerChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStopGenerating: () -> Unit,
+    onDraftCommand: (String) -> Unit,
+    onModelSelected: (ChatModel) -> Unit,
+    onPickImage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleOnline: () -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onRetryMessage: (String) -> Unit
+) {
+    val visualState = remember(state) { state.toVisualAssistantUiState() }
+    AssistantScreenV2(
+        state = visualState,
+        bottomPadding = bottomPadding,
+        onComposerChange = onComposerChange,
+        onSend = onSend,
+        onStopGenerating = onStopGenerating,
+        onDraftCommand = onDraftCommand,
+        onModelSelected = onModelSelected,
+        onPickImage = onPickImage,
+        onOpenTools = onOpenTools,
+        onOpenSettings = onOpenSettings,
+        onToggleOnline = onToggleOnline,
+        onCopyMessage = onCopyMessage,
+        onRetryMessage = onRetryMessage
     )
 }
