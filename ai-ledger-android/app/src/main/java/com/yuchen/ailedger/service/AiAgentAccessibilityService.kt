@@ -62,19 +62,17 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun collectNodes(root: AccessibilityNodeInfo): List<ObservedScreenNode> {
-        return collectNodeHandles(root).map { it.observed }
+        return collectNodeHandles(root, MAX_SNAPSHOT_NODES).map { it.observed }
     }
 
-    private fun collectNodeHandles(root: AccessibilityNodeInfo): List<NodeHandle> {
+    private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): List<NodeHandle> {
         val result = mutableListOf<NodeHandle>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
         queue.add(root to 0)
         var index = 0
-        while (queue.isNotEmpty() && result.size < MAX_NODES) {
+        while (queue.isNotEmpty() && result.size < limit) {
             val (node, depth) = queue.removeFirst()
-            val text = node.text?.toString()?.takeIf { it.isNotBlank() }
-                ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
-                ?: node.hintText?.toString().orEmpty()
+            val text = node.safeText()
             val hasUsefulSignal = text.isNotBlank() || node.isClickable || node.isLongClickable || node.isEditable || node.isScrollable
             if (hasUsefulSignal) {
                 val rect = Rect()
@@ -98,6 +96,12 @@ class AiAgentAccessibilityService : AccessibilityService() {
             }
         }
         return result
+    }
+
+    private fun AccessibilityNodeInfo.safeText(): String {
+        return text?.toString()?.takeIf { it.isNotBlank() }
+            ?: contentDescription?.toString()?.takeIf { it.isNotBlank() }
+            ?: hintText?.toString().orEmpty()
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
@@ -140,13 +144,20 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
         val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root)
+        val quickText = step.targetText?.takeIf { it.isNotBlank() }
+        if (quickText != null) {
+            findNodeByTextFast(root, quickText)?.let { handle ->
+                performClickSmart(handle.node)?.let { return AgentExecutionResult(true, "已快速点击 ${handle.observed.text.ifBlank { quickText }}") }
+                return tapRect(handle.bounds, "已坐标点击 ${handle.observed.text.ifBlank { quickText }}")
+            }
+        }
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
         val target = findTargetHandle(handles, step)
             ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetNodeId ?: step.targetText ?: "未知"}", false)
-        if (target.node.isClickable && target.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+        performClickSmart(target.node)?.let {
             return AgentExecutionResult(true, "已点击节点 ${target.observed.id} ${target.observed.text}".trim())
         }
-        return tapRect(target.bounds, "已点击节点 ${target.observed.id}")
+        return tapRect(target.bounds, "已坐标点击节点 ${target.observed.id}")
     }
 
     private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
@@ -158,7 +169,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
         val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
         val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root)
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable }
             ?: return AgentExecutionResult(false, "没有找到输入框", false)
         target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -171,7 +182,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
         val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root)
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES)
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
         val direction = step.direction.orEmpty().lowercase()
         val action = if (direction in setOf("up", "left", "backward", "previous")) {
@@ -202,6 +213,44 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
         val ok = dispatchSwipe(startX, startY, endX, endY, step.durationMs ?: DEFAULT_SWIPE_MS)
         return AgentExecutionResult(ok = ok, message = if (ok) "已滑动：$direction" else "滑动失败：$direction", shouldContinue = ok)
+    }
+
+    private fun findNodeByTextFast(root: AccessibilityNodeInfo, targetText: String): NodeHandle? {
+        val exact = root.findAccessibilityNodeInfosByText(targetText).orEmpty()
+            .mapNotNull { it.toHandleOrNull("n-fast") }
+            .firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
+        if (exact != null) return exact
+        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES).firstOrNull { handle ->
+            handle.observed.text == targetText || handle.observed.text.contains(targetText, ignoreCase = true)
+        }
+    }
+
+    private fun AccessibilityNodeInfo.toHandleOrNull(id: String): NodeHandle? {
+        val text = safeText()
+        val rect = Rect()
+        getBoundsInScreen(rect)
+        if (rect.isEmpty) return null
+        val observed = ObservedScreenNode(
+            id = id,
+            text = text.take(80),
+            className = className?.toString().orEmpty().substringAfterLast('.').take(32),
+            bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
+            clickable = isClickable || isLongClickable,
+            editable = isEditable,
+            scrollable = isScrollable,
+        )
+        return NodeHandle(observed = observed, node = this, bounds = rect)
+    }
+
+    private fun performClickSmart(node: AccessibilityNodeInfo): Boolean? {
+        var current: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (current != null && depth < CLICK_PARENT_DEPTH) {
+            if ((current.isClickable || current.isLongClickable) && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            current = current.parent
+            depth += 1
+        }
+        return null
     }
 
     private fun findTargetHandle(handles: List<NodeHandle>, step: CloudAgentStep): NodeHandle? {
@@ -304,14 +353,17 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_NODES = 90
+        private const val MAX_SNAPSHOT_NODES = 72
+        private const val MAX_EXECUTION_NODES = 90
+        private const val FAST_TEXT_FALLBACK_NODES = 45
         private const val MAX_DEPTH = 6
         private const val TEXT_LIMIT = 30
         private const val CLICKABLE_LIMIT = 24
         private const val INPUT_LIMIT = 8
         private const val SCROLLABLE_LIMIT = 8
-        private const val DEFAULT_TAP_MS = 80L
-        private const val DEFAULT_SWIPE_MS = 360L
-        private const val DEFAULT_WAIT_MS = 800L
+        private const val CLICK_PARENT_DEPTH = 4
+        private const val DEFAULT_TAP_MS = 48L
+        private const val DEFAULT_SWIPE_MS = 300L
+        private const val DEFAULT_WAIT_MS = 650L
     }
 }
