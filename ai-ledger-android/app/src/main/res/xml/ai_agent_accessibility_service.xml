@@ -5,4 +5,4 @@
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:description="@string/ai_agent_accessibility_description"
-    android:notificationTimeout="1000" />
+    android:notificationTimeout="5000" />
