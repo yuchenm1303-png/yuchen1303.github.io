@@ -85,6 +85,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
 import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.sin
@@ -355,12 +356,23 @@ private fun AssistantEntrance(
     initialScale: Float = 0.96f,
     content: @Composable () -> Unit
 ) {
+    val pageActive = LocalPageActive.current
+    val pageLeaving = LocalPageLeaving.current
+    val activationTick = LocalPageActivationTick.current
     var visible by remember { mutableStateOf(false) }
 
-    LaunchedEffect(delayMs) {
-        visible = false
-        if (delayMs > 0L) delay(delayMs)
-        visible = true
+    LaunchedEffect(pageActive, pageLeaving, activationTick, delayMs) {
+        if (pageActive) {
+            visible = false
+            yield()
+            if (delayMs > 0L) delay(delayMs)
+            visible = true
+        } else {
+            if (pageLeaving && delayMs > 0L) {
+                delay((delayMs / 12L).coerceAtMost(26L))
+            }
+            visible = false
+        }
     }
 
     AnimatedVisibility(
@@ -369,7 +381,9 @@ private fun AssistantEntrance(
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
             slideInVertically(spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
             scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.985f, animationSpec = tween(120))
+        exit = fadeOut(tween(92)) +
+            slideOutVertically(tween(104)) { (-initialOffsetY / 3).coerceIn(-10, 10) } +
+            scaleOut(targetScale = 0.986f, animationSpec = tween(112))
     ) { content() }
 }
 
