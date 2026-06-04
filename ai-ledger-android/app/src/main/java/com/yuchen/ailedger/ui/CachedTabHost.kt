@@ -11,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -23,11 +22,14 @@ import com.yuchen.ailedger.model.AppTab
 import kotlinx.coroutines.delay
 
 val LocalPageActive = compositionLocalOf { true }
+val LocalPageVisible = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
+val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 
-private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
+private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
+private const val PAGE_HEAVY_EFFECTS_ALPHA_GATE = 0.82f
 
 @Composable
 fun CachedAppTabHost(
@@ -41,11 +43,7 @@ fun CachedAppTabHost(
     val diagnostics = LocalPerformanceDiagnostics.current
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
-    val activationTicks = remember {
-        mutableStateMapOf<AppTab, Int>().apply {
-            AppTab.entries.forEach { put(it, 0) }
-        }
-    }
+    val currentActivationTick = remember(currentTab) { (System.nanoTime() and Int.MAX_VALUE.toLong()).toInt() }
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
@@ -56,7 +54,6 @@ fun CachedAppTabHost(
 
     LaunchedEffect(currentTab) {
         renderedTabs = renderedTabs + currentTab
-        activationTicks[currentTab] = (activationTicks[currentTab] ?: 0) + 1
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -71,11 +68,11 @@ fun CachedAppTabHost(
         StartupMetrics.setWarmupState("首页稳定中")
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEachIndexed { index, tab ->
-            StartupMetrics.setWarmupState("预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
+            StartupMetrics.setWarmupState("轻量预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
             renderedTabs = renderedTabs + tab
             if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
         }
-        StartupMetrics.setWarmupState("所有页面已预热")
+        StartupMetrics.setWarmupState("页面已轻量预热")
     }
 
     Box(modifier) {
@@ -100,15 +97,18 @@ fun CachedAppTabHost(
                     label = "tabOffset-${tab.name}"
                 )
                 val visibleDuringTransition = active || alpha > 0.001f
+                val heavyEffectsEnabled = active && alpha >= PAGE_HEAVY_EFFECTS_ALPHA_GATE && !diagnostics.openGlGlassOff
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
-                    LocalPageActivationTick provides (activationTicks[tab] ?: 0),
-                    LocalOpenGLGlassViewportActive provides (!visibleDuringTransition && !diagnostics.openGlGlassOff),
+                    LocalPageVisible provides visibleDuringTransition,
+                    LocalPageActivationTick provides if (active) currentActivationTick else 0,
+                    LocalPageHeavyEffectsEnabled provides heavyEffectsEnabled,
+                    LocalOpenGLGlassViewportActive provides heavyEffectsEnabled,
                     LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
                     LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
-                    LocalBackdropFrameTicker provides if (visibleDuringTransition) parentBackdropTicker else null,
-                    LocalGlassItemRegistry provides if (visibleDuringTransition && !diagnostics.openGlGlassOff) parentGlassRegistry else null
+                    LocalBackdropFrameTicker provides if (heavyEffectsEnabled) parentBackdropTicker else null,
+                    LocalGlassItemRegistry provides if (heavyEffectsEnabled) parentGlassRegistry else null
                 ) {
                     Box(
                         modifier = Modifier
