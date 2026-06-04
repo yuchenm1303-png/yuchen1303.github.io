@@ -269,6 +269,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         onDispose { rootView.overScrollMode = oldOverscrollMode }
     }
 
+    val rootBackdropScrollModifier = if (state.currentTab == AppTab.Assistant) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier.fillMaxSize().nestedScroll(glassScrollInvalidation)
+    }
+
     MaterialTheme {
         Surface(color = Color(0xFF07132D), modifier = Modifier.fillMaxSize()) {
             CompositionLocalProvider(
@@ -282,7 +288,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalRainbowPrismStyle provides state.rainbowPrismStyle,
                 LocalMobileCommandQuickReply provides runPendingMobileAction
             ) {
-                Box(Modifier.fillMaxSize().nestedScroll(glassScrollInvalidation)) {
+                Box(rootBackdropScrollModifier) {
                     WeatherNightBackground(
                         quality = state.quality,
                         motionIntensity = effectiveMotionIntensity,
