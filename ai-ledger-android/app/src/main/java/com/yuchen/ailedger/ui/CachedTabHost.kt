@@ -25,9 +25,9 @@ import kotlinx.coroutines.delay
 val LocalPageActive = compositionLocalOf { true }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 
-private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
-private const val DEFAULT_PREWARM_DELAY_MS = 3200L
-private const val DEFAULT_PREWARM_STEP_DELAY_MS = 520L
+private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
+private const val DEFAULT_PREWARM_DELAY_MS = 5200L
+private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
 
 @Composable
 fun CachedAppTabHost(
@@ -65,7 +65,7 @@ fun CachedAppTabHost(
             return@LaunchedEffect
         }
         if (orderedPrewarmTabs.isEmpty()) {
-            StartupMetrics.setWarmupState("所有页面已预热")
+            StartupMetrics.setWarmupState("按需页面加载")
             return@LaunchedEffect
         }
         StartupMetrics.setWarmupState("首页稳定中")
