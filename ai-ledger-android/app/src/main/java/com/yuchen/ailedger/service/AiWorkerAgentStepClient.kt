@@ -53,7 +53,7 @@ private fun buildAgentStepPayload(
         put("modelPreference", if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id)
         put("aiModelPreference", if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id)
         put("client", "android-compose")
-        put("clientVersion", "compose-native-agent-task-v2")
+        put("clientVersion", "compose-native-agent-task-v3")
         put("systemPrompt", instruction)
         put("message", "目标：$cleanGoal\n请只根据 screenSnapshot 返回下一步 agentStep JSON。")
         put("messages", JSONArray().apply {
@@ -77,17 +77,19 @@ private fun agentPlannerSystemPrompt(): String = """
 每次只返回一步，必须返回 JSON，不要输出 Markdown，不要输出解释性正文。
 
 支持动作：open_app, home, back, recents, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
-JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"为什么这一步合理","riskLevel":"low|medium|high","requiresConfirmation":false}}
+JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"可展示给用户的行动理由，不要写内心推理","riskLevel":"low|medium|high","requiresConfirmation":false}}
 
 规划规则：
 1. 如果目标属于某个 App，而当前不在该 App，优先返回 open_app，不要让用户手动打开。
-2. 如果当前屏幕没有目标控件，但可以回到桌面、返回、滑动或搜索继续推进，就返回相应动作，不要轻易 need_user_help。
+2. 不要因为当前屏幕没有目标文字就直接 need_user_help。先判断是否可以搜索、切换标签、返回、滑动、滚动、等待或重新打开目标 App。
 3. 对可点击控件优先使用 tap_node，并给出 targetNodeId。
-4. 有输入框并需要搜索/输入时，返回 input_text。
-5. 页面还没加载或刚打开 App 后，返回 wait。
-6. 目标已完成时，返回 finish。
-7. 只有屏幕信息确实不足、动作空间也无法推进时，才返回 need_user_help。
-8. 支付、转账、下单、删除、发送消息、发布、评论、授权、登录、验证码、密码等必须 riskLevel=high 且 requiresConfirmation=true。
+4. 有输入框并需要查找目标时，返回 input_text，text 使用用户目标中的核心关键词。
+5. 页面刚打开、节点很少、疑似还在加载时，返回 wait。
+6. 如果目标在当前页不可见，但页面可滚动，先 scroll 或 swipe 扩大搜索范围。
+7. 如果当前页面明显走错，优先 back，再重新判断。
+8. 目标已完成时，返回 finish。
+9. 只有在动作空间全部无法推进、并且继续操作可能误触时，才返回 need_user_help。
+10. 高风险动作必须 riskLevel=high 且 requiresConfirmation=true。
 """.trimIndent()
 
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
