@@ -83,11 +83,12 @@ fun CachedAppTabHost(
                 )
                 val visibleDuringTransition = active || alpha > 0.001f
                 val effectsEnabled = active && !diagnostics.openGlGlassOff
+                val activationKey = if (active) currentActivationTick else 0
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
                     LocalPageVisible provides visibleDuringTransition,
-                    LocalPageActivationTick provides if (active) currentActivationTick else 0,
+                    LocalPageActivationTick provides activationKey,
                     LocalPageHeavyEffectsEnabled provides effectsEnabled,
                     // Keep this false for Shell cards. A true viewport flag means an external
                     // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
@@ -103,7 +104,7 @@ fun CachedAppTabHost(
                             .zIndex(if (active) 1f else -1f)
                             .graphicsLayer { this.alpha = alpha }
                     ) {
-                        key(tab) {
+                        key(tab, activationKey) {
                             content(tab)
                         }
                     }
