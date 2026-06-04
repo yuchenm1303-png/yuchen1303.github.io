@@ -255,7 +255,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-    val blurredBackdrop = rememberBlurredBackdropBitmap(
+    val blurredBackdrop = rememberStableBlurredBackdropBitmap(
         theme = state.backgroundTheme,
         quality = state.quality,
         params = state.backdropParams,
