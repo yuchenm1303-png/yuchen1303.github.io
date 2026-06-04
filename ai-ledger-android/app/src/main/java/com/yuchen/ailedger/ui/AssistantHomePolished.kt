@@ -47,11 +47,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,6 +128,48 @@ private data class ComposerBarUiState(
 
 private var assistantHomeEntrancePlayedInProcess = false
 
+@Stable
+private class AssistantHomeMotionClock(
+    private val frameNanos: State<Long>,
+    private val motionIntensity: Float
+) {
+    fun phase(periodMs: Long, offset: Float = 0f): Float {
+        if (motionIntensity <= 0.02f) return 0f
+        val periodNanos = (periodMs.coerceAtLeast(1L) * 1_000_000L).coerceAtLeast(1L)
+        val base = (frameNanos.value % periodNanos).toFloat() / periodNanos.toFloat()
+        val shifted = base + offset
+        return shifted - shifted.toInt()
+    }
+
+    fun pingPong(periodMs: Long, offset: Float = 0f): Float {
+        val phase = phase(periodMs, offset)
+        return if (phase <= 0.5f) phase * 2f else (1f - phase) * 2f
+    }
+}
+
+@Composable
+private fun rememberAssistantHomeMotionClock(motionIntensity: Float): AssistantHomeMotionClock {
+    val frameNanos = rememberAssistantHomeFrameNanos(motionIntensity)
+    return remember(frameNanos, motionIntensity) {
+        AssistantHomeMotionClock(frameNanos = frameNanos, motionIntensity = motionIntensity)
+    }
+}
+
+@Composable
+private fun rememberAssistantHomeFrameNanos(motionIntensity: Float): State<Long> {
+    val frameNanos = remember { mutableStateOf(0L) }
+    LaunchedEffect(motionIntensity) {
+        if (motionIntensity <= 0.02f) {
+            frameNanos.value = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            withFrameNanos { nanos -> frameNanos.value = nanos }
+        }
+    }
+    return frameNanos
+}
+
 @Composable
 internal fun AssistantScreenV2(
     state: AssistantHomeUiState,
@@ -185,6 +229,7 @@ internal fun AssistantScreenV2(
         keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
         else -> OpenGLGlassSurfaceAnchor.Center
     }
+    val motionClock = rememberAssistantHomeMotionClock(state.motionIntensity)
 
     val chatPanelState = remember(
         state.messages,
@@ -286,6 +331,7 @@ internal fun AssistantScreenV2(
                     state = chatPanelState,
                     modifier = Modifier.fillMaxWidth(),
                     viewportTopInset = modelExpandDelta,
+                    motionClock = motionClock,
                     onDraftCommand = onDraftCommand,
                     onPickImage = onPickImage,
                     onCopyMessage = onCopyMessage,
@@ -420,13 +466,13 @@ private fun ChatPanelV2(
     state: ChatPanelUiState,
     modifier: Modifier,
     viewportTopInset: Dp = 0.dp,
+    motionClock: AssistantHomeMotionClock,
     onDraftCommand: (String) -> Unit,
     onPickImage: () -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
     val listState = rememberLazyListState()
-    val chatPhase = rememberChatMotionPhaseState(state.motionIntensity)
     val bubbleLayerState = rememberChatBubbleLayerState()
     var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val messages = state.messages
@@ -497,7 +543,7 @@ private fun ChatPanelV2(
                         layerState = bubbleLayerState,
                         listState = listState,
                         messages = messages,
-                        chatPhase = chatPhase,
+                        motionClock = motionClock,
                         motionIntensity = state.motionIntensity,
                         modifier = Modifier.matchParentSize()
                     )
@@ -511,6 +557,7 @@ private fun ChatPanelV2(
                             AnimatedMessageBubbleV2(
                                 message = message,
                                 bubbleLayerState = bubbleLayerState,
+                                motionClock = motionClock,
                                 showActions = message.id == lastActionableMessageId,
                                 revealAlreadyPlayed = message.id in revealedMessageIds,
                                 onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
@@ -540,7 +587,7 @@ private fun ChatBubbleMaterialLayerHost(
     layerState: ChatBubbleLayerState,
     listState: LazyListState,
     messages: List<ChatMessage>,
-    chatPhase: State<Float>,
+    motionClock: AssistantHomeMotionClock,
     motionIntensity: Float,
     modifier: Modifier = Modifier
 ) {
@@ -548,7 +595,7 @@ private fun ChatBubbleMaterialLayerHost(
         layerState = layerState,
         listState = listState,
         messages = messages,
-        phase = chatPhase.value,
+        phase = motionClock.phase(7200L),
         motionIntensity = motionIntensity,
         modifier = modifier
     )
@@ -583,18 +630,6 @@ private fun StarterSuggestionsV2(
     }
 }
 
-@Composable
-private fun rememberChatMotionPhaseState(motionIntensity: Float): State<Float> {
-    if (motionIntensity <= 0.02f) return remember { mutableStateOf(0f) }
-    val transition = rememberInfiniteTransition(label = "shared-chat-motion-clock")
-    return transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(7200, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "shared-chat-motion-phase"
-    )
-}
-
 private fun phaseOffsetForMessage(id: String): Float = ((id.hashCode() ushr 1) % 997) / 997f
 
 private fun phaseSpeedForMessage(id: String): Float {
@@ -606,6 +641,7 @@ private fun phaseSpeedForMessage(id: String): Float {
 private fun AnimatedMessageBubbleV2(
     message: ChatMessage,
     bubbleLayerState: ChatBubbleLayerState,
+    motionClock: AssistantHomeMotionClock,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
     onRevealCompleted: (String) -> Unit,
@@ -632,6 +668,7 @@ private fun AnimatedMessageBubbleV2(
         MessageBubbleV2(
             message = message,
             bubbleLayerState = bubbleLayerState,
+            motionClock = motionClock,
             appear = appear,
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
@@ -646,6 +683,7 @@ private fun AnimatedMessageBubbleV2(
 private fun MessageBubbleV2(
     message: ChatMessage,
     bubbleLayerState: ChatBubbleLayerState,
+    motionClock: AssistantHomeMotionClock,
     appear: Float = 1f,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
@@ -725,6 +763,7 @@ private fun MessageBubbleV2(
             if (sending) {
                 StreamingAssistantContentV2(
                     message = message,
+                    motionClock = motionClock,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = contentAlpha }
@@ -737,12 +776,13 @@ private fun MessageBubbleV2(
                     lineHeight = 20.sp,
                     fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
                     active = revealActive,
+                    motionClock = motionClock,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = contentAlpha }
                 )
                 if (revealActive) {
-                    TypewriterTrailV2()
+                    TypewriterTrailV2(motionClock)
                 }
                 if (longReply && revealFinished) {
                     LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
@@ -772,7 +812,7 @@ private fun MessageBubbleV2(
 }
 
 @Composable
-private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier = Modifier) {
+private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: AssistantHomeMotionClock, modifier: Modifier = Modifier) {
     val text = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
     val hasLiveText = remember(text) { hasStreamingLiveTextV2(text) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
@@ -791,9 +831,10 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
                     text = progressLabel,
                     fontSize = 9.sp,
                     lineHeight = 12.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold,
+                    motionClock = motionClock
                 )
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f))
+                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.62f), motionClock = motionClock)
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -801,9 +842,10 @@ private fun StreamingAssistantContentV2(message: ChatMessage, modifier: Modifier
                     text = progressLabel,
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    motionClock = motionClock
                 )
-                ThinkingDotsV2(size = 7, color = Color.White.copy(alpha = 0.66f))
+                ThinkingDotsV2(size = 7, color = Color.White.copy(alpha = 0.66f), motionClock = motionClock)
             }
         }
     }
@@ -814,15 +856,10 @@ private fun SweepingProgressTextV2(
     text: String,
     fontSize: TextUnit,
     lineHeight: TextUnit,
-    fontWeight: FontWeight
+    fontWeight: FontWeight,
+    motionClock: AssistantHomeMotionClock
 ) {
-    val transition = rememberInfiniteTransition(label = "progress-label-soft-shadow-sweep")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1880, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "progress-label-soft-shadow-sweep-phase"
-    )
+    val phase = motionClock.phase(1880L)
     val startX = phase * 420f - 260f
     val brush = Brush.linearGradient(
         colors = listOf(
@@ -933,6 +970,7 @@ private fun GeneratingMessageContentV2(
     lineHeight: TextUnit,
     fontWeight: FontWeight,
     active: Boolean,
+    motionClock: AssistantHomeMotionClock,
     modifier: Modifier = Modifier
 ) {
     if (!active) {
@@ -946,13 +984,7 @@ private fun GeneratingMessageContentV2(
         )
         return
     }
-    val transition = rememberInfiniteTransition(label = "message-wide-diagonal-fade")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1450, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "message-wide-diagonal-fade-phase"
-    )
+    val phase = motionClock.phase(1450L)
     val tailSize = 150.coerceAtMost(text.length)
     val stableText = text.dropLast(tailSize)
     val fadingText = text.takeLast(tailSize)
@@ -986,14 +1018,8 @@ private fun GeneratingMessageContentV2(
 }
 
 @Composable
-private fun TypewriterTrailV2() {
-    val transition = rememberInfiniteTransition(label = "assistant-typewriter-trail")
-    val breath by transition.animateFloat(
-        initialValue = 0.50f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1280, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "assistant-typewriter-trail-alpha"
-    )
+private fun TypewriterTrailV2(motionClock: AssistantHomeMotionClock) {
+    val breath = 0.50f + FastOutSlowInEasing.transform(motionClock.pingPong(1280L)) * 0.50f
     Row(
         modifier = Modifier.fillMaxWidth().graphicsLayer { alpha = 0.20f + breath * 0.12f },
         horizontalArrangement = Arrangement.End,
@@ -1008,7 +1034,7 @@ private fun TypewriterTrailV2() {
             maxLines = 1
         )
         Spacer(Modifier.size(5.dp))
-        ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.42f))
+        ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.42f), motionClock = motionClock)
     }
 }
 
@@ -1402,14 +1428,8 @@ private fun ChatStatusV2(text: String) {
 }
 
 @Composable
-private fun ThinkingDotsV2(size: Int, color: Color) {
-    val transition = rememberInfiniteTransition(label = "thinking-glass-pearls-v2")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1060, easing = LinearEasing), repeatMode = RepeatMode.Restart),
-        label = "thinking-glass-pearls-phase"
-    )
+private fun ThinkingDotsV2(size: Int, color: Color, motionClock: AssistantHomeMotionClock) {
+    val phase = motionClock.phase(1060L)
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(3) { index ->
             val wave = ((sin(phase * 2f * PI.toFloat() + index * 1.34f) + 1f) / 2f).coerceIn(0f, 1f)
@@ -1448,18 +1468,12 @@ private fun Modifier.assistantHomeThinkingPearlSurface(color: Color, wave: Float
 }
 
 @Composable
-private fun PulseDotV2(active: Boolean, color: Color) {
+private fun PulseDotV2(active: Boolean, color: Color, motionClock: AssistantHomeMotionClock) {
     if (!active) {
         Box(Modifier.size(8.dp).graphicsLayer { alpha = 0.68f }.clip(RoundedCornerShape(999.dp)).background(color))
         return
     }
-    val transition = rememberInfiniteTransition(label = "pulse-dot-v2")
-    val pulse by transition.animateFloat(
-        initialValue = 0.76f,
-        targetValue = 1.22f,
-        animationSpec = infiniteRepeatable(animation = tween(860, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "pulse-dot-value-v2"
-    )
+    val pulse = 0.76f + FastOutSlowInEasing.transform(motionClock.pingPong(860L)) * 0.46f
     Box(Modifier.size(8.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.96f }.clip(RoundedCornerShape(999.dp)).background(color))
 }
 
