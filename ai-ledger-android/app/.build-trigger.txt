@@ -1,3 +1,1 @@
-Purpose: trigger Build Compose Android APK after reverting visual-changing performance attempt.
-Scope: ai-ledger-android/app path trigger.
-Note: verify model selector and network capsule appearance are restored before further performance work.
+test
