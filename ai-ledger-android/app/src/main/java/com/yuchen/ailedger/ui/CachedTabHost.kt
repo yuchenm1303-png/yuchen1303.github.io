@@ -99,15 +99,16 @@ fun CachedAppTabHost(
                     ),
                     label = "tabOffset-${tab.name}"
                 )
+                val visibleDuringTransition = active || alpha > 0.001f
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
                     LocalPageActivationTick provides (activationTicks[tab] ?: 0),
-                    LocalOpenGLGlassViewportActive provides (!active && !diagnostics.openGlGlassOff),
-                    LocalGlassBackdrop provides if (active) parentGlassBackdrop else null,
-                    LocalBlurredBackdrop provides if (active) parentBlurredBackdrop else null,
-                    LocalBackdropFrameTicker provides if (active) parentBackdropTicker else null,
-                    LocalGlassItemRegistry provides if (active && !diagnostics.openGlGlassOff) parentGlassRegistry else null
+                    LocalOpenGLGlassViewportActive provides (!visibleDuringTransition && !diagnostics.openGlGlassOff),
+                    LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
+                    LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
+                    LocalBackdropFrameTicker provides if (visibleDuringTransition) parentBackdropTicker else null,
+                    LocalGlassItemRegistry provides if (visibleDuringTransition && !diagnostics.openGlGlassOff) parentGlassRegistry else null
                 ) {
                     Box(
                         modifier = Modifier
