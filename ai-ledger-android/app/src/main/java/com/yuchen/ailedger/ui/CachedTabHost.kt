@@ -104,7 +104,7 @@ fun CachedAppTabHost(
                             .zIndex(if (active) 1f else -1f)
                             .graphicsLayer { this.alpha = alpha }
                     ) {
-                        key(tab, activationKey) {
+                        key(tab) {
                             content(tab)
                         }
                     }
