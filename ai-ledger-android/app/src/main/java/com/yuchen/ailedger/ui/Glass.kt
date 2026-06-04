@@ -84,8 +84,8 @@ private fun blurForRole(role: GlassRole): Int = when (role) {
 }
 
 private fun roleUsesUnifiedBackdrop(role: GlassRole): Boolean = when (role) {
-    GlassRole.Shell, GlassRole.Card, GlassRole.Nav -> true
-    GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
+    GlassRole.Shell -> true
+    GlassRole.Card, GlassRole.Nav, GlassRole.Chip, GlassRole.Floating, GlassRole.Flex -> false
 }
 
 private fun roleUsesCardBoundOpenGl(role: GlassRole): Boolean = when (role) {
