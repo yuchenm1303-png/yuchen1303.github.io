@@ -127,7 +127,7 @@ private data class ComposerBarUiState(
 private var assistantHomeEntrancePlayedInProcess = false
 
 @Composable
-fun AssistantScreenV2(
+internal fun AssistantScreenV2(
     state: AssistantHomeUiState,
     bottomPadding: Dp = 68.dp,
     onComposerChange: (String) -> Unit,
