@@ -31,6 +31,8 @@ class AgentTaskRunner(
         val targetApp = detectTargetApp(goal)
         var localOpenAppAttempts = 0
         var recoveryAttempts = 0
+        var wechatDiscoverTried = false
+        var wechatMomentsTried = false
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) { index ->
             val observation = withContext(Dispatchers.Default) {
@@ -51,9 +53,20 @@ class AgentTaskRunner(
                     requiresConfirmation = false,
                 )
                 val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
-                logs += AgentTaskStepLog(index + 1, observation.packageName, step, execution)
+                logs += AgentTaskStepLog(logs.size + 1, observation.packageName, step, execution)
                 if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
                 waitForPackage(targetApp.packageName)
+                return@repeat
+            }
+
+            val localStep = buildLocalNavigationStep(goal, observation, wechatDiscoverTried, wechatMomentsTried)
+            if (localStep != null) {
+                if (localStep.targetText == "发现") wechatDiscoverTried = true
+                if (localStep.targetText == "朋友圈") wechatMomentsTried = true
+                val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(localStep) }
+                logs += AgentTaskStepLog(logs.size + 1, observation.packageName, localStep, execution)
+                if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
+                delay(DEFAULT_STEP_DELAY_MS)
                 return@repeat
             }
 
@@ -63,7 +76,7 @@ class AgentTaskRunner(
             }
 
             if (step.type == "finish") {
-                logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, AgentExecutionResult(true, "任务完成", false))
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, AgentExecutionResult(true, "任务完成", false))
                 return AgentTaskRunResult(true, false, step.reason ?: "任务完成", logs)
             }
 
@@ -72,25 +85,25 @@ class AgentTaskRunner(
                 if (recovery != null) {
                     recoveryAttempts += 1
                     val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(recovery) }
-                    logs += AgentTaskStepLog(index + 1, snapshot.currentApp, recovery, execution)
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, recovery, execution)
                     if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
                     delay(recovery.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
                     return@repeat
                 }
-                logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, null)
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
                 return AgentTaskRunResult(false, false, step.reason ?: "需要用户协助", logs)
             }
 
             if (AgentSafetyPolicy.requiresConfirmation(goal, step)) {
-                logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, null)
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
                 return AgentTaskRunResult(false, true, "动作需要确认：${step.typeLabel}", logs)
             }
             if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, step)) {
-                logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, null)
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
                 return AgentTaskRunResult(false, false, step.reason ?: "当前动作暂不能自动执行：${step.typeLabel}", logs)
             }
             val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
-            logs += AgentTaskStepLog(index + 1, snapshot.currentApp, step, execution)
+            logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, execution)
             if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
             delay(step.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
         }
@@ -105,6 +118,44 @@ class AgentTaskRunner(
         }
     }
 
+    private fun buildLocalNavigationStep(
+        goal: String,
+        observation: ScreenObservation,
+        wechatDiscoverTried: Boolean,
+        wechatMomentsTried: Boolean,
+    ): CloudAgentStep? {
+        if (!isWeChatMomentsGoal(goal) || observation.packageName != WECHAT_PACKAGE) return null
+        val hasMomentsText = observation.textItems.any { it.contains("朋友圈") } || observation.clickableItems.any { it.text.contains("朋友圈") }
+        if (hasMomentsText && !wechatMomentsTried) {
+            return CloudAgentStep(
+                type = "tap_node",
+                targetText = "朋友圈",
+                reason = "本地路线：微信页面已出现朋友圈入口，直接点击朋友圈。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+        if (!wechatDiscoverTried) {
+            return CloudAgentStep(
+                type = "tap_node",
+                targetText = "发现",
+                reason = "本地路线：朋友圈通常位于微信底部“发现”页，先进入发现。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+        if (!wechatMomentsTried) {
+            return CloudAgentStep(
+                type = "tap_node",
+                targetText = "朋友圈",
+                reason = "本地路线：已尝试进入发现页，继续点击朋友圈入口。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+        return null
+    }
+
     private fun buildRecoveryStep(
         goal: String,
         snapshot: AgentScreenSnapshot,
@@ -117,6 +168,16 @@ class AgentTaskRunner(
                 appName = targetApp.label,
                 packageName = targetApp.packageName,
                 reason = "自我纠错：目标应用未处于前台，重新打开目标应用。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+        if (isWeChatMomentsGoal(goal) && snapshot.currentApp == WECHAT_PACKAGE) {
+            val target = if (attempt == 0) "发现" else "朋友圈"
+            return CloudAgentStep(
+                type = "tap_node",
+                targetText = target,
+                reason = "自我纠错：微信朋友圈任务优先走“发现 → 朋友圈”路径，而不是盲目滑动。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             )
@@ -143,26 +204,6 @@ class AgentTaskRunner(
                 requiresConfirmation = false,
             )
         }
-        if (snapshot.scrollableNodes.isNotEmpty() && attempt < MAX_RECOVERY_ATTEMPTS) {
-            val scroll = snapshot.scrollableNodes.first()
-            return CloudAgentStep(
-                type = "scroll",
-                targetNodeId = scroll.id,
-                direction = if (attempt % 2 == 0) "down" else "up",
-                reason = "自我纠错：当前屏幕没有目标入口，滚动页面扩大搜索范围。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
-        if (attempt < MAX_RECOVERY_ATTEMPTS) {
-            return CloudAgentStep(
-                type = "swipe",
-                direction = if (attempt % 2 == 0) "up" else "down",
-                reason = "自我纠错：没有可滚动节点时，尝试屏幕滑动寻找更多内容。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
         return null
     }
 
@@ -181,6 +222,10 @@ class AgentTaskRunner(
         return text.replace(Regex("[，。,.、\\s]+"), "").take(24)
     }
 
+    private fun isWeChatMomentsGoal(goal: String): Boolean {
+        return goal.contains("微信", ignoreCase = true) && goal.contains("朋友圈", ignoreCase = true)
+    }
+
     private fun detectTargetApp(goal: String): TargetApp? {
         val clean = goal.lowercase().replace(" ", "")
         return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(alias.lowercase()) } }
@@ -193,15 +238,15 @@ class AgentTaskRunner(
     )
 
     companion object {
-        private const val DEFAULT_MAX_STEPS = 6
-        private const val DEFAULT_STEP_DELAY_MS = 1_100L
+        private const val DEFAULT_MAX_STEPS = 8
+        private const val DEFAULT_STEP_DELAY_MS = 1_050L
         private const val MIN_STEP_DELAY_MS = 650L
         private const val MAX_STEP_DELAY_MS = 2_500L
         private const val MAX_OPEN_APP_ATTEMPTS = 1
-        private const val MAX_RECOVERY_ATTEMPTS = 2
+        private const val WECHAT_PACKAGE = "com.tencent.mm"
 
         private val TARGET_APPS = listOf(
-            TargetApp("微信", "com.tencent.mm", listOf("微信", "wechat", "wx")),
+            TargetApp("微信", WECHAT_PACKAGE, listOf("微信", "wechat", "wx")),
             TargetApp("QQ", "com.tencent.mobileqq", listOf("qq", "腾讯qq")),
             TargetApp("哔哩哔哩", "tv.danmaku.bili", listOf("哔哩", "哔哩哔哩", "b站", "bilibili")),
             TargetApp("小红书", "com.xingin.xhs", listOf("小红书")),
