@@ -2,10 +2,14 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,6 +55,7 @@ import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 
 private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Debug }
@@ -113,18 +118,31 @@ fun SettingsPolishedScreen(
 
 @Composable
 private fun SettingsEntrance(delayMs: Long, initialOffsetY: Int = 24, initialScale: Float = 0.96f, content: @Composable () -> Unit) {
-    var visible by rememberSaveable(delayMs) { mutableStateOf(false) }
-    LaunchedEffect(delayMs) {
-        if (!visible) {
+    val pageActive = LocalPageActive.current
+    val pageLeaving = LocalPageLeaving.current
+    val activationTick = LocalPageActivationTick.current
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pageActive, pageLeaving, activationTick, delayMs) {
+        if (pageActive) {
+            visible = false
+            yield()
             if (delayMs > 0L) delay(delayMs)
             visible = true
+        } else {
+            if (pageLeaving && delayMs > 0L) delay((delayMs / 12L).coerceAtMost(24L))
+            visible = false
         }
     }
+
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
             slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
-            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow))
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(92)) +
+            slideOutVertically(tween(104)) { (-initialOffsetY / 3).coerceIn(-10, 10) } +
+            scaleOut(targetScale = 0.986f, animationSpec = tween(112))
     ) { content() }
 }
 
