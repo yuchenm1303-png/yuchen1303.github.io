@@ -28,6 +28,8 @@ data class CloudAgentStep(
             "back" -> "返回"
             "home" -> "回到桌面"
             "recents" -> "打开最近任务"
+            "notifications" -> "下拉通知栏"
+            "quick_settings" -> "打开快捷设置"
             "wait" -> "等待"
             "finish" -> "任务完成"
             "need_user_help" -> "需要用户协助"
@@ -45,6 +47,8 @@ data class CloudAgentStep(
             "back",
             "home",
             "recents",
+            "notifications",
+            "quick_settings",
             "wait",
             "finish",
             "need_user_help",
