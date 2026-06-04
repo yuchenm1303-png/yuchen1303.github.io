@@ -121,7 +121,6 @@ private data class ComposerBarUiState(
         }
 }
 
-private var assistantHomeEntrancePlayedInProcess = false
 
 @Stable
 private class AssistantHomeMotionClock(
@@ -356,14 +355,14 @@ private fun AssistantEntrance(
     initialScale: Float = 0.96f,
     content: @Composable () -> Unit
 ) {
-    var visible by remember { mutableStateOf(assistantHomeEntrancePlayedInProcess) }
-    LaunchedEffect(Unit) {
-        if (!assistantHomeEntrancePlayedInProcess) {
-            if (delayMs > 0L) delay(delayMs)
-            assistantHomeEntrancePlayedInProcess = true
-        }
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(delayMs) {
+        visible = false
+        if (delayMs > 0L) delay(delayMs)
         visible = true
     }
+
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
