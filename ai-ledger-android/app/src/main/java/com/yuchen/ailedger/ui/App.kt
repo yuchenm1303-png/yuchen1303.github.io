@@ -56,6 +56,11 @@ import com.yuchen.ailedger.SystemActionRouter
 import com.yuchen.ailedger.data.AssistantPreferencesStore
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.service.AgentOverlayService
+import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommandParser
@@ -147,6 +152,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     LaunchedEffect(messageSideEffectKey) {
         val messages = currentMessages
         ChatNotificationManager.showPersistentChatEntry(context, messages)
+        syncAgentOverlayProgressFromMessages(context.applicationContext, messages)
         if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(messages)?.let { pendingMobileAction = it }
         val update = parseCloudNavigationPreferenceUpdate(messages) ?: return@LaunchedEffect
         if (!isNavigationPreferenceAlreadySaved(commandSnapshot, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
@@ -338,6 +344,12 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 onCopyMessage = onCopyMessage,
                                                 onRetryMessage = viewModel::retryMessage
                                             )
+                                            AgentChatHeaderOverlay(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopStart)
+                                                    .padding(start = 68.dp, top = 222.dp)
+                                                    .zIndex(1600f)
+                                            )
                                         }
                                     }
                                     AppTab.Tools -> {
@@ -400,6 +412,28 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+private fun syncAgentOverlayProgressFromMessages(context: Context, messages: List<ChatMessage>) {
+    val latestAgent = messages.lastOrNull { it.source == "local_agent" } ?: return
+    val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text.orEmpty().trim()
+    when (latestAgent.status) {
+        MessageStatus.Sending -> {
+            AgentRuntimeController.startTask(latestUserText.ifBlank { "手机智能体任务" })
+            if (AgentOverlayService.canDrawOverlays(context)) AgentOverlayService.ensureStarted(context)
+        }
+        MessageStatus.Failed -> {
+            AgentRuntimeController.failTask(latestAgent.errorText ?: latestAgent.text)
+        }
+        MessageStatus.Sent -> {
+            if (latestAgent.text.startsWith("手机智能体任务执行")) {
+                val completed = latestAgent.text.contains("状态：已完成")
+                val result = latestAgent.text.lineSequence().firstOrNull { it.startsWith("结果：") }?.removePrefix("结果：")
+                    ?: latestAgent.text.take(80)
+                AgentRuntimeController.finishTask(result, completed)
             }
         }
     }
