@@ -26,7 +26,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
         startAgentForegroundNotification()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val packageName = event?.packageName?.toString().orEmpty()
+        val windowTitle = event?.text?.firstOrNull()?.toString().orEmpty()
+        if (packageName.isNotBlank()) ScreenObservationStore.updateWindowHint(packageName, windowTitle)
+    }
 
     override fun onInterrupt() = Unit
 
@@ -72,21 +76,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         var index = 0
         while (queue.isNotEmpty() && result.size < limit) {
             val (node, depth) = queue.removeFirst()
-            val text = node.safeText()
-            val hasUsefulSignal = text.isNotBlank() || node.isClickable || node.isLongClickable || node.isEditable || node.isScrollable
-            if (hasUsefulSignal) {
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-                val observed = ObservedScreenNode(
-                    id = "n${index++}",
-                    text = text.take(80),
-                    className = node.className?.toString().orEmpty().substringAfterLast('.').take(32),
-                    bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
-                    clickable = node.isClickable || node.isLongClickable,
-                    editable = node.isEditable,
-                    scrollable = node.isScrollable,
-                )
-                result.add(NodeHandle(observed = observed, node = node, bounds = rect))
+            node.toHandleOrNull("n${index}")?.let { handle ->
+                result.add(handle)
+                index += 1
             }
             if (depth < MAX_DEPTH) {
                 for (childIndex in 0 until node.childCount) {
@@ -110,6 +102,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
             "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
             "home" -> executeGlobalActionStep(GLOBAL_ACTION_HOME, "回到桌面")
             "recents" -> executeGlobalActionStep(GLOBAL_ACTION_RECENTS, "打开最近任务")
+            "notifications" -> executeGlobalActionStep(GLOBAL_ACTION_NOTIFICATIONS, "下拉通知栏")
+            "quick_settings" -> executeGlobalActionStep(GLOBAL_ACTION_QUICK_SETTINGS, "打开快捷设置")
             "tap_node" -> executeTapNode(step)
             "tap_xy" -> executeTapXY(step)
             "input_text" -> executeInputText(step)
@@ -227,19 +221,52 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun AccessibilityNodeInfo.toHandleOrNull(id: String): NodeHandle? {
         val text = safeText()
+        val clickableNode = nearestClickableNode()
+        val scrollableNode = nearestScrollableNode()
+        val hasUsefulSignal = text.isNotBlank() || clickableNode != null || isEditable || scrollableNode != null
+        if (!hasUsefulSignal) return null
+        val actionNode = when {
+            isEditable -> this
+            clickableNode != null -> clickableNode
+            scrollableNode != null -> scrollableNode
+            else -> this
+        }
         val rect = Rect()
-        getBoundsInScreen(rect)
+        actionNode.getBoundsInScreen(rect)
+        if (rect.isEmpty) getBoundsInScreen(rect)
         if (rect.isEmpty) return null
         val observed = ObservedScreenNode(
             id = id,
             text = text.take(80),
             className = className?.toString().orEmpty().substringAfterLast('.').take(32),
             bounds = "${rect.left},${rect.top},${rect.right},${rect.bottom}",
-            clickable = isClickable || isLongClickable,
+            clickable = clickableNode != null,
             editable = isEditable,
-            scrollable = isScrollable,
+            scrollable = scrollableNode != null,
         )
-        return NodeHandle(observed = observed, node = this, bounds = rect)
+        return NodeHandle(observed = observed, node = actionNode, bounds = rect)
+    }
+
+    private fun AccessibilityNodeInfo.nearestClickableNode(): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = this
+        var depth = 0
+        while (current != null && depth < CLICK_PARENT_DEPTH) {
+            if (current.isClickable || current.isLongClickable) return current
+            current = current.parent
+            depth += 1
+        }
+        return null
+    }
+
+    private fun AccessibilityNodeInfo.nearestScrollableNode(): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = this
+        var depth = 0
+        while (current != null && depth < SCROLL_PARENT_DEPTH) {
+            if (current.isScrollable) return current
+            current = current.parent
+            depth += 1
+        }
+        return null
     }
 
     private fun performClickSmart(node: AccessibilityNodeInfo): Boolean? {
@@ -269,12 +296,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
-        val path = Path().apply { moveTo(x, y) }
+        val (safeX, safeY) = safeTapPoint(x, y)
+        val path = Path().apply { moveTo(safeX, safeY) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS))
             .build()
         val ok = dispatchGesture(gesture, null, null)
         return AgentExecutionResult(ok = ok, message = if (ok) successMessage else "点击手势提交失败", shouldContinue = ok)
+    }
+
+    private fun safeTapPoint(x: Float, y: Float): Pair<Float, Float> {
+        val metrics = resources.displayMetrics
+        val density = metrics.density.coerceAtLeast(1f)
+        val minX = 4f * density
+        val maxX = (metrics.widthPixels - 4f * density).coerceAtLeast(minX)
+        val minY = 24f * density
+        val maxY = (metrics.heightPixels - 28f * density).coerceAtLeast(minY)
+        return x.coerceIn(minX, maxX) to y.coerceIn(minY, maxY)
     }
 
     private fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long): Boolean {
@@ -353,15 +391,16 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 72
-        private const val MAX_EXECUTION_NODES = 90
-        private const val FAST_TEXT_FALLBACK_NODES = 45
-        private const val MAX_DEPTH = 6
-        private const val TEXT_LIMIT = 30
-        private const val CLICKABLE_LIMIT = 24
-        private const val INPUT_LIMIT = 8
-        private const val SCROLLABLE_LIMIT = 8
-        private const val CLICK_PARENT_DEPTH = 4
+        private const val MAX_SNAPSHOT_NODES = 120
+        private const val MAX_EXECUTION_NODES = 160
+        private const val FAST_TEXT_FALLBACK_NODES = 80
+        private const val MAX_DEPTH = 8
+        private const val TEXT_LIMIT = 40
+        private const val CLICKABLE_LIMIT = 36
+        private const val INPUT_LIMIT = 10
+        private const val SCROLLABLE_LIMIT = 12
+        private const val CLICK_PARENT_DEPTH = 6
+        private const val SCROLL_PARENT_DEPTH = 8
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
