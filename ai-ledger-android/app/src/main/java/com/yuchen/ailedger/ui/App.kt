@@ -7,7 +7,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.SystemClock
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -65,7 +64,6 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
 private const val ENABLE_OPENGL_GLASS_PROBE = false
-private const val GLASS_SCROLL_INVALIDATION_INTERVAL_MS = 12L
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -207,15 +205,11 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val activeRegistry = remember(diagnostics.openGlGlassOff, glassRegistry) {
         if (diagnostics.openGlGlassOff) null else glassRegistry
     }
-    val glassScrollInvalidationClock = remember { LongArray(1) }
-    val glassScrollInvalidation = remember(backdropTicker, glassScrollInvalidationClock) {
+    val backdropInvalidator = remember(backdropTicker) { BackdropFrameInvalidator(backdropTicker) }
+    val glassScrollInvalidation = remember(backdropInvalidator) {
         object : NestedScrollConnection {
             private fun requestCoalescedFrame(force: Boolean = false) {
-                val now = SystemClock.uptimeMillis()
-                if (force || now - glassScrollInvalidationClock[0] >= GLASS_SCROLL_INVALIDATION_INTERVAL_MS) {
-                    glassScrollInvalidationClock[0] = now
-                    backdropTicker.requestFrame(force = force)
-                }
+                backdropInvalidator.request(force = force)
             }
 
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -231,6 +225,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 return Velocity.Zero
             }
         }
+    }
+    DisposableEffect(backdropInvalidator) {
+        onDispose { backdropInvalidator.dispose() }
     }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) viewModel.importCustomBackground(uri)
