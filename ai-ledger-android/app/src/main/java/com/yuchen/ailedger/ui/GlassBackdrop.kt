@@ -5,7 +5,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -15,7 +14,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -49,7 +47,6 @@ fun SampledWeatherGlassBackdrop(
     blurRadiusDp: Int = 112,
     liftAlpha: Float = 1f
 ) {
-    val view = LocalView.current
     val cachedBackdrop = LocalBlurredBackdrop.current
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
@@ -60,24 +57,80 @@ fun SampledWeatherGlassBackdrop(
     val milkAlpha = when (quality) { RenderQuality.Smooth -> 0.040f; RenderQuality.Balanced -> 0.052f; RenderQuality.Experimental -> 0.064f } * alpha
     val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha
     val backdropAlpha = when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f }
-    val fallbackBlur = when (quality) { RenderQuality.Smooth -> blurRadiusDp * 0.24f; RenderQuality.Balanced -> blurRadiusDp * 0.32f; RenderQuality.Experimental -> blurRadiusDp * 0.40f }.coerceIn(14f, 46f)
-    val spreadPx = when (quality) { RenderQuality.Smooth -> blurRadiusDp * 0.46f; RenderQuality.Balanced -> blurRadiusDp * 0.62f; RenderQuality.Experimental -> blurRadiusDp * 0.76f }.coerceIn(34f, 96f)
 
-    Canvas(modifier.clip(RoundedCornerShape(radius.dp)).then(if (cachedBackdrop == null) Modifier.blur(fallbackBlur.dp) else Modifier)) {
+    Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
         ticker?.frameNanos
         val sampleOffset = coordinateSource.offsetRelativeTo(origin)
         if (cachedBackdrop != null) {
             drawVisibleBackdropImage(cachedBackdrop, sampleOffset, backdropAlpha)
         } else {
-            val rootW = if (view.width > 0) view.width.toFloat() else size.width + sampleOffset.x
-            val rootH = if (view.height > 0) view.height.toFloat() else size.height + sampleOffset.y
-            drawSpreadBackdropSamples(rootW, rootH, theme, params, sampleOffset, spreadPx)
+            drawLightweightStartupGlassFallback(theme, params, baseAlpha, milkAlpha, highlightAlpha)
         }
         drawRect(Brush.verticalGradient(listOf(Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.48f), Color(0xFF9AADBF).copy(alpha = baseAlpha * 0.28f), Color(0xFF40576D).copy(alpha = baseAlpha * 0.30f))), blendMode = BlendMode.SrcOver)
         drawRect(Color(0xFF72859A).copy(alpha = baseAlpha * 0.26f), blendMode = BlendMode.SrcOver)
         drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = milkAlpha * 0.46f), Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.22f), Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.10f), Color(0xFF172333).copy(alpha = baseAlpha * 0.14f))), blendMode = BlendMode.SrcOver)
         drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = highlightAlpha * 0.42f), Color.White.copy(alpha = highlightAlpha * 0.08f), Color.Transparent), center = Offset(size.width * 0.42f, size.height * 0.08f), radius = size.width * 0.98f), blendMode = BlendMode.Screen)
     }
+}
+
+private fun DrawScope.drawLightweightStartupGlassFallback(
+    theme: BackgroundTheme,
+    params: BackdropDebugParams,
+    baseAlpha: Float,
+    milkAlpha: Float,
+    highlightAlpha: Float
+) {
+    val palette = fallbackPalette(theme)
+    val cloudAlpha = params.cloudAlpha.coerceIn(0.25f, 2.2f)
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                palette.top.copy(alpha = 0.46f + baseAlpha * 0.34f),
+                palette.mid.copy(alpha = 0.34f + baseAlpha * 0.22f),
+                palette.bottom.copy(alpha = 0.38f + baseAlpha * 0.24f)
+            )
+        ),
+        blendMode = BlendMode.SrcOver
+    )
+    drawRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.glowA.copy(alpha = (0.15f + highlightAlpha * 1.4f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                palette.glowA.copy(alpha = 0.045f * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                Color.Transparent
+            ),
+            center = Offset(size.width * 0.76f, size.height * 0.12f),
+            radius = max(size.width, size.height) * 0.72f
+        ),
+        blendMode = BlendMode.Screen
+    )
+    drawRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                palette.glowB.copy(alpha = (0.12f + milkAlpha * 1.6f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                palette.glowB.copy(alpha = 0.035f * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                Color.Transparent
+            ),
+            center = Offset(size.width * 0.22f, size.height * 0.76f),
+            radius = max(size.width, size.height) * 0.66f
+        ),
+        blendMode = BlendMode.Screen
+    )
+}
+
+private data class FallbackGlassPalette(
+    val top: Color,
+    val mid: Color,
+    val bottom: Color,
+    val glowA: Color,
+    val glowB: Color
+)
+
+private fun fallbackPalette(theme: BackgroundTheme): FallbackGlassPalette = when (theme) {
+    BackgroundTheme.Aurora -> FallbackGlassPalette(Color(0xFF071426), Color(0xFF31446D), Color(0xFF8A6B65), Color(0xFFB79AFF), Color(0xFFFFA06E))
+    BackgroundTheme.Jade -> FallbackGlassPalette(Color(0xFF071A22), Color(0xFF315B6D), Color(0xFF8A8266), Color(0xFF8EC2DD), Color(0xFF58C0BC))
+    BackgroundTheme.Sunset -> FallbackGlassPalette(Color(0xFF20182D), Color(0xFF5D4774), Color(0xFFA87570), Color(0xFFC098FF), Color(0xFFFF9A64))
+    BackgroundTheme.Dawn -> FallbackGlassPalette(Color(0xFF16253C), Color(0xFF708BAC), Color(0xFFC1A6A4), Color(0xFFE2CCFF), Color(0xFFFFC28A))
 }
 
 private fun DrawScope.drawVisibleBackdropImage(backdrop: BlurredBackdropBitmap, sampleOffset: Offset, alpha: Float) {
@@ -103,16 +156,6 @@ private fun DrawScope.drawVisibleBackdropImage(backdrop: BlurredBackdropBitmap, 
         alpha = alpha,
         blendMode = BlendMode.SrcOver
     )
-}
-
-private fun DrawScope.drawSpreadBackdropSamples(rootW: Float, rootH: Float, theme: BackgroundTheme, params: BackdropDebugParams, sampleOffset: Offset, spreadPx: Float) {
-    val samples = listOf(Offset.Zero to 0.090f, Offset(-0.55f, 0f) to 0.070f, Offset(0.55f, 0f) to 0.070f, Offset(0f, -0.55f) to 0.070f, Offset(0f, 0.55f) to 0.070f, Offset(-1.05f, -0.72f) to 0.055f, Offset(1.05f, 0.72f) to 0.055f, Offset(-0.72f, 1.05f) to 0.048f, Offset(0.72f, -1.05f) to 0.048f)
-    samples.forEach { (unitOffset, sampleAlpha) ->
-        withTransform({ translate(left = -sampleOffset.x + unitOffset.x * spreadPx, top = -sampleOffset.y + unitOffset.y * spreadPx) }) {
-            drawWeatherNightBackground(rootW, rootH, theme, sampleAlpha, params)
-        }
-    }
-    withTransform({ translate(left = -sampleOffset.x, top = -sampleOffset.y) }) { drawWeatherNightBackgroundGlow(rootW, rootH, theme, 0.82f, params) }
 }
 
 @Composable
