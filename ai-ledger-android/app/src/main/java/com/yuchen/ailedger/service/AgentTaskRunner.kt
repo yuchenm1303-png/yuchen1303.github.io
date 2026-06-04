@@ -29,206 +29,227 @@ class AgentTaskRunner(
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
         val targetApp = detectTargetApp(goal)
-        var localOpenAppAttempts = 0
-        var recoveryAttempts = 0
-        var wechatDiscoverTried = false
-        var wechatMomentsTried = false
+        val memory = AgentRunMemory(goal = goal, targetApp = targetApp)
 
-        repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) { index ->
-            val observation = withContext(Dispatchers.Default) {
-                AiAgentAccessibilityService.captureFreshSnapshot()
-            }
+        repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
+            val observation = captureOnce()
             if (!observation.enabled || !observation.serviceConnected) {
                 return AgentTaskRunResult(false, false, "无障碍服务未开启", logs)
             }
-
-            if (targetApp != null && observation.packageName != targetApp.packageName && localOpenAppAttempts < MAX_OPEN_APP_ATTEMPTS) {
-                localOpenAppAttempts += 1
-                val step = CloudAgentStep(
-                    type = "open_app",
-                    appName = targetApp.label,
-                    packageName = targetApp.packageName,
-                    reason = "目标属于${targetApp.label}，当前前台不是目标应用，先打开目标应用。",
-                    riskLevel = "low",
-                    requiresConfirmation = false,
-                )
-                val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
-                logs += AgentTaskStepLog(logs.size + 1, observation.packageName, step, execution)
-                if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-                waitForPackage(targetApp.packageName)
-                return@repeat
-            }
-
-            val localStep = buildLocalNavigationStep(goal, observation, wechatDiscoverTried, wechatMomentsTried)
-            if (localStep != null) {
-                if (localStep.targetText == "发现") wechatDiscoverTried = true
-                if (localStep.targetText == "朋友圈") wechatMomentsTried = true
-                val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(localStep) }
-                logs += AgentTaskStepLog(logs.size + 1, observation.packageName, localStep, execution)
-                if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-                delay(DEFAULT_STEP_DELAY_MS)
-                return@repeat
-            }
-
             val snapshot = observation.toAgentScreenSnapshot()
-            val step = withContext(Dispatchers.IO) {
+            memory.observe(snapshot)
+
+            val preflight = buildPreflightStep(memory, snapshot)
+            if (preflight != null) {
+                val result = executeAndRecord(preflight, snapshot.currentApp, logs)
+                memory.remember(preflight, result)
+                if (!result.ok || !result.shouldContinue) return AgentTaskRunResult(false, false, result.message, logs)
+                delayForStep(preflight)
+                return@repeat
+            }
+
+            val cloudStep = withContext(Dispatchers.IO) {
                 aiWorkerClient.requestAgentStep(goal = goal, snapshot = snapshot, modelPreference = modelPreference)
             }
 
-            if (step.type == "finish") {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, AgentExecutionResult(true, "任务完成", false))
-                return AgentTaskRunResult(true, false, step.reason ?: "任务完成", logs)
+            if (cloudStep.type == "finish") {
+                val done = AgentExecutionResult(true, "任务完成", false)
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, done)
+                return AgentTaskRunResult(true, false, cloudStep.reason ?: "任务完成", logs)
             }
 
-            if (step.type == "need_user_help") {
-                val recovery = buildRecoveryStep(goal, snapshot, targetApp, recoveryAttempts)
-                if (recovery != null) {
-                    recoveryAttempts += 1
-                    val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(recovery) }
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, recovery, execution)
-                    if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-                    delay(recovery.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
-                    return@repeat
-                }
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
-                return AgentTaskRunResult(false, false, step.reason ?: "需要用户协助", logs)
+            val chosenStep = chooseAction(goal, snapshot, cloudStep, memory)
+            if (chosenStep == null) {
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, cloudStep, null)
+                return AgentTaskRunResult(false, false, cloudStep.reason ?: "当前屏幕没有足够线索继续推进", logs)
             }
 
-            if (AgentSafetyPolicy.requiresConfirmation(goal, step)) {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
-                return AgentTaskRunResult(false, true, "动作需要确认：${step.typeLabel}", logs)
+            if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                return AgentTaskRunResult(false, true, "动作需要确认：${chosenStep.typeLabel}", logs)
             }
-            if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, step)) {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
-                return AgentTaskRunResult(false, false, step.reason ?: "当前动作暂不能自动执行：${step.typeLabel}", logs)
+            if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                return AgentTaskRunResult(false, false, chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}", logs)
             }
-            val execution = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
-            logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, execution)
-            if (!execution.ok || !execution.shouldContinue) return AgentTaskRunResult(false, false, execution.message, logs)
-            delay(step.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
+
+            val result = executeAndRecord(chosenStep, snapshot.currentApp, logs)
+            memory.remember(chosenStep, result)
+            if (!result.ok || !result.shouldContinue) return AgentTaskRunResult(false, false, result.message, logs)
+            delayForStep(chosenStep)
         }
         return AgentTaskRunResult(false, false, "已达到最大执行步数，请检查当前页面后继续。", logs)
     }
 
-    private suspend fun waitForPackage(packageName: String) {
-        repeat(2) {
-            delay(650L)
-            val now = withContext(Dispatchers.Default) { AiAgentAccessibilityService.captureFreshSnapshot() }
-            if (now.packageName == packageName) return
-        }
+    private suspend fun captureOnce(): ScreenObservation {
+        return withContext(Dispatchers.Default) { AiAgentAccessibilityService.captureFreshSnapshot() }
     }
 
-    private fun buildLocalNavigationStep(
-        goal: String,
-        observation: ScreenObservation,
-        wechatDiscoverTried: Boolean,
-        wechatMomentsTried: Boolean,
-    ): CloudAgentStep? {
-        if (!isWeChatMomentsGoal(goal) || observation.packageName != WECHAT_PACKAGE) return null
-        val hasMomentsText = observation.textItems.any { it.contains("朋友圈") } || observation.clickableItems.any { it.text.contains("朋友圈") }
-        if (hasMomentsText && !wechatMomentsTried) {
-            return CloudAgentStep(
-                type = "tap_node",
-                targetText = "朋友圈",
-                reason = "本地路线：微信页面已出现朋友圈入口，直接点击朋友圈。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
-        if (!wechatDiscoverTried) {
-            return CloudAgentStep(
-                type = "tap_node",
-                targetText = "发现",
-                reason = "本地路线：朋友圈通常位于微信底部“发现”页，先进入发现。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
-        if (!wechatMomentsTried) {
-            return CloudAgentStep(
-                type = "tap_node",
-                targetText = "朋友圈",
-                reason = "本地路线：已尝试进入发现页，继续点击朋友圈入口。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
-        return null
+    private suspend fun executeAndRecord(
+        step: CloudAgentStep,
+        currentApp: String,
+        logs: MutableList<AgentTaskStepLog>,
+    ): AgentExecutionResult {
+        val result = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+        logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
+        return result
     }
 
-    private fun buildRecoveryStep(
+    private suspend fun delayForStep(step: CloudAgentStep) {
+        delay(step.durationMs?.coerceIn(MIN_STEP_DELAY_MS, MAX_STEP_DELAY_MS) ?: DEFAULT_STEP_DELAY_MS)
+    }
+
+    private fun buildPreflightStep(memory: AgentRunMemory, snapshot: AgentScreenSnapshot): CloudAgentStep? {
+        val app = memory.targetApp ?: return null
+        if (snapshot.currentApp == app.packageName) return null
+        if (memory.openAppAttempts >= MAX_OPEN_APP_ATTEMPTS) return null
+        memory.openAppAttempts += 1
+        return CloudAgentStep(
+            type = "open_app",
+            appName = app.label,
+            packageName = app.packageName,
+            reason = "本地控制器：目标应用明确，当前不在目标应用，先打开目标应用。",
+            riskLevel = "low",
+            requiresConfirmation = false,
+        )
+    }
+
+    private fun chooseAction(
         goal: String,
         snapshot: AgentScreenSnapshot,
-        targetApp: TargetApp?,
-        attempt: Int,
+        cloudStep: CloudAgentStep,
+        memory: AgentRunMemory,
     ): CloudAgentStep? {
-        if (targetApp != null && snapshot.currentApp != targetApp.packageName && attempt < MAX_OPEN_APP_ATTEMPTS) {
-            return CloudAgentStep(
-                type = "open_app",
-                appName = targetApp.label,
-                packageName = targetApp.packageName,
-                reason = "自我纠错：目标应用未处于前台，重新打开目标应用。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
+        if (cloudStep.type != "need_user_help" && !memory.isLikelyRepeated(cloudStep)) {
+            return cloudStep
         }
-        if (isWeChatMomentsGoal(goal) && snapshot.currentApp == WECHAT_PACKAGE) {
-            val target = if (attempt == 0) "发现" else "朋友圈"
-            return CloudAgentStep(
-                type = "tap_node",
-                targetText = target,
-                reason = "自我纠错：微信朋友圈任务优先走“发现 → 朋友圈”路径，而不是盲目滑动。",
-                riskLevel = "low",
-                requiresConfirmation = false,
-            )
-        }
-        findClickableByKeywords(snapshot, listOf("搜索", "查找", "search", "发现", "通讯录"))?.let { node ->
-            return CloudAgentStep(
+        if (cloudStep.type != "need_user_help") memory.repeatedCloudRejects += 1
+        val candidates = buildLocalCandidates(goal, snapshot, memory)
+        return candidates.firstOrNull { !memory.isLikelyRepeated(it) }
+    }
+
+    private fun buildLocalCandidates(
+        goal: String,
+        snapshot: AgentScreenSnapshot,
+        memory: AgentRunMemory,
+    ): List<CloudAgentStep> {
+        val keywords = extractGoalKeywords(goal, memory.targetApp)
+        val candidates = mutableListOf<CloudAgentStep>()
+
+        bestClickableMatch(snapshot, keywords)?.let { node ->
+            candidates += CloudAgentStep(
                 type = "tap_node",
                 targetNodeId = node.id,
                 targetText = node.text,
-                reason = "自我纠错：当前目标未直接出现，先进入可能的搜索或导航入口。",
+                reason = "本地纠错：屏幕上出现了与目标最接近的可点击文本“${node.text.take(18)}”。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             )
         }
-        val targetPhrase = extractTargetPhrase(goal, targetApp)
-        if (snapshot.inputNodes.isNotEmpty() && targetPhrase.isNotBlank()) {
-            val input = snapshot.inputNodes.first()
-            return CloudAgentStep(
+
+        bestNavigationEntry(snapshot, keywords)?.let { node ->
+            candidates += CloudAgentStep(
+                type = "tap_node",
+                targetNodeId = node.id,
+                targetText = node.text,
+                reason = "本地纠错：当前没有直接目标，先进入可能的导航入口“${node.text.take(18)}”。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+
+        if (snapshot.inputNodes.isNotEmpty() && keywords.isNotEmpty() && memory.inputAttempts < MAX_INPUT_ATTEMPTS) {
+            candidates += CloudAgentStep(
                 type = "input_text",
-                targetNodeId = input.id,
-                text = targetPhrase,
-                reason = "自我纠错：发现输入框，输入任务目标关键词继续查找。",
+                targetNodeId = snapshot.inputNodes.first().id,
+                text = keywords.first(),
+                reason = "本地纠错：发现输入框，输入核心关键词继续查找。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             )
         }
-        return null
-    }
 
-    private fun findClickableByKeywords(snapshot: AgentScreenSnapshot, keywords: List<String>): AgentScreenNode? {
-        return snapshot.clickableNodes.firstOrNull { node ->
-            keywords.any { keyword -> node.text.contains(keyword, ignoreCase = true) }
+        if (snapshot.scrollableNodes.isNotEmpty() && memory.scrollAttempts < MAX_SCROLL_ATTEMPTS) {
+            candidates += CloudAgentStep(
+                type = "scroll",
+                targetNodeId = snapshot.scrollableNodes.first().id,
+                direction = if (memory.scrollAttempts % 2 == 0) "down" else "up",
+                reason = "本地纠错：当前屏幕没有明确目标，滚动扩大搜索范围。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
         }
+
+        if (memory.waitAttempts < MAX_WAIT_ATTEMPTS && snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT) {
+            candidates += CloudAgentStep(
+                type = "wait",
+                durationMs = 900L,
+                reason = "本地纠错：当前页面节点较少，可能仍在加载，先等待后重新观察。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+
+        if (memory.backAttempts < MAX_BACK_ATTEMPTS && memory.repeatedCloudRejects >= 2) {
+            candidates += CloudAgentStep(
+                type = "back",
+                reason = "本地纠错：连续重复卡住，返回上一层重新选择路径。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            )
+        }
+
+        return candidates
     }
 
-    private fun extractTargetPhrase(goal: String, targetApp: TargetApp?): String {
-        var text = goal
+    private fun bestClickableMatch(snapshot: AgentScreenSnapshot, keywords: List<String>): AgentScreenNode? {
+        if (keywords.isEmpty()) return null
+        return snapshot.clickableNodes
+            .filter { it.text.isNotBlank() }
+            .maxByOrNull { node -> scoreNodeText(node.text, keywords) }
+            ?.takeIf { scoreNodeText(it.text, keywords) >= DIRECT_MATCH_SCORE }
+    }
+
+    private fun bestNavigationEntry(snapshot: AgentScreenSnapshot, keywords: List<String>): AgentScreenNode? {
+        val navWords = listOf("搜索", "查找", "发现", "首页", "通讯录", "联系人", "我的", "我", "频道", "分类", "更多", "菜单", "search")
+        return snapshot.clickableNodes
+            .filter { it.text.isNotBlank() }
+            .map { node -> node to (scoreNodeText(node.text, keywords) + scoreNodeText(node.text, navWords)) }
+            .filter { (_, score) -> score >= NAVIGATION_SCORE }
+            .maxByOrNull { (_, score) -> score }
+            ?.first
+    }
+
+    private fun scoreNodeText(text: String, keywords: List<String>): Int {
+        val cleanText = normalize(text)
+        if (cleanText.isBlank()) return 0
+        var score = 0
+        keywords.forEach { keyword ->
+            val cleanKeyword = normalize(keyword)
+            if (cleanKeyword.isBlank()) return@forEach
+            if (cleanText == cleanKeyword) score += 8
+            else if (cleanText.contains(cleanKeyword) || cleanKeyword.contains(cleanText)) score += 5
+            else if (cleanKeyword.length >= 2 && cleanKeyword.any { cleanText.contains(it) }) score += 1
+        }
+        return score
+    }
+
+    private fun extractGoalKeywords(goal: String, targetApp: TargetApp?): List<String> {
+        var text = goal.trim()
         targetApp?.aliases.orEmpty().forEach { text = text.replace(it, "", ignoreCase = true) }
-        listOf("帮我", "替我", "打开", "找到", "进入", "搜索", "查找", "一下", "应用", "app").forEach {
-            text = text.replace(it, "", ignoreCase = true)
-        }
-        return text.replace(Regex("[，。,.、\\s]+"), "").take(24)
+        fillerWords.forEach { text = text.replace(it, "", ignoreCase = true) }
+        val compact = text.replace(Regex("[，。,.、\\s]+"), "").take(24)
+        val tokens = Regex("[\\p{L}\\p{N}]{2,}").findAll(text).map { it.value.take(24) }.toList()
+        return (listOf(compact) + tokens).filter { it.isNotBlank() }.distinct().take(4)
     }
 
-    private fun isWeChatMomentsGoal(goal: String): Boolean {
-        return goal.contains("微信", ignoreCase = true) && goal.contains("朋友圈", ignoreCase = true)
+    private fun normalize(value: String): String {
+        return value.lowercase().replace(Regex("[\\s　，。,.、:：/\\-]+"), "")
     }
 
     private fun detectTargetApp(goal: String): TargetApp? {
-        val clean = goal.lowercase().replace(" ", "")
-        return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(alias.lowercase()) } }
+        val clean = normalize(goal)
+        return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(normalize(alias)) } }
     }
 
     private data class TargetApp(
@@ -237,20 +258,74 @@ class AgentTaskRunner(
         val aliases: List<String>,
     )
 
+    private data class AgentRunMemory(
+        val goal: String,
+        val targetApp: TargetApp?,
+        var openAppAttempts: Int = 0,
+        var inputAttempts: Int = 0,
+        var scrollAttempts: Int = 0,
+        var waitAttempts: Int = 0,
+        var backAttempts: Int = 0,
+        var repeatedCloudRejects: Int = 0,
+        private var lastSnapshotSignature: String = "",
+        private val recentStepKeys: MutableList<String> = mutableListOf(),
+    ) {
+        fun observe(snapshot: AgentScreenSnapshot) {
+            lastSnapshotSignature = listOf(
+                snapshot.currentApp,
+                snapshot.texts.take(8).joinToString("|"),
+                snapshot.clickableNodes.take(8).joinToString("|") { it.text },
+            ).joinToString("#")
+        }
+
+        fun remember(step: CloudAgentStep, result: AgentExecutionResult) {
+            recentStepKeys += stepKey(step)
+            if (recentStepKeys.size > 6) recentStepKeys.removeAt(0)
+            if (step.type == "input_text") inputAttempts += 1
+            if (step.type == "scroll" || step.type == "swipe") scrollAttempts += 1
+            if (step.type == "wait") waitAttempts += 1
+            if (step.type == "back") backAttempts += 1
+            if (!result.ok) repeatedCloudRejects += 1 else repeatedCloudRejects = 0
+        }
+
+        fun isLikelyRepeated(step: CloudAgentStep): Boolean {
+            return recentStepKeys.count { it == stepKey(step) } >= 1
+        }
+
+        private fun stepKey(step: CloudAgentStep): String {
+            return listOf(step.type, step.targetNodeId, step.targetText, step.text, step.direction).joinToString("|")
+        }
+    }
+
     companion object {
         private const val DEFAULT_MAX_STEPS = 8
         private const val DEFAULT_STEP_DELAY_MS = 1_050L
         private const val MIN_STEP_DELAY_MS = 650L
         private const val MAX_STEP_DELAY_MS = 2_500L
         private const val MAX_OPEN_APP_ATTEMPTS = 1
-        private const val WECHAT_PACKAGE = "com.tencent.mm"
+        private const val MAX_INPUT_ATTEMPTS = 2
+        private const val MAX_SCROLL_ATTEMPTS = 3
+        private const val MAX_WAIT_ATTEMPTS = 2
+        private const val MAX_BACK_ATTEMPTS = 1
+        private const val LOW_SIGNAL_NODE_COUNT = 8
+        private const val DIRECT_MATCH_SCORE = 5
+        private const val NAVIGATION_SCORE = 4
+
+        private val fillerWords = listOf(
+            "帮我", "替我", "请", "打开", "开启", "启动", "找到", "进入", "搜索", "查找", "一下", "看看", "去", "里", "里面", "应用", "app",
+        )
 
         private val TARGET_APPS = listOf(
-            TargetApp("微信", WECHAT_PACKAGE, listOf("微信", "wechat", "wx")),
+            TargetApp("微信", "com.tencent.mm", listOf("微信", "wechat", "wx")),
             TargetApp("QQ", "com.tencent.mobileqq", listOf("qq", "腾讯qq")),
             TargetApp("哔哩哔哩", "tv.danmaku.bili", listOf("哔哩", "哔哩哔哩", "b站", "bilibili")),
             TargetApp("小红书", "com.xingin.xhs", listOf("小红书")),
             TargetApp("抖音", "com.ss.android.ugc.aweme", listOf("抖音", "douyin")),
+            TargetApp("支付宝", "com.eg.android.AlipayGphone", listOf("支付宝", "alipay")),
+            TargetApp("高德地图", "com.autonavi.minimap", listOf("高德", "高德地图", "amap")),
+            TargetApp("百度地图", "com.baidu.BaiduMap", listOf("百度地图", "baidumap")),
+            TargetApp("淘宝", "com.taobao.taobao", listOf("淘宝", "taobao")),
+            TargetApp("京东", "com.jingdong.app.mall", listOf("京东", "jd")),
         )
     }
 }
