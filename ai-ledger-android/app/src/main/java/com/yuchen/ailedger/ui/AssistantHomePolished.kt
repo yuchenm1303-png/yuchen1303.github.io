@@ -77,7 +77,6 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -125,23 +124,11 @@ private data class ComposerBarUiState(
         }
 }
 
-@Immutable
-private data class ModelPanelUiState(
-    val selectedModel: ChatModel,
-    val selectedModelLabel: String,
-    val onlineEnabled: Boolean,
-    val isSending: Boolean,
-    val quality: RenderQuality,
-    val glassIntensity: Float,
-    val motionIntensity: Float,
-    val modelCardGlassStyle: com.yuchen.ailedger.model.ModelCardGlassStyle
-)
-
 private var assistantHomeEntrancePlayedInProcess = false
 
 @Composable
 fun AssistantScreenV2(
-    state: AssistantUiState,
+    state: AssistantHomeUiState,
     bottomPadding: Dp = 68.dp,
     onComposerChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -250,7 +237,7 @@ fun AssistantScreenV2(
         state.motionIntensity,
         state.modelCardGlassStyle
     ) {
-        ModelPanelUiState(
+        ModelSelectorUiState(
             selectedModel = state.selectedModel,
             selectedModelLabel = state.selectedModelLabel,
             onlineEnabled = state.onlineEnabled,
@@ -261,8 +248,6 @@ fun AssistantScreenV2(
             modelCardGlassStyle = state.modelCardGlassStyle
         )
     }
-    val modelSelectorState = rememberModelSelectorLegacyState(state, modelPanelState)
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -281,7 +266,6 @@ fun AssistantScreenV2(
         ) {
             ModelAndNetworkPanel(
                 state = modelPanelState,
-                selectorState = modelSelectorState,
                 expanded = modelPanelExpanded,
                 panelHeight = modelPanelVisualHeight,
                 layoutHeight = collapsedPanelHeight,
@@ -360,8 +344,7 @@ private fun AssistantHeroV2() {
 
 @Composable
 private fun ModelAndNetworkPanel(
-    state: ModelPanelUiState,
-    selectorState: AssistantUiState,
+    state: ModelSelectorUiState,
     expanded: Boolean,
     panelHeight: Dp,
     layoutHeight: Dp,
@@ -380,7 +363,7 @@ private fun ModelAndNetworkPanel(
                 .height(panelHeight)
         ) {
             UnifiedParentModelStackSelector(
-                state = selectorState,
+                state = state,
                 expanded = expanded,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -396,7 +379,7 @@ private fun ModelAndNetworkPanel(
                 }
             )
             NetworkDropletCapsule(
-                state = selectorState,
+                state = state,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .fillMaxWidth(0.30f)
@@ -405,34 +388,6 @@ private fun ModelAndNetworkPanel(
                 onClick = onToggleOnline
             )
         }
-    }
-}
-
-@Composable
-private fun rememberModelSelectorLegacyState(
-    source: AssistantUiState,
-    modelState: ModelPanelUiState
-): AssistantUiState {
-    return remember(
-        modelState.selectedModel,
-        modelState.selectedModelLabel,
-        modelState.onlineEnabled,
-        modelState.isSending,
-        modelState.quality,
-        modelState.glassIntensity,
-        modelState.motionIntensity,
-        modelState.modelCardGlassStyle
-    ) {
-        source.copy(
-            selectedModel = modelState.selectedModel,
-            selectedModelLabel = modelState.selectedModelLabel,
-            onlineEnabled = modelState.onlineEnabled,
-            isSending = modelState.isSending,
-            quality = modelState.quality,
-            glassIntensity = modelState.glassIntensity,
-            motionIntensity = modelState.motionIntensity,
-            modelCardGlassStyle = modelState.modelCardGlassStyle
-        )
     }
 }
 
