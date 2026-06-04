@@ -28,7 +28,7 @@ class AgentTaskRunner(
         maxSteps: Int = DEFAULT_MAX_STEPS,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
-        val targetApp = AgentTargetAppResolver.resolve(goal)
+        val targetApp = detectTargetApp(goal)
         var localOpenAppAttempts = 0
         var recoveryAttempts = 0
 
@@ -108,7 +108,7 @@ class AgentTaskRunner(
     private fun buildRecoveryStep(
         goal: String,
         snapshot: AgentScreenSnapshot,
-        targetApp: AgentTargetApp?,
+        targetApp: TargetApp?,
         attempt: Int,
     ): CloudAgentStep? {
         if (targetApp != null && snapshot.currentApp != targetApp.packageName && attempt < MAX_OPEN_APP_ATTEMPTS) {
@@ -131,7 +131,7 @@ class AgentTaskRunner(
                 requiresConfirmation = false,
             )
         }
-        val targetPhrase = AgentTargetAppResolver.extractSearchKeyword(goal, targetApp)
+        val targetPhrase = extractTargetPhrase(goal, targetApp)
         if (snapshot.inputNodes.isNotEmpty() && targetPhrase.isNotBlank()) {
             val input = snapshot.inputNodes.first()
             return CloudAgentStep(
@@ -172,6 +172,26 @@ class AgentTaskRunner(
         }
     }
 
+    private fun extractTargetPhrase(goal: String, targetApp: TargetApp?): String {
+        var text = goal
+        targetApp?.aliases.orEmpty().forEach { text = text.replace(it, "", ignoreCase = true) }
+        listOf("帮我", "替我", "打开", "找到", "进入", "搜索", "查找", "一下", "应用", "app").forEach {
+            text = text.replace(it, "", ignoreCase = true)
+        }
+        return text.replace(Regex("[，。,.、\\s]+"), "").take(24)
+    }
+
+    private fun detectTargetApp(goal: String): TargetApp? {
+        val clean = goal.lowercase().replace(" ", "")
+        return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(alias.lowercase()) } }
+    }
+
+    private data class TargetApp(
+        val label: String,
+        val packageName: String,
+        val aliases: List<String>,
+    )
+
     companion object {
         private const val DEFAULT_MAX_STEPS = 6
         private const val DEFAULT_STEP_DELAY_MS = 1_100L
@@ -179,5 +199,13 @@ class AgentTaskRunner(
         private const val MAX_STEP_DELAY_MS = 2_500L
         private const val MAX_OPEN_APP_ATTEMPTS = 1
         private const val MAX_RECOVERY_ATTEMPTS = 2
+
+        private val TARGET_APPS = listOf(
+            TargetApp("微信", "com.tencent.mm", listOf("微信", "wechat", "wx")),
+            TargetApp("QQ", "com.tencent.mobileqq", listOf("qq", "腾讯qq")),
+            TargetApp("哔哩哔哩", "tv.danmaku.bili", listOf("哔哩", "哔哩哔哩", "b站", "bilibili")),
+            TargetApp("小红书", "com.xingin.xhs", listOf("小红书")),
+            TargetApp("抖音", "com.ss.android.ugc.aweme", listOf("抖音", "douyin")),
+        )
     }
 }
