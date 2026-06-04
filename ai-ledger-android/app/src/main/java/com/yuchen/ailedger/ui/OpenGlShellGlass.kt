@@ -17,9 +17,10 @@ enum class OpenGlShellMood {
 /**
  * Shared glass entry for surfaces that are deliberately promoted to Shell/OpenGL.
  *
- * Only Hero, or an explicit forceOpenGl call, is promoted to Shell. List/Summary/
- * Settings surfaces stay on the Compose glass path by default so scrolling cards
- * do not wake the OpenGL viewport unless a caller opts in deliberately.
+ * Hero surfaces still keep their visual Shell design, but the real Shell/OpenGL
+ * registration is delayed until LocalPageHeavyEffectsEnabled becomes true. During
+ * page prewarm and early tab enter frames they render as a static Card surface, so
+ * tab switching is not blocked by OpenGL/registry recovery.
  */
 @Composable
 fun OpenGlShellGlass(
@@ -33,7 +34,9 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val useOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
+    val heavyEffectsEnabled = LocalPageHeavyEffectsEnabled.current
+    val wantsOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
+    val useOpenGlShell = wantsOpenGlShell && heavyEffectsEnabled
     val surfaceModifier = modifier
 
     if (useOpenGlShell) {
@@ -61,10 +64,10 @@ fun OpenGlShellGlass(
         PressableGlass(
             quality = quality,
             glassIntensity = glassIntensity,
-            motionIntensity = motionIntensity,
+            motionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f,
             radius = radius,
             modifier = surfaceModifier,
-            role = GlassRole.Card,
+            role = if (wantsOpenGlShell) GlassRole.Card else GlassRole.Card,
             onClick = onClick,
             content = content
         )
@@ -72,7 +75,7 @@ fun OpenGlShellGlass(
         GlassPanel(
             quality = quality,
             glassIntensity = glassIntensity,
-            motionIntensity = motionIntensity,
+            motionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f,
             radius = radius,
             modifier = surfaceModifier,
             role = GlassRole.Card,
