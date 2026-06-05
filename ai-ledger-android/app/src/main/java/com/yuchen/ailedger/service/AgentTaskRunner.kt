@@ -83,15 +83,13 @@ class AgentTaskRunner(
                 val visualObservation = captureOnce(forceVisual = true)
                 if (visualObservation.enabled && visualObservation.serviceConnected) {
                     val visualSnapshot = visualObservation.toAgentScreenSnapshot()
+                    workingSnapshot = visualSnapshot
                     workingContext = buildGoalContext(goal, targetApp)
                     memory.observe(visualSnapshot, workingContext)
                     val visualStep = withContext(Dispatchers.IO) {
                         aiWorkerClient.requestAgentStep(goal = goal, snapshot = visualSnapshot, modelPreference = modelPreference)
                     }
-                    if (visualStep.type != "need_user_help") {
-                        workingSnapshot = visualSnapshot
-                        cloudStep = visualStep
-                    }
+                    if (visualStep.type != "need_user_help") cloudStep = visualStep
                 }
             }
 
@@ -134,29 +132,37 @@ class AgentTaskRunner(
 
             if (chosenStep.type in VERIFY_AFTER_TAP_TYPES) {
                 delay(TAP_VERIFY_DELAY_MS)
-                val verifyObservation = captureOnce()
-                if (verifyObservation.enabled && verifyObservation.serviceConnected) {
-                    val verifySnapshot = verifyObservation.toAgentScreenSnapshot()
-                    memory.observe(verifySnapshot, workingContext)
-                    val verifyResult = verifyTapOutcome(chosenStep, verifySnapshot, workingContext)
-                    if (verifyResult == TapOutcome.WrongPage) {
-                        memory.markFailedAction(chosenStep)
-                        val backStep = CloudAgentStep(
-                            type = "back",
-                            reason = "点击后页面特征与目标不符，自动返回后重新定位。",
-                            riskLevel = "low",
-                            requiresConfirmation = false,
-                        )
-                        val backResult = executeAndRecord(backStep, verifySnapshot.currentApp, logs)
-                        memory.remember(backStep, backResult)
-                        if (!backResult.ok || !backResult.shouldContinue) {
-                            val message = memory.withDebug("误点后自动返回失败，请手动回到上一页后继续。")
-                            AgentRuntimeController.finishTask(message, completed = false)
-                            return AgentTaskRunResult(false, false, message, logs)
-                        }
-                        delayForStep(backStep)
-                        return@repeat
+                val verifyResult = verifyTapAfterClick(
+                    goal = goal,
+                    step = chosenStep,
+                    context = workingContext,
+                    memory = memory,
+                    modelPreference = modelPreference,
+                )
+                if (verifyResult == TapOutcome.WrongPage) {
+                    memory.markFailedAction(chosenStep)
+                    val backStep = CloudAgentStep(
+                        type = "back",
+                        reason = "点击后页面特征与目标不符，自动返回后重新定位。",
+                        riskLevel = "low",
+                        requiresConfirmation = false,
+                    )
+                    val latest = captureOnce()
+                    val backResult = executeAndRecord(backStep, latest.toAgentScreenSnapshot().currentApp, logs)
+                    memory.remember(backStep, backResult)
+                    if (!backResult.ok || !backResult.shouldContinue) {
+                        val message = memory.withDebug("误点后自动返回失败，请手动回到上一页后继续。")
+                        AgentRuntimeController.finishTask(message, completed = false)
+                        return AgentTaskRunResult(false, false, message, logs)
                     }
+                    delayForStep(backStep)
+                    return@repeat
+                }
+                if (verifyResult == TapOutcome.Uncertain && chosenStep.type == "tap_xy") {
+                    memory.markFailedAction(chosenStep)
+                    val message = memory.withDebug("云端也无法确认坐标点击是否到达目标页面，已停止避免继续误触。")
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
                 }
             }
 
@@ -219,7 +225,46 @@ class AgentTaskRunner(
         return null
     }
 
-    private fun verifyTapOutcome(step: CloudAgentStep, snapshot: AgentScreenSnapshot, context: GoalContext): TapOutcome {
+    private suspend fun verifyTapAfterClick(
+        goal: String,
+        step: CloudAgentStep,
+        context: GoalContext,
+        memory: AgentRunMemory,
+        modelPreference: ChatModel,
+    ): TapOutcome {
+        val firstObservation = captureOnce(forceVisual = step.type == "tap_xy")
+        if (!firstObservation.enabled || !firstObservation.serviceConnected) return TapOutcome.Unknown
+        var snapshot = firstObservation.toAgentScreenSnapshot()
+        memory.observe(snapshot, context)
+        val localOutcome = verifyTapOutcomeLocally(step, snapshot, context)
+        if (localOutcome == TapOutcome.WrongPage) return TapOutcome.WrongPage
+        if (localOutcome == TapOutcome.ExpectedPage && step.type != "tap_xy") return TapOutcome.ExpectedPage
+        if (!snapshot.hasVisualImage) {
+            val visualObservation = captureOnce(forceVisual = true)
+            if (visualObservation.enabled && visualObservation.serviceConnected) {
+                snapshot = visualObservation.toAgentScreenSnapshot()
+                memory.observe(snapshot, context)
+            }
+        }
+        if (!snapshot.hasVisualImage) return localOutcome
+        val cloudOutcome = withContext(Dispatchers.IO) {
+            runCatching {
+                aiWorkerClient.requestAgentOutcomeVerification(
+                    goal = goal,
+                    action = step,
+                    snapshot = snapshot,
+                    modelPreference = modelPreference,
+                )
+            }.getOrNull()
+        } ?: return localOutcome
+        return when {
+            cloudOutcome.isExpected -> TapOutcome.ExpectedPage
+            cloudOutcome.isWrong -> TapOutcome.WrongPage
+            else -> if (localOutcome == TapOutcome.ExpectedPage) TapOutcome.ExpectedPage else TapOutcome.Uncertain
+        }
+    }
+
+    private fun verifyTapOutcomeLocally(step: CloudAgentStep, snapshot: AgentScreenSnapshot, context: GoalContext): TapOutcome {
         val expected = expectedOutcomeFor(step, context) ?: return TapOutcome.Unknown
         val visible = snapshot.visibleTextForMatch()
         if (expected.successTexts.any { visible.contains(normalize(it)) }) return TapOutcome.ExpectedPage
@@ -442,7 +487,7 @@ class AgentTaskRunner(
     }
 
     private enum class AgentTaskPhase(val label: String) { OpeningApp("打开应用"), Navigating("找入口"), Searching("搜索输入"), Verifying("确认结果"), Recovering("恢复路径") }
-    private enum class TapOutcome { ExpectedPage, WrongPage, Unknown }
+    private enum class TapOutcome { ExpectedPage, WrongPage, Unknown, Uncertain }
     private data class ExpectedOutcome(val successTexts: List<String>, val avoidTexts: List<String>)
     private data class GoalContext(val goal: String, val targetApp: TargetApp?, val keywords: List<String>, val routeHints: List<String>, val completionHints: List<String>, val avoidHints: List<String>, val wantsSearch: Boolean)
     private data class ScoredStep(val step: CloudAgentStep, val score: Int)
