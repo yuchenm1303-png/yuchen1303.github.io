@@ -52,6 +52,7 @@ private fun buildAgentStepPayload(
         put("intent", "agent_step")
         put("agentMode", true)
         put("computerUseMode", true)
+        put("visionFirst", snapshot.hasVisualImage)
         put("agentGoal", cleanGoal)
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
@@ -71,17 +72,7 @@ private fun buildAgentStepPayload(
                 put("source", visual.source)
                 put("reason", visual.reason)
             }
-            put("screenshot", JSONObject().apply {
-                put("mimeType", visual.mimeType)
-                put("width", visual.width)
-                put("height", visual.height)
-                put("displayWidth", visual.displayWidth)
-                put("displayHeight", visual.displayHeight)
-                put("base64", visual.base64Jpeg)
-                put("base64Data", visual.base64Jpeg)
-                put("source", visual.source)
-                put("reason", visual.reason)
-            })
+            put("screenshot", imageItem)
             put("images", JSONArray().apply { put(imageItem) })
             put("attachments", JSONArray().apply { put(imageItem) })
             put("vision", JSONObject().apply {
@@ -106,17 +97,14 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-computer-use-vision-v2" else "compose-native-computer-use-v2")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-vision-first-v3" else "compose-native-agent-v3")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
         put("text", plannerMessage)
         put("messages", JSONArray().apply {
             put(JSONObject().apply { put("role", "system"); put("content", instruction) })
-            put(JSONObject().apply {
-                put("role", "user")
-                put("content", plannerMessage)
-            })
+            put(JSONObject().apply { put("role", "user"); put("content", plannerMessage) })
         })
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
@@ -129,48 +117,37 @@ private fun buildAgentStepPayload(
 private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObject, visual: AgentScreenVisual?): String {
     return buildString {
         append("目标：").append(goal).append('\n')
-        append("当前屏幕结构化快照：").append(snapshotJsonWithoutImage).append('\n')
+        append("结构化快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
-            append("当前请求包含一张屏幕截图，图片尺寸为 ")
-                .append(visual.width).append("x").append(visual.height)
-                .append("，真实屏幕尺寸为 ")
+            append("本次包含屏幕截图，真实屏幕尺寸为 ")
                 .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
-            append("如果使用 tap_xy，x/y 必须返回真实屏幕坐标系，不要返回缩略图坐标；例如点击底部导航栏时 y 应接近真实屏幕底部。\n")
-            append("无障碍节点不足时，必须根据截图中的可见文字、图标和位置返回 tap_xy、swipe、wait 或 back，不要只输出无法判断。\n")
+            append("请先看截图，再参考节点；节点可能缺失。tap_xy 必须使用真实屏幕坐标。\n")
+            append("如果当前页面走错，请返回 back；如果目标可见，请返回 tap_xy；如果页面刚变化，请 wait。\n")
         } else {
-            append("当前请求没有截图。请优先根据节点树规划；节点不足时可返回 wait、swipe、back 或 need_user_help。\n")
+            append("当前没有截图，只能根据节点谨慎规划。\n")
         }
         append("请每次只返回一步 agentStep JSON。")
     }
 }
 
 private fun agentPlannerSystemPrompt(): String = """
-你是手机 Computer Use 智能体任务规划器，不是普通聊天助手。
-你只能基于 screenSnapshot、可选 screenshot/images 和用户目标决定下一步，不要假装已经点击、输入或滚动。
-每次只返回一步，必须返回 JSON，不要输出 Markdown，不要输出解释性正文。
+你是手机智能体规划器。
+如果请求包含截图，截图是主输入，节点只是辅助信息。
+每次只返回一步 JSON，不要输出 Markdown。
 
 支持动作：open_app, home, back, recents, notifications, quick_settings, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
-JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"可展示给用户的行动理由，不要写内心推理","riskLevel":"low|medium|high","requiresConfirmation":false}}
+JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
 
-观察规则：
-1. screenSnapshot.clickableNodes/inputNodes/scrollableNodes 是结构化无障碍节点，优先使用。
-2. 如果 screenSnapshot.confidence.needsVisualFallback=true 或节点很少，但请求包含 screenshot/images，你必须像 Computer Use 一样看截图，根据可见 UI 返回 tap_xy、swipe、wait 或 back，不要直接说看不见。
-3. 如果截图里能看见目标文字、明显导航入口或底部标签栏，返回 tap_xy，并填 x/y。
-4. tap_xy 的 x/y 必须使用真实屏幕坐标系 displayWidth/displayHeight，不要使用被压缩后的截图尺寸坐标。
-5. 如果节点树和截图冲突，以截图可见内容为准，但涉及输入、付款、发送、授权时必须谨慎。
-
-规划规则：
-1. 如果目标属于某个 App，而当前不在该 App，优先返回 open_app，不要让用户手动打开。
-2. 不要因为当前屏幕没有目标文字就直接 need_user_help。先判断是否可以搜索、切换标签、返回、滑动、滚动、等待或重新打开目标 App。
-3. 对可点击控件优先使用 tap_node，并给出 targetNodeId。
-4. 无障碍节点不可用但截图可见目标时，使用 tap_xy。
-5. 有输入框并需要查找目标时，返回 input_text，text 使用用户目标中的核心关键词。
-6. 页面刚打开、节点很少、疑似还在加载时，返回 wait。
-7. 如果目标在当前页不可见，但页面可滚动或截图显示列表，先 scroll 或 swipe 扩大搜索范围。
-8. 如果当前页面明显走错，优先 back，再重新判断。
-9. 目标已完成时，返回 finish。
-10. 只有在节点和截图都无法判断、继续操作可能误触时，才返回 need_user_help。
-11. 高风险动作必须 riskLevel=high 且 requiresConfirmation=true。
+规则：
+1. 有截图时必须先看截图，不能因为节点少就直接 need_user_help。
+2. 截图里目标、导航入口、返回键、输入框可见时，直接返回对应动作。
+3. tap_xy 使用真实屏幕坐标 displayWidth/displayHeight。
+4. 当前页面走错时，优先 back。
+5. 页面刚变化或加载中时，返回 wait。
+6. 微信朋友圈常见路径：先回微信主会话页，再点底部“发现”，再点“朋友圈”。
+7. 目标属于某个 App 且当前不在该 App 时，优先 open_app。
+8. 目标已完成时，返回 finish。
+9. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
 """.trimIndent()
 
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
