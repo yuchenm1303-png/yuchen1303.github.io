@@ -28,8 +28,9 @@ val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
-private const val PAGE_ENTER_FADE_MS = 150
-private const val PAGE_EXIT_FADE_MS = 120
+private const val PAGE_ENTER_FADE_MS = 230
+private const val PAGE_EXIT_FADE_MS = 160
+private const val HEAVY_EFFECTS_REVEAL_MS = 180L
 
 @Composable
 fun CachedAppTabHost(
@@ -44,6 +45,7 @@ fun CachedAppTabHost(
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
     val currentActivationTick = remember(currentTab) { (System.nanoTime() and Int.MAX_VALUE.toLong()).toInt() }
+    var heavyEffectsReadyTick by remember { mutableStateOf(currentActivationTick) }
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
@@ -52,8 +54,11 @@ fun CachedAppTabHost(
     val parentBackdropTicker = LocalBackdropFrameTicker.current
     val parentGlassRegistry = LocalGlassItemRegistry.current
 
-    LaunchedEffect(currentTab) {
+    LaunchedEffect(currentTab, currentActivationTick) {
         renderedTabs = renderedTabs + currentTab
+        heavyEffectsReadyTick = 0
+        if (HEAVY_EFFECTS_REVEAL_MS > 0L) delay(HEAVY_EFFECTS_REVEAL_MS)
+        heavyEffectsReadyTick = currentActivationTick
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -86,16 +91,17 @@ fun CachedAppTabHost(
                 )
                 val visibleDuringTransition = active || alpha > 0.001f
                 val leaving = !active && visibleDuringTransition
-                val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
-                val liveRegistryEnabled = active && !diagnostics.openGlGlassOff
                 val activationKey = if (active) currentActivationTick else 0
+                val heavyEffectsReady = active && heavyEffectsReadyTick == activationKey
+                val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
+                val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
 
                 CompositionLocalProvider(
                     LocalPageActive provides active,
                     LocalPageVisible provides visibleDuringTransition,
                     LocalPageLeaving provides leaving,
                     LocalPageActivationTick provides activationKey,
-                    LocalPageHeavyEffectsEnabled provides visualEffectsEnabled,
+                    LocalPageHeavyEffectsEnabled provides visualEffectsEnabled && heavyEffectsReady,
                     // Keep this false for Shell cards. A true viewport flag means an external
                     // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
                     LocalOpenGLGlassViewportActive provides false,
