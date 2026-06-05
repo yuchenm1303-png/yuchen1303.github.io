@@ -2,7 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,7 +85,7 @@ fun RainbowChatGlassOverlay(
     val halo = style.rainbowHalo.coerceIn(0f, 2f)
 
     Box(modifier = modifier) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width.coerceAtLeast(1f)
             val h = size.height.coerceAtLeast(1f)
             val c = CornerRadius(30f, 30f)
