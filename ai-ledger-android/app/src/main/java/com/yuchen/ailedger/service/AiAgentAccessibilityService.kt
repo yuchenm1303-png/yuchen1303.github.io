@@ -42,7 +42,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         val packageName = event.packageName?.toString().orEmpty()
-        if (packageName.isBlank()) return
+        if (packageName.isBlank() || isSystemSurfacePackage(packageName)) return
         val windowTitle = event.text?.firstOrNull()?.toString().orEmpty()
         val now = System.currentTimeMillis()
         val key = "$packageName|$windowTitle"
@@ -202,11 +202,25 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 val clickableCount = capture.handles.count { it.observed.clickable }
                 val inputCount = capture.handles.count { it.observed.editable }
                 val scrollableCount = capture.handles.count { it.observed.scrollable }
-                val ownOverlayPenalty = if (packageName == applicationContext.packageName) 10_000 else 0
-                val score = capture.rawNodeCount * 2 + capture.handles.size * 8 + textCount * 10 + clickableCount * 12 + inputCount * 16 + scrollableCount * 10 - ownOverlayPenalty
+                val ownOverlayPenalty = if (packageName == applicationContext.packageName) OWN_OVERLAY_WINDOW_PENALTY else 0
+                val systemSurfacePenalty = if (isSystemSurfacePackage(packageName)) SYSTEM_SURFACE_WINDOW_PENALTY else 0
+                val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) CONTENT_APP_WINDOW_BONUS else 0
+                val score = capture.rawNodeCount * 2 +
+                    capture.handles.size * 8 +
+                    textCount * 10 +
+                    clickableCount * 12 +
+                    inputCount * 16 +
+                    scrollableCount * 10 +
+                    contentAppBonus -
+                    ownOverlayPenalty -
+                    systemSurfacePenalty
                 RootCapture(root, packageName, root.text?.toString().orEmpty(), capture, score)
             }
             .maxByOrNull { it.score }
+    }
+
+    private fun isSystemSurfacePackage(packageName: String): Boolean {
+        return packageName in SYSTEM_SURFACE_PACKAGES
     }
 
     private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): NodeCapture {
@@ -493,6 +507,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         private const val WINDOW_HINT_THROTTLE_MS = 900L
+        private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
+        private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
+        private const val CONTENT_APP_WINDOW_BONUS = 4_000
+        private val SYSTEM_SURFACE_PACKAGES = setOf("android", "com.android.systemui")
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
         private const val MAX_SNAPSHOT_NODES = 240
