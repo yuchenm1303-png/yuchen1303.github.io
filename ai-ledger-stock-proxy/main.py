@@ -4,7 +4,6 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
 import json
-from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import akshare as ak
@@ -12,7 +11,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="AI Ledger A股行情代理", version="0.1.3")
+app = FastAPI(title="AI Ledger A股行情代理", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -158,7 +157,7 @@ def _as_cached_payload(payload: dict[str, Any], age: int, reason: str | None = N
     cached = deepcopy(payload)
     quote_data = cached.get("quote") or {}
     code = quote_data.get("code") or "--"
-    cached["dataSourceLabel"] = f"AKShare 缓存行情 · {code} · {age}s前"
+    cached["dataSourceLabel"] = f"免费行情缓存 · {code} · {age}s前"
     warnings = list(cached.get("warnings") or [])
     warnings.append(f"cache: hit, age={age}s")
     if reason:
@@ -171,7 +170,7 @@ def _http_json(url: str, timeout: int = 10) -> dict[str, Any]:
     request = Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Referer": "https://quote.eastmoney.com/",
             "Accept": "application/json,text/plain,*/*",
         },
@@ -425,6 +424,44 @@ def _em_minute_points(code: str) -> list[dict[str, Any]]:
         return []
 
 
+def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
+    resolved = _resolve_stock(query)
+    code = resolved["code"]
+    name = resolved["name"]
+    warnings = [
+        "crawl: eastmoney_public_json",
+        "learning_mode: quote/kline/minute are fetched by urllib.request",
+    ]
+
+    quote_data = _em_quote(code)
+    k_lines = _em_daily_kline(code)
+    minute_points = _em_minute_points(code)
+
+    if quote_data is not None:
+        name = quote_data.get("name", name)
+    elif k_lines:
+        quote_data = _quote_from_kline(code, name, k_lines)
+        warnings.append("quote_empty: rebuilt_from_kline")
+    else:
+        raise HTTPException(status_code=502, detail=f"公开爬虫源暂未返回 {query} 的 quote 或 K 线数据")
+
+    if not k_lines:
+        warnings.append("daily_kline: empty")
+    if not minute_points:
+        warnings.append("minute_points: empty")
+
+    return {
+        "provider": "crawl_eastmoney",
+        "delayed": False,
+        "dataSourceLabel": f"爬虫教学源 · 东方财富公开JSON · {code}",
+        "quote": quote_data,
+        "kLinePoints": k_lines,
+        "minutePoints": minute_points,
+        "warnings": warnings,
+        "aiSummary": f"{name} 当前价 {quote_data['price']}，涨跌幅 {quote_data['changePercent']}。本接口为爬虫教学版：直接请求东方财富公开 JSON，解析 quote、日K 和分时数据。",
+    }
+
+
 def _build_detail_payload(query: str) -> dict[str, Any]:
     warnings = []
     resolved = _resolve_stock(query)
@@ -465,24 +502,20 @@ def _build_detail_payload(query: str) -> dict[str, Any]:
         warnings.append("minute_points: empty")
 
     using_fallback = any("fallback" in item for item in warnings)
-    label = f"AKShare主源 + 快速公开源兜底 · {code}" if using_fallback else f"AKShare 免费行情代理 · {code}"
+    label = f"AKShare主源 + 爬虫公开源兜底 · {code}" if using_fallback else f"AKShare 免费行情代理 · {code}"
     return {
+        "provider": "akshare_plus_crawl",
+        "delayed": False,
         "dataSourceLabel": label,
         "quote": quote_data,
         "kLinePoints": k_lines,
         "minutePoints": minute_points,
         "warnings": warnings,
-        "aiSummary": f"{name} 当前价 {quote_data['price']}，涨跌幅 {quote_data['changePercent']}。AKShare 为主源；若免费源暂时失败，会使用缓存或快速公开源补齐首屏行情。",
+        "aiSummary": f"{name} 当前价 {quote_data['price']}，涨跌幅 {quote_data['changePercent']}。AKShare 为主源；若免费源暂时失败，会使用缓存或公开爬虫源补齐首屏行情。",
     }
 
 
-@app.get("/health")
-def health() -> dict[str, Any]:
-    return {"status": "ok", "dataSource": "AKShare primary + cache + fast fallback", "cacheSize": len(_detail_cache)}
-
-
-@app.get("/api/stock/a-share/detail")
-def a_share_detail(query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台")) -> dict[str, Any]:
+def _detail_response(query: str, builder) -> dict[str, Any]:
     key = _query_key(query)
     code_key = _code_from_query(query)
 
@@ -492,7 +525,7 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
         return _as_cached_payload(payload, age)
 
     try:
-        payload = _build_detail_payload(query)
+        payload = builder(query)
         quote_data = payload.get("quote") or {}
         code = _safe_str(quote_data.get("code"), code_key or "")
         name = _safe_str(quote_data.get("name"), "")
@@ -510,3 +543,34 @@ def a_share_detail(query: str = Query(..., description="股票代码或名称，
             payload, age = stale
             return _as_cached_payload(payload, age, reason=f"{type(exc).__name__}: {exc}")
         raise HTTPException(status_code=502, detail=f"行情代理异常：{type(exc).__name__}: {exc}") from exc
+
+
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "dataSource": "crawl eastmoney + akshare + cache",
+        "cacheSize": len(_detail_cache),
+        "endpoints": [
+            "/api/stock/crawl/a-share/detail?query=600519",
+            "/api/stock/a-share/detail?query=600519",
+            "/api/stock/futu/a-share/detail?query=600519",
+        ],
+    }
+
+
+@app.get("/api/stock/crawl/a-share/detail")
+def crawl_a_share_detail(query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台")) -> dict[str, Any]:
+    return _detail_response(query, _build_crawl_detail_payload)
+
+
+@app.get("/api/stock/a-share/detail")
+def a_share_detail(query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台")) -> dict[str, Any]:
+    return _detail_response(query, _build_detail_payload)
+
+
+@app.get("/api/stock/futu/a-share/detail")
+def futu_compatible_detail(query: str = Query(..., description="临时兼容 Android 端富途优先路径，当前返回爬虫教学源")) -> dict[str, Any]:
+    payload = _detail_response(query, _build_crawl_detail_payload)
+    payload["warnings"] = list(payload.get("warnings") or []) + ["compat: futu path currently maps to crawler learning source"]
+    return payload
