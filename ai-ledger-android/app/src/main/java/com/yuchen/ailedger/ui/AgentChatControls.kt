@@ -1,20 +1,19 @@
 package com.yuchen.ailedger.ui
 
 import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,22 +54,34 @@ internal fun AgentChatHeaderOverlay(modifier: Modifier = Modifier) {
     }
 
     Row(
-        modifier = modifier,
+        modifier = modifier
+            .offset(x = (-2).dp, y = (-50).dp)
+            .height(28.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.075f),
+                        Color(0xFF72FFF2).copy(alpha = 0.052f),
+                        Color(0xFF7B8CFF).copy(alpha = 0.045f),
+                        Color.White.copy(alpha = 0.036f)
+                    )
+                )
+            )
+            .padding(horizontal = 3.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        AgentSwitchPill(
+        AgentHeaderSwitchPill(
             label = "Agent",
             enabled = agentEnabled,
-            activeColors = listOf(Color(0xAA31F6E2), Color(0x883B7BFF), Color(0x66543CFF)),
-            onClick = {
-                AgentRuntimeController.setEnabled(!agentEnabled)
-            }
+            activeColors = listOf(Color(0xEE74FFF1), Color(0xCC4F83FF), Color(0xAA6C55FF)),
+            onClick = { AgentRuntimeController.setEnabled(!agentEnabled) }
         )
-        AgentSwitchPill(
-            label = "悬浮窗",
+        AgentHeaderSwitchPill(
+            label = "浮窗",
             enabled = overlayVisible,
-            activeColors = listOf(Color(0xAA7DFCEB), Color(0x889B6BFF), Color(0x664FB6FF)),
+            activeColors = listOf(Color(0xEE8DFFF4), Color(0xCC9B73FF), Color(0xAA4FB6FF)),
             onClick = {
                 val next = !overlayVisible
                 if (next) {
@@ -90,56 +102,82 @@ internal fun AgentChatHeaderOverlay(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun AgentSwitchPill(
+private fun AgentHeaderSwitchPill(
     label: String,
     enabled: Boolean,
     activeColors: List<Color>,
     onClick: () -> Unit
 ) {
-    val knobOffset by animateFloatAsState(if (enabled) 18f else 0f, label = "$label-switch-knob")
+    val active by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0f,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "$label-header-switch-active"
+    )
+    val knobOffset by animateFloatAsState(
+        targetValue = if (enabled) 10f else 0f,
+        animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing),
+        label = "$label-header-switch-knob"
+    )
+
     Row(
         modifier = Modifier
+            .height(22.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(
                 Brush.horizontalGradient(
-                    if (enabled) activeColors else listOf(Color(0x44FFFFFF), Color(0x22FFFFFF))
+                    if (enabled) {
+                        activeColors
+                    } else {
+                        listOf(Color.White.copy(alpha = 0.075f), Color.White.copy(alpha = 0.030f))
+                    }
                 )
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
-            .widthIn(min = if (label.length > 5) 92.dp else 76.dp),
+            .padding(start = 7.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = if (enabled) 0.98f else 0.62f),
-            fontSize = 10.sp,
+            color = Color.White.copy(alpha = 0.58f + active * 0.38f),
+            fontSize = 9.5.sp,
+            lineHeight = 11.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1
         )
         Box(
             modifier = Modifier
-                .width(38.dp)
-                .height(20.dp)
+                .width(23.dp)
+                .height(13.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = if (enabled) 0.24f else 0.13f)),
+                .background(Color.Black.copy(alpha = 0.16f - active * 0.035f)),
             contentAlignment = Alignment.CenterStart
         ) {
             Box(
                 modifier = Modifier
-                    .offset(x = knobOffset.dp)
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .background(if (enabled) Color(0xFFE9FFFB) else Color(0xFFB8C0D4))
+                    .offset(x = (2f + knobOffset).dp)
+                    .size(9.dp)
+                    .graphicsLayer {
+                        scaleX = 0.92f + active * 0.12f
+                        scaleY = 0.92f + active * 0.12f
+                    }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        if (enabled) {
+                            Color(0xFFF3FFFC)
+                        } else {
+                            Color(0xFF9EA8C5)
+                        }
+                    )
             )
         }
-        Spacer(Modifier.width(1.dp))
         Text(
             text = if (enabled) "开" else "关",
-            color = Color.White.copy(alpha = if (enabled) 0.94f else 0.58f),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
+            color = Color.White.copy(alpha = 0.50f + active * 0.36f),
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
         )
     }
 }
