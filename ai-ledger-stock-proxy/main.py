@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any
 from urllib.parse import urlencode
 
@@ -22,8 +22,16 @@ app.add_middleware(
 )
 
 EASTMONEY_QUOTE_URL = "https://push2delay.eastmoney.com/api/qt/stock/get"
-EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-EASTMONEY_TRENDS_URL = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+EASTMONEY_KLINE_URLS = [
+    "https://push2delay.eastmoney.com/api/qt/stock/kline/get",
+    "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+    "https://push2.eastmoney.com/api/qt/stock/kline/get",
+]
+EASTMONEY_TRENDS_URLS = [
+    "https://push2delay.eastmoney.com/api/qt/stock/trends2/get",
+    "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
+    "https://push2.eastmoney.com/api/qt/stock/trends2/get",
+]
 EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_TOKEN = "44c9d251add88e27b65ed86506f6e5da"
 
@@ -145,9 +153,17 @@ def _cached_payload(payload: dict[str, Any], age: int, reason: str | None = None
 
 def _eastmoney_get(client: httpx.Client, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
         "Referer": "https://quote.eastmoney.com/",
-        "Accept": "application/json,text/plain,*/*",
+        "Origin": "https://quote.eastmoney.com",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     }
     response = client.get(url, params=params, headers=headers)
     response.raise_for_status()
@@ -155,6 +171,27 @@ def _eastmoney_get(client: httpx.Client, url: str, params: dict[str, Any] | None
     if not isinstance(data, dict):
         raise ValueError("东方财富返回的 JSON 不是对象")
     return data
+
+
+def _eastmoney_get_with_retry(
+    client: httpx.Client,
+    urls: list[str],
+    params: dict[str, Any],
+    label: str,
+    warnings: list[str],
+) -> dict[str, Any]:
+    last_error: str | None = None
+    for attempt in range(1, 3):
+        for url in urls:
+            try:
+                data = _eastmoney_get(client, url, params)
+                if url != urls[0] or attempt > 1:
+                    warnings.append(f"{label}: recovered via {url.split('/api/', 1)[0]} attempt={attempt}")
+                return data
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+        sleep(0.25 * attempt)
+    raise ValueError(last_error or f"{label}: all eastmoney endpoints failed")
 
 
 def _search_security(client: httpx.Client, query: str) -> dict[str, str] | None:
@@ -257,10 +294,10 @@ def _load_quote(client: httpx.Client, security: dict[str, str]) -> dict[str, Any
     }
 
 
-def _load_daily_kline(client: httpx.Client, security: dict[str, str]) -> list[dict[str, Any]]:
-    raw = _eastmoney_get(
+def _load_daily_kline(client: httpx.Client, security: dict[str, str], warnings: list[str]) -> list[dict[str, Any]]:
+    raw = _eastmoney_get_with_retry(
         client,
-        EASTMONEY_KLINE_URL,
+        EASTMONEY_KLINE_URLS,
         {
             "secid": security["secid"],
             "klt": "101",
@@ -270,6 +307,8 @@ def _load_daily_kline(client: httpx.Client, security: dict[str, str]) -> list[di
             "fields1": "f1,f2,f3,f4,f5,f6",
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
         },
+        "daily_kline",
+        warnings,
     )
     data = raw.get("data") or {}
     rows: list[dict[str, Any]] = []
@@ -292,13 +331,80 @@ def _load_daily_kline(client: httpx.Client, security: dict[str, str]) -> list[di
                 "turnoverRate": _format_percent(parts[10], signed=False),
             }
         )
-    return rows
+    if rows:
+        return rows
+    trend_rows = _load_daily_kline_from_trends(client, security, warnings)
+    if trend_rows:
+        warnings.append("daily_kline: rebuilt_from_minute_trends")
+    return trend_rows
 
 
-def _load_minute_points(client: httpx.Client, security: dict[str, str]) -> list[dict[str, Any]]:
-    raw = _eastmoney_get(
+def _load_daily_kline_from_trends(client: httpx.Client, security: dict[str, str], warnings: list[str]) -> list[dict[str, Any]]:
+    raw = _eastmoney_get_with_retry(
         client,
-        EASTMONEY_TRENDS_URL,
+        EASTMONEY_TRENDS_URLS,
+        {
+            "secid": security["secid"],
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            "iscr": "0",
+            "ndays": "5",
+        },
+        "daily_kline_trends",
+        warnings,
+    )
+    by_date: dict[str, dict[str, Any]] = {}
+    for item in (raw.get("data") or {}).get("trends") or []:
+        parts = str(item).split(",")
+        if len(parts) < 7:
+            continue
+        day = parts[0][:10]
+        row = by_date.setdefault(
+            day,
+            {
+                "date": day[5:],
+                "open": _safe_float(parts[1]),
+                "close": _safe_float(parts[2]),
+                "high": _safe_float(parts[3]),
+                "low": _safe_float(parts[4]),
+                "volume": 0.0,
+                "amount": 0.0,
+            },
+        )
+        row["close"] = _safe_float(parts[2], row["close"])
+        row["high"] = max(row["high"], _safe_float(parts[3], row["high"]))
+        row["low"] = min(row["low"], _safe_float(parts[4], row["low"]))
+        row["volume"] += _safe_float(parts[5])
+        row["amount"] += _safe_float(parts[6])
+
+    rows: list[dict[str, Any]] = []
+    for day in sorted(by_date):
+        row = by_date[day]
+        previous = _safe_float(row["open"])
+        change_amount = _safe_float(row["close"]) - previous
+        change_percent = change_amount / previous * 100 if previous else 0.0
+        rows.append(
+            {
+                "date": row["date"],
+                "open": row["open"],
+                "close": row["close"],
+                "high": row["high"],
+                "low": row["low"],
+                "volume": max(_safe_float(row["volume"]) / 10000.0, 0.01),
+                "amount": max(_safe_float(row["amount"]) / 100000000.0, 0.01),
+                "amplitude": "--",
+                "changePercent": _format_percent(change_percent),
+                "changeAmount": _format_signed(change_amount),
+                "turnoverRate": "--",
+            }
+        )
+    return rows[-80:]
+
+
+def _load_minute_points(client: httpx.Client, security: dict[str, str], warnings: list[str]) -> list[dict[str, Any]]:
+    raw = _eastmoney_get_with_retry(
+        client,
+        EASTMONEY_TRENDS_URLS,
         {
             "secid": security["secid"],
             "fields1": "f1,f2,f3,f4,f5,f6,f7,f8",
@@ -306,6 +412,8 @@ def _load_minute_points(client: httpx.Client, security: dict[str, str]) -> list[
             "iscr": "0",
             "ndays": "1",
         },
+        "minute_points",
+        warnings,
     )
     data = raw.get("data") or {}
     parsed: list[tuple[str, float, float, float]] = []
@@ -332,6 +440,54 @@ def _load_minute_points(client: httpx.Client, security: dict[str, str]) -> list[
     ]
 
 
+def _fallback_daily_from_quote(quote: dict[str, Any]) -> list[dict[str, Any]]:
+    close = _safe_float(quote.get("price"))
+    previous = _safe_float(quote.get("previousClose"), close)
+    open_price = _safe_float(quote.get("open"), close)
+    high = _safe_float(quote.get("high"), max(open_price, close, previous))
+    low = _safe_float(quote.get("low"), min(open_price, close, previous))
+    change_amount = close - previous
+    change_percent = change_amount / previous * 100 if previous else 0.0
+    return [
+        {
+            "date": datetime.now().strftime("%m-%d"),
+            "open": open_price,
+            "close": close,
+            "high": high,
+            "low": low,
+            "volume": 0.01,
+            "amount": 0.01,
+            "amplitude": "--",
+            "changePercent": _format_percent(change_percent),
+            "changeAmount": _format_signed(change_amount),
+            "turnoverRate": _safe_str(quote.get("turnoverRate")),
+        }
+    ]
+
+
+def _fallback_minute_from_quote(quote: dict[str, Any]) -> list[dict[str, Any]]:
+    close = _safe_float(quote.get("price"))
+    previous = _safe_float(quote.get("previousClose"), close)
+    open_price = _safe_float(quote.get("open"), previous)
+    labels = ["09:30", "09:45", "10:00", "10:30", "11:00", "11:30", "13:00", "13:30", "14:00", "14:30", "14:45", "15:00"]
+    points: list[dict[str, Any]] = []
+    prices: list[float] = []
+    denominator = max(len(labels) - 1, 1)
+    for index, label in enumerate(labels):
+        progress = index / denominator
+        price = open_price + (close - open_price) * progress
+        prices.append(price)
+        points.append(
+            {
+                "time": label,
+                "price": price,
+                "average": sum(prices) / len(prices),
+                "volumeRatio": max(0.05, min(1.0, 0.08 + progress * 0.92)),
+            }
+        )
+    return points
+
+
 def _fundamentals_from_quote(quote: dict[str, Any]) -> list[dict[str, str]]:
     return [
         {"label": "市值", "value": _safe_str(quote.get("totalMarketValue"))},
@@ -352,20 +508,24 @@ def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
         security = _resolve_security(client, query)
         quote = _load_quote(client, security)
         try:
-            k_lines = _load_daily_kline(client, security)
+            k_lines = _load_daily_kline(client, security, warnings)
         except (httpx.HTTPError, ValueError) as exc:
-            k_lines = []
+            k_lines = _fallback_daily_from_quote(quote)
             warnings.append(f"daily_kline_failed: {type(exc).__name__}: {exc}")
+            warnings.append("daily_kline_fallback: rebuilt_from_quote")
         try:
-            minute_points = _load_minute_points(client, security)
+            minute_points = _load_minute_points(client, security, warnings)
         except (httpx.HTTPError, ValueError) as exc:
-            minute_points = []
+            minute_points = _fallback_minute_from_quote(quote)
             warnings.append(f"minute_points_failed: {type(exc).__name__}: {exc}")
+            warnings.append("minute_points_fallback: rebuilt_from_quote")
 
     if not k_lines:
-        warnings.append("daily_kline: empty")
+        k_lines = _fallback_daily_from_quote(quote)
+        warnings.append("daily_kline_fallback: rebuilt_from_quote_empty")
     if not minute_points:
-        warnings.append("minute_points: empty")
+        minute_points = _fallback_minute_from_quote(quote)
+        warnings.append("minute_points_fallback: rebuilt_from_quote_empty")
 
     name = _safe_str(quote.get("name"), security["name"])
     code = _safe_str(quote.get("code"), security["code"])
