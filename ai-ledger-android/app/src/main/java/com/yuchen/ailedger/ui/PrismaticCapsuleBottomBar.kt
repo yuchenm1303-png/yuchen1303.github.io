@@ -72,12 +72,11 @@ fun PrismaticCapsuleBottomBar(
     val edgeTarget = if (currentIndex == 0 || currentIndex == tabs.lastIndex) 1f else 0f
     val animatedIndex by animateFloatAsState(
         targetValue = currentIndex.toFloat(),
-        animationSpec = spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow),
-        label = "bottom-nav-optimized-index"
+        animationSpec = spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessMediumLow),
+        label = "bottom-nav-capsule-index"
     )
-    val indexDelta = abs(animatedIndex - currentIndex.toFloat()).coerceIn(0f, 2f)
-    val travelEnergy = (indexDelta / 0.84f).coerceIn(0f, 1f) * motion
-    val edgeSafeTravel = travelEnergy * (1f - 0.36f * edgeTarget)
+    val travelEnergy = (abs(animatedIndex - currentIndex.toFloat()) / 0.84f).coerceIn(0f, 1f) * motion
+    val edgeSafeTravel = travelEnergy * (1f - 0.28f * edgeTarget)
     val travelDirection = sign(currentIndex.toFloat() - animatedIndex).coerceIn(-1f, 1f)
     val arrivalPulse = remember { Animatable(0f) }
     val prismPhase = remember { Animatable(0f) }
@@ -86,15 +85,10 @@ fun PrismaticCapsuleBottomBar(
     LaunchedEffect(currentIndex) {
         edgeSeed = Random.nextFloat()
         arrivalPulse.snapTo(0f)
-        launch {
-            prismPhase.animateTo(
-                targetValue = prismPhase.value + 1f,
-                animationSpec = tween(620, easing = LinearEasing)
-            )
-        }
-        delay(118)
-        arrivalPulse.animateTo(0.74f, tween(110, easing = FastOutSlowInEasing))
-        arrivalPulse.animateTo(0f, spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessMediumLow))
+        launch { prismPhase.animateTo(prismPhase.value + 1f, tween(620, easing = LinearEasing)) }
+        delay(96)
+        arrivalPulse.animateTo(0.90f, tween(105, easing = FastOutSlowInEasing))
+        arrivalPulse.animateTo(0f, spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow))
     }
 
     val interactionSources = remember(tabs) { tabs.map { MutableInteractionSource() } }
@@ -102,16 +96,11 @@ fun PrismaticCapsuleBottomBar(
     val selectedPressed = pressedStates.getOrNull(currentIndex) == true
     val pressEnergy by animateFloatAsState(
         targetValue = if (selectedPressed) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
-        label = "bottom-nav-selected-press"
+        animationSpec = spring(dampingRatio = 0.46f, stiffness = Spring.StiffnessMediumLow),
+        label = "bottom-nav-press"
     )
     LaunchedEffect(selectedPressed) {
-        if (selectedPressed) {
-            prismPhase.animateTo(
-                targetValue = prismPhase.value + 0.32f,
-                animationSpec = tween(240, easing = FastOutSlowInEasing)
-            )
-        }
+        if (selectedPressed) prismPhase.animateTo(prismPhase.value + 0.32f, tween(240, easing = FastOutSlowInEasing))
     }
 
     val stopEnergy = arrivalPulse.value.coerceIn(0f, 1f) * motion
@@ -123,27 +112,20 @@ fun PrismaticCapsuleBottomBar(
         glassIntensity = glassIntensity * 1.015f,
         motionIntensity = motionIntensity,
         radius = 999,
-        modifier = modifier
-            .zIndex(300f)
-            .fillMaxWidth()
-            .height(56.dp),
+        modifier = modifier.zIndex(300f).fillMaxWidth().height(56.dp),
         role = GlassRole.Nav
     ) {
-        BoxWithConstraints(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 6.dp, vertical = 4.dp)
-        ) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
             val totalWidthPx = with(density) { maxWidth.toPx() }
             val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
-            val maxStretch = 0.995f - 0.040f * edgeTarget
-            val stretch = 0.72f + 0.205f * edgeSafeTravel + 0.082f * pressEnergy - 0.026f * stopEnergy
+            val maxStretch = 1.015f - 0.030f * edgeTarget
+            val stretch = 0.72f + 0.275f * edgeSafeTravel + 0.130f * pressEnergy - 0.018f * stopEnergy
             val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, maxStretch)
             val selectorWidth = with(density) { selectorWidthPx.toDp() }
-            val leadPx = travelDirection * slotWidthPx * 0.026f * edgeSafeTravel
-            val rawSelectorX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
-            val selectorX = rawSelectorX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
-            val heightDp = 42.dp + 2.0.dp * stopEnergy - 4.0.dp * edgeSafeTravel - 2.8.dp * pressEnergy
+            val leadPx = travelDirection * slotWidthPx * 0.030f * edgeSafeTravel
+            val rawX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
+            val selectorX = rawX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
+            val heightDp = 42.dp + 3.0.dp * stopEnergy - 6.2.dp * edgeSafeTravel - 4.6.dp * pressEnergy
             val selectorShape = RoundedCornerShape(999.dp)
             val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
@@ -154,10 +136,10 @@ fun PrismaticCapsuleBottomBar(
                     .height(heightDp)
                     .graphicsLayer {
                         translationX = selectorX
-                        translationY = 0.90f * pressEnergy - 1.70f * edgeSafeTravel - 0.70f * stopEnergy
-                        scaleX = 1f + 0.088f * edgeSafeTravel + 0.040f * pressEnergy - 0.018f * stopEnergy
-                        scaleY = 1f - 0.090f * edgeSafeTravel - 0.052f * pressEnergy + 0.040f * stopEnergy
-                        shadowElevation = 0.18f + 0.34f * activeEnergy.coerceIn(0f, 1f)
+                        translationY = 1.35f * pressEnergy - 2.35f * edgeSafeTravel - 0.90f * stopEnergy
+                        scaleX = 1f + 0.170f * edgeSafeTravel + 0.098f * pressEnergy - 0.024f * stopEnergy
+                        scaleY = 1f - 0.176f * edgeSafeTravel - 0.108f * pressEnergy + 0.080f * stopEnergy
+                        shadowElevation = 0.18f + 0.42f * activeEnergy.coerceIn(0f, 1f)
                     }
                     .clip(selectorShape)
             ) {
@@ -192,33 +174,29 @@ fun PrismaticCapsuleBottomBar(
                     val pressed = pressedStates.getOrNull(index) == true
                     val tabPress by animateFloatAsState(
                         targetValue = if (pressed) 1f else 0f,
-                        animationSpec = spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow),
+                        animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
                         label = "bottom-nav-tab-press-${tab.name}"
                     )
                     val selectedPop by animateFloatAsState(
                         targetValue = if (selected) 1f else 0f,
-                        animationSpec = spring(dampingRatio = 0.64f, stiffness = Spring.StiffnessLow),
+                        animationSpec = spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessLow),
                         label = "bottom-nav-tab-selected-${tab.name}"
                     )
                     Box(
-                        modifier = Modifier
+                        Modifier
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(999.dp))
-                            .clickable(
-                                interactionSource = interactionSources[index],
-                                indication = null,
-                                enabled = true
-                            ) { onTabChange(tab) },
+                            .clickable(interactionSource = interactionSources[index], indication = null) { onTabChange(tab) },
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier.graphicsLayer {
-                                translationY = -1.2f * selectedPop + 0.7f * tabPress - 0.5f * stopEnergy * selectedPop
-                                scaleX = 1f + 0.038f * selectedPop + 0.020f * tabPress
-                                scaleY = 1f + 0.026f * selectedPop - 0.012f * tabPress
+                                translationY = -1.4f * selectedPop + 0.8f * tabPress - 0.6f * stopEnergy * selectedPop
+                                scaleX = 1f + 0.046f * selectedPop + 0.026f * tabPress
+                                scaleY = 1f + 0.032f * selectedPop - 0.016f * tabPress
                                 alpha = 0.54f + 0.46f * selectedPop
                             }
                         ) {
@@ -259,7 +237,6 @@ private fun Modifier.bottomSliderPrismOptics(
     val active = activeEnergy.coerceIn(0f, 1f)
     val e = energy.coerceIn(0f, 1.12f)
     val corner = CornerRadius(h / 2f, h / 2f)
-
     drawContent()
 
     if (active < 0.012f) {
@@ -294,7 +271,7 @@ private fun Modifier.bottomSliderPrismOptics(
                 Color(0xFFA796FF).copy(alpha = 0.034f * e),
                 Color.White.copy(alpha = 0.024f + 0.024f * e)
             ),
-            start = Offset(0f, 0f),
+            start = Offset.Zero,
             end = Offset(w, h)
         ),
         topLeft = Offset.Zero,
