@@ -18,6 +18,29 @@ data class AgentScreenNode(
     val scrollable: Boolean,
 )
 
+data class AgentScreenVisual(
+    val available: Boolean,
+    val mimeType: String,
+    val width: Int,
+    val height: Int,
+    val base64Jpeg: String,
+    val source: String,
+    val reason: String,
+) {
+    val hasImage: Boolean
+        get() = available && base64Jpeg.isNotBlank() && width > 0 && height > 0
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("available", available)
+        put("mimeType", mimeType)
+        put("width", width)
+        put("height", height)
+        put("source", source)
+        put("reason", reason)
+        if (hasImage) put("base64Jpeg", base64Jpeg)
+    }
+}
+
 data class AgentScreenSnapshot(
     val currentApp: String,
     val packageName: String,
@@ -26,8 +49,12 @@ data class AgentScreenSnapshot(
     val clickableNodes: List<AgentScreenNode>,
     val inputNodes: List<AgentScreenNode>,
     val scrollableNodes: List<AgentScreenNode>,
+    val visual: AgentScreenVisual? = null,
 ) {
-    fun toJson(): JSONObject = JSONObject().apply {
+    val hasVisualImage: Boolean
+        get() = visual?.hasImage == true
+
+    fun toJson(includeImage: Boolean = true): JSONObject = JSONObject().apply {
         put("currentApp", currentApp)
         put("packageName", packageName)
         put("nodeCount", nodeCount)
@@ -35,6 +62,18 @@ data class AgentScreenSnapshot(
         put("clickableNodes", clickableNodes.toJsonArray())
         put("inputNodes", inputNodes.toJsonArray())
         put("scrollableNodes", scrollableNodes.toJsonArray())
+        visual?.let { item ->
+            put("visual", if (includeImage) item.toJson() else item.copy(base64Jpeg = "").toJson())
+        }
+        put("confidence", JSONObject().apply {
+            put("hasUsefulNodes", clickableNodes.isNotEmpty() || inputNodes.isNotEmpty() || scrollableNodes.isNotEmpty())
+            put("needsVisualFallback", needsVisualFallback())
+            put("hasVisualImage", hasVisualImage)
+        })
+    }
+
+    fun needsVisualFallback(): Boolean {
+        return nodeCount <= 8 || texts.isEmpty() || clickableNodes.isEmpty()
     }
 }
 
@@ -52,6 +91,19 @@ fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
         clickableNodes = clickableItems.toAgentNodes(SNAPSHOT_CLICKABLE_LIMIT),
         inputNodes = inputItems.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
         scrollableNodes = scrollableItems.toAgentNodes(SNAPSHOT_SCROLLABLE_LIMIT),
+        visual = visual?.toAgentVisual(),
+    )
+}
+
+private fun ScreenVisualObservation.toAgentVisual(): AgentScreenVisual {
+    return AgentScreenVisual(
+        available = available,
+        mimeType = mimeType,
+        width = width,
+        height = height,
+        base64Jpeg = base64Jpeg,
+        source = source,
+        reason = reason,
     )
 }
 
