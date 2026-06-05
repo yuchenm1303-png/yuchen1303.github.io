@@ -18,7 +18,17 @@ fun AiWorkerClient.requestAgentStep(
     snapshot: AgentScreenSnapshot,
     modelPreference: ChatModel = ChatModel.Auto,
 ): CloudAgentStep {
-    val payload = buildAgentStepPayload(goal, snapshot, modelPreference)
+    return requestAgentPlan(goal, snapshot, modelPreference).step
+}
+
+@Throws(IOException::class)
+fun AiWorkerClient.requestAgentPlan(
+    goal: String,
+    snapshot: AgentScreenSnapshot,
+    modelPreference: ChatModel = ChatModel.Auto,
+    recentActions: List<String> = emptyList(),
+): CloudAgentPlan {
+    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions)
     val endpoints = (listOf(endpoint) + AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS)
         .map { it.trim().trimEnd('/') }
         .filter { it.isNotBlank() }
@@ -27,7 +37,7 @@ fun AiWorkerClient.requestAgentStep(
     for (base in endpoints) {
         for (candidate in agentEndpointCandidates(base)) {
             try {
-                return postAgentStep(candidate, payload)
+                return postAgentPlan(candidate, payload)
             } catch (error: IOException) {
                 lastError = error
                 if (error is SocketTimeoutException || error.cause is SocketTimeoutException) break
@@ -41,12 +51,13 @@ private fun buildAgentStepPayload(
     goal: String,
     snapshot: AgentScreenSnapshot,
     modelPreference: ChatModel,
+    recentActions: List<String>,
 ): JSONObject {
     val instruction = agentPlannerSystemPrompt()
     val cleanGoal = goal.trim().take(240)
     val modelId = if (snapshot.hasVisualImage) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotForText = snapshot.toJson(includeImage = false)
-    val plannerMessage = buildPlannerMessage(cleanGoal, snapshotForText, snapshot.visual)
+    val plannerMessage = buildPlannerMessage(cleanGoal, snapshotForText, snapshot.visual, recentActions)
     return JSONObject().apply {
         put("action", "chat")
         put("intent", "agent_step")
@@ -55,6 +66,7 @@ private fun buildAgentStepPayload(
         put("visionFirst", snapshot.hasVisualImage)
         put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
+        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(6).forEach { put(it) } })
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
         put("hasScreenshot", snapshot.hasVisualImage)
@@ -98,7 +110,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-cloud-state-vision-v5" else "compose-native-cloud-state-v5")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-cloud-state-vision-v6" else "compose-native-cloud-state-v6")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -116,9 +128,18 @@ private fun buildAgentStepPayload(
     }
 }
 
-private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObject, visual: AgentScreenVisual?): String {
+private fun buildPlannerMessage(
+    goal: String,
+    snapshotJsonWithoutImage: JSONObject,
+    visual: AgentScreenVisual?,
+    recentActions: List<String>,
+): String {
     return buildString {
         append("用户目标：").append(goal).append('\n')
+        if (recentActions.isNotEmpty()) {
+            append("最近动作记录：\n")
+            recentActions.takeLast(6).forEachIndexed { index, item -> append(index + 1).append(". ").append(item).append('\n') }
+        }
         append("当前结构化快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
             append("本次包含屏幕截图。截图尺寸为 ")
@@ -149,18 +170,20 @@ private fun agentPlannerSystemPrompt(): String = """
 4. 如果你心里算出像素坐标，必须先除以屏幕宽高再输出。
 
 状态判断规则：
-1. screenshot 是主输入，screenSnapshot 只是辅助；不能因为节点少就直接 need_user_help。
-2. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
-3. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
-4. 只有目标 Tab 已选中、页面标题/主体内容已经切换到目标界面，或者目标内容已经展开，才可以 isComplete=true 并返回 finish。
-5. 如果当前页面比上一阶段更接近目标但还没完成，agentState.expectedProgress=true，agentStep 返回下一步操作，不要返回 finish。
-6. 如果当前明显走错，agentState.isWrong=true，优先返回 back。
+1. screenshot 是主输入，screenSnapshot 和最近动作记录是辅助；不能因为节点少就直接 need_user_help。
+2. 先根据最近动作记录理解刚刚发生了什么，再看当前截图决定下一步，避免重复点击同一个无效入口。
+3. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
+4. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
+5. 只有目标 Tab 已选中、页面标题/主体内容已经切换到目标界面，或者目标内容已经展开，才可以 isComplete=true 并返回 finish。
+6. 如果当前页面比上一阶段更接近目标但还没完成，agentState.expectedProgress=true，agentStep 返回下一步操作，不要返回 finish。
+7. 如果当前明显走错，agentState.isWrong=true，优先返回 back。
+8. 如果 isComplete=true 且 confidence >= 0.72，agentStep 应返回 finish；如果只是 expectedProgress=true，不要 finish。
 
 动作规划规则：
 1. 当前不在目标 App，且 open_app 可用，优先 open_app。
 2. 截图里目标文字、导航入口、返回键、输入框可见时，优先 tap_xy 或 tap_node。
-3. 目标不在当前屏幕时，寻找语义相关入口、搜索入口、底部/顶部导航入口。
-4. 找社交动态/内容流时，发现、动态、朋友、社区、广场、频道等入口通常比聊天列表更有价值。
+3. 目标不在当前屏幕时，优先寻找语义相关入口、搜索入口、底部/顶部导航入口。
+4. 找社交动态或内容流时，发现、动态、朋友、社区、广场、频道等入口通常比聊天列表更有价值。
 5. 找联系人/商品/视频/文件时，搜索入口或对应 Tab 通常比随机列表项更有价值。
 6. 不要盲目点击聊天列表、联系人列表、支付、设置等低相关或高风险入口。
 7. 没有可靠入口但页面可探索时，可以 scroll 或 swipe，不要直接 need_user_help。
@@ -179,7 +202,7 @@ private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
     return listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
 }
 
-private fun postAgentStep(endpoint: String, payload: JSONObject): CloudAgentStep {
+private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = AGENT_STEP_CONNECT_TIMEOUT_MS
@@ -200,8 +223,10 @@ private fun postAgentStep(endpoint: String, payload: JSONObject): CloudAgentStep
                 ?: body.take(120).ifBlank { "云端智能体规划失败：HTTP $status" }
             throw IOException(message)
         }
-        CloudAgentStep.fromJson(data) ?: extractAgentStepFromText(body)?.let { return it }
+        val step = CloudAgentStep.fromJson(data) ?: extractAgentStepFromText(body)
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
+        val state = CloudAgentState.fromJson(data) ?: extractAgentStateFromText(body)
+        CloudAgentPlan(step = step, state = state)
     } catch (error: SocketTimeoutException) {
         throw IOException("云端智能体规划超时：${endpoint.substringAfter("://")}", error)
     } finally {
@@ -223,4 +248,11 @@ private fun extractAgentStepFromText(text: String): CloudAgentStep? {
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
     return try { CloudAgentStep.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+}
+
+private fun extractAgentStateFromText(text: String): CloudAgentState? {
+    val start = text.indexOf('{')
+    val end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    return try { CloudAgentState.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
 }
