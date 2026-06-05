@@ -98,7 +98,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-normalized-vision-v4" else "compose-native-agent-v4")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-cloud-state-vision-v5" else "compose-native-cloud-state-v5")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -109,6 +109,7 @@ private fun buildAgentStepPayload(
         })
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
+            put("includeAgentState", true)
             put("includeAgentStep", true)
         })
         put("now", System.currentTimeMillis())
@@ -117,46 +118,59 @@ private fun buildAgentStepPayload(
 
 private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObject, visual: AgentScreenVisual?): String {
     return buildString {
-        append("目标：").append(goal).append('\n')
-        append("结构化快照：").append(snapshotJsonWithoutImage).append('\n')
+        append("用户目标：").append(goal).append('\n')
+        append("当前结构化快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
             append("本次包含屏幕截图。截图尺寸为 ")
                 .append(visual.width).append("x").append(visual.height)
-                .append("，参考屏幕尺寸为 ")
+                .append("，真实屏幕尺寸为 ")
                 .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
+            append("请以截图为主、节点为辅判断当前状态；节点可能缺失、滞后或只暴露底部入口文字。\n")
             append("重要：tap_xy 必须返回归一化屏幕坐标，不要返回像素。x 和 y 都必须是 0 到 1 的小数。\n")
-            append("例如：屏幕底部导航栏中间偏右的“发现”，通常应该接近 x=0.62, y=0.94，而不是 x=360, y=1200。\n")
-            append("请先看截图，再参考节点；节点可能缺失。当前页面走错请返回 back；目标可见请返回 tap_xy；页面刚变化请 wait。\n")
+            append("如果用户目标是进入某个页面、界面、Tab、栏目或列表，仅看到入口文字/按钮不等于完成；只有目标 Tab 已选中且主体内容切换到目标界面，才可以 finish。\n")
         } else {
-            append("当前没有截图，只能根据节点谨慎规划。\n")
+            append("当前没有截图，只能根据节点谨慎规划；节点不足时优先低风险动作或 need_user_help。\n")
         }
-        append("请每次只返回一步 agentStep JSON。")
+        append("请先判断 agentState，再返回一步 agentStep。")
     }
 }
 
 private fun agentPlannerSystemPrompt(): String = """
-你是手机智能体规划器。
-如果请求包含截图，截图是主输入，节点只是辅助信息。
-每次只返回一步 JSON，不要输出 Markdown。
+你是 Android 手机 Computer Use 智能体的云端状态规划器，只能输出严格 JSON，不要 Markdown。
+本地执行层不做 App 内页面语义判断，因此你必须负责判断当前是否完成、是否在正确路径、是否需要继续操作。
 
-支持动作：open_app, home, back, recents, notifications, quick_settings, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
-JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
+返回格式：
+{"agentState":{"isComplete":false,"expectedProgress":false,"isWrong":false,"confidence":0.0,"reason":"当前状态判断","nextHint":"下一步提示"},"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
 
-坐标协议（非常重要）：
+坐标协议：
 1. tap_xy 的 x/y 一律返回归一化屏幕坐标，范围 0 到 1，不要返回像素坐标。
 2. x=0 表示最左侧，x=1 表示最右侧；y=0 表示最顶部，y=1 表示最底部。
-3. 点击底部导航栏时，y 通常应在 0.91 到 0.97 之间；不要点到导航栏上方的内容列表。
+3. 点击底部导航栏时，y 通常在 0.91 到 0.97 之间；不要点到导航栏上方内容列表。
 4. 如果你心里算出像素坐标，必须先除以屏幕宽高再输出。
 
-规则：
-1. 有截图时必须先看截图，不能因为节点少就直接 need_user_help。
-2. 截图里目标、导航入口、返回键、输入框可见时，直接返回对应动作。
-3. 当前页面走错时，优先 back。
-4. 页面刚变化或加载中时，返回 wait。
-5. 微信朋友圈常见路径：先回微信主会话页，再点底部“发现”，再点“朋友圈”。
-6. 目标属于某个 App 且当前不在该 App 时，优先 open_app。
-7. 目标已完成时，返回 finish。
-8. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
+状态判断规则：
+1. screenshot 是主输入，screenSnapshot 只是辅助；不能因为节点少就直接 need_user_help。
+2. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
+3. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
+4. 只有目标 Tab 已选中、页面标题/主体内容已经切换到目标界面，或者目标内容已经展开，才可以 isComplete=true 并返回 finish。
+5. 如果当前页面比上一阶段更接近目标但还没完成，agentState.expectedProgress=true，agentStep 返回下一步操作，不要返回 finish。
+6. 如果当前明显走错，agentState.isWrong=true，优先返回 back。
+
+动作规划规则：
+1. 当前不在目标 App，且 open_app 可用，优先 open_app。
+2. 截图里目标文字、导航入口、返回键、输入框可见时，优先 tap_xy 或 tap_node。
+3. 目标不在当前屏幕时，寻找语义相关入口、搜索入口、底部/顶部导航入口。
+4. 找社交动态/内容流时，发现、动态、朋友、社区、广场、频道等入口通常比聊天列表更有价值。
+5. 找联系人/商品/视频/文件时，搜索入口或对应 Tab 通常比随机列表项更有价值。
+6. 不要盲目点击聊天列表、联系人列表、支付、设置等低相关或高风险入口。
+7. 没有可靠入口但页面可探索时，可以 scroll 或 swipe，不要直接 need_user_help。
+8. 页面刚变化或截图显示加载/动画过渡时，返回 wait。
+9. 目标已完成时才返回 finish。
+10. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
+
+安全规则：
+- 涉及支付、转账、下单、删除、发送消息、发布、评论、授权、登录、验证码、密码等高风险动作，必须 riskLevel=high 且 requiresConfirmation=true。
+- 不确定时不要乱点高风险按钮。
 """.trimIndent()
 
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
