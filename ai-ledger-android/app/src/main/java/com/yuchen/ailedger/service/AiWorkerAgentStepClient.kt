@@ -10,6 +10,7 @@ import org.json.JSONObject
 
 private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 15_000
 private const val AGENT_STEP_READ_TIMEOUT_MS = 60_000
+private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestAgentStep(
@@ -43,8 +44,9 @@ private fun buildAgentStepPayload(
 ): JSONObject {
     val instruction = agentPlannerSystemPrompt()
     val cleanGoal = goal.trim().take(240)
-    val modelId = if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
+    val modelId = if (snapshot.hasVisualImage) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotForText = snapshot.toJson(includeImage = false)
+    val plannerMessage = buildPlannerMessage(cleanGoal, snapshotForText, snapshot.visual)
     return JSONObject().apply {
         put("action", "chat")
         put("intent", "agent_step")
@@ -54,28 +56,66 @@ private fun buildAgentStepPayload(
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
         put("hasScreenshot", snapshot.hasVisualImage)
+        put("hasImage", snapshot.hasVisualImage)
+        put("hasImages", snapshot.hasVisualImage)
+        put("imageCount", if (snapshot.hasVisualImage) 1 else 0)
         snapshot.visual?.takeIf { it.hasImage }?.let { visual ->
+            val imageItem = JSONObject().apply {
+                put("mimeType", visual.mimeType)
+                put("base64Data", visual.base64Jpeg)
+                put("base64", visual.base64Jpeg)
+                put("width", visual.width)
+                put("height", visual.height)
+                put("displayWidth", visual.displayWidth)
+                put("displayHeight", visual.displayHeight)
+                put("source", visual.source)
+                put("reason", visual.reason)
+            }
             put("screenshot", JSONObject().apply {
                 put("mimeType", visual.mimeType)
                 put("width", visual.width)
                 put("height", visual.height)
+                put("displayWidth", visual.displayWidth)
+                put("displayHeight", visual.displayHeight)
                 put("base64", visual.base64Jpeg)
+                put("base64Data", visual.base64Jpeg)
                 put("source", visual.source)
                 put("reason", visual.reason)
             })
+            put("images", JSONArray().apply { put(imageItem) })
+            put("attachments", JSONArray().apply { put(imageItem) })
+            put("vision", JSONObject().apply {
+                put("enabled", true)
+                put("provider", "qwen")
+                put("route", AGENT_VISION_ROUTE_ID)
+                put("coordinateSystem", "display")
+                put("screenshotWidth", visual.width)
+                put("screenshotHeight", visual.height)
+                put("displayWidth", visual.displayWidth)
+                put("displayHeight", visual.displayHeight)
+            })
+        } ?: run {
+            put("images", JSONArray())
+            put("attachments", JSONArray())
+            put("vision", JSONObject().apply { put("enabled", false) })
         }
         put("supportedAgentSteps", JSONArray(CloudAgentStep.supportedTypes.toList()))
         put("modelPreference", modelId)
         put("aiModelPreference", modelId)
+        put("requestedModelPreference", modelId)
+        put("model", modelId)
+        put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", "compose-native-computer-use-v1")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-computer-use-vision-v2" else "compose-native-computer-use-v2")
         put("systemPrompt", instruction)
-        put("message", buildPlannerMessage(cleanGoal, snapshotForText, snapshot.hasVisualImage))
+        put("message", plannerMessage)
+        put("prompt", plannerMessage)
+        put("text", plannerMessage)
         put("messages", JSONArray().apply {
             put(JSONObject().apply { put("role", "system"); put("content", instruction) })
             put(JSONObject().apply {
                 put("role", "user")
-                put("content", buildPlannerMessage(cleanGoal, snapshotForText, snapshot.hasVisualImage))
+                put("content", plannerMessage)
             })
         })
         put("responseFormat", JSONObject().apply {
@@ -86,12 +126,17 @@ private fun buildAgentStepPayload(
     }
 }
 
-private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObject, hasScreenshot: Boolean): String {
+private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObject, visual: AgentScreenVisual?): String {
     return buildString {
         append("目标：").append(goal).append('\n')
         append("当前屏幕结构化快照：").append(snapshotJsonWithoutImage).append('\n')
-        if (hasScreenshot) {
-            append("当前请求还包含一张屏幕截图。无障碍节点不足时，请直接根据截图中的可见文字、图标和位置返回 tap_xy 坐标。坐标必须使用截图/屏幕坐标系。\n")
+        if (visual?.hasImage == true) {
+            append("当前请求包含一张屏幕截图，图片尺寸为 ")
+                .append(visual.width).append("x").append(visual.height)
+                .append("，真实屏幕尺寸为 ")
+                .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
+            append("如果使用 tap_xy，x/y 必须返回真实屏幕坐标系，不要返回缩略图坐标；例如点击底部导航栏时 y 应接近真实屏幕底部。\n")
+            append("无障碍节点不足时，必须根据截图中的可见文字、图标和位置返回 tap_xy、swipe、wait 或 back，不要只输出无法判断。\n")
         } else {
             append("当前请求没有截图。请优先根据节点树规划；节点不足时可返回 wait、swipe、back 或 need_user_help。\n")
         }
@@ -101,7 +146,7 @@ private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObje
 
 private fun agentPlannerSystemPrompt(): String = """
 你是手机 Computer Use 智能体任务规划器，不是普通聊天助手。
-你只能基于 screenSnapshot、可选 screenshot 和用户目标决定下一步，不要假装已经点击、输入或滚动。
+你只能基于 screenSnapshot、可选 screenshot/images 和用户目标决定下一步，不要假装已经点击、输入或滚动。
 每次只返回一步，必须返回 JSON，不要输出 Markdown，不要输出解释性正文。
 
 支持动作：open_app, home, back, recents, notifications, quick_settings, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
@@ -109,9 +154,10 @@ JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|notifications|qui
 
 观察规则：
 1. screenSnapshot.clickableNodes/inputNodes/scrollableNodes 是结构化无障碍节点，优先使用。
-2. 如果 screenSnapshot.confidence.needsVisualFallback=true 或节点很少，但请求包含 screenshot，你必须像 Computer Use 一样看截图，根据可见 UI 返回 tap_xy、swipe、wait 或 back，不要直接说看不见。
-3. 如果截图里能看见目标文字或明显导航入口，返回 tap_xy，并填 x/y。坐标使用屏幕截图坐标系。
-4. 如果节点树和截图冲突，以截图可见内容为准，但涉及输入、付款、发送、授权时必须谨慎。
+2. 如果 screenSnapshot.confidence.needsVisualFallback=true 或节点很少，但请求包含 screenshot/images，你必须像 Computer Use 一样看截图，根据可见 UI 返回 tap_xy、swipe、wait 或 back，不要直接说看不见。
+3. 如果截图里能看见目标文字、明显导航入口或底部标签栏，返回 tap_xy，并填 x/y。
+4. tap_xy 的 x/y 必须使用真实屏幕坐标系 displayWidth/displayHeight，不要使用被压缩后的截图尺寸坐标。
+5. 如果节点树和截图冲突，以截图可见内容为准，但涉及输入、付款、发送、授权时必须谨慎。
 
 规划规则：
 1. 如果目标属于某个 App，而当前不在该 App，优先返回 open_app，不要让用户手动打开。
