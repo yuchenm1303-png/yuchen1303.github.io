@@ -19,6 +19,8 @@ data class ScreenVisualObservation(
     val mimeType: String = "image/jpeg",
     val width: Int = 0,
     val height: Int = 0,
+    val displayWidth: Int = 0,
+    val displayHeight: Int = 0,
     val base64Jpeg: String = "",
     val source: String = "none",
     val reason: String = "",
