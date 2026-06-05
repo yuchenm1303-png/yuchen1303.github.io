@@ -299,7 +299,7 @@ internal fun AssistantScreenV2(
         }
 
         AssistantEntrance(
-            delayMs = 46,
+            delayMs = 110,
             modifier = Modifier.zIndex(4f),
             initialOffsetY = 16,
             initialScale = 0.965f
@@ -316,7 +316,7 @@ internal fun AssistantScreenV2(
         }
 
         AssistantEntrance(
-            delayMs = 92,
+            delayMs = 220,
             modifier = Modifier.weight(1f),
             initialOffsetY = 30,
             initialScale = 0.955f
@@ -335,7 +335,7 @@ internal fun AssistantScreenV2(
             }
         }
 
-        AssistantEntrance(delayMs = 138, initialOffsetY = 18, initialScale = 0.965f) {
+        AssistantEntrance(delayMs = 340, initialOffsetY = 18, initialScale = 0.965f) {
             ComposerBarV2(
                 state = composerBarState,
                 onComposerChange = onComposerChange,
