@@ -38,6 +38,12 @@ import com.yuchen.ailedger.service.AgentRuntimeController
 
 @Composable
 internal fun AgentChatHeaderOverlay(modifier: Modifier = Modifier) {
+    // 外层绝对定位入口保留为空，避免按钮脱离聊天 OpenGL 大玻璃独立漂浮。
+    // 实际标题栏控件由 AgentChatGlassTitleControls 在聊天玻璃内部绘制。
+}
+
+@Composable
+internal fun AgentChatGlassTitleControls(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val agentEnabled by AgentRuntimeController.enabled.collectAsState()
     val progress by AgentRuntimeController.progress.collectAsState()
@@ -55,7 +61,6 @@ internal fun AgentChatHeaderOverlay(modifier: Modifier = Modifier) {
 
     Row(
         modifier = modifier
-            .offset(x = (-2).dp, y = (-50).dp)
             .height(28.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(
