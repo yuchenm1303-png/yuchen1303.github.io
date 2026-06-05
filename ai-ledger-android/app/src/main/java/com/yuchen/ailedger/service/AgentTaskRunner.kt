@@ -50,7 +50,7 @@ class AgentTaskRunner(
             val context = buildGoalContext(goal, targetApp)
             memory.observe(snapshot, context)
 
-            detectCompletion(memory, snapshot, context)?.let { completion ->
+            detectMechanicalCompletion(snapshot, context)?.let { completion ->
                 val finishStep = CloudAgentStep(type = "finish", reason = completion, riskLevel = "low", requiresConfirmation = false)
                 val done = AgentExecutionResult(true, completion, false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
@@ -95,11 +95,28 @@ class AgentTaskRunner(
             }
 
             if (cloudStep.type == "finish") {
-                val done = AgentExecutionResult(true, "任务完成", false)
-                logs += AgentTaskStepLog(logs.size + 1, workingSnapshot.currentApp, cloudStep, done)
-                val message = memory.withDebug(cloudStep.reason ?: "任务完成")
-                AgentRuntimeController.finishTask(message, completed = true)
-                return AgentTaskRunResult(true, false, message, logs)
+                val verification = verifyCloudFinish(goal, cloudStep, workingSnapshot, memory, modelPreference)
+                if (verification == FinishVerification.Expected) {
+                    val done = AgentExecutionResult(true, "任务完成", false)
+                    logs += AgentTaskStepLog(logs.size + 1, workingSnapshot.currentApp, cloudStep, done)
+                    val message = memory.withDebug(cloudStep.reason ?: "任务完成")
+                    AgentRuntimeController.finishTask(message, completed = true)
+                    return AgentTaskRunResult(true, false, message, logs)
+                }
+                memory.rejectedFinishAttempts += 1
+                if (memory.rejectedFinishAttempts >= MAX_REJECTED_FINISH_ATTEMPTS) {
+                    val reason = when (verification) {
+                        FinishVerification.Progress -> "云端规划器认为完成，但验证器判断仍只是接近目标，继续执行可能会反复。"
+                        FinishVerification.Wrong -> "云端规划器认为完成，但验证器判断当前页面偏离目标。"
+                        FinishVerification.Uncertain -> "云端规划器认为完成，但验证器无法确认当前页面已满足目标。"
+                        FinishVerification.Expected -> "任务完成。"
+                    }
+                    val message = memory.withDebug(reason)
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
+                }
+                delay(DEFAULT_STEP_DELAY_MS)
+                return@repeat
             }
 
             val chosenStep = chooseAction(workingSnapshot, cloudStep, memory, workingContext)
@@ -133,7 +150,7 @@ class AgentTaskRunner(
 
             if (chosenStep.type in VERIFY_AFTER_TAP_TYPES) {
                 delay(TAP_VERIFY_DELAY_MS)
-                when (val verifyResult = verifyTapAfterClick(goal, chosenStep, workingContext, memory, modelPreference)) {
+                when (verifyTapAfterClick(goal, chosenStep, workingContext, memory, modelPreference)) {
                     TapOutcome.ExpectedPage -> memory.clearUncertainTapCount()
                     TapOutcome.WrongPage -> {
                         memory.markFailedAction(chosenStep, blockFuture = true)
@@ -216,24 +233,37 @@ class AgentTaskRunner(
         )
     }
 
-    private fun detectCompletion(memory: AgentRunMemory, snapshot: AgentScreenSnapshot, context: GoalContext): String? {
-        val app = context.targetApp
-        if (app != null && snapshot.currentApp != app.packageName) return null
-        if (app != null && context.keywords.isEmpty()) return "目标应用已打开。"
-        if (context.keywords.isEmpty()) return null
-        if (!memory.hasExecutedAnyAction && app != null) return null
-        val visibleText = snapshot.visibleTextForMatch()
-        val directKeyword = context.keywords.firstOrNull { keyword ->
-            val cleanKeyword = normalize(keyword)
-            cleanKeyword.length >= MIN_COMPLETION_KEYWORD_LENGTH && visibleText.contains(cleanKeyword)
+    private fun detectMechanicalCompletion(snapshot: AgentScreenSnapshot, context: GoalContext): String? {
+        val app = context.targetApp ?: return null
+        if (snapshot.currentApp != app.packageName) return null
+        return if (context.isPureOpenAppGoal) "目标应用已打开。" else null
+    }
+
+    private suspend fun verifyCloudFinish(
+        goal: String,
+        finishStep: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        memory: AgentRunMemory,
+        modelPreference: ChatModel,
+    ): FinishVerification {
+        if (!snapshot.hasVisualImage) return FinishVerification.Uncertain
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                aiWorkerClient.requestAgentOutcomeVerification(
+                    goal = goal,
+                    action = finishStep.copy(reason = finishStep.reason ?: "规划器请求结束任务，请验证当前截图是否真的已经满足用户目标。"),
+                    snapshot = snapshot,
+                    modelPreference = modelPreference,
+                )
+            }.getOrNull()
+        } ?: return FinishVerification.Uncertain
+        memory.observe(snapshot, buildGoalContext(goal, memory.targetApp))
+        return when {
+            result.isExpected -> FinishVerification.Expected
+            result.isWrong -> FinishVerification.Wrong
+            result.expectedProgress -> FinishVerification.Progress
+            else -> FinishVerification.Uncertain
         }
-        if (directKeyword != null) return "已在当前页面找到目标线索：${directKeyword.take(18)}。"
-        val routeHit = context.completionHints.firstOrNull { hint -> visibleText.contains(normalize(hint)) }
-        if (routeHit != null && memory.hasExecutedAnyAction) return "已进入目标相关页面：${routeHit.take(18)}。"
-        if (context.wantsSearch && memory.inputAttempts > 0 && visibleText.isNotBlank() && context.keywords.any { normalize(it).length >= 2 }) {
-            return "已完成搜索输入并刷新到相关结果页。"
-        }
-        return null
     }
 
     private suspend fun verifyTapAfterClick(
@@ -264,17 +294,12 @@ class AgentTaskRunner(
         return when {
             cloudOutcome.isExpected || cloudOutcome.expectedProgress -> TapOutcome.ExpectedPage
             cloudOutcome.isWrong -> TapOutcome.WrongPage
-            localOutcome == TapOutcome.ExpectedPage -> TapOutcome.ExpectedPage
             else -> TapOutcome.Uncertain
         }
     }
 
     private fun verifyTapOutcomeLocally(step: CloudAgentStep, snapshot: AgentScreenSnapshot, context: GoalContext): TapOutcome {
         val visible = snapshot.visibleTextForMatch()
-        if (context.keywords.any { keyword -> normalize(keyword).length >= MIN_COMPLETION_KEYWORD_LENGTH && visible.contains(normalize(keyword)) }) {
-            return TapOutcome.ExpectedPage
-        }
-        if (context.completionHints.any { hint -> visible.contains(normalize(hint)) }) return TapOutcome.ExpectedPage
         val leftTargetApp = context.targetApp != null && snapshot.currentApp.isNotBlank() && snapshot.currentApp != context.targetApp.packageName
         if (!snapshot.hasVisualImage && leftTargetApp) return TapOutcome.WrongPage
         if (!snapshot.hasVisualImage && step.type in setOf("tap_node", "tap_xy") && enteredUnexpectedHighRiskSurface(context.goal, visible)) {
@@ -320,7 +345,7 @@ class AgentTaskRunner(
                 type = "tap_node",
                 targetNodeId = node.id,
                 targetText = node.text,
-                reason = "本地低风险兜底：节点文本与目标相关，点击“${node.text.take(18)}”。",
+                reason = "本地低风险兜底：云端动作不可用时，点击与目标相关的可见节点“${node.text.take(18)}”。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             ) to score
@@ -332,7 +357,7 @@ class AgentTaskRunner(
                 type = "input_text",
                 targetNodeId = input.id,
                 text = context.keywords.first(),
-                reason = "本地低风险兜底：已发现输入框，输入核心关键词继续查找。",
+                reason = "本地低风险兜底：云端动作不可用时，向已发现输入框输入核心关键词。",
                 riskLevel = "low",
                 requiresConfirmation = false,
             ) to INPUT_SEARCH_SCORE
@@ -344,7 +369,7 @@ class AgentTaskRunner(
                     type = "scroll",
                     targetNodeId = snapshot.scrollableNodes.first().id,
                     direction = if (memory.scrollAttempts % 2 == 0) "down" else "up",
-                    reason = "本地低风险兜底：当前未发现目标入口，滚动扩大搜索范围。",
+                    reason = "本地低风险兜底：当前未发现可执行云端动作，滚动扩大搜索范围。",
                     riskLevel = "low",
                     requiresConfirmation = false,
                 ) to SCROLL_FALLBACK_SCORE
@@ -426,6 +451,7 @@ class AgentTaskRunner(
             routeHints = routeHints.distinct(),
             completionHints = completionHints.distinct(),
             wantsSearch = wantsSearch,
+            isPureOpenAppGoal = targetApp != null && keywords.isEmpty(),
         )
     }
 
@@ -458,18 +484,6 @@ class AgentTaskRunner(
 
     private fun normalize(value: String): String = value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
 
-    private fun stepSignature(step: CloudAgentStep): String = listOf(
-        step.type,
-        step.targetNodeId,
-        step.targetText,
-        step.text,
-        step.direction,
-        coordinateKey(step.x),
-        coordinateKey(step.y),
-    ).joinToString("|")
-
-    private fun coordinateKey(value: Float?): String = value?.let { "%.4f".format(it) }.orEmpty()
-
     private fun detectTargetApp(goal: String): TargetApp? {
         val clean = normalize(goal)
         return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(normalize(alias)) } }
@@ -484,6 +498,7 @@ class AgentTaskRunner(
     }
 
     private enum class TapOutcome { ExpectedPage, WrongPage, Unknown, Uncertain }
+    private enum class FinishVerification { Expected, Progress, Wrong, Uncertain }
 
     private data class GoalContext(
         val goal: String,
@@ -492,6 +507,7 @@ class AgentTaskRunner(
         val routeHints: List<String>,
         val completionHints: List<String>,
         val wantsSearch: Boolean,
+        val isPureOpenAppGoal: Boolean,
     )
 
     private data class TargetApp(val label: String, val packageName: String, val aliases: List<String>)
@@ -508,7 +524,7 @@ class AgentTaskRunner(
         var uncertainTapAttempts: Int = 0,
         var forceVisualPlanAttempts: Int = 0,
         var repeatedCloudRejects: Int = 0,
-        var hasExecutedAnyAction: Boolean = false,
+        var rejectedFinishAttempts: Int = 0,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val failedStepKeys: MutableSet<String> = mutableSetOf(),
         var lastDebugLine: String = "",
@@ -532,10 +548,11 @@ class AgentTaskRunner(
                     recentStepKeys.clear()
                     repeatedCloudRejects = 0
                     uncertainTapAttempts = 0
+                    rejectedFinishAttempts = 0
                     phase = AgentTaskPhase.Navigating
                 }
             }
-            if (result.ok) hasExecutedAnyAction = true
+            if (result.ok && step.type != "finish") rejectedFinishAttempts = 0
             if (!result.ok) repeatedCloudRejects += 1 else if (step.type != "back") repeatedCloudRejects = 0
         }
 
@@ -555,6 +572,7 @@ class AgentTaskRunner(
             recentStepKeys.clear()
             repeatedCloudRejects = 0
             uncertainTapAttempts = 0
+            rejectedFinishAttempts = 0
             phase = AgentTaskPhase.Recovering
         }
 
@@ -566,7 +584,7 @@ class AgentTaskRunner(
             if (app != null && snapshot.currentApp != app.packageName) return AgentTaskPhase.OpeningApp
             if (repeatedCloudRejects >= 2) return AgentTaskPhase.Recovering
             if (context.wantsSearch && (snapshot.inputNodes.isNotEmpty() || inputAttempts > 0)) return AgentTaskPhase.Searching
-            if (hasExecutedAnyAction && context.keywords.isNotEmpty()) return AgentTaskPhase.Verifying
+            if (!context.isPureOpenAppGoal && context.keywords.isNotEmpty()) return AgentTaskPhase.Verifying
             return AgentTaskPhase.Navigating
         }
 
@@ -600,8 +618,8 @@ class AgentTaskRunner(
         private const val MAX_BACK_ATTEMPTS = 2
         private const val MAX_FORCE_VISUAL_PLAN_ATTEMPTS = 1
         private const val MAX_CONSECUTIVE_UNCERTAIN_TAP_ATTEMPTS = 3
+        private const val MAX_REJECTED_FINISH_ATTEMPTS = 2
         private const val LOW_SIGNAL_NODE_COUNT = 8
-        private const val MIN_COMPLETION_KEYWORD_LENGTH = 2
         private const val MIN_LOCAL_NODE_SCORE = 5
         private const val MAX_LOCAL_NODE_CANDIDATES = 4
         private const val INPUT_SEARCH_SCORE = 64
