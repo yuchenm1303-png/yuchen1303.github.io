@@ -101,14 +101,14 @@ fun CachedAppTabHost(
                     LocalPageVisible provides visibleDuringTransition,
                     LocalPageLeaving provides leaving,
                     LocalPageActivationTick provides activationKey,
-                    LocalPageHeavyEffectsEnabled provides visualEffectsEnabled && heavyEffectsReady,
+                    LocalPageHeavyEffectsEnabled provides (visualEffectsEnabled && heavyEffectsReady),
                     // Keep this false for Shell cards. A true viewport flag means an external
                     // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
                     LocalOpenGLGlassViewportActive provides false,
-                    LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
-                    LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
-                    LocalBackdropFrameTicker provides if (visualEffectsEnabled) parentBackdropTicker else null,
-                    LocalGlassItemRegistry provides if (liveRegistryEnabled) parentGlassRegistry else null
+                    LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
+                    LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
+                    LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
+                    LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
                 ) {
                     Box(
                         modifier = Modifier
