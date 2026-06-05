@@ -29,6 +29,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        configureServiceInfo()
         val packageName = event?.packageName?.toString().orEmpty()
         val windowTitle = event?.text?.firstOrNull()?.toString().orEmpty()
         if (packageName.isNotBlank()) ScreenObservationStore.updateWindowHint(packageName, windowTitle)
@@ -60,28 +61,66 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun captureSnapshotInternal(): ScreenObservation {
+        configureServiceInfo()
         val now = System.currentTimeMillis()
-        val root = rootInActiveWindow ?: return ScreenObservation(
+        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES) ?: return ScreenObservation(
             enabled = true,
             serviceConnected = true,
             updatedAt = now,
         )
-        val packageName = root.packageName?.toString().orEmpty()
-        val windowTitle = root.text?.toString().orEmpty()
-        val capture = collectNodeHandles(root, MAX_SNAPSHOT_NODES)
-        val nodes = capture.handles.map { it.observed }
+        val nodes = selected.capture.handles.map { it.observed }
         return ScreenObservation(
             enabled = true,
             serviceConnected = true,
-            packageName = packageName,
-            windowTitle = windowTitle,
+            packageName = selected.packageName,
+            windowTitle = selected.windowTitle,
             updatedAt = now,
             textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
             clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
             inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
             scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
-            nodeCount = capture.rawNodeCount,
+            nodeCount = selected.capture.rawNodeCount,
         )
+    }
+
+    private fun selectBestRoot(): AccessibilityNodeInfo? {
+        return selectBestRootCapture(limit = ROOT_SELECTION_SAMPLE_NODES)?.root ?: rootInActiveWindow
+    }
+
+    private fun selectBestRootCapture(limit: Int): RootCapture? {
+        val candidates = mutableListOf<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { candidates += it }
+        windows.orEmpty().forEach { window -> window.root?.let { candidates += it } }
+        return candidates
+            .distinctBy { root ->
+                val rect = Rect()
+                root.getBoundsInScreen(rect)
+                listOf(root.packageName?.toString().orEmpty(), root.className?.toString().orEmpty(), rect.flattenToString()).joinToString("|")
+            }
+            .mapNotNull { root ->
+                val capture = collectNodeHandles(root, limit)
+                val packageName = root.packageName?.toString().orEmpty()
+                val textCount = capture.handles.count { it.observed.text.isNotBlank() }
+                val clickableCount = capture.handles.count { it.observed.clickable }
+                val inputCount = capture.handles.count { it.observed.editable }
+                val scrollableCount = capture.handles.count { it.observed.scrollable }
+                val ownOverlayPenalty = if (packageName == applicationContext.packageName) 10_000 else 0
+                val score = capture.rawNodeCount * 2 +
+                    capture.handles.size * 8 +
+                    textCount * 10 +
+                    clickableCount * 12 +
+                    inputCount * 16 +
+                    scrollableCount * 10 -
+                    ownOverlayPenalty
+                RootCapture(
+                    root = root,
+                    packageName = packageName,
+                    windowTitle = root.text?.toString().orEmpty(),
+                    capture = capture,
+                    score = score,
+                )
+            }
+            .maxByOrNull { it.score }
     }
 
     private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): NodeCapture {
@@ -134,6 +173,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
+        configureServiceInfo()
         return when (step.type) {
             "open_app" -> executeOpenApp(step)
             "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
@@ -174,7 +214,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
-        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val quickText = step.targetText?.takeIf { it.isNotBlank() }
         if (quickText != null) {
             findNodeByTextFast(root, quickText)?.let { handle ->
@@ -199,7 +239,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
         val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
-        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable }
             ?: return AgentExecutionResult(false, "没有找到输入框", false)
@@ -212,7 +252,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
-        val root = rootInActiveWindow ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
         val direction = step.direction.orEmpty().lowercase()
@@ -405,6 +445,14 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
+    private data class RootCapture(
+        val root: AccessibilityNodeInfo,
+        val packageName: String,
+        val windowTitle: String,
+        val capture: NodeCapture,
+        val score: Int,
+    )
+
     private data class NodeCapture(
         val rawNodeCount: Int,
         val handles: List<NodeHandle>,
@@ -433,17 +481,18 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 180
-        private const val MAX_EXECUTION_NODES = 220
-        private const val FAST_TEXT_FALLBACK_NODES = 120
-        private const val MAX_DEPTH = 12
-        private const val CHILD_TEXT_FALLBACK_LIMIT = 6
-        private const val TEXT_LIMIT = 50
-        private const val CLICKABLE_LIMIT = 48
+        private const val MAX_SNAPSHOT_NODES = 240
+        private const val MAX_EXECUTION_NODES = 260
+        private const val ROOT_SELECTION_SAMPLE_NODES = 120
+        private const val FAST_TEXT_FALLBACK_NODES = 140
+        private const val MAX_DEPTH = 14
+        private const val CHILD_TEXT_FALLBACK_LIMIT = 8
+        private const val TEXT_LIMIT = 60
+        private const val CLICKABLE_LIMIT = 56
         private const val INPUT_LIMIT = 12
         private const val SCROLLABLE_LIMIT = 16
-        private const val CLICK_PARENT_DEPTH = 10
-        private const val SCROLL_PARENT_DEPTH = 12
+        private const val CLICK_PARENT_DEPTH = 12
+        private const val SCROLL_PARENT_DEPTH = 14
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
