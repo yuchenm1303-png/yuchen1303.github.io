@@ -40,6 +40,7 @@ import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentAction
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
+import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommand
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -191,9 +192,9 @@ class AssistantViewModel(
     }
 
     private suspend fun buildAgentTaskMessage(id: String, goal: String): ChatMessage {
-        val observation = AiAgentAccessibilityService.captureFreshSnapshot()
-        if (!observation.enabled || !observation.serviceConnected) return buildAgentGuideMessage(id)
-        val result = AgentTaskRunner(aiWorkerClient).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8)
+        if (!AiAgentAccessibilityService.isConnected()) return buildAgentGuideMessage(id)
+        val appIndex = InstalledAppIndex(getApplication<Application>())
+        val result = AgentTaskRunner(aiWorkerClient, appIndex).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8)
         return buildAgentRunMessage(id, goal, result)
     }
 
@@ -511,9 +512,13 @@ class AssistantViewModel(
         val clean = text.trim()
         if (clean.isBlank()) return false
         if (isAgentEntryCommand(clean)) return false
+        if (clean.contains("手机智能体")) return true
         val taskWords = listOf("帮我", "替我", "自动", "去", "找到", "查找", "搜索", "进入", "点击", "输入", "打开", "滑动", "返回")
-        val appWords = listOf("微信", "QQ", "哔哩", "B站", "小红书", "抖音", "淘宝", "京东", "支付宝", "高德", "百度地图", "浏览器")
-        return (taskWords.any { clean.contains(it, ignoreCase = true) } && appWords.any { clean.contains(it, ignoreCase = true) }) || clean.contains("手机智能体")
+        val hasTaskIntent = taskWords.any { clean.contains(it, ignoreCase = true) }
+        if (!hasTaskIntent) return false
+        val mentionsInstalledApp = runCatching { InstalledAppIndex(getApplication<Application>()).findBestApp(clean) != null }.getOrDefault(false)
+        val knownAppWords = listOf("微信", "QQ", "哔哩", "B站", "小红书", "抖音", "淘宝", "京东", "支付宝", "高德", "百度地图", "浏览器")
+        return mentionsInstalledApp || knownAppWords.any { clean.contains(it, ignoreCase = true) }
     }
 
     private fun isAgentEntryCommand(text: String): Boolean {
