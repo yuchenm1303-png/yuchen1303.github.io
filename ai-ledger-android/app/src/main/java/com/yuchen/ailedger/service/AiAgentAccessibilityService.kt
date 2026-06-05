@@ -29,17 +29,20 @@ import java.util.concurrent.TimeUnit
 class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintAtMs: Long = 0L
     @Volatile private var lastWindowHintKey: String = ""
-    @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Light
+    @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
+    private val modeLock = Any()
+    private var workingSessionDepth: Int = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
-        configureLightServiceInfo(force = true)
+        configureIdleServiceInfo(force = true)
         ScreenObservationStore.markConnectedWaitingForWindow()
         startAgentForegroundNotification()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!isWorkingMode()) return
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
         val packageName = event.packageName?.toString().orEmpty()
@@ -62,21 +65,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun configureLightServiceInfo(force: Boolean = false) {
-        if (!force && currentAccessibilityMode == AccessibilityRuntimeMode.Light) return
+    private fun isWorkingMode(): Boolean = currentAccessibilityMode == AccessibilityRuntimeMode.Working
+
+    private fun configureIdleServiceInfo(force: Boolean = false) {
+        if (!force && currentAccessibilityMode == AccessibilityRuntimeMode.Idle) return
         val current = serviceInfo ?: return
-        current.eventTypes = LIGHT_EVENT_TYPES
+        current.eventTypes = IDLE_EVENT_TYPES
         current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-        current.flags = LIGHT_ACCESSIBILITY_FLAGS
-        current.notificationTimeout = LIGHT_NOTIFICATION_TIMEOUT_MS
+        current.flags = IDLE_ACCESSIBILITY_FLAGS
+        current.notificationTimeout = IDLE_NOTIFICATION_TIMEOUT_MS
         serviceInfo = current
-        currentAccessibilityMode = AccessibilityRuntimeMode.Light
+        currentAccessibilityMode = AccessibilityRuntimeMode.Idle
     }
 
     private fun configureWorkingServiceInfo() {
         if (currentAccessibilityMode == AccessibilityRuntimeMode.Working) return
         val current = serviceInfo ?: return
-        current.eventTypes = LIGHT_EVENT_TYPES
+        current.eventTypes = WORKING_EVENT_TYPES
         current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         current.flags = WORKING_ACCESSIBILITY_FLAGS
         current.notificationTimeout = WORKING_NOTIFICATION_TIMEOUT_MS
@@ -84,12 +89,26 @@ class AiAgentAccessibilityService : AccessibilityService() {
         currentAccessibilityMode = AccessibilityRuntimeMode.Working
     }
 
+    private fun beginWorkingSession() {
+        synchronized(modeLock) {
+            workingSessionDepth += 1
+            configureWorkingServiceInfo()
+        }
+    }
+
+    private fun endWorkingSession() {
+        synchronized(modeLock) {
+            workingSessionDepth = (workingSessionDepth - 1).coerceAtLeast(0)
+            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+        }
+    }
+
     private inline fun <T> withWorkingAccessibilityMode(block: () -> T): T {
-        configureWorkingServiceInfo()
+        beginWorkingSession()
         return try {
             block()
         } finally {
-            configureLightServiceInfo(force = true)
+            endWorkingSession()
         }
     }
 
@@ -113,18 +132,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         } else {
             ScreenObservation(enabled = true, serviceConnected = true, updatedAt = now)
         }
-        val shouldCaptureVisual = forceVisual || shouldUseVisualFallback(nodeObservation)
-        val visual = if (shouldCaptureVisual) captureVisualObservation(reasonForVisualFallback(nodeObservation, forceVisual)) else null
+        val visual = if (forceVisual) captureVisualObservation("forced") else null
         nodeObservation.copy(visual = visual)
-    }
-
-    private fun shouldUseVisualFallback(observation: ScreenObservation): Boolean {
-        return observation.nodeCount <= 8 || observation.textItems.isEmpty() || observation.clickableItems.isEmpty()
-    }
-
-    private fun reasonForVisualFallback(observation: ScreenObservation, forceVisual: Boolean): String {
-        if (forceVisual) return "forced"
-        return "low_accessibility_confidence:nodes=${observation.nodeCount},texts=${observation.textItems.size},clickable=${observation.clickableItems.size}"
     }
 
     private fun captureVisualObservation(reason: String): ScreenVisualObservation {
@@ -252,7 +261,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         while (queue.isNotEmpty() && result.size < limit) {
             val (node, depth) = queue.removeFirst()
             rawCount += 1
-            node.toHandleOrNull("n${index}")?.let { handle -> result.add(handle); index += 1 }
+            node.toHandleOrNull("n$index")?.let { handle -> result.add(handle); index += 1 }
             if (depth < MAX_DEPTH) {
                 for (childIndex in 0 until node.childCount) node.getChild(childIndex)?.let { queue.add(it to depth + 1) }
             }
@@ -550,7 +559,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
-    private enum class AccessibilityRuntimeMode { Light, Working }
+    private enum class AccessibilityRuntimeMode { Idle, Working }
     private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
     private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>)
     private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
@@ -558,6 +567,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
+
+        fun isConnected(): Boolean = activeService != null
 
         fun captureFreshSnapshot(forceVisual: Boolean = false): ScreenObservation {
             val service = activeService ?: return ScreenObservation(updatedAt = System.currentTimeMillis())
@@ -572,12 +583,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         private const val WINDOW_HINT_THROTTLE_MS = 900L
-        private const val LIGHT_EVENT_TYPES = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
-        private const val LIGHT_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        private const val IDLE_EVENT_TYPES = 0
+        private const val IDLE_ACCESSIBILITY_FLAGS = 0
+        private const val WORKING_EVENT_TYPES = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
         private const val WORKING_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
             AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
             AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-        private const val LIGHT_NOTIFICATION_TIMEOUT_MS = 500L
+        private const val IDLE_NOTIFICATION_TIMEOUT_MS = 1_000L
         private const val WORKING_NOTIFICATION_TIMEOUT_MS = 80L
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
