@@ -21,6 +21,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,49 +39,84 @@ import com.yuchen.ailedger.service.AgentRuntimeController
 @Composable
 internal fun AgentChatHeaderOverlay(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val enabled by AgentRuntimeController.enabled.collectAsState()
+    val agentEnabled by AgentRuntimeController.enabled.collectAsState()
     val progress by AgentRuntimeController.progress.collectAsState()
-    val knobOffset by animateFloatAsState(if (enabled) 18f else 0f, label = "agent-switch-knob")
+    var overlayVisible by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(enabled, progress.running, progress.updatedAt) {
-        if (enabled && progress.running && AgentOverlayService.canDrawOverlays(context)) {
-            AgentOverlayService.ensureStarted(context.applicationContext)
+    LaunchedEffect(overlayVisible, progress.updatedAt) {
+        if (overlayVisible) {
+            if (AgentOverlayService.canDrawOverlays(context)) {
+                AgentOverlayService.ensureStarted(context.applicationContext)
+            } else {
+                overlayVisible = false
+            }
         }
     }
 
     Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(
-                Brush.horizontalGradient(
-                    if (enabled) {
-                        listOf(Color(0xAA31F6E2), Color(0x883B7BFF), Color(0x66543CFF))
-                    } else {
-                        listOf(Color(0x44FFFFFF), Color(0x22FFFFFF))
-                    }
-                )
-            )
-            .clickable {
-                val next = !enabled
-                AgentRuntimeController.setEnabled(next)
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        AgentSwitchPill(
+            label = "Agent",
+            enabled = agentEnabled,
+            activeColors = listOf(Color(0xAA31F6E2), Color(0x883B7BFF), Color(0x66543CFF)),
+            onClick = {
+                AgentRuntimeController.setEnabled(!agentEnabled)
+            }
+        )
+        AgentSwitchPill(
+            label = "悬浮窗",
+            enabled = overlayVisible,
+            activeColors = listOf(Color(0xAA7DFCEB), Color(0x889B6BFF), Color(0x664FB6FF)),
+            onClick = {
+                val next = !overlayVisible
                 if (next) {
                     val allowed = AgentOverlayService.requestPermissionIfNeeded(context.applicationContext)
-                    if (allowed) AgentOverlayService.ensureStarted(context.applicationContext)
-                    else Toast.makeText(context, "请开启悬浮窗权限，用来显示智能体执行进展", Toast.LENGTH_SHORT).show()
+                    if (allowed) {
+                        overlayVisible = true
+                        AgentOverlayService.ensureStarted(context.applicationContext)
+                    } else {
+                        Toast.makeText(context, "请开启悬浮窗权限，用来显示智能体执行进展", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
+                    overlayVisible = false
                     AgentOverlayService.stop(context.applicationContext)
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun AgentSwitchPill(
+    label: String,
+    enabled: Boolean,
+    activeColors: List<Color>,
+    onClick: () -> Unit
+) {
+    val knobOffset by animateFloatAsState(if (enabled) 18f else 0f, label = "$label-switch-knob")
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(
+                Brush.horizontalGradient(
+                    if (enabled) activeColors else listOf(Color(0x44FFFFFF), Color(0x22FFFFFF))
+                )
+            )
+            .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 5.dp)
-            .widthIn(min = 76.dp),
+            .widthIn(min = if (label.length > 5) 92.dp else 76.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            text = "Agent",
+            text = label,
             color = Color.White.copy(alpha = if (enabled) 0.98f else 0.62f),
             fontSize = 10.sp,
-            fontWeight = FontWeight.Black
+            fontWeight = FontWeight.Black,
+            maxLines = 1
         )
         Box(
             modifier = Modifier
