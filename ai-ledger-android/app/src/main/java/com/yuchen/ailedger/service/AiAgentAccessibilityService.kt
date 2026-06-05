@@ -8,16 +8,23 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.R
+import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class AiAgentAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
@@ -60,26 +67,116 @@ class AiAgentAccessibilityService : AccessibilityService() {
         serviceInfo = current
     }
 
-    private fun captureSnapshotInternal(): ScreenObservation {
+    private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation {
         configureServiceInfo()
         val now = System.currentTimeMillis()
-        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES) ?: return ScreenObservation(
-            enabled = true,
-            serviceConnected = true,
-            updatedAt = now,
-        )
-        val nodes = selected.capture.handles.map { it.observed }
-        return ScreenObservation(
-            enabled = true,
-            serviceConnected = true,
-            packageName = selected.packageName,
-            windowTitle = selected.windowTitle,
-            updatedAt = now,
-            textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
-            clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
-            inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
-            scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
-            nodeCount = selected.capture.rawNodeCount,
+        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES)
+        val nodeObservation = if (selected != null) {
+            val nodes = selected.capture.handles.map { it.observed }
+            ScreenObservation(
+                enabled = true,
+                serviceConnected = true,
+                packageName = selected.packageName,
+                windowTitle = selected.windowTitle,
+                updatedAt = now,
+                textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
+                clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
+                inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
+                scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
+                nodeCount = selected.capture.rawNodeCount,
+            )
+        } else {
+            ScreenObservation(
+                enabled = true,
+                serviceConnected = true,
+                updatedAt = now,
+            )
+        }
+        val shouldCaptureVisual = forceVisual || shouldUseVisualFallback(nodeObservation)
+        val visual = if (shouldCaptureVisual) captureVisualObservation(reasonForVisualFallback(nodeObservation, forceVisual)) else null
+        return nodeObservation.copy(visual = visual)
+    }
+
+    private fun shouldUseVisualFallback(observation: ScreenObservation): Boolean {
+        return observation.nodeCount <= 8 || observation.textItems.isEmpty() || observation.clickableItems.isEmpty()
+    }
+
+    private fun reasonForVisualFallback(observation: ScreenObservation, forceVisual: Boolean): String {
+        if (forceVisual) return "forced"
+        return "low_accessibility_confidence:nodes=${observation.nodeCount},texts=${observation.textItems.size},clickable=${observation.clickableItems.size}"
+    }
+
+    private fun captureVisualObservation(reason: String): ScreenVisualObservation {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return ScreenVisualObservation(available = false, source = "unsupported", reason = "takeScreenshot requires Android 11+")
+        }
+        return runCatching { captureDisplayScreenshotCompat(reason) }.getOrElse { error ->
+            ScreenVisualObservation(available = false, source = "error", reason = error.message ?: "screenshot_failed")
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun captureDisplayScreenshotCompat(reason: String): ScreenVisualObservation {
+        val latch = CountDownLatch(1)
+        var result = ScreenVisualObservation(available = false, source = "pending", reason = reason)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            takeScreenshot(
+                0,
+                executor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
+                            ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
+                        latch.countDown()
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
+                        latch.countDown()
+                    }
+                },
+            )
+            latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } finally {
+            executor.shutdown()
+        }
+        return result
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun ScreenshotResult.toBitmapCopy(): Bitmap? {
+        val buffer = hardwareBuffer ?: return null
+        return try {
+            Bitmap.wrapHardwareBuffer(buffer, colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+        } finally {
+            buffer.close()
+        }
+    }
+
+    private fun Bitmap.toVisualObservation(reason: String): ScreenVisualObservation {
+        val originalWidth = width
+        val originalHeight = height
+        val longSide = maxOf(originalWidth, originalHeight).coerceAtLeast(1)
+        val scale = (VISION_MAX_LONG_SIDE.toFloat() / longSide.toFloat()).coerceAtMost(1f)
+        val targetWidth = (originalWidth * scale).toInt().coerceAtLeast(1)
+        val targetHeight = (originalHeight * scale).toInt().coerceAtLeast(1)
+        val scaled = if (targetWidth != originalWidth || targetHeight != originalHeight) {
+            Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+        } else this
+        val output = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, VISION_JPEG_QUALITY, output)
+        if (scaled !== this) scaled.recycle()
+        recycle()
+        return ScreenVisualObservation(
+            available = true,
+            mimeType = "image/jpeg",
+            width = targetWidth,
+            height = targetHeight,
+            base64Jpeg = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP),
+            source = "accessibility_takeScreenshot",
+            reason = reason,
+            capturedAt = System.currentTimeMillis(),
         )
     }
 
@@ -467,9 +564,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
 
-        fun captureFreshSnapshot(): ScreenObservation {
+        fun captureFreshSnapshot(forceVisual: Boolean = false): ScreenObservation {
             val service = activeService ?: return ScreenObservation(updatedAt = System.currentTimeMillis())
-            val snapshot = service.captureSnapshotInternal()
+            val snapshot = service.captureSnapshotInternal(forceVisual = forceVisual)
             ScreenObservationStore.update(snapshot)
             return snapshot
         }
@@ -496,5 +593,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
+        private const val VISION_MAX_LONG_SIDE = 960
+        private const val VISION_JPEG_QUALITY = 68
+        private const val SCREENSHOT_TIMEOUT_MS = 1200L
     }
 }
