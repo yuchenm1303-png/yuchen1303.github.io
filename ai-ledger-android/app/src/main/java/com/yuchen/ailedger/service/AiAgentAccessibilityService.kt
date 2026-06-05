@@ -362,8 +362,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
         val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
         val normalized = normalizeVisualTapPoint(rawX, rawY)
-        val suffix = if (normalized.source.isNotBlank()) "（${normalized.source}）" else ""
-        return dispatchTap(normalized.x, normalized.y, "目标坐标 ${normalized.x.toInt()},${normalized.y.toInt()}$suffix")
+        val finalPoint = snapBottomNavigationPointIfNeeded(step, normalized)
+        val suffix = if (finalPoint.source.isNotBlank()) "（${finalPoint.source}）" else ""
+        return dispatchTap(finalPoint.x, finalPoint.y, "目标坐标 ${finalPoint.x.toInt()},${finalPoint.y.toInt()}$suffix")
     }
 
     private fun normalizeVisualTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
@@ -394,7 +395,32 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 )
             }
         }
-        return NormalizedTapPoint(rawX, rawY, wasScaled = false, source = "像素坐标直达")
+        return NormalizedTapPoint(rawX, rawY, wasScaled = false, source = "旧像素坐标兼容")
+    }
+
+    private fun snapBottomNavigationPointIfNeeded(step: CloudAgentStep, point: NormalizedTapPoint): NormalizedTapPoint {
+        val target = compactText(listOf(step.targetText, step.reason, step.appName).joinToString(" "))
+        val navPoint = when {
+            target.contains("发现") -> 0.625f to BOTTOM_NAVIGATION_TAP_Y
+            target.contains("通讯录") || target.contains("联系人") -> 0.375f to BOTTOM_NAVIGATION_TAP_Y
+            target.contains("我的") || target == "我" || target.contains("设置") -> 0.875f to BOTTOM_NAVIGATION_TAP_Y
+            target.contains("微信") && target.contains("底部导航") -> 0.125f to BOTTOM_NAVIGATION_TAP_Y
+            target.contains("动态") -> 0.83f to BOTTOM_NAVIGATION_TAP_Y
+            else -> null
+        } ?: return point
+        val reference = currentTapReferenceFrame()
+        val snappedX = navPoint.first * reference.width
+        val snappedY = navPoint.second * reference.height
+        return NormalizedTapPoint(
+            x = snappedX,
+            y = snappedY,
+            wasScaled = true,
+            source = "${point.source} · 底部导航吸附 ${"%.3f".format(navPoint.first)},${"%.3f".format(navPoint.second)}→${reference.label}",
+        )
+    }
+
+    private fun compactText(value: String): String {
+        return value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
     }
 
     private fun currentTapReferenceFrame(): TapReferenceFrame {
@@ -646,5 +672,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
         private const val VISUAL_COORDINATE_EPSILON = 24f
+        private const val BOTTOM_NAVIGATION_TAP_Y = 0.965f
     }
 }
