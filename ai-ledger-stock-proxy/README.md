@@ -1,70 +1,75 @@
-# AI Ledger A股行情代理
+# AI Ledger A股行情爬虫教学代理
 
-这是给 Android 原生 Compose App 使用的轻量行情代理服务。
+这是给 AI Ledger Android 原生 App 使用的轻量后端代理。当前方案优先做本地可运行的爬虫教学接口，数据源使用东方财富公开 JSON，解析个股 quote、日 K 和分时数据。
 
-当前数据源：
+当前保留三个入口：
 
-- AKShare 免费行情接口
-- 后续可继续接 Tushare Pro / 正式授权行情源
+- `GET /api/stock/crawl/a-share/detail?query=600519`：爬虫教学接口，直接说明东方财富公开 JSON 来源。
+- `GET /api/stock/a-share/detail?query=600519`：聚合详情接口，当前复用同一套东方财富解析结果，后续可在这里接正式授权源。
+- `GET /api/stock/futu/a-share/detail?query=600519`：临时兼容入口，给 Android 端已有富途优先路径过渡使用。
 
-为什么需要代理：
+## Windows PowerShell 本地运行
 
-- App 不直接暴露行情 token
-- 第三方接口变化时只改后端
-- 可以统一字段、缓存、限流和降级
-- 后续切正式授权源时 App 不需要大改
-
-## 本地运行
-
-```bash
-cd ai-ledger-stock-proxy
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-Windows PowerShell：
+在仓库根目录执行：
 
 ```powershell
 cd ai-ledger-stock-proxy
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-## 健康检查
+如果 PowerShell 阻止激活脚本，可以只对当前窗口放开策略：
 
-```text
-GET /health
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 ```
 
-## 个股详情接口
+## 测试接口
 
-```text
-GET /api/stock/a-share/detail?query=600519
-GET /api/stock/a-share/detail?query=贵州茅台
+健康检查：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/health"
+```
+
+测试爬虫教学接口：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/detail?query=600519"
+```
+
+测试聚合接口：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/a-share/detail?query=600519"
+```
+
+测试临时兼容入口：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/futu/a-share/detail?query=600519"
+```
+
+也可以按名称查询：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/detail?query=贵州茅台"
 ```
 
 返回字段会适配 Android App 当前的 `StockRepository`：
 
-- quote：个股报价
-- kLinePoints：日K数据
-- minutePoints：分时点位
-- dataSourceLabel：数据源说明
-- aiSummary：看盘摘要文本
-
-## Android 端接入
-
-Android 端 `StockRepository` 已经预留：
-
-```kotlin
-StockRepository(proxyBaseUrl = "https://你的代理服务域名")
-```
-
-后续把代理服务部署到 Render / Railway / 自己的服务器后，把这个地址传进去即可。
+- `quote`：个股报价、涨跌幅、市值、估值和成交信息。
+- `kLinePoints`：日 K 数据，来自东方财富 `kline/get`。
+- `minutePoints`：分时数据，来自东方财富 `trends2/get`。
+- `fundamentals`：由 quote 字段整理出的基础指标。
+- `dataSourceLabel`：数据源说明。
+- `warnings`：教学源、兼容入口、缓存等运行说明。
+- `aiSummary`：看盘摘要文本。
 
 ## 注意
 
-AKShare 适合开发、研究和原型验证。正式对外发布看盘软件时，需要确认行情展示授权、缓存规则、延迟标识和商用范围。
+东方财富公开 JSON 适合本地学习、原型验证和字段适配演示。正式对外发布看盘软件时，需要确认行情展示授权、缓存规则、延迟标识和商用范围；聚合接口保留下来就是为了后续平滑切到正式授权源。
