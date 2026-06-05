@@ -15,6 +15,9 @@ private const val AGENT_OUTCOME_VISION_ROUTE_ID = "qwen_vision"
 data class CloudAgentOutcomeVerification(
     val result: String,
     val reason: String,
+    val expectedProgress: Boolean = false,
+    val confidence: Float = 0f,
+    val nextHint: String = "",
 ) {
     val isExpected: Boolean get() = result == RESULT_EXPECTED
     val isWrong: Boolean get() = result == RESULT_WRONG
@@ -30,22 +33,63 @@ data class CloudAgentOutcomeVerification(
             val container = json.optJSONObject("outcomeVerification")
                 ?: json.optJSONObject("verification")
                 ?: json.optJSONObject("agentOutcome")
+                ?: json.optJSONObject("outcome")
+                ?: json.optJSONObject("result")
                 ?: json
+
+            val explicitExpected = container.optFlexibleBoolean("isExpected")
+                ?: container.optFlexibleBoolean("expected")
+                ?: container.optFlexibleBoolean("success")
+                ?: container.optFlexibleBoolean("reachedTarget")
+                ?: container.optFlexibleBoolean("onExpectedPage")
+            val explicitProgress = container.optFlexibleBoolean("expectedProgress")
+                ?: container.optFlexibleBoolean("progress")
+                ?: container.optFlexibleBoolean("isProgress")
+                ?: container.optFlexibleBoolean("onRightTrack")
+                ?: container.optFlexibleBoolean("closerToGoal")
+            val explicitWrong = container.optFlexibleBoolean("isWrong")
+                ?: container.optFlexibleBoolean("wrong")
+                ?: container.optFlexibleBoolean("failed")
+                ?: container.optFlexibleBoolean("wrongPage")
+                ?: container.optFlexibleBoolean("offTarget")
+
             val rawResult = container.optString("result")
                 .ifBlank { container.optString("outcome") }
                 .ifBlank { container.optString("status") }
                 .lowercase()
                 .trim()
+
             val normalized = when {
+                explicitWrong == true -> RESULT_WRONG
+                explicitExpected == true -> RESULT_EXPECTED
                 rawResult in setOf(RESULT_EXPECTED, "ok", "success", "correct", "matched", "pass") -> RESULT_EXPECTED
                 rawResult in setOf(RESULT_WRONG, "failed", "failure", "incorrect", "mismatch", "misclick", "bad") -> RESULT_WRONG
-                rawResult in setOf(RESULT_UNCERTAIN, "unknown", "unsure", "ambiguous") -> RESULT_UNCERTAIN
                 else -> RESULT_UNCERTAIN
             }
+            val progress = normalized == RESULT_EXPECTED || explicitProgress == true || rawResult in setOf("progress", "expected_progress", "closer", "closer_to_goal", "right_track")
+            val confidence = container.optNullableFloat("confidence")
+                ?: container.optNullableFloat("score")
+                ?: when {
+                    normalized == RESULT_EXPECTED || normalized == RESULT_WRONG -> 0.75f
+                    progress -> 0.6f
+                    else -> 0.35f
+                }
             val reason = container.optString("reason")
                 .ifBlank { container.optString("message") }
+                .ifBlank { container.optString("explanation") }
+                .ifBlank { container.optString("rationale") }
                 .ifBlank { "云端无法确定页面结果" }
-            return CloudAgentOutcomeVerification(normalized, reason.take(160))
+            val nextHint = container.optString("nextHint")
+                .ifBlank { container.optString("hint") }
+                .ifBlank { container.optString("suggestion") }
+
+            return CloudAgentOutcomeVerification(
+                result = normalized,
+                reason = reason.take(180),
+                expectedProgress = progress && normalized != RESULT_WRONG,
+                confidence = confidence.coerceIn(0f, 1f),
+                nextHint = nextHint.take(120),
+            )
         }
     }
 }
@@ -97,6 +141,7 @@ private fun buildOutcomeVerificationPayload(
         put("computerUseMode", true)
         put("agentGoal", cleanGoal)
         put("executedAgentStep", action.toJsonCompat())
+        put("lastAction", action.toJsonCompat())
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
         put("hasScreenshot", snapshot.hasVisualImage)
@@ -122,7 +167,7 @@ private fun buildOutcomeVerificationPayload(
                 put("enabled", true)
                 put("provider", "qwen")
                 put("route", AGENT_OUTCOME_VISION_ROUTE_ID)
-                put("coordinateSystem", "display")
+                put("coordinateSystem", "normalized_screen_0_1")
                 put("screenshotWidth", visual.width)
                 put("screenshotHeight", visual.height)
                 put("displayWidth", visual.displayWidth)
@@ -135,7 +180,7 @@ private fun buildOutcomeVerificationPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", "compose-native-agent-outcome-verifier-v1")
+        put("clientVersion", "compose-native-agent-outcome-verifier-v2")
         put("systemPrompt", outcomeVerifierSystemPrompt())
         put("message", message)
         put("prompt", message)
@@ -147,6 +192,7 @@ private fun buildOutcomeVerificationPayload(
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeOutcomeVerification", true)
+            put("includeExpectedProgress", true)
         })
         put("now", System.currentTimeMillis())
     }
@@ -159,13 +205,13 @@ private fun buildOutcomeVerificationMessage(
     visual: AgentScreenVisual?,
 ): String {
     return buildString {
-        append("用户目标：").append(goal).append('\n')
+        append("用户原始目标：").append(goal).append('\n')
         append("刚执行的动作：").append(action.toJsonCompat()).append('\n')
         append("动作后的结构化屏幕快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
             append("动作后的截图尺寸为 ").append(visual.width).append("x").append(visual.height)
                 .append("，真实屏幕尺寸为 ").append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
-            append("请根据截图和节点判断：这个页面是否符合用户目标和刚才动作的预期结果。")
+            append("请以截图为主、节点为辅，判断当前页面是否比执行前更接近目标，是否已经到达目标页或正确中间页，是否明显走错，以及下一轮是否应该继续规划。")
         } else {
             append("当前没有截图，只能根据节点文本谨慎判断。")
         }
@@ -173,18 +219,26 @@ private fun buildOutcomeVerificationMessage(
 }
 
 private fun outcomeVerifierSystemPrompt(): String = """
-你是手机 Computer Use 智能体的结果验证器，只判断刚执行的动作是否把页面带到了预期位置。
-你不是下一步规划器，不要给点击坐标，不要继续执行任务。
-必须只返回 JSON，不要 Markdown。
+你是 Android 手机 Computer Use 智能体的通用目标状态验证器，只能验证刚执行动作后的状态，不规划下一步动作。
+截图是主输入，辅助节点文本只是补充；不要因为节点少就直接判定失败或等待。
+必须只返回 JSON，不要 Markdown，不要解释额外文本。
 
-返回格式：{"outcomeVerification":{"result":"expected|wrong|uncertain","reason":"一句话说明依据"}}
+返回格式：
+{"outcomeVerification":{"isExpected":false,"expectedProgress":false,"isWrong":false,"confidence":0.0,"reason":"一句话说明依据","nextHint":"可选的下一步观察提示"}}
+
+字段语义：
+1. isExpected=true：当前页面已经达到用户目标，或者已经处在可以直接完成目标的页面。
+2. expectedProgress=true：当前页面尚未完成最终目标，但比上一步更接近目标，或者进入了合理的中间页面/导航路径，应该继续观察和规划，而不是返回。
+3. isWrong=true：当前页面明显偏离目标，进入了与目标无关或高风险的错误页面，才允许前端自动返回。
+4. confidence：0 到 1。只有明显看到目标页、正确中间页或明显走错时才给较高置信度。
+5. reason：说明你依据截图和节点看到的通用页面状态，不要依赖固定 App 脚本。
+6. nextHint：如果 expectedProgress 或 uncertain，可以简短提示下一轮应该继续找什么入口或目标线索。
 
 判断规则：
-1. expected：动作后的页面明确符合用户目标，或者已经进入目标相关页面。
-2. wrong：动作后的页面明显偏离目标，例如本应进入底部导航页却进入了聊天框、详情页、广告页、支付页、发送页等。
-3. uncertain：截图或节点不足、页面仍在加载、或者你不能可靠判断。
-4. 只要不确定，就返回 uncertain，不要猜。
-5. 涉及发送、支付、授权、删除、公开发布等高风险状态，如果用户目标没有明确要求，优先 wrong 或 uncertain。
+- 只要当前页面明显更接近用户目标，就返回 expectedProgress=true，即使还没完成最终目标。
+- 只有明确走错时才返回 isWrong=true；不确定不能当作 wrong。
+- 如果截图显示页面仍在加载、动画过渡、信息不足或无法可靠判断，返回三个布尔值都为 false。
+- 涉及发送、支付、授权、删除、公开发布等高风险状态，如果用户目标没有明确要求，优先 isWrong=true 或保持不确定。
 """.trimIndent()
 
 private fun outcomeEndpointCandidates(cleanEndpoint: String): List<String> {
@@ -238,6 +292,26 @@ private fun extractOutcomeVerificationFromText(text: String): CloudAgentOutcomeV
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
     return try { CloudAgentOutcomeVerification.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+}
+
+private fun JSONObject.optFlexibleBoolean(name: String): Boolean? {
+    if (!has(name) || isNull(name)) return null
+    val raw = opt(name)
+    return when (raw) {
+        is Boolean -> raw
+        is Number -> raw.toInt() != 0
+        is String -> when (raw.lowercase().trim()) {
+            "true", "yes", "1", "expected", "progress", "wrong", "success", "failed" -> true
+            "false", "no", "0", "uncertain", "unknown", "" -> false
+            else -> null
+        }
+        else -> null
+    }
+}
+
+private fun JSONObject.optNullableFloat(name: String): Float? {
+    if (!has(name) || isNull(name)) return null
+    return runCatching { optDouble(name).toFloat() }.getOrNull()
 }
 
 private fun CloudAgentStep.toJsonCompat(): JSONObject {
