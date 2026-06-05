@@ -23,19 +23,31 @@ class InstalledAppIndex(
     fun findBestApp(rawQuery: String): InstalledAppEntry? {
         val query = normalizeAppName(rawQuery)
         if (query.isBlank()) return null
-        val queryCandidates = aliasCandidates(query)
 
-        knownAppFallback(queryCandidates)?.let { return it }
-
-        val apps = getLaunchableApps()
-        return apps
+        val installedMatch = getLaunchableApps()
             .mapNotNull { app ->
-                val label = normalizeAppName(app.label)
-                val score = queryCandidates.maxOfOrNull { candidate -> scoreNameMatch(candidate, label) } ?: 0
+                val score = scoreAppMention(query, app)
                 if (score <= 0) null else app to score
             }
-            .maxWithOrNull(compareBy<Pair<InstalledAppEntry, Int>> { it.second }.thenByDescending { it.first.label.length })
+            .maxWithOrNull(
+                compareBy<Pair<InstalledAppEntry, Int>> { it.second }
+                    .thenByDescending { normalizeAppName(it.first.label).length }
+                    .thenBy { it.first.label }
+            )
             ?.first
+        if (installedMatch != null) return installedMatch
+
+        return knownAppFallback(aliasCandidates(query))
+    }
+
+    fun aliasesFor(app: InstalledAppEntry): List<String> {
+        val packageAliases = KNOWN_ALIASES_BY_PACKAGE[app.packageName].orEmpty()
+        val normalizedLabel = normalizeAppName(app.label)
+        val packageTail = app.packageName.substringAfterLast('.').takeIf { it.isNotBlank() }.orEmpty()
+        return (listOf(app.label, normalizedLabel, packageTail) + packageAliases + aliasCandidates(normalizedLabel))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { normalizeAppName(it) }
     }
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
@@ -64,17 +76,34 @@ class InstalledAppIndex(
 
     private fun knownAppFallback(candidates: List<String>): InstalledAppEntry? {
         return KNOWN_APPS.firstOrNull { app ->
-            val label = normalizeAppName(app.label)
-            candidates.any { candidate -> scoreNameMatch(candidate, label) > 0 }
+            val aliases = aliasesFor(app).map(::normalizeAppName)
+            candidates.any { candidate -> aliases.any { alias -> scoreNameMatch(candidate, alias) > 0 || scoreNameMatch(candidate, normalizeAppName(app.label)) > 0 } }
         }
+    }
+
+    private fun scoreAppMention(query: String, app: InstalledAppEntry): Int {
+        val label = normalizeAppName(app.label)
+        if (label.isBlank()) return 0
+        val aliases = aliasesFor(app).map(::normalizeAppName).filter { it.length >= MIN_ALIAS_MATCH_LENGTH }.distinct()
+        val aliasScore = aliases.maxOfOrNull { alias ->
+            when {
+                query == alias -> 1200 + alias.length
+                query.startsWith(alias) -> 1050 + alias.length
+                query.contains(alias) -> 900 + alias.length
+                alias.contains(query) && query.length >= MIN_ALIAS_MATCH_LENGTH -> 760 + query.length
+                else -> 0
+            }
+        } ?: 0
+        val labelScore = scoreNameMatch(query, label)
+        return maxOf(aliasScore, labelScore)
     }
 
     private fun aliasCandidates(query: String): List<String> {
         val aliases = when (query) {
             "b站", "bili", "bilibili", "哔哩", "哔哩哔哩" -> listOf("哔哩哔哩", "bilibili", "b站", "哔哩")
-            "微信", "wechat", "wx" -> listOf("微信", "wechat")
+            "微信", "wechat", "wx" -> listOf("微信", "wechat", "wx")
             "支付宝", "alipay" -> listOf("支付宝", "alipay")
-            "qq" -> listOf("qq", "腾讯qq")
+            "qq", "腾讯qq" -> listOf("qq", "腾讯qq")
             "高德", "高德地图", "amap" -> listOf("高德", "高德地图", "amap")
             "百度地图", "百度", "baidumap" -> listOf("百度地图", "百度", "baidumap")
             "淘宝", "taobao" -> listOf("淘宝", "taobao")
@@ -88,9 +117,9 @@ class InstalledAppIndex(
 
     private fun scoreNameMatch(query: String, label: String): Int {
         if (query == label) return 1000
-        if (label.startsWith(query)) return 900 - (label.length - query.length).coerceAtLeast(0)
-        if (label.contains(query)) return 760 - (label.length - query.length).coerceAtLeast(0)
-        if (query.contains(label) && label.length >= 2) return 620 - (query.length - label.length).coerceAtLeast(0)
+        if (label.startsWith(query) && query.length >= MIN_ALIAS_MATCH_LENGTH) return 900 - (label.length - query.length).coerceAtLeast(0)
+        if (label.contains(query) && query.length >= MIN_ALIAS_MATCH_LENGTH) return 760 - (label.length - query.length).coerceAtLeast(0)
+        if (query.contains(label) && label.length >= MIN_ALIAS_MATCH_LENGTH) return 620 - (query.length - label.length).coerceAtLeast(0)
         return 0
     }
 
@@ -104,6 +133,19 @@ class InstalledAppIndex(
 
     companion object {
         private const val CACHE_TTL_MS = 60_000L
+        private const val MIN_ALIAS_MATCH_LENGTH = 2
+        private val KNOWN_ALIASES_BY_PACKAGE = mapOf(
+            "com.tencent.mm" to listOf("微信", "wechat", "wx"),
+            "com.eg.android.AlipayGphone" to listOf("支付宝", "alipay"),
+            "com.autonavi.minimap" to listOf("高德", "高德地图", "amap"),
+            "com.baidu.BaiduMap" to listOf("百度地图", "百度", "baidumap"),
+            "com.tencent.mobileqq" to listOf("QQ", "腾讯QQ"),
+            "com.taobao.taobao" to listOf("淘宝", "taobao"),
+            "com.jingdong.app.mall" to listOf("京东", "jd"),
+            "tv.danmaku.bili" to listOf("哔哩哔哩", "哔哩", "B站", "bilibili", "bili"),
+            "com.ss.android.ugc.aweme" to listOf("抖音", "douyin"),
+            "com.xingin.xhs" to listOf("小红书")
+        )
         private val KNOWN_APPS = listOf(
             InstalledAppEntry("微信", "com.tencent.mm"),
             InstalledAppEntry("支付宝", "com.eg.android.AlipayGphone"),
