@@ -37,10 +37,12 @@ data class ScreenObservation(
     val windowTitle: String = "",
     val updatedAt: Long = 0L,
     val textItems: List<String> = emptyList(),
+    val allItems: List<ObservedScreenNode> = emptyList(),
     val clickableItems: List<ObservedScreenNode> = emptyList(),
     val inputItems: List<ObservedScreenNode> = emptyList(),
     val scrollableItems: List<ObservedScreenNode> = emptyList(),
     val nodeCount: Int = 0,
+    val capturedNodeCount: Int = 0,
     val visual: ScreenVisualObservation? = null,
 )
 
@@ -59,10 +61,12 @@ object ScreenObservationStore {
             packageName = "",
             windowTitle = "",
             textItems = emptyList(),
+            allItems = emptyList(),
             clickableItems = emptyList(),
             inputItems = emptyList(),
             scrollableItems = emptyList(),
             nodeCount = 0,
+            capturedNodeCount = 0,
             visual = null,
             updatedAt = System.currentTimeMillis(),
         )
@@ -76,10 +80,12 @@ object ScreenObservationStore {
             packageName = packageName.ifBlank { current.packageName },
             windowTitle = windowTitle.ifBlank { current.windowTitle },
             textItems = emptyList(),
+            allItems = emptyList(),
             clickableItems = emptyList(),
             inputItems = emptyList(),
             scrollableItems = emptyList(),
             nodeCount = 0,
+            capturedNodeCount = 0,
             visual = null,
             updatedAt = System.currentTimeMillis(),
         )
