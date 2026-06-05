@@ -20,10 +20,29 @@ object AgentSafetyPolicy {
         "wait",
     )
 
+    private val passiveRecoveryTypes = setOf(
+        "back",
+        "home",
+        "recents",
+        "notifications",
+        "quick_settings",
+        "scroll",
+        "swipe",
+        "wait",
+    )
+
+    private val activeTouchOrInputTypes = setOf(
+        "tap_node",
+        "tap_xy",
+        "input_text",
+    )
+
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
+        if (step.type in passiveRecoveryTypes && step.requiresConfirmation.not()) return false
         if (step.requiresConfirmation) return true
-        if (step.riskLevel !in setOf("", "low")) return true
+        if (step.riskLevel !in setOf("", "low")) return step.type in activeTouchOrInputTypes
         if (step.type !in executableLowRiskTypes && step.type != "finish") return true
+        if (step.type !in activeTouchOrInputTypes) return false
         val joined = listOf(goal, step.targetText, step.text, step.reason, step.appName).joinToString(" ")
         return highRiskWords.any { joined.contains(it, ignoreCase = true) }
     }
