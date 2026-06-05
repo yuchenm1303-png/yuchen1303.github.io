@@ -3,10 +3,11 @@ package com.yuchen.ailedger.service
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val SNAPSHOT_TEXT_LIMIT = 30
-private const val SNAPSHOT_CLICKABLE_LIMIT = 30
-private const val SNAPSHOT_INPUT_LIMIT = 10
-private const val SNAPSHOT_SCROLLABLE_LIMIT = 10
+private const val SNAPSHOT_TEXT_LIMIT = 48
+private const val SNAPSHOT_ALL_NODE_LIMIT = 96
+private const val SNAPSHOT_CLICKABLE_LIMIT = 80
+private const val SNAPSHOT_INPUT_LIMIT = 16
+private const val SNAPSHOT_SCROLLABLE_LIMIT = 24
 
 data class AgentScreenNode(
     val id: String,
@@ -49,7 +50,9 @@ data class AgentScreenSnapshot(
     val currentApp: String,
     val packageName: String,
     val nodeCount: Int,
+    val capturedNodeCount: Int,
     val texts: List<String>,
+    val allNodes: List<AgentScreenNode>,
     val clickableNodes: List<AgentScreenNode>,
     val inputNodes: List<AgentScreenNode>,
     val scrollableNodes: List<AgentScreenNode>,
@@ -62,7 +65,9 @@ data class AgentScreenSnapshot(
         put("currentApp", currentApp)
         put("packageName", packageName)
         put("nodeCount", nodeCount)
+        put("capturedNodeCount", capturedNodeCount)
         put("texts", JSONArray(texts))
+        put("allNodes", allNodes.toJsonArray())
         put("clickableNodes", clickableNodes.toJsonArray())
         put("inputNodes", inputNodes.toJsonArray())
         put("scrollableNodes", scrollableNodes.toJsonArray())
@@ -71,27 +76,32 @@ data class AgentScreenSnapshot(
         }
         put("confidence", JSONObject().apply {
             put("hasUsefulNodes", clickableNodes.isNotEmpty() || inputNodes.isNotEmpty() || scrollableNodes.isNotEmpty())
+            put("hasAnyCapturedNode", allNodes.isNotEmpty())
             put("needsVisualFallback", needsVisualFallback())
             put("hasVisualImage", hasVisualImage)
         })
     }
 
     fun needsVisualFallback(): Boolean {
-        return nodeCount <= 8 || texts.isEmpty() || clickableNodes.isEmpty()
+        return !hasVisualImage && (clickableNodes.isEmpty() || texts.isEmpty() || capturedNodeCount <= 3)
     }
 }
 
 fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
     val appPackage = packageName.ifBlank { "unknown" }
+    val normalizedAllItems = if (allItems.isNotEmpty()) allItems else (clickableItems + inputItems + scrollableItems)
+        .distinctBy { it.bounds + it.text + it.className }
     return AgentScreenSnapshot(
         currentApp = appPackage,
         packageName = appPackage,
         nodeCount = nodeCount,
+        capturedNodeCount = capturedNodeCount.takeIf { it > 0 } ?: normalizedAllItems.size,
         texts = textItems
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
             .take(SNAPSHOT_TEXT_LIMIT),
+        allNodes = normalizedAllItems.toAgentNodes(SNAPSHOT_ALL_NODE_LIMIT),
         clickableNodes = clickableItems.toAgentNodes(SNAPSHOT_CLICKABLE_LIMIT),
         inputNodes = inputItems.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
         scrollableNodes = scrollableItems.toAgentNodes(SNAPSHOT_SCROLLABLE_LIMIT),
