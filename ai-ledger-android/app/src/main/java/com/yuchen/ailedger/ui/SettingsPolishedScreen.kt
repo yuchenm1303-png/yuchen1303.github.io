@@ -1,19 +1,25 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,7 +47,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -165,6 +180,12 @@ private fun SettingsGlassFrame(
     Box(
         modifier
             .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
             .clip(shape)
             .background(Color(0xFF151A4F).copy(alpha = 0.42f))
             .border(1.dp, Color.White.copy(alpha = 0.28f), shape)
@@ -251,62 +272,196 @@ private fun SettingsDashboardGrid(state: AssistantUiState, aiEndpoint: String, s
 @Composable
 private fun SettingsTile(icon: String, title: String, subtitle: String, value: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val clickSource = remember { MutableInteractionSource() }
+    val pressed by clickSource.collectIsPressedAsState()
+    val selectedProgress by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-tile-selected-$title"
+    )
+    val pressProgress by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessMediumLow),
+        label = "settings-tile-press-$title"
+    )
+    val surfaceEnergy = (selectedProgress + pressProgress * 0.72f).coerceIn(0f, 1.18f)
+
     FrostInfoGlassPanel(
         radius = 17.44f,
         backdropAlpha = 1f,
-        frostAlpha = if (selected) 0.105f else 0.085f,
+        frostAlpha = 0.082f + selectedProgress * 0.028f + pressProgress * 0.010f,
         dimAlpha = 0f,
-        modifier = modifier.height(116.dp).clickable(interactionSource = clickSource, indication = null, onClick = onClick)
+        modifier = modifier
+            .height(116.dp)
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(0.50f, 0.54f)
+                scaleX = 1f + selectedProgress * 0.010f + pressProgress * 0.018f
+                scaleY = 1f - pressProgress * 0.020f + selectedProgress * 0.004f
+                translationY = -selectedProgress * 1.4f + pressProgress * 2.1f
+                shadowElevation = selectedProgress * 0.42f + pressProgress * 0.22f
+            }
+            .settingsTileSwitchOptics(selectedProgress, pressProgress)
+            .clickable(interactionSource = clickSource, indication = null, onClick = onClick)
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SettingsIconBadge(icon, selected)
+                SettingsIconBadge(icon, selected, selectedProgress, pressProgress)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(title, color = Color.White.copy(alpha = 0.90f + 0.06f * surfaceEnergy), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.48f + 0.07f * surfaceEnergy), fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            SettingsHairline(alpha = if (selected) 0.20f else 0.10f)
+            SettingsHairline(alpha = 0.10f + 0.13f * surfaceEnergy)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("当前", color = Color.White.copy(alpha = 0.34f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                Text("当前", color = Color.White.copy(alpha = 0.32f + 0.08f * surfaceEnergy), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 Spacer(Modifier.weight(1f))
-                Text(value, color = Color.White.copy(alpha = if (selected) 0.86f else 0.62f), fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+                Text(value, color = Color.White.copy(alpha = 0.58f + 0.26f * selectedProgress + 0.08f * pressProgress), fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
             }
         }
     }
 }
 
+private fun Modifier.settingsTileSwitchOptics(selectedProgress: Float, pressProgress: Float): Modifier = drawWithContent {
+    drawContent()
+    val selected = selectedProgress.coerceIn(0f, 1f)
+    val pressed = pressProgress.coerceIn(0f, 1f)
+    val energy = (selected + pressed * 0.72f).coerceIn(0f, 1.20f)
+    if (energy <= 0.001f) return@drawWithContent
+
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val radius = 17.44.dp.toPx()
+    val corner = CornerRadius(radius, radius)
+    val glowCenter = Offset(w * (0.62f - 0.10f * pressed), h * (0.18f + 0.18f * selected))
+    val rimInset = 0.72.dp.toPx()
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.072f * energy),
+                Color(0xFF8DFFF3).copy(alpha = 0.050f * energy),
+                Color(0xFF8EA2FF).copy(alpha = 0.034f * energy),
+                Color.Transparent
+            ),
+            center = glowCenter,
+            radius = w * (0.54f + 0.10f * selected)
+        ),
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFFF7AD9).copy(alpha = 0.050f * selected),
+                Color.White.copy(alpha = 0.108f * energy),
+                Color(0xFF7CFFEA).copy(alpha = 0.070f * energy),
+                Color.Transparent
+            ),
+            start = Offset(-w * 0.18f + w * 0.24f * pressed, 0f),
+            end = Offset(w * (0.82f + 0.10f * selected), h)
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(0.54.dp.toPx() + 0.34.dp.toPx() * energy),
+        blendMode = BlendMode.Plus
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.052f * energy),
+                Color.Transparent,
+                Color(0xFF03091B).copy(alpha = 0.030f * pressed)
+            ),
+            startY = 0f,
+            endY = h
+        ),
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = corner,
+        style = Stroke(0.42.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+}
+
 @Composable
-private fun SettingsIconBadge(text: String, active: Boolean) {
+private fun SettingsIconBadge(text: String, active: Boolean, activeProgress: Float = if (active) 1f else 0f, pressProgress: Float = 0f) {
+    val energy = (activeProgress + pressProgress * 0.62f).coerceIn(0f, 1.15f)
     Box(
         Modifier
             .size(42.dp)
+            .graphicsLayer {
+                scaleX = 1f + 0.030f * energy
+                scaleY = 1f - 0.016f * pressProgress + 0.020f * activeProgress
+            }
             .clip(RoundedCornerShape(15.dp))
-            .background(Color.White.copy(alpha = if (active) 0.105f else 0.055f)),
+            .background(Color.White.copy(alpha = 0.055f + 0.058f * energy)),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.66f), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
+        Text(text, color = Color.White.copy(alpha = 0.66f + 0.28f * energy), fontSize = if (text.length > 1) 13.sp else 17.sp, fontWeight = FontWeight.Black, maxLines = 1, textAlign = TextAlign.Center)
     }
 }
 
 @Composable
 private fun SettingsDetailPanel(panel: SettingsPanel, state: AssistantUiState, aiEndpoint: String, onQualityChange: (RenderQuality) -> Unit, onPreviewConversationChange: (Boolean) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit, onBackdropChange: (BackdropDebugParams) -> Unit, onBorderChange: (GlassBorderStyle) -> Unit, onUploadBackgroundClick: () -> Unit, onClearCustomBackgroundClick: () -> Unit) {
     SettingsGlassFrame(radius = 28) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            DetailHeader(panelTitle(panel), panelSubtitle(panel))
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                when (panel) {
-                    SettingsPanel.Appearance -> AppearanceContent(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
-                    SettingsPanel.Glass -> GlassContent(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange, onRainbowPrismChange)
-                    SettingsPanel.Assistant -> AssistantContent(state, onPreviewConversationChange)
-                    SettingsPanel.Data -> DataContent(state)
-                    SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
-                    SettingsPanel.Advanced -> AdvancedContent(state)
-                    SettingsPanel.Debug -> GlassDebugFloatingPanel(state, onBackdropChange, onBorderChange, onUploadBackgroundClick, onClearCustomBackgroundClick, Modifier.fillMaxWidth())
+        AnimatedContent(
+            targetState = panel,
+            transitionSpec = {
+                val direction = if (targetState.settingsOrder() >= initialState.settingsOrder()) 1 else -1
+                fadeIn(animationSpec = tween(150, delayMillis = 36, easing = FastOutSlowInEasing)) +
+                    slideInVertically(animationSpec = tween(280, easing = FastOutSlowInEasing)) { 26 * direction } +
+                    scaleIn(initialScale = 0.972f, animationSpec = tween(280, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(animationSpec = tween(112, easing = FastOutSlowInEasing)) +
+                    slideOutVertically(animationSpec = tween(150, easing = FastOutSlowInEasing)) { -14 * direction } +
+                    scaleOut(targetScale = 0.988f, animationSpec = tween(150, easing = FastOutSlowInEasing))
+            },
+            label = "settings-detail-panel-switch"
+        ) { activePanel ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .settingsDetailSwitchOptics(activePanel)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DetailHeader(panelTitle(activePanel), panelSubtitle(activePanel))
+                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    when (activePanel) {
+                        SettingsPanel.Appearance -> AppearanceContent(state, onBackgroundThemeChange, onUploadBackgroundClick, onClearCustomBackgroundClick)
+                        SettingsPanel.Glass -> GlassContent(state, onQualityChange, onGlassPresetChange, onGlassIntensityChange, onMotionIntensityChange, onRainbowPrismChange)
+                        SettingsPanel.Assistant -> AssistantContent(state, onPreviewConversationChange)
+                        SettingsPanel.Data -> DataContent(state)
+                        SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
+                        SettingsPanel.Advanced -> AdvancedContent(state)
+                        SettingsPanel.Debug -> GlassDebugFloatingPanel(state, onBackdropChange, onBorderChange, onUploadBackgroundClick, onClearCustomBackgroundClick, Modifier.fillMaxWidth())
+                    }
                 }
             }
         }
     }
+}
+
+private fun Modifier.settingsDetailSwitchOptics(panel: SettingsPanel): Modifier = drawWithContent {
+    val tone = panel.settingsOrder() / 6f
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.022f),
+                Color(0xFF8DFFF3).copy(alpha = 0.012f + 0.008f * tone),
+                Color(0xFFFF8FE7).copy(alpha = 0.006f * (1f - tone)),
+                Color.Transparent
+            ),
+            center = Offset(size.width * (0.18f + 0.62f * tone), size.height * 0.10f),
+            radius = size.width * 0.78f
+        ),
+        size = size,
+        cornerRadius = CornerRadius(28.dp.toPx(), 28.dp.toPx()),
+        blendMode = BlendMode.Screen
+    )
+    drawContent()
 }
 
 @Composable
@@ -482,6 +637,16 @@ private fun SettingsHairline(alpha: Float) {
 @Composable
 private fun SettingsDivider() {
     Box(Modifier.size(1.dp, 38.dp).background(Color.White.copy(alpha = 0.10f)))
+}
+
+private fun SettingsPanel.settingsOrder(): Int = when (this) {
+    SettingsPanel.Appearance -> 0
+    SettingsPanel.Glass -> 1
+    SettingsPanel.Assistant -> 2
+    SettingsPanel.Data -> 3
+    SettingsPanel.Service -> 4
+    SettingsPanel.Advanced -> 5
+    SettingsPanel.Debug -> 6
 }
 
 private fun panelTitle(panel: SettingsPanel): String = when (panel) {
