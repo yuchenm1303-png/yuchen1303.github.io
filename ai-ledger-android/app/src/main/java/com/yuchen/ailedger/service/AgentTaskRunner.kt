@@ -33,6 +33,7 @@ class AgentTaskRunner(
             AgentRuntimeController.finishTask(message, completed = false)
             return AgentTaskRunResult(false, false, message, logs)
         }
+
         AgentRuntimeController.startTask(goal)
         val targetApp = detectTargetApp(goal)
         val memory = AgentRunMemory(goal = goal, targetApp = targetApp)
@@ -44,12 +45,12 @@ class AgentTaskRunner(
                 AgentRuntimeController.failTask(message)
                 return AgentTaskRunResult(false, false, message, logs)
             }
+
             val snapshot = observation.toAgentScreenSnapshot()
             val context = buildGoalContext(goal, targetApp)
             memory.observe(snapshot, context)
 
-            val completion = detectCompletion(memory, snapshot, context)
-            if (completion != null) {
+            detectCompletion(memory, snapshot, context)?.let { completion ->
                 val finishStep = CloudAgentStep(type = "finish", reason = completion, riskLevel = "low", requiresConfirmation = false)
                 val done = AgentExecutionResult(true, completion, false)
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
@@ -101,7 +102,7 @@ class AgentTaskRunner(
                 return AgentTaskRunResult(true, false, message, logs)
             }
 
-            val chosenStep = chooseAction(goal, workingSnapshot, cloudStep, memory, workingContext)
+            val chosenStep = chooseAction(workingSnapshot, cloudStep, memory, workingContext)
             if (chosenStep == null) {
                 logs += AgentTaskStepLog(logs.size + 1, workingSnapshot.currentApp, cloudStep, null)
                 val message = memory.withDebug(cloudStep.reason ?: "当前屏幕没有足够线索继续推进")
@@ -132,49 +133,43 @@ class AgentTaskRunner(
 
             if (chosenStep.type in VERIFY_AFTER_TAP_TYPES) {
                 delay(TAP_VERIFY_DELAY_MS)
-                val verifyResult = verifyTapAfterClick(
-                    goal = goal,
-                    step = chosenStep,
-                    context = workingContext,
-                    memory = memory,
-                    modelPreference = modelPreference,
-                )
-                val shouldRecover = verifyResult == TapOutcome.WrongPage ||
-                    (verifyResult == TapOutcome.Uncertain && chosenStep.type == "tap_xy" && memory.uncertainRecoveryAttempts < MAX_UNCERTAIN_TAP_RECOVERY_ATTEMPTS)
-                if (shouldRecover) {
-                    if (verifyResult == TapOutcome.Uncertain) memory.uncertainRecoveryAttempts += 1
-                    memory.markFailedAction(chosenStep, blockFuture = verifyResult == TapOutcome.WrongPage)
-                    val backStep = CloudAgentStep(
-                        type = "back",
-                        reason = if (verifyResult == TapOutcome.WrongPage) {
-                            "点击后页面特征与目标不符，自动返回后重新定位。"
-                        } else {
-                            "坐标点击后结果不确定，先返回上一层重新观察和规划。"
-                        },
-                        riskLevel = "low",
-                        requiresConfirmation = false,
-                    )
-                    val latest = captureOnce(forceVisual = true)
-                    val backResult = executeAndRecord(backStep, latest.toAgentScreenSnapshot().currentApp, logs)
-                    memory.remember(backStep, backResult)
-                    if (!backResult.ok || !backResult.shouldContinue) {
-                        val message = memory.withDebug("误点恢复失败，请手动回到上一页后继续。")
-                        AgentRuntimeController.finishTask(message, completed = false)
-                        return AgentTaskRunResult(false, false, message, logs)
+                when (val verifyResult = verifyTapAfterClick(goal, chosenStep, workingContext, memory, modelPreference)) {
+                    TapOutcome.ExpectedPage -> memory.clearUncertainTapCount()
+                    TapOutcome.WrongPage -> {
+                        memory.markFailedAction(chosenStep, blockFuture = true)
+                        val backStep = CloudAgentStep(
+                            type = "back",
+                            reason = "云端视觉验证明确判断点击后页面偏离目标，自动返回后重新规划。",
+                            riskLevel = "low",
+                            requiresConfirmation = false,
+                        )
+                        val latest = captureOnce(forceVisual = true)
+                        val backResult = executeAndRecord(backStep, latest.toAgentScreenSnapshot().currentApp, logs)
+                        memory.remember(backStep, backResult)
+                        if (!backResult.ok || !backResult.shouldContinue) {
+                            val message = memory.withDebug("误点恢复失败，请手动回到上一页后继续。")
+                            AgentRuntimeController.finishTask(message, completed = false)
+                            return AgentTaskRunResult(false, false, message, logs)
+                        }
+                        delayForStep(backStep)
+                        return@repeat
                     }
-                    delayForStep(backStep)
-                    return@repeat
-                }
-                if (verifyResult == TapOutcome.Uncertain && chosenStep.type == "tap_xy") {
-                    memory.markFailedAction(chosenStep, blockFuture = true)
-                    val message = memory.withDebug("连续坐标点击后仍无法确认页面结果，已停止避免继续误触。")
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    TapOutcome.Uncertain -> {
+                        val uncertainCount = memory.recordUncertainTap()
+                        if (uncertainCount >= MAX_CONSECUTIVE_UNCERTAIN_TAP_ATTEMPTS) {
+                            val message = memory.withDebug("连续多次无法确认点击结果，已暂停避免继续误触。")
+                            AgentRuntimeController.finishTask(message, completed = false)
+                            return AgentTaskRunResult(false, false, message, logs)
+                        }
+                        return@repeat
+                    }
+                    TapOutcome.Unknown -> Unit
                 }
             }
 
             delayForStep(chosenStep)
         }
+
         val message = memory.withDebug("已达到最大执行步数，请检查当前页面后继续。")
         AgentRuntimeController.finishTask(message, completed = false)
         return AgentTaskRunResult(false, false, message, logs)
@@ -211,7 +206,14 @@ class AgentTaskRunner(
         if (snapshot.currentApp == app.packageName) return null
         if (memory.openAppAttempts >= MAX_OPEN_APP_ATTEMPTS) return null
         memory.openAppAttempts += 1
-        return CloudAgentStep(type = "open_app", appName = app.label, packageName = app.packageName, reason = "本地控制器：目标应用明确，当前不在目标应用，先打开目标应用。", riskLevel = "low", requiresConfirmation = false)
+        return CloudAgentStep(
+            type = "open_app",
+            appName = app.label,
+            packageName = app.packageName,
+            reason = "目标应用明确且当前不在目标应用，先打开目标应用。",
+            riskLevel = "low",
+            requiresConfirmation = false,
+        )
     }
 
     private fun detectCompletion(memory: AgentRunMemory, snapshot: AgentScreenSnapshot, context: GoalContext): String? {
@@ -228,7 +230,9 @@ class AgentTaskRunner(
         if (directKeyword != null) return "已在当前页面找到目标线索：${directKeyword.take(18)}。"
         val routeHit = context.completionHints.firstOrNull { hint -> visibleText.contains(normalize(hint)) }
         if (routeHit != null && memory.hasExecutedAnyAction) return "已进入目标相关页面：${routeHit.take(18)}。"
-        if (context.wantsSearch && memory.inputAttempts > 0 && visibleText.isNotBlank() && context.keywords.any { normalize(it).length >= 2 }) return "已完成搜索输入并刷新到相关结果页。"
+        if (context.wantsSearch && memory.inputAttempts > 0 && visibleText.isNotBlank() && context.keywords.any { normalize(it).length >= 2 }) {
+            return "已完成搜索输入并刷新到相关结果页。"
+        }
         return null
     }
 
@@ -244,8 +248,8 @@ class AgentTaskRunner(
         val snapshot = firstObservation.toAgentScreenSnapshot()
         memory.observe(snapshot, context)
         val localOutcome = verifyTapOutcomeLocally(step, snapshot, context)
-        if (localOutcome == TapOutcome.WrongPage) return TapOutcome.WrongPage
         if (!snapshot.hasVisualImage) return localOutcome
+
         val cloudOutcome = withContext(Dispatchers.IO) {
             runCatching {
                 aiWorkerClient.requestAgentOutcomeVerification(
@@ -255,172 +259,130 @@ class AgentTaskRunner(
                     modelPreference = modelPreference,
                 )
             }.getOrNull()
-        } ?: return localOutcome
+        } ?: return TapOutcome.Uncertain
+
         return when {
-            cloudOutcome.isExpected -> TapOutcome.ExpectedPage
+            cloudOutcome.isExpected || cloudOutcome.expectedProgress -> TapOutcome.ExpectedPage
             cloudOutcome.isWrong -> TapOutcome.WrongPage
-            else -> if (localOutcome == TapOutcome.ExpectedPage) TapOutcome.ExpectedPage else TapOutcome.Uncertain
+            localOutcome == TapOutcome.ExpectedPage -> TapOutcome.ExpectedPage
+            else -> TapOutcome.Uncertain
         }
     }
 
     private fun verifyTapOutcomeLocally(step: CloudAgentStep, snapshot: AgentScreenSnapshot, context: GoalContext): TapOutcome {
-        val expected = expectedOutcomeFor(step, context) ?: return TapOutcome.Unknown
         val visible = snapshot.visibleTextForMatch()
-        if (expected.successTexts.any { visible.contains(normalize(it)) }) return TapOutcome.ExpectedPage
-        if (expected.avoidTexts.any { visible.contains(normalize(it)) }) return TapOutcome.WrongPage
+        if (context.keywords.any { keyword -> normalize(keyword).length >= MIN_COMPLETION_KEYWORD_LENGTH && visible.contains(normalize(keyword)) }) {
+            return TapOutcome.ExpectedPage
+        }
+        if (context.completionHints.any { hint -> visible.contains(normalize(hint)) }) return TapOutcome.ExpectedPage
+        val leftTargetApp = context.targetApp != null && snapshot.currentApp.isNotBlank() && snapshot.currentApp != context.targetApp.packageName
+        if (!snapshot.hasVisualImage && leftTargetApp) return TapOutcome.WrongPage
+        if (!snapshot.hasVisualImage && step.type in setOf("tap_node", "tap_xy") && enteredUnexpectedHighRiskSurface(context.goal, visible)) {
+            return TapOutcome.WrongPage
+        }
         return TapOutcome.Unknown
     }
 
-    private fun expectedOutcomeFor(step: CloudAgentStep, context: GoalContext): ExpectedOutcome? {
-        val target = normalize(step.targetText.orEmpty() + step.reason.orEmpty())
-        val goal = normalize(context.goal)
-        return when {
-            socialDiscoveryRouteWords.any { target.contains(normalize(it)) || goal.contains(normalize(it)) } -> ExpectedOutcome(
-                successTexts = socialDiscoverySuccessTexts,
-                avoidTexts = chatPageAvoidTexts + chatListAvoidWords,
-            )
-            contactRouteWords.any { target.contains(normalize(it)) || goal.contains(normalize(it)) } -> ExpectedOutcome(
-                successTexts = contactSuccessTexts,
-                avoidTexts = chatPageAvoidTexts,
-            )
-            settingsRouteWords.any { target.contains(normalize(it)) || goal.contains(normalize(it)) } -> ExpectedOutcome(
-                successTexts = settingsSuccessTexts,
-                avoidTexts = chatPageAvoidTexts,
-            )
-            else -> null
+    private fun chooseAction(snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep, memory: AgentRunMemory, context: GoalContext): CloudAgentStep? {
+        sanitizeCloudStep(cloudStep, snapshot)?.let { candidate ->
+            if (!memory.isBlocked(candidate)) return candidate
         }
-    }
-
-    private fun AgentScreenSnapshot.visibleTextForMatch(): String {
-        return (texts + allNodes.map { it.text } + clickableNodes.map { it.text } + inputNodes.map { it.text } + scrollableNodes.map { it.text })
-            .joinToString(" ")
-            .let { normalize(it) }
-    }
-
-    private fun chooseAction(goal: String, snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep, memory: AgentRunMemory, context: GoalContext): CloudAgentStep? {
-        scoreCloudStep(cloudStep, snapshot, context, memory)?.let { cloudCandidate ->
-            if (snapshot.hasVisualImage && !memory.isBlocked(cloudCandidate.step)) return cloudCandidate.step
-        }
-        val ranked = mutableListOf<ScoredStep>()
-        scoreCloudStep(cloudStep, snapshot, context, memory)?.let { ranked += it }
-        ranked += buildLocalCandidates(snapshot, memory, context)
+        val localCandidates = buildLocalFallbackCandidates(snapshot, memory, context)
         if (cloudStep.type == "need_user_help" || memory.isLikelyRepeated(cloudStep)) memory.repeatedCloudRejects += 1
-        return ranked.distinctBy { stepSignature(it.step) }.sortedByDescending { it.score }.firstOrNull { !memory.isBlocked(it.step) }?.step
+        return localCandidates.firstOrNull { !memory.isBlocked(it) }
     }
 
-    private fun scoreCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot, context: GoalContext, memory: AgentRunMemory): ScoredStep? {
+    private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep? {
         if (step.type == "need_user_help") return null
-        if (step.type == "tap_xy" && (step.x == null || step.y == null)) return null
-        if (step.type == "input_text" && step.text.isNullOrBlank()) return null
+        if (step.type !in CloudAgentStep.supportedTypes) return null
+        if (step.type == "tap_xy") {
+            val x = step.x ?: return null
+            val y = step.y ?: return null
+            if (x !in 0f..1f || y !in 0f..1f) return null
+        }
         if (step.type == "tap_node" && step.targetNodeId.isNullOrBlank() && step.targetText.isNullOrBlank()) return null
+        if (step.type == "input_text" && step.text.isNullOrBlank()) return null
         if (step.type == "open_app" && step.packageName != null && step.packageName == snapshot.currentApp) return null
-        val targetScore = step.targetText?.let { scoreNodeText(it, context.keywords) * 10 + scoreNodeText(it, context.routeHints) * 5 } ?: 0
-        val phaseBonus = when (memory.phase) {
-            AgentTaskPhase.Searching -> if (step.type == "input_text" || scoreNodeText(step.targetText.orEmpty(), searchWords) > 0) 14 else 0
-            AgentTaskPhase.Navigating -> if (step.type == "tap_node" || step.type == "tap_xy") 8 else 0
-            AgentTaskPhase.Recovering -> if (step.type in setOf("back", "wait", "swipe", "scroll")) 12 else 0
-            AgentTaskPhase.Verifying -> if (step.type == "finish") 20 else 0
-            AgentTaskPhase.OpeningApp -> if (step.type == "open_app") 12 else 0
-        }
-        val visionPlannerBonus = if (snapshot.hasVisualImage) VISION_PLANNER_PRIORITY_BONUS else 0
-        val score = when (step.type) {
-            "tap_node", "tap_xy" -> 58 + targetScore
-            "input_text" -> if (context.wantsSearch) 62 else 46
-            "open_app" -> 76
-            "scroll", "swipe" -> if (hasUsefulVisibleAction(snapshot, context)) 18 else 38
-            "wait" -> if (snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT) 40 else 16
-            "back" -> if (memory.repeatedCloudRejects >= 1) 42 else 18
-            "home", "recents", "notifications", "quick_settings" -> 16
-            else -> 34
-        } + phaseBonus + visionPlannerBonus - if (memory.isLikelyRepeated(step)) REPEATED_ACTION_PENALTY else 0
-        return ScoredStep(step, score)
+        if (step.type == "wait" && snapshot.hasVisualImage && !isLoadingWaitReason(step.reason.orEmpty())) return null
+        return step
     }
 
-    private fun buildLocalCandidates(snapshot: AgentScreenSnapshot, memory: AgentRunMemory, context: GoalContext): List<ScoredStep> {
-        val candidates = mutableListOf<ScoredStep>()
-        val geometry = screenGeometry(snapshot)
-        val rankedNodes = snapshot.clickableNodes
+    private fun buildLocalFallbackCandidates(snapshot: AgentScreenSnapshot, memory: AgentRunMemory, context: GoalContext): List<CloudAgentStep> {
+        val candidates = mutableListOf<Pair<CloudAgentStep, Int>>()
+        val clickableTargets = snapshot.clickableNodes
             .filter { it.text.isNotBlank() }
-            .map { node -> node to scoreClickableNode(node, context, geometry) }
-            .filter { (_, score) -> score >= MIN_CLICKABLE_CANDIDATE_SCORE }
+            .map { node -> node to scoreNodeText(node.text, context.keywords + context.routeHints) }
+            .filter { (_, score) -> score >= MIN_LOCAL_NODE_SCORE }
             .sortedByDescending { (_, score) -> score }
-        rankedNodes.take(MAX_CLICKABLE_CANDIDATES).forEach { (node, score) ->
-            candidates += ScoredStep(
-                step = CloudAgentStep(type = "tap_node", targetNodeId = node.id, targetText = node.text, reason = if (scoreNodeText(node.text, context.keywords) >= DIRECT_MATCH_SCORE) "本地控制器：屏幕上已有高相关目标“${node.text.take(18)}”，优先点击。" else "本地控制器：当前目标不可见，先进入高价值导航入口“${node.text.take(18)}”。", riskLevel = "low", requiresConfirmation = false),
-                score = score + phaseNodeBonus(memory.phase, node, context),
-            )
+
+        clickableTargets.take(MAX_LOCAL_NODE_CANDIDATES).forEach { (node, score) ->
+            candidates += CloudAgentStep(
+                type = "tap_node",
+                targetNodeId = node.id,
+                targetText = node.text,
+                reason = "本地低风险兜底：节点文本与目标相关，点击“${node.text.take(18)}”。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            ) to score
         }
-        buildVisualFallbackCandidate(snapshot, memory, context)?.let { candidates += it }
-        if (snapshot.inputNodes.isNotEmpty() && context.keywords.isNotEmpty() && memory.inputAttempts < MAX_INPUT_ATTEMPTS) {
+
+        if (context.wantsSearch && snapshot.inputNodes.isNotEmpty() && context.keywords.isNotEmpty() && memory.inputAttempts < MAX_INPUT_ATTEMPTS) {
             val input = snapshot.inputNodes.first()
-            candidates += ScoredStep(step = CloudAgentStep(type = "input_text", targetNodeId = input.id, text = context.keywords.first(), reason = "本地控制器：已发现输入框，输入核心关键词继续查找。", riskLevel = "low", requiresConfirmation = false), score = if (context.wantsSearch || memory.phase == AgentTaskPhase.Searching) INPUT_SEARCH_SCORE else INPUT_NORMAL_SCORE)
+            candidates += CloudAgentStep(
+                type = "input_text",
+                targetNodeId = input.id,
+                text = context.keywords.first(),
+                reason = "本地低风险兜底：已发现输入框，输入核心关键词继续查找。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            ) to INPUT_SEARCH_SCORE
         }
-        if (memory.scrollAttempts < MAX_SCROLL_ATTEMPTS && !hasUsefulVisibleAction(snapshot, context)) {
+
+        if (memory.scrollAttempts < MAX_SCROLL_ATTEMPTS && !hasUsefulVisibleNode(snapshot, context)) {
             if (snapshot.scrollableNodes.isNotEmpty()) {
-                candidates += ScoredStep(step = CloudAgentStep(type = "scroll", targetNodeId = snapshot.scrollableNodes.first().id, direction = if (memory.scrollAttempts % 2 == 0) "down" else "up", reason = "本地控制器：当前屏幕没有可靠入口，再滚动扩大搜索范围。", riskLevel = "low", requiresConfirmation = false), score = SCROLL_FALLBACK_SCORE + if (memory.phase == AgentTaskPhase.Recovering) RECOVERY_ACTION_BONUS else 0)
-            } else if (snapshot.nodeCount >= LOW_SIGNAL_NODE_COUNT || snapshot.texts.isNotEmpty()) {
-                candidates += ScoredStep(step = CloudAgentStep(type = "swipe", direction = if (memory.scrollAttempts % 2 == 0) "up" else "down", reason = "本地控制器：当前屏幕没有暴露滚动节点，使用普通滑动手势继续探索。", riskLevel = "low", requiresConfirmation = false), score = SWIPE_FALLBACK_SCORE + if (memory.phase == AgentTaskPhase.Recovering) RECOVERY_ACTION_BONUS else 0)
+                candidates += CloudAgentStep(
+                    type = "scroll",
+                    targetNodeId = snapshot.scrollableNodes.first().id,
+                    direction = if (memory.scrollAttempts % 2 == 0) "down" else "up",
+                    reason = "本地低风险兜底：当前未发现目标入口，滚动扩大搜索范围。",
+                    riskLevel = "low",
+                    requiresConfirmation = false,
+                ) to SCROLL_FALLBACK_SCORE
+            } else if (!snapshot.hasVisualImage && snapshot.nodeCount >= LOW_SIGNAL_NODE_COUNT) {
+                candidates += CloudAgentStep(
+                    type = "swipe",
+                    direction = if (memory.scrollAttempts % 2 == 0) "up" else "down",
+                    reason = "本地低风险兜底：节点可用但未暴露滚动控件，使用普通滑动继续探索。",
+                    riskLevel = "low",
+                    requiresConfirmation = false,
+                ) to SWIPE_FALLBACK_SCORE
             }
         }
-        if (memory.waitAttempts < MAX_WAIT_ATTEMPTS && snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT) candidates += ScoredStep(step = CloudAgentStep(type = "wait", durationMs = DEFAULT_WAIT_DELAY_MS, reason = "本地控制器：当前页面节点较少，可能仍在加载，先等待后重新观察。", riskLevel = "low", requiresConfirmation = false), score = WAIT_LOW_SIGNAL_SCORE)
-        if (memory.backAttempts < MAX_BACK_ATTEMPTS && memory.phase == AgentTaskPhase.Recovering) candidates += ScoredStep(step = CloudAgentStep(type = "back", reason = "本地控制器：连续重复卡住，返回上一层重新选择路径。", riskLevel = "low", requiresConfirmation = false), score = BACK_RECOVERY_SCORE)
-        return candidates.sortedByDescending { it.score }
-    }
 
-    private fun phaseNodeBonus(phase: AgentTaskPhase, node: AgentScreenNode, context: GoalContext): Int = when (phase) {
-        AgentTaskPhase.Searching -> if (scoreNodeText(node.text, searchWords) > 0) 14 else 0
-        AgentTaskPhase.Navigating -> if (scoreNodeText(node.text, context.routeHints + navigationWords) > 0) 8 else 0
-        AgentTaskPhase.Recovering -> if (scoreNodeText(node.text, context.routeHints + searchWords) > 0) 6 else 0
-        else -> 0
-    }
-
-    private fun buildVisualFallbackCandidate(snapshot: AgentScreenSnapshot, memory: AgentRunMemory, context: GoalContext): ScoredStep? {
-        if (!snapshot.hasVisualImage || memory.visualTapAttempts >= MAX_VISUAL_TAP_ATTEMPTS) return null
-        val point = visualFallbackPoint(snapshot, context) ?: return null
-        return ScoredStep(step = CloudAgentStep(type = "tap_xy", targetText = point.label, x = point.x, y = point.y, reason = "本地视觉兜底：无障碍节点不足，按目标意图点击${point.source}“${point.label}”。", riskLevel = "low", requiresConfirmation = false), score = VISUAL_FALLBACK_SCORE)
-    }
-
-    private fun visualFallbackPoint(snapshot: AgentScreenSnapshot, context: GoalContext): VisualFallbackPoint? {
-        val app = context.targetApp ?: return null
-        val visual = snapshot.visual?.takeIf { it.hasImage } ?: return null
-        val width = (visual.displayWidth.takeIf { it > 0 } ?: visual.width).toFloat().coerceAtLeast(1f)
-        val height = (visual.displayHeight.takeIf { it > 0 } ?: visual.height).toFloat().coerceAtLeast(1f)
-        val cleanGoal = normalize(context.goal)
-        return when (app.packageName) {
-            "com.tencent.mm" -> when {
-                socialDiscoverySignals.any { cleanGoal.contains(normalize(it)) } -> VisualFallbackPoint(width * 0.625f, height * 0.935f, "发现", "微信底部导航")
-                contactSignals.any { cleanGoal.contains(normalize(it)) } -> VisualFallbackPoint(width * 0.375f, height * 0.935f, "通讯录", "微信底部导航")
-                settingsSignals.any { cleanGoal.contains(normalize(it)) } -> VisualFallbackPoint(width * 0.875f, height * 0.935f, "我", "微信底部导航")
-                else -> null
-            }
-            "com.tencent.mobileqq" -> when {
-                socialDiscoverySignals.any { cleanGoal.contains(normalize(it)) } -> VisualFallbackPoint(width * 0.83f, height * 0.935f, "动态", "QQ 底部导航")
-                contactSignals.any { cleanGoal.contains(normalize(it)) } -> VisualFallbackPoint(width * 0.50f, height * 0.935f, "联系人", "QQ 底部导航")
-                else -> null
-            }
-            else -> null
+        if (!snapshot.hasVisualImage && memory.waitAttempts < MAX_WAIT_ATTEMPTS && snapshot.nodeCount <= LOW_SIGNAL_NODE_COUNT && snapshot.texts.isEmpty()) {
+            candidates += CloudAgentStep(
+                type = "wait",
+                durationMs = DEFAULT_WAIT_DELAY_MS,
+                reason = "本地低风险兜底：没有截图且节点几乎为空，短暂等待后重新观察。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            ) to WAIT_EMPTY_SCREEN_SCORE
         }
-    }
 
-    private fun hasUsefulVisibleAction(snapshot: AgentScreenSnapshot, context: GoalContext): Boolean {
-        val geometry = screenGeometry(snapshot)
-        return snapshot.clickableNodes.any { node -> scoreClickableNode(node, context, geometry) >= USEFUL_VISIBLE_ACTION_SCORE }
-    }
-
-    private fun scoreClickableNode(node: AgentScreenNode, context: GoalContext, geometry: ScreenGeometry): Int {
-        val directScore = scoreNodeText(node.text, context.keywords)
-        val routeScore = scoreNodeText(node.text, context.routeHints)
-        val navScore = scoreNodeText(node.text, navigationWords)
-        val avoidScore = scoreNodeText(node.text, context.avoidHints)
-        val searchScore = if (context.wantsSearch && scoreNodeText(node.text, searchWords) > 0) 1 else 0
-        val structuralScore = when {
-            isBottomNavNode(node, geometry) && (routeScore > 0 || navScore > 0 || searchScore > 0) -> BOTTOM_NAV_BONUS
-            isTopNavNode(node, geometry) && (routeScore > 0 || navScore > 0 || searchScore > 0) -> TOP_NAV_BONUS
-            else -> 0
+        if (memory.backAttempts < MAX_BACK_ATTEMPTS && memory.phase == AgentTaskPhase.Recovering) {
+            candidates += CloudAgentStep(
+                type = "back",
+                reason = "本地低风险兜底：连续重复卡住，返回上一层重新选择路径。",
+                riskLevel = "low",
+                requiresConfirmation = false,
+            ) to BACK_RECOVERY_SCORE
         }
-        val conciseControlBonus = if (node.text.length <= 4 && (routeScore > 0 || navScore > 0 || searchScore > 0)) SHORT_NAV_TEXT_BONUS else 0
-        val unrelatedLongTextPenalty = if (node.text.length >= 12 && directScore == 0 && routeScore == 0 && navScore == 0) LONG_UNRELATED_TEXT_PENALTY else 0
-        return directScore * DIRECT_TEXT_WEIGHT + routeScore * ROUTE_HINT_WEIGHT + navScore * NAV_TEXT_WEIGHT + searchScore * SEARCH_ENTRY_BONUS + structuralScore + conciseControlBonus - avoidScore * AVOID_HINT_WEIGHT - unrelatedLongTextPenalty
+
+        return candidates.sortedByDescending { it.second }.map { it.first }
+    }
+
+    private fun hasUsefulVisibleNode(snapshot: AgentScreenSnapshot, context: GoalContext): Boolean {
+        return snapshot.clickableNodes.any { node -> scoreNodeText(node.text, context.keywords + context.routeHints) >= MIN_LOCAL_NODE_SCORE }
     }
 
     private fun scoreNodeText(text: String, keywords: List<String>): Int {
@@ -444,12 +406,27 @@ class AgentTaskRunner(
         val routeHints = mutableListOf<String>()
         val completionHints = mutableListOf<String>()
         if (wantsSearch) routeHints += searchWords
-        if (socialDiscoverySignals.any { cleanGoal.contains(normalize(it)) }) { routeHints += socialDiscoveryRouteWords; completionHints += socialDiscoverySignals + socialDiscoveryRouteWords }
-        if (contactSignals.any { cleanGoal.contains(normalize(it)) }) { routeHints += contactRouteWords; completionHints += contactSignals + contactRouteWords }
-        if (settingsSignals.any { cleanGoal.contains(normalize(it)) }) { routeHints += settingsRouteWords; completionHints += settingsSignals + settingsRouteWords }
-        val avoidHints = mutableListOf<String>()
-        if (socialDiscoverySignals.any { cleanGoal.contains(normalize(it)) }) avoidHints += chatListAvoidWords
-        return GoalContext(goal = goal, targetApp = targetApp, keywords = keywords, routeHints = routeHints.distinct(), completionHints = completionHints.distinct(), avoidHints = avoidHints.distinct(), wantsSearch = wantsSearch)
+        if (socialDiscoverySignals.any { cleanGoal.contains(normalize(it)) }) {
+            routeHints += socialDiscoveryRouteWords
+            completionHints += socialDiscoverySignals + socialDiscoveryRouteWords
+        }
+        if (contactSignals.any { cleanGoal.contains(normalize(it)) }) {
+            routeHints += contactRouteWords
+            completionHints += contactSignals + contactRouteWords
+        }
+        if (settingsSignals.any { cleanGoal.contains(normalize(it)) }) {
+            routeHints += settingsRouteWords
+            completionHints += settingsSignals + settingsRouteWords
+        }
+        if (routeHints.isEmpty()) routeHints += genericRouteWords
+        return GoalContext(
+            goal = goal,
+            targetApp = targetApp,
+            keywords = keywords,
+            routeHints = routeHints.distinct(),
+            completionHints = completionHints.distinct(),
+            wantsSearch = wantsSearch,
+        )
     }
 
     private fun extractGoalKeywords(goal: String, targetApp: TargetApp?): List<String> {
@@ -461,51 +438,63 @@ class AgentTaskRunner(
         return (listOf(compact) + tokens).filter { it.isNotBlank() }.distinct().take(4)
     }
 
+    private fun enteredUnexpectedHighRiskSurface(goal: String, visibleText: String): Boolean {
+        val cleanGoal = normalize(goal)
+        val goalAllowsHighRisk = highRiskWords.any { cleanGoal.contains(normalize(it)) }
+        if (goalAllowsHighRisk) return false
+        return highRiskWords.any { visibleText.contains(normalize(it)) }
+    }
+
+    private fun isLoadingWaitReason(reason: String): Boolean {
+        val clean = normalize(reason)
+        return loadingWaitWords.any { clean.contains(normalize(it)) }
+    }
+
+    private fun AgentScreenSnapshot.visibleTextForMatch(): String {
+        return (texts + allNodes.map { it.text } + clickableNodes.map { it.text } + inputNodes.map { it.text } + scrollableNodes.map { it.text })
+            .joinToString(" ")
+            .let { normalize(it) }
+    }
+
     private fun normalize(value: String): String = value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
 
-    private fun screenGeometry(snapshot: AgentScreenSnapshot): ScreenGeometry {
-        val rects = (snapshot.allNodes + snapshot.clickableNodes + snapshot.inputNodes + snapshot.scrollableNodes).mapNotNull { parseBounds(it.bounds) }
-        val top = rects.minOfOrNull { it.top } ?: 0
-        val bottom = rects.maxOfOrNull { it.bottom } ?: 1
-        return ScreenGeometry(top = top, bottom = bottom.coerceAtLeast(top + 1))
-    }
+    private fun stepSignature(step: CloudAgentStep): String = listOf(
+        step.type,
+        step.targetNodeId,
+        step.targetText,
+        step.text,
+        step.direction,
+        coordinateKey(step.x),
+        coordinateKey(step.y),
+    ).joinToString("|")
 
-    private fun parseBounds(bounds: String): NodeRect? {
-        val values = bounds.split(',').mapNotNull { it.trim().toIntOrNull() }
-        if (values.size != 4) return null
-        val (left, top, right, bottom) = values
-        if (right <= left || bottom <= top) return null
-        return NodeRect(left = left, top = top, right = right, bottom = bottom)
-    }
-
-    private fun isBottomNavNode(node: AgentScreenNode, geometry: ScreenGeometry): Boolean {
-        val rect = parseBounds(node.bounds) ?: return false
-        val centerY = (rect.top + rect.bottom) / 2f
-        return centerY >= geometry.top + geometry.height * 0.72f && rect.height <= geometry.height * 0.18f
-    }
-
-    private fun isTopNavNode(node: AgentScreenNode, geometry: ScreenGeometry): Boolean {
-        val rect = parseBounds(node.bounds) ?: return false
-        val centerY = (rect.top + rect.bottom) / 2f
-        return centerY <= geometry.top + geometry.height * 0.24f && rect.height <= geometry.height * 0.18f
-    }
-
-    private fun stepSignature(step: CloudAgentStep): String = listOf(step.type, step.targetNodeId, step.targetText, step.text, step.direction, step.x?.toInt(), step.y?.toInt()).joinToString("|")
+    private fun coordinateKey(value: Float?): String = value?.let { "%.4f".format(it) }.orEmpty()
 
     private fun detectTargetApp(goal: String): TargetApp? {
         val clean = normalize(goal)
         return TARGET_APPS.firstOrNull { item -> item.aliases.any { alias -> clean.contains(normalize(alias)) } }
     }
 
-    private enum class AgentTaskPhase(val label: String) { OpeningApp("打开应用"), Navigating("找入口"), Searching("搜索输入"), Verifying("确认结果"), Recovering("恢复路径") }
+    private enum class AgentTaskPhase(val label: String) {
+        OpeningApp("打开应用"),
+        Navigating("找入口"),
+        Searching("搜索输入"),
+        Verifying("确认结果"),
+        Recovering("恢复路径"),
+    }
+
     private enum class TapOutcome { ExpectedPage, WrongPage, Unknown, Uncertain }
-    private data class ExpectedOutcome(val successTexts: List<String>, val avoidTexts: List<String>)
-    private data class GoalContext(val goal: String, val targetApp: TargetApp?, val keywords: List<String>, val routeHints: List<String>, val completionHints: List<String>, val avoidHints: List<String>, val wantsSearch: Boolean)
-    private data class ScoredStep(val step: CloudAgentStep, val score: Int)
-    private data class NodeRect(val left: Int, val top: Int, val right: Int, val bottom: Int) { val height: Int get() = bottom - top }
-    private data class ScreenGeometry(val top: Int, val bottom: Int) { val height: Int get() = (bottom - top).coerceAtLeast(1) }
+
+    private data class GoalContext(
+        val goal: String,
+        val targetApp: TargetApp?,
+        val keywords: List<String>,
+        val routeHints: List<String>,
+        val completionHints: List<String>,
+        val wantsSearch: Boolean,
+    )
+
     private data class TargetApp(val label: String, val packageName: String, val aliases: List<String>)
-    private data class VisualFallbackPoint(val x: Float, val y: Float, val label: String, val source: String)
 
     private data class AgentRunMemory(
         val goal: String,
@@ -516,8 +505,7 @@ class AgentTaskRunner(
         var scrollAttempts: Int = 0,
         var waitAttempts: Int = 0,
         var backAttempts: Int = 0,
-        var visualTapAttempts: Int = 0,
-        var uncertainRecoveryAttempts: Int = 0,
+        var uncertainTapAttempts: Int = 0,
         var forceVisualPlanAttempts: Int = 0,
         var repeatedCloudRejects: Int = 0,
         var hasExecutedAnyAction: Boolean = false,
@@ -538,13 +526,12 @@ class AgentTaskRunner(
             if (step.type == "input_text") inputAttempts += 1
             if (step.type == "scroll" || step.type == "swipe") scrollAttempts += 1
             if (step.type == "wait") waitAttempts += 1
-            if (step.type == "tap_xy") visualTapAttempts += 1
             if (step.type == "back") {
                 backAttempts += 1
                 if (result.ok) {
                     recentStepKeys.clear()
-                    visualTapAttempts = 0
                     repeatedCloudRejects = 0
+                    uncertainTapAttempts = 0
                     phase = AgentTaskPhase.Navigating
                 }
             }
@@ -552,11 +539,22 @@ class AgentTaskRunner(
             if (!result.ok) repeatedCloudRejects += 1 else if (step.type != "back") repeatedCloudRejects = 0
         }
 
+        fun recordUncertainTap(): Int {
+            uncertainTapAttempts += 1
+            recentStepKeys.clear()
+            phase = AgentTaskPhase.Verifying
+            return uncertainTapAttempts
+        }
+
+        fun clearUncertainTapCount() {
+            uncertainTapAttempts = 0
+        }
+
         fun markFailedAction(step: CloudAgentStep, blockFuture: Boolean) {
             if (blockFuture) failedStepKeys += stepKey(step)
             recentStepKeys.clear()
-            visualTapAttempts = 0
             repeatedCloudRejects = 0
+            uncertainTapAttempts = 0
             phase = AgentTaskPhase.Recovering
         }
 
@@ -572,7 +570,15 @@ class AgentTaskRunner(
             return AgentTaskPhase.Navigating
         }
 
-        private fun stepKey(step: CloudAgentStep): String = listOf(step.type, step.targetNodeId, step.targetText, step.text, step.direction, step.x?.toInt(), step.y?.toInt()).joinToString("|")
+        private fun stepKey(step: CloudAgentStep): String = listOf(
+            step.type,
+            step.targetNodeId,
+            step.targetText,
+            step.text,
+            step.direction,
+            step.x?.let { "%.4f".format(it) },
+            step.y?.let { "%.4f".format(it) },
+        ).joinToString("|")
     }
 
     companion object {
@@ -592,51 +598,31 @@ class AgentTaskRunner(
         private const val MAX_SCROLL_ATTEMPTS = 3
         private const val MAX_WAIT_ATTEMPTS = 2
         private const val MAX_BACK_ATTEMPTS = 2
-        private const val MAX_VISUAL_TAP_ATTEMPTS = 2
-        private const val MAX_UNCERTAIN_TAP_RECOVERY_ATTEMPTS = 2
         private const val MAX_FORCE_VISUAL_PLAN_ATTEMPTS = 1
+        private const val MAX_CONSECUTIVE_UNCERTAIN_TAP_ATTEMPTS = 3
         private const val LOW_SIGNAL_NODE_COUNT = 8
-        private const val DIRECT_MATCH_SCORE = 5
-        private const val MAX_CLICKABLE_CANDIDATES = 4
-        private const val MIN_CLICKABLE_CANDIDATE_SCORE = 28
-        private const val USEFUL_VISIBLE_ACTION_SCORE = 46
         private const val MIN_COMPLETION_KEYWORD_LENGTH = 2
-        private const val DIRECT_TEXT_WEIGHT = 12
-        private const val ROUTE_HINT_WEIGHT = 7
-        private const val NAV_TEXT_WEIGHT = 4
-        private const val AVOID_HINT_WEIGHT = 10
-        private const val SEARCH_ENTRY_BONUS = 30
-        private const val BOTTOM_NAV_BONUS = 18
-        private const val TOP_NAV_BONUS = 10
-        private const val SHORT_NAV_TEXT_BONUS = 6
-        private const val LONG_UNRELATED_TEXT_PENALTY = 16
-        private const val REPEATED_ACTION_PENALTY = 60
-        private const val VISION_PLANNER_PRIORITY_BONUS = 120
+        private const val MIN_LOCAL_NODE_SCORE = 5
+        private const val MAX_LOCAL_NODE_CANDIDATES = 4
         private const val INPUT_SEARCH_SCORE = 64
-        private const val INPUT_NORMAL_SCORE = 48
-        private const val VISUAL_FALLBACK_SCORE = 30
         private const val SCROLL_FALLBACK_SCORE = 22
         private const val SWIPE_FALLBACK_SCORE = 20
-        private const val WAIT_LOW_SIGNAL_SCORE = 36
+        private const val WAIT_EMPTY_SCREEN_SCORE = 12
         private const val BACK_RECOVERY_SCORE = 34
-        private const val RECOVERY_ACTION_BONUS = 14
         private val VERIFY_AFTER_TAP_TYPES = setOf("tap_node", "tap_xy")
 
         private val fillerWords = listOf("帮我", "替我", "请", "打开", "开启", "启动", "找到", "进入", "搜索", "查找", "一下", "看看", "去", "里", "里面", "应用", "app")
         private val searchIntentWords = listOf("搜索", "查找", "搜", "找", "search")
         private val searchWords = listOf("搜索", "查找", "搜一搜", "search")
-        private val navigationWords = listOf("搜索", "查找", "发现", "首页", "消息", "通讯录", "联系人", "我的", "我", "频道", "分类", "更多", "菜单", "动态", "社区", "广场", "探索", "search")
+        private val genericRouteWords = listOf("首页", "消息", "发现", "动态", "社区", "广场", "频道", "分类", "更多", "菜单", "搜索", "我的", "我", "设置", "探索")
         private val socialDiscoverySignals = listOf("朋友圈", "动态", "朋友动态", "内容流", "内容", "社区", "广场", "圈子", "关注", "帖子", "视频号")
         private val socialDiscoveryRouteWords = listOf("发现", "动态", "朋友", "内容", "社区", "广场", "频道", "探索", "关注")
-        private val socialDiscoverySuccessTexts = listOf("朋友圈", "视频号", "搜一搜", "看一看", "直播", "小程序", "游戏", "购物")
         private val contactSignals = listOf("联系人", "通讯录", "好友", "朋友", "群聊")
         private val contactRouteWords = listOf("通讯录", "联系人", "好友", "朋友", "群聊")
-        private val contactSuccessTexts = listOf("新的朋友", "群聊", "标签", "公众号", "企业微信联系人")
         private val settingsSignals = listOf("设置", "个人", "资料", "账号", "隐私", "收藏")
         private val settingsRouteWords = listOf("我的", "我", "设置", "个人", "资料", "账号")
-        private val settingsSuccessTexts = listOf("服务", "收藏", "朋友圈", "视频号", "卡包", "表情", "设置")
-        private val chatListAvoidWords = listOf("聊天", "会话", "群聊", "文件传输助手", "订阅号", "服务通知")
-        private val chatPageAvoidTexts = listOf("发送", "按住说话", "语音", "表情", "更多功能", "聊天信息", "转账", "红包", "请输入消息", "输入框", "切换到键盘")
+        private val highRiskWords = listOf("支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意", "发送", "提交", "发布", "评论", "验证码", "密码", "登录")
+        private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
 
         private val TARGET_APPS = listOf(
             TargetApp("微信", "com.tencent.mm", listOf("微信", "wechat", "wx")),
