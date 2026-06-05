@@ -23,6 +23,8 @@ data class AgentScreenVisual(
     val mimeType: String,
     val width: Int,
     val height: Int,
+    val displayWidth: Int,
+    val displayHeight: Int,
     val base64Jpeg: String,
     val source: String,
     val reason: String,
@@ -35,6 +37,8 @@ data class AgentScreenVisual(
         put("mimeType", mimeType)
         put("width", width)
         put("height", height)
+        put("displayWidth", displayWidth)
+        put("displayHeight", displayHeight)
         put("source", source)
         put("reason", reason)
         if (hasImage) put("base64Jpeg", base64Jpeg)
@@ -101,6 +105,8 @@ private fun ScreenVisualObservation.toAgentVisual(): AgentScreenVisual {
         mimeType = mimeType,
         width = width,
         height = height,
+        displayWidth = displayWidth,
+        displayHeight = displayHeight,
         base64Jpeg = base64Jpeg,
         source = source,
         reason = reason,
