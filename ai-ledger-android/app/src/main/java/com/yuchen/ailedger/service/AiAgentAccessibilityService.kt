@@ -317,7 +317,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
         val explicitPackage = step.packageName?.takeIf { it.isNotBlank() }
-        val app = explicitPackage?.let { InstalledAppEntry(step.appName ?: it, it) } ?: step.appName?.let { InstalledAppIndex(this).findBestApp(it) } ?: step.targetText?.let { InstalledAppIndex(this).findBestApp(it) }
+        val app = explicitPackage?.let { InstalledAppEntry(step.appName ?: it, it) }
+            ?: step.appName?.let { InstalledAppIndex(this).findBestApp(it) }
+            ?: step.targetText?.let { InstalledAppIndex(this).findBestApp(it) }
         val packageName = app?.packageName ?: return AgentExecutionResult(false, "没有找到要打开的应用：${step.appName ?: step.targetText ?: "未知"}", false)
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
             ?: return AgentExecutionResult(false, "应用没有可启动入口：$packageName", false)
@@ -346,9 +348,38 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
-        val x = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
-        val y = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
-        return dispatchTap(x, y, "已点击坐标 ${x.toInt()},${y.toInt()}")
+        val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
+        val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
+        val normalized = normalizeVisualTapPoint(rawX, rawY)
+        val suffix = if (normalized.wasScaled) "（已从截图坐标换算）" else ""
+        return dispatchTap(normalized.x, normalized.y, "已点击坐标 ${normalized.x.toInt()},${normalized.y.toInt()}$suffix")
+    }
+
+    private fun normalizeVisualTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
+        val metrics = resources.displayMetrics
+        val displayWidth = metrics.widthPixels.toFloat().coerceAtLeast(1f)
+        val displayHeight = metrics.heightPixels.toFloat().coerceAtLeast(1f)
+        if (rawX in 0f..1f && rawY in 0f..1f) {
+            return NormalizedTapPoint(rawX * displayWidth, rawY * displayHeight, wasScaled = true)
+        }
+        val visual = ScreenObservationStore.observation.value.visual?.takeIf { it.hasImage }
+        if (visual != null && visual.width > 0 && visual.height > 0 && visual.displayWidth > 0 && visual.displayHeight > 0) {
+            val imageWidth = visual.width.toFloat()
+            val imageHeight = visual.height.toFloat()
+            val realWidth = visual.displayWidth.toFloat()
+            val realHeight = visual.displayHeight.toFloat()
+            val looksLikeImageCoordinates = (realWidth > imageWidth + VISUAL_COORDINATE_EPSILON || realHeight > imageHeight + VISUAL_COORDINATE_EPSILON) &&
+                rawX <= imageWidth + VISUAL_COORDINATE_EPSILON &&
+                rawY <= imageHeight + VISUAL_COORDINATE_EPSILON
+            if (looksLikeImageCoordinates) {
+                return NormalizedTapPoint(
+                    x = rawX * realWidth / imageWidth,
+                    y = rawY * realHeight / imageHeight,
+                    wasScaled = true,
+                )
+            }
+        }
+        return NormalizedTapPoint(rawX, rawY, wasScaled = false)
     }
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
@@ -523,6 +554,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
     private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>)
     private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
+    private data class NormalizedTapPoint(val x: Float, val y: Float, val wasScaled: Boolean)
 
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
@@ -571,5 +603,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val VISION_MAX_LONG_SIDE = 960
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
+        private const val VISUAL_COORDINATE_EPSILON = 24f
     }
 }
