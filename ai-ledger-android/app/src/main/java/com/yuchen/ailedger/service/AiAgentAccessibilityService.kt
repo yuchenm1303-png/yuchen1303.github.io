@@ -124,10 +124,12 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 windowTitle = selected.windowTitle,
                 updatedAt = now,
                 textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
+                allItems = nodes.distinctBy { it.bounds + it.text + it.className }.take(ALL_NODE_LIMIT),
                 clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
                 inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
                 scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
                 nodeCount = selected.capture.rawNodeCount,
+                capturedNodeCount = selected.capture.handles.size,
             )
         } else {
             ScreenObservation(enabled = true, serviceConnected = true, updatedAt = now)
@@ -360,16 +362,19 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
         val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
         val normalized = normalizeVisualTapPoint(rawX, rawY)
-        val suffix = if (normalized.wasScaled) "（已从截图坐标换算）" else ""
-        return dispatchTap(normalized.x, normalized.y, "已点击坐标 ${normalized.x.toInt()},${normalized.y.toInt()}$suffix")
+        val suffix = if (normalized.source.isNotBlank()) "（${normalized.source}）" else ""
+        return dispatchTap(normalized.x, normalized.y, "目标坐标 ${normalized.x.toInt()},${normalized.y.toInt()}$suffix")
     }
 
     private fun normalizeVisualTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
-        val metrics = resources.displayMetrics
-        val displayWidth = metrics.widthPixels.toFloat().coerceAtLeast(1f)
-        val displayHeight = metrics.heightPixels.toFloat().coerceAtLeast(1f)
+        val reference = currentTapReferenceFrame()
         if (rawX in 0f..1f && rawY in 0f..1f) {
-            return NormalizedTapPoint(rawX * displayWidth, rawY * displayHeight, wasScaled = true)
+            return NormalizedTapPoint(
+                x = rawX * reference.width,
+                y = rawY * reference.height,
+                wasScaled = true,
+                source = "归一化坐标 ${"%.3f".format(rawX)},${"%.3f".format(rawY)}→${reference.label} ${reference.width.toInt()}x${reference.height.toInt()}",
+            )
         }
         val visual = ScreenObservationStore.observation.value.visual?.takeIf { it.hasImage }
         if (visual != null && visual.width > 0 && visual.height > 0 && visual.displayWidth > 0 && visual.displayHeight > 0) {
@@ -385,10 +390,28 @@ class AiAgentAccessibilityService : AccessibilityService() {
                     x = rawX * realWidth / imageWidth,
                     y = rawY * realHeight / imageHeight,
                     wasScaled = true,
+                    source = "截图像素坐标换算 ${imageWidth.toInt()}x${imageHeight.toInt()}→${realWidth.toInt()}x${realHeight.toInt()}",
                 )
             }
         }
-        return NormalizedTapPoint(rawX, rawY, wasScaled = false)
+        return NormalizedTapPoint(rawX, rawY, wasScaled = false, source = "像素坐标直达")
+    }
+
+    private fun currentTapReferenceFrame(): TapReferenceFrame {
+        val visual = ScreenObservationStore.observation.value.visual?.takeIf { it.hasImage && it.displayWidth > 0 && it.displayHeight > 0 }
+        if (visual != null) {
+            return TapReferenceFrame(
+                width = visual.displayWidth.toFloat().coerceAtLeast(1f),
+                height = visual.displayHeight.toFloat().coerceAtLeast(1f),
+                label = "截图屏幕",
+            )
+        }
+        val metrics = resources.displayMetrics
+        return TapReferenceFrame(
+            width = metrics.widthPixels.toFloat().coerceAtLeast(1f),
+            height = metrics.heightPixels.toFloat().coerceAtLeast(1f),
+            label = "系统屏幕",
+        )
     }
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
@@ -414,9 +437,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeSwipe(step: CloudAgentStep): AgentExecutionResult {
         val direction = step.direction.orEmpty().lowercase().ifBlank { "up" }
-        val metrics = resources.displayMetrics
-        val w = metrics.widthPixels.toFloat()
-        val h = metrics.heightPixels.toFloat()
+        val reference = currentTapReferenceFrame()
+        val w = reference.width
+        val h = reference.height
         val (startX, startY, endX, endY) = when (direction) {
             "down" -> listOf(w * 0.5f, h * 0.32f, w * 0.5f, h * 0.72f)
             "left" -> listOf(w * 0.78f, h * 0.5f, w * 0.22f, h * 0.5f)
@@ -513,16 +536,21 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(safeX, safeY) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS)).build()
         val ok = dispatchGesture(gesture, null, null)
-        return AgentExecutionResult(ok = ok, message = if (ok) successMessage else "点击手势提交失败", shouldContinue = ok)
+        val finalMessage = if (safeX != x || safeY != y) {
+            "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}（边界保护）"
+        } else {
+            "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}"
+        }
+        return AgentExecutionResult(ok = ok, message = if (ok) finalMessage else "点击手势提交失败", shouldContinue = ok)
     }
 
     private fun safeTapPoint(x: Float, y: Float): Pair<Float, Float> {
-        val metrics = resources.displayMetrics
-        val density = metrics.density.coerceAtLeast(1f)
-        val minX = 4f * density
-        val maxX = (metrics.widthPixels - 4f * density).coerceAtLeast(minX)
-        val minY = 24f * density
-        val maxY = (metrics.heightPixels - 28f * density).coerceAtLeast(minY)
+        val reference = currentTapReferenceFrame()
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val minX = 2f * density
+        val maxX = (reference.width - 2f * density).coerceAtLeast(minX)
+        val minY = 2f * density
+        val maxY = (reference.height - 2f * density).coerceAtLeast(minY)
         return x.coerceIn(minX, maxX) to y.coerceIn(minY, maxY)
     }
 
@@ -563,7 +591,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
     private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>)
     private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
-    private data class NormalizedTapPoint(val x: Float, val y: Float, val wasScaled: Boolean)
+    private data class NormalizedTapPoint(val x: Float, val y: Float, val wasScaled: Boolean, val source: String)
+    private data class TapReferenceFrame(val width: Float, val height: Float, val label: String)
 
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
@@ -604,6 +633,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val MAX_DEPTH = 14
         private const val CHILD_TEXT_FALLBACK_LIMIT = 8
         private const val TEXT_LIMIT = 60
+        private const val ALL_NODE_LIMIT = 160
         private const val CLICKABLE_LIMIT = 56
         private const val INPUT_LIMIT = 12
         private const val SCROLLABLE_LIMIT = 16
