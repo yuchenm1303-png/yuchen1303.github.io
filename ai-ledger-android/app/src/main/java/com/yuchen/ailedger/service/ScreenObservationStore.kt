@@ -14,6 +14,20 @@ data class ObservedScreenNode(
     val scrollable: Boolean,
 )
 
+data class ScreenVisualObservation(
+    val available: Boolean = false,
+    val mimeType: String = "image/jpeg",
+    val width: Int = 0,
+    val height: Int = 0,
+    val base64Jpeg: String = "",
+    val source: String = "none",
+    val reason: String = "",
+    val capturedAt: Long = 0L,
+) {
+    val hasImage: Boolean
+        get() = available && base64Jpeg.isNotBlank() && width > 0 && height > 0
+}
+
 data class ScreenObservation(
     val enabled: Boolean = false,
     val serviceConnected: Boolean = false,
@@ -25,6 +39,7 @@ data class ScreenObservation(
     val inputItems: List<ObservedScreenNode> = emptyList(),
     val scrollableItems: List<ObservedScreenNode> = emptyList(),
     val nodeCount: Int = 0,
+    val visual: ScreenVisualObservation? = null,
 )
 
 object ScreenObservationStore {
@@ -46,6 +61,7 @@ object ScreenObservationStore {
             inputItems = emptyList(),
             scrollableItems = emptyList(),
             nodeCount = 0,
+            visual = null,
             updatedAt = System.currentTimeMillis(),
         )
     }
@@ -62,6 +78,7 @@ object ScreenObservationStore {
             inputItems = emptyList(),
             scrollableItems = emptyList(),
             nodeCount = 0,
+            visual = null,
             updatedAt = System.currentTimeMillis(),
         )
     }
