@@ -38,7 +38,7 @@ class AgentTaskRunner(
         val memory = AgentRunMemory(goal = goal, targetApp = targetApp)
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
-            val observation = captureOnce()
+            val observation = captureOnce(forceVisual = true)
             if (!observation.enabled || !observation.serviceConnected) {
                 val message = "无障碍服务未开启"
                 AgentRuntimeController.failTask(message)
@@ -78,7 +78,7 @@ class AgentTaskRunner(
                 aiWorkerClient.requestAgentStep(goal = goal, snapshot = workingSnapshot, modelPreference = modelPreference)
             }
 
-            if (cloudStep.type == "need_user_help" && !workingSnapshot.hasVisualImage && memory.forceVisualPlanAttempts < MAX_FORCE_VISUAL_PLAN_ATTEMPTS) {
+            if (cloudStep.type == "need_user_help" && memory.forceVisualPlanAttempts < MAX_FORCE_VISUAL_PLAN_ATTEMPTS) {
                 memory.forceVisualPlanAttempts += 1
                 val visualObservation = captureOnce(forceVisual = true)
                 if (visualObservation.enabled && visualObservation.serviceConnected) {
@@ -154,7 +154,7 @@ class AgentTaskRunner(
                         riskLevel = "low",
                         requiresConfirmation = false,
                     )
-                    val latest = captureOnce()
+                    val latest = captureOnce(forceVisual = true)
                     val backResult = executeAndRecord(backStep, latest.toAgentScreenSnapshot().currentApp, logs)
                     memory.remember(backStep, backResult)
                     if (!backResult.ok || !backResult.shouldContinue) {
@@ -239,20 +239,12 @@ class AgentTaskRunner(
         memory: AgentRunMemory,
         modelPreference: ChatModel,
     ): TapOutcome {
-        val firstObservation = captureOnce(forceVisual = step.type == "tap_xy")
+        val firstObservation = captureOnce(forceVisual = true)
         if (!firstObservation.enabled || !firstObservation.serviceConnected) return TapOutcome.Unknown
-        var snapshot = firstObservation.toAgentScreenSnapshot()
+        val snapshot = firstObservation.toAgentScreenSnapshot()
         memory.observe(snapshot, context)
         val localOutcome = verifyTapOutcomeLocally(step, snapshot, context)
         if (localOutcome == TapOutcome.WrongPage) return TapOutcome.WrongPage
-        if (localOutcome == TapOutcome.ExpectedPage && step.type != "tap_xy") return TapOutcome.ExpectedPage
-        if (!snapshot.hasVisualImage) {
-            val visualObservation = captureOnce(forceVisual = true)
-            if (visualObservation.enabled && visualObservation.serviceConnected) {
-                snapshot = visualObservation.toAgentScreenSnapshot()
-                memory.observe(snapshot, context)
-            }
-        }
         if (!snapshot.hasVisualImage) return localOutcome
         val cloudOutcome = withContext(Dispatchers.IO) {
             runCatching {
@@ -306,6 +298,9 @@ class AgentTaskRunner(
     }
 
     private fun chooseAction(goal: String, snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep, memory: AgentRunMemory, context: GoalContext): CloudAgentStep? {
+        scoreCloudStep(cloudStep, snapshot, context, memory)?.let { cloudCandidate ->
+            if (snapshot.hasVisualImage && !memory.isBlocked(cloudCandidate.step)) return cloudCandidate.step
+        }
         val ranked = mutableListOf<ScoredStep>()
         scoreCloudStep(cloudStep, snapshot, context, memory)?.let { ranked += it }
         ranked += buildLocalCandidates(snapshot, memory, context)
@@ -327,6 +322,7 @@ class AgentTaskRunner(
             AgentTaskPhase.Verifying -> if (step.type == "finish") 20 else 0
             AgentTaskPhase.OpeningApp -> if (step.type == "open_app") 12 else 0
         }
+        val visionPlannerBonus = if (snapshot.hasVisualImage) VISION_PLANNER_PRIORITY_BONUS else 0
         val score = when (step.type) {
             "tap_node", "tap_xy" -> 58 + targetScore
             "input_text" -> if (context.wantsSearch) 62 else 46
@@ -336,7 +332,7 @@ class AgentTaskRunner(
             "back" -> if (memory.repeatedCloudRejects >= 1) 42 else 18
             "home", "recents", "notifications", "quick_settings" -> 16
             else -> 34
-        } + phaseBonus - if (memory.isLikelyRepeated(step)) REPEATED_ACTION_PENALTY else 0
+        } + phaseBonus + visionPlannerBonus - if (memory.isLikelyRepeated(step)) REPEATED_ACTION_PENALTY else 0
         return ScoredStep(step, score)
     }
 
@@ -615,9 +611,10 @@ class AgentTaskRunner(
         private const val SHORT_NAV_TEXT_BONUS = 6
         private const val LONG_UNRELATED_TEXT_PENALTY = 16
         private const val REPEATED_ACTION_PENALTY = 60
+        private const val VISION_PLANNER_PRIORITY_BONUS = 120
         private const val INPUT_SEARCH_SCORE = 64
         private const val INPUT_NORMAL_SCORE = 48
-        private const val VISUAL_FALLBACK_SCORE = 54
+        private const val VISUAL_FALLBACK_SCORE = 30
         private const val SCROLL_FALLBACK_SCORE = 22
         private const val SWIPE_FALLBACK_SCORE = 20
         private const val WAIT_LOW_SIGNAL_SCORE = 36
