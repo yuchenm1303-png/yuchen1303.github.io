@@ -56,42 +56,42 @@ fun StockFirstToolsHomeScreen(
             }
         }
         item {
-            ToolsEntrance(delayMs = 42, initialOffsetY = 18, initialScale = 0.968f) {
+            ToolsEntrance(delayMs = 95, initialOffsetY = 18, initialScale = 0.966f) {
                 StockMarketHeroEntry(state, onOpenTool)
             }
         }
         item {
-            ToolsEntrance(delayMs = 78, initialOffsetY = 18, initialScale = 0.972f) {
+            ToolsEntrance(delayMs = 175, initialOffsetY = 18, initialScale = 0.970f) {
                 StockToolsQuickRow(state, onOpenTool)
             }
         }
         item {
-            ToolsEntrance(delayMs = 110, initialOffsetY = 20, initialScale = 0.968f) {
+            ToolsEntrance(delayMs = 255, initialOffsetY = 20, initialScale = 0.966f) {
                 StockToolEntryCard(STOCK_MARKET_TOOL_TITLE, "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
             }
         }
         item {
-            ToolsEntrance(delayMs = 136, initialOffsetY = 22, initialScale = 0.965f) {
+            ToolsEntrance(delayMs = 315, initialOffsetY = 22, initialScale = 0.964f) {
                 StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", state) { onOpenTool("账单中心") }
             }
         }
         item {
-            ToolsEntrance(delayMs = 162, initialOffsetY = 24, initialScale = 0.965f) {
+            ToolsEntrance(delayMs = 375, initialOffsetY = 24, initialScale = 0.964f) {
                 StockToolEntryCard("数据统计", "按周、月、年查看趋势", state) { onOpenTool("数据统计") }
             }
         }
         item {
-            ToolsEntrance(delayMs = 188, initialOffsetY = 24, initialScale = 0.962f) {
+            ToolsEntrance(delayMs = 435, initialOffsetY = 24, initialScale = 0.962f) {
                 StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", state) { onOpenTool("提醒闹钟") }
             }
         }
         item {
-            ToolsEntrance(delayMs = 214, initialOffsetY = 26, initialScale = 0.962f) {
+            ToolsEntrance(delayMs = 495, initialOffsetY = 26, initialScale = 0.962f) {
                 StockToolEntryCard("应用控制", "打开微信、支付宝等应用", state) { onOpenTool("应用控制") }
             }
         }
         item {
-            ToolsEntrance(delayMs = 240, initialOffsetY = 26, initialScale = 0.96f) {
+            ToolsEntrance(delayMs = 555, initialOffsetY = 26, initialScale = 0.96f) {
                 StockToolEntryCard("快捷指令", "保存常用任务", state) { onOpenTool("快捷指令") }
             }
         }
@@ -118,7 +118,7 @@ private fun ToolsEntrance(
             if (delayMs > 0L) delay(delayMs)
             visible = true
         } else {
-            if (pageLeaving && delayMs > 0L) delay((delayMs / 12L).coerceAtMost(28L))
+            if (pageLeaving && delayMs > 0L) delay((delayMs / 16L).coerceAtMost(34L))
             visible = false
         }
     }
@@ -129,9 +129,9 @@ private fun ToolsEntrance(
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
             slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
             scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(92)) +
-            slideOutVertically(tween(104)) { (-initialOffsetY / 3).coerceIn(-10, 10) } +
-            scaleOut(targetScale = 0.986f, animationSpec = tween(112))
+        exit = fadeOut(tween(104)) +
+            slideOutVertically(tween(118)) { (-initialOffsetY / 3).coerceIn(-10, 10) } +
+            scaleOut(targetScale = 0.986f, animationSpec = tween(126))
     ) {
         content()
     }
