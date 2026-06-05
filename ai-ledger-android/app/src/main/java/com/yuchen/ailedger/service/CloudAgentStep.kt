@@ -2,6 +2,77 @@ package com.yuchen.ailedger.service
 
 import org.json.JSONObject
 
+data class CloudAgentState(
+    val isComplete: Boolean = false,
+    val expectedProgress: Boolean = false,
+    val isWrong: Boolean = false,
+    val confidence: Float = 0f,
+    val reason: String = "",
+    val nextHint: String = "",
+) {
+    companion object {
+        fun fromJson(root: JSONObject?): CloudAgentState? {
+            if (root == null) return null
+            val item = root.optJSONObject("agentState")
+                ?: root.optJSONObject("state")
+                ?: root.optJSONObject("data")?.optJSONObject("agentState")
+                ?: root.optJSONObject("result")?.optJSONObject("agentState")
+                ?: root.optJSONObject("plan")?.optJSONObject("agentState")
+                ?: root.takeIf {
+                    it.has("isComplete") || it.has("complete") || it.has("isExpected") || it.has("expectedProgress") || it.has("isWrong")
+                }
+                ?: return null
+
+            val complete = item.optFlexibleBoolean("isComplete")
+                ?: item.optFlexibleBoolean("complete")
+                ?: item.optFlexibleBoolean("completed")
+                ?: item.optFlexibleBoolean("isExpected")
+                ?: item.optFlexibleBoolean("expected")
+                ?: false
+            val progress = item.optFlexibleBoolean("expectedProgress")
+                ?: item.optFlexibleBoolean("progress")
+                ?: item.optFlexibleBoolean("isProgress")
+                ?: item.optFlexibleBoolean("onRightTrack")
+                ?: item.optFlexibleBoolean("closerToGoal")
+                ?: complete
+            val wrong = item.optFlexibleBoolean("isWrong")
+                ?: item.optFlexibleBoolean("wrong")
+                ?: item.optFlexibleBoolean("wrongPage")
+                ?: item.optFlexibleBoolean("offTarget")
+                ?: false
+            val safeWrong = wrong && !complete && !progress
+            val confidence = item.optNullableFloat("confidence")
+                ?: item.optNullableFloat("score")
+                ?: when {
+                    complete || safeWrong -> 0.72f
+                    progress -> 0.62f
+                    else -> 0.35f
+                }
+            return CloudAgentState(
+                isComplete = complete,
+                expectedProgress = progress || complete,
+                isWrong = safeWrong,
+                confidence = confidence.coerceIn(0f, 1f),
+                reason = item.optString("reason")
+                    .notBlankOrNull()
+                    ?: item.optString("explanation").notBlankOrNull()
+                    ?: item.optString("rationale").notBlankOrNull()
+                    ?: "",
+                nextHint = item.optString("nextHint")
+                    .notBlankOrNull()
+                    ?: item.optString("next_hint").notBlankOrNull()
+                    ?: item.optString("hint").notBlankOrNull()
+                    ?: "",
+            )
+        }
+    }
+}
+
+data class CloudAgentPlan(
+    val step: CloudAgentStep,
+    val state: CloudAgentState? = null,
+)
+
 data class CloudAgentStep(
     val type: String,
     val targetNodeId: String? = null,
@@ -104,4 +175,19 @@ private fun JSONObject.optNullableFloat(name: String): Float? {
 private fun JSONObject.optNullableLong(name: String): Long? {
     if (!has(name) || isNull(name)) return null
     return runCatching { optLong(name) }.getOrNull()
+}
+
+private fun JSONObject.optFlexibleBoolean(name: String): Boolean? {
+    if (!has(name) || isNull(name)) return null
+    val raw = opt(name)
+    return when (raw) {
+        is Boolean -> raw
+        is Number -> raw.toInt() != 0
+        is String -> when (raw.lowercase().trim()) {
+            "true", "yes", "1", "expected", "complete", "completed", "progress", "success", "wrong" -> true
+            "false", "no", "0", "uncertain", "unknown", "" -> false
+            else -> null
+        }
+        else -> null
+    }
 }
