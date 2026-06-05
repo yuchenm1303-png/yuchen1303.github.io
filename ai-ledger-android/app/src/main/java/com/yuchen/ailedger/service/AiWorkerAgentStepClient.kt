@@ -53,6 +53,7 @@ private fun buildAgentStepPayload(
         put("agentMode", true)
         put("computerUseMode", true)
         put("visionFirst", snapshot.hasVisualImage)
+        put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
@@ -79,7 +80,7 @@ private fun buildAgentStepPayload(
                 put("enabled", true)
                 put("provider", "qwen")
                 put("route", AGENT_VISION_ROUTE_ID)
-                put("coordinateSystem", "display")
+                put("coordinateSystem", "normalized_screen_0_1")
                 put("screenshotWidth", visual.width)
                 put("screenshotHeight", visual.height)
                 put("displayWidth", visual.displayWidth)
@@ -97,7 +98,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-vision-first-v3" else "compose-native-agent-v3")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-normalized-vision-v4" else "compose-native-agent-v4")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -119,10 +120,13 @@ private fun buildPlannerMessage(goal: String, snapshotJsonWithoutImage: JSONObje
         append("目标：").append(goal).append('\n')
         append("结构化快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
-            append("本次包含屏幕截图，真实屏幕尺寸为 ")
+            append("本次包含屏幕截图。截图尺寸为 ")
+                .append(visual.width).append("x").append(visual.height)
+                .append("，参考屏幕尺寸为 ")
                 .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
-            append("请先看截图，再参考节点；节点可能缺失。tap_xy 必须使用真实屏幕坐标。\n")
-            append("如果当前页面走错，请返回 back；如果目标可见，请返回 tap_xy；如果页面刚变化，请 wait。\n")
+            append("重要：tap_xy 必须返回归一化屏幕坐标，不要返回像素。x 和 y 都必须是 0 到 1 的小数。\n")
+            append("例如：屏幕底部导航栏中间偏右的“发现”，通常应该接近 x=0.62, y=0.94，而不是 x=360, y=1200。\n")
+            append("请先看截图，再参考节点；节点可能缺失。当前页面走错请返回 back；目标可见请返回 tap_xy；页面刚变化请 wait。\n")
         } else {
             append("当前没有截图，只能根据节点谨慎规划。\n")
         }
@@ -138,16 +142,21 @@ private fun agentPlannerSystemPrompt(): String = """
 支持动作：open_app, home, back, recents, notifications, quick_settings, tap_node, tap_xy, input_text, scroll, swipe, wait, finish, need_user_help。
 JSON 格式：{"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
 
+坐标协议（非常重要）：
+1. tap_xy 的 x/y 一律返回归一化屏幕坐标，范围 0 到 1，不要返回像素坐标。
+2. x=0 表示最左侧，x=1 表示最右侧；y=0 表示最顶部，y=1 表示最底部。
+3. 点击底部导航栏时，y 通常应在 0.91 到 0.97 之间；不要点到导航栏上方的内容列表。
+4. 如果你心里算出像素坐标，必须先除以屏幕宽高再输出。
+
 规则：
 1. 有截图时必须先看截图，不能因为节点少就直接 need_user_help。
 2. 截图里目标、导航入口、返回键、输入框可见时，直接返回对应动作。
-3. tap_xy 使用真实屏幕坐标 displayWidth/displayHeight。
-4. 当前页面走错时，优先 back。
-5. 页面刚变化或加载中时，返回 wait。
-6. 微信朋友圈常见路径：先回微信主会话页，再点底部“发现”，再点“朋友圈”。
-7. 目标属于某个 App 且当前不在该 App 时，优先 open_app。
-8. 目标已完成时，返回 finish。
-9. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
+3. 当前页面走错时，优先 back。
+4. 页面刚变化或加载中时，返回 wait。
+5. 微信朋友圈常见路径：先回微信主会话页，再点底部“发现”，再点“朋友圈”。
+6. 目标属于某个 App 且当前不在该 App 时，优先 open_app。
+7. 目标已完成时，返回 finish。
+8. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
 """.trimIndent()
 
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
