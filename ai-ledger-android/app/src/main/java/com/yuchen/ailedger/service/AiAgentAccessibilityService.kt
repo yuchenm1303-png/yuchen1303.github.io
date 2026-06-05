@@ -29,11 +29,12 @@ import java.util.concurrent.TimeUnit
 class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintAtMs: Long = 0L
     @Volatile private var lastWindowHintKey: String = ""
+    @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Light
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
-        configureServiceInfo()
+        configureLightServiceInfo(force = true)
         ScreenObservationStore.markConnectedWaitingForWindow()
         startAgentForegroundNotification()
     }
@@ -61,19 +62,38 @@ class AiAgentAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun configureServiceInfo() {
+    private fun configureLightServiceInfo(force: Boolean = false) {
+        if (!force && currentAccessibilityMode == AccessibilityRuntimeMode.Light) return
         val current = serviceInfo ?: return
-        current.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        current.eventTypes = LIGHT_EVENT_TYPES
         current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-        current.flags = current.flags or
-            AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-        current.notificationTimeout = 250L
+        current.flags = LIGHT_ACCESSIBILITY_FLAGS
+        current.notificationTimeout = LIGHT_NOTIFICATION_TIMEOUT_MS
         serviceInfo = current
+        currentAccessibilityMode = AccessibilityRuntimeMode.Light
     }
 
-    private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation {
+    private fun configureWorkingServiceInfo() {
+        if (currentAccessibilityMode == AccessibilityRuntimeMode.Working) return
+        val current = serviceInfo ?: return
+        current.eventTypes = LIGHT_EVENT_TYPES
+        current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        current.flags = WORKING_ACCESSIBILITY_FLAGS
+        current.notificationTimeout = WORKING_NOTIFICATION_TIMEOUT_MS
+        serviceInfo = current
+        currentAccessibilityMode = AccessibilityRuntimeMode.Working
+    }
+
+    private inline fun <T> withWorkingAccessibilityMode(block: () -> T): T {
+        configureWorkingServiceInfo()
+        return try {
+            block()
+        } finally {
+            configureLightServiceInfo(force = true)
+        }
+    }
+
+    private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation = withWorkingAccessibilityMode {
         val now = System.currentTimeMillis()
         val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES)
         val nodeObservation = if (selected != null) {
@@ -95,7 +115,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
         val shouldCaptureVisual = forceVisual || shouldUseVisualFallback(nodeObservation)
         val visual = if (shouldCaptureVisual) captureVisualObservation(reasonForVisualFallback(nodeObservation, forceVisual)) else null
-        return nodeObservation.copy(visual = visual)
+        nodeObservation.copy(visual = visual)
     }
 
     private fun shouldUseVisualFallback(observation: ScreenObservation): Boolean {
@@ -264,6 +284,14 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
+        return if (step.requiresWindowContent()) {
+            withWorkingAccessibilityMode { executeStepInternalUnchecked(step) }
+        } else {
+            executeStepInternalUnchecked(step)
+        }
+    }
+
+    private fun executeStepInternalUnchecked(step: CloudAgentStep): AgentExecutionResult {
         return when (step.type) {
             "open_app" -> executeOpenApp(step)
             "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
@@ -281,6 +309,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
             "need_user_help" -> AgentExecutionResult(ok = false, message = step.reason ?: "需要用户协助", shouldContinue = false)
             else -> AgentExecutionResult(ok = false, message = "不支持的动作：${step.type}", shouldContinue = false)
         }
+    }
+
+    private fun CloudAgentStep.requiresWindowContent(): Boolean {
+        return type in setOf("tap_node", "input_text", "scroll")
     }
 
     private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
@@ -487,6 +519,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
+    private enum class AccessibilityRuntimeMode { Light, Working }
     private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
     private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>)
     private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
@@ -507,6 +540,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         private const val WINDOW_HINT_THROTTLE_MS = 900L
+        private const val LIGHT_EVENT_TYPES = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        private const val LIGHT_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        private const val WORKING_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+        private const val LIGHT_NOTIFICATION_TIMEOUT_MS = 500L
+        private const val WORKING_NOTIFICATION_TIMEOUT_MS = 80L
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
         private const val CONTENT_APP_WINDOW_BONUS = 4_000
