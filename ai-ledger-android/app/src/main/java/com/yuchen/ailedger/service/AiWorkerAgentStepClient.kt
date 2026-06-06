@@ -6,6 +6,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -59,6 +60,8 @@ private fun buildAgentStepPayload(
     val hasScreenshot = snapshot.hasVisualImage
     val modelId = if (hasScreenshot) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotWithoutImage = snapshot.toJson(includeImage = false)
+    val loopIndex = agentMemory?.optJSONObject("loopSignals")?.optIntOrNull("loopIndex") ?: 0
+    val sessionId = AgentClientSessionStore.sessionId(cleanGoal, loopIndex)
     return JSONObject().apply {
         put("action", "chat")
         put("intent", "agent_step")
@@ -67,6 +70,8 @@ private fun buildAgentStepPayload(
         put("visionFirst", hasScreenshot)
         put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
+        put("agentSessionId", sessionId)
+        put("agentSessionStep", loopIndex)
         put("message", cleanGoal)
         put("recentAgentActions", JSONArray().apply { recentActions.takeLast(8).forEach { put(it) } })
         agentMemory?.let { put("agentMemory", it) }
@@ -99,13 +104,30 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (hasScreenshot) "compose-native-agent-fast-json-v8" else "compose-native-agent-tool-only-v8")
+        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-memory-v9" else "compose-native-agent-tool-only-v9")
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeAgentState", true)
             put("includeAgentStep", true)
         })
         put("now", System.currentTimeMillis())
+    }
+}
+
+private object AgentClientSessionStore {
+    private var lastGoal: String = ""
+    private var lastLoopIndex: Int = -1
+    private var currentSessionId: String = ""
+
+    @Synchronized
+    fun sessionId(goal: String, loopIndex: Int): String {
+        val normalizedGoal = goal.trim().lowercase(Locale.ROOT)
+        if (currentSessionId.isBlank() || normalizedGoal != lastGoal || loopIndex <= lastLoopIndex) {
+            currentSessionId = "android-agent-${System.currentTimeMillis()}"
+        }
+        lastGoal = normalizedGoal
+        lastLoopIndex = loopIndex
+        return currentSessionId
     }
 }
 
@@ -171,17 +193,25 @@ private fun buildAgentTimingDiagnostic(
         .replace("agent-", "")
         .take(24)
     val providerMs = debug?.optLongOrNull("providerMs")
+    val textPlannerMs = debug?.optLongOrNull("textPlannerMs")
     val buildMs = debug?.optLongOrNull("buildMessagesMs")
     val parseMs = debug?.optLongOrNull("parseMs")
     val promptChars = debug?.optLongOrNull("promptChars")
     val screenshotKb = debug?.optLongOrNull("screenshotBytesApprox")?.let { it / 1024 }
+    val visualCalled = debug?.optBooleanOrNull("visualCalled")
+    val visualCacheHit = debug?.optBooleanOrNull("visualCacheHit")
+    val sessionStep = debug?.optLongOrNull("sessionStep")
     val local = "req=${requestBytes / 1024}KB http=${totalMs}ms wait=${waitMs}ms read=${readMs}ms"
     val server = buildString {
         if (providerMs != null) append(" prov=${providerMs}ms")
+        if (textPlannerMs != null) append(" text=${textPlannerMs}ms")
         if (buildMs != null) append(" build=${buildMs}ms")
         if (parseMs != null) append(" parse=${parseMs}ms")
         if (promptChars != null) append(" prompt=${promptChars}")
         if (screenshotKb != null) append(" img=${screenshotKb}KB")
+        if (visualCalled != null) append(" visual=").append(if (visualCalled) "调" else "免")
+        if (visualCacheHit != null && visualCacheHit) append(" cache=命中")
+        if (sessionStep != null) append(" s#").append(sessionStep)
         if (version.isNotBlank()) append(" v=").append(version)
         if (debug == null) append(" debug=无")
     }
@@ -200,6 +230,22 @@ private fun String.agentJsonOrNull(): JSONObject? {
 private fun JSONObject.optLongOrNull(key: String): Long? {
     if (!has(key) || isNull(key)) return null
     return try { getLong(key) } catch (_: Exception) { optString(key).toLongOrNull() }
+}
+
+private fun JSONObject.optIntOrNull(key: String): Int? {
+    if (!has(key) || isNull(key)) return null
+    return try { getInt(key) } catch (_: Exception) { optString(key).toIntOrNull() }
+}
+
+private fun JSONObject.optBooleanOrNull(key: String): Boolean? {
+    if (!has(key) || isNull(key)) return null
+    return try { getBoolean(key) } catch (_: Exception) {
+        when (optString(key).lowercase(Locale.ROOT)) {
+            "true", "1", "yes" -> true
+            "false", "0", "no" -> false
+            else -> null
+        }
+    }
 }
 
 private fun extractAgentStepFromText(text: String): CloudAgentStep? {
