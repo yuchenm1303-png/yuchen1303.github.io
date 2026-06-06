@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-commit=8edc2373fa9df64158c54e68496511d1801e9760
+stock detail visible card repair
