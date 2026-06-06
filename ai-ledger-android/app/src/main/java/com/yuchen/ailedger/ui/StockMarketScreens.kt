@@ -46,7 +46,6 @@ import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockFeatureEntry
-import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockRankItem
@@ -164,8 +163,8 @@ private fun AStockDetailScreen(
 private fun AStockTerminalTopBar(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit) {
     GlassPanel(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.fillMaxWidth().height(52.dp), GlassRole.Nav) {
         Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PressableGlass(state.quality, state.glassIntensity * 0.68f, state.motionIntensity, 999, Modifier.height(36.dp), GlassRole.Chip, onClick = onBack) {
-                Box(Modifier.padding(horizontal = 10.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+            PressableGlass(state.quality, state.glassIntensity * 0.68f, state.motionIntensity, 999, Modifier.width(44.dp).height(36.dp), GlassRole.Chip, onClick = onBack) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("‹", color = Color.White.copy(alpha = 0.92f), fontSize = 25.sp, lineHeight = 25.sp, fontWeight = FontWeight.Light)
                 }
             }
@@ -177,15 +176,17 @@ private fun AStockTerminalTopBar(state: AssistantUiState, stock: StockDetailUiSt
                     AStockBadge(state, "L1")
                 }
             }
-            Text("⌕", color = Color.White.copy(alpha = 0.82f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Box(Modifier.width(44.dp).height(36.dp), contentAlignment = Alignment.Center) {
+                Text("⌕", color = Color.White.copy(alpha = 0.82f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
 
 @Composable
 private fun AStockTerminalPanel(state: AssistantUiState, stock: StockDetailUiState, loading: Boolean) {
-    GlassPanel(state.quality, state.glassIntensity * 0.72f, state.motionIntensity, 18, Modifier.fillMaxWidth(), GlassRole.Card) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    GlassPanel(state.quality, state.glassIntensity * 0.72f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(590.dp), GlassRole.Card) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             AStockQuoteTerminalHeader(stock, loading)
             AStockPopularityTicker(stock)
             AStockTerminalTabs()
@@ -263,6 +264,56 @@ private fun AStockCoreTradingArea(stock: StockDetailUiState) {
 }
 
 @Composable
+private fun AStockInlineChartHeader(stock: StockDetailUiState) {
+    val avg = stock.minutePoints.map { it.average }.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: stock.quote.previousClose
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("集合竞价", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("均价 ${formatTwo(avg)}", color = Color(0xFFFFC857), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("最新 ${stock.quote.price}", color = quoteColor(stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+@Composable
+private fun AStockIntradayCanvas(stock: StockDetailUiState, modifier: Modifier) {
+    val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
+    Canvas(modifier = modifier) {
+        val prices = points.map { it.price }
+        val averages = points.map { it.average }
+        val minValue = minOf(prices.minOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 0.985f
+        val maxValue = maxOf(prices.maxOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 1.015f
+        val range = (maxValue - minValue).coerceAtLeast(0.01f)
+        val left = 8.dp.toPx()
+        val right = size.width - 8.dp.toPx()
+        val top = 8.dp.toPx()
+        val bottom = size.height - 8.dp.toPx()
+        repeat(5) { i ->
+            val y = top + (bottom - top) * i / 4f
+            drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
+        }
+        repeat(4) { i ->
+            val x = left + (right - left) * i / 3f
+            drawLine(Color.White.copy(alpha = 0.08f), Offset(x, top), Offset(x, bottom), 1.dp.toPx(), cap = StrokeCap.Round)
+        }
+        val baseY = bottom - (stock.quote.previousClose - minValue) / range * (bottom - top)
+        drawLine(Color.White.copy(alpha = 0.22f), Offset(left, baseY), Offset(right, baseY), 1.dp.toPx(), cap = StrokeCap.Round)
+        fun point(index: Int, value: Float): Offset = Offset(left + (right - left) * index / prices.lastIndex.coerceAtLeast(1).toFloat(), bottom - (value - minValue) / range * (bottom - top))
+        val pricePath = Path()
+        prices.forEachIndexed { i, v ->
+            val p = point(i, v)
+            if (i == 0) pricePath.moveTo(p.x, p.y) else pricePath.lineTo(p.x, p.y)
+        }
+        val avgPath = Path()
+        averages.forEachIndexed { i, v ->
+            val p = point(i, v)
+            if (i == 0) avgPath.moveTo(p.x, p.y) else avgPath.lineTo(p.x, p.y)
+        }
+        drawPath(pricePath, Color.White.copy(alpha = 0.92f), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(avgPath, Color(0xFFFFC857), style = Stroke(width = 1.45.dp.toPx(), cap = StrokeCap.Round))
+        drawLine(Color.White.copy(alpha = 0.24f), Offset(left + (right - left) * 0.52f, top), Offset(left + (right - left) * 0.52f, bottom), 1.dp.toPx())
+    }
+}
+
+@Composable
 private fun AStockChartAxisOverlay(stock: StockDetailUiState) {
     val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
     val prices = points.map { it.price }
@@ -274,7 +325,7 @@ private fun AStockChartAxisOverlay(stock: StockDetailUiState) {
     Column(Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 4.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTwo(high), color = quoteColor(high >= base), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("${formatSignedPct(highPct)}", color = quoteColor(highPct >= 0f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text(formatSignedPct(highPct), color = quoteColor(highPct >= 0f), fontSize = 10.sp, fontWeight = FontWeight.Black)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTwo(base), color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -282,8 +333,42 @@ private fun AStockChartAxisOverlay(stock: StockDetailUiState) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTwo(low), color = quoteColor(false), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("${formatSignedPct(lowPct)}", color = quoteColor(false), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text(formatSignedPct(lowPct), color = quoteColor(false), fontSize = 10.sp, fontWeight = FontWeight.Black)
         }
+    }
+}
+
+@Composable
+private fun AStockVolumeCanvas(stock: StockDetailUiState, modifier: Modifier) {
+    val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
+    Canvas(modifier = modifier) {
+        val left = 8.dp.toPx()
+        val right = size.width - 8.dp.toPx()
+        val top = 6.dp.toPx()
+        val bottom = size.height - 6.dp.toPx()
+        repeat(3) { i ->
+            val y = top + (bottom - top) * i / 2f
+            drawLine(Color.White.copy(alpha = 0.10f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
+        }
+        val maxVolume = points.maxOfOrNull { it.volumeRatio } ?: 1f
+        val barSpace = (right - left) / points.size.coerceAtLeast(1)
+        val barWidth = barSpace * 0.58f
+        points.forEachIndexed { index, point ->
+            val x = left + index * barSpace + barSpace / 2f
+            val prev = points.getOrNull(index - 1)?.price ?: stock.quote.previousClose
+            val color = if (point.price >= prev) RiseRed else FallGreen
+            val h = (bottom - top) * (point.volumeRatio / maxVolume).coerceIn(0.04f, 1f)
+            drawRoundRect(color.copy(alpha = 0.66f), Offset(x - barWidth / 2f, bottom - h), Size(barWidth, h), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun AStockTimeAxis() {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("09:30", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text("11:30", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text("15:00", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -419,8 +504,8 @@ private fun AStockSearchInputRow(
 @Composable
 private fun AStockTopBar(title: String, subtitle: String, state: AssistantUiState, onBack: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PressableGlass(state.quality, state.glassIntensity * 0.95f, state.motionIntensity, 999, Modifier.height(38.dp), GlassRole.Chip, onClick = onBack) {
-            Box(Modifier.padding(horizontal = 14.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+        PressableGlass(state.quality, state.glassIntensity * 0.95f, state.motionIntensity, 999, Modifier.width(82.dp).height(38.dp), GlassRole.Chip, onClick = onBack) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("‹ 返回", color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
@@ -468,90 +553,6 @@ private fun HomeHeroMetric(label: String, value: String, color: Color, modifier:
     }
 }
 
-@Composable
-private fun AStockInlineChartHeader(stock: StockDetailUiState) {
-    val avg = stock.minutePoints.map { it.average }.takeIf { it.isNotEmpty() }?.average()?.toFloat() ?: stock.quote.previousClose
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("集合竞价", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        Text("均价 ${formatTwo(avg)}", color = Color(0xFFFFC857), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-        Text("最新 ${stock.quote.price}", color = quoteColor(stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
-    }
-}
-
-@Composable
-private fun AStockIntradayCanvas(stock: StockDetailUiState, modifier: Modifier) {
-    val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
-    Canvas(modifier = modifier) {
-        val prices = points.map { it.price }
-        val averages = points.map { it.average }
-        val minValue = minOf(prices.minOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 0.985f
-        val maxValue = maxOf(prices.maxOrNull() ?: stock.quote.previousClose, stock.quote.previousClose) * 1.015f
-        val range = (maxValue - minValue).coerceAtLeast(0.01f)
-        val left = 8.dp.toPx()
-        val right = size.width - 8.dp.toPx()
-        val top = 8.dp.toPx()
-        val bottom = size.height - 8.dp.toPx()
-        repeat(5) { i ->
-            val y = top + (bottom - top) * i / 4f
-            drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
-        }
-        repeat(4) { i ->
-            val x = left + (right - left) * i / 3f
-            drawLine(Color.White.copy(alpha = 0.08f), Offset(x, top), Offset(x, bottom), 1.dp.toPx(), cap = StrokeCap.Round)
-        }
-        val baseY = bottom - (stock.quote.previousClose - minValue) / range * (bottom - top)
-        drawLine(Color.White.copy(alpha = 0.22f), Offset(left, baseY), Offset(right, baseY), 1.dp.toPx(), cap = StrokeCap.Round)
-        fun point(index: Int, value: Float): Offset = Offset(left + (right - left) * index / prices.lastIndex.coerceAtLeast(1).toFloat(), bottom - (value - minValue) / range * (bottom - top))
-        val pricePath = Path()
-        prices.forEachIndexed { i, v ->
-            val p = point(i, v)
-            if (i == 0) pricePath.moveTo(p.x, p.y) else pricePath.lineTo(p.x, p.y)
-        }
-        val avgPath = Path()
-        averages.forEachIndexed { i, v ->
-            val p = point(i, v)
-            if (i == 0) avgPath.moveTo(p.x, p.y) else avgPath.lineTo(p.x, p.y)
-        }
-        drawPath(pricePath, Color.White.copy(alpha = 0.92f), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
-        drawPath(avgPath, Color(0xFFFFC857), style = Stroke(width = 1.45.dp.toPx(), cap = StrokeCap.Round))
-        drawLine(Color.White.copy(alpha = 0.24f), Offset(left + (right - left) * 0.52f, top), Offset(left + (right - left) * 0.52f, bottom), 1.dp.toPx())
-    }
-}
-
-@Composable
-private fun AStockVolumeCanvas(stock: StockDetailUiState, modifier: Modifier) {
-    val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
-    Canvas(modifier = modifier) {
-        val left = 8.dp.toPx()
-        val right = size.width - 8.dp.toPx()
-        val top = 6.dp.toPx()
-        val bottom = size.height - 6.dp.toPx()
-        repeat(3) { i ->
-            val y = top + (bottom - top) * i / 2f
-            drawLine(Color.White.copy(alpha = 0.10f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
-        }
-        val maxVolume = points.maxOfOrNull { it.volumeRatio } ?: 1f
-        val barSpace = (right - left) / points.size.coerceAtLeast(1)
-        val barWidth = barSpace * 0.58f
-        points.forEachIndexed { index, point ->
-            val x = left + index * barSpace + barSpace / 2f
-            val prev = points.getOrNull(index - 1)?.price ?: stock.quote.previousClose
-            val color = if (point.price >= prev) RiseRed else FallGreen
-            val h = (bottom - top) * (point.volumeRatio / maxVolume).coerceIn(0.04f, 1f)
-            drawRoundRect(color.copy(alpha = 0.66f), Offset(x - barWidth / 2f, bottom - h), Size(barWidth, h), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
-        }
-    }
-}
-
-@Composable
-private fun AStockTimeAxis() {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("09:30", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-        Text("11:30", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-        Text("15:00", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
 private fun quoteBoardMetrics(stock: StockDetailUiState): List<StockMetric> = listOf(
     StockMetric("高", stock.quote.high, StockTone.Rising),
     StockMetric("市值", stock.quote.totalMarketValue),
@@ -568,11 +569,6 @@ private fun quoteBoardMetrics(stock: StockDetailUiState): List<StockMetric> = li
 )
 
 @Composable
-private fun AStockInfoPanel(state: AssistantUiState, stock: StockDetailUiState) {
-    InfoCard(state, "资料与消息", "财务、公告、新闻和研报入口", stock.fundamentals.chunked(3).map { row -> row.joinToString("    ") { "${it.label} ${it.value}" } })
-}
-
-@Composable
 private fun AStockAiPanel(state: AssistantUiState, stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 0.92f, state.motionIntensity, 22, Modifier.fillMaxWidth(), GlassRole.Card, onClick = onOpenAssistant) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -584,6 +580,11 @@ private fun AStockAiPanel(state: AssistantUiState, stock: StockDetailUiState, on
             Text(stock.dataSourceLabel, color = Color.White.copy(alpha = 0.36f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+@Composable
+private fun AStockInfoPanel(state: AssistantUiState, stock: StockDetailUiState) {
+    InfoCard(state, "资料与消息", "财务、公告、新闻和研报入口", stock.fundamentals.chunked(3).map { row -> row.joinToString("    ") { "${it.label} ${it.value}" } })
 }
 
 @Composable
