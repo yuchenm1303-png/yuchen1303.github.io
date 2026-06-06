@@ -116,7 +116,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v5" else "compose-native-agent-fast-v5")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-visual-first-v6" else "compose-native-agent-tool-only-v6")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -161,13 +161,13 @@ private fun buildPlannerMessage(
                 .append(visual.width).append("x").append(visual.height)
                 .append("，真实屏幕尺寸为 ")
                 .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
-            append("请以截图为主、节点为辅判断当前状态；节点可能缺失、滞后或只暴露底部入口文字。\n")
+            append("这是视觉主导 Computer Use 轮次：请以截图为主判断当前状态，节点只作为可点击/可输入/可滚动 affordance 提示。\n")
             append("tap_xy 必须返回 0 到 1 的归一化屏幕坐标，不要返回像素。\n")
             append("如果用户目标是进入某个页面、界面、Tab、栏目或列表，仅看到入口文字/按钮不等于完成；只有目标 Tab 已选中且主体内容切换到目标界面，才可以 finish。\n")
             append("如果截图显示系统弹窗在询问是否允许打开/继续打开目标应用，且不是权限授权、支付、登录或隐私确认，这是低风险应用启动确认，可以点击“允许/继续打开/打开”。\n")
         } else {
-            append("当前没有截图；如果目标只是打开应用，请直接用 deviceContext 的 open_app 工具规划，不要等待截图。\n")
-            append("如果当前已经在目标 App 内或需要判断 App 内页面，再结合节点与历史谨慎规划。\n")
+            append("当前没有截图。无截图轮次只用于纯 open_app / 系统工具捷径，不要用节点猜测复杂页面是否完成。\n")
+            append("如果目标只是打开应用，请直接用 deviceContext 的 open_app 工具规划；如果需要判断 App 内页面或当前屏幕内容，应请求重新观察或返回保守动作。\n")
         }
         append("请先判断 agentState，再返回一步 agentStep。")
     }
@@ -189,6 +189,12 @@ private fun appsPromptList(array: JSONArray?, limit: Int): String {
 private fun agentPlannerSystemPrompt(): String = """
 你是 Android 手机 Computer Use 智能体的云端状态规划器，只能输出严格 JSON，不要 Markdown。
 本地执行层不做 App 内页面语义判断，因此你必须负责判断当前是否完成、是否在正确路径、是否需要继续操作。
+
+核心路线：
+1. 这是视觉主导的 Computer Use，不是传统无障碍节点脚本。
+2. 有 screenshot 时，screenshot 是主观察源；screenSnapshot / 节点只是辅助 affordance，不代表页面已经完成。
+3. 没有 screenshot 时，通常只处理纯 open_app 或低风险系统工具动作；不要凭节点文字猜测复杂页面状态。
+4. 每次 open_app、tap、input、scroll、swipe、back、home、wait 后，下一轮会通过截图复核页面状态。
 
 返回格式：
 {"agentState":{"isComplete":false,"expectedProgress":false,"isWrong":false,"confidence":0.0,"reason":"当前状态判断","nextHint":"下一步提示"},"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
@@ -218,7 +224,7 @@ private fun agentPlannerSystemPrompt(): String = """
 3. 点击底部导航栏时，y 通常在 0.91 到 0.97 之间；不要点到导航栏上方内容列表。
 
 状态判断规则：
-1. screenshot 是主输入；但没有截图时也要用 screenSnapshot、deviceContext、agentMemory 和最近动作记录规划低风险系统动作。
+1. screenshot 是主输入；节点、text、bounds、clickable、editable 只是辅助线索。
 2. 先根据最近动作记录理解刚刚发生了什么，再看当前状态决定下一步，避免重复点击同一个无效入口。
 3. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
 4. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
@@ -229,7 +235,7 @@ private fun agentPlannerSystemPrompt(): String = """
 
 动作规划规则：
 1. 当前不在目标 App，且 open_app 可用，优先 open_app。
-2. 截图里目标文字、导航入口、返回键、输入框可见时，优先 tap_xy 或 tap_node。
+2. 截图里目标文字、导航入口、返回键、输入框可见时，优先 tap_xy；节点明确对应同一目标时，也可以 tap_node。
 3. 目标不在当前 App 内页面时，优先寻找语义相关入口、搜索入口、底部/顶部导航入口。
 4. 找社交动态或内容流时，发现、动态、朋友、社区、广场、频道等入口通常比聊天列表更有价值。
 5. 找联系人/商品/视频/文件时，搜索入口或对应 Tab 通常比随机列表项更有价值。
