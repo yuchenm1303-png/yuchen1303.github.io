@@ -36,7 +36,10 @@ class StockRepository(
         return runCatching {
             val encoded = URLEncoder.encode(normalized, "UTF-8")
             val safeMode = if (mode == "full") "full" else "lite"
-            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode", timeoutMs = if (safeMode == "full") 12000 else 8500)
+            val body = httpGet(
+                "${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode",
+                timeoutMs = if (safeMode == "full") 16000 else 8500
+            )
             parseDetail(JSONObject(body), base)
         }.getOrElse { error ->
             base.copy(
@@ -44,6 +47,19 @@ class StockRepository(
                 errorMessage = error.message ?: error.javaClass.simpleName,
                 aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
             )
+        }
+    }
+
+    fun loadKLinePoints(query: String): Result<List<StockKLinePoint>> {
+        val base = sampleAStockDetailUiState()
+        val normalized = query.trim().ifBlank { base.quote.code }
+        val encoded = URLEncoder.encode(normalized, "UTF-8")
+        return runCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/kline?query=$encoded&limit=120", timeoutMs = 16000)
+            parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("K线接口返回为空") }
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=full", timeoutMs = 18000)
+            parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("full详情接口未返回历史K线") }
         }
     }
 
