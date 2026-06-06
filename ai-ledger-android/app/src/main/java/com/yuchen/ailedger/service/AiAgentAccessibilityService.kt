@@ -164,26 +164,32 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.R)
     private fun captureDisplayScreenshotCompat(reason: String): ScreenVisualObservation {
-        val latch = CountDownLatch(1)
-        var result = ScreenVisualObservation(available = false, source = "pending", reason = reason)
-        takeScreenshot(
-            0,
-            screenshotExecutor,
-            object : TakeScreenshotCallback {
-                override fun onSuccess(screenshot: ScreenshotResult) {
-                    result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
-                        ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
-                    latch.countDown()
-                }
+        AgentRuntimeController.beginCleanVisualCapture()
+        return try {
+            SystemClock.sleep(OVERLAY_HIDE_BEFORE_SCREENSHOT_MS)
+            val latch = CountDownLatch(1)
+            var result = ScreenVisualObservation(available = false, source = "pending", reason = reason)
+            takeScreenshot(
+                0,
+                screenshotExecutor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
+                            ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
+                        latch.countDown()
+                    }
 
-                override fun onFailure(errorCode: Int) {
-                    result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
-                    latch.countDown()
-                }
-            },
-        )
-        latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        return result
+                    override fun onFailure(errorCode: Int) {
+                        result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
+                        latch.countDown()
+                    }
+                },
+            )
+            latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            result
+        } finally {
+            AgentRuntimeController.endCleanVisualCapture()
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
@@ -716,6 +722,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
+        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 90L
         private const val SNAPSHOT_NODE_BUDGET_MS = 520L
         private const val VISUAL_AFFORDANCE_BUDGET_MS = 280L
         private const val ROOT_SELECTION_BUDGET_MS = 260L
