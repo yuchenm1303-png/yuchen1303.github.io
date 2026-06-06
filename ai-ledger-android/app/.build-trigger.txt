@@ -1,2 +1,2 @@
-触发 Build Compose Android APK：股票卡片空值修复后二次验证
-commit=f8705a3e9974fa7b38f43ed5332e9a87b94eb89d
+Build Compose Android APK verification
+commit=c73f89d877ede6200d47cb88f6edcf25ca58386c
