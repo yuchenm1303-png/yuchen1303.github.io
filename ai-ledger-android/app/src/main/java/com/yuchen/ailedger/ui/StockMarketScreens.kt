@@ -55,14 +55,17 @@ import kotlin.math.abs
 private val StockTabs = listOf("分时", "日K", "周K", "月K", "五日")
 private val DepthTabs = listOf("五档", "成交")
 private val HomeQuickActions = listOf("自选", "热榜", "板块", "资金", "异动", "新闻", "研报", "预警")
+private val DetailInfoTabs = listOf("看点", "资金", "财务", "资讯")
 private val RiseRed = Color(0xFFFF8F8F)
 private val FallGreen = Color(0xFF80F7B4)
 private val Aqua = Color(0xFF8DF9EA)
+private val AvgYellow = Color(0xFFFFD36E)
 private val SectionLine = Color.White.copy(alpha = 0.085f)
 private val MarketOverviewPanelHeight = 340.dp
 private val MarketHotPanelHeight = 470.dp
 private val MarketWatchPanelHeight = 450.dp
-private val StockDetailPanelHeight = 1040.dp
+private val StockDetailCorePanelHeight = 980.dp
+private val StockDetailInfoPanelHeight = 560.dp
 
 @Composable
 fun AStockMarketScreenV2(
@@ -155,22 +158,21 @@ private fun StockDetailPage(
     ) {
         item { DetailTopBar(appState, ui, onBack, onRefresh) }
         item {
-            StockParentGlassPanel(appState, Modifier.height(StockDetailPanelHeight)) {
-                QuoteHeroSection(ui.stock)
+            StockParentGlassPanel(appState, Modifier.height(StockDetailCorePanelHeight)) {
+                DetailQuoteHeaderSection(ui.stock)
                 SectionDivider()
-                BottomActionBar(appState, ui, onAction)
+                DetailActionBar(appState, ui, onAction)
                 SectionDivider()
-                ChartSection(appState, ui, onSelectTab)
+                DetailKeyMetricsSection(ui.stock)
                 SectionDivider()
-                DepthAndTradeSection(appState, ui, onSelectDepth)
-                if (ui.activeAction != null) {
-                    SectionDivider()
-                    ActionSection(ui.activeAction, ui.stock, onOpenAssistant)
-                }
+                ProfessionalChartSection(appState, ui, onSelectTab)
                 SectionDivider()
-                FundamentalsSection(ui.stock)
-                SectionDivider()
-                AiSummarySection(ui.stock, onOpenAssistant)
+                DepthWorkbenchSection(appState, ui, onSelectDepth)
+            }
+        }
+        item {
+            StockParentGlassPanel(appState, Modifier.height(StockDetailInfoPanelHeight)) {
+                DetailDecisionSection(appState, ui.stock, onOpenAssistant)
             }
         }
     }
@@ -198,7 +200,10 @@ private fun DetailTopBar(appState: AssistantUiState, ui: StockMarketUiState, onB
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
         Spacer(Modifier.weight(1f))
-        Text("${ui.stock.quote.name} · ${ui.stock.quote.code}", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(ui.stock.quote.name, color = Color.White.copy(alpha = 0.78f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${ui.stock.quote.code} · ${ui.stock.quote.market}", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
         StockIconButton(appState, if (ui.loading || ui.kLineLoading) "…" else "⟳", onRefresh)
     }
 }
@@ -311,49 +316,131 @@ private fun MarketMoodSection(stock: StockDetailUiState, onOpenDetail: () -> Uni
 }
 
 @Composable
-private fun QuoteHeroSection(stock: StockDetailUiState) {
-    Column(Modifier.fillMaxWidth().height(138.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stock.quote.name.ifBlank { "个股详情" }, color = Color.White, fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${stock.quote.code} · ${stock.quote.market} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(stock.quote.price.ifBlank { "--" }, color = quoteColor(stock.quote.isRising), fontSize = 34.sp, lineHeight = 37.sp, fontWeight = FontWeight.Black)
-                Text("${stock.quote.changeAmount}  ${stock.quote.changePercent}", color = quoteColor(stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            }
+private fun DetailQuoteHeaderSection(stock: StockDetailUiState) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stock.quote.name.ifBlank { "个股详情" }, color = Color.White, fontSize = 30.sp, lineHeight = 33.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${stock.quote.code} · ${stock.quote.market} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.48f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("人气排名 ${stock.quote.popularityRank}", color = Aqua.copy(alpha = 0.74f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricTile("今开", stock.quote.open, Color.White, Modifier.weight(1f))
-            MetricTile("最高", stock.quote.high, RiseRed, Modifier.weight(1f))
-            MetricTile("最低", stock.quote.low, FallGreen, Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(stock.quote.price.ifBlank { "--" }, color = quoteColor(stock.quote.isRising), fontSize = 38.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black)
+            Text("${stock.quote.changeAmount}  ${stock.quote.changePercent}", color = quoteColor(stock.quote.isRising), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text("成交额 ${stock.quote.amount}", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun ChartSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().height(238.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
+private fun DetailActionBar(appState: AssistantUiState, ui: StockMarketUiState, onAction: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("加自选", "预警", "诊股", "交易").forEach { action ->
+            StockButton(
+                appState = appState,
+                text = if (action == "加自选" && ui.isWatched) "已自选" else action,
+                modifier = Modifier.weight(1f).height(42.dp),
+                onClick = { onAction(action) },
+                active = ui.activeAction == action
+            )
         }
-        MiniTrendCanvas(ui.stock, Modifier.fillMaxWidth().weight(1f))
+    }
+}
+
+@Composable
+private fun DetailKeyMetricsSection(stock: StockDetailUiState) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricTile("昨收", ui.stock.quote.previousClose.toString(), Color.White, Modifier.weight(1f))
-            MetricTile("市盈", ui.stock.quote.peTtm, Color.White, Modifier.weight(1f))
-            MetricTile("人气", ui.stock.quote.popularityRank, Aqua, Modifier.weight(1f))
+            MetricTile("今开", stock.quote.open, Color.White, Modifier.weight(1f))
+            MetricTile("最高", stock.quote.high, RiseRed, Modifier.weight(1f))
+            MetricTile("最低", stock.quote.low, FallGreen, Modifier.weight(1f))
+            MetricTile("昨收", stock.quote.previousClose.toString(), Color.White, Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("市值", stock.quote.totalMarketValue, Color.White, Modifier.weight(1f))
+            MetricTile("换手", stock.quote.turnoverRate, Color.White, Modifier.weight(1f))
+            MetricTile("量比", stock.quote.volumeRatio, quoteColor(stock.quote.isRising), Modifier.weight(1f))
+            MetricTile("市盈", stock.quote.peTtm, Color.White, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ProfessionalChartSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().height(318.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(34.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("集合竞价", color = Color.White.copy(alpha = 0.60f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text("均价 ${averageLineLabel(ui.stock)}", color = AvgYellow.copy(alpha = 0.92f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text("最新 ${ui.stock.quote.price}", color = quoteColor(ui.stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.weight(1f))
+            Text(ui.stock.quote.changePercent, color = quoteColor(ui.stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
+        }
+        StockMainChartCanvas(ui.stock, ui.selectedTab, Modifier.fillMaxWidth().weight(1f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("MACD", "副图待接入", AvgYellow, Modifier.weight(1f))
+            MetricTile("成交量", ui.stock.quote.amount, Color.White, Modifier.weight(1f))
+            MetricTile("PB", ui.stock.quote.pb, Color.White, Modifier.weight(1f))
         }
         ui.requestMessage?.let { Text(it, color = Color(0xFFFFC857).copy(alpha = 0.82f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
     }
 }
 
 @Composable
-private fun DepthAndTradeSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectDepth: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().height(176.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DepthTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), { onSelectDepth(tab) }, active = ui.depthTab == tab) }
+private fun DepthWorkbenchSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectDepth: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().height(250.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Section("盘口 / 明细", "五档买卖盘、逐笔成交与买卖压力")
+            Spacer(Modifier.weight(1f))
+            DepthTabs.forEach { tab -> StockButton(appState, tab, Modifier.width(58.dp).height(32.dp), { onSelectDepth(tab) }, active = ui.depthTab == tab) }
         }
-        if (ui.depthTab == "成交") TradeTickList(ui.stock.tradeTicks) else OrderBookList(ui.stock.sellLevels, ui.stock.buyLevels)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("五档盘口", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                CompactOrderBookList(ui.stock.sellLevels, ui.stock.buyLevels)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("逐笔成交", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                CompactTradeTickList(ui.stock.tradeTicks)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailDecisionSection(appState: AssistantUiState, stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DetailInfoTabs.forEachIndexed { index, tab ->
+                StockButton(appState, tab, Modifier.weight(1f).height(34.dp), onClick = {}, active = index == 0)
+            }
+        }
+        SectionDivider()
+        AiSummarySection(stock, onOpenAssistant)
+        SectionDivider()
+        MoneyFlowSection(stock)
+        SectionDivider()
+        FundamentalsSection(stock)
+        SectionDivider()
+        NewsSignalSection(stock)
+    }
+}
+
+@Composable
+private fun MoneyFlowSection(stock: StockDetailUiState) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Section("资金流向", "主力、大单、中单与小单结构")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("主力净流入", stock.moneyFlow.mainInflow, flowColor(stock.moneyFlow.mainInflow), Modifier.weight(1f))
+            MetricTile("超大单", stock.moneyFlow.superLargeOrder, flowColor(stock.moneyFlow.superLargeOrder), Modifier.weight(1f))
+            MetricTile("大单", stock.moneyFlow.largeOrder, flowColor(stock.moneyFlow.largeOrder), Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("中单", stock.moneyFlow.mediumOrder, flowColor(stock.moneyFlow.mediumOrder), Modifier.weight(1f))
+            MetricTile("小单", stock.moneyFlow.smallOrder, flowColor(stock.moneyFlow.smallOrder), Modifier.weight(1f))
+            MetricTile("资金温度", if (stock.moneyFlow.mainInflow.contains("-")) "偏弱" else "偏强", if (stock.moneyFlow.mainInflow.contains("-")) FallGreen else RiseRed, Modifier.weight(1f))
+        }
     }
 }
 
@@ -369,26 +456,42 @@ private fun FundamentalsSection(stock: StockDetailUiState) {
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Section("基本面", "估值、公告和财务摘要")
-        metrics.chunked(2).forEach { row ->
+        metrics.take(6).chunked(3).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { metric -> MetricTile(metric.label, metric.value, toneColor(metric.tone), Modifier.weight(1f)) }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
 }
 
 @Composable
-private fun BottomActionBar(appState: AssistantUiState, ui: StockMarketUiState, onAction: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("加自选", "预警", "研报", "交易").forEach { action ->
-            StockButton(
-                appState = appState,
-                text = if (action == "加自选" && ui.isWatched) "已自选" else action,
-                modifier = Modifier.weight(1f).height(44.dp),
-                onClick = { onAction(action) },
-                active = ui.activeAction == action
-            )
+private fun CompactOrderBookList(sell: List<StockOrderLevel>, buy: List<StockOrderLevel>) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        sell.takeLast(5).reversed().ifEmpty { fallbackAskLevels() }.forEach { CompactOrderLevelRow(it) }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(SectionLine))
+        buy.take(5).ifEmpty { fallbackBidLevels() }.forEach { CompactOrderLevelRow(it) }
+    }
+}
+
+@Composable
+private fun CompactOrderLevelRow(level: StockOrderLevel) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(level.label, color = Color.White.copy(alpha = 0.48f), fontSize = 9.sp, modifier = Modifier.width(30.dp), maxLines = 1)
+        Text(level.price, color = quoteColor(!level.isAsk), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1)
+        Text(level.volume, color = Color.White.copy(alpha = 0.68f), fontSize = 9.sp, textAlign = TextAlign.End, modifier = Modifier.width(34.dp), maxLines = 1)
+    }
+}
+
+@Composable
+private fun CompactTradeTickList(ticks: List<StockTradeTick>) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ticks.take(8).ifEmpty { fallbackTicks() }.forEach { tick ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(tick.time, color = Color.White.copy(alpha = 0.46f), fontSize = 9.sp, modifier = Modifier.width(34.dp), maxLines = 1)
+                Text(tick.price, color = quoteColor(tick.isBuy), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(tick.volume, color = Color.White.copy(alpha = 0.70f), fontSize = 9.sp, modifier = Modifier.width(40.dp), textAlign = TextAlign.End, maxLines = 1)
+            }
         }
     }
 }
@@ -396,32 +499,14 @@ private fun BottomActionBar(appState: AssistantUiState, ui: StockMarketUiState, 
 @Composable
 private fun OrderBookList(sell: List<StockOrderLevel>, buy: List<StockOrderLevel>) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { sell.takeLast(5).reversed().ifEmpty { fallbackAskLevels() }.forEach { OrderLevelRow(it) } }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { buy.take(5).ifEmpty { fallbackBidLevels() }.forEach { OrderLevelRow(it) } }
-    }
-}
-
-@Composable
-private fun OrderLevelRow(level: StockOrderLevel) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(level.label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, modifier = Modifier.width(34.dp))
-        Text(level.price, color = quoteColor(!level.isAsk), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1)
-        Text(level.volume, color = Color.White.copy(alpha = 0.68f), fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(42.dp), maxLines = 1)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { sell.takeLast(5).reversed().ifEmpty { fallbackAskLevels() }.forEach { CompactOrderLevelRow(it) } }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { buy.take(5).ifEmpty { fallbackBidLevels() }.forEach { CompactOrderLevelRow(it) } }
     }
 }
 
 @Composable
 private fun TradeTickList(ticks: List<StockTradeTick>) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ticks.take(6).ifEmpty { fallbackTicks() }.forEach { tick ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(tick.time, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, modifier = Modifier.width(42.dp))
-                Text(tick.price, color = quoteColor(tick.isBuy), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                Text(tick.volume, color = Color.White.copy(alpha = 0.70f), fontSize = 10.sp, modifier = Modifier.width(54.dp), textAlign = TextAlign.End)
-                Text(tick.direction, color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, modifier = Modifier.width(54.dp), textAlign = TextAlign.End)
-            }
-        }
-    }
+    CompactTradeTickList(ticks)
 }
 
 @Composable
@@ -522,14 +607,6 @@ private fun AiSummarySection(stock: StockDetailUiState, onOpenAssistant: () -> U
 }
 
 @Composable
-private fun ActionSection(action: String?, stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Section(action ?: "动作", stock.quote.name)
-        Text("已切换到 " + (action ?: "当前") + " 操作。真实交易、预警和研报入口会在后续版本接入确认流程。", color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 17.sp)
-    }
-}
-
-@Composable
 private fun SectionText(title: String, text: String) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Section(title)
@@ -576,31 +653,52 @@ private fun StockIconButton(appState: AssistantUiState, text: String, onClick: (
 }
 
 @Composable
-private fun MiniTrendCanvas(stock: StockDetailUiState, modifier: Modifier) {
-    val values = stock.minutePoints.map { it.price }.ifEmpty { stock.kLinePoints.map { it.close } }.ifEmpty { listOf(stock.quote.previousClose) }
-    val rising = stock.quote.isRising
+private fun StockMainChartCanvas(stock: StockDetailUiState, selectedTab: String, modifier: Modifier) {
+    val minuteValues = stock.minutePoints.map { it.price }
+    val averageValues = stock.minutePoints.map { it.average }
+    val kValues = stock.kLinePoints.map { it.close }
+    val values = if (selectedTab == "分时" || selectedTab == "五日") minuteValues else kValues.ifEmpty { minuteValues }
+    val avgValues = if (selectedTab == "分时" || selectedTab == "五日") averageValues else emptyList()
+    val displayValues = values.ifEmpty { listOf(stock.quote.previousClose) }
     Canvas(modifier = modifier) {
-        if (values.size < 2) {
-            drawLine(Color.White.copy(alpha = 0.16f), Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = 1.dp.toPx())
-            return@Canvas
+        val width = size.width
+        val height = size.height
+        repeat(4) { index ->
+            val y = height * (index + 1) / 5f
+            drawLine(Color.White.copy(alpha = 0.10f), Offset(0f, y), Offset(width, y), strokeWidth = 1.dp.toPx())
         }
-        val minValue = values.minOrNull() ?: return@Canvas
-        val maxValue = values.maxOrNull() ?: return@Canvas
+        repeat(3) { index ->
+            val x = width * (index + 1) / 4f
+            drawLine(Color.White.copy(alpha = 0.06f), Offset(x, 0f), Offset(x, height), strokeWidth = 1.dp.toPx())
+        }
+        if (displayValues.size < 2) return@Canvas
+        val minValue = (displayValues + avgValues).minOrNull() ?: return@Canvas
+        val maxValue = (displayValues + avgValues).maxOrNull() ?: return@Canvas
         val range = (maxValue - minValue).takeIf { abs(it) > 0.0001f } ?: 1f
-        val stepX = size.width / values.lastIndex.coerceAtLeast(1)
-        val path = Path()
-        values.forEachIndexed { index, value ->
-            val x = index * stepX
-            val y = size.height - ((value - minValue) / range) * size.height
-            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        fun buildPath(series: List<Float>): Path {
+            val path = Path()
+            val stepX = width / series.lastIndex.coerceAtLeast(1)
+            series.forEachIndexed { index, value ->
+                val x = index * stepX
+                val y = height - ((value - minValue) / range) * height
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            return path
         }
-        drawLine(Color.White.copy(alpha = 0.12f), Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = 1.dp.toPx())
-        drawPath(path, color = quoteColor(rising), style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round))
+        drawLine(Color.White.copy(alpha = 0.16f), Offset(0f, height / 2f), Offset(width, height / 2f), strokeWidth = 1.dp.toPx())
+        if (avgValues.size > 1) drawPath(buildPath(avgValues), color = AvgYellow.copy(alpha = 0.88f), style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(buildPath(displayValues), color = quoteColor(stock.quote.isRising), style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round))
     }
+}
+
+@Composable
+private fun MiniTrendCanvas(stock: StockDetailUiState, modifier: Modifier) {
+    StockMainChartCanvas(stock, "分时", modifier)
 }
 
 private fun quoteColor(isRising: Boolean): Color = if (isRising) RiseRed else FallGreen
 private fun toneColor(tone: StockTone): Color = when (tone) { StockTone.Rising -> RiseRed; StockTone.Falling -> FallGreen; StockTone.Neutral -> Color.White }
+private fun flowColor(text: String): Color = if (text.contains("-")) FallGreen else RiseRed
 private fun statusText(ui: StockMarketUiState): String = when {
     ui.loading -> "正在连接市场行情代理"
     ui.marketLoading -> "正在同步指数、自选与榜单"
@@ -611,6 +709,7 @@ private fun statusColor(ui: StockMarketUiState): Color = if (ui.requestMessage !
 private fun risingCount(stock: StockDetailUiState): Int = stock.marketBoards.flatMap { it.items }.count { it.isRising }
 private fun fallingCount(stock: StockDetailUiState): Int = stock.marketBoards.flatMap { it.items }.count { !it.isRising }
 private fun hotPoolCount(stock: StockDetailUiState): Int = stock.marketBoards.sumOf { it.items.size }
+private fun averageLineLabel(stock: StockDetailUiState): String = stock.minutePoints.lastOrNull()?.average?.let { String.format("%.2f", it) } ?: "--"
 private fun marketNewsLines(stock: StockDetailUiState): List<String> {
     val hotNames = stock.marketBoards.flatMap { it.items }.take(3).joinToString("、") { it.name }.ifBlank { "暂无热点榜单" }
     val watchNames = stock.watchlist.take(3).joinToString("、") { it.name }.ifBlank { "暂无自选股" }
