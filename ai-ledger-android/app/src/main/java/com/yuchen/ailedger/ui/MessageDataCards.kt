@@ -460,7 +460,8 @@ private fun StructuredDataCard.metricValue(vararg aliases: String): String? {
         val label = normalizeMetricKey(metric.label)
         label in normalizedAliases || normalizedAliases.any { alias -> label.contains(alias) || alias.contains(label) }
     }?.let { metric ->
-        metric.value + (metric.unit?.takeIf { it.isNotBlank() && !metric.value.contains(it) }?.let { " $it" } ?: "")
+        val value = metric.value.orEmpty()
+        value + (metric.unit?.takeIf { it.isNotBlank() && !value.contains(it) }?.let { " $it" } ?: "")
     }?.takeIf { it.isNotBlank() }
 }
 
