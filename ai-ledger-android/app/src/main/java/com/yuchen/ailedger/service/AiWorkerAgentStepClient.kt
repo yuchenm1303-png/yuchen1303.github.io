@@ -8,8 +8,8 @@ import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 15_000
-private const val AGENT_STEP_READ_TIMEOUT_MS = 60_000
+private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 12_000
+private const val AGENT_STEP_READ_TIMEOUT_MS = 38_000
 private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
 
 @Throws(IOException::class)
@@ -31,10 +31,7 @@ fun AiWorkerClient.requestAgentPlan(
     agentMemory: JSONObject? = null,
 ): CloudAgentPlan {
     val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions, deviceContext, agentMemory)
-    val endpoints = (listOf(endpoint) + AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS)
-        .map { it.trim().trimEnd('/') }
-        .filter { it.isNotBlank() }
-        .distinct()
+    val endpoints = listOf(endpoint.trim().trimEnd('/')).filter { it.isNotBlank() }.distinct()
     var lastError: IOException? = null
     for (base in endpoints) {
         for (candidate in agentEndpointCandidates(base)) {
@@ -119,7 +116,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v2" else "compose-native-agent-fast-v2")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v3" else "compose-native-agent-fast-v3")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -168,7 +165,8 @@ private fun buildPlannerMessage(
             append("tap_xy 必须返回 0 到 1 的归一化屏幕坐标，不要返回像素。\n")
             append("如果用户目标是进入某个页面、界面、Tab、栏目或列表，仅看到入口文字/按钮不等于完成；只有目标 Tab 已选中且主体内容切换到目标界面，才可以 finish。\n")
         } else {
-            append("当前没有截图，只能根据节点谨慎规划；节点不足时优先低风险动作或 need_user_help。\n")
+            append("当前没有截图；如果目标只是打开应用，请直接用 deviceContext 的 open_app 工具规划，不要等待截图。\n")
+            append("如果当前已经在目标 App 内或需要判断 App 内页面，再结合节点与历史谨慎规划。\n")
         }
         append("请先判断 agentState，再返回一步 agentStep。")
     }
@@ -200,6 +198,7 @@ private fun agentPlannerSystemPrompt(): String = """
 3. 不要凭常识编 packageName。目标应用不在 targetAppCandidates 或 installedApps 时，返回 need_user_help。
 4. 在桌面、启动器或文件夹界面时，不要点击文件夹、不要翻桌面页去肉眼找 App；直接使用 open_app。
 5. open_app 是系统工具能力，不需要桌面图标可见。
+6. 当前没有截图时，如果目标是打开应用，仍然应该根据 deviceContext 返回 open_app，而不是 wait 或 need_user_help。
 
 循环记忆规则：
 1. 必须阅读 agentMemory 和最近动作记录，避免重复执行刚失败或刚被拒绝的动作。
@@ -213,8 +212,8 @@ private fun agentPlannerSystemPrompt(): String = """
 3. 点击底部导航栏时，y 通常在 0.91 到 0.97 之间；不要点到导航栏上方内容列表。
 
 状态判断规则：
-1. screenshot 是主输入，screenSnapshot、deviceContext、agentMemory 和最近动作记录是辅助；不能因为节点少就直接 need_user_help。
-2. 先根据最近动作记录理解刚刚发生了什么，再看当前截图决定下一步，避免重复点击同一个无效入口。
+1. screenshot 是主输入；但没有截图时也要用 screenSnapshot、deviceContext、agentMemory 和最近动作记录规划低风险系统动作。
+2. 先根据最近动作记录理解刚刚发生了什么，再看当前状态决定下一步，避免重复点击同一个无效入口。
 3. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
 4. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
 5. 只有目标 Tab 已选中、页面标题/主体内容已经切换到目标界面，或者目标内容已经展开，才可以 isComplete=true 并返回 finish。
