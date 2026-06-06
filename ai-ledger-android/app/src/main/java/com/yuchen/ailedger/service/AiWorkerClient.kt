@@ -52,6 +52,7 @@ data class CloudPreferenceUpdate(
 data class CloudAgentAction(
     val capability: String,
     val title: String? = null,
+    val goal: String? = null,
     val requiresConfirmation: Boolean = false,
     val reason: String? = null
 )
@@ -234,11 +235,11 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             })
             put("commandProtocol", JSONObject().apply {
                 put("enabled", true)
-                put("version", 2)
+                put("version", 3)
                 put("client", "android-compose")
                 put("returnNaturalReply", true)
                 put("requireConfirmationForActions", true)
-                put("supportedAgentActions", JSONArray(listOf("observe_screen")))
+                put("supportedAgentActions", JSONArray(listOf("observe_screen", "run_agent_task")))
                 put("supportedMobileActions", JSONArray(listOf("set_alarm", "open_app", "navigate")))
                 put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
                 put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
@@ -257,29 +258,33 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("primaryEndpointRole", "aliyun_cn_gateway")
             put("fallbackEndpointRole", "cloudflare_worker")
             put("client", "android-compose")
-            put("clientVersion", if (hasImage) "compose-native-qwen-vision-v1" else "compose-native-agent-action-v1")
+            put("clientVersion", if (hasImage) "compose-native-qwen-vision-v1" else "compose-native-agent-action-v3")
             put("now", System.currentTimeMillis())
         }
     }
 
     private fun commandProtocolSystemPrompt(): String = """
-        你正在服务一个 Android Compose AI 助手。你可以正常用中文回复用户，但当用户表达手机能力、设备控制或手机智能体意图时，必须额外输出机器可读标记，格式必须完全如下：
-        [[AI_LEDGER_COMMAND:{"agentAction":{"capability":"observe_screen","title":"观察当前屏幕","requiresConfirmation":false,"reason":"用户想让我读取当前手机界面"}}]]
-        或：
+        你正在服务一个 Android Compose AI 助手。你可以正常用中文回复用户。
+        只有当用户明确要求操作手机、打开/进入某个 App 后继续找页面、点击/输入/滑动、观察当前手机屏幕时，才在回复末尾追加机器可读标记。
+        普通知识问答、代码问题、数学问题、解释“为什么”、项目讨论、聊天建议、文字润色等，绝对不要输出任何 AI_LEDGER_COMMAND 标记。
+
+        支持的标记格式：
+        [[AI_LEDGER_COMMAND:{"agentAction":{"capability":"observe_screen","title":"观察当前屏幕","requiresConfirmation":false,"reason":"用户明确要求观察当前手机界面"}}]]
+        [[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_agent_task","title":"手机智能体任务","goal":"完整保留用户要在手机上完成的目标","requiresConfirmation":false,"reason":"用户明确要求我操作手机完成多步任务"}}]]
         [[AI_LEDGER_COMMAND:{"preferenceUpdate":{"type":"navigation_address","slot":"home|school|company|dorm","label":"家|学校|公司|宿舍","value":"完整地址"}}]]
-        或：
         [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"navigate","destination":"目的地"}}]]
         [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"open_app","appName":"应用名","packageName":"可选包名"}}]]
         [[AI_LEDGER_COMMAND:{"mobileAction":{"type":"set_alarm","hour":8,"minute":0,"label":"提醒内容"}}]]
 
         规则：
-        1. 用户要求你“看屏幕、观察当前界面、读一下页面、分析当前手机页面、看看现在手机上有什么、查看按钮/输入框/界面状态”等，都返回 agentAction.capability=observe_screen。不要把这类请求当普通知识问答，也不要联网搜索。
-        2. 用户说“把家/学校/公司/宿舍设置为……”“以后回家就是……”“家在……”时，返回 preferenceUpdate，slot 只能是 home、school、company、dorm。
-        3. 用户要求导航、打开应用、设置闹钟时，返回 mobileAction。导航、闹钟、打开应用都需要用户在本地确认后才会执行。
-        4. 目前 agentAction 只允许 observe_screen。禁止输出点击、输入、发送、支付、删除、下单等动作。
-        5. 标记必须追加在回复末尾，不要解释这个标记，不要把标记放进代码块。
+        1. “观察屏幕、看一下当前手机界面、读一下页面、分析当前 App 画面”返回 agentAction.capability=observe_screen。
+        2. “帮我打开某 App 并找到/进入/点击/搜索某页面或内容”“在某 App 里完成多步操作”返回 agentAction.capability=run_agent_task，并把原始任务完整写入 goal。
+        3. 单纯“打开某应用”可以返回 mobileAction.open_app；如果需要进入 App 内页面或继续找内容，必须返回 run_agent_task。
+        4. 导航、闹钟、保存地址仍使用 mobileAction 或 preferenceUpdate。
+        5. 标记必须追加在回复末尾，不要放进代码块，不要解释标记。
         6. 没有手机动作、偏好更新或智能体动作时，不要输出标记。
-        7. 自然语言回复可以保留，但不要声称你已经直接调用了手机系统；只能说“我已识别，请在本地查看/确认”。
+        7. 不要因为无障碍已开启就默认进入智能体；是否进入智能体完全取决于用户这句话是否明确要求手机操作。
+        8. 对发送消息、支付、转账、删除、发布、授权、登录、验证码、密码等高风险目标，可以返回 run_agent_task，但自然语言回复要说明执行中会要求确认。
     """.trimIndent()
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
@@ -444,10 +449,15 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     private fun parseCloudAgentAction(data: JSONObject?): CloudAgentAction? {
         val item = data?.optJSONObject("agentAction") ?: data?.optJSONObject("agent") ?: data?.optJSONObject("data")?.optJSONObject("agentAction") ?: data?.optJSONObject("result")?.optJSONObject("agentAction") ?: return null
         val capability = item.optString("capability").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
-        if (capability != "observe_screen") return null
+        if (capability !in setOf("observe_screen", "run_agent_task")) return null
+        val goal = item.optString("goal").notBlankOrNull()
+            ?: item.optString("task").notBlankOrNull()
+            ?: item.optString("instruction").notBlankOrNull()
+            ?: item.optString("query").notBlankOrNull()
         return CloudAgentAction(
             capability = capability,
             title = item.optString("title").notBlankOrNull(),
+            goal = goal,
             requiresConfirmation = item.optBoolean("requiresConfirmation", false),
             reason = item.optString("reason").notBlankOrNull()
         )
