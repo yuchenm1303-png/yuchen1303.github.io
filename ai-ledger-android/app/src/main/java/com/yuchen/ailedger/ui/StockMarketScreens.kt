@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,7 +24,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -60,10 +58,7 @@ private val HomeQuickActions = listOf("热榜", "板块", "资金", "异动", "�
 private val RiseRed = Color(0xFFFF8F8F)
 private val FallGreen = Color(0xFF80F7B4)
 private val Aqua = Color(0xFF8DF9EA)
-private val ParentPanelBg = Color.White.copy(alpha = 0.105f)
-private val ParentPanelStroke = Color.White.copy(alpha = 0.085f)
-private val ButtonBg = Color.White.copy(alpha = 0.085f)
-private val ButtonBgActive = Color.White.copy(alpha = 0.16f)
+private val SectionLine = Color.White.copy(alpha = 0.085f)
 
 @Composable
 fun AStockMarketScreenV2(
@@ -76,6 +71,7 @@ fun AStockMarketScreenV2(
 
     if (ui.showDetail) {
         StockDetailPage(
+            appState = state,
             ui = ui,
             onBack = viewModel::backToHome,
             onRefresh = viewModel::refreshCurrent,
@@ -86,6 +82,7 @@ fun AStockMarketScreenV2(
         )
     } else {
         StockHomePage(
+            appState = state,
             ui = ui,
             onBack = onBack,
             onRefresh = viewModel::refreshHome,
@@ -101,6 +98,7 @@ fun AStockMarketScreenV2(
 
 @Composable
 private fun StockHomePage(
+    appState: AssistantUiState,
     ui: StockMarketUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -116,16 +114,16 @@ private fun StockHomePage(
         contentPadding = PaddingValues(top = 14.dp, bottom = 118.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { HomeHeader(ui, onBack, onRefresh) }
+        item { HomeHeader(appState, ui, onBack, onRefresh) }
         item {
-            StockParentPanel {
-                TopSearchBar(ui, onQueryChange, onSearch)
+            StockParentGlassPanel(appState) {
+                TopSearchBar(appState, ui, onQueryChange, onSearch)
                 SectionDivider()
                 MarketOverviewSection(ui.stock, ui.loading, onOpenDetail)
                 SectionDivider()
                 IndexStripSection(ui.stock.indices)
                 SectionDivider()
-                HomeToolGrid(ui.selectedHomeAction, onSelectHomeAction)
+                HomeToolGrid(appState, ui.selectedHomeAction, onSelectHomeAction)
                 SectionDivider()
                 HomeToolContent(ui.stock, ui.selectedHomeAction, onOpenCode)
                 SectionDivider()
@@ -139,6 +137,7 @@ private fun StockHomePage(
 
 @Composable
 private fun StockDetailPage(
+    appState: AssistantUiState,
     ui: StockMarketUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -152,16 +151,16 @@ private fun StockDetailPage(
         contentPadding = PaddingValues(top = 8.dp, bottom = 118.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { DetailTopBar(ui, onBack, onRefresh) }
+        item { DetailTopBar(appState, ui, onBack, onRefresh) }
         item {
-            StockParentPanel {
+            StockParentGlassPanel(appState) {
                 QuoteHeroSection(ui.stock)
                 SectionDivider()
-                BottomActionBar(ui, onAction)
+                BottomActionBar(appState, ui, onAction)
                 SectionDivider()
-                ChartSection(ui, onSelectTab)
+                ChartSection(appState, ui, onSelectTab)
                 SectionDivider()
-                DepthAndTradeSection(ui, onSelectDepth)
+                DepthAndTradeSection(appState, ui, onSelectDepth)
                 if (ui.activeAction != null) {
                     SectionDivider()
                     ActionSection(ui.activeAction, ui.stock, onOpenAssistant)
@@ -176,13 +175,13 @@ private fun StockDetailPage(
 }
 
 @Composable
-private fun HomeHeader(ui: StockMarketUiState, onBack: () -> Unit, onRefresh: () -> Unit) {
+private fun HomeHeader(appState: AssistantUiState, ui: StockMarketUiState, onBack: () -> Unit, onRefresh: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            StockButton("‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
+            StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
             Spacer(Modifier.weight(1f))
             Text("A股行情 · ${ui.stock.quote.code}", color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            StockIconButton(if (ui.loading || ui.marketLoading) "…" else "⟳", onRefresh)
+            StockIconButton(appState, if (ui.loading || ui.marketLoading) "…" else "⟳", onRefresh)
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("A-SHARE MARKET", color = Aqua.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -193,41 +192,43 @@ private fun HomeHeader(ui: StockMarketUiState, onBack: () -> Unit, onRefresh: ()
 }
 
 @Composable
-private fun DetailTopBar(ui: StockMarketUiState, onBack: () -> Unit, onRefresh: () -> Unit) {
+private fun DetailTopBar(appState: AssistantUiState, ui: StockMarketUiState, onBack: () -> Unit, onRefresh: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        StockButton("‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
+        StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
         Spacer(Modifier.weight(1f))
         Text("${ui.stock.quote.name} · ${ui.stock.quote.code}", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        StockIconButton(if (ui.loading || ui.kLineLoading) "…" else "⟳", onRefresh)
+        StockIconButton(appState, if (ui.loading || ui.kLineLoading) "…" else "⟳", onRefresh)
     }
 }
 
 @Composable
-private fun StockParentPanel(content: @Composable () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(30.dp))
-            .background(ParentPanelBg)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+private fun StockParentGlassPanel(appState: AssistantUiState, content: @Composable () -> Unit) {
+    GlassPanel(
+        quality = appState.quality,
+        glassIntensity = appState.glassIntensity * 0.92f,
+        motionIntensity = appState.motionIntensity,
+        radius = 30,
+        modifier = Modifier.fillMaxWidth(),
+        role = GlassRole.Card
     ) {
-        content()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+        }
     }
 }
 
 @Composable
 private fun SectionDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(ParentPanelStroke)
-    )
+    Box(Modifier.fillMaxWidth().height(1.dp).background(SectionLine))
 }
 
 @Composable
-private fun TopSearchBar(ui: StockMarketUiState, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
+private fun TopSearchBar(appState: AssistantUiState, ui: StockMarketUiState, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("⌕", color = Aqua.copy(alpha = 0.88f), fontSize = 19.sp, fontWeight = FontWeight.Black)
         BasicTextField(
@@ -246,7 +247,7 @@ private fun TopSearchBar(ui: StockMarketUiState, onQueryChange: (String) -> Unit
                 }
             }
         )
-        StockButton(if (ui.loading) "连接" else "搜索", Modifier.width(70.dp).height(38.dp), onSearch, active = true)
+        StockButton(appState, if (ui.loading) "连接" else "搜索", Modifier.width(70.dp).height(38.dp), onSearch, active = true)
     }
 }
 
@@ -301,10 +302,10 @@ private fun QuoteHeroSection(stock: StockDetailUiState) {
 }
 
 @Composable
-private fun ChartSection(ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
+private fun ChartSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().height(238.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StockTabs.forEach { tab -> StockButton(tab, Modifier.weight(1f).height(36.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
+            StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
         }
         MiniTrendCanvas(ui.stock, Modifier.fillMaxWidth().weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -317,10 +318,10 @@ private fun ChartSection(ui: StockMarketUiState, onSelectTab: (String) -> Unit) 
 }
 
 @Composable
-private fun DepthAndTradeSection(ui: StockMarketUiState, onSelectDepth: (String) -> Unit) {
+private fun DepthAndTradeSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectDepth: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().height(176.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DepthTabs.forEach { tab -> StockButton(tab, Modifier.weight(1f).height(36.dp), { onSelectDepth(tab) }, active = ui.depthTab == tab) }
+            DepthTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), { onSelectDepth(tab) }, active = ui.depthTab == tab) }
         }
         if (ui.depthTab == "成交") TradeTickList(ui.stock.tradeTicks) else OrderBookList(ui.stock.sellLevels, ui.stock.buyLevels)
     }
@@ -348,10 +349,11 @@ private fun FundamentalsSection(stock: StockDetailUiState) {
 }
 
 @Composable
-private fun BottomActionBar(ui: StockMarketUiState, onAction: (String) -> Unit) {
+private fun BottomActionBar(appState: AssistantUiState, ui: StockMarketUiState, onAction: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf("加自选", "预警", "研报", "交易").forEach { action ->
             StockButton(
+                appState = appState,
                 text = if (action == "加自选" && ui.isWatched) "已自选" else action,
                 modifier = Modifier.weight(1f).height(44.dp),
                 onClick = { onAction(action) },
@@ -406,12 +408,12 @@ private fun IndexStripSection(indices: List<StockIndexSnapshot>) {
 }
 
 @Composable
-private fun HomeToolGrid(selected: String, onSelect: (String) -> Unit) {
+private fun HomeToolGrid(appState: AssistantUiState, selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Section("行情工具", "热榜、板块、资金和异动入口")
         HomeQuickActions.chunked(4).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { action -> StockButton(action, Modifier.weight(1f).height(42.dp), { onSelect(action) }, active = selected == action) }
+                row.forEach { action -> StockButton(appState, action, Modifier.weight(1f).height(42.dp), { onSelect(action) }, active = selected == action) }
             }
         }
     }
@@ -473,7 +475,7 @@ private fun AiSummarySection(stock: StockDetailUiState, onOpenAssistant: () -> U
 private fun ActionSection(action: String?, stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Section(action ?: "动作", stock.quote.name)
-        Text("已切换到 ${action ?: "当前"} 操作。真实交易、预警和研报入口会在后续版本接入确认流程。", color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 17.sp)
+        Text("已切换到 " + (action ?: "当前") + " 操作。真实交易、预警和研报入口会在后续版本接入确认流程。", color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 17.sp)
     }
 }
 
@@ -502,15 +504,25 @@ private fun MetricTile(label: String, value: String, color: Color, modifier: Mod
 }
 
 @Composable
-private fun StockButton(text: String, modifier: Modifier, onClick: () -> Unit, active: Boolean = false) {
-    Box(modifier.clip(RoundedCornerShape(999.dp)).background(if (active) ButtonBgActive else ButtonBg).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(text, color = Color.White.copy(alpha = if (active) 0.96f else 0.78f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+private fun StockButton(appState: AssistantUiState, text: String, modifier: Modifier, onClick: () -> Unit, active: Boolean = false) {
+    PressableGlass(
+        quality = appState.quality,
+        glassIntensity = appState.glassIntensity * if (active) 0.98f else 0.78f,
+        motionIntensity = appState.motionIntensity,
+        radius = 999,
+        modifier = modifier,
+        role = if (active) GlassRole.Floating else GlassRole.Chip,
+        onClick = onClick
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color.White.copy(alpha = if (active) 0.96f else 0.78f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
     }
 }
 
 @Composable
-private fun StockIconButton(text: String, onClick: () -> Unit) {
-    StockButton(text, Modifier.width(46.dp).height(42.dp), onClick)
+private fun StockIconButton(appState: AssistantUiState, text: String, onClick: () -> Unit) {
+    StockButton(appState, text, Modifier.width(46.dp).height(42.dp), onClick)
 }
 
 @Composable
