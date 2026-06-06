@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,29 +117,22 @@ private fun SettingsHeader() {
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
     SettingsCard {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("当前状态", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                StatusMetric("服务", if (aiEndpoint.isBlank()) "本地" else "云端", Modifier.weight(1f))
-                StatusMetric("画质", qualityLabel(state.quality), Modifier.weight(1f))
-                StatusMetric("背景", themeLabel(state.backgroundTheme), Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                StatusMetric("玻璃", glassPresetLabel(state.glassPreset), Modifier.weight(1f))
-                StatusMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
-                StatusMetric("OpenGL", "隔离", Modifier.weight(1f))
-            }
+        Text("当前状态", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            StatusMetric("服务", if (aiEndpoint.isBlank()) "本地" else "云端", Modifier.weight(1f))
+            StatusMetric("画质", qualityLabel(state.quality), Modifier.weight(1f))
+            StatusMetric("背景", themeLabel(state.backgroundTheme), Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            StatusMetric("玻璃", glassPresetLabel(state.glassPreset), Modifier.weight(1f))
+            StatusMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
+            StatusMetric("OpenGL", "隔离", Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun SettingsPanelGrid(
-    state: AssistantUiState,
-    aiEndpoint: String,
-    selectedPanel: SettingsPanel,
-    onSelected: (SettingsPanel) -> Unit
-) {
+private fun SettingsPanelGrid(state: AssistantUiState, aiEndpoint: String, selectedPanel: SettingsPanel, onSelected: (SettingsPanel) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             PanelChip("外观", themeLabel(state.backgroundTheme), selectedPanel == SettingsPanel.Appearance, Modifier.weight(1f)) { onSelected(SettingsPanel.Appearance) }
@@ -159,47 +151,34 @@ private fun SettingsPanelGrid(
 }
 
 @Composable
-private fun AppearanceSettingsPanel(
-    state: AssistantUiState,
-    onBackgroundThemeChange: (BackgroundTheme) -> Unit,
-    onUploadBackgroundClick: () -> Unit,
-    onClearCustomBackgroundClick: () -> Unit
-) {
-    SettingsCard(title = "外观与背景", subtitle = "切换内置主题或使用自定义背景。") {
-        ThemeOptions(state.backgroundTheme, onBackgroundThemeChange)
+private fun AppearanceSettingsPanel(state: AssistantUiState, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onUploadBackgroundClick: () -> Unit, onClearCustomBackgroundClick: () -> Unit) {
+    SettingsCard("外观与背景", "切换内置主题或使用自定义背景。") {
+        BackgroundTheme.entries.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { theme -> PanelChip(themeLabel(theme), theme.storageValue, state.backgroundTheme == theme, Modifier.weight(1f)) { onBackgroundThemeChange(theme) } }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
         SettingButton("上传背景", "选择本机图片作为背景", onUploadBackgroundClick)
         SettingButton("清除自定义背景", "恢复内置主题背景", onClearCustomBackgroundClick)
     }
 }
 
 @Composable
-private fun GlassSettingsPanel(
-    state: AssistantUiState,
-    onQualityChange: (RenderQuality) -> Unit,
-    onGlassPresetChange: (GlassPreset) -> Unit,
-    onGlassIntensityChange: (Float) -> Unit,
-    onMotionIntensityChange: (Float) -> Unit,
-    onRainbowPrismChange: (RainbowPrismStyle) -> Unit
-) {
-    SettingsCard(title = "玻璃与动效", subtitle = "只调整 Compose 表层参数，不触碰 OpenGL 聊天框稳定链路。") {
-        Text("画质", color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+private fun GlassSettingsPanel(state: AssistantUiState, onQualityChange: (RenderQuality) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit) {
+    SettingsCard("玻璃与动效", "只调整 Compose 表层参数，不改变 OpenGL 聊天框尺寸链。") {
         OptionRow(RenderQuality.entries.toList(), state.quality, { it.title }, onQualityChange)
-        Text("玻璃预设", color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.Black)
         OptionRow(GlassPreset.entries.toList(), state.glassPreset, { it.label }, onGlassPresetChange)
         SettingSlider("玻璃强度", state.glassIntensity, 0.55f..1.45f, onGlassIntensityChange)
         SettingSlider("动效强度", state.motionIntensity, 0f..1.35f, onMotionIntensityChange)
-        SettingSlider("彩虹折射", state.rainbowPrismStyle.overall, 0f..1.6f) {
-            onRainbowPrismChange(state.rainbowPrismStyle.copy(overall = it))
-        }
-        SettingSlider("边缘高光", state.rainbowPrismStyle.edgeHighlight, 0f..1.6f) {
-            onRainbowPrismChange(state.rainbowPrismStyle.copy(edgeHighlight = it))
-        }
+        SettingSlider("彩虹折射", state.rainbowPrismStyle.overall, 0f..1.6f) { onRainbowPrismChange(state.rainbowPrismStyle.copy(overall = it)) }
+        SettingSlider("边缘高光", state.rainbowPrismStyle.edgeHighlight, 0f..1.6f) { onRainbowPrismChange(state.rainbowPrismStyle.copy(edgeHighlight = it)) }
     }
 }
 
 @Composable
 private fun AssistantSettingsPanel(state: AssistantUiState, onPreviewConversationChange: (Boolean) -> Unit) {
-    SettingsCard(title = "助手", subtitle = "模型选择在聊天页顶部完成，这里只保留全局显示开关。") {
+    SettingsCard("助手", "模型选择在聊天页顶部完成，这里保留全局状态。") {
         SettingInfoRow("当前模型", state.selectedModelLabel)
         SettingSwitchRow("首页预览对话", "显示欢迎页内置示例消息", state.showPreviewConversation, onPreviewConversationChange)
         SettingInfoRow("联网状态", if (state.onlineEnabled) "已开启" else "关闭")
@@ -209,7 +188,7 @@ private fun AssistantSettingsPanel(state: AssistantUiState, onPreviewConversatio
 
 @Composable
 private fun DataSettingsPanel(state: AssistantUiState) {
-    SettingsCard(title = "数据", subtitle = "本地账单与预算概览。") {
+    SettingsCard("数据", "本地账单与预算概览。") {
         SettingInfoRow("预算", state.ledgerBudgetText)
         SettingInfoRow("账单数量", "${state.ledgerRecords.size} 笔")
         SettingInfoRow("默认分类", state.ledgerDraftCategory)
@@ -218,7 +197,7 @@ private fun DataSettingsPanel(state: AssistantUiState) {
 
 @Composable
 private fun ServiceSettingsPanel(state: AssistantUiState, aiEndpoint: String) {
-    SettingsCard(title = "服务", subtitle = "AI Worker 与 Supabase 账号。") {
+    SettingsCard("服务", "AI Worker 与 Supabase 账号。") {
         SettingInfoRow("AI 接口", if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint)
         SettingInfoRow("执行模式", "云端理解，本地确认后执行")
         AccountSettingsCard(state)
@@ -226,30 +205,18 @@ private fun ServiceSettingsPanel(state: AssistantUiState, aiEndpoint: String) {
 }
 
 @Composable
-private fun AdvancedSettingsPanel(
-    state: AssistantUiState,
-    onBackdropChange: (BackdropDebugParams) -> Unit,
-    onBorderChange: (GlassBorderStyle) -> Unit
-) {
-    SettingsCard(title = "高级", subtitle = "只暴露安全的外观参数，不改变 OpenGL Host 尺寸链。") {
-        SettingSlider("背景亮度", state.backdropParams.brightness, 0.7f..1.45f) {
-            onBackdropChange(state.backdropParams.copy(brightness = it))
-        }
-        SettingSlider("背景对比", state.backdropParams.contrast, 0.7f..1.35f) {
-            onBackdropChange(state.backdropParams.copy(contrast = it))
-        }
-        SettingSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0f..1.6f) {
-            onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it))
-        }
-        SettingSlider("底部阴影", state.glassBorderStyle.bottomShadowAlpha, 0f..1.2f) {
-            onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it))
-        }
+private fun AdvancedSettingsPanel(state: AssistantUiState, onBackdropChange: (BackdropDebugParams) -> Unit, onBorderChange: (GlassBorderStyle) -> Unit) {
+    SettingsCard("高级", "只暴露安全外观参数，不改 OpenGL Host 尺寸链。") {
+        SettingSlider("背景亮度", state.backdropParams.brightness, 0.7f..1.45f) { onBackdropChange(state.backdropParams.copy(brightness = it)) }
+        SettingSlider("背景对比", state.backdropParams.contrast, 0.7f..1.35f) { onBackdropChange(state.backdropParams.copy(contrast = it)) }
+        SettingSlider("顶部高光", state.glassBorderStyle.topHighlightAlpha, 0f..1.6f) { onBorderChange(state.glassBorderStyle.copy(topHighlightAlpha = it)) }
+        SettingSlider("底部阴影", state.glassBorderStyle.bottomShadowAlpha, 0f..1.2f) { onBorderChange(state.glassBorderStyle.copy(bottomShadowAlpha = it)) }
     }
 }
 
 @Composable
 private fun DebugSettingsPanel(state: AssistantUiState, aiEndpoint: String) {
-    SettingsCard(title = "调试", subtitle = "用于快速确认关键状态。") {
+    SettingsCard("调试", "用于快速确认关键状态。") {
         SettingInfoRow("质量", state.quality.name)
         SettingInfoRow("玻璃预设", state.glassPreset.name)
         SettingInfoRow("背景", state.backgroundTheme.name)
@@ -263,7 +230,6 @@ private fun AccountSettingsCard(state: AssistantUiState) {
     val scope = rememberCoroutineScope()
     val sessionStore = remember(context) { SupabaseSessionStore(context) }
     val authClient = remember { SupabaseAuthClient() }
-
     var session by remember { mutableStateOf<SupabaseUserSession?>(null) }
     var authMode by rememberSaveable { mutableStateOf(AccountAuthMode.Login) }
     var emailInput by rememberSaveable { mutableStateOf("") }
@@ -297,8 +263,7 @@ private fun AccountSettingsCard(state: AssistantUiState) {
         scope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    if (authMode == AccountAuthMode.Register) authClient.signUp(email, password)
-                    else authClient.signInWithPassword(email, password)
+                    if (authMode == AccountAuthMode.Register) authClient.signUp(email, password) else authClient.signInWithPassword(email, password)
                 }
                 result.session?.let { nextSession ->
                     withContext(Dispatchers.IO) { sessionStore.save(nextSession) }
@@ -378,26 +343,20 @@ private fun AccountSettingsCard(state: AssistantUiState) {
             }
             AccountStatusPill(session?.isUsable == true)
         }
-
         if (session?.isUsable != true) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AuthModeChip("登录", authMode == AccountAuthMode.Login, state, Modifier.weight(1f)) { authMode = AccountAuthMode.Login }
-                AuthModeChip("注册", authMode == AccountAuthMode.Register, state, Modifier.weight(1f)) { authMode = AccountAuthMode.Register }
+                AuthModeChip("登录", authMode == AccountAuthMode.Login, Modifier.weight(1f)) { authMode = AccountAuthMode.Login }
+                AuthModeChip("注册", authMode == AccountAuthMode.Register, Modifier.weight(1f)) { authMode = AccountAuthMode.Register }
             }
             SettingTextField(emailInput, { emailInput = it.take(80) }, "邮箱 name@example.com", KeyboardType.Email, VisualTransformation.None, !loading)
             SettingTextField(passwordInput, { passwordInput = it.take(72) }, "密码至少 6 位", KeyboardType.Password, PasswordVisualTransformation(), !loading)
-            SettingButton(
-                title = if (loading) "处理中…" else if (authMode == AccountAuthMode.Register) "注册" else "登录",
-                subtitle = if (authMode == AccountAuthMode.Register) "Supabase 邮箱注册" else "邮箱密码登录",
-                onClick = { submitAuth() }
-            )
+            SettingButton(if (loading) "处理中…" else if (authMode == AccountAuthMode.Register) "注册" else "登录", if (authMode == AccountAuthMode.Register) "Supabase 邮箱注册" else "邮箱密码登录") { submitAuth() }
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SettingButton("刷新会话", if (loading) "处理中" else "更新 token", { refreshLogin() }, Modifier.weight(1f))
                 SettingButton("退出登录", "回到本地模式", { logout() }, Modifier.weight(1f))
             }
         }
-
         Text(
             message,
             color = when (tone) {
@@ -413,19 +372,8 @@ private fun AccountSettingsCard(state: AssistantUiState) {
 }
 
 @Composable
-private fun SettingsCard(
-    title: String? = null,
-    subtitle: String? = null,
-    content: @Composable Column.() -> Unit
-) {
-    GlassPanel(
-        quality = RenderQuality.Balanced,
-        glassIntensity = 0.92f,
-        motionIntensity = 0.55f,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
+private fun SettingsCard(title: String? = null, subtitle: String? = null, content: @Composable () -> Unit) {
+    GlassPanel(RenderQuality.Balanced, 0.92f, 0.55f, 26, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -445,13 +393,7 @@ private fun SettingsCard(
 
 @Composable
 private fun StatusMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.075f))
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.075f)).padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -459,16 +401,7 @@ private fun StatusMetric(label: String, value: String, modifier: Modifier = Modi
 
 @Composable
 private fun PanelChip(title: String, value: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val bg = if (selected) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.075f)
-    Column(
-        modifier
-            .height(72.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
+    Column(modifier.height(72.dp).clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = if (selected) 0.16f else 0.075f)).clickable(onClick = onClick).padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Text(title, color = Color.White.copy(alpha = if (selected) 0.96f else 0.72f), fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text(value, color = Color.White.copy(alpha = if (selected) 0.70f else 0.46f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -476,15 +409,7 @@ private fun PanelChip(title: String, value: String, selected: Boolean, modifier:
 
 @Composable
 private fun SettingButton(title: String, subtitle: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .height(52.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.09f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(modifier.height(52.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.09f)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.Center) {
         Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -523,14 +448,7 @@ private fun SettingSlider(title: String, value: Float, range: ClosedFloatingPoin
 }
 
 @Composable
-private fun SettingTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    keyboardType: KeyboardType,
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-    enabled: Boolean = true
-) {
+private fun SettingTextField(value: String, onValueChange: (String) -> Unit, placeholder: String, keyboardType: KeyboardType, visualTransformation: VisualTransformation = VisualTransformation.None, enabled: Boolean = true) {
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -540,12 +458,7 @@ private fun SettingTextField(
         cursorBrush = SolidColor(Color.White.copy(alpha = 0.90f)),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Done),
         visualTransformation = visualTransformation,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(Color.White.copy(alpha = 0.075f))
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = 0.075f)).padding(horizontal = 12.dp, vertical = 14.dp),
         decorationBox = { inner ->
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                 if (value.isBlank()) Text(placeholder, color = Color.White.copy(alpha = 0.34f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -557,41 +470,15 @@ private fun SettingTextField(
 
 @Composable
 private fun AccountStatusPill(loggedIn: Boolean) {
-    Box(
-        Modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (loggedIn) Color(0xFF8DF9EA).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f))
-            .padding(horizontal = 11.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(Modifier.height(30.dp).clip(RoundedCornerShape(999.dp)).background(if (loggedIn) Color(0xFF8DF9EA).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f)).padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
         Text(if (loggedIn) "已登录" else "本地模式", color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
 @Composable
-private fun AuthModeChip(text: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    Box(
-        modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = if (selected) 0.16f else 0.07f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
+private fun AuthModeChip(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.height(40.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = if (selected) 0.16f else 0.07f)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Text(text, color = Color.White.copy(alpha = if (selected) 0.96f else 0.62f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
-    }
-}
-
-@Composable
-private fun ThemeOptions(selected: BackgroundTheme, onSelected: (BackgroundTheme) -> Unit) {
-    BackgroundTheme.entries.chunked(2).forEach { row ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            row.forEach { theme ->
-                PanelChip(themeLabel(theme), theme.storageValue, selected == theme, Modifier.weight(1f)) { onSelected(theme) }
-            }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
-        }
     }
 }
 
