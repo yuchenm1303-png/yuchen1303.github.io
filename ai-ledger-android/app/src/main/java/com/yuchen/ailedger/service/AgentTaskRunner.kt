@@ -51,7 +51,7 @@ class AgentTaskRunner(
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
 
-        tryLocalOpenAppFastPath(goal, logs, memory)?.let { return it }
+        tryLocalAppLaunchBootstrap(goal, logs, memory)?.let { return it }
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
             val loopStart = SystemClock.elapsedRealtime()
@@ -224,30 +224,43 @@ class AgentTaskRunner(
         return AgentTaskRunResult(false, false, message, logs)
     }
 
-    private suspend fun tryLocalOpenAppFastPath(goal: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentTaskRunResult? {
+    private suspend fun tryLocalAppLaunchBootstrap(goal: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentTaskRunResult? {
         val index = installedAppIndex ?: return null
         val candidates = withContext(Dispatchers.IO) { index.findCandidateApps(goal, limit = 3) }
         val best = candidates.firstOrNull() ?: return null
-        if (!isPureOpenAppGoal(goal, best, index)) return null
+        if (!isAppMentionedInGoal(goal, best, index)) return null
+        val pureOpenGoal = isPureOpenAppGoal(goal, best, index)
         val step = CloudAgentStep(
             type = "open_app",
             appName = best.label,
             packageName = best.packageName,
-            reason = "本机应用索引命中，纯打开 App 任务跳过云端视觉循环。",
+            reason = if (pureOpenGoal) "本机应用索引命中，纯打开 App 任务跳过云端视觉循环。" else "本机应用索引命中，先打开目标 App，再进入视觉主导页面任务。",
             riskLevel = "low",
             requiresConfirmation = false,
         )
-        AgentRuntimeController.noteDiagnostic("快路径：直接打开 ${best.label}")
-        val result = executeTimed(step, "local_fast_path", logs, memory)
+        AgentRuntimeController.noteDiagnostic("本地启动目标应用：${best.label}")
+        val result = executeTimed(step, "local_app_bootstrap", logs, memory)
         memory.remember(step, result)
         if (!result.ok) {
-            memory.recordTrace("快路径打开失败，转入视觉主导云端循环：${result.message}")
+            memory.recordTrace("本地启动目标应用失败，转入视觉主导云端循环：${result.message}")
+            memory.forceNextVisual = true
+            return null
+        }
+        delayForStep(step)
+        if (!pureOpenGoal) {
+            memory.recordTrace("已打开 ${best.label}，继续用视觉主导查找 App 内目标。")
             memory.forceNextVisual = true
             return null
         }
         val message = memory.withDebug("已打开 ${best.label}。")
         AgentRuntimeController.finishTask(message, completed = true)
         return AgentTaskRunResult(true, false, message, logs)
+    }
+
+    private fun isAppMentionedInGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
+        val clean = normalize(goal)
+        val aliases = index.aliasesFor(app).map(::normalize).filter { it.length >= 2 }.distinct()
+        return aliases.any { clean.contains(it) }
     }
 
     private fun isPureOpenAppGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
@@ -479,6 +492,7 @@ class AgentTaskRunner(
             put("policyHints", JSONArray().apply {
                 put("这是视觉主导 Computer Use 循环：除纯 open_app 工具任务外，应以截图为主判断当前状态。")
                 put("Accessibility 节点只作为可点击/可输入/可滚动 affordance 提示，不代表页面已完成。")
+                put("如果任务包含本机目标 App 名，Android 会先本地 open_app，再进入 App 内视觉观察。")
                 put("视觉 tap_xy 坐标会原样执行，只做归一化换算和边界保护，不再进行本地底部导航吸附。")
                 put("每次执行 open_app、tap、input、scroll、swipe、back、home、wait 后，下一轮应通过截图复核页面状态。")
                 put("不要重复 blockedActions 或 failedActions 中的同一路径。")
