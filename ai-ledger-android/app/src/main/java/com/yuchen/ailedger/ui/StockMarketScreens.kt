@@ -54,12 +54,14 @@ import kotlin.math.abs
 
 private val StockTabs = listOf("分时", "日K", "周K", "月K", "五日")
 private val DepthTabs = listOf("五档", "成交")
-private val HomeQuickActions = listOf("热榜", "板块", "资金", "异动", "龙虎", "日历", "研报", "预警")
+private val HomeQuickActions = listOf("自选", "热榜", "板块", "资金", "异动", "新闻", "研报", "预警")
 private val RiseRed = Color(0xFFFF8F8F)
 private val FallGreen = Color(0xFF80F7B4)
 private val Aqua = Color(0xFF8DF9EA)
 private val SectionLine = Color.White.copy(alpha = 0.085f)
-private val StockHomePanelHeight = 1120.dp
+private val MarketOverviewPanelHeight = 340.dp
+private val MarketHotPanelHeight = 470.dp
+private val MarketWatchPanelHeight = 450.dp
 private val StockDetailPanelHeight = 1040.dp
 
 @Composable
@@ -118,20 +120,18 @@ private fun StockHomePage(
     ) {
         item { HomeHeader(appState, ui, onBack, onRefresh) }
         item {
-            StockParentGlassPanel(appState, Modifier.height(StockHomePanelHeight)) {
-                TopSearchBar(appState, ui, onQueryChange, onSearch)
-                SectionDivider()
-                MarketOverviewSection(ui.stock, ui.loading, onOpenDetail)
-                SectionDivider()
-                IndexStripSection(ui.stock.indices)
-                SectionDivider()
-                HomeToolGrid(appState, ui.selectedHomeAction, onSelectHomeAction)
-                SectionDivider()
-                HomeToolContent(ui.stock, ui.selectedHomeAction, onOpenCode)
-                SectionDivider()
-                WatchListSection(ui.stock, onOpenCode)
-                SectionDivider()
-                AiSummarySection(ui.stock, onOpenAssistant)
+            StockParentGlassPanel(appState, Modifier.height(MarketOverviewPanelHeight)) {
+                MarketOverviewHomeSection(appState, ui, onQueryChange, onSearch, onOpenDetail)
+            }
+        }
+        item {
+            StockParentGlassPanel(appState, Modifier.height(MarketHotPanelHeight)) {
+                MarketGatewayHomeSection(appState, ui.stock, ui.selectedHomeAction, onSelectHomeAction, onOpenCode)
+            }
+        }
+        item {
+            StockParentGlassPanel(appState, Modifier.height(MarketWatchPanelHeight)) {
+                WatchNewsAiHomeSection(ui.stock, onOpenCode, onOpenAssistant)
             }
         }
     }
@@ -182,12 +182,12 @@ private fun HomeHeader(appState: AssistantUiState, ui: StockMarketUiState, onBac
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
             Spacer(Modifier.weight(1f))
-            Text("A股行情 · ${ui.stock.quote.code}", color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("市场总览 · A股", color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             StockIconButton(appState, if (ui.loading || ui.marketLoading) "…" else "⟳", onRefresh)
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("A-SHARE MARKET", color = Aqua.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("A股行情首页", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text("市场概览", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(statusText(ui), color = statusColor(ui), fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -230,6 +230,45 @@ private fun SectionDivider() {
 }
 
 @Composable
+private fun MarketOverviewHomeSection(
+    appState: AssistantUiState,
+    ui: StockMarketUiState,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    onOpenDetail: () -> Unit
+) {
+    TopSearchBar(appState, ui, onQueryChange, onSearch)
+    SectionDivider()
+    Section("主要指数", "沪深京核心指数与市场温度")
+    IndexStripSection(ui.stock.indices)
+    SectionDivider()
+    MarketMoodSection(ui.stock, onOpenDetail)
+}
+
+@Composable
+private fun MarketGatewayHomeSection(
+    appState: AssistantUiState,
+    stock: StockDetailUiState,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onOpenCode: (String) -> Unit
+) {
+    Section("信息入口", "自选、热榜、板块、资金、新闻一屏进入")
+    HomeToolGrid(appState, selected, onSelect)
+    SectionDivider()
+    HomeToolContent(stock, selected, onOpenCode)
+}
+
+@Composable
+private fun WatchNewsAiHomeSection(stock: StockDetailUiState, onOpenCode: (String) -> Unit, onOpenAssistant: () -> Unit) {
+    WatchListSection(stock, onOpenCode)
+    SectionDivider()
+    NewsSignalSection(stock)
+    SectionDivider()
+    AiSummarySection(stock, onOpenAssistant)
+}
+
+@Composable
 private fun TopSearchBar(appState: AssistantUiState, ui: StockMarketUiState, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("⌕", color = Aqua.copy(alpha = 0.88f), fontSize = 19.sp, fontWeight = FontWeight.Black)
@@ -244,7 +283,7 @@ private fun TopSearchBar(appState: AssistantUiState, ui: StockMarketUiState, onQ
             modifier = Modifier.weight(1f),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    if (ui.query.isBlank()) Text("搜索代码 / 名称 / 拼音", color = Color.White.copy(alpha = 0.38f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (ui.query.isBlank()) Text("搜索股票 / 板块 / 新闻", color = Color.White.copy(alpha = 0.38f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     inner()
                 }
             }
@@ -254,30 +293,19 @@ private fun TopSearchBar(appState: AssistantUiState, ui: StockMarketUiState, onQ
 }
 
 @Composable
-private fun MarketOverviewSection(stock: StockDetailUiState, loading: Boolean, onOpenDetail: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .height(192.dp)
-            .clickable(onClick = onOpenDetail),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(if (loading) "行情雷达连接中" else "今日关注", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                Text(stock.quote.name, color = Color.White, fontSize = 25.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${stock.quote.code} · ${stock.quote.market} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(stock.quote.price, color = quoteColor(stock.quote.isRising), fontSize = 32.sp, lineHeight = 35.sp, fontWeight = FontWeight.Black)
-                Text("${stock.quote.changeAmount}  ${stock.quote.changePercent}", color = quoteColor(stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black)
-            }
-        }
-        MiniTrendCanvas(stock, Modifier.fillMaxWidth().height(62.dp))
+private fun MarketMoodSection(stock: StockDetailUiState, onOpenDetail: () -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricTile("成交额", stock.quote.amount, Color.White, Modifier.weight(1f))
-            MetricTile("换手", stock.quote.turnoverRate, Color.White, Modifier.weight(1f))
-            MetricTile("量比", stock.quote.volumeRatio, quoteColor(stock.quote.isRising), Modifier.weight(1f))
+            MetricTile("上涨观察", "${risingCount(stock)} 个", RiseRed, Modifier.weight(1f))
+            MetricTile("谨慎观察", "${fallingCount(stock)} 个", FallGreen, Modifier.weight(1f))
+            MetricTile("热点池", "${hotPoolCount(stock)} 条", Aqua, Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onOpenDetail), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("当前关注", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(stock.quote.changePercent, color = quoteColor(stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -412,7 +440,6 @@ private fun IndexStripSection(indices: List<StockIndexSnapshot>) {
 @Composable
 private fun HomeToolGrid(appState: AssistantUiState, selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Section("行情工具", "热榜、板块、资金和异动入口")
         HomeQuickActions.chunked(4).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { action -> StockButton(appState, action, Modifier.weight(1f).height(42.dp), { onSelect(action) }, active = selected == action) }
@@ -423,14 +450,22 @@ private fun HomeToolGrid(appState: AssistantUiState, selected: String, onSelect:
 
 @Composable
 private fun HomeToolContent(stock: StockDetailUiState, selected: String, onOpenCode: (String) -> Unit) {
-    val board = stock.marketBoards.firstOrNull { it.title.contains(selected) } ?: stock.marketBoards.firstOrNull()
-    if (board != null) MarketBoardSection(board, onOpenCode) else SectionText(selected, "真实行情接入后，这里会展示对应模块数据。")
+    when (selected) {
+        "自选" -> WatchListSection(stock, onOpenCode)
+        "新闻" -> NewsSignalSection(stock)
+        "预警" -> SectionText("预警中心", "价格提醒、异动提醒和自选股风险提示会集中在这里。")
+        "研报" -> SectionText("研报速览", "后续接入研报摘要、机构观点和目标价变化。")
+        else -> {
+            val board = stock.marketBoards.firstOrNull { it.title.contains(selected) } ?: stock.marketBoards.firstOrNull()
+            if (board != null) MarketBoardSection(board, onOpenCode) else SectionText(selected, "真实行情接入后，这里会展示对应模块数据。")
+        }
+    }
 }
 
 @Composable
 private fun WatchListSection(stock: StockDetailUiState, onOpenCode: (String) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Section("自选观察", stock.dataSourceLabel)
+        Section("自选股", stock.dataSourceLabel)
         stock.watchlist.take(4).forEach { item ->
             Row(Modifier.fillMaxWidth().height(40.dp).clickable { onOpenCode(item.code) }, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -447,8 +482,21 @@ private fun WatchListSection(stock: StockDetailUiState, onOpenCode: (String) -> 
 @Composable
 private fun MarketBoardSection(board: StockMarketBoard, onOpenCode: (String) -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Section(board.title, board.subtitle)
+        Section("实时热点", board.subtitle.ifBlank { board.title })
         board.items.take(5).forEachIndexed { index, item -> RankRow(index + 1, item, onOpenCode) }
+    }
+}
+
+@Composable
+private fun NewsSignalSection(stock: StockDetailUiState) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Section("新闻与公告", "市场快讯、自选相关新闻和公告入口")
+        marketNewsLines(stock).take(3).forEachIndexed { index, text ->
+            Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text((index + 1).toString(), color = Aqua.copy(alpha = 0.82f), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(18.dp), textAlign = TextAlign.Center)
+                Text(text, color = Color.White.copy(alpha = 0.74f), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            }
+        }
     }
 }
 
@@ -469,7 +517,7 @@ private fun RankRow(rank: Int, item: StockRankItem, onOpenCode: (String) -> Unit
 private fun AiSummarySection(stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Section("AI 看盘摘要", "点击回到助手继续追问")
-        Text(stock.aiSummary, color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, lineHeight = 17.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
+        Text(stock.aiSummary, color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, lineHeight = 17.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -554,12 +602,24 @@ private fun MiniTrendCanvas(stock: StockDetailUiState, modifier: Modifier) {
 private fun quoteColor(isRising: Boolean): Color = if (isRising) RiseRed else FallGreen
 private fun toneColor(tone: StockTone): Color = when (tone) { StockTone.Rising -> RiseRed; StockTone.Falling -> FallGreen; StockTone.Neutral -> Color.White }
 private fun statusText(ui: StockMarketUiState): String = when {
-    ui.loading -> "正在连接个股行情代理"
+    ui.loading -> "正在连接市场行情代理"
     ui.marketLoading -> "正在同步指数、自选与榜单"
     ui.requestMessage != null -> ui.requestMessage
-    else -> "${ui.stock.quote.name} · ${ui.stock.quote.code} · ${ui.stock.dataSourceLabel}"
+    else -> "指数 · 热点 · 新闻 · 自选股"
 }
 private fun statusColor(ui: StockMarketUiState): Color = if (ui.requestMessage != null) Color(0xFFFFC857) else Color.White.copy(alpha = 0.58f)
+private fun risingCount(stock: StockDetailUiState): Int = stock.marketBoards.flatMap { it.items }.count { it.isRising }
+private fun fallingCount(stock: StockDetailUiState): Int = stock.marketBoards.flatMap { it.items }.count { !it.isRising }
+private fun hotPoolCount(stock: StockDetailUiState): Int = stock.marketBoards.sumOf { it.items.size }
+private fun marketNewsLines(stock: StockDetailUiState): List<String> {
+    val hotNames = stock.marketBoards.flatMap { it.items }.take(3).joinToString("、") { it.name }.ifBlank { "暂无热点榜单" }
+    val watchNames = stock.watchlist.take(3).joinToString("、") { it.name }.ifBlank { "暂无自选股" }
+    return listOf(
+        "实时热点：$hotNames 维持高关注度，可进入热榜继续跟踪。",
+        "自选动态：$watchNames 的新闻、公告和异动将聚合到这里。",
+        "市场新闻：后续接入宏观、行业、公告和研报摘要，支持一键问 AI。"
+    )
+}
 private fun fallbackAskLevels(): List<StockOrderLevel> = listOf(
     StockOrderLevel("卖5", "--", "--", true), StockOrderLevel("卖4", "--", "--", true), StockOrderLevel("卖3", "--", "--", true), StockOrderLevel("卖2", "--", "--", true), StockOrderLevel("卖1", "--", "--", true)
 )
