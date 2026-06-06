@@ -21,6 +21,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import org.json.JSONArray
 import org.json.JSONObject
 
 class StockRepository(
@@ -33,40 +34,102 @@ class StockRepository(
     fun loadAStock(query: String, mode: String = "lite"): StockDetailUiState {
         val base = sampleAStockDetailUiState()
         val normalized = query.trim().ifBlank { base.quote.code }
-        return runCatching {
-            val encoded = URLEncoder.encode(normalized, "UTF-8")
-            val safeMode = if (mode == "full") "full" else "lite"
+        val safeMode = if (mode == "full") "full" else "lite"
+        val encoded = encode(normalized)
+
+        val detailResult = runCatching {
             val body = httpGet(
                 "${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode",
                 timeoutMs = if (safeMode == "full") 16000 else 8500
             )
             parseDetail(JSONObject(body), base)
-        }.getOrElse { error ->
-            base.copy(
-                dataSourceLabel = "真实行情代理暂未返回，已回退示例数据",
-                errorMessage = error.message ?: error.javaClass.simpleName,
-                aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
-            )
         }
+
+        val quoteResult = loadQuoteSnapshot(normalized)
+        val minuteResult = loadMinutePoints(normalized)
+        val dailyKLineResult = if (safeMode == "full") loadKLinePoints(normalized, period = "daily") else Result.success(emptyList())
+
+        val detail = detailResult.getOrElse { error ->
+            val quote = quoteResult.getOrNull()
+            if (quote != null) {
+                base.copy(
+                    quote = quote,
+                    topMetrics = topMetricsFor(quote),
+                    fundamentals = fundamentalsFor(quote),
+                    dataSourceLabel = "A股实时行情代理 · quotes",
+                    errorMessage = null,
+                    aiSummary = "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。已通过批量报价接口返回。"
+                )
+            } else {
+                base.copy(
+                    dataSourceLabel = "真实行情代理暂未返回，已回退示例数据",
+                    errorMessage = error.message ?: error.javaClass.simpleName,
+                    aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
+                )
+            }
+        }
+
+        val mergedQuote = quoteResult.getOrNull() ?: detail.quote
+        val mergedMinute = minuteResult.getOrNull().takeUnless { it.isNullOrEmpty() } ?: detail.minutePoints
+        val mergedKLines = dailyKLineResult.getOrNull().takeUnless { it.isNullOrEmpty() } ?: detail.kLinePoints
+        val label = when {
+            quoteResult.isSuccess || minuteResult.isSuccess || dailyKLineResult.isSuccess -> "A股实时行情代理 · quotes/minute/kline"
+            else -> detail.dataSourceLabel
+        }
+
+        return detail.copy(
+            quote = mergedQuote,
+            topMetrics = topMetricsFor(mergedQuote),
+            minutePoints = mergedMinute,
+            kLinePoints = mergedKLines,
+            fundamentals = detail.fundamentals.ifEmpty { fundamentalsFor(mergedQuote) },
+            dataSourceLabel = label,
+            errorMessage = if (quoteResult.isSuccess || minuteResult.isSuccess || detailResult.isSuccess) null else detail.errorMessage,
+            aiSummary = detail.aiSummary.ifBlank { "${mergedQuote.name} 当前价 ${mergedQuote.price}，涨跌幅 ${mergedQuote.changePercent}。" }
+        )
     }
 
-    fun loadKLinePoints(query: String): Result<List<StockKLinePoint>> {
+    fun loadKLinePoints(query: String, period: String = "daily"): Result<List<StockKLinePoint>> {
         val base = sampleAStockDetailUiState()
         val normalized = query.trim().ifBlank { base.quote.code }
-        val encoded = URLEncoder.encode(normalized, "UTF-8")
+        val encoded = encode(normalized)
+        val safePeriod = when (period.lowercase()) {
+            "weekly", "week", "周k" -> "weekly"
+            "monthly", "month", "月k" -> "monthly"
+            else -> "daily"
+        }
         return runCatching {
-            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/kline?query=$encoded&limit=120", timeoutMs = 16000)
-            parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("K线接口返回为空") }
+            val body = httpGet("${baseUrl()}/api/stock/a-share/kline?query=$encoded&period=$safePeriod&limit=160", timeoutMs = 16000)
+            parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("$safePeriod K线接口返回为空") }
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/kline?query=$encoded&period=$safePeriod&limit=160", timeoutMs = 16000)
+            parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("crawl $safePeriod K线接口返回为空") }
         }.recoverCatching {
             val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=full", timeoutMs = 18000)
             parseKLines(JSONObject(body)).ifEmpty { throw IllegalStateException("full详情接口未返回历史K线") }
         }
     }
 
+    fun loadMinutePoints(query: String): Result<List<StockMinutePoint>> {
+        val base = sampleAStockDetailUiState()
+        val normalized = query.trim().ifBlank { base.quote.code }
+        val encoded = encode(normalized)
+        return runCatching {
+            val body = httpGet("${baseUrl()}/api/stock/a-share/minute?query=$encoded", timeoutMs = 12000)
+            parseMinutePoints(JSONObject(body)).ifEmpty { throw IllegalStateException("分时接口返回为空") }
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded", timeoutMs = 12000)
+            parseMinutePoints(JSONObject(body)).ifEmpty { throw IllegalStateException("crawl分时接口返回为空") }
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=lite", timeoutMs = 12000)
+            parseMinutePoints(JSONObject(body)).ifEmpty { throw IllegalStateException("detail未返回分时") }
+        }
+    }
+
     fun loadMarketOverview(query: String, current: StockDetailUiState): StockDetailUiState {
         val normalized = query.trim().ifBlank { current.quote.code }
-        return runCatching {
-            val encoded = URLEncoder.encode(normalized, "UTF-8")
+        val encoded = encode(normalized)
+        val oldOverview = runCatching {
             val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/market/overview?query=$encoded", timeoutMs = 8500)
             val obj = JSONObject(body)
             current.copy(
@@ -76,19 +139,82 @@ class StockRepository(
                 dataSourceLabel = obj.optString("dataSourceLabel", current.dataSourceLabel).ifBlank { current.dataSourceLabel }
             )
         }.getOrElse { current }
+
+        val watchCodes = buildList {
+            add(normalized)
+            oldOverview.watchlist.map { it.code }.filter { it.isNotBlank() && it != "--" }.forEach { add(it) }
+            add("600519")
+            add("000001")
+            add("300750")
+        }.distinct().take(8)
+
+        val liveWatchlist = loadQuoteWatchlist(watchCodes).getOrNull().orEmpty()
+        val poolBoard = loadStockPoolBoard().getOrNull()
+        val searchBoard = loadSearchBoard(normalized).getOrNull()
+        val mergedBoards = buildList {
+            oldOverview.marketBoards.forEach { add(it) }
+            searchBoard?.takeIf { it.items.isNotEmpty() }?.let { add(it) }
+            poolBoard?.takeIf { it.items.isNotEmpty() }?.let { add(it) }
+        }.distinctBy { it.title }
+
+        return oldOverview.copy(
+            watchlist = liveWatchlist.ifEmpty { oldOverview.watchlist },
+            marketBoards = mergedBoards.ifEmpty { oldOverview.marketBoards },
+            dataSourceLabel = "A股实时行情代理 · list/search/quotes"
+        )
+    }
+
+    private fun loadQuoteSnapshot(query: String): Result<StockQuote> {
+        val base = sampleAStockDetailUiState()
+        val encoded = encode(query.trim().ifBlank { base.quote.code })
+        return runCatching {
+            val body = httpGet("${baseUrl()}/api/stock/a-share/quotes?codes=$encoded", timeoutMs = 8500)
+            val quoteJson = parseQuoteObjects(JSONObject(body)).firstOrNull() ?: throw IllegalStateException("quotes接口没有报价对象")
+            quoteFromJson(quoteJson, base.quote)
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/quotes?codes=$encoded", timeoutMs = 8500)
+            val quoteJson = parseQuoteObjects(JSONObject(body)).firstOrNull() ?: throw IllegalStateException("crawl quotes接口没有报价对象")
+            quoteFromJson(quoteJson, base.quote)
+        }
+    }
+
+    private fun loadQuoteWatchlist(codes: List<String>): Result<List<StockWatchItem>> {
+        if (codes.isEmpty()) return Result.success(emptyList())
+        val encoded = encode(codes.joinToString(","))
+        return runCatching {
+            val body = httpGet("${baseUrl()}/api/stock/a-share/quotes?codes=$encoded", timeoutMs = 9000)
+            parseWatchItemsFromQuotes(JSONObject(body))
+        }.recoverCatching {
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/quotes?codes=$encoded", timeoutMs = 9000)
+            parseWatchItemsFromQuotes(JSONObject(body))
+        }
+    }
+
+    private fun loadStockPoolBoard(): Result<StockMarketBoard> = runCatching {
+        val body = httpGet("${baseUrl()}/api/stock/a-share/list?limit=20", timeoutMs = 9000)
+        val items = parseRankItemsFromAny(JSONObject(body)).take(8)
+        StockMarketBoard("股票池", "A股股票池实时返回", items)
+    }
+
+    private fun loadSearchBoard(query: String): Result<StockMarketBoard> = runCatching {
+        val encoded = encode(query)
+        val body = httpGet("${baseUrl()}/api/stock/a-share/search?query=$encoded", timeoutMs = 8500)
+        val items = parseRankItemsFromAny(JSONObject(body)).take(6)
+        StockMarketBoard("搜索结果", "${query} 相关股票", items)
     }
 
     private fun parseDetail(obj: JSONObject, base: StockDetailUiState): StockDetailUiState {
-        val quoteJson = obj.optJSONObject("quote") ?: throw IllegalStateException("代理行情缺少 quote 字段")
+        val payload = payloadObject(obj)
+        val quoteJson = payload.optJSONObject("quote") ?: parseQuoteObjects(payload).firstOrNull() ?: throw IllegalStateException("代理行情缺少 quote 字段")
         val quote = quoteFromJson(quoteJson, base.quote)
-        val kLines = parseKLines(obj)
-        val minutePoints = parseMinutePoints(obj).ifEmpty { minutePointsFromKLines(kLines, base) }
-        val sellLevels = parseOrderLevels(obj, listOf("sellLevels", "askLevels", "asks"), true).ifEmpty { base.sellLevels }
-        val buyLevels = parseOrderLevels(obj, listOf("buyLevels", "bidLevels", "bids"), false).ifEmpty { base.buyLevels }
-        val tradeTicks = parseTradeTicks(obj).ifEmpty { ticksFromMinute(minutePoints, quote, base) }
-        val moneyFlow = parseMoneyFlow(obj) ?: base.moneyFlow
-        val fundamentals = parseMetrics(obj, "fundamentals").ifEmpty { fundamentalsFor(quote) }
-        val sourceLabel = obj.optString("dataSourceLabel", "爬虫教学源 · 东方财富公开JSON · ${quote.code}")
+        val kLines = parseKLines(payload)
+        val minutePoints = parseMinutePoints(payload).ifEmpty { minutePointsFromKLines(kLines, base) }
+        val sellLevels = parseOrderLevels(payload, listOf("sellLevels", "askLevels", "asks"), true).ifEmpty { base.sellLevels }
+        val buyLevels = parseOrderLevels(payload, listOf("buyLevels", "bidLevels", "bids"), false).ifEmpty { base.buyLevels }
+        val tradeTicks = parseTradeTicks(payload).ifEmpty { ticksFromMinute(minutePoints, quote, base) }
+        val moneyFlow = parseMoneyFlow(payload) ?: base.moneyFlow
+        val fundamentals = parseMetrics(payload, "fundamentals").ifEmpty { fundamentalsFor(quote) }
+        val sourceLabel = payload.optString("dataSourceLabel", "爬虫教学源 · 东方财富公开JSON · ${quote.code}")
 
         return base.copy(
             quote = quote,
@@ -99,13 +225,13 @@ class StockRepository(
             tradeTicks = tradeTicks,
             moneyFlow = moneyFlow,
             fundamentals = fundamentals,
-            indices = parseIndices(obj).ifEmpty { base.indices },
-            watchlist = parseWatchlist(obj).ifEmpty { base.watchlist },
-            marketBoards = parseMarketBoards(obj).ifEmpty { base.marketBoards },
+            indices = parseIndices(payload).ifEmpty { base.indices },
+            watchlist = parseWatchlist(payload).ifEmpty { base.watchlist },
+            marketBoards = parseMarketBoards(payload).ifEmpty { base.marketBoards },
             kLinePoints = kLines,
             dataSourceLabel = sourceLabel,
             errorMessage = null,
-            aiSummary = obj.optString(
+            aiSummary = payload.optString(
                 "aiSummary",
                 "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情来自 ${sourceLabel}。"
             )
@@ -116,6 +242,46 @@ class StockRepository(
         val base = proxyBaseUrl.trim().trimEnd('/')
         if (base.isBlank()) throw IllegalStateException("行情代理地址为空")
         return base
+    }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+    private fun payloadObject(obj: JSONObject): JSONObject {
+        return obj.optJSONObject("data") ?: obj.optJSONObject("result") ?: obj.optJSONObject("payload") ?: obj
+    }
+
+    private fun findArray(obj: JSONObject, keys: List<String>): JSONArray? {
+        keys.forEach { key -> obj.optJSONArray(key)?.let { return it } }
+        val data = obj.opt("data")
+        if (data is JSONArray) return data
+        if (data is JSONObject && data != obj) findArray(data, keys)?.let { return it }
+        val result = obj.opt("result")
+        if (result is JSONArray) return result
+        if (result is JSONObject && result != obj) findArray(result, keys)?.let { return it }
+        return null
+    }
+
+    private fun parseQuoteObjects(obj: JSONObject): List<JSONObject> {
+        val payload = payloadObject(obj)
+        val directQuote = payload.optJSONObject("quote")
+        if (directQuote != null) return listOf(directQuote)
+        val array = findArray(payload, listOf("quotes", "items", "list", "records", "stocks", "data", "result"))
+        if (array != null) {
+            return buildList {
+                for (i in 0 until array.length()) array.optJSONObject(i)?.let { add(it) }
+            }
+        }
+        val nestedData = payload.optJSONObject("data") ?: payload.optJSONObject("result")
+        if (nestedData != null) {
+            val result = mutableListOf<JSONObject>()
+            val keys = nestedData.keys()
+            while (keys.hasNext()) {
+                val value = nestedData.opt(keys.next())
+                if (value is JSONObject) result.add(value)
+            }
+            if (result.isNotEmpty()) return result
+        }
+        return if (payload.has("code") || payload.has("name") || payload.has("price")) listOf(payload) else emptyList()
     }
 
     private fun minutePointsFromKLines(kLines: List<StockKLinePoint>, base: StockDetailUiState): List<StockMinutePoint> {
@@ -151,51 +317,51 @@ class StockRepository(
         }
     }
 
-    private fun quoteFromJson(json: JSONObject, fallback: StockQuote): StockQuote = StockQuote(
-        name = json.optString("name", fallback.name),
-        code = json.optString("code", fallback.code),
-        market = json.optString("market", fallback.market),
-        price = json.optString("price", fallback.price),
-        changeAmount = json.optString("changeAmount", fallback.changeAmount),
-        changePercent = json.optString("changePercent", fallback.changePercent),
-        isRising = json.optBoolean(
-            "isRising",
-            !json.optString("changePercent", fallback.changePercent).startsWith("-") && !json.optString("changeAmount", fallback.changeAmount).startsWith("-")
-        ),
-        previousClose = json.optDouble("previousClose", fallback.previousClose.toDouble()).toFloat(),
-        high = json.optString("high", fallback.high),
-        low = json.optString("low", fallback.low),
-        open = json.optString("open", fallback.open),
-        totalMarketValue = json.optString("totalMarketValue", fallback.totalMarketValue),
-        floatMarketValue = json.optString("floatMarketValue", fallback.floatMarketValue),
-        volumeRatio = json.optString("volumeRatio", fallback.volumeRatio),
-        turnoverRate = json.optString("turnoverRate", fallback.turnoverRate),
-        peTtm = json.optString("peTtm", fallback.peTtm),
-        pb = json.optString("pb", fallback.pb),
-        amount = json.optString("amount", fallback.amount),
-        popularityRank = json.optString("popularityRank", fallback.popularityRank)
-    )
+    private fun quoteFromJson(json: JSONObject, fallback: StockQuote): StockQuote {
+        val changePercent = firstText(json, "changePercent", "pct", "changePct", "percent", "涨跌幅") ?: fallback.changePercent
+        val changeAmount = firstText(json, "changeAmount", "change", "涨跌额", "涨跌") ?: fallback.changeAmount
+        return StockQuote(
+            name = firstText(json, "name", "stockName", "securityName", "名称") ?: fallback.name,
+            code = firstText(json, "code", "symbol", "ticker", "代码") ?: fallback.code,
+            market = firstText(json, "market", "exchange", "市场") ?: fallback.market,
+            price = firstText(json, "price", "last", "latest", "current", "close", "最新价") ?: fallback.price,
+            changeAmount = changeAmount,
+            changePercent = changePercent,
+            isRising = json.optBoolean("isRising", !changePercent.startsWith("-") && !changeAmount.startsWith("-")),
+            previousClose = firstDouble(json, "previousClose", "preClose", "prevClose", "昨收") ?: fallback.previousClose,
+            high = firstText(json, "high", "最高") ?: fallback.high,
+            low = firstText(json, "low", "最低") ?: fallback.low,
+            open = firstText(json, "open", "今开", "开盘") ?: fallback.open,
+            totalMarketValue = firstText(json, "totalMarketValue", "marketValue", "总市值", "市值") ?: fallback.totalMarketValue,
+            floatMarketValue = firstText(json, "floatMarketValue", "circulatingMarketValue", "流通市值") ?: fallback.floatMarketValue,
+            volumeRatio = firstText(json, "volumeRatio", "量比") ?: fallback.volumeRatio,
+            turnoverRate = firstText(json, "turnoverRate", "turnover", "换手", "换手率") ?: fallback.turnoverRate,
+            peTtm = firstText(json, "peTtm", "pe", "市盈率") ?: fallback.peTtm,
+            pb = firstText(json, "pb", "市净率") ?: fallback.pb,
+            amount = firstText(json, "amount", "成交额") ?: fallback.amount,
+            popularityRank = firstText(json, "popularityRank", "rank", "人气") ?: fallback.popularityRank
+        )
+    }
 
     private fun parseKLines(obj: JSONObject): List<StockKLinePoint> {
-        val array = obj.optJSONArray("kLinePoints") ?: return emptyList()
+        val array = findArray(obj, listOf("kLinePoints", "klinePoints", "klines", "kLines", "items", "data", "result")) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val open = item.optDouble("open", Double.NaN).toFloat()
-                val close = item.optDouble("close", Double.NaN).toFloat()
-                val high = item.optDouble("high", Double.NaN).toFloat()
-                val low = item.optDouble("low", Double.NaN).toFloat()
-                if (open.isNaN() || close.isNaN() || high.isNaN() || low.isNaN()) continue
+                val open = firstDouble(item, "open", "o", "开盘") ?: continue
+                val close = firstDouble(item, "close", "c", "收盘", "price") ?: continue
+                val high = firstDouble(item, "high", "h", "最高") ?: close
+                val low = firstDouble(item, "low", "l", "最低") ?: close
                 add(
                     StockKLinePoint(
-                        date = item.optString("date"),
+                        date = firstText(item, "date", "day", "time", "日期") ?: "",
                         open = open,
                         close = close,
                         high = high,
                         low = low,
-                        volume = item.optDouble("volume", 0.0).toFloat(),
-                        amount = item.optDouble("amount", 0.0).toFloat(),
-                        changePercent = item.optString("changePercent", "--")
+                        volume = firstDouble(item, "volume", "vol", "成交量") ?: 0f,
+                        amount = firstDouble(item, "amount", "成交额") ?: 0f,
+                        changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
                     )
                 )
             }
@@ -203,18 +369,18 @@ class StockRepository(
     }
 
     private fun parseMinutePoints(obj: JSONObject): List<StockMinutePoint> {
-        val array = obj.optJSONArray("minutePoints") ?: return emptyList()
+        val array = findArray(obj, listOf("minutePoints", "minutes", "items", "data", "result")) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val price = item.optDouble("price", Double.NaN).toFloat()
-                if (price.isNaN() || price <= 0f) continue
+                val price = firstDouble(item, "price", "close", "p", "最新价") ?: continue
+                if (price <= 0f) continue
                 add(
                     StockMinutePoint(
-                        time = item.optString("time"),
+                        time = firstText(item, "time", "minute", "t", "时间") ?: "",
                         price = price,
-                        average = item.optDouble("average", price.toDouble()).toFloat(),
-                        volumeRatio = item.optDouble("volumeRatio", 0.0).toFloat().coerceIn(0.02f, 1f)
+                        average = firstDouble(item, "average", "avg", "avgPrice", "均价") ?: price,
+                        volumeRatio = (firstDouble(item, "volumeRatio", "ratio") ?: firstDouble(item, "volume", "vol") ?: 0.0f).coerceIn(0.02f, 1f)
                     )
                 )
             }
@@ -222,15 +388,15 @@ class StockRepository(
     }
 
     private fun parseOrderLevels(obj: JSONObject, keys: List<String>, isAsk: Boolean): List<StockOrderLevel> {
-        val array = keys.firstNotNullOfOrNull { key -> obj.optJSONArray(key) } ?: return emptyList()
+        val array = findArray(obj, keys) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 add(
                     StockOrderLevel(
-                        label = item.optString("label", if (isAsk) "卖${i + 1}" else "买${i + 1}"),
-                        price = item.optString("price", "--"),
-                        volume = item.optString("volume", item.optString("qty", "--")),
+                        label = firstText(item, "label", "name") ?: if (isAsk) "卖${i + 1}" else "买${i + 1}",
+                        price = firstText(item, "price", "p") ?: "--",
+                        volume = firstText(item, "volume", "qty", "vol") ?: "--",
                         isAsk = item.optBoolean("isAsk", isAsk)
                     )
                 )
@@ -239,16 +405,16 @@ class StockRepository(
     }
 
     private fun parseTradeTicks(obj: JSONObject): List<StockTradeTick> {
-        val array = obj.optJSONArray("tradeTicks") ?: obj.optJSONArray("ticks") ?: return emptyList()
+        val array = findArray(obj, listOf("tradeTicks", "ticks", "deals", "items")) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val direction = item.optString("direction", "--")
+                val direction = firstText(item, "direction", "side", "type") ?: "--"
                 add(
                     StockTradeTick(
-                        time = item.optString("time", "--"),
-                        price = item.optString("price", "--"),
-                        volume = item.optString("volume", item.optString("qty", "--")),
+                        time = firstText(item, "time", "t") ?: "--",
+                        price = firstText(item, "price", "p") ?: "--",
+                        volume = firstText(item, "volume", "qty", "vol") ?: "--",
                         direction = direction,
                         isBuy = item.optBoolean("isBuy", direction.contains("买") || direction.equals("buy", ignoreCase = true))
                     )
@@ -258,13 +424,13 @@ class StockRepository(
     }
 
     private fun parseMoneyFlow(obj: JSONObject): StockMoneyFlow? {
-        val flow = obj.optJSONObject("moneyFlow") ?: return null
+        val flow = obj.optJSONObject("moneyFlow") ?: obj.optJSONObject("fundFlow") ?: return null
         return StockMoneyFlow(
-            mainInflow = flow.optString("mainInflow", "--"),
-            superLargeOrder = flow.optString("superLargeOrder", "--"),
-            largeOrder = flow.optString("largeOrder", "--"),
-            mediumOrder = flow.optString("mediumOrder", "--"),
-            smallOrder = flow.optString("smallOrder", "--")
+            mainInflow = firstText(flow, "mainInflow", "main", "主力净流入") ?: "--",
+            superLargeOrder = firstText(flow, "superLargeOrder", "superLarge", "超大单") ?: "--",
+            largeOrder = firstText(flow, "largeOrder", "large", "大单") ?: "--",
+            mediumOrder = firstText(flow, "mediumOrder", "medium", "中单") ?: "--",
+            smallOrder = firstText(flow, "smallOrder", "small", "小单") ?: "--"
         )
     }
 
@@ -273,63 +439,113 @@ class StockRepository(
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                add(StockMetric(item.optString("label", "--"), item.optString("value", "--"), toneFromJson(item)))
+                add(StockMetric(firstText(item, "label", "name") ?: "--", firstText(item, "value") ?: "--", toneFromJson(item)))
             }
         }
     }
 
     private fun parseIndices(obj: JSONObject): List<StockIndexSnapshot> {
-        val array = obj.optJSONArray("indices") ?: return emptyList()
+        val array = findArray(obj, listOf("indices", "indexList", "indexes")) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val changePercent = item.optString("changePercent", "--")
-                add(StockIndexSnapshot(item.optString("name", "指数"), item.optString("value", "--"), changePercent, item.optBoolean("isRising", !changePercent.startsWith("-"))))
+                val changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
+                add(
+                    StockIndexSnapshot(
+                        firstText(item, "name", "indexName", "名称") ?: "指数",
+                        firstText(item, "value", "price", "latest") ?: "--",
+                        changePercent,
+                        item.optBoolean("isRising", !changePercent.startsWith("-"))
+                    )
+                )
             }
         }
     }
 
     private fun parseWatchlist(obj: JSONObject): List<StockWatchItem> {
-        val array = obj.optJSONArray("watchlist") ?: return emptyList()
+        val array = findArray(obj, listOf("watchlist", "watchList", "quotes", "items")) ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val changePercent = item.optString("changePercent", "--")
-                add(StockWatchItem(item.optString("name", "自选股"), item.optString("code", "--"), item.optString("price", item.optString("value", "--")), changePercent, item.optBoolean("isRising", !changePercent.startsWith("-"))))
+                val changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
+                add(
+                    StockWatchItem(
+                        firstText(item, "name", "stockName", "名称") ?: "自选股",
+                        firstText(item, "code", "symbol", "代码") ?: "--",
+                        firstText(item, "price", "value", "latest") ?: "--",
+                        changePercent,
+                        item.optBoolean("isRising", !changePercent.startsWith("-"))
+                    )
+                )
             }
         }
     }
 
+    private fun parseWatchItemsFromQuotes(obj: JSONObject): List<StockWatchItem> = parseQuoteObjects(obj).map { item ->
+        val changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
+        StockWatchItem(
+            name = firstText(item, "name", "stockName", "名称") ?: "自选股",
+            code = firstText(item, "code", "symbol", "代码") ?: "--",
+            price = firstText(item, "price", "value", "latest", "close") ?: "--",
+            changePercent = changePercent,
+            isRising = item.optBoolean("isRising", !changePercent.startsWith("-"))
+        )
+    }
+
     private fun parseMarketBoards(obj: JSONObject): List<StockMarketBoard> {
-        val array = obj.optJSONArray("marketBoards") ?: return emptyList()
+        val array = obj.optJSONArray("marketBoards") ?: obj.optJSONArray("boards") ?: return emptyList()
         return buildList {
             for (i in 0 until array.length()) {
                 val board = array.optJSONObject(i) ?: continue
-                val itemsArray = board.optJSONArray("items")
-                val items = buildList {
-                    if (itemsArray != null) {
-                        for (j in 0 until itemsArray.length()) {
-                            val item = itemsArray.optJSONObject(j) ?: continue
-                            add(parseRankItem(item))
-                        }
-                    }
-                }
-                if (items.isNotEmpty()) {
-                    add(StockMarketBoard(board.optString("title", "市场榜单"), board.optString("subtitle", "爬虫市场数据"), items))
-                }
+                val items = parseRankItemsFromAny(board)
+                if (items.isNotEmpty()) add(StockMarketBoard(board.optString("title", "市场榜单"), board.optString("subtitle", "爬虫市场数据"), items))
             }
+        }
+    }
+
+    private fun parseRankItemsFromAny(obj: JSONObject): List<StockRankItem> {
+        val array = findArray(obj, listOf("items", "stocks", "list", "records", "quotes", "data", "result")) ?: return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) array.optJSONObject(i)?.let { add(parseRankItem(it)) }
         }
     }
 
     private fun parseRankItem(item: JSONObject): StockRankItem {
-        val changePercent = item.optString("changePercent", "--")
+        val changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
         return StockRankItem(
-            name = item.optString("name", "--"),
-            code = item.optString("code", "--"),
-            value = item.optString("value", item.optString("price", "--")),
+            name = firstText(item, "name", "stockName", "名称") ?: "--",
+            code = firstText(item, "code", "symbol", "代码") ?: "--",
+            value = firstText(item, "value", "price", "latest", "close") ?: "--",
             changePercent = changePercent,
             isRising = item.optBoolean("isRising", !changePercent.startsWith("-"))
         )
+    }
+
+    private fun firstText(obj: JSONObject, vararg keys: String): String? {
+        for (key in keys) {
+            if (!obj.has(key) || obj.isNull(key)) continue
+            val raw = obj.opt(key)
+            val text = when (raw) {
+                is Number -> raw.toString()
+                is String -> raw
+                else -> raw?.toString().orEmpty()
+            }.trim()
+            if (text.isNotBlank() && text != "null" && text != "NaN") return text
+        }
+        return null
+    }
+
+    private fun firstDouble(obj: JSONObject, vararg keys: String): Float? {
+        for (key in keys) {
+            if (!obj.has(key) || obj.isNull(key)) continue
+            val value = when (val raw = obj.opt(key)) {
+                is Number -> raw.toDouble()
+                is String -> raw.replace("%", "").replace(",", "").toDoubleOrNull()
+                else -> null
+            }
+            if (value != null && !value.isNaN()) return value.toFloat()
+        }
+        return null
     }
 
     private fun toneFromJson(item: JSONObject): StockTone = when (item.optString("tone").lowercase()) {
