@@ -240,9 +240,14 @@ class AgentTaskRunner(
         AgentRuntimeController.noteDiagnostic("快路径：直接打开 ${best.label}")
         val result = executeTimed(step, "local_fast_path", logs, memory)
         memory.remember(step, result)
-        val message = memory.withDebug(if (result.ok) "已打开 ${best.label}。" else result.message)
-        AgentRuntimeController.finishTask(message, completed = result.ok)
-        return AgentTaskRunResult(result.ok, false, message, logs)
+        if (!result.ok) {
+            memory.recordTrace("快路径打开失败，转入视觉主导云端循环：${result.message}")
+            memory.forceNextVisual = true
+            return null
+        }
+        val message = memory.withDebug("已打开 ${best.label}。")
+        AgentRuntimeController.finishTask(message, completed = true)
+        return AgentTaskRunResult(true, false, message, logs)
     }
 
     private fun isPureOpenAppGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
@@ -456,7 +461,7 @@ class AgentTaskRunner(
         }
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v6_visual_first")
+            put("schema", "agent_loop_memory_v7_visual_first_optimized")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -474,6 +479,7 @@ class AgentTaskRunner(
             put("policyHints", JSONArray().apply {
                 put("这是视觉主导 Computer Use 循环：除纯 open_app 工具任务外，应以截图为主判断当前状态。")
                 put("Accessibility 节点只作为可点击/可输入/可滚动 affordance 提示，不代表页面已完成。")
+                put("视觉 tap_xy 坐标会原样执行，只做归一化换算和边界保护，不再进行本地底部导航吸附。")
                 put("每次执行 open_app、tap、input、scroll、swipe、back、home、wait 后，下一轮应通过截图复核页面状态。")
                 put("不要重复 blockedActions 或 failedActions 中的同一路径。")
                 put("如果 open_app 失败，必须改用 deviceContext.targetAppCandidates 或 installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
