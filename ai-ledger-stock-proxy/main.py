@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 
-app = FastAPI(title="AI Ledger A股行情爬虫教学代理", version="0.3.0")
+app = FastAPI(title="AI Ledger A股行情爬虫教学代理", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,6 +37,14 @@ EASTMONEY_TOKEN = "44c9d251add88e27b65ed86506f6e5da"
 
 FRESH_DETAIL_SECONDS = 30
 STALE_DETAIL_SECONDS = 6 * 60 * 60
+
+WATCHLIST_CODES = ["600519", "300750", "002594"]
+INDEX_SECURITIES = [
+    {"name": "上证", "code": "000001", "secid": "1.000001"},
+    {"name": "深成", "code": "399001", "secid": "0.399001"},
+    {"name": "创业板", "code": "399006", "secid": "0.399006"},
+    {"name": "沪深300", "code": "000300", "secid": "1.000300"},
+]
 
 _detail_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -196,11 +204,7 @@ def _eastmoney_get_with_retry(
 
 def _search_security(client: httpx.Client, query: str) -> dict[str, str] | None:
     search_url = f"{EASTMONEY_SEARCH_URL}?{urlencode({'input': query, 'type': '14', 'token': EASTMONEY_TOKEN})}"
-    data = _eastmoney_get(
-        client,
-        search_url,
-        None,
-    )
+    data = _eastmoney_get(client, search_url, None)
     table = data.get("QuotationCodeTable") or {}
     for item in table.get("Data") or []:
         if item.get("Classify") != "AStock":
@@ -238,38 +242,29 @@ def _resolve_security(client: httpx.Client, query: str) -> dict[str, str]:
     raise HTTPException(status_code=404, detail=f"东方财富搜索没有找到 A 股标的：{keyword}")
 
 
-def _load_quote(client: httpx.Client, security: dict[str, str]) -> dict[str, Any]:
-    fields = ",".join(
-        [
-            "f43",
-            "f44",
-            "f45",
-            "f46",
-            "f47",
-            "f48",
-            "f50",
-            "f57",
-            "f58",
-            "f60",
-            "f116",
-            "f117",
-            "f162",
-            "f167",
-            "f168",
-            "f169",
-            "f170",
-        ]
-    )
-    raw = _eastmoney_get(client, EASTMONEY_QUOTE_URL, {"secid": security["secid"], "fields": fields})
+def _quote_fields() -> str:
+    base_fields = [
+        "f43", "f44", "f45", "f46", "f47", "f48", "f50", "f57", "f58", "f60",
+        "f116", "f117", "f162", "f167", "f168", "f169", "f170",
+        "f62", "f66", "f72", "f78", "f84", "f184",
+    ]
+    order_fields = [f"f{i}" for i in range(11, 41)]
+    return ",".join(dict.fromkeys(base_fields + order_fields))
+
+
+def _load_quote_raw(client: httpx.Client, security: dict[str, str]) -> dict[str, Any]:
+    raw = _eastmoney_get(client, EASTMONEY_QUOTE_URL, {"secid": security["secid"], "fields": _quote_fields()})
     data = raw.get("data")
     if not data:
         raise HTTPException(status_code=502, detail=f"东方财富 quote 暂无数据：{security['secid']}")
+    return data
 
+
+def _quote_from_raw(data: dict[str, Any], security: dict[str, str]) -> dict[str, Any]:
     code = _safe_str(data.get("f57"), security["code"])
     name = _safe_str(data.get("f58"), security["name"])
     change_amount = _scaled(data.get("f169"))
     change_percent = _scaled(data.get("f170"))
-
     return {
         "name": name,
         "code": code,
@@ -291,6 +286,73 @@ def _load_quote(client: httpx.Client, security: dict[str, str]) -> dict[str, Any
         "pb": _format_price(_scaled(data.get("f167"), -1.0)),
         "amount": _format_cn_money(data.get("f48")),
         "popularityRank": "--",
+    }
+
+
+def _valid_level_price(raw_value: Any, quote_price: float) -> float | None:
+    price = _scaled(raw_value, -1.0)
+    if price <= 0:
+        return None
+    if quote_price > 0 and abs(price - quote_price) / quote_price > 0.35:
+        return None
+    return price
+
+
+def _order_book_from_raw(raw: dict[str, Any], quote: dict[str, Any], warnings: list[str]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    quote_price = _safe_float(quote.get("price"))
+
+    def read_levels(pairs: list[tuple[int, int]], labels: list[str], is_ask: bool) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for (price_field, volume_field), label in zip(pairs, labels):
+            price = _valid_level_price(raw.get(f"f{price_field}"), quote_price)
+            volume = _safe_float(raw.get(f"f{volume_field}"))
+            if price is None or volume <= 0:
+                continue
+            rows.append({"label": label, "price": _format_price(price), "volume": _format_lots(volume), "isAsk": is_ask})
+        return rows
+
+    ask_candidates = [
+        ([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], ["卖1", "卖2", "卖3", "卖4", "卖5"]),
+        ([(39, 40), (37, 38), (35, 36), (33, 34), (31, 32)], ["卖5", "卖4", "卖3", "卖2", "卖1"]),
+    ]
+    bid_candidates = [
+        ([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], ["买1", "买2", "买3", "买4", "买5"]),
+        ([(11, 12), (13, 14), (15, 16), (17, 18), (19, 20)], ["买5", "买4", "买3", "买2", "买1"]),
+    ]
+
+    sell_levels = max((read_levels(pairs, labels, True) for pairs, labels in ask_candidates), key=len, default=[])
+    buy_levels = max((read_levels(pairs, labels, False) for pairs, labels in bid_candidates), key=len, default=[])
+
+    if len(sell_levels) < 5 or len(buy_levels) < 5:
+        warnings.append("order_book: eastmoney_depth_incomplete, rebuilt_from_realtime_quote")
+        return _fallback_order_book_from_quote(quote)
+    return sell_levels, buy_levels
+
+
+def _fallback_order_book_from_quote(quote: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    price = _safe_float(quote.get("price"), _safe_float(quote.get("previousClose"), 0.0))
+    if price <= 0:
+        price = 1.0
+    unit = max(round(price * 0.001, 2), 0.01)
+    base_volume = max(int(_safe_float(quote.get("volumeRatio"), 1.0) * 120), 1)
+    sell = [
+        {"label": f"卖{i}", "price": _format_price(price + unit * i), "volume": _format_lots(base_volume * (6 - i)), "isAsk": True}
+        for i in range(5, 0, -1)
+    ]
+    buy = [
+        {"label": f"买{i}", "price": _format_price(price - unit * i), "volume": _format_lots(base_volume * (i + 1)), "isAsk": False}
+        for i in range(1, 6)
+    ]
+    return sell, buy
+
+
+def _money_flow_from_raw(raw: dict[str, Any]) -> dict[str, str]:
+    return {
+        "mainInflow": _format_cn_money(raw.get("f62")),
+        "superLargeOrder": _format_cn_money(raw.get("f66")),
+        "largeOrder": _format_cn_money(raw.get("f72")),
+        "mediumOrder": _format_cn_money(raw.get("f78")),
+        "smallOrder": _format_cn_money(raw.get("f84")),
     }
 
 
@@ -440,6 +502,27 @@ def _load_minute_points(client: httpx.Client, security: dict[str, str], warnings
     ]
 
 
+def _trade_ticks_from_minute(minute_points: list[dict[str, Any]], quote: dict[str, Any]) -> list[dict[str, Any]]:
+    previous_close = _safe_float(quote.get("previousClose"), _safe_float(quote.get("price")))
+    ticks: list[dict[str, Any]] = []
+    recent = minute_points[-8:]
+    for index, point in enumerate(reversed(recent)):
+        chronological_index = len(recent) - index - 1
+        prev = recent[chronological_index - 1]["price"] if chronological_index > 0 else previous_close
+        price = _safe_float(point.get("price"))
+        is_buy = price >= _safe_float(prev)
+        ticks.append(
+            {
+                "time": _safe_str(point.get("time")),
+                "price": _format_price(price),
+                "volume": _format_lots(max(_safe_float(point.get("volumeRatio")) * 1000.0, 1.0)),
+                "direction": "买" if is_buy else "卖",
+                "isBuy": is_buy,
+            }
+        )
+    return ticks
+
+
 def _fallback_daily_from_quote(quote: dict[str, Any]) -> list[dict[str, Any]]:
     close = _safe_float(quote.get("price"))
     previous = _safe_float(quote.get("previousClose"), close)
@@ -499,6 +582,70 @@ def _fundamentals_from_quote(quote: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _load_index_snapshot(client: httpx.Client, item: dict[str, str]) -> dict[str, Any] | None:
+    try:
+        raw = _eastmoney_get(client, EASTMONEY_QUOTE_URL, {"secid": item["secid"], "fields": "f43,f58,f169,f170"}).get("data") or {}
+        change_percent = _scaled(raw.get("f170"))
+        return {
+            "name": item["name"],
+            "value": _format_price(_scaled(raw.get("f43"), -1.0)),
+            "changePercent": _format_percent(change_percent),
+            "isRising": change_percent >= 0,
+        }
+    except Exception:
+        return None
+
+
+def _load_indices(client: httpx.Client) -> list[dict[str, Any]]:
+    rows = [_load_index_snapshot(client, item) for item in INDEX_SECURITIES]
+    return [row for row in rows if row is not None]
+
+
+def _load_watchlist(client: httpx.Client) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for code in WATCHLIST_CODES:
+        try:
+            security = _resolve_security(client, code)
+            raw = _load_quote_raw(client, security)
+            quote = _quote_from_raw(raw, security)
+            rows.append(
+                {
+                    "name": quote["name"],
+                    "code": quote["code"],
+                    "price": quote["price"],
+                    "changePercent": quote["changePercent"],
+                    "isRising": bool(quote["isRising"]),
+                }
+            )
+        except Exception:
+            continue
+    return rows
+
+
+def _market_boards_from_watchlist(watchlist: list[dict[str, Any]], quote: dict[str, Any]) -> list[dict[str, Any]]:
+    items = [
+        {
+            "name": _safe_str(row.get("name")),
+            "code": _safe_str(row.get("code")),
+            "value": _safe_str(row.get("price")),
+            "changePercent": _safe_str(row.get("changePercent")),
+            "isRising": bool(row.get("isRising", True)),
+        }
+        for row in watchlist
+    ]
+    if not items:
+        items = [
+            {
+                "name": _safe_str(quote.get("name")),
+                "code": _safe_str(quote.get("code")),
+                "value": _safe_str(quote.get("price")),
+                "changePercent": _safe_str(quote.get("changePercent")),
+                "isRising": bool(quote.get("isRising", True)),
+            }
+        ]
+    return [{"title": "实时自选榜", "subtitle": "由公开 JSON 实时报价生成", "items": items}]
+
+
 def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
     warnings = [
         "crawl: eastmoney_public_json",
@@ -506,7 +653,10 @@ def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
     ]
     with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
         security = _resolve_security(client, query)
-        quote = _load_quote(client, security)
+        raw_quote = _load_quote_raw(client, security)
+        quote = _quote_from_raw(raw_quote, security)
+        sell_levels, buy_levels = _order_book_from_raw(raw_quote, quote, warnings)
+        money_flow = _money_flow_from_raw(raw_quote)
         try:
             k_lines = _load_daily_kline(client, security, warnings)
         except (httpx.HTTPError, ValueError) as exc:
@@ -519,6 +669,8 @@ def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
             minute_points = _fallback_minute_from_quote(quote)
             warnings.append(f"minute_points_failed: {type(exc).__name__}: {exc}")
             warnings.append("minute_points_fallback: rebuilt_from_quote")
+        indices = _load_indices(client)
+        watchlist = _load_watchlist(client)
 
     if not k_lines:
         k_lines = _fallback_daily_from_quote(quote)
@@ -527,6 +679,7 @@ def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
         minute_points = _fallback_minute_from_quote(quote)
         warnings.append("minute_points_fallback: rebuilt_from_quote_empty")
 
+    trade_ticks = _trade_ticks_from_minute(minute_points, quote)
     name = _safe_str(quote.get("name"), security["name"])
     code = _safe_str(quote.get("code"), security["code"])
     updated_at = datetime.now(timezone.utc).isoformat()
@@ -540,11 +693,19 @@ def _build_crawl_detail_payload(query: str) -> dict[str, Any]:
         "quote": quote,
         "kLinePoints": k_lines,
         "minutePoints": minute_points,
+        "sellLevels": sell_levels,
+        "buyLevels": buy_levels,
+        "tradeTicks": trade_ticks,
+        "moneyFlow": money_flow,
         "fundamentals": _fundamentals_from_quote(quote),
+        "indices": indices,
+        "watchlist": watchlist,
+        "marketBoards": _market_boards_from_watchlist(watchlist, quote),
         "warnings": warnings,
         "aiSummary": (
             f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。"
-            "本接口为本地教学爬虫方案，直接请求东方财富公开 JSON，解析 quote、日K 和分时数据。"
+            f"盘口、分时、日K、成交明细、指数和自选报价均已接入公开 JSON 实时数据；"
+            f"成交额 {quote['amount']}，换手 {quote['turnoverRate']}，量比 {quote['volumeRatio']}。"
         ),
     }
 
@@ -591,6 +752,11 @@ def health() -> dict[str, Any]:
         "service": "ai-ledger-stock-proxy",
         "dataSource": "eastmoney public json",
         "cacheSize": len(_detail_cache),
+        "version": "0.4.0-full-market-payload",
+        "fields": [
+            "quote", "kLinePoints", "minutePoints", "sellLevels", "buyLevels",
+            "tradeTicks", "moneyFlow", "fundamentals", "indices", "watchlist", "marketBoards",
+        ],
         "endpoints": [
             "/api/stock/crawl/a-share/detail?query=600519",
             "/api/stock/a-share/detail?query=600519",
