@@ -55,7 +55,7 @@ class AgentTaskRunner(
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
             val loopStart = SystemClock.elapsedRealtime()
-            val forceVisual = shouldCaptureVisual()
+            val forceVisual = shouldCaptureVisual(goal, memory)
 
             val captureStart = SystemClock.elapsedRealtime()
             val observation = captureOnce(forceVisual = forceVisual)
@@ -241,7 +241,19 @@ class AgentTaskRunner(
         return residual.isBlank()
     }
 
-    private fun shouldCaptureVisual(): Boolean = true
+    private fun shouldCaptureVisual(goal: String, memory: AgentRunMemory): Boolean {
+        if (memory.forceNextVisual) return true
+        if (memory.executedStepCount == 0) return false
+        if (memory.repeatedCloudRejects > 0 || memory.recoverableFailures > 0 || memory.rejectedFinishAttempts > 0) return true
+        if (memory.lastSnapshotNeedsVisual) return true
+        if (!goalLooksLikeOpenAppTask(goal) && memory.executedStepCount % VISUAL_REFRESH_STEP_INTERVAL == 0) return true
+        return false
+    }
+
+    private fun goalLooksLikeOpenAppTask(goal: String): Boolean {
+        val clean = normalize(goal)
+        return openAppIntentWords.any { clean.contains(it) }
+    }
 
     private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
         val context = applicationContext ?: return null
@@ -319,6 +331,7 @@ class AgentTaskRunner(
         var executedStepCount: Int = 0,
         var loopIndex: Int = 0,
         var forceNextVisual: Boolean = false,
+        var lastSnapshotNeedsVisual: Boolean = false,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
         private val failedActionLines: MutableList<String> = mutableListOf(),
@@ -327,7 +340,8 @@ class AgentTaskRunner(
     ) {
         fun observe(snapshot: AgentScreenSnapshot) {
             if (snapshot.hasVisualImage) forceNextVisual = false
-            lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount"
+            lastSnapshotNeedsVisual = !snapshot.hasVisualImage && snapshot.isSparseForPlanning()
+            lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 视觉需求=${if (lastSnapshotNeedsVisual) "是" else "否"} · 步数=$executedStepCount"
         }
 
         fun rememberState(state: CloudAgentState) {
@@ -345,6 +359,7 @@ class AgentTaskRunner(
 
         fun recordPlannerRejection(step: CloudAgentStep, reason: String) {
             repeatedCloudRejects += 1
+            forceNextVisual = true
             val line = "拒绝执行：${describeStep(step)} · $reason"
             blockedActionLines += line
             recentActionLines += line
@@ -357,12 +372,12 @@ class AgentTaskRunner(
             val key = stepKey(step)
             recentStepKeys += key
             executedStepCount += 1
-            if (step.type != "finish" && step.type != "wait") forceNextVisual = true
+            forceNextVisual = shouldForceVisualAfterStep(step, result)
             val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
             recentActionLines += line
             if (!result.ok) failedActionLines += line
             trimHistory()
-            if (recentStepKeys.size > 8) recentStepKeys.removeAt(0)
+            if (recentStepKeys.size > 10) recentStepKeys.removeAt(0)
             if (step.type == "back") {
                 backAttempts += 1
                 if (result.ok) {
@@ -383,15 +398,25 @@ class AgentTaskRunner(
         fun shouldReplanAfterFailure(step: CloudAgentStep): Boolean {
             if (step.type !in RECOVERABLE_FAILURE_ACTIONS) return false
             recoverableFailures += 1
+            forceNextVisual = true
             return recoverableFailures <= MAX_RECOVERABLE_FAILURES
         }
 
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
-        fun isLikelyRepeated(step: CloudAgentStep): Boolean = recentStepKeys.count { it == stepKey(step) } >= 1
-        fun isBlocked(step: CloudAgentStep): Boolean = isLikelyRepeated(step)
+
+        fun isLikelyRepeated(step: CloudAgentStep): Boolean {
+            val count = recentStepKeys.count { it == stepKey(step) }
+            return count >= if (step.type in SOFT_REPEATABLE_ACTIONS) 2 else 1
+        }
+
+        fun isBlocked(step: CloudAgentStep): Boolean {
+            if (!isLikelyRepeated(step)) return false
+            if (step.type in SOFT_REPEATABLE_ACTIONS && repeatedCloudRejects == 0 && recoverableFailures == 0) return false
+            return true
+        }
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v3")
+            put("schema", "agent_loop_memory_v4")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -403,12 +428,28 @@ class AgentTaskRunner(
                 put("backAttempts", backAttempts)
                 put("rejectedFinishAttempts", rejectedFinishAttempts)
                 put("forceNextVisual", forceNextVisual)
+                put("lastSnapshotNeedsVisual", lastSnapshotNeedsVisual)
             })
             put("policyHints", JSONArray().apply {
+                put("优先使用无障碍节点和 deviceContext 规划低风险动作；只有节点稀疏、状态不确定或失败恢复时再依赖截图。")
                 put("不要重复 blockedActions 或 failedActions 中的同一路径。")
                 put("如果 open_app 失败，必须改用 deviceContext.targetAppCandidates 或 installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
                 put("如果点击桌面文件夹后没有目标应用，下一轮不要再点同一个文件夹。")
             })
+        }
+
+        private fun shouldForceVisualAfterStep(step: CloudAgentStep, result: AgentExecutionResult): Boolean {
+            if (!result.ok) return true
+            if (step.type in VISUAL_AFTER_ACTION_TYPES) return true
+            if (step.type == "wait") return false
+            return false
+        }
+
+        private fun AgentScreenSnapshot.isSparseForPlanning(): Boolean {
+            if (nodeCount <= SPARSE_NODE_VISUAL_THRESHOLD) return true
+            if (allNodes.size <= SPARSE_CAPTURED_NODE_THRESHOLD) return true
+            if (clickableNodes.isEmpty() && inputNodes.isEmpty() && scrollableNodes.isEmpty()) return true
+            return false
         }
 
         private fun trimHistory() {
@@ -446,24 +487,30 @@ class AgentTaskRunner(
 
     companion object {
         private const val DEFAULT_MAX_STEPS = 8
-        private const val DEFAULT_STEP_DELAY_MS = 380L
-        private const val REPLAN_DELAY_MS = 220L
-        private const val OPEN_APP_DELAY_MS = 820L
-        private const val TAP_DELAY_MS = 260L
-        private const val INPUT_DELAY_MS = 240L
-        private const val SCROLL_DELAY_MS = 420L
-        private const val DEFAULT_WAIT_DELAY_MS = 520L
-        private const val GLOBAL_ACTION_DELAY_MS = 320L
+        private const val DEFAULT_STEP_DELAY_MS = 360L
+        private const val REPLAN_DELAY_MS = 180L
+        private const val OPEN_APP_DELAY_MS = 720L
+        private const val TAP_DELAY_MS = 240L
+        private const val INPUT_DELAY_MS = 220L
+        private const val SCROLL_DELAY_MS = 360L
+        private const val DEFAULT_WAIT_DELAY_MS = 460L
+        private const val GLOBAL_ACTION_DELAY_MS = 300L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 80L
-        private const val MAX_CUSTOM_STEP_DELAY_MS = 1_400L
+        private const val MAX_CUSTOM_STEP_DELAY_MS = 1_200L
         private const val MAX_BACK_ATTEMPTS = 2
         private const val MAX_REJECTED_FINISH_ATTEMPTS = 2
         private const val MAX_REPLAN_REJECTS = 2
         private const val MAX_RECOVERABLE_FAILURES = 2
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
+        private const val SPARSE_NODE_VISUAL_THRESHOLD = 12
+        private const val SPARSE_CAPTURED_NODE_THRESHOLD = 8
+        private const val VISUAL_REFRESH_STEP_INTERVAL = 3
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
+        private val SOFT_REPEATABLE_ACTIONS = setOf("scroll", "swipe", "wait")
+        private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "tap_xy", "back", "home", "recents", "notifications", "quick_settings")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
+        private val openAppIntentWords = listOf("打开", "开启", "启动", "进入", "找到", "热榜", "联系人", "动态", "页面", "界面", "app")
         private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
         private val complexGoalWords = listOf("热榜", "联系人", "朋友圈", "搜索", "找到", "页面", "界面", "点击", "发送", "发布", "删除", "设置", "消息", "扫一扫", "视频", "直播", "自选", "行情", "新闻", "小程序", "群", "聊天", "给", "评论", "登录", "支付", "转账")
     }
