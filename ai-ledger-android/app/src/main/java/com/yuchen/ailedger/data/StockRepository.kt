@@ -20,7 +20,8 @@ import org.json.JSONObject
 private data class StockProxyRoute(
     val name: String,
     val path: String,
-    val defaultSourceLabel: String
+    val defaultSourceLabel: String,
+    val timeoutMs: Int = 12000
 )
 
 class StockRepository(
@@ -40,21 +41,30 @@ class StockRepository(
         }
 
         return base.copy(
-            dataSourceLabel = "富途/AKShare代理暂未返回，已回退示例数据",
-            errorMessage = errors.joinToString("；").ifBlank { "行情代理网络异常" }
+            dataSourceLabel = "真实行情代理暂未返回，已回退示例数据",
+            errorMessage = errors.joinToString("；").ifBlank { "行情代理网络异常" },
+            aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
         )
     }
 
     private fun stockProxyRoutes(): List<StockProxyRoute> = listOf(
         StockProxyRoute(
-            name = "futu",
-            path = "/api/stock/futu/a-share/detail",
-            defaultSourceLabel = "富途 OpenAPI 行情代理"
+            name = "crawl",
+            path = "/api/stock/crawl/a-share/detail",
+            defaultSourceLabel = "爬虫教学源 · 东方财富公开JSON",
+            timeoutMs = 12000
         ),
         StockProxyRoute(
-            name = "akshare",
+            name = "a-share",
             path = "/api/stock/a-share/detail",
-            defaultSourceLabel = "AKShare 行情代理"
+            defaultSourceLabel = "A股聚合行情代理",
+            timeoutMs = 12000
+        ),
+        StockProxyRoute(
+            name = "futu-compat",
+            path = "/api/stock/futu/a-share/detail",
+            defaultSourceLabel = "富途兼容行情代理",
+            timeoutMs = 10000
         )
     )
 
@@ -62,7 +72,7 @@ class StockRepository(
         val baseUrl = proxyBaseUrl.trim().trimEnd('/')
         if (baseUrl.isBlank()) throw IllegalStateException("行情代理地址为空")
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val body = httpGet("$baseUrl${route.path}?query=$encoded", referer = baseUrl, timeoutMs = 45000)
+        val body = httpGet("$baseUrl${route.path}?query=$encoded", referer = baseUrl, timeoutMs = route.timeoutMs)
         val obj = JSONObject(body)
         val quoteJson = obj.optJSONObject("quote") ?: throw IllegalStateException("代理行情缺少 quote 字段")
         val quote = quoteFromJson(quoteJson, base.quote)
@@ -93,7 +103,7 @@ class StockRepository(
             errorMessage = null,
             aiSummary = obj.optString(
                 "aiSummary",
-                "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情优先来自富途 OpenAPI，富途不可用时自动回退 AKShare 代理。"
+                "${quote.name} 当前价 ${quote.price}，涨跌幅 ${quote.changePercent}。行情来自 ${sourceLabel}。"
             )
         )
     }
@@ -105,8 +115,9 @@ class StockRepository(
         val provider = obj.optString("provider").lowercase().trim()
         val delayText = if (obj.optBoolean("delayed", false)) " · 延迟" else ""
         val prefix = when {
-            provider.contains("futu") || route.name == "futu" -> "富途 OpenAPI"
-            provider.contains("akshare") || route.name == "akshare" -> "AKShare"
+            provider.contains("eastmoney") || provider.contains("crawl") || route.name == "crawl" -> "爬虫教学源 · 东方财富公开JSON"
+            provider.contains("akshare") || route.name == "a-share" -> "A股聚合行情代理"
+            provider.contains("futu") || route.name == "futu-compat" -> "富途兼容行情代理"
             else -> route.defaultSourceLabel
         }
         return "$prefix$delayText · ${quote.code}"
@@ -315,10 +326,13 @@ class StockRepository(
             setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
             setRequestProperty("Referer", referer)
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Cache-Control", "no-cache")
+            setRequestProperty("Pragma", "no-cache")
         }
         val code = connection.responseCode
         val stream = if (code in 200..299) connection.inputStream else connection.errorStream
         val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        connection.disconnect()
         if (code !in 200..299) throw IllegalStateException("HTTP $code ${body.take(120)}".trim())
         if (body.isBlank()) throw IllegalStateException("行情代理返回为空")
         return body
