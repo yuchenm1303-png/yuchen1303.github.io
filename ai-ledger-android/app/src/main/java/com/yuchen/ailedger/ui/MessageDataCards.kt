@@ -357,10 +357,6 @@ private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean, onOpe
 
 @Composable
 private fun MetricPill(metric: StructuredMetric, modifier: Modifier = Modifier) {
-    val label = metric.label.orEmpty().ifBlank { "指标" }
-    val value = metric.value.orEmpty().ifBlank { "--" }
-    val unit = metric.unit.orEmpty()
-    val valueText = value + (unit.takeIf { it.isNotBlank() && !value.contains(it) }?.let { " $it" } ?: "")
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -368,16 +364,16 @@ private fun MetricPill(metric: StructuredMetric, modifier: Modifier = Modifier) 
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Text(label, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(metric.displayLabel, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            text = valueText,
+            text = metric.displayValue,
             color = Color.White.copy(alpha = 0.90f),
             fontSize = 13.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        metric.detail.orEmpty().takeIf { it.isNotBlank() }?.let {
+        metric.displayDetail?.let {
             Text(it, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -463,10 +459,7 @@ private fun StructuredDataCard.metricValue(vararg aliases: String): String? {
     return metrics.firstOrNull { metric ->
         val label = normalizeMetricKey(metric.label)
         label in normalizedAliases || normalizedAliases.any { alias -> label.contains(alias) || alias.contains(label) }
-    }?.let { metric ->
-        val value = metric.value.orEmpty()
-        value + (metric.unit?.takeIf { it.isNotBlank() && !value.contains(it) }?.let { " $it" } ?: "")
-    }?.takeIf { it.isNotBlank() }
+    }?.displayValue?.takeIf { it.isNotBlank() && it != "--" }
 }
 
 private fun buildPriceLine(price: String?, currency: String?): String {
