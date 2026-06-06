@@ -1,1 +1,1 @@
-触发 Build Compose Android APK：真实行情优先加载修复 2026-06-06
+触发 Build Compose Android APK：股票页实时行情与示例状态区分 2026-06-06
