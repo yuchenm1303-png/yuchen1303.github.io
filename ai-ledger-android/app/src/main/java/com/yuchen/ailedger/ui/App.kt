@@ -275,16 +275,17 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val onPickBackground = remember(backgroundPicker, imageOnlyRequest) {
         { backgroundPicker.launch(imageOnlyRequest) }
     }
-    val onPickAssistantFromGallery = remember(assistantImagePicker, imageOnlyRequest) {
+    val onPickAssistantFromGallery: () -> Unit = remember(assistantImagePicker, imageOnlyRequest) {
         {
             attachmentSourceMenuVisible = false
             assistantImagePicker.launch(imageOnlyRequest)
         }
     }
-    val onTakeAssistantPhoto = remember(context, assistantCameraCapture) {
+    val onTakeAssistantPhoto: () -> Unit = remember(context, assistantCameraCapture) {
         {
             attachmentSourceMenuVisible = false
-            runCatching { createAssistantCameraImageUri(context) }
+            val result = runCatching { createAssistantCameraImageUri(context) }
+            result
                 .onSuccess { uri ->
                     pendingCameraUri = uri
                     assistantCameraCapture.launch(uri)
@@ -293,6 +294,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     pendingCameraUri = null
                     Toast.makeText(context, "无法启动相机，请稍后再试", Toast.LENGTH_SHORT).show()
                 }
+            Unit
         }
     }
     val onPickAssistantImage = remember {
