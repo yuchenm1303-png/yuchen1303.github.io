@@ -1,9 +1,12 @@
 package com.yuchen.ailedger.service
 
+import android.content.Context
 import com.yuchen.ailedger.model.ChatModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class AgentTaskStepLog(
     val index: Int,
@@ -21,7 +24,11 @@ data class AgentTaskRunResult(
 
 class AgentTaskRunner(
     private val aiWorkerClient: AiWorkerClient,
+    appContext: Context? = null,
 ) {
+    private val applicationContext: Context? = appContext?.applicationContext
+    private val installedAppIndex: InstalledAppIndex? = applicationContext?.let { InstalledAppIndex(it) }
+
     suspend fun run(
         goal: String,
         modelPreference: ChatModel,
@@ -47,6 +54,7 @@ class AgentTaskRunner(
 
             val snapshot = observation.toAgentScreenSnapshot()
             memory.observe(snapshot)
+            val deviceContext = buildDeviceContext(snapshot)
 
             val plan = withContext(Dispatchers.IO) {
                 aiWorkerClient.requestAgentPlan(
@@ -54,6 +62,8 @@ class AgentTaskRunner(
                     snapshot = snapshot,
                     modelPreference = modelPreference,
                     recentActions = memory.recentActionSummaries(),
+                    deviceContext = deviceContext,
+                    agentMemory = memory.toJson(),
                 )
             }
             val state = plan.state
@@ -101,14 +111,20 @@ class AgentTaskRunner(
                     AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
+                memory.recordPlannerRejection(plan.step, "finish 状态置信度不足，要求云端继续观察或规划下一步。")
                 delay(DEFAULT_STEP_DELAY_MS)
                 return@repeat
             }
 
             val chosenStep = chooseAction(snapshot, plan.step, memory)
             if (chosenStep == null) {
+                memory.recordPlannerRejection(plan.step, "云端动作不可执行、缺少参数或与近期失败动作重复。")
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, plan.step, null)
-                val message = memory.withDebug(plan.step.reason ?: state?.nextHint ?: "云端没有返回可执行动作")
+                if (memory.repeatedCloudRejects <= MAX_REPLAN_REJECTS) {
+                    delay(DEFAULT_STEP_DELAY_MS)
+                    return@repeat
+                }
+                val message = memory.withDebug(plan.step.reason ?: state?.nextHint ?: "云端连续返回不可执行或重复动作")
                 AgentRuntimeController.finishTask(message, completed = false)
                 return AgentTaskRunResult(false, false, message, logs)
             }
@@ -128,7 +144,16 @@ class AgentTaskRunner(
 
             val result = executeAndRecord(chosenStep, snapshot.currentApp, logs)
             memory.remember(chosenStep, result)
-            if (!result.ok || !result.shouldContinue) {
+            if (!result.ok) {
+                if (memory.shouldReplanAfterFailure(chosenStep)) {
+                    delay(DEFAULT_STEP_DELAY_MS)
+                    return@repeat
+                }
+                val message = memory.withDebug(result.message)
+                AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(false, false, message, logs)
+            }
+            if (!result.shouldContinue) {
                 val message = memory.withDebug(result.message)
                 AgentRuntimeController.finishTask(message, completed = false)
                 return AgentTaskRunResult(false, false, message, logs)
@@ -140,6 +165,12 @@ class AgentTaskRunner(
         val message = memory.withDebug("已达到最大执行步数，请检查当前页面后继续。")
         AgentRuntimeController.finishTask(message, completed = false)
         return AgentTaskRunResult(false, false, message, logs)
+    }
+
+    private fun buildDeviceContext(snapshot: AgentScreenSnapshot): AgentDeviceContextSnapshot? {
+        val context = applicationContext ?: return null
+        val index = installedAppIndex ?: InstalledAppIndex(context)
+        return runCatching { AgentDeviceContextProvider.build(context, snapshot, index) }.getOrNull()
     }
 
     private suspend fun captureOnce(forceVisual: Boolean = false): ScreenObservation {
@@ -169,11 +200,9 @@ class AgentTaskRunner(
     }
 
     private fun chooseAction(snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep, memory: AgentRunMemory): CloudAgentStep? {
-        sanitizeCloudStep(cloudStep, snapshot)?.let { candidate ->
-            if (!memory.isBlocked(candidate)) return candidate
-        }
-        if (cloudStep.type == "need_user_help" || memory.isLikelyRepeated(cloudStep)) memory.repeatedCloudRejects += 1
-        return null
+        val candidate = sanitizeCloudStep(cloudStep, snapshot) ?: return null
+        if (memory.isBlocked(candidate)) return null
+        return candidate
     }
 
     private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep? {
@@ -203,8 +232,11 @@ class AgentTaskRunner(
         var backAttempts: Int = 0,
         var repeatedCloudRejects: Int = 0,
         var rejectedFinishAttempts: Int = 0,
+        var recoverableFailures: Int = 0,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
+        private val failedActionLines: MutableList<String> = mutableListOf(),
+        private val blockedActionLines: MutableList<String> = mutableListOf(),
         var lastDebugLine: String = "",
     ) {
         fun observe(snapshot: AgentScreenSnapshot) {
@@ -217,13 +249,24 @@ class AgentTaskRunner(
             trimHistory()
         }
 
+        fun recordPlannerRejection(step: CloudAgentStep, reason: String) {
+            repeatedCloudRejects += 1
+            val line = "拒绝执行：${describeStep(step)} · $reason"
+            blockedActionLines += line
+            recentActionLines += line
+            trimHistory()
+        }
+
         fun withDebug(message: String): String = if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
 
         fun remember(step: CloudAgentStep, result: AgentExecutionResult) {
-            recentStepKeys += stepKey(step)
-            recentActionLines += "动作：${step.type}${step.appName?.let { " · $it" }.orEmpty()}${step.targetText?.let { " · $it" }.orEmpty()}${step.direction?.let { " · $it" }.orEmpty()}${step.x?.let { " · x=${"%.3f".format(it)}" }.orEmpty()}${step.y?.let { " y=${"%.3f".format(it)}" }.orEmpty()} → ${if (result.ok) "成功" else "失败"}：${result.message.take(80)}"
+            val key = stepKey(step)
+            recentStepKeys += key
+            val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
+            recentActionLines += line
+            if (!result.ok) failedActionLines += line
             trimHistory()
-            if (recentStepKeys.size > 6) recentStepKeys.removeAt(0)
+            if (recentStepKeys.size > 8) recentStepKeys.removeAt(0)
             if (step.type == "back") {
                 backAttempts += 1
                 if (result.ok) {
@@ -233,16 +276,56 @@ class AgentTaskRunner(
                     phase = AgentTaskPhase.Verifying
                 }
             }
-            if (result.ok && step.type != "finish") rejectedFinishAttempts = 0
-            if (!result.ok) repeatedCloudRejects += 1 else if (step.type != "back") repeatedCloudRejects = 0
+            if (result.ok && step.type != "finish") {
+                repeatedCloudRejects = 0
+                rejectedFinishAttempts = 0
+                recoverableFailures = 0
+            }
+            if (!result.ok) repeatedCloudRejects += 1
         }
 
-        fun recentActionSummaries(): List<String> = recentActionLines.takeLast(6)
+        fun shouldReplanAfterFailure(step: CloudAgentStep): Boolean {
+            if (step.type !in RECOVERABLE_FAILURE_ACTIONS) return false
+            recoverableFailures += 1
+            return recoverableFailures <= MAX_RECOVERABLE_FAILURES
+        }
+
+        fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
         fun isLikelyRepeated(step: CloudAgentStep): Boolean = recentStepKeys.count { it == stepKey(step) } >= 1
         fun isBlocked(step: CloudAgentStep): Boolean = isLikelyRepeated(step)
 
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("schema", "agent_loop_memory_v1")
+            put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
+            put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
+            put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
+            put("loopSignals", JSONObject().apply {
+                put("repeatedCloudRejects", repeatedCloudRejects)
+                put("recoverableFailures", recoverableFailures)
+                put("backAttempts", backAttempts)
+                put("rejectedFinishAttempts", rejectedFinishAttempts)
+            })
+            put("policyHints", JSONArray().apply {
+                put("不要重复 blockedActions 或 failedActions 中的同一路径。")
+                put("如果 open_app 失败，必须改用 deviceContext.installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
+                put("如果点击桌面文件夹后没有目标应用，下一轮不要再点同一个文件夹。")
+            })
+        }
+
         private fun trimHistory() {
-            while (recentActionLines.size > 8) recentActionLines.removeAt(0)
+            while (recentActionLines.size > 10) recentActionLines.removeAt(0)
+            while (failedActionLines.size > 8) failedActionLines.removeAt(0)
+            while (blockedActionLines.size > 8) blockedActionLines.removeAt(0)
+        }
+
+        private fun describeStep(step: CloudAgentStep): String = buildString {
+            append(step.type)
+            step.appName?.let { append(" · app=").append(it) }
+            step.packageName?.let { append(" · pkg=").append(it) }
+            step.targetText?.let { append(" · target=").append(it) }
+            step.direction?.let { append(" · ").append(it) }
+            step.x?.let { append(" · x=").append("%.3f".format(it)) }
+            step.y?.let { append(" y=").append("%.3f".format(it)) }
         }
 
         private fun stepKey(step: CloudAgentStep): String = listOf(
@@ -275,8 +358,11 @@ class AgentTaskRunner(
         private const val MAX_CUSTOM_STEP_DELAY_MS = 2_000L
         private const val MAX_BACK_ATTEMPTS = 2
         private const val MAX_REJECTED_FINISH_ATTEMPTS = 2
+        private const val MAX_REPLAN_REJECTS = 2
+        private const val MAX_RECOVERABLE_FAILURES = 2
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
+        private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
     }
 }
