@@ -27,8 +27,10 @@ fun AiWorkerClient.requestAgentPlan(
     snapshot: AgentScreenSnapshot,
     modelPreference: ChatModel = ChatModel.Auto,
     recentActions: List<String> = emptyList(),
+    deviceContext: AgentDeviceContextSnapshot? = null,
+    agentMemory: JSONObject? = null,
 ): CloudAgentPlan {
-    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions)
+    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions, deviceContext, agentMemory)
     val endpoints = (listOf(endpoint) + AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS)
         .map { it.trim().trimEnd('/') }
         .filter { it.isNotBlank() }
@@ -52,12 +54,14 @@ private fun buildAgentStepPayload(
     snapshot: AgentScreenSnapshot,
     modelPreference: ChatModel,
     recentActions: List<String>,
+    deviceContext: AgentDeviceContextSnapshot?,
+    agentMemory: JSONObject?,
 ): JSONObject {
     val instruction = agentPlannerSystemPrompt()
     val cleanGoal = goal.trim().take(240)
     val modelId = if (snapshot.hasVisualImage) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotForText = snapshot.toJson(includeImage = false)
-    val plannerMessage = buildPlannerMessage(cleanGoal, snapshotForText, snapshot.visual, recentActions)
+    val plannerMessage = buildPlannerMessage(cleanGoal, snapshotForText, snapshot.visual, recentActions, deviceContext, agentMemory)
     return JSONObject().apply {
         put("action", "chat")
         put("intent", "agent_step")
@@ -66,7 +70,12 @@ private fun buildAgentStepPayload(
         put("visionFirst", snapshot.hasVisualImage)
         put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
-        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(6).forEach { put(it) } })
+        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(8).forEach { put(it) } })
+        agentMemory?.let { put("agentMemory", it) }
+        deviceContext?.let {
+            put("deviceContext", it.json)
+            put("deviceContextSummary", it.summary)
+        }
         put("screenSnapshot", snapshot.toJson(includeImage = true))
         put("screenSnapshotText", snapshotForText)
         put("hasScreenshot", snapshot.hasVisualImage)
@@ -110,7 +119,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-cloud-state-vision-v6" else "compose-native-cloud-state-v6")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-device-memory-vision-v1" else "compose-native-device-memory-v1")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -133,12 +142,22 @@ private fun buildPlannerMessage(
     snapshotJsonWithoutImage: JSONObject,
     visual: AgentScreenVisual?,
     recentActions: List<String>,
+    deviceContext: AgentDeviceContextSnapshot?,
+    agentMemory: JSONObject?,
 ): String {
     return buildString {
         append("用户目标：").append(goal).append('\n')
+        deviceContext?.let { context ->
+            append("设备上下文：").append(context.summary).append('\n')
+            append("可启动应用清单摘要：").append(installedAppsPromptList(context.json)).append('\n')
+            append("重要：打开应用时必须从 deviceContext.installedApps 选择真实 appName/packageName，不要猜包名，不要在桌面文件夹里找图标。\n")
+        }
+        agentMemory?.let { memory ->
+            append("智能体短期记忆：").append(memory).append('\n')
+        }
         if (recentActions.isNotEmpty()) {
             append("最近动作记录：\n")
-            recentActions.takeLast(6).forEachIndexed { index, item -> append(index + 1).append(". ").append(item).append('\n') }
+            recentActions.takeLast(8).forEachIndexed { index, item -> append(index + 1).append(". ").append(item).append('\n') }
         }
         append("当前结构化快照：").append(snapshotJsonWithoutImage).append('\n')
         if (visual?.hasImage == true) {
@@ -156,12 +175,37 @@ private fun buildPlannerMessage(
     }
 }
 
+private fun installedAppsPromptList(deviceJson: JSONObject): String {
+    val array = deviceJson.optJSONArray("installedApps") ?: return "未提供"
+    val items = buildList {
+        for (index in 0 until minOf(array.length(), 80)) {
+            val item = array.optJSONObject(index) ?: continue
+            val label = item.optString("label").takeIf { it.isNotBlank() } ?: continue
+            val pkg = item.optString("packageName").takeIf { it.isNotBlank() } ?: "unknown"
+            add("$label($pkg)")
+        }
+    }
+    return items.joinToString(" / ").ifBlank { "未提供" }
+}
+
 private fun agentPlannerSystemPrompt(): String = """
 你是 Android 手机 Computer Use 智能体的云端状态规划器，只能输出严格 JSON，不要 Markdown。
 本地执行层不做 App 内页面语义判断，因此你必须负责判断当前是否完成、是否在正确路径、是否需要继续操作。
 
 返回格式：
 {"agentState":{"isComplete":false,"expectedProgress":false,"isWrong":false,"confidence":0.0,"reason":"当前状态判断","nextHint":"下一步提示"},"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
+
+设备上下文规则：
+1. deviceContext.installedApps 是本机真实可启动应用清单，打开应用必须从这里选 appName/packageName。
+2. 不要凭常识编 packageName。目标应用不在 installedApps 时，返回 need_user_help。
+3. 在桌面、启动器或文件夹界面时，不要点击文件夹、不要翻桌面页去肉眼找 App；直接使用 open_app。
+4. open_app 是系统工具能力，不需要桌面图标可见。
+
+循环记忆规则：
+1. 必须阅读 agentMemory 和最近动作记录，避免重复执行刚失败或刚被拒绝的动作。
+2. 如果刚刚点击某文件夹、某入口或某坐标后失败/返回，下一轮不要再点同一位置或同一路径。
+3. 如果同一个动作已经重复或被本地标记 blocked，必须换路径、使用 open_app/search/back，或说明需要用户协助。
+4. 不能把“回到相同截图”误认为还没有尝试过；要结合历史动作判断。
 
 坐标协议：
 1. tap_xy 的 x/y 一律返回归一化屏幕坐标，范围 0 到 1，不要返回像素坐标。
@@ -170,7 +214,7 @@ private fun agentPlannerSystemPrompt(): String = """
 4. 如果你心里算出像素坐标，必须先除以屏幕宽高再输出。
 
 状态判断规则：
-1. screenshot 是主输入，screenSnapshot 和最近动作记录是辅助；不能因为节点少就直接 need_user_help。
+1. screenshot 是主输入，screenSnapshot、deviceContext、agentMemory 和最近动作记录是辅助；不能因为节点少就直接 need_user_help。
 2. 先根据最近动作记录理解刚刚发生了什么，再看当前截图决定下一步，避免重复点击同一个无效入口。
 3. 用户目标若是“打开某 App”且当前已在该 App，可以 isComplete=true 并返回 finish。
 4. 用户目标若是进入某个页面、界面、Tab、栏目或列表，仅看到入口按钮/底部 Tab 文字，不等于完成；这只表示 expectedProgress=true，应继续点击入口。
@@ -182,14 +226,14 @@ private fun agentPlannerSystemPrompt(): String = """
 动作规划规则：
 1. 当前不在目标 App，且 open_app 可用，优先 open_app。
 2. 截图里目标文字、导航入口、返回键、输入框可见时，优先 tap_xy 或 tap_node。
-3. 目标不在当前屏幕时，优先寻找语义相关入口、搜索入口、底部/顶部导航入口。
+3. 目标不在当前 App 内页面时，优先寻找语义相关入口、搜索入口、底部/顶部导航入口。
 4. 找社交动态或内容流时，发现、动态、朋友、社区、广场、频道等入口通常比聊天列表更有价值。
 5. 找联系人/商品/视频/文件时，搜索入口或对应 Tab 通常比随机列表项更有价值。
 6. 不要盲目点击聊天列表、联系人列表、支付、设置等低相关或高风险入口。
 7. 没有可靠入口但页面可探索时，可以 scroll 或 swipe，不要直接 need_user_help。
 8. 页面刚变化或截图显示加载/动画过渡时，返回 wait。
 9. 目标已完成时才返回 finish。
-10. 只有截图和节点都无法判断且继续操作可能误触时，才返回 need_user_help。
+10. 只有截图、节点、设备上下文和历史记忆都无法判断且继续操作可能误触时，才返回 need_user_help。
 
 安全规则：
 - 涉及支付、转账、下单、删除、发送消息、发布、评论、授权、登录、验证码、密码等高风险动作，必须 riskLevel=high 且 requiresConfirmation=true。
