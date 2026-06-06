@@ -55,7 +55,7 @@ class AgentTaskRunner(
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
             val loopStart = SystemClock.elapsedRealtime()
-            val forceVisual = shouldCaptureVisual(goal, memory)
+            val forceVisual = shouldCaptureVisual()
 
             val captureStart = SystemClock.elapsedRealtime()
             val observation = captureOnce(forceVisual = forceVisual)
@@ -241,17 +241,7 @@ class AgentTaskRunner(
         return residual.isBlank()
     }
 
-    private fun shouldCaptureVisual(goal: String, memory: AgentRunMemory): Boolean {
-        if (memory.forceNextVisual) return true
-        if (memory.executedStepCount == 0 && goalLooksLikeOpenAppTask(goal)) return false
-        if (memory.executedStepCount == 0 && memory.repeatedCloudRejects == 0) return false
-        return true
-    }
-
-    private fun goalLooksLikeOpenAppTask(goal: String): Boolean {
-        val clean = normalize(goal)
-        return openAppIntentWords.any { clean.contains(it) }
-    }
+    private fun shouldCaptureVisual(): Boolean = true
 
     private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
         val context = applicationContext ?: return null
@@ -474,7 +464,6 @@ class AgentTaskRunner(
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
-        private val openAppIntentWords = listOf("打开", "开启", "启动", "进入", "找到", "热榜", "联系人", "动态", "页面", "界面", "app")
         private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
         private val complexGoalWords = listOf("热榜", "联系人", "朋友圈", "搜索", "找到", "页面", "界面", "点击", "发送", "发布", "删除", "设置", "消息", "扫一扫", "视频", "直播", "自选", "行情", "新闻", "小程序", "群", "聊天", "给", "评论", "登录", "支付", "转账")
     }
