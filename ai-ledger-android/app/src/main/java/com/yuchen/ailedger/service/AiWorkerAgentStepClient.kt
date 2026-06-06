@@ -76,7 +76,7 @@ private fun buildAgentStepPayload(
             put("deviceContext", it.json)
             put("deviceContextSummary", it.summary)
         }
-        put("screenSnapshot", snapshot.toJson(includeImage = true))
+        put("screenSnapshot", snapshotForText)
         put("screenSnapshotText", snapshotForText)
         put("hasScreenshot", snapshot.hasVisualImage)
         put("hasImage", snapshot.hasVisualImage)
@@ -119,7 +119,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-device-memory-vision-v1" else "compose-native-device-memory-v1")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v2" else "compose-native-agent-fast-v2")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -149,12 +149,11 @@ private fun buildPlannerMessage(
         append("用户目标：").append(goal).append('\n')
         deviceContext?.let { context ->
             append("设备上下文：").append(context.summary).append('\n')
-            append("可启动应用清单摘要：").append(installedAppsPromptList(context.json)).append('\n')
-            append("重要：打开应用时必须从 deviceContext.installedApps 选择真实 appName/packageName，不要猜包名，不要在桌面文件夹里找图标。\n")
+            append("目标相关可启动应用候选：").append(appsPromptList(context.json.optJSONArray("targetAppCandidates"), 16)).append('\n')
+            append("可启动应用摘要：").append(appsPromptList(context.json.optJSONArray("installedApps"), 48)).append('\n')
+            append("重要：打开应用时优先从 targetAppCandidates 选择；不要猜包名，不要在桌面文件夹里找图标。\n")
         }
-        agentMemory?.let { memory ->
-            append("智能体短期记忆：").append(memory).append('\n')
-        }
+        agentMemory?.let { memory -> append("智能体短期记忆：").append(memory).append('\n') }
         if (recentActions.isNotEmpty()) {
             append("最近动作记录：\n")
             recentActions.takeLast(8).forEachIndexed { index, item -> append(index + 1).append(". ").append(item).append('\n') }
@@ -166,7 +165,7 @@ private fun buildPlannerMessage(
                 .append("，真实屏幕尺寸为 ")
                 .append(visual.displayWidth).append("x").append(visual.displayHeight).append("。\n")
             append("请以截图为主、节点为辅判断当前状态；节点可能缺失、滞后或只暴露底部入口文字。\n")
-            append("重要：tap_xy 必须返回归一化屏幕坐标，不要返回像素。x 和 y 都必须是 0 到 1 的小数。\n")
+            append("tap_xy 必须返回 0 到 1 的归一化屏幕坐标，不要返回像素。\n")
             append("如果用户目标是进入某个页面、界面、Tab、栏目或列表，仅看到入口文字/按钮不等于完成；只有目标 Tab 已选中且主体内容切换到目标界面，才可以 finish。\n")
         } else {
             append("当前没有截图，只能根据节点谨慎规划；节点不足时优先低风险动作或 need_user_help。\n")
@@ -175,17 +174,17 @@ private fun buildPlannerMessage(
     }
 }
 
-private fun installedAppsPromptList(deviceJson: JSONObject): String {
-    val array = deviceJson.optJSONArray("installedApps") ?: return "未提供"
+private fun appsPromptList(array: JSONArray?, limit: Int): String {
+    if (array == null || array.length() == 0) return "无"
     val items = buildList {
-        for (index in 0 until minOf(array.length(), 80)) {
+        for (index in 0 until minOf(array.length(), limit)) {
             val item = array.optJSONObject(index) ?: continue
             val label = item.optString("label").takeIf { it.isNotBlank() } ?: continue
             val pkg = item.optString("packageName").takeIf { it.isNotBlank() } ?: "unknown"
             add("$label($pkg)")
         }
     }
-    return items.joinToString(" / ").ifBlank { "未提供" }
+    return items.joinToString(" / ").ifBlank { "无" }
 }
 
 private fun agentPlannerSystemPrompt(): String = """
@@ -196,10 +195,11 @@ private fun agentPlannerSystemPrompt(): String = """
 {"agentState":{"isComplete":false,"expectedProgress":false,"isWrong":false,"confidence":0.0,"reason":"当前状态判断","nextHint":"下一步提示"},"agentStep":{"type":"open_app|home|back|recents|notifications|quick_settings|tap_node|tap_xy|input_text|scroll|swipe|wait|finish|need_user_help","targetNodeId":"可选节点 id","targetText":"可选目标文字","appName":"可选应用名","packageName":"可选包名","text":"可选输入文字","direction":"up|down|left|right 可选","x":可选数字,"y":可选数字,"durationMs":可选毫秒,"reason":"简短行动理由","riskLevel":"low|medium|high","requiresConfirmation":false}}
 
 设备上下文规则：
-1. deviceContext.installedApps 是本机真实可启动应用清单，打开应用必须从这里选 appName/packageName。
-2. 不要凭常识编 packageName。目标应用不在 installedApps 时，返回 need_user_help。
-3. 在桌面、启动器或文件夹界面时，不要点击文件夹、不要翻桌面页去肉眼找 App；直接使用 open_app。
-4. open_app 是系统工具能力，不需要桌面图标可见。
+1. deviceContext.targetAppCandidates 是根据当前任务从本机真实可启动应用里筛出的候选；打开应用优先从这里选 appName/packageName。
+2. targetAppCandidates 为空时，再从 deviceContext.installedApps 选择真实 appName/packageName。
+3. 不要凭常识编 packageName。目标应用不在 targetAppCandidates 或 installedApps 时，返回 need_user_help。
+4. 在桌面、启动器或文件夹界面时，不要点击文件夹、不要翻桌面页去肉眼找 App；直接使用 open_app。
+5. open_app 是系统工具能力，不需要桌面图标可见。
 
 循环记忆规则：
 1. 必须阅读 agentMemory 和最近动作记录，避免重复执行刚失败或刚被拒绝的动作。
@@ -211,7 +211,6 @@ private fun agentPlannerSystemPrompt(): String = """
 1. tap_xy 的 x/y 一律返回归一化屏幕坐标，范围 0 到 1，不要返回像素坐标。
 2. x=0 表示最左侧，x=1 表示最右侧；y=0 表示最顶部，y=1 表示最底部。
 3. 点击底部导航栏时，y 通常在 0.91 到 0.97 之间；不要点到导航栏上方内容列表。
-4. 如果你心里算出像素坐标，必须先除以屏幕宽高再输出。
 
 状态判断规则：
 1. screenshot 是主输入，screenSnapshot、deviceContext、agentMemory 和最近动作记录是辅助；不能因为节点少就直接 need_user_help。
