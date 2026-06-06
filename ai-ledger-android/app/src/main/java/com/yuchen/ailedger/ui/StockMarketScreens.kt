@@ -59,6 +59,8 @@ private val RiseRed = Color(0xFFFF8F8F)
 private val FallGreen = Color(0xFF80F7B4)
 private val Aqua = Color(0xFF8DF9EA)
 private val SectionLine = Color.White.copy(alpha = 0.085f)
+private val StockHomePanelHeight = 1120.dp
+private val StockDetailPanelHeight = 1040.dp
 
 @Composable
 fun AStockMarketScreenV2(
@@ -116,7 +118,7 @@ private fun StockHomePage(
     ) {
         item { HomeHeader(appState, ui, onBack, onRefresh) }
         item {
-            StockParentGlassPanel(appState) {
+            StockParentGlassPanel(appState, Modifier.height(StockHomePanelHeight)) {
                 TopSearchBar(appState, ui, onQueryChange, onSearch)
                 SectionDivider()
                 MarketOverviewSection(ui.stock, ui.loading, onOpenDetail)
@@ -153,7 +155,7 @@ private fun StockDetailPage(
     ) {
         item { DetailTopBar(appState, ui, onBack, onRefresh) }
         item {
-            StockParentGlassPanel(appState) {
+            StockParentGlassPanel(appState, Modifier.height(StockDetailPanelHeight)) {
                 QuoteHeroSection(ui.stock)
                 SectionDivider()
                 BottomActionBar(appState, ui, onAction)
@@ -202,18 +204,18 @@ private fun DetailTopBar(appState: AssistantUiState, ui: StockMarketUiState, onB
 }
 
 @Composable
-private fun StockParentGlassPanel(appState: AssistantUiState, content: @Composable () -> Unit) {
+private fun StockParentGlassPanel(appState: AssistantUiState, modifier: Modifier, content: @Composable () -> Unit) {
     GlassPanel(
         quality = appState.quality,
         glassIntensity = appState.glassIntensity * 0.92f,
         motionIntensity = appState.motionIntensity,
         radius = 30,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         role = GlassRole.Card
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
