@@ -15,6 +15,17 @@ object AgentDeviceContextProvider {
     fun build(
         context: Context,
         screen: AgentScreenSnapshot,
+        installedAppIndex: InstalledAppIndex,
+    ): AgentDeviceContextSnapshot = build(
+        context = context,
+        screen = screen,
+        goal = "",
+        installedAppIndex = installedAppIndex,
+    )
+
+    fun build(
+        context: Context,
+        screen: AgentScreenSnapshot,
         goal: String = "",
         installedAppIndex: InstalledAppIndex = InstalledAppIndex(context.applicationContext),
     ): AgentDeviceContextSnapshot {
