@@ -8,6 +8,30 @@
 - `GET /api/stock/a-share/detail?query=600519`：聚合详情接口，当前复用同一套东方财富解析结果，后续可在这里接正式授权源。
 - `GET /api/stock/futu/a-share/detail?query=600519`：临时兼容入口，给 Android 端已有富途优先路径过渡使用。
 
+## A 股全量个股接口
+
+第一版全量能力聚焦 A 股个股行情池，不覆盖港股、美股、基金、期货等市场。
+
+```text
+GET /api/stock/crawl/a-share/list?page=1&pageSize=100
+GET /api/stock/crawl/a-share/search?query=贵州茅台
+GET /api/stock/crawl/a-share/quotes?codes=600519,000001,300750
+GET /api/stock/crawl/a-share/detail?query=600519&mode=full
+GET /api/stock/crawl/a-share/kline?query=600519&period=daily
+GET /api/stock/crawl/a-share/minute?query=600519
+GET /api/stock/crawl/a-share/market/overview?query=600519
+```
+
+兼容聚合路径也保留了同名能力：
+
+```text
+GET /api/stock/a-share/list
+GET /api/stock/a-share/search?query=贵州茅台
+GET /api/stock/a-share/quotes?codes=600519,000001
+GET /api/stock/a-share/kline?query=600519&period=weekly
+GET /api/stock/a-share/minute?query=600519
+```
+
 ## Windows PowerShell 本地运行
 
 在仓库根目录执行：
@@ -40,6 +64,31 @@ Invoke-RestMethod "http://127.0.0.1:8000/health"
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/detail?query=600519"
+```
+
+测试股票池列表：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/list?page=1&pageSize=20"
+```
+
+测试搜索：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/search?query=贵州茅台"
+```
+
+测试批量报价：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/quotes?codes=600519,000001,300750"
+```
+
+测试 K 线和分时：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/kline?query=600519&period=daily"
+Invoke-RestMethod "http://127.0.0.1:8000/api/stock/crawl/a-share/minute?query=600519"
 ```
 
 测试聚合接口：

@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 
-app = FastAPI(title="AI Ledger A股行情爬虫代理", version="0.7.0")
+app = FastAPI(title="AI Ledger A股行情爬虫代理", version="0.8.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,6 +44,18 @@ INDEX_SECURITIES = [
     {"name": "深成", "code": "399001", "secid": "0.399001"},
     {"name": "创业板", "code": "399006", "secid": "0.399006"},
 ]
+A_STOCK_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+KLINE_PERIODS = {
+    "daily": "101",
+    "day": "101",
+    "d": "101",
+    "weekly": "102",
+    "week": "102",
+    "w": "102",
+    "monthly": "103",
+    "month": "103",
+    "m": "103",
+}
 FAST_CACHE_SECONDS = 18
 STALE_CACHE_SECONDS = 6 * 60 * 60
 MAX_CACHE_ITEMS = 360
@@ -201,6 +213,30 @@ def _search_security(client: httpx.Client, query: str) -> dict[str, str] | None:
     return None
 
 
+def _search_securities(client: httpx.Client, query: str, limit: int) -> list[dict[str, str]]:
+    data = _eastmoney_get(client, f"{EASTMONEY_SEARCH_URL}?{urlencode({'input': query, 'type': '14', 'token': EASTMONEY_TOKEN})}")
+    table = data.get("QuotationCodeTable") or {}
+    rows: list[dict[str, str]] = []
+    for item in table.get("Data") or []:
+        if item.get("Classify") != "AStock":
+            continue
+        code = _safe_str(item.get("Code"), "")
+        quote_id = _safe_str(item.get("QuoteID"), "")
+        if len(code) == 6 and "." in quote_id:
+            rows.append(
+                {
+                    "code": code,
+                    "name": _safe_str(item.get("Name"), code),
+                    "secid": quote_id,
+                    "market": _safe_str(item.get("SecurityTypeName"), _market_name(quote_id, code)),
+                    "pinyin": _safe_str(item.get("PinYin"), ""),
+                }
+            )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def _resolve_security(client: httpx.Client, query: str) -> dict[str, str]:
     keyword = query.strip()
     if not keyword:
@@ -212,6 +248,16 @@ def _resolve_security(client: httpx.Client, query: str) -> dict[str, str]:
     if searched is not None:
         return searched
     raise HTTPException(status_code=404, detail=f"东方财富搜索没有找到 A 股标的：{keyword}")
+
+
+def _normalize_period(period: str) -> tuple[str, str]:
+    key = period.strip().lower()
+    klt = KLINE_PERIODS.get(key)
+    if not klt:
+        allowed = ", ".join(sorted({"daily", "weekly", "monthly"}))
+        raise HTTPException(status_code=400, detail=f"period 仅支持 {allowed}")
+    canonical = {"101": "daily", "102": "weekly", "103": "monthly"}[klt]
+    return canonical, klt
 
 
 def _quote_fields() -> str:
@@ -257,6 +303,22 @@ def _quote_from_raw(data: dict[str, Any], security: dict[str, str]) -> dict[str,
         "pb": _format_price(_scaled(data.get("f167"), -1.0)),
         "amount": _format_cn_money(data.get("f48")),
         "popularityRank": "--",
+    }
+
+
+def _quote_summary_from_raw(data: dict[str, Any], security: dict[str, str]) -> dict[str, Any]:
+    quote = _quote_from_raw(data, security)
+    return {
+        "name": quote["name"],
+        "code": quote["code"],
+        "market": quote["market"],
+        "price": quote["price"],
+        "changeAmount": quote["changeAmount"],
+        "changePercent": quote["changePercent"],
+        "isRising": quote["isRising"],
+        "amount": quote["amount"],
+        "turnoverRate": quote["turnoverRate"],
+        "volumeRatio": quote["volumeRatio"],
     }
 
 
@@ -363,12 +425,13 @@ def _trade_ticks_from_minute(minute_points: list[dict[str, Any]], quote: dict[st
     return ticks
 
 
-def _load_daily_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], limit: int = 120) -> list[dict[str, Any]]:
+def _load_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], period: str = "daily", limit: int = 120) -> list[dict[str, Any]]:
+    canonical_period, klt = _normalize_period(period)
     raw = _eastmoney_get_first(
         client,
         EASTMONEY_KLINE_URLS,
-        {"secid": security["secid"], "klt": "101", "fqt": "1", "lmt": str(limit), "end": "20500101", "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"},
-        "daily_kline",
+        {"secid": security["secid"], "klt": klt, "fqt": "1", "lmt": str(limit), "end": "20500101", "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"},
+        f"{canonical_period}_kline",
         warnings,
     )
     rows: list[dict[str, Any]] = []
@@ -377,7 +440,54 @@ def _load_daily_kline(client: httpx.Client, security: dict[str, str], warnings: 
         if len(parts) < 11:
             continue
         rows.append({"date": parts[0][5:], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": max(_safe_float(parts[5]) / 10000.0, 0.01), "amount": max(_safe_float(parts[6]) / 100000000.0, 0.01), "amplitude": _format_percent(parts[7], signed=False), "changePercent": _format_percent(parts[8]), "changeAmount": _format_signed(parts[9]), "turnoverRate": _format_percent(parts[10], signed=False)})
-    return rows
+    if rows:
+        return rows
+    if canonical_period == "daily":
+        rebuilt = _load_daily_kline_from_trends(client, security, warnings)
+        if rebuilt:
+            warnings.append("daily_kline: rebuilt_from_minute_trends")
+        return rebuilt
+    rebuilt = _load_daily_kline_from_trends(client, security, warnings)
+    if rebuilt:
+        warnings.append(f"{canonical_period}_kline: rebuilt_from_daily_trends")
+    return rebuilt
+
+
+def _load_daily_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], limit: int = 120) -> list[dict[str, Any]]:
+    return _load_kline(client, security, warnings, period="daily", limit=limit)
+
+
+def _load_daily_kline_from_trends(client: httpx.Client, security: dict[str, str], warnings: list[str]) -> list[dict[str, Any]]:
+    raw = _eastmoney_get_first(
+        client,
+        EASTMONEY_TRENDS_URLS,
+        {"secid": security["secid"], "fields1": "f1,f2,f3,f4,f5,f6,f7,f8", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58", "iscr": "0", "ndays": "5"},
+        "daily_kline_trends",
+        warnings,
+    )
+    by_date: dict[str, dict[str, Any]] = {}
+    for item in (raw.get("data") or {}).get("trends") or []:
+        parts = str(item).split(",")
+        if len(parts) < 7:
+            continue
+        day = parts[0][:10]
+        row = by_date.setdefault(
+            day,
+            {"date": day[5:], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": 0.0, "amount": 0.0},
+        )
+        row["close"] = _safe_float(parts[2], row["close"])
+        row["high"] = max(row["high"], _safe_float(parts[3], row["high"]))
+        row["low"] = min(row["low"], _safe_float(parts[4], row["low"]))
+        row["volume"] += _safe_float(parts[5])
+        row["amount"] += _safe_float(parts[6])
+    rows: list[dict[str, Any]] = []
+    for day in sorted(by_date):
+        row = by_date[day]
+        previous = _safe_float(row["open"])
+        change_amount = _safe_float(row["close"]) - previous
+        change_percent = change_amount / previous * 100 if previous else 0.0
+        rows.append({"date": row["date"], "open": row["open"], "close": row["close"], "high": row["high"], "low": row["low"], "volume": max(_safe_float(row["volume"]) / 10000.0, 0.01), "amount": max(_safe_float(row["amount"]) / 100000000.0, 0.01), "amplitude": "--", "changePercent": _format_percent(change_percent), "changeAmount": _format_signed(change_amount), "turnoverRate": "--"})
+    return rows[-80:]
 
 
 def _fundamentals_from_quote(quote: dict[str, Any]) -> list[dict[str, str]]:
@@ -410,6 +520,58 @@ def _stock_rank_from_diff(item: dict[str, Any]) -> dict[str, Any]:
     return _rank_item(_safe_str(item.get("f14"), "--"), _safe_str(item.get("f12"), "--"), _format_price(item.get("f2")), change_percent, not change_percent.startswith("-"))
 
 
+def _stock_list_item_from_diff(item: dict[str, Any]) -> dict[str, Any]:
+    code = _safe_str(item.get("f12"), "--")
+    secid = _default_secid_for_code(code) if len(code) == 6 else "--"
+    change_percent = _format_percent(item.get("f3"))
+    return {
+        "name": _safe_str(item.get("f14"), "--"),
+        "code": code,
+        "secid": secid,
+        "market": _market_name(secid, code) if "." in secid else "--",
+        "price": _format_price(item.get("f2")),
+        "changePercent": change_percent,
+        "isRising": not change_percent.startswith("-"),
+        "amount": _format_cn_money(item.get("f6")),
+        "turnoverRate": _format_percent(item.get("f8"), signed=False),
+        "peTtm": _format_price(item.get("f9")),
+        "totalMarketValue": _format_cn_money(item.get("f20")),
+        "floatMarketValue": _format_cn_money(item.get("f21")),
+        "sector": _safe_str(item.get("f100"), "--"),
+    }
+
+
+def _load_stock_list(client: httpx.Client, page: int, page_size: int, sort: str, warnings: list[str]) -> dict[str, Any]:
+    sort_fields = {
+        "change": "f3",
+        "amount": "f6",
+        "turnover": "f8",
+        "market_value": "f20",
+        "code": "f12",
+    }
+    fid = sort_fields.get(sort.strip().lower(), "f3")
+    params = {
+        "pn": str(page),
+        "pz": str(page_size),
+        "po": "1",
+        "np": "1",
+        "fltt": "2",
+        "invt": "2",
+        "fid": fid,
+        "fs": A_STOCK_FS,
+        "fields": "f12,f14,f2,f3,f6,f8,f9,f20,f21,f100",
+    }
+    raw = _eastmoney_get_first(client, EASTMONEY_CLIST_URLS, params, "a_share_list", warnings)
+    data = raw.get("data") or {}
+    return {
+        "items": [_stock_list_item_from_diff(item) for item in data.get("diff") or []],
+        "total": int(_safe_float(data.get("total"), 0.0)),
+        "page": page,
+        "pageSize": page_size,
+        "sort": sort,
+    }
+
+
 def _sector_rank_from_diff(item: dict[str, Any]) -> dict[str, Any]:
     change_percent = _format_percent(item.get("f3"))
     return _rank_item(_safe_str(item.get("f14"), "板块"), _safe_str(item.get("f12"), "--"), _format_cn_money(item.get("f6")), change_percent, not change_percent.startswith("-"))
@@ -428,10 +590,9 @@ def _load_indices(client: httpx.Client, warnings: list[str]) -> list[dict[str, A
 
 
 def _load_market_boards(client: httpx.Client, quote: dict[str, Any], warnings: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    a_stock_fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
     concept_fs = "m:90+t:3,m:90+t:2"
-    hot_items = [_stock_rank_from_diff(item) for item in _clist_items(client, a_stock_fs, "f3", 8, warnings, "hot_rank")]
-    amount_items = [_stock_rank_from_diff(item) for item in _clist_items(client, a_stock_fs, "f6", 8, warnings, "amount_rank")]
+    hot_items = [_stock_rank_from_diff(item) for item in _clist_items(client, A_STOCK_FS, "f3", 8, warnings, "hot_rank")]
+    amount_items = [_stock_rank_from_diff(item) for item in _clist_items(client, A_STOCK_FS, "f6", 8, warnings, "amount_rank")]
     sector_items = [_sector_rank_from_diff(item) for item in _clist_items(client, concept_fs, "f3", 8, warnings, "sector_rank")]
     current = _rank_item(_safe_str(quote.get("name")), _safe_str(quote.get("code")), _safe_str(quote.get("price")), _safe_str(quote.get("changePercent")), bool(quote.get("isRising", True)))
     hot_items = hot_items or [current]
@@ -518,6 +679,88 @@ def _build_market_payload(query: str) -> dict[str, Any]:
     }
 
 
+def _build_list_payload(page: int, page_size: int, sort: str) -> dict[str, Any]:
+    warnings = ["crawl: eastmoney_a_share_list"]
+    with httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
+        data = _load_stock_list(client, page, page_size, sort, warnings)
+    return {
+        "provider": "crawl_eastmoney_public_json",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "dataSourceLabel": "爬虫教学源 · 东方财富A股股票池",
+        "items": data["items"],
+        "total": data["total"],
+        "page": data["page"],
+        "pageSize": data["pageSize"],
+        "sort": data["sort"],
+        "warnings": warnings,
+    }
+
+
+def _build_search_payload(query: str, limit: int) -> dict[str, Any]:
+    warnings = ["crawl: eastmoney_a_share_search"]
+    keyword = query.strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="query 不能为空")
+    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
+        items = _search_securities(client, keyword, limit)
+        if not items:
+            code = _code_from_query(keyword)
+            if code:
+                security = _resolve_security(client, code)
+                items = [{"code": security["code"], "name": security["name"], "secid": security["secid"], "market": _market_name(security["secid"], security["code"]), "pinyin": ""}]
+    return {
+        "provider": "crawl_eastmoney_public_json",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "dataSourceLabel": "爬虫教学源 · 东方财富A股搜索",
+        "query": keyword,
+        "items": items,
+        "warnings": warnings,
+    }
+
+
+def _build_quotes_payload(codes: str) -> dict[str, Any]:
+    warnings = ["crawl: eastmoney_a_share_quotes"]
+    raw_codes = [item.strip() for item in codes.replace("，", ",").split(",") if item.strip()]
+    if not raw_codes:
+        raise HTTPException(status_code=400, detail="codes 不能为空，例如 600519,000001")
+    if len(raw_codes) > 50:
+        raise HTTPException(status_code=400, detail="单次最多查询 50 个代码")
+    quotes: list[dict[str, Any]] = []
+    with httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
+        for item in raw_codes:
+            try:
+                security = _resolve_security(client, item)
+                raw_quote = _load_quote_raw(client, security)
+                quotes.append(_quote_summary_from_raw(raw_quote, security))
+            except Exception as exc:
+                warnings.append(f"quote_{item}_failed: {type(exc).__name__}: {exc}")
+    return {
+        "provider": "crawl_eastmoney_public_json",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "dataSourceLabel": "爬虫教学源 · 东方财富A股批量报价",
+        "items": quotes,
+        "requested": raw_codes,
+        "warnings": warnings,
+    }
+
+
+def _build_minute_payload(query: str) -> dict[str, Any]:
+    warnings = ["crawl: eastmoney_a_share_minute"]
+    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
+        security = _resolve_security(client, query)
+        raw_quote = _load_quote_raw(client, security)
+        quote = _quote_from_raw(raw_quote, security)
+        points = _load_minute_points(client, security, quote, warnings)
+    return {
+        "provider": "crawl_eastmoney_public_json",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "dataSourceLabel": f"爬虫教学源 · 东方财富A股分时 · {quote.get('code', '--')}",
+        "quote": quote,
+        "minutePoints": points,
+        "warnings": warnings,
+    }
+
+
 def _cached_response(kind: str, query: str, mode: str, builder) -> dict[str, Any]:
     key = _cache_key(kind, query, mode)
     fresh = _cache_get(key, FAST_CACHE_SECONDS)
@@ -550,13 +793,42 @@ def health() -> dict[str, Any]:
         "service": "ai-ledger-stock-proxy",
         "dataSource": "eastmoney public json",
         "cacheSize": len(_cache),
-        "version": "0.7.0-split-detail-kline-market",
+        "version": "0.8.0-a-share-full-lite",
         "endpoints": [
+            "/api/stock/crawl/a-share/list?page=1&pageSize=100",
+            "/api/stock/crawl/a-share/search?query=贵州茅台",
+            "/api/stock/crawl/a-share/quotes?codes=600519,000001",
             "/api/stock/crawl/a-share/detail?query=600519&mode=lite",
             "/api/stock/crawl/a-share/detail?query=600519&mode=full",
+            "/api/stock/crawl/a-share/kline?query=600519&period=daily",
+            "/api/stock/crawl/a-share/minute?query=600519",
             "/api/stock/crawl/a-share/market/overview?query=600519",
         ],
     }
+
+
+@app.get("/api/stock/crawl/a-share/list")
+def crawl_a_share_list(
+    page: int = Query(1, ge=1, le=200),
+    pageSize: int = Query(100, ge=10, le=500),
+    sort: str = Query("change", description="change/amount/turnover/market_value/code"),
+) -> dict[str, Any]:
+    return _cached_response("list", f"{page}:{pageSize}", sort, lambda: _build_list_payload(page, pageSize, sort))
+
+
+@app.get("/api/stock/crawl/a-share/search")
+def crawl_a_share_search(
+    query: str = Query(..., description="股票代码、名称或拼音，例如 600519 / 贵州茅台"),
+    limit: int = Query(10, ge=1, le=30),
+) -> dict[str, Any]:
+    return _cached_response("search", query, str(limit), lambda: _build_search_payload(query, limit))
+
+
+@app.get("/api/stock/crawl/a-share/quotes")
+def crawl_a_share_quotes(
+    codes: str = Query(..., description="逗号分隔股票代码，例如 600519,000001,300750"),
+) -> dict[str, Any]:
+    return _cached_response("quotes", codes, "batch", lambda: _build_quotes_payload(codes))
 
 
 @app.get("/api/stock/crawl/a-share/detail")
@@ -572,16 +844,25 @@ def crawl_a_share_detail(
 @app.get("/api/stock/crawl/a-share/kline")
 def crawl_a_share_kline(
     query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台"),
+    period: str = Query("daily", description="daily/weekly/monthly"),
     limit: int = Query(120, ge=20, le=240),
 ) -> dict[str, Any]:
     def build() -> dict[str, Any]:
-        warnings = ["crawl: eastmoney_daily_kline"]
+        canonical_period, _ = _normalize_period(period)
+        warnings = [f"crawl: eastmoney_{canonical_period}_kline"]
         with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
             security = _resolve_security(client, query)
-            points = _load_daily_kline(client, security, warnings, limit=limit)
-        return {"provider": "crawl_eastmoney_public_json", "updatedAt": datetime.now(timezone.utc).isoformat(), "kLinePoints": points, "warnings": warnings}
+            points = _load_kline(client, security, warnings, period=canonical_period, limit=limit)
+        return {"provider": "crawl_eastmoney_public_json", "updatedAt": datetime.now(timezone.utc).isoformat(), "period": canonical_period, "kLinePoints": points, "warnings": warnings}
 
-    return _cached_response("kline", query, str(limit), build)
+    return _cached_response("kline", query, f"{period}:{limit}", build)
+
+
+@app.get("/api/stock/crawl/a-share/minute")
+def crawl_a_share_minute(
+    query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台"),
+) -> dict[str, Any]:
+    return _cached_response("minute", query, "1d", lambda: _build_minute_payload(query))
 
 
 @app.get("/api/stock/crawl/a-share/market/overview")
@@ -598,6 +879,31 @@ def a_share_detail(
 ) -> dict[str, Any]:
     normalized_mode = "full" if mode == "full" else "lite"
     return _cached_response("detail", query, normalized_mode, lambda: _build_detail_payload(query, normalized_mode, False))
+
+
+@app.get("/api/stock/a-share/list")
+def a_share_list(page: int = Query(1, ge=1, le=200), pageSize: int = Query(100, ge=10, le=500), sort: str = Query("change")) -> dict[str, Any]:
+    return crawl_a_share_list(page=page, pageSize=pageSize, sort=sort)
+
+
+@app.get("/api/stock/a-share/search")
+def a_share_search(query: str = Query(...), limit: int = Query(10, ge=1, le=30)) -> dict[str, Any]:
+    return crawl_a_share_search(query=query, limit=limit)
+
+
+@app.get("/api/stock/a-share/quotes")
+def a_share_quotes(codes: str = Query(...)) -> dict[str, Any]:
+    return crawl_a_share_quotes(codes=codes)
+
+
+@app.get("/api/stock/a-share/kline")
+def a_share_kline(query: str = Query(...), period: str = Query("daily"), limit: int = Query(120, ge=20, le=240)) -> dict[str, Any]:
+    return crawl_a_share_kline(query=query, period=period, limit=limit)
+
+
+@app.get("/api/stock/a-share/minute")
+def a_share_minute(query: str = Query(...)) -> dict[str, Any]:
+    return crawl_a_share_minute(query=query)
 
 
 @app.get("/api/stock/futu/a-share/detail")
