@@ -166,16 +166,29 @@ data class WebSource(
 
 @Immutable
 data class StructuredMetric(
-    val label: String,
-    val value: String,
+    val label: String = "",
+    val value: String = "",
     val unit: String? = null,
     val detail: String? = null
-)
+) {
+    val displayLabel: String
+        get() = label.trim().ifBlank { "指标" }
+
+    val displayValue: String
+        get() {
+            val cleanValue = value.trim().ifBlank { "--" }
+            val cleanUnit = unit?.trim().orEmpty()
+            return cleanValue + (cleanUnit.takeIf { it.isNotBlank() && !cleanValue.contains(it) }?.let { " $it" } ?: "")
+        }
+
+    val displayDetail: String?
+        get() = detail?.trim()?.takeIf { it.isNotBlank() }
+}
 
 @Immutable
 data class StructuredDataCard(
-    val type: String,
-    val title: String,
+    val type: String = "realtime",
+    val title: String = "实时数据",
     val subtitle: String? = null,
     val timestamp: String? = null,
     val metrics: List<StructuredMetric> = emptyList(),
