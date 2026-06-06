@@ -13,6 +13,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Base64
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -114,14 +115,21 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation = withWorkingAccessibilityMode {
         val now = System.currentTimeMillis()
-        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES)
+        val startedAt = SystemClock.elapsedRealtime()
+        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES, timeBudgetMs = SNAPSHOT_NODE_BUDGET_MS)
         val nodeObservation = if (selected != null) {
             val nodes = selected.capture.handles.map { it.observed }
+            val nodeMs = SystemClock.elapsedRealtime() - startedAt
+            val title = buildString {
+                append(selected.windowTitle)
+                append(" · nodeMs=").append(nodeMs)
+                if (selected.capture.truncated) append(" · 节点截断")
+            }.take(120)
             ScreenObservation(
                 enabled = true,
                 serviceConnected = true,
                 packageName = selected.packageName,
-                windowTitle = selected.windowTitle,
+                windowTitle = title,
                 updatedAt = now,
                 textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
                 allItems = nodes.distinctBy { it.bounds + it.text + it.className }.take(ALL_NODE_LIMIT),
@@ -213,83 +221,131 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun selectBestRoot(): AccessibilityNodeInfo? {
-        return selectBestRootCapture(limit = ROOT_SELECTION_SAMPLE_NODES)?.root ?: rootInActiveWindow
+        return selectBestRootCapture(limit = ROOT_SELECTION_SAMPLE_NODES, timeBudgetMs = ROOT_SELECTION_BUDGET_MS)?.root ?: rootInActiveWindow
     }
 
-    private fun selectBestRootCapture(limit: Int): RootCapture? {
+    private fun selectBestRootCapture(limit: Int, timeBudgetMs: Long = NODE_CAPTURE_DEFAULT_BUDGET_MS): RootCapture? {
+        val deadlineMs = SystemClock.elapsedRealtime() + timeBudgetMs
         val candidates = mutableListOf<AccessibilityNodeInfo>()
         rootInActiveWindow?.let { candidates += it }
-        windows.orEmpty().forEach { window -> window.root?.let { candidates += it } }
-        return candidates
-            .distinctBy { root ->
-                val rect = Rect()
-                root.getBoundsInScreen(rect)
-                listOf(root.packageName?.toString().orEmpty(), root.className?.toString().orEmpty(), rect.flattenToString()).joinToString("|")
-            }
-            .mapNotNull { root ->
-                val capture = collectNodeHandles(root, limit)
-                val packageName = root.packageName?.toString().orEmpty()
-                val textCount = capture.handles.count { it.observed.text.isNotBlank() }
-                val clickableCount = capture.handles.count { it.observed.clickable }
-                val inputCount = capture.handles.count { it.observed.editable }
-                val scrollableCount = capture.handles.count { it.observed.scrollable }
-                val ownOverlayPenalty = if (packageName == applicationContext.packageName) OWN_OVERLAY_WINDOW_PENALTY else 0
-                val systemSurfacePenalty = if (isSystemSurfacePackage(packageName)) SYSTEM_SURFACE_WINDOW_PENALTY else 0
-                val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) CONTENT_APP_WINDOW_BONUS else 0
-                val score = capture.rawNodeCount * 2 +
-                    capture.handles.size * 8 +
-                    textCount * 10 +
-                    clickableCount * 12 +
-                    inputCount * 16 +
-                    scrollableCount * 10 +
-                    contentAppBonus -
-                    ownOverlayPenalty -
-                    systemSurfacePenalty
-                RootCapture(root, packageName, root.text?.toString().orEmpty(), capture, score)
-            }
-            .maxByOrNull { it.score }
+        runCatching { windows.orEmpty().forEach { window -> window.root?.let { candidates += it } } }
+        val distinctCandidates = candidates
+            .distinctBy { rootIdentity(it) }
+            .sortedByDescending { rootPriority(it) }
+            .take(MAX_ROOT_CANDIDATES)
+        var best: RootCapture? = null
+        for (root in distinctCandidates) {
+            if (SystemClock.elapsedRealtime() >= deadlineMs) break
+            val capture = collectNodeHandles(root, limit, deadlineMs)
+            val packageName = root.packageName?.toString().orEmpty()
+            val textCount = capture.handles.count { it.observed.text.isNotBlank() }
+            val clickableCount = capture.handles.count { it.observed.clickable }
+            val inputCount = capture.handles.count { it.observed.editable }
+            val scrollableCount = capture.handles.count { it.observed.scrollable }
+            val ownOverlayPenalty = if (packageName == applicationContext.packageName) OWN_OVERLAY_WINDOW_PENALTY else 0
+            val systemSurfacePenalty = if (isSystemSurfacePackage(packageName)) SYSTEM_SURFACE_WINDOW_PENALTY else 0
+            val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) CONTENT_APP_WINDOW_BONUS else 0
+            val truncatedPenalty = if (capture.truncated) TRUNCATED_CAPTURE_PENALTY else 0
+            val score = capture.rawNodeCount * 2 +
+                capture.handles.size * 8 +
+                textCount * 10 +
+                clickableCount * 12 +
+                inputCount * 16 +
+                scrollableCount * 10 +
+                contentAppBonus -
+                ownOverlayPenalty -
+                systemSurfacePenalty -
+                truncatedPenalty
+            val item = RootCapture(root, packageName, root.text?.toString().orEmpty(), capture, score)
+            if (best == null || item.score > best.score) best = item
+        }
+        return best
+    }
+
+    private fun rootIdentity(root: AccessibilityNodeInfo): String {
+        val rect = Rect()
+        runCatching { root.getBoundsInScreen(rect) }
+        return listOf(root.packageName?.toString().orEmpty(), root.className?.toString().orEmpty(), rect.flattenToString()).joinToString("|")
+    }
+
+    private fun rootPriority(root: AccessibilityNodeInfo): Int {
+        val packageName = root.packageName?.toString().orEmpty()
+        val isContent = packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName
+        return when {
+            isContent -> 3
+            packageName == applicationContext.packageName -> 1
+            else -> 0
+        }
     }
 
     private fun isSystemSurfacePackage(packageName: String): Boolean {
         return packageName in SYSTEM_SURFACE_PACKAGES
     }
 
-    private fun collectNodeHandles(root: AccessibilityNodeInfo, limit: Int = MAX_EXECUTION_NODES): NodeCapture {
+    private fun collectNodeHandles(
+        root: AccessibilityNodeInfo,
+        limit: Int = MAX_EXECUTION_NODES,
+        deadlineMs: Long = SystemClock.elapsedRealtime() + NODE_CAPTURE_DEFAULT_BUDGET_MS,
+    ): NodeCapture {
         val result = mutableListOf<NodeHandle>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
         queue.add(root to 0)
         var rawCount = 0
         var index = 0
+        var truncated = false
         while (queue.isNotEmpty() && result.size < limit) {
+            if (SystemClock.elapsedRealtime() >= deadlineMs) {
+                truncated = true
+                break
+            }
             val (node, depth) = queue.removeFirst()
             rawCount += 1
-            node.toHandleOrNull("n$index")?.let { handle -> result.add(handle); index += 1 }
-            if (depth < MAX_DEPTH) {
-                for (childIndex in 0 until node.childCount) node.getChild(childIndex)?.let { queue.add(it to depth + 1) }
+            node.toHandleOrNull("n$index", deadlineMs)?.let { handle -> result.add(handle); index += 1 }
+            if (depth < MAX_DEPTH && SystemClock.elapsedRealtime() < deadlineMs) {
+                val childLimit = node.childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
+                for (childIndex in 0 until childLimit) {
+                    if (SystemClock.elapsedRealtime() >= deadlineMs || queue.size >= MAX_PENDING_NODE_QUEUE) {
+                        truncated = true
+                        break
+                    }
+                    node.getChild(childIndex)?.let { queue.add(it to depth + 1) }
+                }
+                if (node.childCount > childLimit) truncated = true
             }
         }
-        while (queue.isNotEmpty()) { rawCount += 1; queue.removeFirst() }
-        return NodeCapture(rawNodeCount = rawCount, handles = result)
+        if (queue.isNotEmpty() || result.size >= limit) truncated = true
+        return NodeCapture(rawNodeCount = rawCount, handles = result, truncated = truncated)
     }
 
-    private fun AccessibilityNodeInfo.safeText(): String {
+    private fun AccessibilityNodeInfo.directText(): String {
         return text?.toString()?.takeIf { it.isNotBlank() }
             ?: contentDescription?.toString()?.takeIf { it.isNotBlank() }
             ?: hintText?.toString()?.takeIf { it.isNotBlank() }
-            ?: collectChildText(CHILD_TEXT_FALLBACK_LIMIT)
+            ?: ""
     }
 
-    private fun AccessibilityNodeInfo.collectChildText(limit: Int): String {
+    private fun AccessibilityNodeInfo.safeText(deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS): String {
+        val direct = directText()
+        if (direct.isNotBlank()) return direct
+        return if (SystemClock.elapsedRealtime() < deadlineMs) collectChildText(CHILD_TEXT_FALLBACK_LIMIT, deadlineMs) else ""
+    }
+
+    private fun AccessibilityNodeInfo.collectChildText(limit: Int, deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS): String {
         val parts = mutableListOf<String>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        for (childIndex in 0 until childCount) getChild(childIndex)?.let { queue.add(it) }
-        while (queue.isNotEmpty() && parts.size < limit) {
-            val child = queue.removeFirst()
-            val text = child.text?.toString()?.takeIf { it.isNotBlank() }
-                ?: child.contentDescription?.toString()?.takeIf { it.isNotBlank() }
-                ?: child.hintText?.toString()?.takeIf { it.isNotBlank() }
-            if (!text.isNullOrBlank()) parts += text.take(24)
-            for (childIndex in 0 until child.childCount) child.getChild(childIndex)?.let { queue.add(it) }
+        val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+        val childLimit = childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
+        for (childIndex in 0 until childLimit) getChild(childIndex)?.let { queue.add(it to 0) }
+        while (queue.isNotEmpty() && parts.size < limit && SystemClock.elapsedRealtime() < deadlineMs) {
+            val (child, depth) = queue.removeFirst()
+            val text = child.directText()
+            if (text.isNotBlank()) parts += text.take(24)
+            if (depth < CHILD_TEXT_MAX_DEPTH) {
+                val nestedLimit = child.childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
+                for (childIndex in 0 until nestedLimit) {
+                    if (SystemClock.elapsedRealtime() >= deadlineMs || queue.size >= MAX_CHILD_TEXT_QUEUE) break
+                    child.getChild(childIndex)?.let { queue.add(it to depth + 1) }
+                }
+            }
         }
         return parts.distinct().joinToString(" ").take(80)
     }
@@ -352,7 +408,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 return tapRect(handle.bounds, "已坐标点击 ${handle.observed.text.ifBlank { quickText }}")
             }
         }
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
         val target = findTargetHandle(handles, step) ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetNodeId ?: step.targetText ?: "未知"}", false)
         performClickSmart(target.node)?.let { return AgentExecutionResult(true, "已点击节点 ${target.observed.id} ${target.observed.text}".trim()) }
         return tapRect(target.bounds, "已坐标点击节点 ${target.observed.id}")
@@ -443,7 +499,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
         val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable } ?: return AgentExecutionResult(false, "没有找到输入框", false)
         target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
@@ -453,7 +509,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES).handles
+        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
         val direction = step.direction.orEmpty().lowercase()
         val action = if (direction in setOf("up", "left", "backward", "previous")) AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
@@ -477,17 +533,18 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun findNodeByTextFast(root: AccessibilityNodeInfo, targetText: String): NodeHandle? {
-        val exact = root.findAccessibilityNodeInfosByText(targetText).orEmpty().mapNotNull { it.toHandleOrNull("n-fast") }
+        val exact = root.findAccessibilityNodeInfosByText(targetText).orEmpty().mapNotNull { it.toHandleOrNull("n-fast", SystemClock.elapsedRealtime() + QUICK_TEXT_NODE_BUDGET_MS) }
             .firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
         if (exact != null) return exact
-        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES).handles.firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
+        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES, SystemClock.elapsedRealtime() + QUICK_TEXT_NODE_BUDGET_MS).handles.firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
     }
 
-    private fun AccessibilityNodeInfo.toHandleOrNull(id: String): NodeHandle? {
+    private fun AccessibilityNodeInfo.toHandleOrNull(id: String, deadlineMs: Long = SystemClock.elapsedRealtime() + NODE_HANDLE_BUDGET_MS): NodeHandle? {
+        if (SystemClock.elapsedRealtime() >= deadlineMs) return null
         val clickableNode = nearestClickableNode()
         val scrollableNode = nearestScrollableNode()
         val actionNode = when { isEditable -> this; clickableNode != null -> clickableNode; scrollableNode != null -> scrollableNode; else -> this }
-        val text = safeText().ifBlank { actionNode.safeText() }
+        val text = safeText(deadlineMs).ifBlank { actionNode.safeText(deadlineMs) }
         val hasUsefulSignal = text.isNotBlank() || clickableNode != null || isEditable || scrollableNode != null
         if (!hasUsefulSignal) return null
         val rect = Rect()
@@ -615,7 +672,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private enum class AccessibilityRuntimeMode { Idle, Working }
     private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
-    private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>)
+    private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>, val truncated: Boolean = false)
     private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
     private data class NormalizedTapPoint(val x: Float, val y: Float, val wasScaled: Boolean, val source: String)
     private data class TapReferenceFrame(val width: Float, val height: Float, val label: String)
@@ -649,28 +706,41 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
         private const val CONTENT_APP_WINDOW_BONUS = 4_000
+        private const val TRUNCATED_CAPTURE_PENALTY = 1_600
         private val SYSTEM_SURFACE_PACKAGES = setOf("android", "com.android.systemui")
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 240
-        private const val MAX_EXECUTION_NODES = 260
-        private const val ROOT_SELECTION_SAMPLE_NODES = 120
-        private const val FAST_TEXT_FALLBACK_NODES = 140
-        private const val MAX_DEPTH = 14
-        private const val CHILD_TEXT_FALLBACK_LIMIT = 8
-        private const val TEXT_LIMIT = 60
-        private const val ALL_NODE_LIMIT = 160
-        private const val CLICKABLE_LIMIT = 56
-        private const val INPUT_LIMIT = 12
-        private const val SCROLLABLE_LIMIT = 16
-        private const val CLICK_PARENT_DEPTH = 12
-        private const val SCROLL_PARENT_DEPTH = 14
+        private const val MAX_SNAPSHOT_NODES = 96
+        private const val MAX_EXECUTION_NODES = 140
+        private const val ROOT_SELECTION_SAMPLE_NODES = 48
+        private const val FAST_TEXT_FALLBACK_NODES = 64
+        private const val MAX_ROOT_CANDIDATES = 3
+        private const val MAX_DEPTH = 8
+        private const val MAX_CHILDREN_PER_NODE = 18
+        private const val MAX_PENDING_NODE_QUEUE = 160
+        private const val CHILD_TEXT_FALLBACK_LIMIT = 4
+        private const val CHILD_TEXT_MAX_DEPTH = 2
+        private const val MAX_CHILD_TEXT_QUEUE = 48
+        private const val TEXT_LIMIT = 42
+        private const val ALL_NODE_LIMIT = 90
+        private const val CLICKABLE_LIMIT = 36
+        private const val INPUT_LIMIT = 8
+        private const val SCROLLABLE_LIMIT = 8
+        private const val CLICK_PARENT_DEPTH = 8
+        private const val SCROLL_PARENT_DEPTH = 8
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
         private const val VISION_MAX_LONG_SIDE = 960
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
+        private const val SNAPSHOT_NODE_BUDGET_MS = 520L
+        private const val ROOT_SELECTION_BUDGET_MS = 260L
+        private const val EXECUTION_NODE_BUDGET_MS = 420L
+        private const val QUICK_TEXT_NODE_BUDGET_MS = 260L
+        private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 420L
+        private const val NODE_HANDLE_BUDGET_MS = 80L
+        private const val CHILD_TEXT_BUDGET_MS = 35L
         private const val VISUAL_COORDINATE_EPSILON = 24f
         private const val BOTTOM_NAVIGATION_TAP_Y = 0.965f
     }
