@@ -106,7 +106,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-batch-v10" else "compose-native-agent-tool-batch-v10")
+        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-batch-v11-debug" else "compose-native-agent-tool-batch-v11-debug")
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeAgentState", true)
@@ -141,6 +141,11 @@ private fun agentEndpointCandidates(cleanEndpoint: String): List<String> = listO
 private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
     val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
     val requestStart = SystemClock.elapsedRealtime()
+    var stage = "prepare"
+    var writeMs: Long? = null
+    var waitMs: Long? = null
+    var readMs: Long? = null
+    var responseBytes = 0
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = AGENT_STEP_CONNECT_TIMEOUT_MS
@@ -151,20 +156,34 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         setRequestProperty("X-Client", "android-compose-agent")
     }
     return try {
+        stage = "write_request"
         val writeStart = SystemClock.elapsedRealtime()
         connection.outputStream.use { it.write(requestBytes) }
-        val writeMs = SystemClock.elapsedRealtime() - writeStart
+        writeMs = SystemClock.elapsedRealtime() - writeStart
 
+        stage = "wait_status"
         val statusStart = SystemClock.elapsedRealtime()
         val status = connection.responseCode
-        val waitMs = SystemClock.elapsedRealtime() - statusStart
+        waitMs = SystemClock.elapsedRealtime() - statusStart
 
+        stage = "read_body"
         val readStart = SystemClock.elapsedRealtime()
         val body = connection.agentReadBody(status)
-        val readMs = SystemClock.elapsedRealtime() - readStart
+        readMs = SystemClock.elapsedRealtime() - readStart
+        responseBytes = body.toByteArray(Charsets.UTF_8).size
         val totalMs = SystemClock.elapsedRealtime() - requestStart
         val data = body.agentJsonOrNull()
-        AgentRuntimeController.noteDiagnostic(buildAgentTimingDiagnostic(data, requestBytes.size, writeMs, waitMs, readMs, totalMs))
+        AgentRuntimeController.noteDiagnostic(
+            buildAgentTimingDiagnostic(
+                data = data,
+                requestBytes = requestBytes.size,
+                responseBytes = responseBytes,
+                writeMs = writeMs ?: 0L,
+                waitMs = waitMs ?: 0L,
+                readMs = readMs ?: 0L,
+                totalMs = totalMs,
+            )
+        )
         if (status !in 200..299) {
             val message = data?.optString("error")?.takeIf { it.isNotBlank() }
                 ?: data?.optString("message")?.takeIf { it.isNotBlank() }
@@ -179,7 +198,17 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         CloudAgentPlan(step = step, state = state)
     } catch (error: SocketTimeoutException) {
         val totalMs = SystemClock.elapsedRealtime() - requestStart
-        AgentRuntimeController.noteDiagnostic("AgentDebug 超时 · http=${totalMs}ms · req=${requestBytes.size / 1024}KB")
+        AgentRuntimeController.noteDiagnostic(
+            buildAgentTimeoutDiagnostic(
+                stage = stage,
+                requestBytes = requestBytes.size,
+                responseBytes = responseBytes,
+                writeMs = writeMs,
+                waitMs = waitMs,
+                readMs = readMs,
+                totalMs = totalMs,
+            )
+        )
         throw IOException("云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}", error)
     } finally {
         connection.disconnect()
@@ -189,6 +218,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
 private fun buildAgentTimingDiagnostic(
     data: JSONObject?,
     requestBytes: Int,
+    responseBytes: Int,
     writeMs: Long,
     waitMs: Long,
     readMs: Long,
@@ -203,8 +233,11 @@ private fun buildAgentTimingDiagnostic(
     val textPlannerMs = debug?.optLongOrNull("textPlannerMs")
     val buildMs = debug?.optLongOrNull("buildMessagesMs")
     val parseMs = debug?.optLongOrNull("parseMs")
+    val serverTotalMs = debug?.optLongOrNull("totalMs")
+    val serverReadBodyMs = debug?.optLongOrNull("readBodyMs")
+    val serverRequestKb = debug?.optLongOrNull("requestBytes")?.let { bytesToKb(it) }
     val promptChars = debug?.optLongOrNull("promptChars")
-    val screenshotKb = debug?.optLongOrNull("screenshotBytesApprox")?.let { it / 1024 }
+    val screenshotKb = debug?.optLongOrNull("screenshotBytesApprox")?.let { bytesToKb(it) }
     val visualCalled = debug?.optBooleanOrNull("visualCalled")
     val visualCacheHit = debug?.optBooleanOrNull("visualCacheHit")
     val sessionStep = debug?.optLongOrNull("sessionStep")
@@ -212,14 +245,18 @@ private fun buildAgentTimingDiagnostic(
         ?: data?.optJSONArray("steps")?.length()
         ?: data?.optJSONObject("plan")?.optJSONArray("agentSteps")?.length()
         ?: data?.optJSONObject("plan")?.optJSONArray("steps")?.length()
-    val local = "req=${requestBytes / 1024}KB http=${totalMs}ms wait=${waitMs}ms read=${readMs}ms"
+    val local = "req=${bytesToKb(requestBytes)}K resp=${bytesToKb(responseBytes)}K http=${totalMs} wait=${waitMs}"
     val server = buildString {
-        if (providerMs != null) append(" prov=${providerMs}ms")
-        if (textPlannerMs != null) append(" text=${textPlannerMs}ms")
-        if (buildMs != null) append(" build=${buildMs}ms")
-        if (parseMs != null) append(" parse=${parseMs}ms")
+        if (serverTotalMs != null) append(" srv=${serverTotalMs}")
+        if (serverReadBodyMs != null) append(" body=${serverReadBodyMs}")
+        if (providerMs != null) append(" prov=${providerMs}")
+        if (textPlannerMs != null) append(" text=${textPlannerMs}")
+        if (serverRequestKb != null) append(" in=${serverRequestKb}K")
+        append(" wr=${writeMs} rd=${readMs}")
+        if (buildMs != null) append(" build=${buildMs}")
+        if (parseMs != null) append(" parse=${parseMs}")
         if (promptChars != null) append(" prompt=${promptChars}")
-        if (screenshotKb != null) append(" img=${screenshotKb}KB")
+        if (screenshotKb != null) append(" img=${screenshotKb}K")
         if (visualCalled != null) append(" visual=").append(if (visualCalled) "调" else "免")
         if (visualCacheHit != null && visualCacheHit) append(" cache=命中")
         if (sessionStep != null) append(" s#").append(sessionStep)
@@ -228,6 +265,41 @@ private fun buildAgentTimingDiagnostic(
         if (debug == null) append(" debug=无")
     }
     return "AgentDebug $local$server"
+}
+
+private fun buildAgentTimeoutDiagnostic(
+    stage: String,
+    requestBytes: Int,
+    responseBytes: Int,
+    writeMs: Long?,
+    waitMs: Long?,
+    readMs: Long?,
+    totalMs: Long,
+): String {
+    val estimatedWaitMs = when {
+        stage == "wait_status" && writeMs != null -> (totalMs - writeMs).coerceAtLeast(0L)
+        else -> null
+    }
+    return buildString {
+        append("AgentDebug 超时 stage=").append(stage.shortStageLabel())
+        append(" req=").append(bytesToKb(requestBytes)).append('K')
+        if (responseBytes > 0) append(" resp=").append(bytesToKb(responseBytes)).append('K')
+        append(" http=").append(totalMs)
+        if (writeMs != null) append(" wr=").append(writeMs)
+        if (waitMs != null) append(" wait=").append(waitMs) else if (estimatedWaitMs != null) append(" wait>").append(estimatedWaitMs)
+        if (readMs != null) append(" rd=").append(readMs)
+    }
+}
+
+private fun bytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else ((bytes + 1023) / 1024)
+private fun bytesToKb(bytes: Long): Long = if (bytes <= 0L) 0L else ((bytes + 1023L) / 1024L)
+
+private fun String.shortStageLabel(): String = when (this) {
+    "prepare" -> "prep"
+    "write_request" -> "write"
+    "wait_status" -> "wait"
+    "read_body" -> "read"
+    else -> take(10)
 }
 
 private fun HttpURLConnection.agentReadBody(status: Int): String {
