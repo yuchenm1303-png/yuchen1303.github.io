@@ -116,7 +116,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v3" else "compose-native-agent-fast-v3")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v4" else "compose-native-agent-fast-v4")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -164,6 +164,7 @@ private fun buildPlannerMessage(
             append("请以截图为主、节点为辅判断当前状态；节点可能缺失、滞后或只暴露底部入口文字。\n")
             append("tap_xy 必须返回 0 到 1 的归一化屏幕坐标，不要返回像素。\n")
             append("如果用户目标是进入某个页面、界面、Tab、栏目或列表，仅看到入口文字/按钮不等于完成；只有目标 Tab 已选中且主体内容切换到目标界面，才可以 finish。\n")
+            append("如果截图显示系统弹窗在询问是否允许打开/继续打开目标应用，且不是权限授权、支付、登录或隐私确认，这是低风险应用启动确认，可以点击“允许/继续打开/打开”。\n")
         } else {
             append("当前没有截图；如果目标只是打开应用，请直接用 deviceContext 的 open_app 工具规划，不要等待截图。\n")
             append("如果当前已经在目标 App 内或需要判断 App 内页面，再结合节点与历史谨慎规划。\n")
@@ -199,6 +200,11 @@ private fun agentPlannerSystemPrompt(): String = """
 4. 在桌面、启动器或文件夹界面时，不要点击文件夹、不要翻桌面页去肉眼找 App；直接使用 open_app。
 5. open_app 是系统工具能力，不需要桌面图标可见。
 6. 当前没有截图时，如果目标是打开应用，仍然应该根据 deviceContext 返回 open_app，而不是 wait 或 need_user_help。
+
+系统弹窗规则：
+1. 如果截图显示“是否允许打开/继续打开/打开外部应用/允许跳转到目标应用”这类系统启动确认弹窗，并且用户目标本来就是打开该应用或进入该应用内页面，可以点击“允许”“继续打开”“打开”，riskLevel=low，requiresConfirmation=false。
+2. 上述低风险启动确认只适用于打开应用本身；如果弹窗涉及权限授权、登录授权、支付、转账、删除、下单、隐私协议、验证码或密码，必须 riskLevel=high 且 requiresConfirmation=true。
+3. 处理完启动确认后，下一轮继续观察目标 App 内页面，不要把确认弹窗当作任务完成。
 
 循环记忆规则：
 1. 必须阅读 agentMemory 和最近动作记录，避免重复执行刚失败或刚被拒绝的动作。
