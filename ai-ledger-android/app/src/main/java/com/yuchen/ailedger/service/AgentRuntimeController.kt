@@ -124,6 +124,18 @@ object AgentRuntimeController {
         )
     }
 
+    fun noteDiagnostic(message: String) {
+        val current = mutableProgress.value
+        if (!current.running && current.pendingConfirmation == null) return
+        val text = message.trim().take(90)
+        if (text.isBlank()) return
+        mutableProgress.value = current.copy(
+            lastResult = text,
+            logs = (current.logs + "诊断：$text").takeLast(MAX_LOGS),
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
     suspend fun requestRiskConfirmation(goal: String, step: CloudAgentStep): Boolean {
         val actionText = buildActionText(step)
         val confirmation = AgentPendingConfirmation(
@@ -244,5 +256,5 @@ object AgentRuntimeController {
         }.take(96)
     }
 
-    private const val MAX_LOGS = 5
+    private const val MAX_LOGS = 7
 }
