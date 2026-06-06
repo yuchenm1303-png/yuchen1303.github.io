@@ -32,9 +32,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -297,7 +299,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             Unit
         }
     }
-    val onPickAssistantImage = remember {
+    val onPickAssistantImage: () -> Unit = remember {
         { attachmentSourceMenuVisible = true }
     }
     val onOpenTools = remember(viewModel) { { viewModel.selectTab(AppTab.Tools) } }
@@ -435,23 +437,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
-                            if (attachmentSourceMenuVisible && state.currentTab == AppTab.Assistant) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .zIndex(2400f)
-                                        .clickable { attachmentSourceMenuVisible = false }
-                                ) {
-                                    AttachmentSourceMenu(
-                                        state = stockAndSettingsState,
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .padding(start = 58.dp, bottom = assistantBottomPadding + 66.dp),
-                                        onPickGallery = onPickAssistantFromGallery,
-                                        onTakePhoto = onTakeAssistantPhoto
-                                    )
-                                }
-                            }
                             if (SHOW_PERFORMANCE_DIAGNOSTICS_PANEL) {
                                 PerformanceDiagnosticsPanel(
                                     state = diagnostics,
@@ -484,84 +469,78 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
-}
 
-@Composable
-private fun AttachmentSourceMenu(
-    state: AssistantUiState,
-    modifier: Modifier,
-    onPickGallery: () -> Unit,
-    onTakePhoto: () -> Unit
-) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.98f,
-        motionIntensity = state.motionIntensity,
-        radius = 24,
-        modifier = modifier.fillMaxWidth(0.56f),
-        role = GlassRole.Floating
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "添加图片",
-                color = Color.White.copy(alpha = 0.86f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            AttachmentSourceAction(
-                label = "从相册选择",
-                tag = "LIB",
-                state = state,
-                onClick = onPickGallery
-            )
-            AttachmentSourceAction(
-                label = "拍照上传",
-                tag = "CAM",
-                state = state,
-                onClick = onTakePhoto
-            )
-        }
+    if (attachmentSourceMenuVisible && state.currentTab == AppTab.Assistant) {
+        AttachmentSourceDialog(
+            onDismiss = { attachmentSourceMenuVisible = false },
+            onPickGallery = onPickAssistantFromGallery,
+            onTakePhoto = onTakeAssistantPhoto
+        )
     }
 }
 
 @Composable
-private fun AttachmentSourceAction(
+private fun AttachmentSourceDialog(
+    onDismiss: () -> Unit,
+    onPickGallery: () -> Unit,
+    onTakePhoto: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF101A3D).copy(alpha = 0.97f),
+        tonalElevation = 0.dp,
+        title = {
+            Text(
+                text = "添加图片",
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AttachmentDialogAction(label = "从相册选择", tag = "LIB", onClick = onPickGallery)
+                AttachmentDialogAction(label = "拍照上传", tag = "CAM", onClick = onTakePhoto)
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = Color.White.copy(alpha = 0.66f), fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+private fun AttachmentDialogAction(
     label: String,
     tag: String,
-    state: AssistantUiState,
     onClick: () -> Unit
 ) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.88f,
-        motionIntensity = state.motionIntensity,
-        radius = 18,
+    TextButton(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(42.dp),
-        role = GlassRole.Chip,
-        onClick = onClick
+            .height(44.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.07f))
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(11.dp))
                     .background(Color(0xFF8DF9EA).copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(tag, color = Color(0xFF8DF9EA).copy(alpha = 0.90f), fontSize = 8.sp, fontWeight = FontWeight.Black)
             }
-            Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Text(label, color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
