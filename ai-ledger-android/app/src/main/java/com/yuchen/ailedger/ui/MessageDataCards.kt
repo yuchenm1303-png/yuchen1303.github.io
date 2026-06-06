@@ -357,6 +357,10 @@ private fun WebSourceRow(index: Int, source: WebSource, expanded: Boolean, onOpe
 
 @Composable
 private fun MetricPill(metric: StructuredMetric, modifier: Modifier = Modifier) {
+    val label = metric.label.orEmpty().ifBlank { "指标" }
+    val value = metric.value.orEmpty().ifBlank { "--" }
+    val unit = metric.unit.orEmpty()
+    val valueText = value + (unit.takeIf { it.isNotBlank() && !value.contains(it) }?.let { " $it" } ?: "")
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -364,16 +368,16 @@ private fun MetricPill(metric: StructuredMetric, modifier: Modifier = Modifier) 
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Text(metric.label, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
-            text = metric.value + (metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" } ?: ""),
+            text = valueText,
             color = Color.White.copy(alpha = 0.90f),
             fontSize = 13.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        metric.detail?.takeIf { it.isNotBlank() }?.let {
+        metric.detail.orEmpty().takeIf { it.isNotBlank() }?.let {
             Text(it, color = Color.White.copy(alpha = 0.44f), fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
