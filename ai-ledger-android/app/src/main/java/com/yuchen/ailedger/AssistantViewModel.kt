@@ -190,7 +190,7 @@ class AssistantViewModel(
 
     private suspend fun buildAgentTaskMessage(id: String, goal: String): ChatMessage {
         if (!AiAgentAccessibilityService.isConnected()) return buildAgentGuideMessage(id)
-        val result = AgentTaskRunner(aiWorkerClient).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8)
+        val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8)
         return buildAgentRunMessage(id, goal, result)
     }
 
@@ -539,8 +539,8 @@ class AssistantViewModel(
     fun setModelCardGlassStyle(style: ModelCardGlassStyle) { uiState = uiState.copy(modelCardGlassStyle = style) }
     fun setRainbowPrismStyle(style: RainbowPrismStyle) { val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f); val maxValue = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f); val clamped = RainbowPrismStyle(overall = style.overall.coerceIn(0f, 2f), edgeHighlight = style.edgeHighlight.coerceIn(0f, 2f), sweepMin = minValue, sweepMax = maxValue, rainbowHalo = style.rainbowHalo.coerceIn(0f, 2f)); uiState = uiState.copy(rainbowPrismStyle = clamped); viewModelScope.launch { preferencesStore.setRainbowPrismStyle(clamped) } }
     fun setGlassIntensity(value: Float) { val clamped = value.coerceIn(0.6f, 1.4f); uiState = uiState.copy(glassIntensity = clamped, glassPreset = detectPreset(clamped, uiState.motionIntensity)); viewModelScope.launch { preferencesStore.setGlassIntensity(clamped) } }
-    fun setMotionIntensity(value: Float) { val clamped = value.coerceIn(0f, 1.4f); uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity, clamped)); viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) } }
+    fun setMotionIntensity(value: Float) { val clamped = value.coerceIn(0f, 1.4f); uiState = uiState.copy(motionIntensity = clamped, glassPreset = detectPreset(uiState.glassIntensity)); viewModelScope.launch { preferencesStore.setMotionIntensity(clamped) } }
     fun setGlassPreset(preset: GlassPreset) { uiState = uiState.copy(glassPreset = preset, glassIntensity = preset.glassIntensity, motionIntensity = preset.motionIntensity); viewModelScope.launch { preferencesStore.setGlassPreset(preset); preferencesStore.setGlassIntensity(preset.glassIntensity); preferencesStore.setMotionIntensity(preset.motionIntensity) } }
-    private fun detectPreset(glass: Float, motion: Float): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
+    private fun detectPreset(glass: Float, motion: Float = uiState.motionIntensity): GlassPreset = GlassPreset.entries.minByOrNull { val dg = glass - it.glassIntensity; val dm = motion - it.motionIntensity; dg * dg + dm * dm } ?: GlassPreset.Liquid
     private fun nextLocalId(prefix: String): String = "$prefix-${localIdSeed.incrementAndGet()}"
 }
