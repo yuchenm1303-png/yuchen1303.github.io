@@ -15,6 +15,10 @@ import com.yuchen.ailedger.model.sampleAStockDetailUiState
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import org.json.JSONObject
 
 private data class StockProxyRoute(
@@ -27,6 +31,10 @@ private data class StockProxyRoute(
 class StockRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
+    private val requestExecutor = Executors.newCachedThreadPool { runnable ->
+        Thread(runnable, "ai-ledger-stock-proxy-http").apply { isDaemon = true }
+    }
+
     fun loadAStock(query: String): StockDetailUiState {
         val base = sampleAStockDetailUiState()
         val normalized = query.trim().ifBlank { base.quote.code }
@@ -52,19 +60,19 @@ class StockRepository(
             name = "crawl",
             path = "/api/stock/crawl/a-share/detail",
             defaultSourceLabel = "爬虫教学源 · 东方财富公开JSON",
-            timeoutMs = 12000
+            timeoutMs = 10000
         ),
         StockProxyRoute(
             name = "a-share",
             path = "/api/stock/a-share/detail",
             defaultSourceLabel = "A股聚合行情代理",
-            timeoutMs = 12000
+            timeoutMs = 10000
         ),
         StockProxyRoute(
             name = "futu-compat",
             path = "/api/stock/futu/a-share/detail",
             defaultSourceLabel = "富途兼容行情代理",
-            timeoutMs = 10000
+            timeoutMs = 8000
         )
     )
 
@@ -319,22 +327,40 @@ class StockRepository(
     )
 
     private fun httpGet(url: String, referer: String, timeoutMs: Int): String {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = timeoutMs
-            readTimeout = timeoutMs
-            setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
-            setRequestProperty("Referer", referer)
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Cache-Control", "no-cache")
-            setRequestProperty("Pragma", "no-cache")
+        val future = requestExecutor.submit(Callable { httpGetBlocking(url, referer, timeoutMs) })
+        return try {
+            future.get((timeoutMs + 1500).toLong(), TimeUnit.MILLISECONDS)
+        } catch (error: TimeoutException) {
+            future.cancel(true)
+            throw IllegalStateException("行情代理请求超时 ${timeoutMs}ms")
+        } catch (error: Exception) {
+            future.cancel(true)
+            val cause = error.cause ?: error
+            throw IllegalStateException(cause.message ?: cause.javaClass.simpleName)
         }
-        val code = connection.responseCode
-        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-        val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        connection.disconnect()
-        if (code !in 200..299) throw IllegalStateException("HTTP $code ${body.take(120)}".trim())
-        if (body.isBlank()) throw IllegalStateException("行情代理返回为空")
-        return body
+    }
+
+    private fun httpGetBlocking(url: String, referer: String, timeoutMs: Int): String {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
+                setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
+                setRequestProperty("Referer", referer)
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("Pragma", "no-cache")
+            }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) throw IllegalStateException("HTTP $code ${body.take(120)}".trim())
+            if (body.isBlank()) throw IllegalStateException("行情代理返回为空")
+            return body
+        } finally {
+            connection?.disconnect()
+        }
     }
 }
