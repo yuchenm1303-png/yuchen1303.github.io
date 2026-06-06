@@ -37,6 +37,7 @@ class StockMarketViewModel(
     private var quoteJob: Job? = null
     private var marketJob: Job? = null
     private var kLineJob: Job? = null
+    private var minuteJob: Job? = null
     private var requestSeq = 0
 
     init {
@@ -61,6 +62,7 @@ class StockMarketViewModel(
             loadLite(openDetail = true)
         } else {
             _uiState.update { it.copy(showDetail = true, activeAction = null) }
+            if (state.selectedTab == "分时") loadMinute() else loadKLineForTab(state.selectedTab)
         }
     }
 
@@ -73,10 +75,13 @@ class StockMarketViewModel(
     }
 
     fun selectTab(tab: String) {
-        _uiState.update { it.copy(selectedTab = tab, requestMessage = if (tab == "分时") it.requestMessage else "正在加载真实历史K线") }
-        if (tab != "分时" && _uiState.value.stock.kLinePoints.size < 20) {
-            loadFullKLine()
+        _uiState.update {
+            it.copy(
+                selectedTab = tab,
+                requestMessage = if (tab == "分时") "正在同步真实分时" else "正在加载真实${tab}"
+            )
         }
+        if (tab == "分时") loadMinute() else loadKLineForTab(tab)
     }
 
     fun selectDepthTab(tab: String) {
@@ -110,8 +115,9 @@ class StockMarketViewModel(
         val target = (forcedQuery ?: _uiState.value.query).trim().ifBlank { _uiState.value.stock.quote.code }
         quoteJob?.cancel()
         quoteJob = viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, requestMessage = "连接行情代理中") }
-            val loaded = withContext(Dispatchers.IO) { repository.loadAStock(target, mode = "lite") }
+            _uiState.update { it.copy(loading = true, requestMessage = "连接新版A股行情代理中") }
+            val mode = if (openDetail || _uiState.value.showDetail) "full" else "lite"
+            val loaded = withContext(Dispatchers.IO) { repository.loadAStock(target, mode = mode) }
             if (seq != requestSeq) return@launch
             _uiState.update { state ->
                 state.copy(
@@ -123,9 +129,7 @@ class StockMarketViewModel(
                 )
             }
             loadMarketOverview(loaded.quote.code)
-            if (_uiState.value.selectedTab != "分时") {
-                loadFullKLine()
-            }
+            if (_uiState.value.selectedTab == "分时") loadMinute(loaded.quote.code) else loadKLineForTab(_uiState.value.selectedTab, loaded.quote.code)
         }
     }
 
@@ -148,36 +152,43 @@ class StockMarketViewModel(
         }
     }
 
-    private fun loadFullKLine() {
-        val target = _uiState.value.stock.quote.code.ifBlank { _uiState.value.query }
-        kLineJob?.cancel()
-        kLineJob = viewModelScope.launch {
-            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在加载真实历史K线") }
-            val result = withContext(Dispatchers.IO) { repository.loadKLinePoints(target) }
+    private fun loadMinute(forcedQuery: String? = null) {
+        val target = (forcedQuery ?: _uiState.value.stock.quote.code).ifBlank { _uiState.value.query }
+        minuteJob?.cancel()
+        minuteJob = viewModelScope.launch {
+            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在同步真实分时") }
+            val result = withContext(Dispatchers.IO) { repository.loadMinutePoints(target) }
             _uiState.update { state ->
                 result.fold(
-                    onSuccess = { points ->
-                        if (points.size >= 2) {
-                            state.copy(
-                                stock = state.stock.copy(kLinePoints = points),
-                                kLineLoading = false,
-                                requestMessage = null
-                            )
-                        } else {
-                            state.copy(
-                                kLineLoading = false,
-                                requestMessage = "K线接口返回数据不足，请稍后刷新重试"
-                            )
-                        }
-                    },
-                    onFailure = { error ->
-                        state.copy(
-                            kLineLoading = false,
-                            requestMessage = "K线加载失败：${error.message ?: error.javaClass.simpleName}"
-                        )
-                    }
+                    onSuccess = { points -> state.copy(stock = state.stock.copy(minutePoints = points), kLineLoading = false, requestMessage = null) },
+                    onFailure = { error -> state.copy(kLineLoading = false, requestMessage = "分时加载失败：${error.message ?: error.javaClass.simpleName}") }
                 )
             }
         }
+    }
+
+    private fun loadKLineForTab(tab: String, forcedQuery: String? = null) {
+        val target = (forcedQuery ?: _uiState.value.stock.quote.code).ifBlank { _uiState.value.query }
+        val period = periodForTab(tab)
+        kLineJob?.cancel()
+        kLineJob = viewModelScope.launch {
+            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在加载真实${tab}") }
+            val result = withContext(Dispatchers.IO) { repository.loadKLinePoints(target, period) }
+            _uiState.update { state ->
+                result.fold(
+                    onSuccess = { points ->
+                        if (points.size >= 2) state.copy(stock = state.stock.copy(kLinePoints = points), kLineLoading = false, requestMessage = null)
+                        else state.copy(kLineLoading = false, requestMessage = "${tab}接口返回数据不足")
+                    },
+                    onFailure = { error -> state.copy(kLineLoading = false, requestMessage = "${tab}加载失败：${error.message ?: error.javaClass.simpleName}") }
+                )
+            }
+        }
+    }
+
+    private fun periodForTab(tab: String): String = when (tab) {
+        "周K" -> "weekly"
+        "月K" -> "monthly"
+        else -> "daily"
     }
 }
