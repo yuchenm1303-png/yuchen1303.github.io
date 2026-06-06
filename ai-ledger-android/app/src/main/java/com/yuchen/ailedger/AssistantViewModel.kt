@@ -429,7 +429,17 @@ class AssistantViewModel(
         appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
     }
 
-    fun clearChat() { if (!uiState.isSending) uiState = uiState.copy(messages = emptyList(), composerText = "", composerAttachments = emptyList(), isSending = false) }
+    fun clearChat() {
+        activeSendJob?.cancel(CancellationException("user cleared chat"))
+        activeSendJob = null
+        activePendingMessageId = null
+        uiState = uiState.copy(
+            messages = emptyList(),
+            composerText = "",
+            composerAttachments = emptyList(),
+            isSending = false
+        )
+    }
 
     fun removeComposerAttachment(id: String) {
         if (uiState.isSending) return
