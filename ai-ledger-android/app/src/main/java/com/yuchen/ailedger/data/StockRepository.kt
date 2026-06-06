@@ -3,11 +3,13 @@ package com.yuchen.ailedger.data
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockIndexSnapshot
 import com.yuchen.ailedger.model.StockKLinePoint
+import com.yuchen.ailedger.model.StockMarketBoard
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.StockMoneyFlow
 import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockQuote
+import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.StockTradeTick
 import com.yuchen.ailedger.model.StockWatchItem
@@ -80,7 +82,7 @@ class StockRepository(
         val baseUrl = proxyBaseUrl.trim().trimEnd('/')
         if (baseUrl.isBlank()) throw IllegalStateException("行情代理地址为空")
         val encoded = URLEncoder.encode(query, "UTF-8")
-        val body = httpGet("$baseUrl${route.path}?query=$encoded", referer = baseUrl, timeoutMs = route.timeoutMs)
+        val body = httpGet("$baseUrl${route.path}?query=$encoded&mode=lite", referer = baseUrl, timeoutMs = route.timeoutMs)
         val obj = JSONObject(body)
         val quoteJson = obj.optJSONObject("quote") ?: throw IllegalStateException("代理行情缺少 quote 字段")
         val quote = quoteFromJson(quoteJson, base.quote)
@@ -93,6 +95,7 @@ class StockRepository(
         val fundamentals = parseMetrics(obj, "fundamentals").ifEmpty { base.fundamentals }
         val indices = parseIndices(obj).ifEmpty { base.indices }
         val watchlist = parseWatchlist(obj).ifEmpty { base.watchlist }
+        val marketBoards = parseMarketBoards(obj).ifEmpty { base.marketBoards }
         val sourceLabel = sourceLabelFromJson(obj, route, quote)
 
         return base.copy(
@@ -106,6 +109,7 @@ class StockRepository(
             fundamentals = fundamentals,
             indices = indices,
             watchlist = watchlist,
+            marketBoards = marketBoards,
             kLinePoints = kLines,
             dataSourceLabel = sourceLabel,
             errorMessage = null,
@@ -304,6 +308,42 @@ class StockRepository(
                 )
             }
         }
+    }
+
+    private fun parseMarketBoards(obj: JSONObject): List<StockMarketBoard> {
+        val array = obj.optJSONArray("marketBoards") ?: return emptyList()
+        return buildList {
+            for (i in 0 until array.length()) {
+                val board = array.optJSONObject(i) ?: continue
+                val itemsArray = board.optJSONArray("items")
+                val items = buildList {
+                    if (itemsArray != null) {
+                        for (j in 0 until itemsArray.length()) {
+                            val item = itemsArray.optJSONObject(j) ?: continue
+                            add(parseRankItem(item))
+                        }
+                    }
+                }
+                add(
+                    StockMarketBoard(
+                        title = board.optString("title", "市场榜单"),
+                        subtitle = board.optString("subtitle", "爬虫市场数据"),
+                        items = items
+                    )
+                )
+            }
+        }
+    }
+
+    private fun parseRankItem(item: JSONObject): StockRankItem {
+        val changePercent = item.optString("changePercent", "--")
+        return StockRankItem(
+            name = item.optString("name", "--"),
+            code = item.optString("code", "--"),
+            value = item.optString("value", item.optString("price", "--")),
+            changePercent = changePercent,
+            isRising = item.optBoolean("isRising", !changePercent.startsWith("-"))
+        )
     }
 
     private fun toneFromJson(item: JSONObject): StockTone {
