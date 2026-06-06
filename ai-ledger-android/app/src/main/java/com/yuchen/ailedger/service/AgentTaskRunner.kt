@@ -1,7 +1,9 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import android.os.SystemClock
 import com.yuchen.ailedger.model.ChatModel
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -43,31 +45,60 @@ class AgentTaskRunner(
 
         AgentRuntimeController.startTask(goal)
         val memory = AgentRunMemory()
-        installedAppIndex?.let { index -> withContext(Dispatchers.IO) { index.getLaunchableApps(forceReload = false) } }
+        installedAppIndex?.let { index ->
+            val preloadStart = SystemClock.elapsedRealtime()
+            withContext(Dispatchers.IO) { index.getLaunchableApps(forceReload = false) }
+            memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
+        }
+
+        tryLocalOpenAppFastPath(goal, logs, memory)?.let { return it }
 
         repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
+            val loopStart = SystemClock.elapsedRealtime()
             val forceVisual = shouldCaptureVisual(goal, memory)
+
+            val captureStart = SystemClock.elapsedRealtime()
             val observation = captureOnce(forceVisual = forceVisual)
+            val captureMs = SystemClock.elapsedRealtime() - captureStart
             if (!observation.enabled || !observation.serviceConnected) {
                 val message = "无障碍服务未开启"
                 AgentRuntimeController.failTask(message)
                 return AgentTaskRunResult(false, false, message, logs)
             }
 
+            val snapshotStart = SystemClock.elapsedRealtime()
             val snapshot = observation.toAgentScreenSnapshot()
+            val snapshotMs = SystemClock.elapsedRealtime() - snapshotStart
             memory.observe(snapshot)
-            val deviceContext = buildDeviceContext(snapshot, goal)
 
-            val plan = withContext(Dispatchers.IO) {
-                aiWorkerClient.requestAgentPlan(
-                    goal = goal,
-                    snapshot = snapshot,
-                    modelPreference = modelPreference,
-                    recentActions = memory.recentActionSummaries(),
-                    deviceContext = deviceContext,
-                    agentMemory = memory.toJson(),
-                )
+            val deviceStart = SystemClock.elapsedRealtime()
+            val deviceContext = buildDeviceContext(snapshot, goal)
+            val deviceMs = SystemClock.elapsedRealtime() - deviceStart
+
+            val plan = try {
+                val cloudStart = SystemClock.elapsedRealtime()
+                val result = withContext(Dispatchers.IO) {
+                    aiWorkerClient.requestAgentPlan(
+                        goal = goal,
+                        snapshot = snapshot,
+                        modelPreference = modelPreference,
+                        recentActions = memory.recentActionSummaries(),
+                        deviceContext = deviceContext,
+                        agentMemory = memory.toJson(),
+                    )
+                }
+                val cloudMs = SystemClock.elapsedRealtime() - cloudStart
+                memory.recordTrace("第${memory.loopIndex + 1}轮：采集${captureMs}ms · 快照${snapshotMs}ms · 设备${deviceMs}ms · 云端${cloudMs}ms · 截图=${if (snapshot.hasVisualImage) "有" else "无"}")
+                result
+            } catch (error: IOException) {
+                val totalMs = SystemClock.elapsedRealtime() - loopStart
+                val message = "云端规划超时或失败：${error.message ?: "未知错误"}"
+                memory.recordTrace("第${memory.loopIndex + 1}轮失败：采集${captureMs}ms · 快照${snapshotMs}ms · 设备${deviceMs}ms · 总${totalMs}ms")
+                AgentRuntimeController.failTask(memory.withDebug(message))
+                return AgentTaskRunResult(false, false, memory.withDebug(message), logs)
             }
+            memory.loopIndex += 1
+
             val state = plan.state
             state?.let { memory.rememberState(it) }
 
@@ -93,7 +124,7 @@ class AgentTaskRunner(
                     riskLevel = "low",
                     requiresConfirmation = false,
                 )
-                val result = executeAndRecord(backStep, snapshot.currentApp, logs)
+                val result = executeTimed(backStep, snapshot.currentApp, logs, memory)
                 memory.remember(backStep, result)
                 if (!result.ok || !result.shouldContinue) {
                     val message = memory.withDebug(result.message)
@@ -150,7 +181,7 @@ class AgentTaskRunner(
                 return AgentTaskRunResult(false, false, message, logs)
             }
 
-            val result = executeAndRecord(chosenStep, snapshot.currentApp, logs)
+            val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
             memory.remember(chosenStep, result)
             if (!result.ok) {
                 if (memory.shouldReplanAfterFailure(chosenStep)) {
@@ -176,6 +207,40 @@ class AgentTaskRunner(
         return AgentTaskRunResult(false, false, message, logs)
     }
 
+    private suspend fun tryLocalOpenAppFastPath(goal: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentTaskRunResult? {
+        val index = installedAppIndex ?: return null
+        val candidates = withContext(Dispatchers.IO) { index.findCandidateApps(goal, limit = 3) }
+        val best = candidates.firstOrNull() ?: return null
+        if (!isPureOpenAppGoal(goal, best, index)) return null
+        val step = CloudAgentStep(
+            type = "open_app",
+            appName = best.label,
+            packageName = best.packageName,
+            reason = "本机应用索引命中，跳过云端首轮规划直接打开。",
+            riskLevel = "low",
+            requiresConfirmation = false,
+        )
+        AgentRuntimeController.noteDiagnostic("快路径：直接打开 ${best.label}")
+        val result = executeTimed(step, "local_fast_path", logs, memory)
+        memory.remember(step, result)
+        val message = memory.withDebug(if (result.ok) "已打开 ${best.label}。" else result.message)
+        AgentRuntimeController.finishTask(message, completed = result.ok)
+        return AgentTaskRunResult(result.ok, false, message, logs)
+    }
+
+    private fun isPureOpenAppGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
+        val clean = normalize(goal)
+        if (pureOpenWords.none { clean.startsWith(it) || clean.contains(it) }) return false
+        if (complexGoalWords.any { clean.contains(it) }) return false
+        val aliases = index.aliasesFor(app).map(::normalize).filter { it.length >= 2 }.distinct()
+        if (aliases.none { clean.contains(it) }) return false
+        var residual = clean
+        pureOpenWords.forEach { residual = residual.replace(it, "") }
+        aliases.forEach { residual = residual.replace(it, "") }
+        residual = residual.replace(Regex("[请帮我把一下这个软件应用app]+"), "")
+        return residual.isBlank()
+    }
+
     private fun shouldCaptureVisual(goal: String, memory: AgentRunMemory): Boolean {
         if (memory.forceNextVisual) return true
         if (memory.executedStepCount == 0 && goalLooksLikeOpenAppTask(goal)) return false
@@ -196,6 +261,13 @@ class AgentTaskRunner(
 
     private suspend fun captureOnce(forceVisual: Boolean = false): ScreenObservation {
         return withContext(Dispatchers.Default) { AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = forceVisual) }
+    }
+
+    private suspend fun executeTimed(step: CloudAgentStep, currentApp: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentExecutionResult {
+        val start = SystemClock.elapsedRealtime()
+        val result = executeAndRecord(step, currentApp, logs)
+        memory.recordTrace("执行 ${step.type} ${SystemClock.elapsedRealtime() - start}ms")
+        return result
     }
 
     private suspend fun executeAndRecord(step: CloudAgentStep, currentApp: String, logs: MutableList<AgentTaskStepLog>): AgentExecutionResult {
@@ -255,6 +327,7 @@ class AgentTaskRunner(
         var rejectedFinishAttempts: Int = 0,
         var recoverableFailures: Int = 0,
         var executedStepCount: Int = 0,
+        var loopIndex: Int = 0,
         var forceNextVisual: Boolean = false,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
@@ -270,6 +343,13 @@ class AgentTaskRunner(
         fun rememberState(state: CloudAgentState) {
             if (state.reason.isBlank() && state.nextHint.isBlank()) return
             recentActionLines += "状态：complete=${state.isComplete}, progress=${state.expectedProgress}, wrong=${state.isWrong}, confidence=${"%.2f".format(state.confidence)} · ${state.reason.ifBlank { state.nextHint }}"
+            trimHistory()
+        }
+
+        fun recordTrace(text: String) {
+            val line = text.take(100)
+            recentActionLines += "诊断：$line"
+            AgentRuntimeController.noteDiagnostic(line)
             trimHistory()
         }
 
@@ -321,12 +401,13 @@ class AgentTaskRunner(
         fun isBlocked(step: CloudAgentStep): Boolean = isLikelyRepeated(step)
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v2")
+            put("schema", "agent_loop_memory_v3")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
             put("loopSignals", JSONObject().apply {
                 put("executedStepCount", executedStepCount)
+                put("loopIndex", loopIndex)
                 put("repeatedCloudRejects", repeatedCloudRejects)
                 put("recoverableFailures", recoverableFailures)
                 put("backAttempts", backAttempts)
@@ -394,5 +475,7 @@ class AgentTaskRunner(
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
         private val openAppIntentWords = listOf("打开", "开启", "启动", "进入", "找到", "热榜", "联系人", "动态", "页面", "界面", "app")
+        private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
+        private val complexGoalWords = listOf("热榜", "联系人", "朋友圈", "搜索", "找到", "页面", "界面", "点击", "发送", "发布", "删除", "设置", "消息", "扫一扫", "视频", "直播", "自选", "行情", "新闻", "小程序", "群", "聊天", "给", "评论", "登录", "支付", "转账")
     }
 }
