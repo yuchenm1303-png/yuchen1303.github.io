@@ -154,6 +154,10 @@ object AgentRuntimeController {
         }
     }
 
+    fun choosePendingAction(accepted: Boolean) {
+        if (accepted) confirmPendingRiskAction() else cancelPendingRiskAction()
+    }
+
     fun confirmPendingRiskAction() {
         val deferred = synchronized(confirmationLock) {
             val current = pendingConfirmationDeferred ?: return
