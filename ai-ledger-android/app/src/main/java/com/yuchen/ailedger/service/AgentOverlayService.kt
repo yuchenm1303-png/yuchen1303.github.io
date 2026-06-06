@@ -34,6 +34,11 @@ class AgentOverlayService : Service() {
     private var actionView: TextView? = null
     private var resultView: TextView? = null
     private var logView: TextView? = null
+    private var choicePanel: LinearLayout? = null
+    private var choiceTitleView: TextView? = null
+    private var choiceMessageView: TextView? = null
+    private var primaryChoiceView: TextView? = null
+    private var secondaryChoiceView: TextView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
 
     override fun onCreate() {
@@ -122,14 +127,64 @@ class AgentOverlayService : Service() {
             addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(closeView, LinearLayout.LayoutParams((30 * density).toInt(), (28 * density).toInt()))
         }
+        choiceTitleView = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        choiceMessageView = TextView(this).apply {
+            setTextColor(Color.argb(230, 255, 245, 224))
+            textSize = 10f
+            maxLines = 4
+        }
+        secondaryChoiceView = TextView(this).apply {
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.argb(242, 255, 255, 255))
+            background = roundedBackground(Color.argb(120, 255, 255, 255), Color.argb(90, 255, 255, 255), 13f * density)
+            setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+            setOnClickListener { AgentRuntimeController.choosePendingAction(false) }
+        }
+        primaryChoiceView = TextView(this).apply {
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = roundedBackground(Color.argb(232, 53, 145, 112), Color.argb(120, 220, 255, 245), 13f * density)
+            setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+            setOnClickListener { AgentRuntimeController.choosePendingAction(true) }
+        }
+        val choiceRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val gap = (8 * density).toInt()
+            addView(secondaryChoiceView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = gap })
+            addView(primaryChoiceView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        choicePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding((10 * density).toInt(), (8 * density).toInt(), (10 * density).toInt(), (9 * density).toInt())
+            background = roundedBackground(Color.argb(176, 108, 64, 40), Color.argb(160, 255, 210, 120), 16f * density)
+            addView(choiceTitleView)
+            addView(choiceMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (3 * density).toInt()
+                bottomMargin = (8 * density).toInt()
+            })
+            addView(choiceRow)
+        }
         panel.addView(header)
         panel.addView(statusView)
         panel.addView(actionView)
         panel.addView(resultView)
+        panel.addView(choicePanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (7 * density).toInt()
+            bottomMargin = (5 * density).toInt()
+        })
         panel.addView(logView)
         panel.setOnTouchListener(DragTouchListener())
         val params = WindowManager.LayoutParams(
-            (248 * density).toInt(),
+            (270 * density).toInt(),
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -150,6 +205,23 @@ class AgentOverlayService : Service() {
         actionView?.text = progress.currentAction
         resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "结果：$it" }.orEmpty()
         logView?.text = progress.logs.takeLast(4).joinToString("\n") { "• $it" }
+        val pending = progress.pendingConfirmation
+        choicePanel?.visibility = if (pending == null) View.GONE else View.VISIBLE
+        if (pending != null) {
+            choiceTitleView?.text = pending.title
+            choiceMessageView?.text = pending.message
+            primaryChoiceView?.text = pending.positiveText
+            secondaryChoiceView?.text = pending.negativeText
+        }
+    }
+
+    private fun roundedBackground(fill: Int, stroke: Int, radius: Float): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = radius
+            setColor(fill)
+            setStroke(1, stroke)
+        }
     }
 
     private inner class DragTouchListener : View.OnTouchListener {
