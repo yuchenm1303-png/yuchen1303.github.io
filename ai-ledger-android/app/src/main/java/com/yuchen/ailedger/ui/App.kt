@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.view.View
 import android.widget.Toast
@@ -14,16 +15,26 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -35,6 +46,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -45,11 +57,14 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.SystemActionRouter
@@ -65,6 +80,10 @@ import com.yuchen.ailedger.service.ChatNotificationManager
 import com.yuchen.ailedger.service.InstalledAppIndex
 import com.yuchen.ailedger.service.MobileCommandParser
 import com.yuchen.ailedger.ui.gl.OpenGLGlassProbeLayer
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val COMPACT_DP_SCALE = 0.90f
 private const val COMPACT_FONT_SCALE = 0.92f
@@ -88,6 +107,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
     var dockCollapsedByIme by remember { mutableStateOf(imeBottomPx >= imeOpenThresholdPx) }
     var diagnostics by remember { mutableStateOf(PerformanceDiagnosticsState()) }
+    var attachmentSourceMenuVisible by remember { mutableStateOf(false) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
     val imeHidden = imeBottomPx == 0
     val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
@@ -240,13 +261,42 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         if (uri != null) viewModel.importCustomBackground(uri)
     }
     val assistantImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        viewModel.onImagePickedForAssistant(uri)
+        if (uri != null) viewModel.onImagePickedForAssistant(uri)
+    }
+    val assistantCameraCapture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = pendingCameraUri
+        pendingCameraUri = null
+        if (success && uri != null) {
+            viewModel.onImagePickedForAssistant(uri)
+        } else if (!success) {
+            Toast.makeText(context, "已取消拍照", Toast.LENGTH_SHORT).show()
+        }
     }
     val onPickBackground = remember(backgroundPicker, imageOnlyRequest) {
         { backgroundPicker.launch(imageOnlyRequest) }
     }
-    val onPickAssistantImage = remember(assistantImagePicker, imageOnlyRequest) {
-        { assistantImagePicker.launch(imageOnlyRequest) }
+    val onPickAssistantFromGallery = remember(assistantImagePicker, imageOnlyRequest) {
+        {
+            attachmentSourceMenuVisible = false
+            assistantImagePicker.launch(imageOnlyRequest)
+        }
+    }
+    val onTakeAssistantPhoto = remember(context, assistantCameraCapture) {
+        {
+            attachmentSourceMenuVisible = false
+            runCatching { createAssistantCameraImageUri(context) }
+                .onSuccess { uri ->
+                    pendingCameraUri = uri
+                    assistantCameraCapture.launch(uri)
+                }
+                .onFailure {
+                    pendingCameraUri = null
+                    Toast.makeText(context, "无法启动相机，请稍后再试", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+    val onPickAssistantImage = remember {
+        { attachmentSourceMenuVisible = true }
     }
     val onOpenTools = remember(viewModel) { { viewModel.selectTab(AppTab.Tools) } }
     val onOpenSettings = remember(viewModel) { { viewModel.selectTab(AppTab.Settings) } }
@@ -383,6 +433,23 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     )
                                 }
                             }
+                            if (attachmentSourceMenuVisible && state.currentTab == AppTab.Assistant) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(2400f)
+                                        .clickable { attachmentSourceMenuVisible = false }
+                                ) {
+                                    AttachmentSourceMenu(
+                                        state = stockAndSettingsState,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(start = 58.dp, bottom = assistantBottomPadding + 66.dp),
+                                        onPickGallery = onPickAssistantFromGallery,
+                                        onTakePhoto = onTakeAssistantPhoto
+                                    )
+                                }
+                            }
                             if (SHOW_PERFORMANCE_DIAGNOSTICS_PANEL) {
                                 PerformanceDiagnosticsPanel(
                                     state = diagnostics,
@@ -415,6 +482,93 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             }
         }
     }
+}
+
+@Composable
+private fun AttachmentSourceMenu(
+    state: AssistantUiState,
+    modifier: Modifier,
+    onPickGallery: () -> Unit,
+    onTakePhoto: () -> Unit
+) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.98f,
+        motionIntensity = state.motionIntensity,
+        radius = 24,
+        modifier = modifier.fillMaxWidth(0.56f),
+        role = GlassRole.Floating
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "添加图片",
+                color = Color.White.copy(alpha = 0.86f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            AttachmentSourceAction(
+                label = "从相册选择",
+                tag = "LIB",
+                state = state,
+                onClick = onPickGallery
+            )
+            AttachmentSourceAction(
+                label = "拍照上传",
+                tag = "CAM",
+                state = state,
+                onClick = onTakePhoto
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttachmentSourceAction(
+    label: String,
+    tag: String,
+    state: AssistantUiState,
+    onClick: () -> Unit
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.88f,
+        motionIntensity = state.motionIntensity,
+        radius = 18,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(42.dp),
+        role = GlassRole.Chip,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF8DF9EA).copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(tag, color = Color(0xFF8DF9EA).copy(alpha = 0.90f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+            }
+            Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+private fun createAssistantCameraImageUri(context: Context): Uri {
+    val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    val imageFile = File.createTempFile("ai_ledger_${stamp}_", ".jpg", directory)
+    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
 }
 
 private fun syncAgentOverlayProgressFromMessages(context: Context, messages: List<ChatMessage>) {
