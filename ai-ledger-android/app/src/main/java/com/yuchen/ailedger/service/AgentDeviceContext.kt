@@ -19,7 +19,8 @@ object AgentDeviceContextProvider {
     ): AgentDeviceContextSnapshot {
         val appContext = context.applicationContext
         val metrics = appContext.resources.displayMetrics
-        val launchableApps = installedAppIndex.getLaunchableApps().take(MAX_LAUNCHABLE_APPS)
+        val allLaunchableApps = installedAppIndex.getLaunchableApps(forceReload = true)
+        val launchableApps = allLaunchableApps.take(MAX_LAUNCHABLE_APPS)
         val currentPackage = screen.currentApp.ifBlank { "unknown" }
         val installedAppsJson = JSONArray().apply {
             launchableApps.forEach { app ->
@@ -64,6 +65,8 @@ object AgentDeviceContextProvider {
                 put("hasScreenshot", screen.hasVisualImage)
             })
             put("installedApps", installedAppsJson)
+            put("installedAppCount", allLaunchableApps.size)
+            put("installedAppsTruncated", allLaunchableApps.size > launchableApps.size)
             put("availableTools", JSONArray(CloudAgentStep.supportedTypes.toList()))
             put("toolRules", JSONArray().apply {
                 put("打开应用必须优先使用 open_app，并从 installedApps 中选择真实 label/packageName；不要凭常识编 packageName。")
@@ -86,7 +89,9 @@ object AgentDeviceContextProvider {
             append("，屏幕 ")
             append(metrics.widthPixels).append("x").append(metrics.heightPixels)
             append("，当前包名 ").append(currentPackage)
-            append("，可启动应用 ").append(launchableApps.size).append(" 个。")
+            append("，可启动应用 ").append(allLaunchableApps.size).append(" 个")
+            if (allLaunchableApps.size > launchableApps.size) append("（已上传前 ${launchableApps.size} 个）")
+            append("。")
         }
         return AgentDeviceContextSnapshot(json = json, summary = summary)
     }
@@ -96,6 +101,6 @@ object AgentDeviceContextProvider {
         return clean.contains("launcher") || clean.contains("home") || clean == "android" || clean == "com.android.systemui"
     }
 
-    private const val MAX_LAUNCHABLE_APPS = 120
+    private const val MAX_LAUNCHABLE_APPS = 260
     private const val MAX_ALIASES_PER_APP = 6
 }
