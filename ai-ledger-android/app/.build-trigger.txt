@@ -1,1 +1,1 @@
-触发 Build Compose Android APK：股票行情代理请求硬超时修复 2026-06-06
+触发 Build Compose Android APK：股票详情页完整交互版 2026-06-06
