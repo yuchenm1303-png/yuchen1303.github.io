@@ -33,6 +33,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
+    private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "ai-agent-screenshot").apply { isDaemon = true }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -61,6 +64,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (activeService === this) activeService = null
+        screenshotExecutor.shutdownNow()
         stopForeground(STOP_FOREGROUND_REMOVE)
         ScreenObservationStore.markDisabled()
         super.onDestroy()
@@ -116,7 +120,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation = withWorkingAccessibilityMode {
         val now = System.currentTimeMillis()
         val startedAt = SystemClock.elapsedRealtime()
-        val selected = selectBestRootCapture(limit = MAX_SNAPSHOT_NODES, timeBudgetMs = SNAPSHOT_NODE_BUDGET_MS)
+        val nodeLimit = if (forceVisual) VISUAL_AFFORDANCE_NODES else MAX_SNAPSHOT_NODES
+        val nodeBudgetMs = if (forceVisual) VISUAL_AFFORDANCE_BUDGET_MS else SNAPSHOT_NODE_BUDGET_MS
+        val selected = selectBestRootCapture(limit = nodeLimit, timeBudgetMs = nodeBudgetMs)
         val nodeObservation = if (selected != null) {
             val nodes = selected.capture.handles.map { it.observed }
             val nodeMs = SystemClock.elapsedRealtime() - startedAt
@@ -124,6 +130,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 append(selected.windowTitle)
                 append(" · nodeMs=").append(nodeMs)
                 if (selected.capture.truncated) append(" · 节点截断")
+                if (forceVisual) append(" · 视觉轻采样")
             }.take(120)
             ScreenObservation(
                 enabled = true,
@@ -159,28 +166,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun captureDisplayScreenshotCompat(reason: String): ScreenVisualObservation {
         val latch = CountDownLatch(1)
         var result = ScreenVisualObservation(available = false, source = "pending", reason = reason)
-        val executor = Executors.newSingleThreadExecutor()
-        try {
-            takeScreenshot(
-                0,
-                executor,
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshot: ScreenshotResult) {
-                        result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
-                            ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
-                        latch.countDown()
-                    }
+        takeScreenshot(
+            0,
+            screenshotExecutor,
+            object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
+                        ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
+                    latch.countDown()
+                }
 
-                    override fun onFailure(errorCode: Int) {
-                        result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
-                        latch.countDown()
-                    }
-                },
-            )
-            latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-        } finally {
-            executor.shutdown()
-        }
+                override fun onFailure(errorCode: Int) {
+                    result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
+                    latch.countDown()
+                }
+            },
+        )
+        latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         return result
     }
 
@@ -246,17 +248,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
             val systemSurfacePenalty = if (isSystemSurfacePackage(packageName)) SYSTEM_SURFACE_WINDOW_PENALTY else 0
             val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) CONTENT_APP_WINDOW_BONUS else 0
             val truncatedPenalty = if (capture.truncated) TRUNCATED_CAPTURE_PENALTY else 0
-            val score = capture.rawNodeCount * 2 +
-                capture.handles.size * 8 +
-                textCount * 10 +
-                clickableCount * 12 +
-                inputCount * 16 +
-                scrollableCount * 10 +
-                contentAppBonus -
-                ownOverlayPenalty -
-                systemSurfacePenalty -
-                truncatedPenalty
-            val item = RootCapture(root, packageName, root.text?.toString().orEmpty(), capture, score)
+            val item = RootCapture(
+                root = root,
+                packageName = packageName,
+                windowTitle = root.text?.toString().orEmpty(),
+                capture = capture,
+                score = capture.rawNodeCount * 2 +
+                    capture.handles.size * 8 +
+                    textCount * 10 +
+                    clickableCount * 12 +
+                    inputCount * 16 +
+                    scrollableCount * 10 +
+                    contentAppBonus -
+                    ownOverlayPenalty -
+                    systemSurfacePenalty -
+                    truncatedPenalty,
+            )
             if (best == null || item.score > best.score) best = item
         }
         return best
@@ -417,10 +424,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
         val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
         val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
-        val normalized = normalizeVisualTapPoint(rawX, rawY)
-        val finalPoint = snapBottomNavigationPointIfNeeded(step, normalized)
-        val suffix = if (finalPoint.source.isNotBlank()) "（${finalPoint.source}）" else ""
-        return dispatchTap(finalPoint.x, finalPoint.y, "目标坐标 ${finalPoint.x.toInt()},${finalPoint.y.toInt()}$suffix")
+        val point = normalizeVisualTapPoint(rawX, rawY)
+        val suffix = if (point.source.isNotBlank()) "（${point.source}）" else ""
+        return dispatchTap(point.x, point.y, "视觉坐标 ${point.x.toInt()},${point.y.toInt()}$suffix")
     }
 
     private fun normalizeVisualTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
@@ -452,31 +458,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
             }
         }
         return NormalizedTapPoint(rawX, rawY, wasScaled = false, source = "旧像素坐标兼容")
-    }
-
-    private fun snapBottomNavigationPointIfNeeded(step: CloudAgentStep, point: NormalizedTapPoint): NormalizedTapPoint {
-        val target = compactText(listOf(step.targetText, step.reason, step.appName).joinToString(" "))
-        val navPoint = when {
-            target.contains("发现") -> 0.625f to BOTTOM_NAVIGATION_TAP_Y
-            target.contains("通讯录") || target.contains("联系人") -> 0.375f to BOTTOM_NAVIGATION_TAP_Y
-            target.contains("我的") || target == "我" || target.contains("设置") -> 0.875f to BOTTOM_NAVIGATION_TAP_Y
-            target.contains("微信") && target.contains("底部导航") -> 0.125f to BOTTOM_NAVIGATION_TAP_Y
-            target.contains("动态") -> 0.83f to BOTTOM_NAVIGATION_TAP_Y
-            else -> null
-        } ?: return point
-        val reference = currentTapReferenceFrame()
-        val snappedX = navPoint.first * reference.width
-        val snappedY = navPoint.second * reference.height
-        return NormalizedTapPoint(
-            x = snappedX,
-            y = snappedY,
-            wasScaled = true,
-            source = "${point.source} · 底部导航吸附 ${"%.3f".format(navPoint.first)},${"%.3f".format(navPoint.second)}→${reference.label}",
-        )
-    }
-
-    private fun compactText(value: String): String {
-        return value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
     }
 
     private fun currentTapReferenceFrame(): TapReferenceFrame {
@@ -711,6 +692,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
         private const val MAX_SNAPSHOT_NODES = 96
+        private const val VISUAL_AFFORDANCE_NODES = 56
         private const val MAX_EXECUTION_NODES = 140
         private const val ROOT_SELECTION_SAMPLE_NODES = 48
         private const val FAST_TEXT_FALLBACK_NODES = 64
@@ -735,6 +717,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
         private const val SNAPSHOT_NODE_BUDGET_MS = 520L
+        private const val VISUAL_AFFORDANCE_BUDGET_MS = 280L
         private const val ROOT_SELECTION_BUDGET_MS = 260L
         private const val EXECUTION_NODE_BUDGET_MS = 420L
         private const val QUICK_TEXT_NODE_BUDGET_MS = 260L
@@ -742,6 +725,5 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val NODE_HANDLE_BUDGET_MS = 80L
         private const val CHILD_TEXT_BUDGET_MS = 35L
         private const val VISUAL_COORDINATE_EPSILON = 24f
-        private const val BOTTOM_NAVIGATION_TAP_Y = 0.965f
     }
 }
