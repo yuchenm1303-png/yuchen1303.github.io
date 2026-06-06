@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 
-app = FastAPI(title="AI Ledger A股行情爬虫代理", version="0.5.0")
+app = FastAPI(title="AI Ledger A股行情爬虫代理", version="0.6.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +22,10 @@ app.add_middleware(
 )
 
 EASTMONEY_QUOTE_URL = "https://push2delay.eastmoney.com/api/qt/stock/get"
+EASTMONEY_CLIST_URLS = [
+    "https://push2delay.eastmoney.com/api/qt/clist/get",
+    "https://push2.eastmoney.com/api/qt/clist/get",
+]
 EASTMONEY_TRENDS_URLS = [
     "https://push2delay.eastmoney.com/api/qt/stock/trends2/get",
     "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
@@ -34,6 +38,12 @@ EASTMONEY_KLINE_URLS = [
 ]
 EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_TOKEN = "44c9d251add88e27b65ed86506f6e5da"
+
+INDEX_SECURITIES = [
+    {"name": "上证", "code": "000001", "secid": "1.000001"},
+    {"name": "深成", "code": "399001", "secid": "0.399001"},
+    {"name": "创业板", "code": "399006", "secid": "0.399006"},
+]
 
 FAST_CACHE_SECONDS = 20
 STALE_CACHE_SECONDS = 6 * 60 * 60
@@ -441,9 +451,111 @@ def _fundamentals_from_quote(quote: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _quote_like_rank_item(name: str, code: str, value: str, change_percent: str, is_rising: bool) -> dict[str, Any]:
+    return {"name": name, "code": code, "value": value, "changePercent": change_percent, "isRising": is_rising}
+
+
+def _clist_items(client: httpx.Client, fs: str, fid: str, page_size: int, warnings: list[str], label: str) -> list[dict[str, Any]]:
+    params = {
+        "pn": "1",
+        "pz": str(page_size),
+        "po": "1",
+        "np": "1",
+        "fltt": "2",
+        "invt": "2",
+        "fid": fid,
+        "fs": fs,
+        "fields": "f12,f14,f2,f3,f6,f8,f9,f20,f21,f62,f100,f104,f105,f106",
+    }
+    try:
+        raw = _eastmoney_get_first(client, EASTMONEY_CLIST_URLS, params, label, warnings)
+        return list((raw.get("data") or {}).get("diff") or [])
+    except Exception as exc:
+        warnings.append(f"{label}_fallback: {type(exc).__name__}: {exc}")
+        return []
+
+
+def _stock_rank_from_diff(item: dict[str, Any]) -> dict[str, Any]:
+    change_percent = _format_percent(item.get("f3"))
+    return _quote_like_rank_item(
+        name=_safe_str(item.get("f14"), "--"),
+        code=_safe_str(item.get("f12"), "--"),
+        value=_format_price(item.get("f2")),
+        change_percent=change_percent,
+        is_rising=not change_percent.startswith("-"),
+    )
+
+
+def _sector_rank_from_diff(item: dict[str, Any]) -> dict[str, Any]:
+    change_percent = _format_percent(item.get("f3"))
+    return _quote_like_rank_item(
+        name=_safe_str(item.get("f14"), "板块"),
+        code=_safe_str(item.get("f12"), "--"),
+        value=_format_cn_money(item.get("f6")),
+        change_percent=change_percent,
+        is_rising=not change_percent.startswith("-"),
+    )
+
+
+def _load_indices(client: httpx.Client, warnings: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in INDEX_SECURITIES:
+        try:
+            raw = _eastmoney_get(client, EASTMONEY_QUOTE_URL, {"secid": item["secid"], "fields": "f43,f57,f58,f169,f170"}).get("data") or {}
+            change_percent = _scaled(raw.get("f170"))
+            rows.append({
+                "name": item["name"],
+                "value": _format_price(_scaled(raw.get("f43"), -1.0)),
+                "changePercent": _format_percent(change_percent),
+                "isRising": change_percent >= 0,
+            })
+        except Exception as exc:
+            warnings.append(f"index_{item['code']}_failed: {type(exc).__name__}: {exc}")
+    return rows
+
+
+def _load_market_boards(client: httpx.Client, quote: dict[str, Any], warnings: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    a_stock_fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
+    concept_fs = "m:90+t:3,m:90+t:2"
+
+    hot_items = [_stock_rank_from_diff(item) for item in _clist_items(client, a_stock_fs, "f3", 8, warnings, "hot_rank")]
+    amount_items = [_stock_rank_from_diff(item) for item in _clist_items(client, a_stock_fs, "f6", 8, warnings, "amount_rank")]
+    sector_items = [_sector_rank_from_diff(item) for item in _clist_items(client, concept_fs, "f3", 8, warnings, "sector_rank")]
+
+    current = _quote_like_rank_item(
+        name=_safe_str(quote.get("name")),
+        code=_safe_str(quote.get("code")),
+        value=_safe_str(quote.get("price")),
+        change_percent=_safe_str(quote.get("changePercent")),
+        is_rising=bool(quote.get("isRising", True)),
+    )
+    if not hot_items:
+        hot_items = [current]
+    if not amount_items:
+        amount_items = [current]
+    if not sector_items:
+        sector_items = [
+            _quote_like_rank_item("电力", "BK0428", _safe_str(quote.get("amount")), _safe_str(quote.get("changePercent")), bool(quote.get("isRising", True))),
+            _quote_like_rank_item("能源", "BK0437", _safe_str(quote.get("volumeRatio")), _safe_str(quote.get("turnoverRate")), True),
+        ]
+
+    watchlist = [current] + [
+        {"name": item["name"], "code": item["code"], "price": item["value"], "changePercent": item["changePercent"], "isRising": item["isRising"]}
+        for item in hot_items[:5]
+        if item["code"] != current["code"]
+    ]
+
+    boards = [
+        {"title": "涨幅热榜", "subtitle": "东方财富公开 JSON · A股涨幅排行", "items": hot_items[:6]},
+        {"title": "成交额榜", "subtitle": "东方财富公开 JSON · A股成交额排行", "items": amount_items[:6]},
+        {"title": "板块热度", "subtitle": "东方财富公开 JSON · 概念/行业板块", "items": sector_items[:6]},
+    ]
+    return watchlist[:6], boards
+
+
 def _build_crawl_detail_payload(query: str, mode: str) -> dict[str, Any]:
     warnings = ["crawl: eastmoney_public_json", f"mode: {mode}"]
-    timeout = httpx.Timeout(5.0, connect=2.0)
+    timeout = httpx.Timeout(6.0, connect=2.0)
     with httpx.Client(timeout=timeout) as client:
         security = _resolve_security(client, query)
         raw_quote = _load_quote_raw(client, security)
@@ -456,6 +568,8 @@ def _build_crawl_detail_payload(query: str, mode: str) -> dict[str, Any]:
             warnings.append(f"minute_points_fallback: {type(exc).__name__}: {exc}")
             minute_points = _fallback_minute_from_quote(quote)
         k_lines = _fallback_daily_from_quote(quote) if mode == "lite" else _load_daily_kline(client, security, quote, warnings)
+        indices = _load_indices(client, warnings)
+        watchlist, market_boards = _load_market_boards(client, quote, warnings)
 
     trade_ticks = _trade_ticks_from_minute(minute_points, quote)
     name = _safe_str(quote.get("name"), security["name"])
@@ -477,11 +591,11 @@ def _build_crawl_detail_payload(query: str, mode: str) -> dict[str, Any]:
         "tradeTicks": trade_ticks,
         "moneyFlow": money_flow,
         "fundamentals": _fundamentals_from_quote(quote),
-        "indices": [],
-        "watchlist": [],
-        "marketBoards": [{"title": "当前标的", "subtitle": "首屏快返回模式", "items": [{"name": name, "code": code, "value": quote["price"], "changePercent": quote["changePercent"], "isRising": bool(quote["isRising"])}]}],
+        "indices": indices,
+        "watchlist": watchlist,
+        "marketBoards": market_boards,
         "warnings": warnings,
-        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。首屏已优先接入报价、分时、盘口和成交数据；成交额 {quote['amount']}，换手 {quote['turnoverRate']}，量比 {quote['volumeRatio']}。",
+        "aiSummary": f"{name} 当前价 {quote['price']}，涨跌幅 {quote['changePercent']}。首屏已接入报价、分时、盘口、成交、指数、热榜和板块数据；成交额 {quote['amount']}，换手 {quote['turnoverRate']}，量比 {quote['volumeRatio']}。",
     }
 
 
@@ -524,9 +638,12 @@ def health() -> dict[str, Any]:
         "service": "ai-ledger-stock-proxy",
         "dataSource": "eastmoney public json",
         "cacheSize": len(_detail_cache),
-        "version": "0.5.0-fast-first-screen",
+        "version": "0.6.0-market-home-crawler",
         "defaultMode": "lite",
-        "fields": ["quote", "minutePoints", "sellLevels", "buyLevels", "tradeTicks", "moneyFlow", "fundamentals"],
+        "fields": [
+            "quote", "minutePoints", "sellLevels", "buyLevels", "tradeTicks", "moneyFlow",
+            "fundamentals", "indices", "watchlist", "marketBoards",
+        ],
         "endpoints": ["/api/stock/crawl/a-share/detail?query=600519&mode=lite"],
     }
 
