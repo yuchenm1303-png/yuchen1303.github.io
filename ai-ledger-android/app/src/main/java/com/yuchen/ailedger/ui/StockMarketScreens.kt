@@ -203,16 +203,17 @@ private fun DetailTopBar(ui: StockMarketUiState, onBack: () -> Unit, onRefresh: 
 }
 
 @Composable
-private fun StockParentPanel(content: @Composable Column.() -> Unit) {
+private fun StockParentPanel(content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(30.dp))
             .background(ParentPanelBg)
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        content = content
-    )
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        content()
+    }
 }
 
 @Composable
