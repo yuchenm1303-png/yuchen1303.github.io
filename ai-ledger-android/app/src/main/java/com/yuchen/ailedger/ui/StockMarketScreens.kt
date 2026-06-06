@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -45,7 +44,6 @@ import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockFeatureEntry
-import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.StockOrderLevel
@@ -259,8 +257,8 @@ private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiStat
                 Text(stock.quote.name, color = Color.White, fontSize = 20.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stock.quote.code, color = Color.White.copy(alpha = 0.70f), fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    AStockBadge(stock.quote.market)
-                    AStockBadge("L1")
+                    AStockBadge(state, stock.quote.market)
+                    AStockBadge(state, "L1")
                 }
             }
             Text("⌕", color = Color.White.copy(alpha = 0.86f), fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -269,13 +267,10 @@ private fun AStockMarketTopNav(state: AssistantUiState, stock: StockDetailUiStat
 }
 
 @Composable
-private fun AStockBadge(text: String) {
-    Box {
-        Canvas(Modifier.fillMaxSize()) {}
-        GlassPanel(quality = 1f, glassIntensity = 0.78f, motionIntensity = 0f, radius = 8, modifier = Modifier.height(18.dp), role = GlassRole.Chip) {
-            Box(Modifier.padding(horizontal = 7.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text, color = Color(0xFFFFC7A1), fontSize = 9.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            }
+private fun AStockBadge(state: AssistantUiState, text: String) {
+    GlassPanel(state.quality, state.glassIntensity * 0.64f, state.motionIntensity, 8, Modifier.height(18.dp), GlassRole.Chip) {
+        Box(Modifier.padding(horizontal = 7.dp).fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, color = Color(0xFFFFC7A1), fontSize = 9.sp, fontWeight = FontWeight.Black, maxLines = 1)
         }
     }
 }
