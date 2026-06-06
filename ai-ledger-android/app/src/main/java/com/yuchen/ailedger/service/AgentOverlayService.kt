@@ -52,6 +52,11 @@ class AgentOverlayService : Service() {
         scope.launch {
             AgentRuntimeController.progress.collectLatest { progress -> updateProgress(progress) }
         }
+        scope.launch {
+            AgentRuntimeController.overlayHiddenForCapture.collectLatest { hidden ->
+                rootView?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -78,6 +83,7 @@ class AgentOverlayService : Service() {
         val density = resources.displayMetrics.density.coerceAtLeast(1f)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            visibility = if (AgentRuntimeController.overlayHiddenForCapture.value) View.INVISIBLE else View.VISIBLE
             setPadding((14 * density).toInt(), (11 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
