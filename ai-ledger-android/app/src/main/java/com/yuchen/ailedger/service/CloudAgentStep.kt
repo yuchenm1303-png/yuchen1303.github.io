@@ -139,6 +139,10 @@ data class CloudAgentStep(
                 ?: return null
             val normalizedType = rawType.lowercase().replace('-', '_')
             if (normalizedType !in supportedTypes) return null
+            val parsedAppName = item.optString("appName").notBlankOrNull()
+                ?: item.optString("app").notBlankOrNull()
+            val parsedPackageName = item.optString("packageName").notBlankOrNull()
+                ?: item.optString("package").notBlankOrNull()
             return CloudAgentStep(
                 type = normalizedType,
                 targetNodeId = item.optString("targetNodeId").notBlankOrNull()
@@ -153,10 +157,8 @@ data class CloudAgentStep(
                     ?: item.optString("rationale").notBlankOrNull(),
                 riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: "low",
                 requiresConfirmation = item.optBoolean("requiresConfirmation", false),
-                appName = item.optString("appName").notBlankOrNull()
-                    ?: item.optString("app").notBlankOrNull(),
-                packageName = item.optString("packageName").notBlankOrNull()
-                    ?: item.optString("package").notBlankOrNull(),
+                appName = parsedAppName,
+                packageName = if (normalizedType == "open_app" && !parsedAppName.isNullOrBlank()) null else parsedPackageName,
                 x = item.optNullableFloat("x"),
                 y = item.optNullableFloat("y"),
                 durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
