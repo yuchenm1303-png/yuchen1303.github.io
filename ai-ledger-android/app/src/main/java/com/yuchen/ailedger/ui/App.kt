@@ -396,7 +396,8 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 onOpenSettings = onOpenSettings,
                                                 onToggleOnline = viewModel::toggleOnline,
                                                 onCopyMessage = onCopyMessage,
-                                                onRetryMessage = viewModel::retryMessage
+                                                onRetryMessage = viewModel::retryMessage,
+                                                onClearMessages = viewModel::clearChat
                                             )
                                             AgentChatHeaderOverlay(
                                                 modifier = Modifier
