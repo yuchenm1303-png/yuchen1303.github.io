@@ -19,7 +19,7 @@ object AgentDeviceContextProvider {
     ): AgentDeviceContextSnapshot = build(
         context = context,
         screen = screen,
-        goal = "",
+        goal = AgentRuntimeController.progress.value.currentAction,
         installedAppIndex = installedAppIndex,
     )
 
