@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import android.os.SystemClock
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -111,6 +112,8 @@ private fun buildAgentStepPayload(
 private fun agentEndpointCandidates(cleanEndpoint: String): List<String> = listOf(cleanEndpoint)
 
 private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
+    val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
+    val requestStart = SystemClock.elapsedRealtime()
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = AGENT_STEP_CONNECT_TIMEOUT_MS
@@ -121,10 +124,20 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         setRequestProperty("X-Client", "android-compose-agent")
     }
     return try {
-        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        val writeStart = SystemClock.elapsedRealtime()
+        connection.outputStream.use { it.write(requestBytes) }
+        val writeMs = SystemClock.elapsedRealtime() - writeStart
+
+        val statusStart = SystemClock.elapsedRealtime()
         val status = connection.responseCode
+        val waitMs = SystemClock.elapsedRealtime() - statusStart
+
+        val readStart = SystemClock.elapsedRealtime()
         val body = connection.agentReadBody(status)
+        val readMs = SystemClock.elapsedRealtime() - readStart
+        val totalMs = SystemClock.elapsedRealtime() - requestStart
         val data = body.agentJsonOrNull()
+        AgentRuntimeController.noteDiagnostic(buildAgentTimingDiagnostic(data, requestBytes.size, writeMs, waitMs, readMs, totalMs))
         if (status !in 200..299) {
             val message = data?.optString("error")?.takeIf { it.isNotBlank() }
                 ?: data?.optString("message")?.takeIf { it.isNotBlank() }
@@ -136,10 +149,43 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         val state = CloudAgentState.fromJson(data) ?: extractAgentStateFromText(body)
         CloudAgentPlan(step = step, state = state)
     } catch (error: SocketTimeoutException) {
+        val totalMs = SystemClock.elapsedRealtime() - requestStart
+        AgentRuntimeController.noteDiagnostic("AgentDebug 超时 · http=${totalMs}ms · req=${requestBytes.size / 1024}KB")
         throw IOException("云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}", error)
     } finally {
         connection.disconnect()
     }
+}
+
+private fun buildAgentTimingDiagnostic(
+    data: JSONObject?,
+    requestBytes: Int,
+    writeMs: Long,
+    waitMs: Long,
+    readMs: Long,
+    totalMs: Long,
+): String {
+    val debug = data?.optJSONObject("debug")
+    val version = data?.optString("version").orEmpty()
+        .replace("qwen-deepseek-cn-web-data-", "")
+        .replace("agent-", "")
+        .take(24)
+    val providerMs = debug?.optLongOrNull("providerMs")
+    val buildMs = debug?.optLongOrNull("buildMessagesMs")
+    val parseMs = debug?.optLongOrNull("parseMs")
+    val promptChars = debug?.optLongOrNull("promptChars")
+    val screenshotKb = debug?.optLongOrNull("screenshotBytesApprox")?.let { it / 1024 }
+    val local = "req=${requestBytes / 1024}KB http=${totalMs}ms wait=${waitMs}ms read=${readMs}ms"
+    val server = buildString {
+        if (providerMs != null) append(" prov=${providerMs}ms")
+        if (buildMs != null) append(" build=${buildMs}ms")
+        if (parseMs != null) append(" parse=${parseMs}ms")
+        if (promptChars != null) append(" prompt=${promptChars}")
+        if (screenshotKb != null) append(" img=${screenshotKb}KB")
+        if (version.isNotBlank()) append(" v=").append(version)
+        if (debug == null) append(" debug=无")
+    }
+    return "AgentDebug $local$server"
 }
 
 private fun HttpURLConnection.agentReadBody(status: Int): String {
@@ -149,6 +195,11 @@ private fun HttpURLConnection.agentReadBody(status: Int): String {
 
 private fun String.agentJsonOrNull(): JSONObject? {
     return try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
+}
+
+private fun JSONObject.optLongOrNull(key: String): Long? {
+    if (!has(key) || isNull(key)) return null
+    return try { getLong(key) } catch (_: Exception) { optString(key).toLongOrNull() }
 }
 
 private fun extractAgentStepFromText(text: String): CloudAgentStep? {
