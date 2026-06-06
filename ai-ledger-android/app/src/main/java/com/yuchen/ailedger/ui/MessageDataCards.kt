@@ -53,6 +53,88 @@ fun MessageDataCards(message: ChatMessage) {
 
 @Composable
 private fun StructuredDataCardView(data: StructuredDataCard) {
+    if (data.isStockCard()) {
+        StockQuoteCard(data)
+    } else {
+        RealtimeDataCard(data)
+    }
+}
+
+@Composable
+private fun StockQuoteCard(data: StructuredDataCard) {
+    val quote = remember(data) { StockQuoteUi.from(data) }
+    val accent = quote.changeTone.accent
+
+    LightweightDataCard {
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                DataDot(accent)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        quote.name,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val meta = listOf(quote.symbolLine, quote.timestamp).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (meta.isNotBlank()) {
+                        Text(
+                            meta,
+                            color = Color.White.copy(alpha = 0.48f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                StockStatusPill(text = quote.marketStatus.ifBlank { "股票" }, accent = accent)
+            }
+
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("最新价", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        quote.priceLine,
+                        color = Color.White.copy(alpha = 0.96f),
+                        fontSize = 27.sp,
+                        lineHeight = 29.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                StockChangePill(change = quote.changeLine, accent = accent)
+            }
+
+            val secondary = quote.secondaryMetrics
+            if (secondary.isNotEmpty()) {
+                secondary.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                        row.forEach { metric -> MetricPill(metric, Modifier.weight(1f)) }
+                        if (row.size == 1) Box(Modifier.weight(1f))
+                    }
+                }
+            }
+
+            data.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
+                Text(
+                    raw,
+                    color = Color.White.copy(alpha = 0.52f),
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RealtimeDataCard(data: StructuredDataCard) {
     LightweightDataCard {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -104,6 +186,32 @@ private fun StructuredDataCardView(data: StructuredDataCard) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StockStatusPill(text: String, accent: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(accent.copy(alpha = 0.16f))
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text, color = accent.copy(alpha = 0.92f), fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun StockChangePill(change: String, accent: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.13f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(change, color = accent.copy(alpha = 0.94f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -279,6 +387,101 @@ private fun DataDot(color: Color) {
             .background(color.copy(alpha = 0.84f))
             .padding(4.dp)
     )
+}
+
+private data class StockQuoteUi(
+    val name: String,
+    val symbolLine: String,
+    val timestamp: String,
+    val priceLine: String,
+    val changeLine: String,
+    val marketStatus: String,
+    val changeTone: StockChangeTone,
+    val secondaryMetrics: List<StructuredMetric>
+) {
+    companion object {
+        fun from(data: StructuredDataCard): StockQuoteUi {
+            val price = data.metricValue("price", "regularMarketPrice", "currentPrice", "last", "latest", "latestPrice", "close", "股价", "价格", "现价", "最新价", "收盘价")
+            val change = data.metricValue("change", "regularMarketChange", "netChange", "涨跌", "涨跌额", "变动")
+            val percent = data.metricValue("changePercent", "regularMarketChangePercent", "percent", "percentChange", "changePct", "pct", "涨跌幅", "涨幅", "跌幅")
+            val currency = data.metricValue("currency", "币种", "货币")
+            val exchange = data.metricValue("exchange", "market", "交易所", "市场")
+            val status = data.metricValue("marketStatus", "marketState", "status", "状态", "市场状态")
+            val symbol = data.metricValue("symbol", "ticker", "代码", "股票代码") ?: data.subtitle.orEmpty()
+            val tone = StockChangeTone.from(change = change, percent = percent)
+            val changeLine = listOfNotNull(change, percent).joinToString("  ").ifBlank { "--" }
+            val priceLine = buildPriceLine(price = price, currency = currency)
+            val symbolLine = listOf(symbol, exchange).map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString(" · ")
+            val usedLabels = setOf("price", "regularmarketprice", "currentprice", "last", "latest", "latestprice", "close", "股价", "价格", "现价", "最新价", "收盘价", "change", "regularmarketchange", "netchange", "涨跌", "涨跌额", "变动", "changepercent", "regularmarketchangepercent", "percent", "percentchange", "changepct", "pct", "涨跌幅", "涨幅", "跌幅", "currency", "币种", "货币", "symbol", "ticker", "代码", "股票代码", "exchange", "market", "交易所", "市场", "marketstatus", "marketstate", "status", "状态", "市场状态")
+            val secondary = data.metrics
+                .filterNot { normalizeMetricKey(it.label) in usedLabels }
+                .take(6)
+            return StockQuoteUi(
+                name = data.title.ifBlank { "股票行情" },
+                symbolLine = symbolLine,
+                timestamp = data.timestamp.orEmpty(),
+                priceLine = priceLine,
+                changeLine = changeLine,
+                marketStatus = status.orEmpty(),
+                changeTone = tone,
+                secondaryMetrics = secondary
+            )
+        }
+    }
+}
+
+private enum class StockChangeTone(val accent: Color) {
+    Up(Color(0xFFFFA2A2)),
+    Down(Color(0xFF8DF9C2)),
+    Flat(Color(0xFF8DF9EA));
+
+    companion object {
+        fun from(change: String?, percent: String?): StockChangeTone {
+            val text = listOfNotNull(change, percent).joinToString(" ").lowercase()
+            return when {
+                text.contains("-") || text.contains("跌") || text.contains("▼") || text.contains("down") -> Down
+                text.contains("+") || text.contains("涨") || text.contains("▲") || text.contains("up") -> Up
+                else -> Flat
+            }
+        }
+    }
+}
+
+private fun StructuredDataCard.isStockCard(): Boolean {
+    if (type.equals("stock", ignoreCase = true) || type.contains("quote", ignoreCase = true)) return true
+    return metrics.any { metric ->
+        normalizeMetricKey(metric.label) in setOf("股价", "股票代码", "最新价", "现价", "涨跌幅", "regularmarketprice", "regularmarketchangepercent")
+    }
+}
+
+private fun StructuredDataCard.metricValue(vararg aliases: String): String? {
+    val normalizedAliases = aliases.map { normalizeMetricKey(it) }.toSet()
+    return metrics.firstOrNull { metric ->
+        val label = normalizeMetricKey(metric.label)
+        label in normalizedAliases || normalizedAliases.any { alias -> label.contains(alias) || alias.contains(label) }
+    }?.let { metric ->
+        metric.value + (metric.unit?.takeIf { it.isNotBlank() && !metric.value.contains(it) }?.let { " $it" } ?: "")
+    }?.takeIf { it.isNotBlank() }
+}
+
+private fun buildPriceLine(price: String?, currency: String?): String {
+    val cleanPrice = price?.takeIf { it.isNotBlank() } ?: "--"
+    val cleanCurrency = currency?.takeIf { it.isNotBlank() } ?: return cleanPrice
+    return if (cleanPrice.contains(cleanCurrency, ignoreCase = true)) cleanPrice else "$cleanPrice $cleanCurrency"
+}
+
+private fun normalizeMetricKey(value: String): String {
+    return value.lowercase()
+        .replace(" ", "")
+        .replace("_", "")
+        .replace("-", "")
+        .replace(":", "")
+        .replace("：", "")
+        .replace("%", "")
+        .replace("（", "")
+        .replace("）", "")
+        .replace("(", "")
+        .replace(")", "")
 }
 
 private fun typeLabel(type: String): String = when (type.lowercase()) {
