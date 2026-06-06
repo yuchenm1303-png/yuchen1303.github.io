@@ -151,6 +151,17 @@ class AgentTaskRunner(
                 return@repeat
             }
 
+            if (plan.executableSteps.size > 1) {
+                when (val batchOutcome = executePlannedBatch(goal, snapshot, plan, state, logs, memory)) {
+                    BatchExecutionOutcome.ContinueLoop -> return@repeat
+                    BatchExecutionOutcome.Replan -> {
+                        delay(REPLAN_DELAY_MS)
+                        return@repeat
+                    }
+                    is BatchExecutionOutcome.Finished -> return batchOutcome.result
+                }
+            }
+
             if (plan.step.type == "finish") {
                 memory.rejectedFinishAttempts += 1
                 memory.forceNextVisual = true
@@ -222,6 +233,101 @@ class AgentTaskRunner(
         val message = memory.withDebug("已达到最大执行步数，请检查当前页面后继续。")
         AgentRuntimeController.finishTask(message, completed = false)
         return AgentTaskRunResult(false, false, message, logs)
+    }
+
+    private suspend fun executePlannedBatch(
+        goal: String,
+        snapshot: AgentScreenSnapshot,
+        plan: CloudAgentPlan,
+        state: CloudAgentState?,
+        logs: MutableList<AgentTaskStepLog>,
+        memory: AgentRunMemory,
+    ): BatchExecutionOutcome {
+        val plannedSteps = plan.executableSteps.take(CloudAgentPlan.MAX_BATCH_STEPS)
+        memory.recordTrace("batch plan ${plannedSteps.size} steps")
+
+        plannedSteps.forEachIndexed { index, rawStep ->
+            val chosenStep = chooseAction(snapshot, rawStep, memory)
+            if (chosenStep == null) {
+                memory.recordPlannerRejection(rawStep, "batch step rejected locally")
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, rawStep, null)
+                return if (memory.repeatedCloudRejects <= MAX_REPLAN_REJECTS) {
+                    memory.forceNextVisual = true
+                    BatchExecutionOutcome.Replan
+                } else {
+                    val message = memory.withDebug(rawStep.reason ?: state?.nextHint ?: "batch returned repeated or invalid action")
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
+                }
+            }
+
+            val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
+                val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, chosenStep)
+                if (!confirmed) {
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                    val message = memory.withDebug("user cancelled confirmation: ${chosenStep.type}")
+                    return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, true, message, logs))
+                }
+                true
+            } else {
+                false
+            }
+            if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
+                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                val message = memory.withDebug(chosenStep.reason ?: "batch action is not safe for auto execution: ${chosenStep.type}")
+                AgentRuntimeController.finishTask(message, completed = false)
+                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
+            }
+
+            val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
+            val isLastStep = index >= plannedSteps.lastIndex
+            memory.remember(
+                step = chosenStep,
+                result = result,
+                forceVisualAfterSuccess = shouldForceVisualAfterBatchStep(chosenStep, result, plan, isLastStep),
+            )
+            if (!result.ok) {
+                if (memory.shouldReplanAfterFailure(chosenStep)) {
+                    memory.forceNextVisual = true
+                    return BatchExecutionOutcome.Replan
+                }
+                val message = memory.withDebug(result.message)
+                AgentRuntimeController.finishTask(message, completed = false)
+                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
+            }
+            if (!result.shouldContinue) {
+                val message = memory.withDebug(result.message)
+                AgentRuntimeController.finishTask(message, completed = false)
+                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
+            }
+
+            delayForStep(chosenStep)
+            if (shouldStopBatchAfterStep(chosenStep, result, plan, isLastStep)) return BatchExecutionOutcome.ContinueLoop
+        }
+
+        return BatchExecutionOutcome.ContinueLoop
+    }
+
+    private fun shouldForceVisualAfterBatchStep(
+        step: CloudAgentStep,
+        result: AgentExecutionResult,
+        plan: CloudAgentPlan,
+        isLastStep: Boolean,
+    ): Boolean {
+        if (!result.ok || isLastStep) return true
+        if (plan.stopConditions.any { it in STRICT_REPLAN_STOP_CONDITIONS }) return true
+        return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
+    }
+
+    private fun shouldStopBatchAfterStep(
+        step: CloudAgentStep,
+        result: AgentExecutionResult,
+        plan: CloudAgentPlan,
+        isLastStep: Boolean,
+    ): Boolean {
+        if (isLastStep || !result.ok || !result.shouldContinue) return true
+        if (plan.stopConditions.any { it in STRICT_REPLAN_STOP_CONDITIONS }) return true
+        return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
     }
 
     private suspend fun tryLocalAppLaunchBootstrap(goal: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentTaskRunResult? {
@@ -374,6 +480,12 @@ class AgentTaskRunner(
         class Lightweight(reason: String) : ObservationDecision(false, "轻量", reason)
     }
 
+    private sealed class BatchExecutionOutcome {
+        object ContinueLoop : BatchExecutionOutcome()
+        object Replan : BatchExecutionOutcome()
+        data class Finished(val result: AgentTaskRunResult) : BatchExecutionOutcome()
+    }
+
     private data class AgentRunMemory(
         var phase: AgentTaskPhase = AgentTaskPhase.Verifying,
         var backAttempts: Int = 0,
@@ -426,11 +538,15 @@ class AgentTaskRunner(
 
         fun withDebug(message: String): String = if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
 
-        fun remember(step: CloudAgentStep, result: AgentExecutionResult) {
+        fun remember(
+            step: CloudAgentStep,
+            result: AgentExecutionResult,
+            forceVisualAfterSuccess: Boolean = true,
+        ) {
             val key = stepKey(step)
             recentStepKeys += key
             executedStepCount += 1
-            forceNextVisual = shouldForceVisualAfterStep(step, result)
+            forceNextVisual = if (result.ok && !forceVisualAfterSuccess) false else shouldForceVisualAfterStep(step, result)
             val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
             recentActionLines += line
             if (!result.ok) failedActionLines += line
@@ -567,6 +683,8 @@ class AgentTaskRunner(
         private const val SPARSE_CAPTURED_NODE_THRESHOLD = 8
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val SOFT_REPEATABLE_ACTIONS = setOf("scroll", "swipe", "wait")
+        private val BATCH_BREAK_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
+        private val STRICT_REPLAN_STOP_CONDITIONS = setOf("after_each_action", "visual_after_each_action", "cloud_after_each_action", "replan_after_each_action")
         private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "wait", "back", "home", "recents", "notifications", "quick_settings")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
         private val pureOpenWords = listOf("打开", "开启", "启动", "进入")

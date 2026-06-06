@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class CloudAgentState(
@@ -71,7 +72,71 @@ data class CloudAgentState(
 data class CloudAgentPlan(
     val step: CloudAgentStep,
     val state: CloudAgentState? = null,
-)
+    val steps: List<CloudAgentStep> = emptyList(),
+    val stopConditions: Set<String> = emptySet(),
+) {
+    val executableSteps: List<CloudAgentStep>
+        get() = steps.ifEmpty { listOf(step) }.take(MAX_BATCH_STEPS)
+
+    companion object {
+        const val MAX_BATCH_STEPS = 3
+
+        fun fromJson(root: JSONObject?): CloudAgentPlan? {
+            val primary = CloudAgentStep.fromJson(root) ?: return null
+            val parsedSteps = extractBatchSteps(root)
+                .filterNot { it.type == "need_user_help" || it.type == "finish" }
+                .distinctBy { it.batchKey() }
+                .take(MAX_BATCH_STEPS)
+            return CloudAgentPlan(
+                step = primary,
+                state = CloudAgentState.fromJson(root),
+                steps = parsedSteps.ifEmpty { listOf(primary) },
+                stopConditions = extractStopConditions(root),
+            )
+        }
+
+        private fun extractBatchSteps(root: JSONObject?): List<CloudAgentStep> {
+            if (root == null) return emptyList()
+            val containers = listOfNotNull(
+                root,
+                root.optJSONObject("plan"),
+                root.optJSONObject("data"),
+                root.optJSONObject("result"),
+                root.optJSONObject("agentPlan"),
+            )
+            val keys = listOf("agentSteps", "steps", "actionBatch", "actions")
+            return containers.flatMap { container ->
+                keys.flatMap { key -> container.optJSONArray(key).toAgentSteps() }
+            }
+        }
+
+        private fun extractStopConditions(root: JSONObject?): Set<String> {
+            if (root == null) return emptySet()
+            val containers = listOfNotNull(
+                root,
+                root.optJSONObject("plan"),
+                root.optJSONObject("data"),
+                root.optJSONObject("result"),
+                root.optJSONObject("agentPlan"),
+            )
+            return containers.flatMap { container ->
+                listOf("stopConditions", "batchStopConditions", "replanOn").flatMap { key ->
+                    container.optStringSet(key)
+                }
+            }.toSet()
+        }
+
+        private fun JSONArray?.toAgentSteps(): List<CloudAgentStep> {
+            if (this == null) return emptyList()
+            val result = mutableListOf<CloudAgentStep>()
+            for (i in 0 until length()) {
+                val item = optJSONObject(i) ?: continue
+                CloudAgentStep.fromJson(item)?.let { result += it }
+            }
+            return result
+        }
+    }
+}
 
 data class CloudAgentStep(
     val type: String,
@@ -164,6 +229,36 @@ data class CloudAgentStep(
                 durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
             )
         }
+    }
+}
+
+private fun CloudAgentStep.batchKey(): String = buildString {
+    append(type)
+    append('|')
+    append(targetNodeId.orEmpty())
+    append('|')
+    append(targetText.orEmpty())
+    append('|')
+    append(text.orEmpty())
+    append('|')
+    append(x?.toString().orEmpty())
+    append('|')
+    append(y?.toString().orEmpty())
+}
+
+private fun JSONObject.optStringSet(name: String): Set<String> {
+    if (!has(name) || isNull(name)) return emptySet()
+    val raw = opt(name)
+    return when (raw) {
+        is JSONArray -> mutableSetOf<String>().apply {
+            for (i in 0 until raw.length()) {
+                raw.optString(i).notBlankOrNull()?.let { add(it.lowercase().replace('-', '_')) }
+            }
+        }
+        is String -> raw.split(',', ';', '|')
+            .mapNotNull { it.notBlankOrNull()?.lowercase()?.replace('-', '_') }
+            .toSet()
+        else -> emptySet()
     }
 }
 
