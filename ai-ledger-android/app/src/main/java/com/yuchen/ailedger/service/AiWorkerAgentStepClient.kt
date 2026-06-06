@@ -8,8 +8,8 @@ import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 12_000
-private const val AGENT_STEP_READ_TIMEOUT_MS = 38_000
+private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 8_000
+private const val AGENT_STEP_READ_TIMEOUT_MS = 12_000
 private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
 
 @Throws(IOException::class)
@@ -116,7 +116,7 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v4" else "compose-native-agent-fast-v4")
+        put("clientVersion", if (snapshot.hasVisualImage) "compose-native-agent-fast-vision-v5" else "compose-native-agent-fast-v5")
         put("systemPrompt", instruction)
         put("message", plannerMessage)
         put("prompt", plannerMessage)
@@ -244,11 +244,7 @@ private fun agentPlannerSystemPrompt(): String = """
 - 不确定时不要乱点高风险按钮。
 """.trimIndent()
 
-private fun agentEndpointCandidates(cleanEndpoint: String): List<String> {
-    val knownChatPath = cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")
-    if (knownChatPath) return listOf(cleanEndpoint)
-    return listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
-}
+private fun agentEndpointCandidates(cleanEndpoint: String): List<String> = listOf(cleanEndpoint)
 
 private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -276,7 +272,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         val state = CloudAgentState.fromJson(data) ?: extractAgentStateFromText(body)
         CloudAgentPlan(step = step, state = state)
     } catch (error: SocketTimeoutException) {
-        throw IOException("云端智能体规划超时：${endpoint.substringAfter("://")}", error)
+        throw IOException("云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}", error)
     } finally {
         connection.disconnect()
     }
