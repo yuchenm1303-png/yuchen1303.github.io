@@ -132,13 +132,18 @@ class AgentTaskRunner(
                 return AgentTaskRunResult(false, false, message, logs)
             }
 
-            if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                val message = memory.withDebug("动作需要确认：${chosenStep.typeLabel}")
-                AgentRuntimeController.finishTask(message, completed = false)
-                return AgentTaskRunResult(false, true, message, logs)
+            val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
+                val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, chosenStep)
+                if (!confirmed) {
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                    val message = memory.withDebug("用户已取消需要确认的动作：${chosenStep.typeLabel}")
+                    return AgentTaskRunResult(false, true, message, logs)
+                }
+                true
+            } else {
+                false
             }
-            if (!AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
+            if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
                 logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
                 val message = memory.withDebug(chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}")
                 AgentRuntimeController.finishTask(message, completed = false)
