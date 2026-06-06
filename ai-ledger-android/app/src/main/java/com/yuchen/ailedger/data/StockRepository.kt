@@ -23,13 +23,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import org.json.JSONObject
 
-private data class StockProxyRoute(
-    val name: String,
-    val path: String,
-    val defaultSourceLabel: String,
-    val timeoutMs: Int = 12000
-)
-
 class StockRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
@@ -37,66 +30,49 @@ class StockRepository(
         Thread(runnable, "ai-ledger-stock-proxy-http").apply { isDaemon = true }
     }
 
-    fun loadAStock(query: String): StockDetailUiState {
+    fun loadAStock(query: String, mode: String = "lite"): StockDetailUiState {
         val base = sampleAStockDetailUiState()
         val normalized = query.trim().ifBlank { base.quote.code }
-        val errors = mutableListOf<String>()
-
-        stockProxyRoutes().forEach { route ->
-            runCatching {
-                return loadFromProxy(normalized, base, route)
-            }.onFailure { error ->
-                errors += "${route.name}: ${error.message ?: error.javaClass.simpleName}"
-            }
+        return runCatching {
+            val encoded = URLEncoder.encode(normalized, "UTF-8")
+            val safeMode = if (mode == "full") "full" else "lite"
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode", timeoutMs = if (safeMode == "full") 12000 else 8500)
+            parseDetail(JSONObject(body), base)
+        }.getOrElse { error ->
+            base.copy(
+                dataSourceLabel = "真实行情代理暂未返回，已回退示例数据",
+                errorMessage = error.message ?: error.javaClass.simpleName,
+                aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
+            )
         }
-
-        return base.copy(
-            dataSourceLabel = "真实行情代理暂未返回，已回退示例数据",
-            errorMessage = errors.joinToString("；").ifBlank { "行情代理网络异常" },
-            aiSummary = "正在等待真实行情代理返回。当前为本地示例数据，不代表真实行情。"
-        )
     }
 
-    private fun stockProxyRoutes(): List<StockProxyRoute> = listOf(
-        StockProxyRoute(
-            name = "crawl",
-            path = "/api/stock/crawl/a-share/detail",
-            defaultSourceLabel = "爬虫教学源 · 东方财富公开JSON",
-            timeoutMs = 10000
-        ),
-        StockProxyRoute(
-            name = "a-share",
-            path = "/api/stock/a-share/detail",
-            defaultSourceLabel = "A股聚合行情代理",
-            timeoutMs = 10000
-        ),
-        StockProxyRoute(
-            name = "futu-compat",
-            path = "/api/stock/futu/a-share/detail",
-            defaultSourceLabel = "富途兼容行情代理",
-            timeoutMs = 8000
-        )
-    )
+    fun loadMarketOverview(query: String, current: StockDetailUiState): StockDetailUiState {
+        val normalized = query.trim().ifBlank { current.quote.code }
+        return runCatching {
+            val encoded = URLEncoder.encode(normalized, "UTF-8")
+            val body = httpGet("${baseUrl()}/api/stock/crawl/a-share/market/overview?query=$encoded", timeoutMs = 8500)
+            val obj = JSONObject(body)
+            current.copy(
+                indices = parseIndices(obj).ifEmpty { current.indices },
+                watchlist = parseWatchlist(obj).ifEmpty { current.watchlist },
+                marketBoards = parseMarketBoards(obj).ifEmpty { current.marketBoards },
+                dataSourceLabel = obj.optString("dataSourceLabel", current.dataSourceLabel).ifBlank { current.dataSourceLabel }
+            )
+        }.getOrElse { current }
+    }
 
-    private fun loadFromProxy(query: String, base: StockDetailUiState, route: StockProxyRoute): StockDetailUiState {
-        val baseUrl = proxyBaseUrl.trim().trimEnd('/')
-        if (baseUrl.isBlank()) throw IllegalStateException("行情代理地址为空")
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        val body = httpGet("$baseUrl${route.path}?query=$encoded&mode=lite", referer = baseUrl, timeoutMs = route.timeoutMs)
-        val obj = JSONObject(body)
+    private fun parseDetail(obj: JSONObject, base: StockDetailUiState): StockDetailUiState {
         val quoteJson = obj.optJSONObject("quote") ?: throw IllegalStateException("代理行情缺少 quote 字段")
         val quote = quoteFromJson(quoteJson, base.quote)
-        val kLines = parseKLines(obj).ifEmpty { base.kLinePoints }
+        val kLines = parseKLines(obj)
         val minutePoints = parseMinutePoints(obj).ifEmpty { minutePointsFromKLines(kLines, base) }
         val sellLevels = parseOrderLevels(obj, listOf("sellLevels", "askLevels", "asks"), true).ifEmpty { base.sellLevels }
         val buyLevels = parseOrderLevels(obj, listOf("buyLevels", "bidLevels", "bids"), false).ifEmpty { base.buyLevels }
-        val tradeTicks = parseTradeTicks(obj).ifEmpty { base.tradeTicks }
+        val tradeTicks = parseTradeTicks(obj).ifEmpty { ticksFromMinute(minutePoints, quote, base) }
         val moneyFlow = parseMoneyFlow(obj) ?: base.moneyFlow
-        val fundamentals = parseMetrics(obj, "fundamentals").ifEmpty { base.fundamentals }
-        val indices = parseIndices(obj).ifEmpty { base.indices }
-        val watchlist = parseWatchlist(obj).ifEmpty { base.watchlist }
-        val marketBoards = parseMarketBoards(obj).ifEmpty { base.marketBoards }
-        val sourceLabel = sourceLabelFromJson(obj, route, quote)
+        val fundamentals = parseMetrics(obj, "fundamentals").ifEmpty { fundamentalsFor(quote) }
+        val sourceLabel = obj.optString("dataSourceLabel", "爬虫教学源 · 东方财富公开JSON · ${quote.code}")
 
         return base.copy(
             quote = quote,
@@ -107,9 +83,9 @@ class StockRepository(
             tradeTicks = tradeTicks,
             moneyFlow = moneyFlow,
             fundamentals = fundamentals,
-            indices = indices,
-            watchlist = watchlist,
-            marketBoards = marketBoards,
+            indices = parseIndices(obj).ifEmpty { base.indices },
+            watchlist = parseWatchlist(obj).ifEmpty { base.watchlist },
+            marketBoards = parseMarketBoards(obj).ifEmpty { base.marketBoards },
             kLinePoints = kLines,
             dataSourceLabel = sourceLabel,
             errorMessage = null,
@@ -120,19 +96,10 @@ class StockRepository(
         )
     }
 
-    private fun sourceLabelFromJson(obj: JSONObject, route: StockProxyRoute, quote: StockQuote): String {
-        val explicit = obj.optString("dataSourceLabel").trim()
-        if (explicit.isNotBlank()) return explicit
-
-        val provider = obj.optString("provider").lowercase().trim()
-        val delayText = if (obj.optBoolean("delayed", false)) " · 延迟" else ""
-        val prefix = when {
-            provider.contains("eastmoney") || provider.contains("crawl") || route.name == "crawl" -> "爬虫教学源 · 东方财富公开JSON"
-            provider.contains("akshare") || route.name == "a-share" -> "A股聚合行情代理"
-            provider.contains("futu") || route.name == "futu-compat" -> "富途兼容行情代理"
-            else -> route.defaultSourceLabel
-        }
-        return "$prefix$delayText · ${quote.code}"
+    private fun baseUrl(): String {
+        val base = proxyBaseUrl.trim().trimEnd('/')
+        if (base.isBlank()) throw IllegalStateException("行情代理地址为空")
+        return base
     }
 
     private fun minutePointsFromKLines(kLines: List<StockKLinePoint>, base: StockDetailUiState): List<StockMinutePoint> {
@@ -151,6 +118,21 @@ class StockRepository(
                 volumeRatio = (point.volume / (recent.maxOfOrNull { it.volume } ?: 1f)).coerceIn(0.05f, 1f)
             )
         }.ifEmpty { base.minutePoints }
+    }
+
+    private fun ticksFromMinute(points: List<StockMinutePoint>, quote: StockQuote, base: StockDetailUiState): List<StockTradeTick> {
+        if (points.isEmpty()) return base.tradeTicks
+        return points.takeLast(8).reversed().mapIndexed { index, point ->
+            val previous = points.getOrNull(points.lastIndex - index - 1)?.price ?: quote.previousClose
+            val isBuy = point.price >= previous
+            StockTradeTick(
+                time = point.time.ifBlank { "--" },
+                price = formatTwo(point.price),
+                volume = ((point.volumeRatio * 1000).toInt()).coerceAtLeast(1).toString(),
+                direction = if (isBuy) "买" else "卖",
+                isBuy = isBuy
+            )
+        }
     }
 
     private fun quoteFromJson(json: JSONObject, fallback: StockQuote): StockQuote = StockQuote(
@@ -183,13 +165,18 @@ class StockRepository(
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
+                val open = item.optDouble("open", Double.NaN).toFloat()
+                val close = item.optDouble("close", Double.NaN).toFloat()
+                val high = item.optDouble("high", Double.NaN).toFloat()
+                val low = item.optDouble("low", Double.NaN).toFloat()
+                if (open.isNaN() || close.isNaN() || high.isNaN() || low.isNaN()) continue
                 add(
                     StockKLinePoint(
                         date = item.optString("date"),
-                        open = item.optDouble("open", 0.0).toFloat(),
-                        close = item.optDouble("close", 0.0).toFloat(),
-                        high = item.optDouble("high", 0.0).toFloat(),
-                        low = item.optDouble("low", 0.0).toFloat(),
+                        open = open,
+                        close = close,
+                        high = high,
+                        low = low,
                         volume = item.optDouble("volume", 0.0).toFloat(),
                         amount = item.optDouble("amount", 0.0).toFloat(),
                         changePercent = item.optString("changePercent", "--")
@@ -204,12 +191,14 @@ class StockRepository(
         return buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
+                val price = item.optDouble("price", Double.NaN).toFloat()
+                if (price.isNaN() || price <= 0f) continue
                 add(
                     StockMinutePoint(
                         time = item.optString("time"),
-                        price = item.optDouble("price", 0.0).toFloat(),
-                        average = item.optDouble("average", 0.0).toFloat(),
-                        volumeRatio = item.optDouble("volumeRatio", 0.0).toFloat().coerceIn(0f, 1f)
+                        price = price,
+                        average = item.optDouble("average", price.toDouble()).toFloat(),
+                        volumeRatio = item.optDouble("volumeRatio", 0.0).toFloat().coerceIn(0.02f, 1f)
                     )
                 )
             }
@@ -279,14 +268,7 @@ class StockRepository(
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val changePercent = item.optString("changePercent", "--")
-                add(
-                    StockIndexSnapshot(
-                        name = item.optString("name", "指数"),
-                        value = item.optString("value", "--"),
-                        changePercent = changePercent,
-                        isRising = item.optBoolean("isRising", !changePercent.startsWith("-"))
-                    )
-                )
+                add(StockIndexSnapshot(item.optString("name", "指数"), item.optString("value", "--"), changePercent, item.optBoolean("isRising", !changePercent.startsWith("-"))))
             }
         }
     }
@@ -297,15 +279,7 @@ class StockRepository(
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val changePercent = item.optString("changePercent", "--")
-                add(
-                    StockWatchItem(
-                        name = item.optString("name", "自选股"),
-                        code = item.optString("code", "--"),
-                        price = item.optString("price", "--"),
-                        changePercent = changePercent,
-                        isRising = item.optBoolean("isRising", !changePercent.startsWith("-"))
-                    )
-                )
+                add(StockWatchItem(item.optString("name", "自选股"), item.optString("code", "--"), item.optString("price", item.optString("value", "--")), changePercent, item.optBoolean("isRising", !changePercent.startsWith("-"))))
             }
         }
     }
@@ -324,13 +298,9 @@ class StockRepository(
                         }
                     }
                 }
-                add(
-                    StockMarketBoard(
-                        title = board.optString("title", "市场榜单"),
-                        subtitle = board.optString("subtitle", "爬虫市场数据"),
-                        items = items
-                    )
-                )
+                if (items.isNotEmpty()) {
+                    add(StockMarketBoard(board.optString("title", "市场榜单"), board.optString("subtitle", "爬虫市场数据"), items))
+                }
             }
         }
     }
@@ -346,12 +316,10 @@ class StockRepository(
         )
     }
 
-    private fun toneFromJson(item: JSONObject): StockTone {
-        return when (item.optString("tone").lowercase()) {
-            "rising", "up", "red" -> StockTone.Rising
-            "falling", "down", "green" -> StockTone.Falling
-            else -> StockTone.Neutral
-        }
+    private fun toneFromJson(item: JSONObject): StockTone = when (item.optString("tone").lowercase()) {
+        "rising", "up", "red" -> StockTone.Rising
+        "falling", "down", "green" -> StockTone.Falling
+        else -> StockTone.Neutral
     }
 
     private fun topMetricsFor(quote: StockQuote): List<StockMetric> = listOf(
@@ -366,8 +334,17 @@ class StockRepository(
         StockMetric("人气", quote.popularityRank)
     )
 
-    private fun httpGet(url: String, referer: String, timeoutMs: Int): String {
-        val future = requestExecutor.submit(Callable { httpGetBlocking(url, referer, timeoutMs) })
+    private fun fundamentalsFor(quote: StockQuote): List<StockMetric> = listOf(
+        StockMetric("市值", quote.totalMarketValue),
+        StockMetric("流通市值", quote.floatMarketValue),
+        StockMetric("市盈率", quote.peTtm),
+        StockMetric("市净率", quote.pb),
+        StockMetric("量比", quote.volumeRatio),
+        StockMetric("换手", quote.turnoverRate)
+    )
+
+    private fun httpGet(url: String, timeoutMs: Int): String {
+        val future = requestExecutor.submit(Callable { httpGetBlocking(url, timeoutMs) })
         return try {
             future.get((timeoutMs + 1500).toLong(), TimeUnit.MILLISECONDS)
         } catch (error: TimeoutException) {
@@ -380,7 +357,7 @@ class StockRepository(
         }
     }
 
-    private fun httpGetBlocking(url: String, referer: String, timeoutMs: Int): String {
+    private fun httpGetBlocking(url: String, timeoutMs: Int): String {
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -388,7 +365,7 @@ class StockRepository(
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
                 setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
-                setRequestProperty("Referer", referer)
+                setRequestProperty("Referer", baseUrl())
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Cache-Control", "no-cache")
                 setRequestProperty("Pragma", "no-cache")
@@ -403,4 +380,6 @@ class StockRepository(
             connection?.disconnect()
         }
     }
+
+    private fun formatTwo(value: Float): String = "%.2f".format(value)
 }
