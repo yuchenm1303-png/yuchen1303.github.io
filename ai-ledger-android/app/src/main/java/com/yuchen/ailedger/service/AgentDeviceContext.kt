@@ -15,27 +15,19 @@ object AgentDeviceContextProvider {
     fun build(
         context: Context,
         screen: AgentScreenSnapshot,
+        goal: String = "",
         installedAppIndex: InstalledAppIndex = InstalledAppIndex(context.applicationContext),
     ): AgentDeviceContextSnapshot {
         val appContext = context.applicationContext
         val metrics = appContext.resources.displayMetrics
-        val allLaunchableApps = installedAppIndex.getLaunchableApps(forceReload = true)
-        val launchableApps = allLaunchableApps.take(MAX_LAUNCHABLE_APPS)
+        val allLaunchableApps = installedAppIndex.getLaunchableApps(forceReload = false)
+        val candidateApps = installedAppIndex.findCandidateApps(goal, limit = MAX_CANDIDATE_APPS)
+        val inventoryApps = mergePriorityApps(candidateApps, allLaunchableApps, MAX_LAUNCHABLE_APPS)
         val currentPackage = screen.currentApp.ifBlank { "unknown" }
-        val installedAppsJson = JSONArray().apply {
-            launchableApps.forEach { app ->
-                put(JSONObject().apply {
-                    put("label", app.label)
-                    put("packageName", app.packageName)
-                    put("launchable", true)
-                    put("aliases", JSONArray().apply {
-                        installedAppIndex.aliasesFor(app).take(MAX_ALIASES_PER_APP).forEach { put(it) }
-                    })
-                })
-            }
-        }
+        val installedAppsJson = appsToJsonArray(inventoryApps, installedAppIndex)
+        val candidateAppsJson = appsToJsonArray(candidateApps, installedAppIndex)
         val json = JSONObject().apply {
-            put("schema", "android_device_context_v1")
+            put("schema", "android_device_context_v2")
             put("device", JSONObject().apply {
                 put("manufacturer", Build.MANUFACTURER.orEmpty())
                 put("brand", Build.BRAND.orEmpty())
@@ -64,15 +56,17 @@ object AgentDeviceContextProvider {
                 put("scrollableCount", screen.scrollableNodes.size)
                 put("hasScreenshot", screen.hasVisualImage)
             })
+            put("targetAppCandidates", candidateAppsJson)
             put("installedApps", installedAppsJson)
             put("installedAppCount", allLaunchableApps.size)
-            put("installedAppsTruncated", allLaunchableApps.size > launchableApps.size)
+            put("uploadedAppCount", inventoryApps.size)
+            put("installedAppsTruncated", allLaunchableApps.size > inventoryApps.size)
             put("availableTools", JSONArray(CloudAgentStep.supportedTypes.toList()))
             put("toolRules", JSONArray().apply {
-                put("打开应用必须优先使用 open_app，并从 installedApps 中选择真实 label/packageName；不要凭常识编 packageName。")
+                put("打开应用必须优先使用 open_app，并优先从 targetAppCandidates 选择；targetAppCandidates 为空时再从 installedApps 选择真实 label/packageName。")
+                put("不要凭常识编 packageName。目标应用不在 targetAppCandidates 或 installedApps 时，返回 need_user_help。")
                 put("在桌面或启动器页面时，不要通过点击文件夹或翻页肉眼寻找 App 图标；如果目标是打开应用，直接返回 open_app。")
                 put("App 内页面导航才使用 tap_xy、tap_node、scroll、swipe。")
-                put("如果目标 App 不在 installedApps 中，返回 need_user_help，不要猜包名。")
                 put("同一个动作失败或被本地拒绝后，下一轮必须避开相同路径，改用其他工具或说明无法继续。")
             })
             put("privacy", JSONObject().apply {
@@ -90,10 +84,30 @@ object AgentDeviceContextProvider {
             append(metrics.widthPixels).append("x").append(metrics.heightPixels)
             append("，当前包名 ").append(currentPackage)
             append("，可启动应用 ").append(allLaunchableApps.size).append(" 个")
-            if (allLaunchableApps.size > launchableApps.size) append("（已上传前 ${launchableApps.size} 个）")
+            append("，目标候选 ").append(candidateApps.size).append(" 个")
+            if (allLaunchableApps.size > inventoryApps.size) append("，已上传优先清单 ${inventoryApps.size} 个")
             append("。")
         }
         return AgentDeviceContextSnapshot(json = json, summary = summary)
+    }
+
+    private fun appsToJsonArray(apps: List<InstalledAppEntry>, installedAppIndex: InstalledAppIndex): JSONArray {
+        return JSONArray().apply {
+            apps.forEach { app ->
+                put(JSONObject().apply {
+                    put("label", app.label)
+                    put("packageName", app.packageName)
+                    put("launchable", true)
+                    put("aliases", JSONArray().apply {
+                        installedAppIndex.aliasesFor(app).take(MAX_ALIASES_PER_APP).forEach { put(it) }
+                    })
+                })
+            }
+        }
+    }
+
+    private fun mergePriorityApps(candidates: List<InstalledAppEntry>, allApps: List<InstalledAppEntry>, limit: Int): List<InstalledAppEntry> {
+        return (candidates + allApps).distinctBy { it.packageName }.take(limit)
     }
 
     private fun isLauncherLikePackage(packageName: String): Boolean {
@@ -101,6 +115,7 @@ object AgentDeviceContextProvider {
         return clean.contains("launcher") || clean.contains("home") || clean == "android" || clean == "com.android.systemui"
     }
 
-    private const val MAX_LAUNCHABLE_APPS = 260
-    private const val MAX_ALIASES_PER_APP = 6
+    private const val MAX_LAUNCHABLE_APPS = 160
+    private const val MAX_CANDIDATE_APPS = 12
+    private const val MAX_ALIASES_PER_APP = 4
 }
