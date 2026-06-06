@@ -242,12 +242,14 @@ class AgentTaskRunner(
     }
 
     private fun shouldCaptureVisual(goal: String, memory: AgentRunMemory): Boolean {
-        if (memory.forceNextVisual) return true
-        if (memory.executedStepCount == 0) return false
-        if (memory.repeatedCloudRejects > 0 || memory.recoverableFailures > 0 || memory.rejectedFinishAttempts > 0) return true
-        if (memory.lastSnapshotNeedsVisual) return true
-        if (!goalLooksLikeOpenAppTask(goal) && memory.executedStepCount % VISUAL_REFRESH_STEP_INTERVAL == 0) return true
-        return false
+        if (memory.executedStepCount == 0) {
+            memory.rememberVisualGate(score = 0, enabled = false, reason = "首轮优先使用 deviceContext / open_app / 节点，避免启动前截图")
+            return false
+        }
+        val score = memory.visualGateScore(goal)
+        val enabled = score >= VISUAL_GATE_THRESHOLD
+        memory.rememberVisualGate(score = score, enabled = enabled, reason = memory.visualGateReason(goal))
+        return enabled
     }
 
     private fun goalLooksLikeOpenAppTask(goal: String): Boolean {
@@ -332,20 +334,29 @@ class AgentTaskRunner(
         var loopIndex: Int = 0,
         var forceNextVisual: Boolean = false,
         var lastSnapshotNeedsVisual: Boolean = false,
+        var lastStateNeedsVisual: Boolean = false,
+        var lightRoundsSinceVisual: Int = 0,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
         private val failedActionLines: MutableList<String> = mutableListOf(),
         private val blockedActionLines: MutableList<String> = mutableListOf(),
         var lastDebugLine: String = "",
+        var lastVisualGateLine: String = "VisualGate=0 · 轻量",
     ) {
         fun observe(snapshot: AgentScreenSnapshot) {
-            if (snapshot.hasVisualImage) forceNextVisual = false
+            if (snapshot.hasVisualImage) {
+                forceNextVisual = false
+                lightRoundsSinceVisual = 0
+            } else {
+                lightRoundsSinceVisual += 1
+            }
             lastSnapshotNeedsVisual = !snapshot.hasVisualImage && snapshot.isSparseForPlanning()
-            lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 视觉需求=${if (lastSnapshotNeedsVisual) "是" else "否"} · 步数=$executedStepCount"
+            lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 视觉需求=${if (lastSnapshotNeedsVisual) "是" else "否"} · $lastVisualGateLine · 步数=$executedStepCount"
         }
 
         fun rememberState(state: CloudAgentState) {
             if (state.reason.isBlank() && state.nextHint.isBlank()) return
+            lastStateNeedsVisual = state.requiresVisualReview()
             recentActionLines += "状态：complete=${state.isComplete}, progress=${state.expectedProgress}, wrong=${state.isWrong}, confidence=${"%.2f".format(state.confidence)} · ${state.reason.ifBlank { state.nextHint }}"
             trimHistory()
         }
@@ -364,6 +375,38 @@ class AgentTaskRunner(
             blockedActionLines += line
             recentActionLines += line
             trimHistory()
+        }
+
+        fun rememberVisualGate(score: Int, enabled: Boolean, reason: String) {
+            lastVisualGateLine = "VisualGate=$score · ${if (enabled) "视觉" else "轻量"} · $reason"
+        }
+
+        fun visualGateScore(goal: String): Int {
+            var score = 0
+            if (forceNextVisual) score += 4
+            if (lastSnapshotNeedsVisual) score += 3
+            if (lastStateNeedsVisual) score += 3
+            if (repeatedCloudRejects > 0) score += 4
+            if (recoverableFailures > 0) score += 4
+            if (rejectedFinishAttempts > 0) score += 3
+            if (goalRequiresVisualVerification(goal)) score += 2
+            if (goalContainsHighRiskAction(goal)) score += 4
+            if (lightRoundsSinceVisual >= VISUAL_REFRESH_LIGHT_ROUNDS) score += 2
+            return score
+        }
+
+        fun visualGateReason(goal: String): String {
+            val reasons = mutableListOf<String>()
+            if (forceNextVisual) reasons += "动作后强制复核"
+            if (lastSnapshotNeedsVisual) reasons += "节点稀疏"
+            if (lastStateNeedsVisual) reasons += "状态不确定"
+            if (repeatedCloudRejects > 0) reasons += "云端动作被拒绝"
+            if (recoverableFailures > 0) reasons += "失败恢复"
+            if (rejectedFinishAttempts > 0) reasons += "完成判断复核"
+            if (goalRequiresVisualVerification(goal)) reasons += "页面语义目标"
+            if (goalContainsHighRiskAction(goal)) reasons += "高风险目标"
+            if (lightRoundsSinceVisual >= VISUAL_REFRESH_LIGHT_ROUNDS) reasons += "轻量轮刷新"
+            return reasons.joinToString("/").ifBlank { "节点和工具证据足够" }
         }
 
         fun withDebug(message: String): String = if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
@@ -416,7 +459,7 @@ class AgentTaskRunner(
         }
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v4")
+            put("schema", "agent_loop_memory_v5_visual_gate")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -429,9 +472,13 @@ class AgentTaskRunner(
                 put("rejectedFinishAttempts", rejectedFinishAttempts)
                 put("forceNextVisual", forceNextVisual)
                 put("lastSnapshotNeedsVisual", lastSnapshotNeedsVisual)
+                put("lastStateNeedsVisual", lastStateNeedsVisual)
+                put("lightRoundsSinceVisual", lightRoundsSinceVisual)
+                put("lastVisualGate", lastVisualGateLine)
             })
             put("policyHints", JSONArray().apply {
-                put("优先使用无障碍节点和 deviceContext 规划低风险动作；只有节点稀疏、状态不确定或失败恢复时再依赖截图。")
+                put("VisualGate 分数达到阈值时才依赖截图；分数低时优先使用 open_app、节点和 deviceContext。")
+                put("页面语义完成判断、节点稀疏、失败恢复、动作被拒绝和高风险目标应使用视觉复核。")
                 put("不要重复 blockedActions 或 failedActions 中的同一路径。")
                 put("如果 open_app 失败，必须改用 deviceContext.targetAppCandidates 或 installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
                 put("如果点击桌面文件夹后没有目标应用，下一轮不要再点同一个文件夹。")
@@ -451,6 +498,25 @@ class AgentTaskRunner(
             if (clickableNodes.isEmpty() && inputNodes.isEmpty() && scrollableNodes.isEmpty()) return true
             return false
         }
+
+        private fun CloudAgentState.requiresVisualReview(): Boolean {
+            if (isComplete || isWrong) return false
+            if (!expectedProgress && confidence <= UNCERTAIN_STATE_VISUAL_CONFIDENCE) return true
+            if (expectedProgress && confidence < PROGRESS_STATE_VISUAL_CONFIDENCE) return true
+            return false
+        }
+
+        private fun goalRequiresVisualVerification(goal: String): Boolean {
+            val clean = normalizeLocal(goal)
+            return visualVerificationWords.any { clean.contains(normalizeLocal(it)) }
+        }
+
+        private fun goalContainsHighRiskAction(goal: String): Boolean {
+            val clean = normalizeLocal(goal)
+            return highRiskGoalWords.any { clean.contains(normalizeLocal(it)) }
+        }
+
+        private fun normalizeLocal(value: String): String = value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
 
         private fun trimHistory() {
             while (recentActionLines.size > 10) recentActionLines.removeAt(0)
@@ -505,12 +571,17 @@ class AgentTaskRunner(
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
         private const val SPARSE_NODE_VISUAL_THRESHOLD = 12
         private const val SPARSE_CAPTURED_NODE_THRESHOLD = 8
-        private const val VISUAL_REFRESH_STEP_INTERVAL = 3
+        private const val VISUAL_GATE_THRESHOLD = 3
+        private const val VISUAL_REFRESH_LIGHT_ROUNDS = 3
+        private const val UNCERTAIN_STATE_VISUAL_CONFIDENCE = 0.46f
+        private const val PROGRESS_STATE_VISUAL_CONFIDENCE = 0.56f
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val SOFT_REPEATABLE_ACTIONS = setOf("scroll", "swipe", "wait")
         private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "tap_xy", "back", "home", "recents", "notifications", "quick_settings")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
         private val openAppIntentWords = listOf("打开", "开启", "启动", "进入", "找到", "热榜", "联系人", "动态", "页面", "界面", "app")
+        private val visualVerificationWords = listOf("页面", "界面", "主页", "联系人", "通讯录", "朋友圈", "发现", "动态", "热榜", "自选", "行情", "搜索", "找到", "查看", "看看", "按钮", "输入框", "列表", "内容", "详情")
+        private val highRiskGoalWords = listOf("支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意", "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "pay", "transfer", "delete", "send", "submit", "publish", "password", "login", "otp")
         private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
         private val complexGoalWords = listOf("热榜", "联系人", "朋友圈", "搜索", "找到", "页面", "界面", "点击", "发送", "发布", "删除", "设置", "消息", "扫一扫", "视频", "直播", "自选", "行情", "新闻", "小程序", "群", "聊天", "给", "评论", "登录", "支付", "转账")
     }
