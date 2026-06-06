@@ -73,7 +73,7 @@ class StockMarketViewModel(
     }
 
     fun selectTab(tab: String) {
-        _uiState.update { it.copy(selectedTab = tab) }
+        _uiState.update { it.copy(selectedTab = tab, requestMessage = if (tab == "分时") it.requestMessage else "正在加载真实历史K线") }
         if (tab != "分时" && _uiState.value.stock.kLinePoints.size < 20) {
             loadFullKLine()
         }
@@ -101,7 +101,7 @@ class StockMarketViewModel(
     }
 
     fun openCode(code: String) {
-        _uiState.update { it.copy(query = code) }
+        _uiState.update { it.copy(query = code, selectedTab = "分时", requestMessage = null) }
         loadLite(openDetail = true, forcedQuery = code)
     }
 
@@ -134,7 +134,17 @@ class StockMarketViewModel(
         marketJob = viewModelScope.launch {
             _uiState.update { it.copy(marketLoading = true) }
             val merged = withContext(Dispatchers.IO) { repository.loadMarketOverview(query, _uiState.value.stock) }
-            _uiState.update { it.copy(stock = merged, marketLoading = false) }
+            _uiState.update { state ->
+                state.copy(
+                    stock = state.stock.copy(
+                        indices = merged.indices,
+                        watchlist = merged.watchlist,
+                        marketBoards = merged.marketBoards,
+                        dataSourceLabel = merged.dataSourceLabel
+                    ),
+                    marketLoading = false
+                )
+            }
         }
     }
 
@@ -142,22 +152,31 @@ class StockMarketViewModel(
         val target = _uiState.value.stock.quote.code.ifBlank { _uiState.value.query }
         kLineJob?.cancel()
         kLineJob = viewModelScope.launch {
-            _uiState.update { it.copy(kLineLoading = true) }
-            val loaded = withContext(Dispatchers.IO) { repository.loadAStock(target, mode = "full") }
+            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在加载真实历史K线") }
+            val result = withContext(Dispatchers.IO) { repository.loadKLinePoints(target) }
             _uiState.update { state ->
-                if (loaded.errorMessage != null) {
-                    state.copy(kLineLoading = false, requestMessage = loaded.errorMessage)
-                } else {
-                    state.copy(
-                        stock = state.stock.copy(
-                            kLinePoints = loaded.kLinePoints,
-                            dataSourceLabel = loaded.dataSourceLabel,
-                            aiSummary = loaded.aiSummary
-                        ),
-                        kLineLoading = false,
-                        requestMessage = null
-                    )
-                }
+                result.fold(
+                    onSuccess = { points ->
+                        if (points.size >= 2) {
+                            state.copy(
+                                stock = state.stock.copy(kLinePoints = points),
+                                kLineLoading = false,
+                                requestMessage = null
+                            )
+                        } else {
+                            state.copy(
+                                kLineLoading = false,
+                                requestMessage = "K线接口返回数据不足，请稍后刷新重试"
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        state.copy(
+                            kLineLoading = false,
+                            requestMessage = "K线加载失败：${error.message ?: error.javaClass.simpleName}"
+                        )
+                    }
+                )
             }
         }
     }
