@@ -39,6 +39,7 @@ object AgentSafetyPolicy {
 
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
         if (step.type in passiveRecoveryTypes && step.requiresConfirmation.not()) return false
+        if (isLowRiskAppLaunchConfirmation(step)) return false
         if (step.requiresConfirmation) return true
         if (step.riskLevel !in setOf("", "low")) return step.type in activeTouchOrInputTypes
         if (step.type !in executableLowRiskTypes && step.type != "finish") return true
@@ -50,5 +51,33 @@ object AgentSafetyPolicy {
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
         if (requiresConfirmation(goal, step)) return false
         return step.type in executableLowRiskTypes
+    }
+
+    private fun isLowRiskAppLaunchConfirmation(step: CloudAgentStep): Boolean {
+        if (step.type !in setOf("tap_node", "tap_xy")) return false
+        val joined = listOf(step.targetText, step.reason, step.appName).joinToString(" ").lowercase()
+        val isOpenAppDialog = listOf(
+            "是否允许打开",
+            "允许打开",
+            "继续打开",
+            "打开应用",
+            "启动应用",
+            "系统打开确认",
+            "系统启动确认",
+            "跳转确认",
+            "外部应用",
+        ).any { joined.contains(it.lowercase()) }
+        val isDangerous = listOf(
+            "支付",
+            "付款",
+            "转账",
+            "下单",
+            "购买",
+            "删除",
+            "授权登录",
+            "验证码",
+            "密码",
+        ).any { joined.contains(it.lowercase()) }
+        return isOpenAppDialog && !isDangerous
     }
 }
