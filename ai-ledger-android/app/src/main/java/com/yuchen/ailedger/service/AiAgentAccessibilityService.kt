@@ -713,7 +713,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val DEFAULT_TAP_MS = 48L
         private const val DEFAULT_SWIPE_MS = 300L
         private const val DEFAULT_WAIT_MS = 650L
-        private const val VISION_MAX_LONG_SIDE = 960
+        private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1200L
         private const val SNAPSHOT_NODE_BUDGET_MS = 520L
