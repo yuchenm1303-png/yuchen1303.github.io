@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-stock parent drawn market screen
+stock parent glass style restored
