@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import java.text.Normalizer
 
@@ -54,31 +55,53 @@ class InstalledAppIndex(
         val now = System.currentTimeMillis()
         if (!forceReload && cachedApps.isNotEmpty() && now - lastLoadedAt < CACHE_TTL_MS) return cachedApps
 
-        val intent = Intent(Intent.ACTION_MAIN).apply {
+        val packageManager = context.packageManager
+        val launchIntent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
-        val packageManager = context.packageManager
-        val apps = packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+
+        val launcherApps = packageManager.queryIntentActivities(launchIntent, launcherQueryFlags())
             .mapNotNull { info ->
                 val packageName = info.activityInfo?.packageName.orEmpty()
                 if (packageName.isBlank()) return@mapNotNull null
                 val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
+                    .ifBlank { safeApplicationLabel(packageManager, packageName) }
                 if (label.isBlank()) return@mapNotNull null
+                if (packageManager.getLaunchIntentForPackage(packageName) == null) return@mapNotNull null
                 InstalledAppEntry(label = label, packageName = packageName)
             }
+
+        val verifiedKnownApps = KNOWN_APPS.mapNotNull { known ->
+            if (packageManager.getLaunchIntentForPackage(known.packageName) == null) return@mapNotNull null
+            val label = safeApplicationLabel(packageManager, known.packageName).ifBlank { known.label }
+            InstalledAppEntry(label = label, packageName = known.packageName)
+        }
+
+        val apps = (launcherApps + verifiedKnownApps)
             .distinctBy { it.packageName }
-            .sortedBy { it.label }
+            .sortedWith(compareBy<InstalledAppEntry> { normalizeAppName(it.label) }.thenBy { it.packageName })
 
         cachedApps = apps
         lastLoadedAt = now
         return apps
     }
 
+    private fun launcherQueryFlags(): Int {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) PackageManager.MATCH_ALL else 0
+    }
+
+    private fun safeApplicationLabel(packageManager: PackageManager, packageName: String): String {
+        return runCatching {
+            val info: ApplicationInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(info)?.toString()?.trim().orEmpty()
+        }.getOrDefault("")
+    }
+
     private fun knownAppFallback(candidates: List<String>): InstalledAppEntry? {
         return KNOWN_APPS.firstOrNull { app ->
             val aliases = aliasesFor(app).map(::normalizeAppName)
             candidates.any { candidate -> aliases.any { alias -> scoreNameMatch(candidate, alias) > 0 || scoreNameMatch(candidate, normalizeAppName(app.label)) > 0 } }
-        }
+        }?.takeIf { context.packageManager.getLaunchIntentForPackage(it.packageName) != null }
     }
 
     private fun scoreAppMention(query: String, app: InstalledAppEntry): Int {
