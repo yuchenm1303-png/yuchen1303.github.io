@@ -20,25 +20,33 @@ class InstalledAppIndex(
 ) {
     private var cachedApps: List<InstalledAppEntry> = emptyList()
     private var lastLoadedAt: Long = 0L
+    private var cachedQueryRows: List<IndexedAppRow> = emptyList()
 
     fun findBestApp(rawQuery: String): InstalledAppEntry? {
-        val query = normalizeAppName(rawQuery)
-        if (query.isBlank()) return null
+        return findCandidateApps(rawQuery, limit = 1).firstOrNull()
+            ?: knownAppFallback(aliasCandidates(normalizeAppName(rawQuery)))
+    }
 
-        val installedMatch = getLaunchableApps()
-            .mapNotNull { app ->
-                val score = scoreAppMention(query, app)
-                if (score <= 0) null else app to score
+    fun findCandidateApps(rawQuery: String, limit: Int = 12): List<InstalledAppEntry> {
+        val query = normalizeAppName(rawQuery)
+        if (query.isBlank()) return emptyList()
+        val directCandidates = queryFragments(query)
+        val installedMatches = getIndexedRows()
+            .mapNotNull { row ->
+                val score = scoreAppMention(query, directCandidates, row)
+                if (score <= 0) null else row.app to score
             }
-            .maxWithOrNull(
-                compareBy<Pair<InstalledAppEntry, Int>> { it.second }
-                    .thenByDescending { normalizeAppName(it.first.label).length }
+            .sortedWith(
+                compareByDescending<Pair<InstalledAppEntry, Int>> { it.second }
+                    .thenBy { normalizeAppName(it.first.label).length }
                     .thenBy { it.first.label }
             )
-            ?.first
-        if (installedMatch != null) return installedMatch
+            .map { it.first }
+            .distinctBy { it.packageName }
+            .take(limit)
+        if (installedMatches.isNotEmpty()) return installedMatches
 
-        return knownAppFallback(aliasCandidates(query))
+        return knownAppFallback(aliasCandidates(query))?.let { listOf(it) }.orEmpty()
     }
 
     fun aliasesFor(app: InstalledAppEntry): List<String> {
@@ -82,8 +90,18 @@ class InstalledAppIndex(
             .sortedWith(compareBy<InstalledAppEntry> { normalizeAppName(it.label) }.thenBy { it.packageName })
 
         cachedApps = apps
+        cachedQueryRows = emptyList()
         lastLoadedAt = now
         return apps
+    }
+
+    private fun getIndexedRows(): List<IndexedAppRow> {
+        if (cachedQueryRows.isNotEmpty()) return cachedQueryRows
+        cachedQueryRows = getLaunchableApps().map { app ->
+            val aliases = aliasesFor(app).map(::normalizeAppName).filter { it.length >= MIN_ALIAS_MATCH_LENGTH }.distinct()
+            IndexedAppRow(app = app, label = normalizeAppName(app.label), aliases = aliases)
+        }
+        return cachedQueryRows
     }
 
     private fun launcherQueryFlags(): Int {
@@ -104,21 +122,26 @@ class InstalledAppIndex(
         }?.takeIf { context.packageManager.getLaunchIntentForPackage(it.packageName) != null }
     }
 
-    private fun scoreAppMention(query: String, app: InstalledAppEntry): Int {
-        val label = normalizeAppName(app.label)
-        if (label.isBlank()) return 0
-        val aliases = aliasesFor(app).map(::normalizeAppName).filter { it.length >= MIN_ALIAS_MATCH_LENGTH }.distinct()
-        val aliasScore = aliases.maxOfOrNull { alias ->
-            when {
-                query == alias -> 1200 + alias.length
-                query.startsWith(alias) -> 1050 + alias.length
-                query.contains(alias) -> 900 + alias.length
-                alias.contains(query) && query.length >= MIN_ALIAS_MATCH_LENGTH -> 760 + query.length
-                else -> 0
-            }
+    private fun scoreAppMention(query: String, queryFragments: List<String>, row: IndexedAppRow): Int {
+        if (row.label.isBlank()) return 0
+        val allNeedles = (listOf(query) + queryFragments).filter { it.length >= MIN_ALIAS_MATCH_LENGTH }.distinct()
+        val aliasScore = allNeedles.maxOfOrNull { needle ->
+            row.aliases.maxOfOrNull { alias -> scoreNameMatch(needle, alias) } ?: 0
         } ?: 0
-        val labelScore = scoreNameMatch(query, label)
+        val labelScore = allNeedles.maxOfOrNull { needle -> scoreNameMatch(needle, row.label) } ?: 0
         return maxOf(aliasScore, labelScore)
+    }
+
+    private fun queryFragments(query: String): List<String> {
+        if (query.length <= MAX_QUERY_FRAGMENT_LENGTH) return listOf(query)
+        val segments = Regex("[\\p{L}\\p{N}]{2,}").findAll(query).map { it.value }.toList()
+        val windows = buildList {
+            val maxLen = minOf(MAX_QUERY_FRAGMENT_LENGTH, query.length)
+            for (length in MIN_ALIAS_MATCH_LENGTH..maxLen) {
+                for (start in 0..query.length - length) add(query.substring(start, start + length))
+            }
+        }
+        return (segments + windows).distinct().take(200)
     }
 
     private fun aliasCandidates(query: String): List<String> {
@@ -139,7 +162,7 @@ class InstalledAppIndex(
     }
 
     private fun scoreNameMatch(query: String, label: String): Int {
-        if (query == label) return 1000
+        if (query == label) return 1000 + query.length
         if (label.startsWith(query) && query.length >= MIN_ALIAS_MATCH_LENGTH) return 900 - (label.length - query.length).coerceAtLeast(0)
         if (label.contains(query) && query.length >= MIN_ALIAS_MATCH_LENGTH) return 760 - (label.length - query.length).coerceAtLeast(0)
         if (query.contains(label) && label.length >= MIN_ALIAS_MATCH_LENGTH) return 620 - (query.length - label.length).coerceAtLeast(0)
@@ -154,9 +177,16 @@ class InstalledAppIndex(
             .removeSuffix("应用")
     }
 
+    private data class IndexedAppRow(
+        val app: InstalledAppEntry,
+        val label: String,
+        val aliases: List<String>,
+    )
+
     companion object {
-        private const val CACHE_TTL_MS = 60_000L
+        private const val CACHE_TTL_MS = 5 * 60_000L
         private const val MIN_ALIAS_MATCH_LENGTH = 2
+        private const val MAX_QUERY_FRAGMENT_LENGTH = 10
         private val KNOWN_ALIASES_BY_PACKAGE = mapOf(
             "com.tencent.mm" to listOf("微信", "wechat", "wx"),
             "com.eg.android.AlipayGphone" to listOf("支付宝", "alipay"),
