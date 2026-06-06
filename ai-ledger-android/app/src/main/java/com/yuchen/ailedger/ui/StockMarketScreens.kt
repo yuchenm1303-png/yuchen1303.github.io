@@ -46,15 +46,20 @@ import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockFeatureEntry
+import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMetric
 import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.StockTradeTick
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val StockTabs = listOf("分时", "日K", "周K", "月K", "五日")
+private val DepthTabs = listOf("五档", "成交")
 
 @Composable
 fun AStockMarketScreenV2(
@@ -68,6 +73,10 @@ fun AStockMarketScreenV2(
     var query by remember { mutableStateOf(stock.quote.code) }
     var loading by remember { mutableStateOf(true) }
     var showDetail by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf("分时") }
+    var depthTab by remember { mutableStateOf("五档") }
+    var isWatched by remember { mutableStateOf(false) }
+    var activeAction by remember { mutableStateOf<String?>(null) }
 
     fun loadStock(input: String, openDetail: Boolean) {
         val target = input.trim().ifBlank { stock.quote.code }
@@ -90,8 +99,27 @@ fun AStockMarketScreenV2(
             state = state,
             stock = stock,
             loading = loading,
-            onBack = { showDetail = false },
+            selectedTab = selectedTab,
+            onSelectTab = { selectedTab = it },
+            depthTab = depthTab,
+            onSelectDepthTab = { depthTab = it },
+            isWatched = isWatched,
+            activeAction = activeAction,
+            onBack = {
+                activeAction = null
+                showDetail = false
+            },
             onRefresh = { loadStock(query, openDetail = true) },
+            onAction = { action ->
+                when (action) {
+                    "加自选" -> {
+                        isWatched = !isWatched
+                        activeAction = "加自选"
+                    }
+                    else -> activeAction = if (activeAction == action) null else action
+                }
+            },
+            onCloseAction = { activeAction = null },
             onOpenAssistant = onOpenAssistant
         )
     } else {
@@ -143,8 +171,16 @@ private fun AStockDetailScreen(
     state: AssistantUiState,
     stock: StockDetailUiState,
     loading: Boolean,
+    selectedTab: String,
+    onSelectTab: (String) -> Unit,
+    depthTab: String,
+    onSelectDepthTab: (String) -> Unit,
+    isWatched: Boolean,
+    activeAction: String?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onAction: (String) -> Unit,
+    onCloseAction: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
     LazyColumn(
@@ -153,10 +189,34 @@ private fun AStockDetailScreen(
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         item { AStockTerminalTopBar(state, stock, loading, onBack, onRefresh) }
-        item { AStockTerminalPanel(state, stock, loading) }
+        item {
+            AStockTerminalPanel(
+                state = state,
+                stock = stock,
+                loading = loading,
+                selectedTab = selectedTab,
+                onSelectTab = onSelectTab,
+                depthTab = depthTab,
+                onSelectDepthTab = onSelectDepthTab
+            )
+        }
+        if (activeAction != null) {
+            item {
+                AStockActionPanel(
+                    state = state,
+                    stock = stock,
+                    activeAction = activeAction,
+                    isWatched = isWatched,
+                    selectedTab = selectedTab,
+                    onClose = onCloseAction,
+                    onRefresh = onRefresh,
+                    onToggleWatch = { onAction("加自选") }
+                )
+            }
+        }
         item { AStockAiPanel(state, stock, onOpenAssistant) }
         item { AStockInfoPanel(state, stock) }
-        item { AStockBottomActionPanel(state, stock) }
+        item { AStockBottomActionPanel(state, stock, isWatched, activeAction, onAction) }
     }
 }
 
@@ -193,13 +253,21 @@ private fun AStockTerminalTopBar(
 }
 
 @Composable
-private fun AStockTerminalPanel(state: AssistantUiState, stock: StockDetailUiState, loading: Boolean) {
-    GlassPanel(state.quality, state.glassIntensity * 0.72f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(590.dp), GlassRole.Card) {
+private fun AStockTerminalPanel(
+    state: AssistantUiState,
+    stock: StockDetailUiState,
+    loading: Boolean,
+    selectedTab: String,
+    onSelectTab: (String) -> Unit,
+    depthTab: String,
+    onSelectDepthTab: (String) -> Unit
+) {
+    GlassPanel(state.quality, state.glassIntensity * 0.72f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(600.dp), GlassRole.Card) {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             AStockQuoteTerminalHeader(stock, loading)
             AStockPopularityTicker(stock)
-            AStockTerminalTabs()
-            AStockCoreTradingArea(stock)
+            AStockTerminalTabs(state, selectedTab, onSelectTab)
+            AStockCoreTradingArea(stock, selectedTab, depthTab, onSelectDepthTab)
             AStockTerminalTapeAndFlow(stock)
         }
     }
@@ -242,13 +310,16 @@ private fun AStockPopularityTicker(stock: StockDetailUiState) {
 }
 
 @Composable
-private fun AStockTerminalTabs() {
-    Row(Modifier.fillMaxWidth().height(37.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf("分时", "日K", "周K", "月K", "五日", "更多⌄").forEachIndexed { index, label ->
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(label, color = Color.White.copy(alpha = if (index == 0) 0.96f else 0.48f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Box(Modifier.fillMaxWidth().height(2.dp)) {
-                    if (index == 0) Canvas(Modifier.fillMaxSize()) { drawRoundRect(RiseRed.copy(alpha = 0.90f), cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx())) }
+private fun AStockTerminalTabs(state: AssistantUiState, selectedTab: String, onSelectTab: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(40.dp), horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        StockTabs.forEach { label ->
+            val selected = selectedTab == label
+            PressableGlass(state.quality, state.glassIntensity * if (selected) 0.95f else 0.56f, state.motionIntensity, 12, Modifier.weight(1f).height(34.dp), GlassRole.Chip, onClick = { onSelectTab(label) }) {
+                Column(Modifier.fillMaxSize().padding(top = 5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(label, color = Color.White.copy(alpha = if (selected) 0.98f else 0.50f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Box(Modifier.fillMaxWidth().height(2.dp)) {
+                        if (selected) Canvas(Modifier.fillMaxSize()) { drawRoundRect(RiseRed.copy(alpha = 0.90f), cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx())) }
+                    }
                 }
             }
         }
@@ -257,18 +328,22 @@ private fun AStockTerminalTabs() {
 }
 
 @Composable
-private fun AStockCoreTradingArea(stock: StockDetailUiState) {
-    Row(Modifier.fillMaxWidth().height(334.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun AStockCoreTradingArea(stock: StockDetailUiState, selectedTab: String, depthTab: String, onSelectDepthTab: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(340.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(Modifier.weight(2.18f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            AStockInlineChartHeader(stock)
-            Box(Modifier.fillMaxWidth().height(206.dp)) {
-                AStockIntradayCanvas(stock, Modifier.fillMaxSize())
-                AStockChartAxisOverlay(stock)
+            if (selectedTab == "分时") AStockInlineChartHeader(stock) else AStockKLineHeader(stock, selectedTab)
+            Box(Modifier.fillMaxWidth().height(210.dp)) {
+                if (selectedTab == "分时") {
+                    AStockIntradayCanvas(stock, Modifier.fillMaxSize())
+                    AStockChartAxisOverlay(stock)
+                } else {
+                    AStockKLineCanvas(stock, selectedTab, Modifier.fillMaxSize())
+                }
             }
-            AStockTimeAxis()
-            AStockVolumeCanvas(stock, Modifier.fillMaxWidth().height(72.dp))
+            if (selectedTab == "分时") AStockTimeAxis() else AStockKLineAxis(stock, selectedTab)
+            if (selectedTab == "分时") AStockVolumeCanvas(stock, Modifier.fillMaxWidth().height(72.dp)) else AStockKLineVolumeCanvas(stock, selectedTab, Modifier.fillMaxWidth().height(72.dp))
         }
-        AStockDepthAndTapeColumn(stock, Modifier.weight(0.98f))
+        AStockDepthAndTapeColumn(stock, depthTab, onSelectDepthTab, Modifier.weight(0.98f))
     }
 }
 
@@ -279,6 +354,19 @@ private fun AStockInlineChartHeader(stock: StockDetailUiState) {
         Text("集合竞价", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text("均价 ${formatTwo(avg)}", color = Color(0xFFFFC857), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text("最新 ${stock.quote.price}", color = quoteColor(stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+@Composable
+private fun AStockKLineHeader(stock: StockDetailUiState, tab: String) {
+    val points = kLinesForTab(stock, tab)
+    val last = points.lastOrNull()
+    val ma5 = points.takeLast(5).takeIf { it.isNotEmpty() }?.map { it.close }?.average()?.toFloat() ?: last?.close ?: 0f
+    val ma10 = points.takeLast(10).takeIf { it.isNotEmpty() }?.map { it.close }?.average()?.toFloat() ?: last?.close ?: 0f
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(tab, color = Color.White.copy(alpha = 0.54f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("MA5 ${formatTwo(ma5)}", color = Color(0xFFFFC857), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("MA10 ${formatTwo(ma10)}", color = Color(0xFF9FD2FF), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
     }
 }
 
@@ -295,14 +383,7 @@ private fun AStockIntradayCanvas(stock: StockDetailUiState, modifier: Modifier) 
         val right = size.width - 8.dp.toPx()
         val top = 8.dp.toPx()
         val bottom = size.height - 8.dp.toPx()
-        repeat(5) { i ->
-            val y = top + (bottom - top) * i / 4f
-            drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
-        }
-        repeat(4) { i ->
-            val x = left + (right - left) * i / 3f
-            drawLine(Color.White.copy(alpha = 0.08f), Offset(x, top), Offset(x, bottom), 1.dp.toPx(), cap = StrokeCap.Round)
-        }
+        drawChartGrid(left, right, top, bottom)
         val baseY = bottom - (stock.quote.previousClose - minValue) / range * (bottom - top)
         drawLine(Color.White.copy(alpha = 0.22f), Offset(left, baseY), Offset(right, baseY), 1.dp.toPx(), cap = StrokeCap.Round)
         fun point(index: Int, value: Float): Offset = Offset(left + (right - left) * index / prices.lastIndex.coerceAtLeast(1).toFloat(), bottom - (value - minValue) / range * (bottom - top))
@@ -348,6 +429,48 @@ private fun AStockChartAxisOverlay(stock: StockDetailUiState) {
 }
 
 @Composable
+private fun AStockKLineCanvas(stock: StockDetailUiState, tab: String, modifier: Modifier) {
+    val points = kLinesForTab(stock, tab)
+    Canvas(modifier = modifier) {
+        val left = 8.dp.toPx()
+        val right = size.width - 8.dp.toPx()
+        val top = 8.dp.toPx()
+        val bottom = size.height - 8.dp.toPx()
+        drawChartGrid(left, right, top, bottom)
+        val minValue = points.minOfOrNull { it.low } ?: stock.quote.previousClose
+        val maxValue = points.maxOfOrNull { it.high } ?: stock.quote.previousClose
+        val range = (maxValue - minValue).coerceAtLeast(0.01f)
+        val space = (right - left) / points.size.coerceAtLeast(1)
+        val candleWidth = (space * 0.56f).coerceAtLeast(3.dp.toPx())
+        fun y(value: Float): Float = bottom - (value - minValue) / range * (bottom - top)
+        points.forEachIndexed { index, p ->
+            val x = left + space * index + space / 2f
+            val rising = p.close >= p.open
+            val color = quoteColor(rising).copy(alpha = 0.86f)
+            val highY = y(p.high)
+            val lowY = y(p.low)
+            val openY = y(p.open)
+            val closeY = y(p.close)
+            drawLine(color, Offset(x, highY), Offset(x, lowY), 1.dp.toPx(), cap = StrokeCap.Round)
+            val rectTop = minOf(openY, closeY)
+            val rectHeight = max(2.dp.toPx(), kotlin.math.abs(openY - closeY))
+            drawRoundRect(color, Offset(x - candleWidth / 2f, rectTop), Size(candleWidth, rectHeight), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
+        }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawChartGrid(left: Float, right: Float, top: Float, bottom: Float) {
+    repeat(5) { i ->
+        val y = top + (bottom - top) * i / 4f
+        drawLine(Color.White.copy(alpha = 0.12f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
+    }
+    repeat(4) { i ->
+        val x = left + (right - left) * i / 3f
+        drawLine(Color.White.copy(alpha = 0.08f), Offset(x, top), Offset(x, bottom), 1.dp.toPx(), cap = StrokeCap.Round)
+    }
+}
+
+@Composable
 private fun AStockVolumeCanvas(stock: StockDetailUiState, modifier: Modifier) {
     val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
     Canvas(modifier = modifier) {
@@ -355,18 +478,42 @@ private fun AStockVolumeCanvas(stock: StockDetailUiState, modifier: Modifier) {
         val right = size.width - 8.dp.toPx()
         val top = 6.dp.toPx()
         val bottom = size.height - 6.dp.toPx()
+        val maxVolume = points.maxOfOrNull { it.volumeRatio } ?: 1f
+        val barSpace = (right - left) / points.size.coerceAtLeast(1)
+        val barWidth = barSpace * 0.58f
         repeat(3) { i ->
             val y = top + (bottom - top) * i / 2f
             drawLine(Color.White.copy(alpha = 0.10f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
         }
-        val maxVolume = points.maxOfOrNull { it.volumeRatio } ?: 1f
-        val barSpace = (right - left) / points.size.coerceAtLeast(1)
-        val barWidth = barSpace * 0.58f
         points.forEachIndexed { index, point ->
             val x = left + index * barSpace + barSpace / 2f
             val prev = points.getOrNull(index - 1)?.price ?: stock.quote.previousClose
             val color = if (point.price >= prev) RiseRed else FallGreen
             val h = (bottom - top) * (point.volumeRatio / maxVolume).coerceIn(0.04f, 1f)
+            drawRoundRect(color.copy(alpha = 0.66f), Offset(x - barWidth / 2f, bottom - h), Size(barWidth, h), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
+        }
+    }
+}
+
+@Composable
+private fun AStockKLineVolumeCanvas(stock: StockDetailUiState, tab: String, modifier: Modifier) {
+    val points = kLinesForTab(stock, tab)
+    Canvas(modifier = modifier) {
+        val left = 8.dp.toPx()
+        val right = size.width - 8.dp.toPx()
+        val top = 6.dp.toPx()
+        val bottom = size.height - 6.dp.toPx()
+        val maxVolume = points.maxOfOrNull { it.volume } ?: 1f
+        val barSpace = (right - left) / points.size.coerceAtLeast(1)
+        val barWidth = barSpace * 0.58f
+        repeat(3) { i ->
+            val y = top + (bottom - top) * i / 2f
+            drawLine(Color.White.copy(alpha = 0.10f), Offset(left, y), Offset(right, y), 1.dp.toPx(), cap = StrokeCap.Round)
+        }
+        points.forEachIndexed { index, point ->
+            val x = left + index * barSpace + barSpace / 2f
+            val color = if (point.close >= point.open) RiseRed else FallGreen
+            val h = (bottom - top) * (point.volume / maxVolume).coerceIn(0.04f, 1f)
             drawRoundRect(color.copy(alpha = 0.66f), Offset(x - barWidth / 2f, bottom - h), Size(barWidth, h), CornerRadius(1.dp.toPx(), 1.dp.toPx()))
         }
     }
@@ -382,28 +529,51 @@ private fun AStockTimeAxis() {
 }
 
 @Composable
-private fun AStockDepthAndTapeColumn(stock: StockDetailUiState, modifier: Modifier = Modifier) {
+private fun AStockKLineAxis(stock: StockDetailUiState, tab: String) {
+    val points = kLinesForTab(stock, tab)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(points.firstOrNull()?.date ?: "--", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(tab, color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(points.lastOrNull()?.date ?: "--", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun AStockDepthAndTapeColumn(stock: StockDetailUiState, depthTab: String, onSelectDepthTab: (String) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth().height(24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("五档", color = RiseRed, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-            Text("成交", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-        }
-        Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.SpaceBetween) {
-            stock.sellLevels.takeLast(5).forEach { TerminalOrderRow(it) }
-            Box(Modifier.fillMaxWidth().height(2.dp)) {
-                Canvas(Modifier.fillMaxSize()) {
-                    drawLine(RiseRed.copy(alpha = 0.85f), Offset(0f, size.height / 2f), Offset(size.width * 0.58f, size.height / 2f), 2.dp.toPx())
-                    drawLine(FallGreen.copy(alpha = 0.85f), Offset(size.width * 0.58f, size.height / 2f), Offset(size.width, size.height / 2f), 2.dp.toPx())
+        Row(Modifier.fillMaxWidth().height(26.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            DepthTabs.forEach { label ->
+                val selected = depthTab == label
+                PressableGlass(1f, 0.42f, 0f, 8, Modifier.weight(1f).height(24.dp), GlassRole.Chip, onClick = { onSelectDepthTab(label) }) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(label, color = if (selected) RiseRed else Color.White.copy(alpha = 0.50f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
                 }
             }
-            stock.buyLevels.take(5).forEach { TerminalOrderRow(it) }
         }
-        Column(Modifier.fillMaxWidth().height(88.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            normalizedTicks(stock).take(3).forEach { TerminalTickRow(it) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("大单", color = FallGreen.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black)
-                Text(stock.moneyFlow.mainInflow, color = flowColor(stock.moneyFlow.mainInflow), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (depthTab == "五档") {
+            Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.SpaceBetween) {
+                stock.sellLevels.takeLast(5).forEach { TerminalOrderRow(it) }
+                Box(Modifier.fillMaxWidth().height(2.dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawLine(RiseRed.copy(alpha = 0.85f), Offset(0f, size.height / 2f), Offset(size.width * 0.58f, size.height / 2f), 2.dp.toPx())
+                        drawLine(FallGreen.copy(alpha = 0.85f), Offset(size.width * 0.58f, size.height / 2f), Offset(size.width, size.height / 2f), 2.dp.toPx())
+                    }
+                }
+                stock.buyLevels.take(5).forEach { TerminalOrderRow(it) }
             }
+            Column(Modifier.fillMaxWidth().height(78.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                normalizedTicks(stock).take(3).forEach { TerminalTickRow(it) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("大单", color = FallGreen.copy(alpha = 0.90f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text(stock.moneyFlow.mainInflow, color = flowColor(stock.moneyFlow.mainInflow), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                normalizedTicks(stock).take(10).forEach { TerminalTickRow(it) }
+            }
+            Text("成交明细来自分时聚合，后续可接逐笔接口", color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, lineHeight = 12.sp)
         }
     }
 }
@@ -448,6 +618,105 @@ private fun FlowChip(label: String, value: String, modifier: Modifier = Modifier
         Text(label, color = Color.White.copy(alpha = 0.36f), fontSize = 9.sp, fontWeight = FontWeight.Black, maxLines = 1)
         Text(value, color = flowColor(value), fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
+}
+
+@Composable
+private fun AStockActionPanel(
+    state: AssistantUiState,
+    stock: StockDetailUiState,
+    activeAction: String,
+    isWatched: Boolean,
+    selectedTab: String,
+    onClose: () -> Unit,
+    onRefresh: () -> Unit,
+    onToggleWatch: () -> Unit
+) {
+    GlassPanel(state.quality, state.glassIntensity * 0.90f, state.motionIntensity, 22, Modifier.fillMaxWidth(), GlassRole.Card) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(actionTitle(activeAction), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                PressableGlass(state.quality, state.glassIntensity * 0.55f, state.motionIntensity, 999, Modifier.width(38.dp).height(28.dp), GlassRole.Chip, onClick = onClose) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("×", color = Color.White.copy(alpha = 0.72f), fontSize = 16.sp, fontWeight = FontWeight.Black) }
+                }
+            }
+            when (activeAction) {
+                "下单" -> SimulatedOrderPanel(state, stock)
+                "社区" -> CommunityPanel(stock)
+                "加自选" -> WatchPanel(isWatched, stock, onToggleWatch)
+                "更多" -> MorePanel(stock, selectedTab, onRefresh)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SimulatedOrderPanel(state: AssistantUiState, stock: StockDetailUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("模拟委托入口，不连接真实券商账户，不产生真实交易。", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, lineHeight = 16.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PressableGlass(state.quality, state.glassIntensity * 0.78f, state.motionIntensity, 18, Modifier.weight(1f).height(42.dp), GlassRole.Chip, onClick = {}) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("模拟买入 ${stock.quote.price}", color = RiseRed, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+            }
+            PressableGlass(state.quality, state.glassIntensity * 0.78f, state.motionIntensity, 18, Modifier.weight(1f).height(42.dp), GlassRole.Chip, onClick = {}) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("模拟卖出 ${stock.quote.price}", color = FallGreen, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionInfo("盘口", "买一 ${stock.buyLevels.firstOrNull()?.price ?: "--"}", Modifier.weight(1f))
+            ActionInfo("成交额", stock.quote.amount, Modifier.weight(1f))
+            ActionInfo("换手", stock.quote.turnoverRate, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun CommunityPanel(stock: StockDetailUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("社区热议 · ${stock.quote.name}", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text("观点流会接入后端后显示真实讨论。当前先提供行情上下文：${stock.quote.changePercent}，成交额 ${stock.quote.amount}，量比 ${stock.quote.volumeRatio}。", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, lineHeight = 17.sp)
+    }
+}
+
+@Composable
+private fun WatchPanel(isWatched: Boolean, stock: StockDetailUiState, onToggleWatch: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(if (isWatched) "已加入自选" else "已移出自选", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+            Text("${stock.quote.name} ${stock.quote.code} · 本地状态已更新，后续可接账号同步。", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, lineHeight = 16.sp)
+        }
+        Text(if (isWatched) "★" else "☆", color = Color(0xFFFFC857), fontSize = 26.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun MorePanel(stock: StockDetailUiState, selectedTab: String, onRefresh: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("当前图表：$selectedTab · 数据源：${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionInfo("刷新", "点右上角或这里", Modifier.weight(1f))
+            ActionInfo("K线数", kLinesForTab(stock, selectedTab).size.toString(), Modifier.weight(1f))
+            ActionInfo("分时点", stock.minutePoints.size.toString(), Modifier.weight(1f))
+        }
+        PressableGlass(1f, 0.42f, 0f, 14, Modifier.fillMaxWidth().height(38.dp), GlassRole.Chip, onClick = onRefresh) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("立即刷新行情", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black) }
+        }
+    }
+}
+
+@Composable
+private fun ActionInfo(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text(value, color = Color.White.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private fun actionTitle(action: String): String = when (action) {
+    "下单" -> "模拟下单"
+    "社区" -> "社区观点"
+    "加自选" -> "自选状态"
+    "更多" -> "更多功能"
+    else -> action
 }
 
 @Composable
@@ -597,17 +866,21 @@ private fun AStockInfoPanel(state: AssistantUiState, stock: StockDetailUiState) 
 }
 
 @Composable
-private fun AStockBottomActionPanel(state: AssistantUiState, stock: StockDetailUiState) {
+private fun AStockBottomActionPanel(state: AssistantUiState, stock: StockDetailUiState, isWatched: Boolean, activeAction: String?, onAction: (String) -> Unit) {
     GlassPanel(state.quality, state.glassIntensity * 0.82f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(68.dp), GlassRole.Nav) {
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text("沪 ${stock.indices.firstOrNull()?.value ?: "--"}", color = quoteColor(stock.indices.firstOrNull()?.isRising ?: stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(stock.indices.firstOrNull()?.changePercent ?: "--", color = quoteColor(stock.indices.firstOrNull()?.isRising ?: stock.quote.isRising), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("沪 ${stock.indices.firstOrNull()?.value ?: stock.quote.price}", color = quoteColor(stock.indices.firstOrNull()?.isRising ?: stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(stock.indices.firstOrNull()?.changePercent ?: stock.quote.changePercent, color = quoteColor(stock.indices.firstOrNull()?.isRising ?: stock.quote.isRising), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             listOf("下单", "社区", "加自选", "更多").forEach { label ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(if (label == "加自选") "+" else if (label == "更多") "…" else "□", color = Color.White.copy(alpha = 0.72f), fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(label, color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                val displayLabel = if (label == "加自选" && isWatched) "已自选" else label
+                val selected = activeAction == label || (label == "加自选" && isWatched)
+                PressableGlass(state.quality, state.glassIntensity * if (selected) 0.95f else 0.55f, state.motionIntensity, 16, Modifier.weight(1f).height(52.dp), GlassRole.Chip, onClick = { onAction(label) }) {
+                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Text(if (label == "加自选") if (isWatched) "★" else "+" else if (label == "更多") "…" else "□", color = if (selected) Color.White else Color.White.copy(alpha = 0.72f), fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(displayLabel, color = Color.White.copy(alpha = if (selected) 0.90f else 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
             }
         }
@@ -616,7 +889,7 @@ private fun AStockBottomActionPanel(state: AssistantUiState, stock: StockDetailU
 
 @Composable
 private fun AStockIndexPanel(state: AssistantUiState, stock: StockDetailUiState) {
-    InfoCard(state, "A股指数", "上证、深成、创业板和宽基指数", stock.indices.chunked(3).map { row -> row.joinToString("    ") { "${it.name} ${it.value} ${it.changePercent}" } })
+    InfoCard(state, "A股指数", "上证、深成、创业板和宽基指数", stock.indices.ifEmpty { listOf() }.chunked(3).map { row -> row.joinToString("    ") { "${it.name} ${it.value} ${it.changePercent}" } }.ifEmpty { listOf("指数数据将在行情代理补充后显示") })
 }
 
 @Composable
@@ -624,7 +897,7 @@ private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState,
     GlassPanel(state.quality, state.glassIntensity * 0.94f, state.motionIntensity, 28, Modifier.fillMaxWidth(), GlassRole.Card) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Section("A股自选", "点示例股会尝试加载真实报价与K线")
-            stock.watchlist.forEach { item ->
+            stock.watchlist.ifEmpty { listOf() }.forEach { item ->
                 PressableGlass(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 18, Modifier.fillMaxWidth().height(42.dp), GlassRole.Chip, onClick = { onOpenCode?.invoke(item.code) }) {
                     Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -636,6 +909,7 @@ private fun AStockWatchPanel(state: AssistantUiState, stock: StockDetailUiState,
                     }
                 }
             }
+            if (stock.watchlist.isEmpty()) Text("自选列表将在账号同步后显示。", color = Color.White.copy(alpha = 0.48f), fontSize = 12.sp)
         }
     }
 }
@@ -717,7 +991,7 @@ private fun Section(title: String, subtitle: String) {
 
 private fun normalizedTicks(stock: StockDetailUiState): List<StockTradeTick> {
     if (stock.tradeTicks.isNotEmpty()) return stock.tradeTicks
-    return stock.minutePoints.takeLast(4).reversed().mapIndexed { index, item ->
+    return stock.minutePoints.takeLast(8).reversed().mapIndexed { index, item ->
         val prev = stock.minutePoints.getOrNull(stock.minutePoints.lastIndex - index - 1)?.price ?: stock.quote.previousClose
         StockTradeTick(
             time = item.time.ifBlank { "--" },
@@ -727,6 +1001,50 @@ private fun normalizedTicks(stock: StockDetailUiState): List<StockTradeTick> {
             isBuy = item.price >= prev
         )
     }
+}
+
+private fun kLinesForTab(stock: StockDetailUiState, tab: String): List<StockKLinePoint> {
+    val source = stock.kLinePoints.ifEmpty { sampleAStockDetailUiState().kLinePoints }
+    val fallback = source.ifEmpty { minuteAsKLine(stock) }
+    return when (tab) {
+        "五日" -> fallback.takeLast(5)
+        "周K" -> fallback.takeLast(60).chunked(5).mapNotNull { mergeKLine(it) }
+        "月K" -> fallback.takeLast(120).chunked(20).mapNotNull { mergeKLine(it) }
+        else -> fallback.takeLast(44)
+    }.ifEmpty { fallback.takeLast(12) }
+}
+
+private fun minuteAsKLine(stock: StockDetailUiState): List<StockKLinePoint> {
+    val points = stock.minutePoints.ifEmpty { sampleAStockDetailUiState().minutePoints }
+    return points.mapIndexed { index, p ->
+        val prev = points.getOrNull(index - 1)?.price ?: stock.quote.previousClose
+        StockKLinePoint(
+            date = p.time.ifBlank { index.toString() },
+            open = prev,
+            close = p.price,
+            high = max(prev, p.price),
+            low = minOf(prev, p.price),
+            volume = p.volumeRatio.coerceAtLeast(0.01f),
+            amount = p.volumeRatio,
+            changePercent = "--"
+        )
+    }
+}
+
+private fun mergeKLine(points: List<StockKLinePoint>): StockKLinePoint? {
+    if (points.isEmpty()) return null
+    val first = points.first()
+    val last = points.last()
+    return StockKLinePoint(
+        date = last.date,
+        open = first.open,
+        close = last.close,
+        high = points.maxOf { it.high },
+        low = points.minOf { it.low },
+        volume = points.sumOf { it.volume.toDouble() }.toFloat(),
+        amount = points.sumOf { it.amount.toDouble() }.toFloat(),
+        changePercent = last.changePercent
+    )
 }
 
 private fun stockUsesFallbackSample(stock: StockDetailUiState): Boolean {
