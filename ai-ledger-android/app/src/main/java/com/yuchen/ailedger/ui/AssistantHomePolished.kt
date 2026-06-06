@@ -179,7 +179,8 @@ internal fun AssistantScreenV2(
     onOpenSettings: () -> Unit,
     onToggleOnline: () -> Unit,
     onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
+    onRetryMessage: (String) -> Unit,
+    onClearMessages: () -> Unit
 ) {
     var modelPanelExpanded by remember { mutableStateOf(false) }
     var composerFocused by remember { mutableStateOf(false) }
@@ -330,7 +331,8 @@ internal fun AssistantScreenV2(
                     onDraftCommand = onDraftCommand,
                     onPickImage = onPickImage,
                     onCopyMessage = onCopyMessage,
-                    onRetryMessage = onRetryMessage
+                    onRetryMessage = onRetryMessage,
+                    onClearMessages = onClearMessages
                 )
             }
         }
@@ -478,7 +480,8 @@ private fun ChatPanelV2(
     onDraftCommand: (String) -> Unit,
     onPickImage: () -> Unit,
     onCopyMessage: (String) -> Unit,
-    onRetryMessage: (String) -> Unit
+    onRetryMessage: (String) -> Unit,
+    onClearMessages: () -> Unit
 ) {
     val listState = rememberLazyListState()
     val bubbleLayerState = rememberChatBubbleLayerState()
@@ -498,14 +501,6 @@ private fun ChatPanelV2(
     val lastActionableMessageId = remember(messages) {
         messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
     }
-    val statusText = remember(state.isSending, state.hasComposerAttachment) {
-        when {
-            state.isSending -> "正在接收"
-            state.hasComposerAttachment -> "附件待发送"
-            else -> "可上下滑动"
-        }
-    }
-
     LaunchedEffect(lastMessageId, state.isSending) {
         if (messages.isEmpty()) return@LaunchedEffect
         if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
@@ -539,7 +534,10 @@ private fun ChatPanelV2(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    ChatStatusV2(statusText)
+                    ClearChatButtonV2(
+                        enabled = messages.isNotEmpty(),
+                        onClick = onClearMessages
+                    )
                 }
                 Box(
                     Modifier
@@ -805,6 +803,10 @@ private fun MessageBubbleV2(
                 MessageBadgeV2(message)
             } else if (message.hasImageAttachments) {
                 MessageUserAttachmentBadgeV2(message)
+            }
+
+            if (fromUser && rawText.isNotBlank()) {
+                UserMessageActionsV2(copyText = rawText, onCopyMessage = onCopyMessage)
             }
 
             if (!fromUser && !sending && revealFinished && message.status == MessageStatus.Sent) {
@@ -1425,6 +1427,31 @@ private fun SuggestionButtonV2(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
+    }
+}
+
+@Composable
+private fun ClearChatButtonV2(enabled: Boolean, onClick: () -> Unit) {
+    val alpha = if (enabled) 0.64f else 0.26f
+    Text(
+        text = "清空",
+        color = Color.White.copy(alpha = alpha),
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = if (enabled) 0.075f else 0.035f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun UserMessageActionsV2(copyText: String, onCopyMessage: (String) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        TextActionV2("复制") { onCopyMessage(copyText) }
     }
 }
 
