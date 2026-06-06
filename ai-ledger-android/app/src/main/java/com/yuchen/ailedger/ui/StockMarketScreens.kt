@@ -66,7 +66,7 @@ fun AStockMarketScreenV2(
     val scope = rememberCoroutineScope()
     var stock by remember { mutableStateOf(sampleAStockDetailUiState()) }
     var query by remember { mutableStateOf(stock.quote.code) }
-    var loading by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(true) }
     var showDetail by remember { mutableStateOf(false) }
 
     fun loadStock(input: String, openDetail: Boolean) {
@@ -82,10 +82,7 @@ fun AStockMarketScreenV2(
     }
 
     LaunchedEffect(Unit) {
-        loading = true
-        stock = withContext(Dispatchers.IO) { repository.loadAStock(query) }
-        query = stock.quote.code
-        loading = false
+        loadStock(query, openDetail = false)
     }
 
     if (showDetail) {
@@ -94,6 +91,7 @@ fun AStockMarketScreenV2(
             stock = stock,
             loading = loading,
             onBack = { showDetail = false },
+            onRefresh = { loadStock(query, openDetail = true) },
             onOpenAssistant = onOpenAssistant
         )
     } else {
@@ -103,10 +101,12 @@ fun AStockMarketScreenV2(
             query = query,
             loading = loading,
             onQueryChange = { query = it },
-            onSearch = { loadStock(query, true) },
+            onSearch = { loadStock(query, openDetail = true) },
             onBack = onBack,
-            onOpenDetail = { showDetail = true },
-            onOpenCode = { code -> loadStock(code, true) }
+            onOpenDetail = {
+                if (loading || stockUsesFallbackSample(stock)) loadStock(query, openDetail = true) else showDetail = true
+            },
+            onOpenCode = { code -> loadStock(code, openDetail = true) }
         )
     }
 }
@@ -130,7 +130,7 @@ private fun AStockMarketHomeScreen(
     ) {
         item { AStockTopBar("A股行情首页", "搜索个股、查看自选、指数、热榜和龙虎榜", state, onBack) }
         item { AStockSearchPanel(state, query, loading, stock, onQueryChange, onSearch) }
-        item { AStockHomeHero(state, stock, onOpenDetail) }
+        item { AStockHomeHero(state, stock, loading, onOpenDetail) }
         item { AStockIndexPanel(state, stock) }
         item { AStockWatchPanel(state, stock, onOpenCode) }
         item { AStockFeatureMatrix(state, stock) }
@@ -144,6 +144,7 @@ private fun AStockDetailScreen(
     stock: StockDetailUiState,
     loading: Boolean,
     onBack: () -> Unit,
+    onRefresh: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
     LazyColumn(
@@ -151,7 +152,7 @@ private fun AStockDetailScreen(
         contentPadding = PaddingValues(top = 8.dp, bottom = 118.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        item { AStockTerminalTopBar(state, stock, onBack) }
+        item { AStockTerminalTopBar(state, stock, loading, onBack, onRefresh) }
         item { AStockTerminalPanel(state, stock, loading) }
         item { AStockAiPanel(state, stock, onOpenAssistant) }
         item { AStockInfoPanel(state, stock) }
@@ -160,7 +161,13 @@ private fun AStockDetailScreen(
 }
 
 @Composable
-private fun AStockTerminalTopBar(state: AssistantUiState, stock: StockDetailUiState, onBack: () -> Unit) {
+private fun AStockTerminalTopBar(
+    state: AssistantUiState,
+    stock: StockDetailUiState,
+    loading: Boolean,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit
+) {
     GlassPanel(state.quality, state.glassIntensity * 0.86f, state.motionIntensity, 999, Modifier.fillMaxWidth().height(52.dp), GlassRole.Nav) {
         Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PressableGlass(state.quality, state.glassIntensity * 0.68f, state.motionIntensity, 999, Modifier.width(44.dp).height(36.dp), GlassRole.Chip, onClick = onBack) {
@@ -173,11 +180,13 @@ private fun AStockTerminalTopBar(state: AssistantUiState, stock: StockDetailUiSt
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(stock.quote.code, color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     AStockBadge(state, stock.quote.market)
-                    AStockBadge(state, "L1")
+                    AStockBadge(state, if (stockUsesFallbackSample(stock)) "示例" else "L1")
                 }
             }
-            Box(Modifier.width(44.dp).height(36.dp), contentAlignment = Alignment.Center) {
-                Text("⌕", color = Color.White.copy(alpha = 0.82f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            PressableGlass(state.quality, state.glassIntensity * 0.68f, state.motionIntensity, 999, Modifier.width(44.dp).height(36.dp), GlassRole.Chip, onClick = onRefresh) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(if (loading) "…" else "⟳", color = Color.White.copy(alpha = 0.82f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                }
             }
         }
     }
@@ -203,7 +212,7 @@ private fun AStockQuoteTerminalHeader(stock: StockDetailUiState, loading: Boolea
         Column(Modifier.weight(0.78f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(q.price, color = quoteColor(q.isRising), fontSize = 43.sp, lineHeight = 44.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text("${q.changeAmount}  ${q.changePercent}", color = quoteColor(q.isRising), fontSize = 15.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(if (loading) "刷新中" else "交易中  15:00", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(stockDataStatusText(stock, loading), color = dataStatusColor(stock, loading), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Column(Modifier.weight(1.72f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             quoteBoardMetrics(stock).take(12).chunked(3).forEach { row ->
@@ -454,8 +463,8 @@ private fun AStockSearchPanel(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Section("搜索个股", "输入 A 股代码或名称，加载真实报价、分时和K线")
             AStockSearchInputRow(state, query, loading, onQueryChange, onSearch)
-            Text("当前：${stock.quote.name} ${stock.quote.code} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            stock.errorMessage?.let { Text("提示：行情代理暂未返回，已切换示例数据", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp) }
+            Text("当前：${stock.quote.name} ${stock.quote.code} · ${stockDataStatusText(stock, loading)}", color = dataStatusColor(stock, loading), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            stock.errorMessage?.let { Text("提示：$it", color = Color(0xFFFFC857).copy(alpha = 0.86f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -495,7 +504,7 @@ private fun AStockSearchInputRow(
         }
         PressableGlass(state.quality, state.glassIntensity * 1.05f, state.motionIntensity, 22, Modifier.fillMaxWidth().height(44.dp), GlassRole.Floating, onClick = onSearch) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (loading) "正在加载…" else "搜索并打开个股详情", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                Text(if (loading) "正在连接行情代理…" else "搜索并打开个股详情", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
             }
         }
     }
@@ -527,20 +536,20 @@ private fun AStockBadge(state: AssistantUiState, text: String) {
 }
 
 @Composable
-private fun AStockHomeHero(state: AssistantUiState, stock: StockDetailUiState, onOpenDetail: () -> Unit) {
+private fun AStockHomeHero(state: AssistantUiState, stock: StockDetailUiState, loading: Boolean, onOpenDetail: () -> Unit) {
     PressableGlass(state.quality, state.glassIntensity * 1.02f, state.motionIntensity, 30, Modifier.fillMaxWidth().height(188.dp), GlassRole.Card, onClick = onOpenDetail) {
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("今日关注", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(if (stockUsesFallbackSample(stock)) "等待真实行情" else "今日关注", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White, fontSize = 24.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text("点入查看分时、K线、五档盘口、成交明细和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(stockDataStatusText(stock, loading), color = dataStatusColor(stock, loading), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 HomeHeroMetric("现价", stock.quote.price, quoteColor(stock.quote.isRising), Modifier.weight(1f))
                 HomeHeroMetric("涨跌", stock.quote.changePercent, quoteColor(stock.quote.isRising), Modifier.weight(1f))
                 HomeHeroMetric("成交额", stock.quote.amount, Color.White, Modifier.weight(1f))
             }
-            Text("进入标准个股详情", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            Text(if (loading) "连接中，点击可继续等待" else "进入个股详情", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
@@ -565,7 +574,7 @@ private fun quoteBoardMetrics(stock: StockDetailUiState): List<StockMetric> = li
     StockMetric("市净率", stock.quote.pb),
     StockMetric("成交额", stock.quote.amount),
     StockMetric("人气", stock.quote.popularityRank),
-    StockMetric("来源", if (stock.dataSourceLabel.contains("缓存")) "缓存" else "实时")
+    StockMetric("来源", if (stockUsesFallbackSample(stock)) "示例" else "实时")
 )
 
 @Composable
@@ -574,7 +583,7 @@ private fun AStockAiPanel(state: AssistantUiState, stock: StockDetailUiState, on
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("AI 看盘摘要", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                Text(if (stock.quote.isRising) "偏强" else "谨慎", color = quoteColor(stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Text(if (stockUsesFallbackSample(stock)) "示例" else if (stock.quote.isRising) "偏强" else "谨慎", color = dataStatusColor(stock, false), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
             Text(stock.aiSummary, color = Color.White.copy(alpha = 0.66f), fontSize = 12.sp, lineHeight = 18.sp)
             Text(stock.dataSourceLabel, color = Color.White.copy(alpha = 0.36f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -718,6 +727,23 @@ private fun normalizedTicks(stock: StockDetailUiState): List<StockTradeTick> {
             isBuy = item.price >= prev
         )
     }
+}
+
+private fun stockUsesFallbackSample(stock: StockDetailUiState): Boolean {
+    return stock.errorMessage != null || stock.dataSourceLabel.contains("示例") || stock.aiSummary.contains("示例数据")
+}
+
+private fun stockDataStatusText(stock: StockDetailUiState, loading: Boolean): String = when {
+    loading -> "连接行情代理中"
+    stockUsesFallbackSample(stock) -> "示例数据 · 真实行情未返回"
+    stock.dataSourceLabel.contains("缓存") -> stock.dataSourceLabel
+    else -> "实时行情 · ${stock.dataSourceLabel}"
+}
+
+private fun dataStatusColor(stock: StockDetailUiState, loading: Boolean): Color = when {
+    loading -> Color(0xFFFFC857)
+    stockUsesFallbackSample(stock) -> Color(0xFFFFC857)
+    else -> Color.White.copy(alpha = 0.66f)
 }
 
 private fun formatTwo(value: Float): String = "%.2f".format(value)
