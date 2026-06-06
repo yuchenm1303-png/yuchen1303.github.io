@@ -100,15 +100,20 @@ private fun buildAgentStepPayload(
             put("coordinateSystem", "normalized_screen_0_1")
         })
         put("supportedAgentSteps", JSONArray(CloudAgentStep.supportedTypes.toList()))
+        put("supportsAgentStepBatch", true)
+        put("actionBatchMax", CloudAgentPlan.MAX_BATCH_STEPS)
         put("modelPreference", modelId)
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-memory-v9" else "compose-native-agent-tool-only-v9")
+        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-batch-v10" else "compose-native-agent-tool-batch-v10")
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeAgentState", true)
             put("includeAgentStep", true)
+            put("includeAgentSteps", true)
+            put("includeActionBatch", true)
+            put("includeStopConditions", true)
         })
         put("now", System.currentTimeMillis())
     }
@@ -166,6 +171,8 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
                 ?: body.take(120).ifBlank { "云端智能体规划失败：HTTP $status" }
             throw IOException(message)
         }
+        val plan = CloudAgentPlan.fromJson(data) ?: extractAgentPlanFromText(body)
+        if (plan != null) return plan
         val step = CloudAgentStep.fromJson(data) ?: extractAgentStepFromText(body)
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
         val state = CloudAgentState.fromJson(data) ?: extractAgentStateFromText(body)
@@ -201,6 +208,10 @@ private fun buildAgentTimingDiagnostic(
     val visualCalled = debug?.optBooleanOrNull("visualCalled")
     val visualCacheHit = debug?.optBooleanOrNull("visualCacheHit")
     val sessionStep = debug?.optLongOrNull("sessionStep")
+    val batchCount = data?.optJSONArray("agentSteps")?.length()
+        ?: data?.optJSONArray("steps")?.length()
+        ?: data?.optJSONObject("plan")?.optJSONArray("agentSteps")?.length()
+        ?: data?.optJSONObject("plan")?.optJSONArray("steps")?.length()
     val local = "req=${requestBytes / 1024}KB http=${totalMs}ms wait=${waitMs}ms read=${readMs}ms"
     val server = buildString {
         if (providerMs != null) append(" prov=${providerMs}ms")
@@ -212,6 +223,7 @@ private fun buildAgentTimingDiagnostic(
         if (visualCalled != null) append(" visual=").append(if (visualCalled) "调" else "免")
         if (visualCacheHit != null && visualCacheHit) append(" cache=命中")
         if (sessionStep != null) append(" s#").append(sessionStep)
+        if (batchCount != null && batchCount > 1) append(" batch=").append(batchCount)
         if (version.isNotBlank()) append(" v=").append(version)
         if (debug == null) append(" debug=无")
     }
@@ -253,6 +265,13 @@ private fun extractAgentStepFromText(text: String): CloudAgentStep? {
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
     return try { CloudAgentStep.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+}
+
+private fun extractAgentPlanFromText(text: String): CloudAgentPlan? {
+    val start = text.indexOf('{')
+    val end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    return try { CloudAgentPlan.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
 }
 
 private fun extractAgentStateFromText(text: String): CloudAgentState? {

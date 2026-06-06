@@ -1,0 +1,3079 @@
+const http = require("http");
+
+const PORT = Number(process.env.PORT || process.env.FC_SERVER_PORT || 9000);
+const REQUEST_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 30000);
+const TOOL_ROUTER_TIMEOUT_MS = Number(process.env.TOOL_ROUTER_TIMEOUT_MS || 18000);
+const AGENT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_PLANNER_TIMEOUT_MS || 7000);
+const AGENT_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_TEXT_PLANNER_TIMEOUT_MS || 7000);
+const AGENT_VISION_MAX_TOKENS = Number(process.env.AGENT_VISION_MAX_TOKENS || 320);
+const AGENT_TEXT_MAX_TOKENS = Number(process.env.AGENT_TEXT_MAX_TOKENS || 300);
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024);
+const AGENT_SESSION_TTL_MS = Number(process.env.AGENT_SESSION_TTL_MS || 8 * 60 * 1000);
+const AGENT_SESSION_MAX = Number(process.env.AGENT_SESSION_MAX || 128);
+const AGENT_VISUAL_CACHE_MIN_CONFIDENCE = Number(process.env.AGENT_VISUAL_CACHE_MIN_CONFIDENCE || 0.50);
+const AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE = Number(process.env.AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE || 0.45);
+const AGENT_SESSIONS = new Map();
+
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v24-agent-single-model-loop-runtime-fix";
+const EMBEDDED_COMMAND_PREFIX = "[[AI_LEDGER_COMMAND:";
+const EMBEDDED_COMMAND_SUFFIX = "]]";
+
+function sendJson(res, status, data) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "content-type, authorization, x-client",
+  });
+  res.end(JSON.stringify(data));
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > MAX_BODY_BYTES) {
+        reject(new Error("body_too_large"));
+        req.destroy();
+      }
+    });
+
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(new Error("invalid_json"));
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function extractTextFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      if (typeof part.text === "string") return part.text;
+      if (part.type === "text" && typeof part.content === "string") return part.content;
+      return "";
+    })
+    .join("\n")
+    .trim();
+}
+
+function latestUserText(messages) {
+  if (!Array.isArray(messages)) return "";
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const item = messages[i] || {};
+    const role = String(item.role || "").toLowerCase();
+    const content = item.content !== undefined ? item.content : item.text;
+    const text = extractTextFromContent(content);
+
+    if (role === "user" && text.trim()) {
+      return text.trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizeMessages(input, fallbackText) {
+  const source = Array.isArray(input) ? input : [];
+  const clean = [];
+
+  for (const item of source.slice(-18)) {
+    const roleRaw = String(item?.role || "").toLowerCase().trim();
+    const role = roleRaw === "assistant" ? "assistant" : roleRaw === "user" ? "user" : "";
+    const content = item?.content !== undefined ? item.content : item?.text;
+    const text = extractTextFromContent(content).trim();
+
+    if (!role || !text) continue;
+    clean.push({ role, content: text });
+  }
+
+  while (clean.length && clean[0].role !== "user") clean.shift();
+
+  const fallback = String(fallbackText || "").trim();
+  if (!clean.length && fallback) clean.push({ role: "user", content: fallback });
+
+  return clean.slice(-16);
+}
+
+function normalizeImages(body) {
+  const raw = [
+    ...(Array.isArray(body?.images) ? body.images : []),
+    ...(Array.isArray(body?.attachments) ? body.attachments : []),
+  ];
+
+  const clean = [];
+  const seen = new Set();
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+
+    const mimeType = String(item.mimeType || item.mediaType || "image/jpeg").trim() || "image/jpeg";
+    const base64Data = String(item.base64Data || item.imageBase64 || item.data || "").trim();
+
+    if (!base64Data) continue;
+
+    const key = `${mimeType}:${base64Data.slice(0, 64)}:${base64Data.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    clean.push({
+      mimeType: mimeType.startsWith("image/") ? mimeType : "image/jpeg",
+      base64Data,
+      width: Number(item.width) || undefined,
+      height: Number(item.height) || undefined,
+      sizeBytes: Number(item.sizeBytes) || undefined,
+      fileName: String(item.fileName || "").trim().slice(0, 80),
+    });
+
+    if (clean.length >= 4) break;
+  }
+
+  return clean;
+}
+
+function buildVisionMessages(prompt, images, body = {}) {
+  const userPrompt = String(prompt || "请识别这张图片，说明图中内容，并回答我可能关心的问题。").trim();
+
+  const systemBlocks = [
+    "你是一个中文图片理解助手，服务于 Android Compose AI 助手。",
+    "你需要认真识别用户上传的图片，包括截图、题目、电路图、表格、页面、手写内容、文字、图标、坐标图和细节。",
+    "如果图片是题目或学习资料，请先说明关键信息，再给出解题思路和答案。",
+    "如果图片是 App 页面或手机界面，只能分析页面内容，不要声称你已经操作了手机。",
+    "回答要清晰、可靠、自然。无法确认的细节要说明不确定，不要编造。",
+  ];
+
+  const commandInstruction = String(body.commandProtocolInstruction || body.systemPrompt || "").trim();
+  if (commandInstruction) {
+    systemBlocks.push(commandInstruction);
+  }
+
+  return [
+    {
+      role: "system",
+      content: systemBlocks.join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: userPrompt },
+        ...images.map((image) => ({
+          type: "image_url",
+          image_url: {
+            url: `data:${image.mimeType};base64,${image.base64Data}`,
+          },
+        })),
+      ],
+    },
+  ];
+}
+
+function hasAny(text, keywords) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function routeAuto(prompt) {
+  const text = String(prompt || "").toLowerCase();
+
+  if (
+    hasAny(text, [
+      "推理", "证明", "数学", "计算", "建模", "电路", "方案", "架构",
+      "为什么", "分析", "优化", "极限", "偏导", "积分", "仿真"
+    ])
+  ) {
+    return "deepseek_v4";
+  }
+
+  return "qwen";
+}
+
+function resolveModel(modelPref, prompt) {
+  const pref = String(modelPref || "auto").toLowerCase().trim();
+
+  if (pref === "auto") return routeAuto(prompt);
+  if (["qwen_vision", "qwen-vision", "qwen_omni", "qwen-omni"].includes(pref) || pref.includes("omni")) return "qwen_vision";
+  if (["qwen", "qwen_max", "qwen-max", "qwen_plus", "qwen-plus", "kimi"].includes(pref) || pref.startsWith("qwen")) return "qwen";
+  if (["deepseek", "deepseek_v4", "deepseek-v4", "deepseek_v4_pro", "deepseek-v4-pro"].includes(pref)) return "deepseek_v4";
+
+  return "unsupported";
+}
+
+function isForceWebSearch(body) {
+  const mode = String(body.webSearchMode || body.searchMode || body.webSearch?.mode || "").toLowerCase();
+  return Boolean(body.onlineEnabled || body.searchEnabled || body.forceWebSearch || body.webSearch?.force || mode === "force");
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  if (typeof fetch !== "function") {
+    throw new Error("Node runtime does not support fetch. Please use Node.js 18 or Node.js 20 in Aliyun FC.");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callOpenAICompatible(base, key, model, messages, name, options = {}) {
+  if (!key) throw new Error(`${name} key missing`);
+  if (!base) throw new Error(`${name} base url missing`);
+  if (!model) throw new Error(`${name} model missing`);
+
+  const endpoint = `${String(base).replace(/\/+$/g, "")}/chat/completions`;
+
+  const payload = {
+    model,
+    messages,
+    temperature: options.temperature ?? 0.35,
+    max_tokens: options.max_tokens ?? 1200,
+    stream: false,
+  };
+
+  if (options.response_format) {
+    payload.response_format = options.response_format;
+  }
+
+  const r = await fetchWithTimeout(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify(payload),
+  }, options.timeoutMs || REQUEST_TIMEOUT_MS);
+
+  const t = await r.text();
+
+  if (!r.ok) {
+    throw new Error(`${name} ${r.status} ${t.slice(0, 300)}`);
+  }
+
+  let data;
+  try {
+    data = JSON.parse(t);
+  } catch (e) {
+    throw new Error(`${name} invalid_json_response ${t.slice(0, 160)}`);
+  }
+
+  const reply =
+    data?.choices?.[0]?.message?.content ||
+    data?.choices?.[0]?.text ||
+    data?.reply ||
+    "";
+
+  if (!String(reply).trim()) {
+    throw new Error(`${name} empty`);
+  }
+
+  return String(reply).trim();
+}
+
+async function callOpenAICompatibleJsonFirst(base, key, model, messages, name, options = {}) {
+  const jsonOptions = { ...options, response_format: options.response_format || { type: "json_object" } };
+
+  try {
+    return await callOpenAICompatible(base, key, model, messages, name, jsonOptions);
+  } catch (error) {
+    const message = String(error?.message || error || "");
+    const mayBeJsonModeUnsupported = /response_format|json_object|invalid_parameter|unsupported|not support|不支持/i.test(message);
+
+    if (!mayBeJsonModeUnsupported) throw error;
+
+    return await callOpenAICompatible(
+      base,
+      key,
+      model,
+      messages,
+      `${name} FallbackNoJsonMode`,
+      { ...options, response_format: undefined }
+    );
+  }
+}
+
+function extractJsonText(text) {
+  const raw = String(text || "").trim();
+  if (raw.startsWith("{") && raw.endsWith("}")) return raw;
+
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced && fenced[1]) {
+    const inner = fenced[1].trim();
+    if (inner.startsWith("{") && inner.endsWith("}")) return inner;
+  }
+
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (match) return match[0];
+
+  return raw;
+}
+
+function extractEmbeddedCommand(reply) {
+  const raw = String(reply || "");
+  const start = raw.indexOf(EMBEDDED_COMMAND_PREFIX);
+  if (start < 0) return null;
+
+  const jsonStart = start + EMBEDDED_COMMAND_PREFIX.length;
+  const end = raw.indexOf(EMBEDDED_COMMAND_SUFFIX, jsonStart);
+  if (end < 0) return null;
+
+  const payload = raw.slice(jsonStart, end).trim();
+  if (!payload.startsWith("{") || !payload.endsWith("}")) return null;
+
+  try {
+    return JSON.parse(payload);
+  } catch (e) {
+    return null;
+  }
+}
+
+function stripEmbeddedCommand(reply) {
+  const raw = String(reply || "");
+  const start = raw.indexOf(EMBEDDED_COMMAND_PREFIX);
+  if (start < 0) return raw.trim();
+
+  const jsonStart = start + EMBEDDED_COMMAND_PREFIX.length;
+  const end = raw.indexOf(EMBEDDED_COMMAND_SUFFIX, jsonStart);
+  if (end < 0) return raw.trim();
+
+  return (raw.slice(0, start) + raw.slice(end + EMBEDDED_COMMAND_SUFFIX.length)).trim();
+}
+
+function normalizeAgentAction(value) {
+  if (!value || typeof value !== "object") return null;
+  const capability = String(value.capability || value.type || value.action || "")
+    .toLowerCase()
+    .trim()
+    .replace(/-/g, "_");
+
+  if (!["observe_screen", "run_agent_task"].includes(capability)) return null;
+
+  const isRunTask = capability === "run_agent_task";
+  const goal = String(value.goal || value.task || value.instruction || value.query || value.prompt || "").trim();
+
+  if (isRunTask && !goal) return null;
+
+  return {
+    capability,
+    title: String(value.title || (isRunTask ? "手机智能体任务" : "观察当前屏幕")).trim().slice(0, 40) || (isRunTask ? "手机智能体任务" : "观察当前屏幕"),
+    goal: isRunTask ? goal.slice(0, 240) : undefined,
+    requiresConfirmation: Boolean(value.requiresConfirmation),
+    reason: String(value.reason || (isRunTask ? "用户明确要求操作手机完成任务" : "用户希望手机智能体读取当前界面")).trim().slice(0, 160),
+  };
+}
+
+function normalizeMobileAction(value) {
+  if (!value || typeof value !== "object") return null;
+  const type = String(value.type || value.action || "").toLowerCase().trim().replace(/-/g, "_");
+  if (!["set_alarm", "open_app", "navigate"].includes(type)) return null;
+
+  const action = { type };
+
+  if (type === "navigate") {
+    const destination = String(value.destination || value.target || "").trim();
+    if (!destination) return null;
+    action.destination = destination.slice(0, 80);
+  }
+
+  if (type === "open_app") {
+    const appName = String(value.appName || value.app || value.title || "").trim();
+    if (!appName) return null;
+    action.appName = appName.slice(0, 40);
+    const packageName = String(value.packageName || value.package || "").trim();
+    if (packageName) action.packageName = packageName.slice(0, 80);
+  }
+
+  if (type === "set_alarm") {
+    const hour = Number(value.hour);
+    const minute = Number(value.minute ?? 0);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+    action.hour = hour;
+    action.minute = minute;
+    action.label = String(value.label || value.message || "AI 助手提醒").trim().slice(0, 40) || "AI 助手提醒";
+  }
+
+  return action;
+}
+
+function normalizePreferenceUpdate(value) {
+  if (!value || typeof value !== "object") return null;
+  const type = String(value.type || "").toLowerCase().trim().replace(/-/g, "_");
+  if (type !== "navigation_address") return null;
+
+  const slot = String(value.slot || "").toLowerCase().trim().replace(/-/g, "_");
+  if (!["home", "school", "company", "dorm"].includes(slot)) return null;
+
+  const rawValue = String(value.value || value.address || value.destination || "").trim();
+  if (!rawValue) return null;
+
+  const label = String(value.label || ({ home: "家", school: "学校", company: "公司", dorm: "宿舍" })[slot] || slot).trim();
+
+  return {
+    type: "navigation_address",
+    slot,
+    label: label.slice(0, 12),
+    value: rawValue.slice(0, 80),
+  };
+}
+
+function extractCommandPayload(reply) {
+  const embedded = extractEmbeddedCommand(reply);
+  if (!embedded || typeof embedded !== "object") {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null };
+  }
+
+  return {
+    agentAction: normalizeAgentAction(embedded.agentAction),
+    mobileAction: normalizeMobileAction(embedded.mobileAction),
+    preferenceUpdate: normalizePreferenceUpdate(embedded.preferenceUpdate),
+  };
+}
+
+function isCommandProtocolEnabled(body) {
+  return Boolean(
+    body?.commandProtocol?.enabled ||
+      body?.responseFormat?.includeAgentAction ||
+      body?.responseFormat?.includeMobileAction ||
+      body?.responseFormat?.includePreferenceUpdate ||
+      body?.commandProtocolInstruction
+  );
+}
+
+function mightNeedDeviceRouter(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  return hasAny(text, [
+    "手机", "屏幕", "界面", "页面", "按钮", "输入框", "智能体", "无障碍", "观察", "读取", "识别", "看一下", "看看",
+    "打开", "启动", "进入", "导航", "闹钟", "提醒", "设置为", "回家", "去学校", "app", "应用", "wechat", "bilibili", "同花顺", "热榜", "联系人", "朋友圈"
+  ]);
+}
+
+function buildDirectAgentAction(prompt) {
+  const text = String(prompt || "").trim();
+  const compact = text.replace(/\s+/g, "");
+  const observeSignals = [
+    /看(看|一下|下)?(我)?(现在|当前)?(手机)?(屏幕|界面|页面|画面|状态|内容)/,
+    /(观察|读取|识别|扫描|分析|理解).*(屏幕|界面|页面|手机|当前)/,
+    /(当前|现在).*(屏幕|界面|页面).*(什么|内容|按钮|输入框|状态)/,
+    /(打开|开启|启动|进入).*(手机智能体|智能体模式|屏幕观察|观察卡|无障碍观察)/,
+    /(这个|当前).*(页面|界面).*(有哪些|有什么|按钮|输入框|能点)/,
+  ];
+  if (observeSignals.some((pattern) => pattern.test(compact))) {
+    return {
+      capability: "observe_screen",
+      title: "观察当前屏幕",
+      requiresConfirmation: false,
+      reason: "设备能力路由判断用户希望手机智能体读取当前界面",
+    };
+  }
+  return null;
+}
+
+function normalizeDeviceRouterPayload(value) {
+  if (!value || typeof value !== "object") return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "" };
+  return {
+    agentAction: normalizeAgentAction(value.agentAction),
+    mobileAction: normalizeMobileAction(value.mobileAction),
+    preferenceUpdate: normalizePreferenceUpdate(value.preferenceUpdate),
+    reason: String(value.reason || "").trim().slice(0, 160),
+  };
+}
+
+async function detectDeviceIntentByModel(prompt, body) {
+  const directAgentAction = buildDirectAgentAction(prompt);
+  if (directAgentAction) {
+    return { agentAction: directAgentAction, mobileAction: null, preferenceUpdate: null, reason: directAgentAction.reason, source: "direct_router" };
+  }
+
+  if (!isCommandProtocolEnabled(body) && !mightNeedDeviceRouter(prompt)) {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_router", source: "skip" };
+  }
+
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "你是 Android 手机 AI 助手的设备能力路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
+        "你只判断用户是不是在请求手机本地能力；不要回答问题本身。",
+        "",
+        "支持的能力：",
+        "1. agentAction.observe_screen：用户明确要求看屏幕、读当前页面、分析当前界面、查看当前手机上有什么、查看按钮/输入框、开启/打开屏幕观察模式。",
+        "2. agentAction.run_agent_task：用户明确要求你操作手机完成任务，尤其是在某个 App 内进入页面、查找对象、搜索内容、点击入口、输入文字、滑动浏览、执行多步流程。",
+        "3. mobileAction.open_app：用户只要求打开某个 App，并且没有提出进入 App 内页面、查找对象、搜索内容、点击控件、输入文字等后续目标。",
+        "4. mobileAction.navigate：用户要求导航到某地点。",
+        "5. mobileAction.set_alarm：用户要求设置闹钟或提醒。",
+        "6. preferenceUpdate.navigation_address：用户要求保存家、学校、公司、宿舍等常用导航地址。",
+        "7. none：不是手机本地能力请求。",
+        "",
+        "关键规则：",
+        "- 普通知识问答、代码问题、数学题、解释“为什么”、项目讨论、翻译、写作润色、闲聊，必须返回全部 null。",
+        "- 不要因为问题里出现“App、应用、打开、搜索、为什么、同花顺”等词就触发手机能力；只有用户明确让你操作手机或打开手机里的 App 时才触发。",
+        "- 用户说“观察屏幕、看一下当前手机界面、读一下页面、这个页面有什么按钮”，返回 observe_screen。",
+        "- 用户说“打开/进入某 App 并找到/进入/点击/搜索某页面或内容”“在某 App 里完成某事”，返回 run_agent_task，并把用户原始目标完整放入 goal。",
+        "- 例如：打开同花顺并找到热榜 => run_agent_task；打开 QQ 联系人界面 => run_agent_task；打开微信朋友圈 => run_agent_task。",
+        "- 只有纯粹的“打开某 App”才返回 mobileAction.open_app。",
+        "- 对发送消息、支付、转账、删除、发布、授权、登录、验证码、密码等高风险目标，可以返回 run_agent_task，但 reason 里说明执行中需要确认。",
+        "",
+        "输出格式必须是单个 JSON 对象：",
+        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task\",\"title\":\"\",\"goal\":\"完整任务，仅 run_agent_task 需要\",\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"open_app|navigate|set_alarm\",\"appName\":\"\",\"packageName\":\"\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
+      ].join("\n"),
+    },
+    { role: "user", content: String(prompt || "") },
+  ];
+
+  const raw = await callOpenAICompatible(
+    process.env.QWEN_BASE_URL,
+    process.env.QWEN_API_KEY,
+    process.env.QWEN_MODEL,
+    messages,
+    "Qwen Device Router",
+    {
+      temperature: 0,
+      max_tokens: 520,
+      timeoutMs: TOOL_ROUTER_TIMEOUT_MS,
+      response_format: { type: "json_object" },
+    }
+  );
+
+  try {
+    const parsed = JSON.parse(extractJsonText(raw));
+    return { ...normalizeDeviceRouterPayload(parsed), source: "model_router", raw };
+  } catch (e) {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: `device_router_json_parse_failed: ${String(raw).slice(0, 120)}`, source: "model_router_error", raw };
+  }
+}
+
+function buildDeviceActionReply(deviceIntent) {
+  if (deviceIntent?.agentAction?.capability === "run_agent_task") return "我已识别到手机智能体任务，将交给本地智能体执行。";
+  if (deviceIntent?.agentAction?.capability === "observe_screen") return "我已识别到手机智能体观察请求，将在本地读取当前屏幕结构。";
+  if (deviceIntent?.mobileAction) return "我已识别到手机动作，请在本地确认后执行。";
+  if (deviceIntent?.preferenceUpdate) return "我已识别到一项本地偏好更新。";
+  return "我已识别到本地能力请求。";
+}
+
+
+const SUPPORTED_AGENT_STEP_TYPES = ["open_app", "home", "back", "recents", "notifications", "quick_settings", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "wait", "finish", "need_user_help"];
+const AGENT_ACTION_BATCH_MAX = Math.max(1, Math.min(3, Number(process.env.AGENT_ACTION_BATCH_MAX || 3)));
+const HIGH_RISK_AGENT_WORDS = [
+  "支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意",
+  "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "确认付款",
+  "pay", "transfer", "delete", "send", "submit", "publish", "password", "login", "otp"
+];
+
+function safeText(value, max = 160) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function normalizeAgentStepType(value) {
+  const type = String(value || "").toLowerCase().trim().replace(/-/g, "_");
+  if (SUPPORTED_AGENT_STEP_TYPES.includes(type)) return type;
+  if (["tap_xy", "tapx_y", "coordinate_click", "coordinate_tap", "click_xy", "tap_point", "point_click"].includes(type)) return "tap_xy";
+  if (["tap", "click", "press"].includes(type)) return "tap_xy";
+  if (["input", "type", "enter_text"].includes(type)) return "input_text";
+  if (["done", "complete", "completed"].includes(type)) return "finish";
+  if (["ask_user", "need_help", "clarify"].includes(type)) return "need_user_help";
+  return "need_user_help";
+}
+
+function normalizeAgentDirection(value) {
+  const direction = String(value || "").toLowerCase().trim();
+  if (["up", "down", "left", "right"].includes(direction)) return direction;
+  if (["上", "向上", "上滑"].includes(direction)) return "up";
+  if (["下", "向下", "下滑"].includes(direction)) return "down";
+  if (["左", "向左", "左滑"].includes(direction)) return "left";
+  if (["右", "向右", "右滑"].includes(direction)) return "right";
+  return "";
+}
+
+function normalizeRiskLevel(value, joinedText) {
+  const raw = String(value || "").toLowerCase().trim().replace(/-/g, "_");
+  const inferredHigh = HIGH_RISK_AGENT_WORDS.some((word) => joinedText.includes(word.toLowerCase()) || joinedText.includes(word));
+  if (inferredHigh) return "high";
+  if (["high", "medium", "low"].includes(raw)) return raw;
+  return "low";
+}
+
+function compactAgentNode(node, index) {
+  if (!node || typeof node !== "object") return null;
+  return {
+    id: safeText(node.id || `n${index}`, 32),
+    text: safeText(node.text || node.label || node.contentDescription || "", 80),
+    className: safeText(node.className || node.class || "", 48),
+    bounds: safeText(node.bounds || "", 48),
+    clickable: Boolean(node.clickable),
+    editable: Boolean(node.editable),
+    scrollable: Boolean(node.scrollable),
+  };
+}
+
+function compactScreenVisual(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const width = Number(raw.width) || 0;
+  const height = Number(raw.height) || 0;
+  const displayWidth = Number(raw.displayWidth || raw.originalWidth || raw.screenWidth || raw.rawWidth) || width;
+  const displayHeight = Number(raw.displayHeight || raw.originalHeight || raw.screenHeight || raw.rawHeight) || height;
+
+  return {
+    available: Boolean(raw.available),
+    mimeType: safeText(raw.mimeType || "image/jpeg", 40),
+    width,
+    height,
+    displayWidth,
+    displayHeight,
+    source: safeText(raw.source || "", 80),
+    reason: safeText(raw.reason || "", 160),
+  };
+}
+
+function compactScreenSnapshot(snapshot) {
+  const raw = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const texts = Array.isArray(raw.texts) ? raw.texts.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 30) : [];
+  const clickableNodes = (Array.isArray(raw.clickableNodes) ? raw.clickableNodes : [])
+    .map(compactAgentNode)
+    .filter(Boolean)
+    .slice(0, 30);
+  const inputNodes = (Array.isArray(raw.inputNodes) ? raw.inputNodes : [])
+    .map(compactAgentNode)
+    .filter(Boolean)
+    .slice(0, 10);
+  const scrollableNodes = (Array.isArray(raw.scrollableNodes) ? raw.scrollableNodes : [])
+    .map(compactAgentNode)
+    .filter(Boolean)
+    .slice(0, 10);
+  const visual = compactScreenVisual(raw.visual || {});
+  const confidence = raw.confidence && typeof raw.confidence === "object"
+    ? {
+        hasUsefulNodes: Boolean(raw.confidence.hasUsefulNodes),
+        needsVisualFallback: Boolean(raw.confidence.needsVisualFallback),
+        hasVisualImage: Boolean(raw.confidence.hasVisualImage || visual.available),
+      }
+    : {
+        hasUsefulNodes: clickableNodes.length > 0 || inputNodes.length > 0 || scrollableNodes.length > 0,
+        needsVisualFallback: (Number(raw.nodeCount) || 0) <= 8 || texts.length === 0 || clickableNodes.length === 0,
+        hasVisualImage: Boolean(visual.available),
+      };
+
+  return {
+    currentApp: safeText(raw.currentApp || raw.packageName || "", 100),
+    packageName: safeText(raw.packageName || raw.currentApp || "", 100),
+    nodeCount: Number(raw.nodeCount) || clickableNodes.length + inputNodes.length + scrollableNodes.length + texts.length,
+    texts,
+    clickableNodes,
+    inputNodes,
+    scrollableNodes,
+    confidence,
+    visual,
+  };
+}
+
+function normalizeAgentScreenshot(body) {
+  const top = body?.screenshot && typeof body.screenshot === "object" ? body.screenshot : {};
+  const visual = body?.screenSnapshot?.visual && typeof body.screenSnapshot.visual === "object" ? body.screenSnapshot.visual : {};
+  const base64Raw =
+    top.base64 ||
+    top.base64Data ||
+    top.imageBase64 ||
+    top.data ||
+    visual.base64Jpeg ||
+    visual.base64 ||
+    visual.base64Data ||
+    "";
+
+  const base64 = String(base64Raw || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+  if (!base64) {
+    return {
+      hasImage: false,
+      mimeType: "image/jpeg",
+      base64: "",
+      width: 0,
+      height: 0,
+      displayWidth: 0,
+      displayHeight: 0,
+    };
+  }
+
+  const width = Number(top.width || visual.width) || 0;
+  const height = Number(top.height || visual.height) || 0;
+  const displayWidth = Number(top.displayWidth || top.originalWidth || top.screenWidth || visual.displayWidth || visual.originalWidth || visual.screenWidth) || width;
+  const displayHeight = Number(top.displayHeight || top.originalHeight || top.screenHeight || visual.displayHeight || visual.originalHeight || visual.screenHeight) || height;
+  const mimeType = String(top.mimeType || visual.mimeType || "image/jpeg").trim() || "image/jpeg";
+
+  return {
+    hasImage: true,
+    mimeType: mimeType.startsWith("image/") ? mimeType : "image/jpeg",
+    base64,
+    width,
+    height,
+    displayWidth,
+    displayHeight,
+    source: safeText(top.source || visual.source || "", 80),
+    reason: safeText(top.reason || visual.reason || "", 160),
+  };
+}
+
+function clamp01(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function normalizeAgentCoordinate(value, imageSize, displaySize) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  if (numeric >= 0 && numeric <= 1) return clamp01(numeric);
+  if (imageSize > 1 && numeric >= 0 && numeric <= imageSize + 24) return clamp01(numeric / imageSize);
+  if (displaySize > 1 && numeric >= 0 && numeric <= displaySize + 24) return clamp01(numeric / displaySize);
+  return undefined;
+}
+
+function normalizeAgentTapCoordinates(rawX, rawY, screenshotInfo = null) {
+  const imageWidth = Number(screenshotInfo?.width) || 0;
+  const imageHeight = Number(screenshotInfo?.height) || 0;
+  const displayWidth = Number(screenshotInfo?.displayWidth) || imageWidth;
+  const displayHeight = Number(screenshotInfo?.displayHeight) || imageHeight;
+  const x = normalizeAgentCoordinate(rawX, imageWidth, displayWidth);
+  const y = normalizeAgentCoordinate(rawY, imageHeight, displayHeight);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { x: undefined, y: undefined };
+  return { x, y };
+}
+
+
+function allSnapshotNodes(snapshot) {
+  return [
+    ...(snapshot.clickableNodes || []),
+    ...(snapshot.inputNodes || []),
+    ...(snapshot.scrollableNodes || []),
+  ];
+}
+
+function findAgentNode(snapshot, nodeId) {
+  const id = safeText(nodeId, 32);
+  if (!id) return null;
+  return allSnapshotNodes(snapshot).find((node) => node.id === id) || null;
+}
+
+function isAgentModeRequest(body) {
+  return Boolean(
+    body?.agentMode === true ||
+      body?.intent === "agent_step" ||
+      body?.responseFormat?.includeAgentStep ||
+      body?.screenSnapshot
+  );
+}
+
+function isAgentOutcomeVerificationRequest(body) {
+  const intent = String(body?.intent || body?.action || body?.type || "").toLowerCase().trim().replace(/-/g, "_");
+  return Boolean(
+    intent === "agent_outcome_verification" ||
+      intent === "agent_verification" ||
+      intent === "agent_verify" ||
+      body?.responseFormat?.includeAgentOutcomeVerification ||
+      body?.responseFormat?.includeAgentVerification
+  );
+}
+
+function normalizeForMatch(value) {
+  return String(value || "").toLowerCase().replace(/[\s\u3000，。,.、:：/\\\-]+/g, "");
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function snapshotTextForOutcome(snapshot) {
+  const nodes = [
+    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
+    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((n) => n?.text || "") : []),
+    ...(Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes.map((n) => n?.text || "") : []),
+    ...(Array.isArray(snapshot?.scrollableNodes) ? snapshot.scrollableNodes.map((n) => n?.text || "") : []),
+  ];
+  return normalizeForMatch(nodes.join(" "));
+}
+
+function quickVerifyAgentOutcome(goal, action, snapshot) {
+  const goalText = normalizeForMatch(goal);
+  const actionText = normalizeForMatch([action?.type, action?.targetText, action?.reason, action?.text].join(" "));
+  const visibleText = snapshotTextForOutcome(snapshot);
+  if (!goalText || !visibleText) return null;
+
+  // 本地快速验证只保留安全兜底，不能用关键词判断“已完成”或“有效进展”。
+  // 例如“打开 QQ 联系人界面”时，底部 Tab 上出现“联系人”只是入口可见，
+  // 不是页面主体已经进入联系人界面。是否完成必须交给云端视觉模型判断。
+  const highRiskVisible = HIGH_RISK_AGENT_WORDS.some((word) => visibleText.includes(normalizeForMatch(word)));
+  const highRiskRequested = HIGH_RISK_AGENT_WORDS.some((word) => goalText.includes(normalizeForMatch(word)) || actionText.includes(normalizeForMatch(word)));
+  if (highRiskVisible && !highRiskRequested) {
+    return {
+      isExpected: false,
+      expectedProgress: false,
+      isWrong: true,
+      confidence: 0.72,
+      reason: "当前页面出现支付、发送、授权、删除等高风险状态，且用户目标没有明确要求，应视为走错或需要退出。",
+      nextHint: "返回上一层后重新观察。",
+      result: "wrong",
+      source: "generic_local_safety_rule",
+    };
+  }
+
+  return null;
+}
+
+function normalizeAgentOutcome(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.agentOutcome || raw.outcome || raw.verification || raw.result || raw;
+  const expectedRaw = nested.isExpected ?? nested.expected ?? nested.success ?? nested.reachedTarget ?? nested.onExpectedPage;
+  const wrongRaw = nested.isWrong ?? nested.wrong ?? nested.failed ?? nested.wrongPage ?? nested.offTarget;
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? 0);
+  const isExpected = Boolean(expectedRaw === true || expectedRaw === "true" || expectedRaw === "expected");
+  const isWrong = Boolean(wrongRaw === true || wrongRaw === "true" || wrongRaw === "wrong");
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : (isExpected || isWrong ? 0.75 : 0.35);
+  return {
+    isExpected,
+    isWrong: isExpected ? false : isWrong,
+    confidence,
+    reason: safeText(nested.reason || nested.explanation || nested.rationale || (isExpected ? "页面已符合预期。" : isWrong ? "页面与预期不符。" : "无法确认页面结果。"), 220),
+  };
+}
+
+function normalizeAgentState(value, agentStep = null) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.agentState || raw.state || raw.statusState || raw.verification || raw.outcomeVerification || {};
+
+  const resultRaw = String(nested.result ?? nested.status ?? nested.outcome ?? "").toLowerCase().trim();
+  const isCompleteRaw = nested.isComplete ?? nested.complete ?? nested.completed ?? nested.isExpected ?? nested.expected ?? nested.success;
+  const progressRaw = nested.expectedProgress ?? nested.progress ?? nested.isProgress ?? nested.closerToGoal ?? nested.onCorrectPath;
+  const wrongRaw = nested.isWrong ?? nested.wrong ?? nested.failed ?? nested.wrongPage ?? nested.offTarget;
+
+  const isComplete = Boolean(
+    isCompleteRaw === true ||
+      isCompleteRaw === "true" ||
+      isCompleteRaw === "complete" ||
+      isCompleteRaw === "completed" ||
+      isCompleteRaw === "expected" ||
+      resultRaw === "complete" ||
+      resultRaw === "completed" ||
+      resultRaw === "expected" ||
+      resultRaw === "success" ||
+      agentStep?.type === "finish"
+  );
+
+  const expectedProgress = Boolean(
+    isComplete ||
+      progressRaw === true ||
+      progressRaw === "true" ||
+      progressRaw === "progress" ||
+      progressRaw === "expected_progress" ||
+      resultRaw === "progress" ||
+      resultRaw === "expected_progress"
+  );
+
+  const isWrongRaw = Boolean(
+    wrongRaw === true ||
+      wrongRaw === "true" ||
+      wrongRaw === "wrong" ||
+      resultRaw === "wrong" ||
+      resultRaw === "failed" ||
+      resultRaw === "failure" ||
+      resultRaw === "incorrect" ||
+      resultRaw === "mismatch"
+  );
+
+  const isWrong = isComplete || expectedProgress ? false : isWrongRaw;
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? 0);
+  const confidence = Number.isFinite(confidenceRaw)
+    ? Math.max(0, Math.min(1, confidenceRaw))
+    : (isComplete || isWrong || expectedProgress ? 0.72 : 0.35);
+
+  return {
+    isComplete,
+    expectedProgress,
+    isWrong,
+    confidence,
+    reason: safeText(
+      nested.reason ||
+        nested.explanation ||
+        nested.rationale ||
+        agentStep?.reason ||
+        (isComplete ? "云端判断目标已经完成。" : expectedProgress ? "云端判断当前页面仍在正确路径上。" : isWrong ? "云端判断当前页面明显偏离目标。" : "云端无法确认当前状态。"),
+      220
+    ),
+    nextHint: safeText(nested.nextHint || nested.next_hint || nested.hint || "", 160),
+    result: isComplete ? "complete" : expectedProgress ? "progress" : isWrong ? "wrong" : "uncertain",
+  };
+}
+
+function buildAgentVerifierSystemPrompt() {
+  return [
+    "你是 Android 手机 Computer Use 智能体的通用结果验证器，只能输出严格 JSON。",
+    "你需要根据用户原始目标、刚执行的动作、当前 screenSnapshot 和可选 screenshot，判断动作后的页面状态。",
+    "截图是主输入；无障碍节点可能缺失、滞后或只暴露入口文字。不要因为节点少就直接判失败或不确定。",
+    "你不是下一步规划器，不要返回点击坐标，也不要执行任务。",
+    "",
+    "你只判断四件事：",
+    "1. 当前页面是否已经完成用户目标。",
+    "2. 当前页面是否比动作前更接近目标，或者已经进入正确的中间页面。",
+    "3. 当前页面是否明显走错，例如进入无关页面、高风险提交/支付/发送/授权页面、错误 App、广告弹窗等。",
+    "4. 是否应该继续下一轮观察规划，而不是返回。",
+    "",
+    "判定规则：",
+    "- isExpected=true：已经到达目标页面，目标 Tab 已选中，页面主体内容已切换，或目标内容明确展开。",
+    "- expectedProgress=true：尚未完成最终目标，但页面进入了正确路径或有效中间页，应继续下一步，不应自动返回。",
+    "- 入口可见不等于目标完成。仅看到目标入口、底部 Tab 文字、菜单项或按钮时，通常应 expectedProgress=true，而不是 isExpected=true。",
+    "- 例如目标是进入联系人界面，仅看到底部“联系人”Tab 但主体仍是消息列表，不算完成；应继续点击联系人。",
+    "- 例如目标是进入朋友圈，仅看到发现页里的“朋友圈”入口，不算完成；应继续点击朋友圈。",
+    "- isWrong=true：只有在明显偏离目标或进入无关/高风险页面时才设为 true。",
+    "- uncertain：证据不足时不要设 isWrong=true；保持三者 false，并说明需要继续观察。",
+    "- 如果 isExpected=true 或 expectedProgress=true，则 isWrong 必须为 false。",
+    "- 不要依赖某个 App 或固定脚本；根据用户目标、动作意图、截图和节点综合判断。",
+    "",
+    "输出格式只能是：",
+    "{\"outcomeVerification\":{\"result\":\"expected|progress|wrong|uncertain\",\"isExpected\":false,\"expectedProgress\":false,\"isWrong\":false,\"confidence\":0.0,\"reason\":\"简短原因\",\"nextHint\":\"下一轮规划提示，可为空\"}}",
+  ].join("\n");
+}
+
+function buildAgentVerifierMessages(goal, action, snapshot, screenshotInfo = null) {
+  const textPayload = {
+    agentGoal: goal,
+    lastAction: action || null,
+    screenSnapshot: snapshot,
+    screenshot: screenshotInfo?.hasImage
+      ? {
+          mimeType: screenshotInfo.mimeType,
+          width: screenshotInfo.width,
+          height: screenshotInfo.height,
+          displayWidth: screenshotInfo.displayWidth,
+          displayHeight: screenshotInfo.displayHeight,
+          source: screenshotInfo.source || "",
+          reason: screenshotInfo.reason || "",
+        }
+      : null,
+    task: "判断 lastAction 执行后是否到达用户目标或目标路径。只返回 agentOutcome JSON。",
+  };
+  const content = [{ type: "text", text: JSON.stringify(textPayload) }];
+  if (screenshotInfo?.hasImage) {
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+    });
+  }
+  return [
+    { role: "system", content: buildAgentVerifierSystemPrompt() },
+    { role: "user", content },
+  ];
+}
+
+function supportedAgentStepsFromBody(body) {
+  const raw = Array.isArray(body?.supportedAgentSteps) ? body.supportedAgentSteps : SUPPORTED_AGENT_STEP_TYPES;
+  const clean = raw
+    .map(normalizeAgentStepType)
+    .filter((item, index, arr) => SUPPORTED_AGENT_STEP_TYPES.includes(item) && arr.indexOf(item) === index);
+  return clean.length ? clean : SUPPORTED_AGENT_STEP_TYPES;
+}
+
+function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInfo = null, deviceContext = null) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.agentStep || raw.step || raw.actionStep || (Array.isArray(raw.agentSteps) ? raw.agentSteps[0] : null) || (Array.isArray(raw.actionBatch) ? raw.actionBatch[0] : null) || raw.result || raw;
+  const safeSupported = Array.isArray(supportedSteps) && supportedSteps.length ? supportedSteps : SUPPORTED_AGENT_STEP_TYPES;
+  const type = normalizeAgentStepType(nested.type || nested.action);
+  let finalType = safeSupported.includes(type) ? type : "need_user_help";
+
+  const targetNodeId = safeText(nested.targetNodeId || nested.nodeId || nested.targetId || "", 32);
+  const targetText = safeText(nested.targetText || nested.label || nested.title || nested.target || "", 80);
+  const inputText = safeText(nested.text || nested.inputText || nested.value || "", 180);
+  const direction = normalizeAgentDirection(nested.direction);
+  const reason = safeText(nested.reason || nested.rationale || nested.explanation || "根据当前屏幕和用户目标规划下一步。", 220);
+  let appName = safeText(nested.appName || nested.app || nested.application || "", 40);
+  let packageName = safeText(nested.packageName || nested.package || "", 100);
+  const rawX = Number(nested.x ?? nested.centerX ?? nested.tapX);
+  const rawY = Number(nested.y ?? nested.centerY ?? nested.tapY);
+  const durationMsRaw = Number(nested.durationMs ?? nested.waitMs ?? nested.delayMs);
+  const durationMs = Number.isFinite(durationMsRaw) ? Math.max(120, Math.min(2000, Math.round(durationMsRaw))) : undefined;
+
+  let finalReason = reason;
+  let finalTargetNodeId = targetNodeId;
+  let finalDirection = direction;
+  let finalX = rawX;
+  let finalY = rawY;
+
+  if (finalType === "tap_node") {
+    const hasNode = Boolean(targetNodeId && findAgentNode(snapshot, targetNodeId));
+    if (!hasNode && !targetText) {
+      finalType = "need_user_help";
+      finalReason = "当前屏幕快照中没有可靠的可点击目标，不能伪造点击。";
+    }
+  }
+
+  if (finalType === "tap_xy") {
+    const normalizedTap = normalizeAgentTapCoordinates(rawX, rawY, screenshotInfo);
+    if (!Number.isFinite(normalizedTap.x) || !Number.isFinite(normalizedTap.y)) {
+      finalType = "need_user_help";
+      finalReason = "tap_xy 缺少可靠归一化坐标，不能执行坐标点击。";
+    } else {
+      finalX = normalizedTap.x;
+      finalY = normalizedTap.y;
+      finalReason = `${finalReason} 坐标已统一为归一化屏幕坐标。`;
+    }
+  }
+
+  if (finalType === "input_text") {
+    const hasInput = snapshot.inputNodes && snapshot.inputNodes.length > 0;
+    if (!hasInput) {
+      finalType = "need_user_help";
+      finalReason = "当前屏幕没有可识别输入框，不能输入文字。";
+    }
+  }
+
+  if (finalType === "scroll") {
+    const hasScrollable = snapshot.scrollableNodes && snapshot.scrollableNodes.length > 0;
+    if (!hasScrollable) {
+      if (safeSupported.includes("swipe")) {
+        finalType = "swipe";
+        finalTargetNodeId = "";
+        finalDirection = direction || "up";
+        finalReason = `${finalReason} 当前快照未标记可滚动区域，改用普通滑动手势兜底。`;
+      } else {
+        finalDirection = direction || "down";
+        finalReason = `${finalReason} 当前快照未标记可滚动区域，交给 Android 端用手势兜底。`;
+      }
+    }
+  }
+
+  if (finalType === "swipe") {
+    finalDirection = direction || "up";
+  }
+
+  if (finalType === "open_app") {
+    const matchedApp = findInstalledAppForOpenApp(appName, packageName, deviceContext);
+    const hasDeviceApps = installedAppsFromDeviceContext(deviceContext).length > 0;
+    if (matchedApp) {
+      appName = matchedApp.label;
+      packageName = matchedApp.packageName;
+      finalReason = `${finalReason} 已根据 deviceContext.installedApps 校准为真实可启动应用：${matchedApp.label}(${matchedApp.packageName})。`;
+    } else if (hasDeviceApps) {
+      finalType = "need_user_help";
+      finalReason = `open_app 目标不在 deviceContext.installedApps 中，不能猜包名或点击桌面文件夹。原始 appName=${appName || "空"} packageName=${packageName || "空"}。`;
+      appName = "";
+      packageName = "";
+    } else if (!appName && !packageName) {
+      finalType = "need_user_help";
+      finalReason = "open_app 缺少 appName 或 packageName，且未提供 deviceContext.installedApps，不能打开应用。";
+    }
+  }
+
+  if (finalType === "wait" && !durationMs) {
+    finalReason = finalReason || "等待页面加载后重新观察。";
+  }
+
+  const joined = [goal, targetText, inputText, appName, packageName, finalReason].join(" ").toLowerCase();
+  const riskLevel = normalizeRiskLevel(nested.riskLevel, joined);
+  const requiresConfirmation = Boolean(nested.requiresConfirmation) || riskLevel !== "low";
+
+  return {
+    type: finalType,
+    appName: finalType === "open_app" ? appName || undefined : appName || undefined,
+    packageName: finalType === "open_app" ? packageName || undefined : packageName || undefined,
+    targetNodeId: finalTargetNodeId || undefined,
+    targetText: targetText || undefined,
+    text: finalType === "input_text" ? inputText : inputText || undefined,
+    direction: ["scroll", "swipe"].includes(finalType) ? finalDirection || "down" : finalDirection || undefined,
+    x: finalType === "tap_xy" && Number.isFinite(finalX) ? finalX : undefined,
+    y: finalType === "tap_xy" && Number.isFinite(finalY) ? finalY : undefined,
+    durationMs: finalType === "wait" ? durationMs || 700 : durationMs,
+    reason: finalReason,
+    riskLevel,
+    requiresConfirmation,
+  };
+}
+
+
+
+function agentBatchCandidatesFromParsed(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const containers = [raw, raw.plan, raw.data, raw.result, raw.agentPlan].filter((item) => item && typeof item === "object");
+  const keys = ["agentSteps", "steps", "actionBatch", "actions"];
+  const candidates = [];
+  for (const container of containers) {
+    for (const key of keys) {
+      if (Array.isArray(container[key])) candidates.push(...container[key]);
+    }
+  }
+  return candidates;
+}
+
+function agentStepBatchKey(step) {
+  return [
+    step?.type || "",
+    step?.targetNodeId || "",
+    step?.targetText || "",
+    step?.text || "",
+    Number.isFinite(step?.x) ? Number(step.x).toFixed(3) : "",
+    Number.isFinite(step?.y) ? Number(step.y).toFixed(3) : "",
+  ].join("|");
+}
+
+function normalizeAgentStepBatch(parsed, fallbackStep, snapshot, supportedSteps, goal, screenshotInfo = null, deviceContext = null) {
+  const out = [];
+  const seen = new Set();
+  const candidates = agentBatchCandidatesFromParsed(parsed);
+  if (!candidates.length && fallbackStep) candidates.push(fallbackStep);
+
+  for (const candidate of candidates) {
+    const step = normalizeAgentStep(candidate, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    if (!step || ["finish", "need_user_help"].includes(step.type)) continue;
+    if (step.riskLevel !== "low" || step.requiresConfirmation) continue;
+    const key = agentStepBatchKey(step);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(step);
+    if (out.length >= AGENT_ACTION_BATCH_MAX) break;
+  }
+  return out;
+}
+
+function normalizeAgentStopConditions(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const containers = [raw, raw.plan, raw.data, raw.result, raw.agentPlan].filter((item) => item && typeof item === "object");
+  const keys = ["stopConditions", "batchStopConditions", "replanOn"];
+  const out = new Set();
+  for (const container of containers) {
+    for (const key of keys) {
+      const item = container[key];
+      const list = Array.isArray(item) ? item : typeof item === "string" ? item.split(/[,;|]/g) : [];
+      for (const entry of list) {
+        const normalized = String(entry || "").trim().toLowerCase().replace(/-/g, "_");
+        if (normalized) out.add(normalized);
+      }
+    }
+  }
+  if (!out.size) {
+    out.add("visual_after_input");
+    out.add("visual_after_system_action");
+  }
+  return Array.from(out).slice(0, 8);
+}
+
+function normalizeAppMatchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKC")
+    .replace(/[\s　·・.。_\-]+/g, "")
+    .replace(/app$/i, "")
+    .replace(/应用$/u, "");
+}
+
+function installedAppsFromDeviceContext(deviceContext) {
+  const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
+  const raw = Array.isArray(ctx.installedApps) ? ctx.installedApps : [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const label = safeText(item.label || item.name || item.appName || "", 80);
+      const packageName = safeText(item.packageName || item.package || "", 120);
+      if (!label || !packageName) return null;
+      const aliases = Array.isArray(item.aliases)
+        ? item.aliases.map((alias) => safeText(alias, 80)).filter(Boolean).slice(0, 8)
+        : [];
+      return { label, packageName, launchable: item.launchable !== false, aliases };
+    })
+    .filter(Boolean)
+    .filter((item) => item.launchable)
+    .slice(0, 160);
+}
+
+function appCandidatesForPrompt(deviceContext, max = 120) {
+  const apps = installedAppsFromDeviceContext(deviceContext);
+  return apps.slice(0, max).map((app) => `${app.label}(${app.packageName})`).join(" / ");
+}
+
+function findInstalledAppForOpenApp(appName, packageName, deviceContext) {
+  const apps = installedAppsFromDeviceContext(deviceContext);
+  if (!apps.length) return null;
+  const pkg = safeText(packageName || "", 120);
+  if (pkg) {
+    const exactPkg = apps.find((app) => app.packageName === pkg);
+    if (exactPkg) return { ...exactPkg, match: "packageName" };
+  }
+  const q = normalizeAppMatchText(appName);
+  if (!q) return null;
+
+  let best = null;
+  let bestScore = 0;
+  for (const app of apps) {
+    const names = [app.label, ...(app.aliases || [])].map(normalizeAppMatchText).filter(Boolean);
+    for (const name of names) {
+      let score = 0;
+      if (name === q) score = 1200 + name.length;
+      else if (name.startsWith(q) || q.startsWith(name)) score = 1000 + Math.min(name.length, q.length);
+      else if (name.includes(q) || q.includes(name)) score = 850 + Math.min(name.length, q.length);
+      if (score > bestScore) {
+        bestScore = score;
+        best = app;
+      }
+    }
+  }
+  return bestScore >= 850 && best ? { ...best, match: "appName" } : null;
+}
+
+function deviceContextSummaryForPrompt(deviceContext) {
+  const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
+  const device = ctx.device || {};
+  const screen = ctx.screen || {};
+  const currentApp = ctx.currentApp || {};
+  const apps = installedAppsFromDeviceContext(ctx);
+  return {
+    schema: ctx.schema || "android_device_context",
+    device: {
+      brand: device.brand || device.manufacturer || "",
+      model: device.model || "",
+      androidSdk: device.androidSdk,
+      androidRelease: device.androidRelease || "",
+      locale: device.locale || "",
+    },
+    screen: {
+      widthPx: screen.widthPx,
+      heightPx: screen.heightPx,
+      density: screen.density,
+      coordinateProtocol: screen.coordinateProtocol || "normalized_screen_0_1",
+    },
+    currentApp: {
+      packageName: currentApp.packageName || "",
+      isLauncherOrSystemSurface: Boolean(currentApp.isLauncherOrSystemSurface),
+    },
+    installedAppCount: apps.length,
+    installedApps: apps.slice(0, 120),
+    toolRules: Array.isArray(ctx.toolRules) ? ctx.toolRules.slice(0, 8) : [],
+  };
+}
+
+function compactAgentMemoryForPrompt(agentMemory, recentActions) {
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  return {
+    schema: memory.schema || "agent_loop_memory",
+    recentActions: Array.isArray(memory.recentActions) ? memory.recentActions.slice(-8) : Array.isArray(recentActions) ? recentActions.slice(-8) : [],
+    failedActions: Array.isArray(memory.failedActions) ? memory.failedActions.slice(-8) : [],
+    blockedActions: Array.isArray(memory.blockedActions) ? memory.blockedActions.slice(-8) : [],
+    loopSignals: memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {},
+    policyHints: Array.isArray(memory.policyHints) ? memory.policyHints.slice(0, 8) : [],
+  };
+}
+
+
+function buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot = false) {
+  return [
+    "你是 Android 手机 Computer Use 智能体的快速规划器，只能输出严格 JSON。",
+    "你的任务不是聊天，而是根据用户目标、截图、节点提示、设备上下文和短期记忆，返回当前状态 agentState 与下一步 agentStep。",
+    "",
+    `允许动作：${supportedSteps.join(", ")}`,
+    "",
+    "输出必须是单个 JSON 对象，不能有 Markdown、解释文字或代码块：",
+    "{\"agentState\":{\"isComplete\":false,\"expectedProgress\":false,\"isWrong\":false,\"confidence\":0.0,\"reason\":\"\",\"nextHint\":\"\"},\"agentStep\":{\"type\":\"open_app|tap_xy|tap_node|input_text|scroll|swipe|back|home|wait|finish|need_user_help\",\"appName\":\"\",\"packageName\":\"\",\"targetNodeId\":\"\",\"targetText\":\"\",\"text\":\"\",\"direction\":\"up|down|left|right\",\"x\":0,\"y\":0,\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low|medium|high\",\"requiresConfirmation\":false}}",
+    "",
+    "核心规则：",
+    "- 有 screenshot 时，截图是主观察源；screenSnapshot 只作为可点击、可输入、可滚动提示。",
+    "- 没有 screenshot 时，只能依赖 open_app、节点、设备上下文或保守动作。",
+    "- 当前不在目标 App 且目标 App 在 installedApps 中时，优先 open_app。",
+    "- open_app 必须从 deviceContext.installedApps 选择真实 appName/packageName；不要猜包名，不要在桌面找图标。",
+    "- 入口可见不等于完成。进入页面/Tab/栏目/列表类目标，必须看到目标页已选中且主体内容切换后才能 finish。",
+    "- 如果只是更接近目标，设置 expectedProgress=true 并继续下一步，不要 finish。",
+    "- 明显走错时 isWrong=true，通常下一步 back。",
+    "- tap_xy 的 x/y 必须是 0 到 1 的归一化屏幕坐标；不要输出像素。",
+    "- 图片中能看见目标但节点没有时，用 tap_xy；节点明确对应目标时可用 tap_node。",
+    "- 页面加载、动画或空白时 wait；能探索时 scroll/swipe；不要因为节点少就直接失败。",
+    "- 涉及支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码时，riskLevel=high 且 requiresConfirmation=true。",
+    hasScreenshot ? "- 当前请求含截图，应优先看图规划，返回一步最小动作。" : "- 当前请求无截图，不能猜复杂页面是否完成。",
+  ].join("\n");
+}
+
+
+function targetAppCandidatesFromDeviceContext(deviceContext) {
+  const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
+  const raw = Array.isArray(ctx.targetAppCandidates) ? ctx.targetAppCandidates : [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const label = safeText(item.label || item.name || item.appName || "", 80);
+      const packageName = safeText(item.packageName || item.package || "", 120);
+      if (!label || !packageName) return null;
+      const aliases = Array.isArray(item.aliases)
+        ? item.aliases.map((alias) => safeText(alias, 80)).filter(Boolean).slice(0, 6)
+        : [];
+      return { label, packageName, launchable: item.launchable !== false, aliases };
+    })
+    .filter(Boolean)
+    .filter((item) => item.launchable)
+    .slice(0, 12);
+}
+
+function plannerAppsForPrompt(deviceContext, goal, hasScreenshot) {
+  const candidates = targetAppCandidatesFromDeviceContext(deviceContext);
+  if (candidates.length) return candidates.slice(0, 12);
+
+  const apps = installedAppsFromDeviceContext(deviceContext);
+  if (!apps.length) return [];
+
+  const cleanGoal = normalizeAppMatchText(goal);
+  const matched = apps.filter((app) => {
+    const names = [app.label, ...(app.aliases || [])].map(normalizeAppMatchText).filter(Boolean);
+    return names.some((name) => name && cleanGoal && (cleanGoal.includes(name) || name.includes(cleanGoal)));
+  });
+
+  if (matched.length) return matched.slice(0, 12);
+  return hasScreenshot ? [] : apps.slice(0, 24);
+}
+
+function buildAgentPlannerMessages(goal, snapshot, supportedSteps, screenshotInfo = null, recentActions = [], deviceContext = null, agentMemory = null) {
+  const compactDeviceContext = deviceContextSummaryForPrompt(deviceContext);
+  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
+  const hasScreenshot = Boolean(screenshotInfo?.hasImage);
+  const plannerApps = plannerAppsForPrompt(deviceContext, goal, hasScreenshot);
+  const payload = {
+    goal,
+    currentApp: snapshot.currentApp || snapshot.packageName || "",
+    supportedSteps,
+    deviceContext: {
+      currentApp: compactDeviceContext.currentApp,
+      screen: compactDeviceContext.screen,
+      installedApps: plannerApps,
+      installedAppCount: compactDeviceContext.installedAppCount,
+    },
+    memory: compactMemory,
+    snapshot: {
+      packageName: snapshot.packageName,
+      nodeCount: snapshot.nodeCount,
+      texts: (snapshot.texts || []).slice(0, 16),
+      clickableNodes: (snapshot.clickableNodes || []).slice(0, 18),
+      inputNodes: (snapshot.inputNodes || []).slice(0, 4),
+      scrollableNodes: (snapshot.scrollableNodes || []).slice(0, 4),
+      confidence: snapshot.confidence,
+    },
+    screenshot: hasScreenshot
+      ? {
+          width: screenshotInfo.width,
+          height: screenshotInfo.height,
+          displayWidth: screenshotInfo.displayWidth,
+          displayHeight: screenshotInfo.displayHeight,
+        }
+      : null,
+    rules: [
+      "只输出 JSON",
+      "截图主导，节点辅助",
+      "每次只返回一步",
+      "入口可见不等于完成",
+      "tap_xy 返回 0-1 归一化坐标",
+      "高风险动作 requiresConfirmation=true"
+    ],
+  };
+
+  const content = [{ type: "text", text: JSON.stringify(payload) }];
+
+  if (hasScreenshot) {
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}`,
+      },
+    });
+  }
+
+  return [
+    { role: "system", content: buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot) },
+    { role: "user", content },
+  ];
+}
+
+async function handleAgentOutcomeVerificationRequest(body, prompt, resolvedModel) {
+  const goal = safeText(body.agentGoal || body.goal || prompt, 240);
+  const action = body.action || body.agentStep || body.lastAction || {};
+  const snapshot = compactScreenSnapshot(body.screenSnapshot || {});
+  const screenshotInfo = normalizeAgentScreenshot(body);
+  const quick = quickVerifyAgentOutcome(goal, action, snapshot);
+  const plannerModel = screenshotInfo.hasImage ? "qwen_vision" : resolvedModel === "deepseek_v4" ? "deepseek_v4" : "qwen";
+  const providerModel = screenshotInfo.hasImage
+    ? String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim()
+    : plannerModel === "deepseek_v4"
+      ? process.env.DEEPSEEK_MODEL
+      : process.env.QWEN_MODEL;
+
+  const baseMeta = {
+    source: quick ? "agent_outcome_local_rule" : "agent_outcome_verifier",
+    sourceDetail: quick ? "local_text_rule" : plannerModel,
+    model: quick ? "local_text_rule" : plannerModel,
+    modelId: quick ? "local_text_rule" : plannerModel,
+    modelLabel: quick ? "本地结果规则" : plannerModel === "deepseek_v4" ? "DeepSeek V4 Pro" : plannerModel === "qwen_vision" ? "Qwen 识图" : "Qwen Max",
+    providerModel: quick ? "local" : providerModel,
+    version: WORKER_VERSION,
+  };
+
+  if (quick) {
+    return {
+      ok: true,
+      reply: "已完成点击结果验证。",
+      agentOutcome: quick,
+      isExpected: quick.isExpected,
+      isWrong: quick.isWrong,
+      confidence: quick.confidence,
+      reason: quick.reason,
+      ...baseMeta,
+    };
+  }
+
+  if (!goal) {
+    return { ok: false, error: "empty_agent_goal", code: "empty_agent_goal", version: WORKER_VERSION };
+  }
+
+  if (!screenshotInfo.hasImage && !snapshot.packageName && !snapshot.currentApp && snapshot.nodeCount === 0) {
+    const outcome = { isExpected: false, isWrong: false, confidence: 0.2, reason: "没有可用屏幕快照，无法验证结果。" };
+    return { ok: true, reply: "当前没有可用屏幕快照。", agentOutcome: outcome, ...outcome, ...baseMeta };
+  }
+
+  let raw = "";
+  try {
+    const messages = buildAgentVerifierMessages(goal, action, snapshot, screenshotInfo);
+    if (plannerModel === "deepseek_v4") {
+      raw = await callOpenAICompatible(process.env.DEEPSEEK_BASE_URL, process.env.DEEPSEEK_API_KEY, process.env.DEEPSEEK_MODEL, messages, "DeepSeek Agent Verifier", { temperature: 0.02, max_tokens: 360, timeoutMs: TOOL_ROUTER_TIMEOUT_MS, response_format: { type: "json_object" } });
+    } else {
+      raw = await callOpenAICompatible(process.env.QWEN_BASE_URL, process.env.QWEN_API_KEY, providerModel, messages, screenshotInfo.hasImage ? "Qwen Vision Agent Verifier" : "Qwen Agent Verifier", { temperature: 0.02, max_tokens: 360, timeoutMs: Number(process.env.QWEN_VISION_TIMEOUT_MS || TOOL_ROUTER_TIMEOUT_MS), response_format: { type: "json_object" } });
+    }
+  } catch (error) {
+    const outcome = { isExpected: false, isWrong: false, confidence: 0.25, reason: `验证器暂时不可用：${String(error?.message || error).replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***").slice(0, 140)}` };
+    return { ok: true, reply: "智能体结果验证器暂时不可用。", agentOutcome: outcome, ...outcome, ...baseMeta };
+  }
+
+  let parsed;
+  try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+  const outcome = normalizeAgentOutcome(parsed);
+  return {
+    ok: true,
+    reply: "已完成点击结果验证。",
+    agentOutcome: outcome,
+    isExpected: outcome.isExpected,
+    isWrong: outcome.isWrong,
+    confidence: outcome.confidence,
+    reason: outcome.reason,
+    ...baseMeta,
+  };
+}
+
+function cleanupAgentSessions() {
+  const now = Date.now();
+  for (const [key, value] of AGENT_SESSIONS.entries()) {
+    if (!value || now - Number(value.updatedAt || 0) > AGENT_SESSION_TTL_MS) AGENT_SESSIONS.delete(key);
+  }
+  if (AGENT_SESSIONS.size <= AGENT_SESSION_MAX) return;
+  const entries = [...AGENT_SESSIONS.entries()].sort((a, b) => Number(a[1]?.updatedAt || 0) - Number(b[1]?.updatedAt || 0));
+  for (const [key] of entries.slice(0, Math.max(0, AGENT_SESSIONS.size - AGENT_SESSION_MAX))) AGENT_SESSIONS.delete(key);
+}
+
+function normalizeAgentSessionId(body, goal) {
+  const raw = safeText(body?.agentSessionId || body?.sessionId || body?.agentMemory?.loopSignals?.agentSessionId || "", 100);
+  if (raw) return raw;
+  const fallback = normalizeForMatch(goal).slice(0, 40) || "anonymous";
+  return `agent_${fallback}`;
+}
+
+function getAgentSession(body, goal) {
+  cleanupAgentSessions();
+  const id = normalizeAgentSessionId(body, goal);
+  const existing = AGENT_SESSIONS.get(id);
+  if (existing) {
+    existing.updatedAt = Date.now();
+    existing.goal = goal || existing.goal || "";
+    return existing;
+  }
+  const created = {
+    id,
+    goal: goal || "",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    step: 0,
+    visualFrame: null,
+    lastFingerprint: "",
+    lastStableScreenKey: "",
+    lastActionKey: "",
+    lastObservationReason: "",
+    failedVisualCount: 0,
+  };
+  AGENT_SESSIONS.set(id, created);
+  return created;
+}
+
+function screenFingerprint(snapshot, screenshotInfo) {
+  const texts = [
+    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
+    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : []),
+  ].map((item) => safeText(item, 40)).filter(Boolean).slice(0, 12).join("|");
+  const base = [
+    snapshot?.packageName || snapshot?.currentApp || "",
+    snapshot?.nodeCount || 0,
+    screenshotInfo?.hasImage ? `${screenshotInfo.width}x${screenshotInfo.height}` : "noimg",
+    texts,
+  ].join("||");
+  let hash = 0;
+  for (let i = 0; i < base.length; i += 1) hash = ((hash << 5) - hash + base.charCodeAt(i)) | 0;
+  return `${Math.abs(hash)}:${base.slice(0, 120)}`;
+}
+
+function cleanStableScreenText(value) {
+  const raw = safeText(value, 80);
+  if (!raw) return "";
+  const compact = raw
+    .replace(/[+\-−]?\d+(?:\.\d+)?\s*%/g, "")
+    .replace(/[+\-−]?\d+(?:\.\d+)?\s*(?:亿|万|元|股|手|次|日|月|年|KB|MB|GB|k|m|b)?/gi, "")
+    .replace(/[￥$¥]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+  const normalized = normalizeForMatch(compact);
+  if (!normalized || normalized.length < 2) return "";
+  if (/^[a-z0-9_.-]{4,}$/i.test(normalized)) return "";
+  if (/^(涨|跌|涨幅|跌幅|价格|现价|成交额|热度|广告|查看|更多|搜索)$/.test(normalized)) return "";
+  if (compact.length > 18 && !/[首页行情自选交易资讯理财推荐热榜榜单联系人设置搜索]/.test(compact)) return "";
+  return safeText(compact, 30);
+}
+
+function stableScreenKey(snapshot, screenshotInfo) {
+  const app = safeText(snapshot?.packageName || snapshot?.currentApp || "", 100);
+  const rawTexts = [
+    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
+    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : []),
+  ];
+  const stableTexts = [];
+  const seen = new Set();
+  for (const item of rawTexts) {
+    const cleaned = cleanStableScreenText(item);
+    if (!cleaned) continue;
+    const key = normalizeForMatch(cleaned);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    stableTexts.push(cleaned);
+    if (stableTexts.length >= 10) break;
+  }
+  const title = stableTexts.find((text) => text.length >= 2 && text.length <= 12) || stableTexts[0] || "";
+  const navWords = ["首页", "行情", "自选", "交易", "资讯", "理财", "推荐", "热榜", "关注", "咨询", "搜索", "设置", "联系人", "发现", "我的"];
+  const nav = navWords.filter((word) => rawTexts.some((text) => normalizeForMatch(text).includes(normalizeForMatch(word)))).join("|");
+  const visualSize = screenshotInfo?.hasImage ? `${screenshotInfo.displayWidth || screenshotInfo.width}x${screenshotInfo.displayHeight || screenshotInfo.height}` : "noimg";
+  return [app, visualSize, title, nav].filter(Boolean).join("||").slice(0, 180);
+}
+
+function visualFrameHasUsefulSignal(visualFrame) {
+  if (!visualFrame || typeof visualFrame !== "object") return false;
+  const hasPage = Boolean(safeText(visualFrame.pageTitle || visualFrame.pageType || visualFrame.summary || "", 4));
+  const hasTarget = Boolean(visualFrame.targetVisible && (safeText(visualFrame.targetText || "", 2) || (Number.isFinite(Number(visualFrame.targetX)) && Number.isFinite(Number(visualFrame.targetY)))));
+  const hasDecision = Boolean(visualFrame.isComplete || visualFrame.isWrong);
+  const suggested = visualFrame.suggestedAction || {};
+  const hasAction = Boolean(normalizeAgentStepType(suggested.type || "") !== "need_user_help" && (safeText(suggested.targetText || "", 2) || Number.isFinite(Number(suggested.x)) || suggested.direction));
+  return hasPage || hasTarget || hasDecision || hasAction;
+}
+
+function isVisualFrameCacheable(visualFrame) {
+  if (!visualFrameHasUsefulSignal(visualFrame)) return false;
+  const confidence = Number(visualFrame?.confidence || 0);
+  if (visualFrame?.isComplete || visualFrame?.isWrong) return confidence >= AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE;
+  return confidence >= AGENT_VISUAL_CACHE_MIN_CONFIDENCE;
+}
+
+function latestActionKeyFromRecent(recentActions) {
+  if (!Array.isArray(recentActions) || !recentActions.length) return "";
+  return safeText(recentActions[recentActions.length - 1] || "", 160);
+}
+
+function normalizeVisualFrame(value, fallback = {}) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.visualFrame || raw.frame || raw.observation || raw.result || raw;
+  const target = nested.target || nested.targetLocation || nested.targetCoordinate || {};
+  const action = nested.suggestedAction || nested.nextVisualAction || {};
+  const xRaw = nested.targetX ?? nested.x ?? target.x ?? action.x ?? action.targetX;
+  const yRaw = nested.targetY ?? nested.y ?? target.y ?? action.y ?? action.targetY;
+  const sxRaw = action.x ?? action.targetX ?? nested.suggestedX ?? nested.actionX ?? xRaw;
+  const syRaw = action.y ?? action.targetY ?? nested.suggestedY ?? nested.actionY ?? yRaw;
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? fallback.confidence ?? 0);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0;
+  const targetX = clamp01(xRaw);
+  const targetY = clamp01(yRaw);
+  const suggestedX = clamp01(sxRaw);
+  const suggestedY = clamp01(syRaw);
+  const actionType = normalizeAgentStepType(action.type || nested.suggestedActionType || nested.actionType || "");
+  const isComplete = Boolean(nested.isComplete === true || nested.complete === true || nested.completed === true || String(nested.result || "").toLowerCase() === "complete");
+  const isWrong = Boolean(nested.isWrong === true || nested.wrong === true || String(nested.result || "").toLowerCase() === "wrong");
+  const targetVisible = Boolean(nested.targetVisible === true || nested.visible === true || (Number.isFinite(targetX) && Number.isFinite(targetY)));
+  return {
+    pageTitle: safeText(nested.pageTitle || nested.title || fallback.pageTitle || "", 80),
+    pageType: safeText(nested.pageType || nested.screenType || fallback.pageType || "", 80),
+    summary: safeText(nested.summary || nested.description || fallback.summary || "", 240),
+    isComplete,
+    isWrong: isComplete ? false : isWrong,
+    targetVisible,
+    targetText: safeText(nested.targetText || nested.visibleTarget || action.targetText || "", 80),
+    targetX: Number.isFinite(targetX) ? targetX : undefined,
+    targetY: Number.isFinite(targetY) ? targetY : undefined,
+    suggestedAction: {
+      type: SUPPORTED_AGENT_STEP_TYPES.includes(actionType) ? actionType : "",
+      targetText: safeText(action.targetText || nested.suggestedActionTarget || nested.targetText || "", 80),
+      x: Number.isFinite(suggestedX) ? suggestedX : undefined,
+      y: Number.isFinite(suggestedY) ? suggestedY : undefined,
+      direction: normalizeAgentDirection(action.direction || nested.direction || ""),
+      reason: safeText(action.reason || nested.actionReason || "", 160),
+    },
+    completionEvidence: safeText(nested.completionEvidence || nested.evidence || nested.reason || "", 180),
+    reason: safeText(nested.reason || nested.rationale || nested.explanation || "", 220),
+    confidence,
+    capturedAt: Date.now(),
+  };
+}
+
+function buildAgentVisualObserverSystemPrompt() {
+  return [
+    "你是 Android Computer Use 的视觉状态观察器，只负责看图确权，不负责完整规划。",
+    "你必须以 screenshot 为主输入，节点文字只作为辅助线索。",
+    "输出严格 JSON，不要 Markdown，不要解释。",
+    "判断当前页面是什么、用户目标是否已经完成、目标入口/目标区域是否可见。",
+    "如果目标入口可见，返回 0-1 归一化坐标；如果已经到达目标页面或目标功能的默认子页面，isComplete=true。",
+    "除非截图明显是加载、空白或动画过渡，否则不要建议 wait。",
+    "不要因为节点里有某个词就判完成；完成必须来自截图中的页面标题、已选中状态或主体内容。",
+    "输出格式：",
+    "{\"visualFrame\":{\"pageTitle\":\"\",\"pageType\":\"\",\"summary\":\"\",\"isComplete\":false,\"isWrong\":false,\"targetVisible\":false,\"targetText\":\"\",\"targetX\":0.0,\"targetY\":0.0,\"suggestedAction\":{\"type\":\"tap_xy|scroll|swipe|back|wait|none\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"reason\":\"\"},\"completionEvidence\":\"\",\"confidence\":0.0,\"reason\":\"\"}}"
+  ].join("\n");
+}
+
+function buildAgentVisualObserverMessages(goal, snapshot, screenshotInfo, session, recentActions = []) {
+  const previous = session?.visualFrame ? {
+    pageTitle: session.visualFrame.pageTitle,
+    pageType: session.visualFrame.pageType,
+    summary: session.visualFrame.summary,
+    isComplete: session.visualFrame.isComplete,
+    confidence: session.visualFrame.confidence,
+  } : null;
+  const payload = {
+    goal,
+    previousVisualFrame: previous,
+    lastAction: latestActionKeyFromRecent(recentActions),
+    currentApp: snapshot.currentApp || snapshot.packageName || "",
+    snapshotHints: {
+      packageName: snapshot.packageName,
+      nodeCount: snapshot.nodeCount,
+      texts: (snapshot.texts || []).slice(0, 10),
+      clickableTexts: (snapshot.clickableNodes || []).map((node) => node.text).filter(Boolean).slice(0, 12),
+    },
+    task: "只观察当前截图和目标关系，输出 visualFrame。",
+  };
+  return [
+    { role: "system", content: buildAgentVisualObserverSystemPrompt() },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: JSON.stringify(payload) },
+        { type: "image_url", image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` } },
+      ],
+    },
+  ];
+}
+
+
+function isLatestActionLikelyConsumedVisualSuggestion(visualFrame, latestActionKey) {
+  if (!visualFrame || typeof visualFrame !== "object") return false;
+  const key = safeText(latestActionKey || "", 220).toLowerCase();
+  if (!key) return false;
+  const suggested = visualFrame.suggestedAction || {};
+  const actionType = normalizeAgentStepType(suggested.type || "");
+  const targetText = normalizeForMatch(suggested.targetText || visualFrame.targetText || "");
+
+  if ((key.includes("tap_xy") || key.includes("tap_node") || key.includes("点击")) && (actionType === "tap_xy" || visualFrame.targetVisible)) {
+    if (!targetText) return true;
+    return key.includes(targetText) || normalizeForMatch(key).includes(targetText);
+  }
+  if (key.includes("wait") || key.includes("等待")) return actionType === "wait";
+  if (key.includes("swipe") || key.includes("滑动")) return actionType === "swipe" || actionType === "scroll";
+  if (key.includes("scroll") || key.includes("滚动")) return actionType === "scroll" || actionType === "swipe";
+  return false;
+}
+
+
+function countRecentActionKind(recentActions, kind) {
+  if (!Array.isArray(recentActions) || !kind) return 0;
+  const k = normalizeForMatch(kind);
+  return recentActions.filter((line) => normalizeForMatch(line).includes(k)).length;
+}
+
+function evidenceTextForCompletion(snapshot, visualFrame) {
+  const parts = [];
+  if (visualFrame && typeof visualFrame === "object") {
+    parts.push(visualFrame.pageTitle, visualFrame.pageType, visualFrame.summary, visualFrame.targetText, visualFrame.completionEvidence, visualFrame.reason);
+    if (visualFrame.suggestedAction) parts.push(visualFrame.suggestedAction.targetText, visualFrame.suggestedAction.reason);
+  }
+  const texts = Array.isArray(snapshot?.texts) ? snapshot.texts : [];
+  const clickableTexts = Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : [];
+  parts.push(...texts.slice(0, 24), ...clickableTexts.slice(0, 20));
+  return normalizeForMatch(parts.map((item) => safeText(item, 120)).filter(Boolean).join(" "));
+}
+
+function goalCoreForCompletion(goal, deviceContext) {
+  let core = safeText(goal || "", 120);
+  const candidates = targetAppCandidatesFromDeviceContext(deviceContext || {});
+  for (const app of candidates) {
+    const names = [app.label, ...(app.aliases || [])].map((name) => safeText(name, 80)).filter(Boolean);
+    for (const name of names) core = core.replace(new RegExp(escapeRegExp(name), "gi"), "");
+  }
+  core = core
+    .replace(/帮我|请|麻烦|一下|这个|那个|软件|应用|app|页面|界面|功能/g, "")
+    .replace(/打开|开启|启动|进入|找到|查找|查看|看一下|看|去到|跳到|前往/g, "")
+    .replace(/[\s，。,.、:：/\\\-_]+/g, "");
+  return normalizeForMatch(core);
+}
+
+function goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext) {
+  const rawGoal = safeText(goal || "", 160);
+  const normalizedGoal = normalizeForMatch(rawGoal);
+  const core = goalCoreForCompletion(rawGoal, deviceContext);
+  const evidence = evidenceTextForCompletion(snapshot, visualFrame);
+  if (!evidence) return null;
+  if (core && core.length >= 2 && evidence.includes(core)) {
+    return { confidence: 0.82, reason: `当前截图/视觉状态已经出现目标栏目：${core}` };
+  }
+  // 榜单/热榜类功能经常进入默认子栏目后标题不再完整显示“热榜”，例如热股/热度/热门/大家都在看。
+  // 这里不是用节点单独判定完成，而是作为视觉状态的完成证据补强，避免在已到达目标页后反复 wait。
+  if (normalizedGoal.includes("热榜") || normalizedGoal.includes("榜单")) {
+    const hotEvidence = ["热股", "热度", "热门", "大家都在看", "关注的股票", "排行", "榜"].some((word) => evidence.includes(normalizeForMatch(word)));
+    if (hotEvidence) return { confidence: 0.8, reason: "当前页面已显示榜单/热榜类主体内容。" };
+  }
+  if (normalizedGoal.includes("自选") && evidence.includes("自选")) {
+    return { confidence: 0.78, reason: "当前页面已显示自选相关主体内容。" };
+  }
+  return null;
+}
+
+function isLikelyLoadingOrTransition(snapshot, visualFrame) {
+  const evidence = evidenceTextForCompletion(snapshot, visualFrame);
+  if (!evidence) return true;
+  const nodeCount = Number(snapshot?.nodeCount || 0);
+  const textCount = Array.isArray(snapshot?.texts) ? snapshot.texts.length : 0;
+  if (nodeCount <= 3 && textCount <= 2) return true;
+  return ["加载", "正在", "刷新", "loading", "空白", "跳转", "过渡"].some((word) => evidence.includes(normalizeForMatch(word)));
+}
+
+function visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentActions = [], fromCache = false) {
+  if (!visualFrame || typeof visualFrame !== "object") return null;
+  const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
+  if (completionEvidence && visualFrameHasUsefulSignal(visualFrame) && Number(visualFrame.confidence || 0) >= 0.42) {
+    const confidence = Math.max(completionEvidence.confidence, Number(visualFrame.confidence || 0));
+    const step = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence, reason: completionEvidence.reason } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_completion_evidence" };
+  }
+  if (visualFrame.isComplete && visualFrame.confidence >= 0.68) {
+    const step = normalizeAgentStep({ agentStep: { type: "finish", reason: visualFrame.completionEvidence || visualFrame.reason || "视觉状态已确认目标完成。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: visualFrame.confidence, reason: visualFrame.completionEvidence || visualFrame.reason || "视觉状态已确认目标完成。" } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_complete" };
+  }
+  if (visualFrame.isWrong && visualFrame.confidence >= 0.78) {
+    const step = normalizeAgentStep({ agentStep: { type: "back", reason: visualFrame.reason || "视觉状态判断当前页面偏离目标，返回上一层。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: true, confidence: visualFrame.confidence, reason: visualFrame.reason || "视觉状态判断当前页面偏离目标。" } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_wrong" };
+  }
+  const suggested = visualFrame.suggestedAction || {};
+  const actionType = normalizeAgentStepType(suggested.type || "");
+  const latestActionKey = latestActionKeyFromRecent(recentActions);
+  const visualSuggestionConsumed = fromCache && isLatestActionLikelyConsumedVisualSuggestion(visualFrame, latestActionKey);
+  const x = Number(suggested.x ?? visualFrame.targetX);
+  const y = Number(suggested.y ?? visualFrame.targetY);
+  if (!visualSuggestionConsumed && (actionType === "tap_xy" || (!actionType && visualFrame.targetVisible)) && Number.isFinite(x) && Number.isFinite(y) && visualFrame.confidence >= 0.45) {
+    const step = normalizeAgentStep({ agentStep: { type: "tap_xy", x, y, targetText: suggested.targetText || visualFrame.targetText, reason: suggested.reason || visualFrame.reason || "视觉状态发现目标入口，执行坐标点击。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.55, visualFrame.confidence), reason: visualFrame.reason || "视觉状态发现目标入口，继续执行。" } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_target" };
+  }
+  if (!visualSuggestionConsumed && ["scroll", "swipe", "back"].includes(actionType) && visualFrame.confidence >= 0.45) {
+    const step = normalizeAgentStep({ agentStep: { type: actionType, direction: suggested.direction || "up", reason: suggested.reason || visualFrame.reason || "根据视觉状态继续探索。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: visualFrame.confidence, reason: visualFrame.reason || "视觉状态建议继续探索。" } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_action" };
+  }
+  if (!visualSuggestionConsumed && actionType === "wait" && visualFrame.confidence >= 0.45 && isLikelyLoadingOrTransition(snapshot, visualFrame) && countRecentActionKind(recentActions, "wait") === 0) {
+    const step = normalizeAgentStep({ agentStep: { type: "wait", durationMs: 700, reason: suggested.reason || visualFrame.reason || "页面仍在加载或过渡，短暂等待。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: visualFrame.confidence, reason: visualFrame.reason || "视觉状态建议等待加载。" } }, step);
+    return { agentStep: step, agentState: state, source: "visual_frame_wait_loading" };
+  }
+  return null;
+}
+
+function buildAgentTextPlannerMessages(goal, snapshot, supportedSteps, visualFrame, session, recentActions = [], deviceContext = null, agentMemory = null) {
+  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
+  const compactDeviceContext = deviceContextSummaryForPrompt(deviceContext);
+  const plannerApps = plannerAppsForPrompt(deviceContext, goal, false);
+  const latestAction = latestActionKeyFromRecent(recentActions);
+  const visualSuggestionConsumed = isLatestActionLikelyConsumedVisualSuggestion(visualFrame, latestAction);
+  const payload = {
+    goal,
+    visualFrame: visualFrame || null,
+    visualSuggestionConsumed,
+    latestAction,
+    session: {
+      id: session?.id || "",
+      step: session?.step || 0,
+      lastObservationReason: session?.lastObservationReason || "",
+    },
+    currentApp: snapshot.currentApp || snapshot.packageName || "",
+    supportedSteps,
+    deviceContext: {
+      currentApp: compactDeviceContext.currentApp,
+      screen: compactDeviceContext.screen,
+      installedApps: plannerApps,
+    },
+    memory: compactMemory,
+    actionBatch: {
+      enabled: true,
+      maxSteps: AGENT_ACTION_BATCH_MAX,
+      contract: "Return agentStep as the first action. If the next 2-3 actions are low-risk and safe without a fresh screenshot, also return agentSteps/actionBatch with those actions in order.",
+      stopConditions: ["visual_after_input", "visual_after_system_action", "visual_after_uncertain_progress"],
+    },
+    snapshotHints: {
+      packageName: snapshot.packageName,
+      nodeCount: snapshot.nodeCount,
+      texts: (snapshot.texts || []).slice(0, 12),
+      clickableNodes: (snapshot.clickableNodes || []).slice(0, 14),
+      inputNodes: (snapshot.inputNodes || []).slice(0, 3),
+      scrollableNodes: (snapshot.scrollableNodes || []).slice(0, 3),
+    },
+    rules: [
+      "When safe, return agentSteps/actionBatch with up to 3 low-risk local actions. Keep agentStep equal to the first item.",
+      "Do not batch input_text, open_app, back/home/system actions, or any action requiring confirmation unless it is the final single action.",
+      "visualFrame 是视觉确权结果，优先级高于节点。",
+      "节点只作为 affordance，不能单独证明任务完成。",
+      "每次只返回一步 agentStep。",
+      "如果 visualSuggestionConsumed=true 且当前页面没有明显变化，不要重复同一个视觉建议动作。",
+      "除非页面明显加载/空白/动画过渡，否则不要返回 wait；连续 wait 一次后仍无变化，应 finish、换路径、back 或 need_user_help。",
+      "如果当前视觉状态或主体文本已经证明进入目标栏目/目标功能默认子页，应直接 finish。",
+      "高风险动作 requiresConfirmation=true。"
+    ],
+  };
+  return [
+    { role: "system", content: buildAgentPlannerSystemPrompt(supportedSteps, false) },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+}
+
+async function callAgentVisualObserver(goal, snapshot, screenshotInfo, session, recentAgentActions, providerModel) {
+  const messages = buildAgentVisualObserverMessages(goal, snapshot, screenshotInfo, session, recentAgentActions);
+  const raw = await callOpenAICompatible(
+    process.env.QWEN_BASE_URL,
+    process.env.QWEN_API_KEY,
+    providerModel,
+    messages,
+    "Qwen Vision Agent Observer",
+    {
+      temperature: 0,
+      max_tokens: Math.min(AGENT_VISION_MAX_TOKENS, 260),
+      timeoutMs: Number(process.env.AGENT_VISION_TIMEOUT_MS || process.env.QWEN_VISION_TIMEOUT_MS || AGENT_PLANNER_TIMEOUT_MS),
+    }
+  );
+  let parsed;
+  try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+  return normalizeVisualFrame(parsed);
+}
+
+async function callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory) {
+  const messages = buildAgentTextPlannerMessages(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory);
+  const raw = await callOpenAICompatible(
+    process.env.QWEN_BASE_URL,
+    process.env.QWEN_API_KEY,
+    process.env.QWEN_MODEL,
+    messages,
+    "Qwen Agent Text Planner",
+    {
+      temperature: 0,
+      max_tokens: AGENT_TEXT_MAX_TOKENS,
+      timeoutMs: AGENT_TEXT_PLANNER_TIMEOUT_MS,
+      response_format: { type: "json_object" },
+    }
+  );
+  let parsed;
+  try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+  return parsed;
+}
+
+
+
+
+function buildAgentVisionPlannerSystemPrompt(supportedSteps) {
+  return [
+    "你是 Android Computer Use 的视觉主导单步规划器，只能输出严格 JSON。",
+    "你在本轮同时承担两件事：看截图形成 visualFrame，并直接给出 agentState 与 agentStep。",
+    "禁止把本轮结果交给另一个文本模型再规划；你必须一次性完成本轮单步决策。",
+    "",
+    `允许动作：${supportedSteps.join(", ")}`,
+    "",
+    "输出必须是单个 JSON 对象，不能有 Markdown、解释文字或代码块：",
+    "{\"agentState\":{\"isComplete\":false,\"expectedProgress\":false,\"isWrong\":false,\"confidence\":0.0,\"reason\":\"\",\"nextHint\":\"\"},\"visualFrame\":{\"pageTitle\":\"\",\"pageType\":\"\",\"summary\":\"\",\"isComplete\":false,\"isWrong\":false,\"targetVisible\":false,\"targetText\":\"\",\"targetX\":0.0,\"targetY\":0.0,\"suggestedAction\":{\"type\":\"tap_xy|scroll|swipe|back|wait|none\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"reason\":\"\"},\"completionEvidence\":\"\",\"confidence\":0.0,\"reason\":\"\"},\"agentStep\":{\"type\":\"tap_xy|tap_node|input_text|scroll|swipe|back|home|wait|finish|need_user_help\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low|medium|high\",\"requiresConfirmation\":false},\"agentSteps\":[{\"type\":\"tap_xy|scroll|swipe|wait\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low\",\"requiresConfirmation\":false}],\"stopConditions\":[\"visual_after_input\",\"visual_after_system_action\",\"visual_after_uncertain_progress\"]}",
+    "agentSteps/actionBatch is optional. Use it only for 2-3 low-risk local actions that are safe without a fresh screenshot. agentStep must equal the first item.",
+    "Never batch input_text, open_app, back/home/system actions, high/medium risk actions, or actions requiring confirmation.",
+    "",
+    "核心规则：",
+    "- screenshot 是主观察源；screenSnapshot 节点只作为 affordance 提示。",
+    "- 每轮只返回一步最小动作。",
+    "- 如果目标页面/目标功能已经打开，agentState.isComplete=true，agentStep.type=finish。",
+    "- 如果目标入口可见，优先返回 tap_xy，坐标必须是 0 到 1 的归一化屏幕坐标。",
+    "- 如果页面只是更接近目标，expectedProgress=true，并返回下一步动作。",
+    "- 如果明显走错，isWrong=true，通常返回 back。",
+    "- 除非截图明显加载、空白、刷新或动画过渡，否则不要返回 wait。",
+    "- 不要连续等待；如果页面内容稳定但不能继续，应返回 need_user_help、back 或可执行探索动作。",
+    "- 入口可见不等于完成；完成必须来自截图里的页面标题、已选中状态或主体内容。",
+    "- 节点文字不能单独证明完成，但可以帮助选择 tap_node/tap_xy。",
+    "- 涉及支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码时，riskLevel=high 且 requiresConfirmation=true。",
+  ].join("\n");
+}
+
+function buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null) {
+  const previous = session?.visualFrame ? {
+    pageTitle: session.visualFrame.pageTitle,
+    pageType: session.visualFrame.pageType,
+    summary: session.visualFrame.summary,
+    isComplete: session.visualFrame.isComplete,
+    targetVisible: session.visualFrame.targetVisible,
+    targetText: session.visualFrame.targetText,
+    confidence: session.visualFrame.confidence,
+  } : null;
+  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
+  const compactDeviceContext = deviceContextSummaryForPrompt(deviceContext);
+  const plannerApps = plannerAppsForPrompt(deviceContext, goal, true);
+  const payload = {
+    goal,
+    previousVisualFrame: previous,
+    latestAction: latestActionKeyFromRecent(recentActions),
+    currentApp: snapshot.currentApp || snapshot.packageName || "",
+    supportedSteps,
+    deviceContext: {
+      currentApp: compactDeviceContext.currentApp,
+      screen: compactDeviceContext.screen,
+      installedApps: plannerApps,
+      installedAppCount: compactDeviceContext.installedAppCount,
+    },
+    memory: compactMemory,
+    snapshotHints: {
+      packageName: snapshot.packageName,
+      nodeCount: snapshot.nodeCount,
+      texts: (snapshot.texts || []).slice(0, 12),
+      clickableTexts: (snapshot.clickableNodes || []).map((node) => node.text).filter(Boolean).slice(0, 16),
+      inputNodes: (snapshot.inputNodes || []).slice(0, 3),
+      scrollableNodes: (snapshot.scrollableNodes || []).slice(0, 3),
+    },
+    screenshot: {
+      width: screenshotInfo.width,
+      height: screenshotInfo.height,
+      displayWidth: screenshotInfo.displayWidth,
+      displayHeight: screenshotInfo.displayHeight,
+    },
+    task: "看当前截图，直接输出 visualFrame、agentState 和本轮唯一 agentStep。",
+  };
+  return [
+    { role: "system", content: buildAgentVisionPlannerSystemPrompt(supportedSteps) },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: JSON.stringify(payload) },
+        { type: "image_url", image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` } },
+      ],
+    },
+  ];
+}
+
+async function callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerModel) {
+  const messages = buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory);
+  const raw = await callOpenAICompatible(
+    process.env.QWEN_BASE_URL,
+    process.env.QWEN_API_KEY,
+    providerModel,
+    messages,
+    "Qwen Vision Agent Planner",
+    {
+      temperature: 0,
+      max_tokens: Math.min(AGENT_VISION_MAX_TOKENS, 360),
+      timeoutMs: Number(process.env.AGENT_VISION_TIMEOUT_MS || process.env.QWEN_VISION_TIMEOUT_MS || AGENT_PLANNER_TIMEOUT_MS),
+    }
+  );
+  let parsed;
+  try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+function parsedVisionPlanHasUsableStep(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  const rawStep = parsed.agentStep || parsed.step || parsed.actionStep || agentBatchCandidatesFromParsed(parsed)[0] || parsed.result || {};
+  const type = normalizeAgentStepType(rawStep.type || rawStep.action);
+  if (!SUPPORTED_AGENT_STEP_TYPES.includes(type)) return false;
+  if (type === "need_user_help") return false;
+  return true;
+}
+
+function cachedFrameNeedsTextPlanner(visualFrame, recentActions) {
+  if (!visualFrame || typeof visualFrame !== "object") return true;
+  if (visualFrame.isComplete || visualFrame.isWrong) return false;
+  const suggested = visualFrame.suggestedAction || {};
+  const actionType = normalizeAgentStepType(suggested.type || "");
+  const latestAction = latestActionKeyFromRecent(recentActions);
+  if (isLatestActionLikelyConsumedVisualSuggestion(visualFrame, latestAction)) return true;
+  if (["tap_xy", "scroll", "swipe", "back", "wait"].includes(actionType)) return false;
+  return true;
+}
+async function handleAgentStepRequest(body, prompt, resolvedModel) {
+  const startedAt = Date.now();
+  const goal = safeText(body.agentGoal || body.goal || prompt, 240);
+  const snapshot = compactScreenSnapshot(body.screenSnapshot || {});
+  const supportedSteps = supportedAgentStepsFromBody(body);
+  const screenshotInfo = normalizeAgentScreenshot(body);
+  const deviceContext = body.deviceContext && typeof body.deviceContext === "object" ? body.deviceContext : {};
+  const agentMemory = body.agentMemory && typeof body.agentMemory === "object" ? body.agentMemory : {};
+  const recentAgentActions = Array.isArray(body.recentAgentActions) ? body.recentAgentActions.slice(-8) : [];
+  const requestBytes = Number(body.__debugRequestBytes || 0) || 0;
+  const readBodyMs = Number(body.__debugReadBodyMs || 0) || 0;
+  const session = getAgentSession(body, goal);
+  session.step += 1;
+
+  const providerModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
+  const baseMeta = {
+    source: "agent_step_single_model_loop",
+    sourceDetail: screenshotInfo.hasImage ? "vision_planner_or_cache" : "text_planner_only",
+    model: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
+    modelId: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
+    modelLabel: screenshotInfo.hasImage ? "Qwen 视觉单步规划 / 缓存" : "Qwen 文本规划",
+    providerModel: screenshotInfo.hasImage ? providerModel : process.env.QWEN_MODEL,
+    version: WORKER_VERSION,
+  };
+
+  if (!goal) {
+    return { ok: false, error: "empty_agent_goal", code: "empty_agent_goal", version: WORKER_VERSION };
+  }
+
+  if (!snapshot.packageName && !snapshot.currentApp && snapshot.nodeCount === 0 && !screenshotInfo.hasImage) {
+    return {
+      ok: true,
+      reply: "当前没有可用屏幕快照。",
+      agentStep: { type: "need_user_help", reason: "Android 端没有提供可用 screenSnapshot 或 screenshot，无法规划下一步。", riskLevel: "low", requiresConfirmation: false },
+      ...baseMeta,
+    };
+  }
+
+  const fingerprint = screenFingerprint(snapshot, screenshotInfo);
+  const screenKey = stableScreenKey(snapshot, screenshotInfo);
+  const lastActionKey = latestActionKeyFromRecent(recentAgentActions);
+  const androidRequestedVisual = Boolean(agentMemory?.loopSignals?.forceNextVisual);
+  const hardForceVisual = Boolean(body.forceVisual === true || body.mustObserveVisual === true);
+  const cachedFrameUseful = isVisualFrameCacheable(session.visualFrame);
+  const stableScreenMatched = Boolean(session.lastStableScreenKey && session.lastStableScreenKey === screenKey);
+  const legacyFingerprintMatched = Boolean(!session.lastStableScreenKey && session.lastFingerprint && session.lastFingerprint === fingerprint);
+  const hasCachedFrame = Boolean(session.visualFrame && cachedFrameUseful && (stableScreenMatched || legacyFingerprintMatched));
+  const shouldCallVisual = Boolean(screenshotInfo.hasImage && (hardForceVisual || !hasCachedFrame));
+
+  let visualFrame = hasCachedFrame ? session.visualFrame : null;
+  let visualCalled = false;
+  let visualCacheHit = Boolean(visualFrame && !shouldCallVisual);
+  let providerMs = 0;
+  let textPlannerMs = 0;
+  let visualError = "";
+  let parsed = null;
+  let agentStep = null;
+  let agentState = null;
+  let planSource = "";
+
+  if (shouldCallVisual) {
+    const providerStartedAt = Date.now();
+    try {
+      parsed = await callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerModel);
+      providerMs = Date.now() - providerStartedAt;
+      visualCalled = true;
+      visualFrame = normalizeVisualFrame(parsed);
+      if (isVisualFrameCacheable(visualFrame)) {
+        session.visualFrame = visualFrame;
+        session.lastFingerprint = fingerprint;
+        session.lastStableScreenKey = screenKey;
+      }
+      session.lastActionKey = lastActionKey;
+      session.lastObservationReason = visualFrame.reason || visualFrame.summary || "";
+      session.failedVisualCount = 0;
+
+      const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, false);
+      if (direct && (direct.agentState?.isComplete || direct.agentState?.isWrong)) {
+        agentStep = direct.agentStep;
+        agentState = direct.agentState;
+        planSource = direct.source || "vision_direct_state";
+      } else if (parsedVisionPlanHasUsableStep(parsed)) {
+        agentStep = normalizeAgentStep(parsed, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        agentState = normalizeAgentState(parsed, agentStep);
+        planSource = "vision_planner";
+      } else if (direct) {
+        agentStep = direct.agentStep;
+        agentState = direct.agentState;
+        planSource = direct.source || "vision_frame_direct";
+      } else {
+        agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "视觉单步规划器没有返回可靠动作，已暂停避免盲目操作。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: Math.max(0.25, Number(visualFrame?.confidence || 0)), reason: visualFrame?.reason || "视觉单步规划器没有返回可靠动作。" } }, agentStep);
+        planSource = "vision_planner_no_action";
+      }
+
+      const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
+      if (completionEvidence && ["wait", "scroll", "swipe", "need_user_help"].includes(agentStep.type)) {
+        agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
+        planSource = "vision_completion_guard";
+      } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+        agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "页面内容稳定但视觉规划器连续等待，为避免卡住已暂停。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.45, reason: "连续 wait 且页面非加载态。" } }, agentStep);
+        planSource = "vision_wait_guard";
+      }
+    } catch (error) {
+      providerMs = Date.now() - providerStartedAt;
+      visualCalled = true;
+      visualError = String(error?.message || error || "vision_planner_failed").replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***").slice(0, 160);
+      session.failedVisualCount = Number(session.failedVisualCount || 0) + 1;
+      if (isVisualFrameCacheable(session.visualFrame)) {
+        visualFrame = session.visualFrame;
+        visualCacheHit = true;
+        const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, true);
+        if (direct) {
+          agentStep = direct.agentStep;
+          agentState = direct.agentState;
+          planSource = `${direct.source || "visual_cache"}_after_visual_error`;
+        }
+      }
+      if (!agentStep || !agentState) {
+        const reason = `视觉规划器暂时不可用：${visualError}`;
+        agentStep = { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false };
+        agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.25, reason } }, agentStep);
+        planSource = "vision_planner_failed";
+      }
+    }
+  } else {
+    const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, visualCacheHit);
+    if (direct && (!cachedFrameNeedsTextPlanner(visualFrame, recentAgentActions) || direct.agentState?.isComplete || direct.agentState?.isWrong)) {
+      agentStep = direct.agentStep;
+      agentState = direct.agentState;
+      planSource = direct.source || "visual_cache_direct";
+    } else {
+      try {
+        const plannerStartedAt = Date.now();
+        parsed = await callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory);
+        textPlannerMs = Date.now() - plannerStartedAt;
+        agentStep = normalizeAgentStep(parsed, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        agentState = normalizeAgentState(parsed, agentStep);
+        const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
+        if (completionEvidence && ["wait", "scroll", "swipe"].includes(agentStep.type)) {
+          agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+          agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
+          planSource = "cache_text_completion_guard";
+        } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+          agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "页面内容已经稳定但规划器连续等待，为避免卡住已暂停。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+          agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.45, reason: "连续 wait 且页面非加载态。" } }, agentStep);
+          planSource = "cache_text_wait_guard";
+        } else {
+          planSource = visualCacheHit ? "cache_text_planner" : "text_planner";
+        }
+      } catch (error) {
+        const reason = `文本规划器暂时不可用：${String(error?.message || error).replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***").slice(0, 140)}`;
+        agentStep = { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false };
+        agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.25, reason } }, agentStep);
+        planSource = "text_planner_failed";
+      }
+    }
+  }
+
+  const screenshotBytesApprox = screenshotInfo.hasImage ? Math.round((screenshotInfo.base64.length * 3) / 4) : 0;
+  const promptChars = JSON.stringify({ visualFrame, snapshotHints: { texts: (snapshot.texts || []).slice(0, 12), clickableNodes: (snapshot.clickableNodes || []).slice(0, 12) } }).length;
+  const totalMs = Date.now() - startedAt;
+  const agentSteps = normalizeAgentStepBatch(parsed, agentStep, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const actionBatch = agentSteps.slice();
+  const stopConditions = normalizeAgentStopConditions(parsed);
+
+  return {
+    ok: true,
+    reply: agentState?.isComplete ? "视觉状态已确认任务完成。" : "已根据当前屏幕规划下一步。",
+    agentState,
+    isComplete: agentState.isComplete,
+    expectedProgress: agentState.expectedProgress,
+    isWrong: agentState.isWrong,
+    confidence: agentState.confidence,
+    nextHint: agentState.nextHint,
+    agentStep,
+    agentSteps,
+    steps: agentSteps,
+    actionBatch,
+    stopConditions,
+    ...baseMeta,
+    sourceDetail: planSource || baseMeta.sourceDetail,
+    model: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
+    modelId: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
+    modelLabel: visualCalled ? "Qwen 视觉单步规划" : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
+    providerModel: visualCalled ? providerModel : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
+    searchUsed: false,
+    structuredUsed: false,
+    searchProvider: null,
+    toolUsed: "agent_step",
+    toolReason: agentStep.reason,
+    sources: [],
+    structuredData: null,
+    toolIntent: null,
+    intentError: null,
+    deviceIntent: null,
+    deviceIntentError: null,
+    visualFrame,
+    debug: {
+      currentApp: snapshot.currentApp,
+      packageName: snapshot.packageName,
+      nodeCount: snapshot.nodeCount,
+      hasScreenshot: screenshotInfo.hasImage,
+      screenshotSize: screenshotInfo.hasImage ? `${screenshotInfo.width}x${screenshotInfo.height}` : "",
+      displaySize: screenshotInfo.hasImage ? `${screenshotInfo.displayWidth}x${screenshotInfo.displayHeight}` : "",
+      supportedAgentSteps: supportedSteps,
+      actionBatchMax: AGENT_ACTION_BATCH_MAX,
+      actionBatchCount: agentSteps.length,
+      stopConditions,
+      installedAppCount: installedAppsFromDeviceContext(deviceContext).length,
+      plannerAppCount: plannerAppsForPrompt(deviceContext, goal, screenshotInfo.hasImage).length,
+      memorySignals: compactAgentMemoryForPrompt(agentMemory, recentAgentActions).loopSignals,
+      requestBytes,
+      readBodyMs,
+      promptChars,
+      screenshotBytesApprox,
+      buildMessagesMs: 0,
+      providerMs,
+      textPlannerMs,
+      parseMs: 0,
+      totalMs,
+      singleModelLoop: true,
+      blockedVisionThenText: Boolean(visualCalled && textPlannerMs === 0),
+      visionJsonMode: false,
+      visualCalled,
+      visualCacheHit,
+      androidRequestedVisual,
+      hardForceVisual,
+      visualError,
+      visualFrameConfidence: visualFrame?.confidence || 0,
+      visualFrameCacheable: isVisualFrameCacheable(visualFrame),
+      cacheEligible: hasCachedFrame,
+      stableScreenMatched,
+      stableScreenKey: screenKey.slice(0, 120),
+      sessionId: session.id,
+      sessionStep: session.step,
+      screenFingerprint: fingerprint.slice(0, 80),
+    },
+    version: WORKER_VERSION,
+  };
+}
+
+function normalizeToolName(value) {
+  const tool = String(value || "none").toLowerCase().trim();
+  if (["weather", "exchange_rate", "stock", "none"].includes(tool)) return tool;
+  if (["currency", "rate", "fx", "forex"].includes(tool)) return "exchange_rate";
+  return "none";
+}
+
+async function detectIntentByModel(prompt) {
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "你是一个工具调用路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
+        "你要判断用户是否需要实时结构化接口。",
+        "支持的工具：",
+        "1. weather：天气、气温、是否下雨、是否带伞、冷不冷、热不热、适不适合出门、穿衣建议、风速、湿度。",
+        "2. exchange_rate：汇率、货币兑换、外汇价格。",
+        "3. stock：股票、股价、证券行情、指数或 ETF 行情。",
+        "4. none：不需要实时结构化接口。",
+        "",
+        "字段规则：",
+        "- tool 必须是 weather、exchange_rate、stock、none 之一。",
+        "- weather 时 location 填城市或地区名，例如 杭州、新加坡、北京；不能把“如何、怎么样、今天、天气”等问法词放进 location。",
+        "- exchange_rate 时 from/to 填 ISO 货币代码，例如 USD、CNY、JPY、EUR；不知道时按语义补全。",
+        "- stock 时 symbol 填股票代码。已知中文公司名要转成常见代码，例如 英伟达=NVDA，苹果=AAPL，特斯拉=TSLA，腾讯=0700.HK，贵州茅台=600519.SS。",
+        "- none 时其他字段留空。",
+        "",
+        "输出格式必须是单个 JSON 对象：",
+        "{\"tool\":\"weather | exchange_rate | stock | none\",\"location\":\"\",\"from\":\"\",\"to\":\"\",\"symbol\":\"\",\"reason\":\"\"}",
+        "",
+        "示例：",
+        "用户：杭州今天天气如何",
+        "{\"tool\":\"weather\",\"location\":\"杭州\",\"from\":\"\",\"to\":\"\",\"symbol\":\"\",\"reason\":\"用户询问杭州天气\"}",
+        "用户：杭州今天要不要带伞",
+        "{\"tool\":\"weather\",\"location\":\"杭州\",\"from\":\"\",\"to\":\"\",\"symbol\":\"\",\"reason\":\"用户询问杭州降雨情况\"}",
+        "用户：美元兑人民币汇率是多少",
+        "{\"tool\":\"exchange_rate\",\"location\":\"\",\"from\":\"USD\",\"to\":\"CNY\",\"symbol\":\"\",\"reason\":\"用户询问汇率\"}",
+        "用户：英伟达股价是多少",
+        "{\"tool\":\"stock\",\"location\":\"\",\"from\":\"\",\"to\":\"\",\"symbol\":\"NVDA\",\"reason\":\"用户询问股票行情\"}",
+        "用户：辛亥革命的历史意义",
+        "{\"tool\":\"none\",\"location\":\"\",\"from\":\"\",\"to\":\"\",\"symbol\":\"\",\"reason\":\"历史知识问题，不需要实时接口\"}"
+      ].join("\n")
+    },
+    { role: "user", content: String(prompt || "") }
+  ];
+
+  const raw = await callOpenAICompatible(
+    process.env.QWEN_BASE_URL,
+    process.env.QWEN_API_KEY,
+    process.env.QWEN_MODEL,
+    messages,
+    "Qwen Intent Router",
+    {
+      temperature: 0,
+      max_tokens: 260,
+      timeoutMs: TOOL_ROUTER_TIMEOUT_MS,
+      response_format: { type: "json_object" }
+    }
+  );
+
+  try {
+    const parsed = JSON.parse(extractJsonText(raw));
+    const tool = normalizeToolName(parsed.tool);
+
+    return {
+      tool,
+      location: String(parsed.location || "").trim(),
+      from: String(parsed.from || "").trim().toUpperCase(),
+      to: String(parsed.to || "").trim().toUpperCase(),
+      symbol: String(parsed.symbol || "").trim().toUpperCase(),
+      reason: String(parsed.reason || "").trim(),
+      raw,
+    };
+  } catch (e) {
+    return {
+      tool: "none",
+      location: "",
+      from: "",
+      to: "",
+      symbol: "",
+      reason: `intent_json_parse_failed: ${String(raw).slice(0, 120)}`,
+      raw,
+    };
+  }
+}
+
+function normalizeStockSymbol(symbol, rawText) {
+  const clean = String(symbol || "").toUpperCase().trim();
+  if (!clean) return "";
+
+  if (clean.includes(".")) return clean;
+
+  if (/^\d{3,5}$/.test(clean) && /港股|港股行情|港股股价|HK/i.test(rawText)) {
+    return clean.padStart(4, "0") + ".HK";
+  }
+
+  if (/^\d{6}$/.test(clean)) {
+    if (/^(60|68|90)/.test(clean)) return `${clean}.SS`;
+    if (/^(00|30|20)/.test(clean)) return `${clean}.SZ`;
+    if (/^(83|87|43)/.test(clean)) return `${clean}.BJ`;
+  }
+
+  return clean;
+}
+
+async function detectStructuredIntent(prompt, forceSearch) {
+  if (!forceSearch) return { intent: null, toolIntent: null, intentError: null };
+
+  try {
+    const toolIntent = await detectIntentByModel(prompt);
+
+    if (toolIntent.tool === "weather") {
+      return {
+        intent: {
+          type: "weather",
+          query: toolIntent.location || "杭州",
+          reason: toolIntent.reason || "",
+        },
+        toolIntent,
+        intentError: null,
+      };
+    }
+
+    if (toolIntent.tool === "exchange_rate") {
+      return {
+        intent: {
+          type: "exchange_rate",
+          from: toolIntent.from || "USD",
+          to: toolIntent.to || "CNY",
+          reason: toolIntent.reason || "",
+        },
+        toolIntent,
+        intentError: null,
+      };
+    }
+
+    if (toolIntent.tool === "stock") {
+      return {
+        intent: {
+          type: "stock",
+          symbol: normalizeStockSymbol(toolIntent.symbol, prompt),
+          reason: toolIntent.reason || "",
+        },
+        toolIntent,
+        intentError: null,
+      };
+    }
+
+    return { intent: null, toolIntent, intentError: null };
+  } catch (e) {
+    return {
+      intent: null,
+      toolIntent: null,
+      intentError: String(e.message || e),
+    };
+  }
+}
+
+function weatherCodeLabel(code) {
+  const n = Number(code);
+
+  if ([0].includes(n)) return "晴";
+  if ([1, 2, 3].includes(n)) return "多云";
+  if ([45, 48].includes(n)) return "雾";
+  if ([51, 53, 55, 56, 57].includes(n)) return "毛毛雨";
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(n)) return "雨";
+  if ([71, 73, 75, 77, 85, 86].includes(n)) return "雪";
+  if ([95, 96, 99].includes(n)) return "雷暴";
+
+  return String(code ?? "--");
+}
+
+async function getWeatherData(location) {
+  const query = encodeURIComponent(location || "杭州");
+
+  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${query}&count=1&language=zh&format=json`;
+  const geoRes = await fetchWithTimeout(geoUrl, { method: "GET" }, 12000);
+
+  if (!geoRes.ok) {
+    throw new Error(`weather geocode ${geoRes.status}`);
+  }
+
+  const geo = await geoRes.json();
+  const place = geo?.results?.[0];
+
+  if (!place) {
+    throw new Error(`weather location not found: ${location}`);
+  }
+
+  const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`;
+  const weatherRes = await fetchWithTimeout(weatherUrl, { method: "GET" }, 12000);
+
+  if (!weatherRes.ok) {
+    throw new Error(`weather api ${weatherRes.status}`);
+  }
+
+  const weather = await weatherRes.json();
+  const current = weather.current || {};
+
+  return {
+    data: {
+      type: "weather",
+      title: `${place.name || location}天气`,
+      subtitle: [place.admin1, place.country].filter(Boolean).join(" · "),
+      timestamp: current.time || new Date().toISOString(),
+      metrics: [
+        {
+          label: "温度",
+          value: String(current.temperature_2m ?? "--"),
+          unit: weather.current_units?.temperature_2m || "°C",
+        },
+        {
+          label: "天气",
+          value: weatherCodeLabel(current.weather_code),
+        },
+        {
+          label: "湿度",
+          value: String(current.relative_humidity_2m ?? "--"),
+          unit: weather.current_units?.relative_humidity_2m || "%",
+        },
+        {
+          label: "风速",
+          value: String(current.wind_speed_10m ?? "--"),
+          unit: weather.current_units?.wind_speed_10m || "km/h",
+        },
+      ],
+      rawText: "天气数据来自 Open-Meteo 实时接口。",
+    },
+    source: {
+      title: "Open-Meteo Weather Forecast API",
+      url: "https://open-meteo.com/",
+      domain: "open-meteo.com",
+      snippet: "实时天气、地理编码和气象预报数据来源。",
+    },
+  };
+}
+
+async function getExchangeRateData(from, to) {
+  const base = encodeURIComponent(from || "USD");
+  const target = String(to || "CNY").toUpperCase();
+
+  const url = `https://open.er-api.com/v6/latest/${base}`;
+  const res = await fetchWithTimeout(url, { method: "GET" }, 12000);
+
+  if (!res.ok) {
+    throw new Error(`exchange api ${res.status}`);
+  }
+
+  const data = await res.json();
+  const rate = data?.rates?.[target];
+
+  if (!rate) {
+    throw new Error(`exchange rate not found: ${base}/${target}`);
+  }
+
+  return {
+    data: {
+      type: "exchange_rate",
+      title: `${base.toUpperCase()} / ${target} 汇率`,
+      subtitle: data.provider || "实时汇率",
+      timestamp: data.time_last_update_utc || new Date().toISOString(),
+      metrics: [
+        {
+          label: "来源币种",
+          value: base.toUpperCase(),
+        },
+        {
+          label: "目标币种",
+          value: target,
+        },
+        {
+          label: "汇率",
+          value: String(rate),
+        },
+      ],
+    },
+    source: {
+      title: "ExchangeRate-API Open Endpoint",
+      url: "https://open.er-api.com/",
+      domain: "open.er-api.com",
+      snippet: "实时外汇汇率数据来源。",
+    },
+  };
+}
+
+async function getStockData(symbol) {
+  const cleanSymbol = String(symbol || "").trim().toUpperCase();
+
+  if (!cleanSymbol) {
+    throw new Error("stock symbol missing");
+  }
+
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?range=1d&interval=1m`;
+  const res = await fetchWithTimeout(url, { method: "GET" }, 12000);
+
+  if (!res.ok) {
+    throw new Error(`stock api ${res.status}`);
+  }
+
+  const json = await res.json();
+  const result = json?.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const quote = result?.indicators?.quote?.[0] || {};
+  const closes = Array.isArray(quote.close)
+    ? quote.close.filter((v) => typeof v === "number")
+    : [];
+
+  const latest = closes.length ? closes[closes.length - 1] : meta.regularMarketPrice;
+  const previous = meta.chartPreviousClose || meta.previousClose;
+  const change = typeof latest === "number" && typeof previous === "number"
+    ? latest - previous
+    : null;
+  const changePercent = change !== null && previous
+    ? (change / previous) * 100
+    : null;
+
+  return {
+    data: {
+      type: "stock",
+      title: `${cleanSymbol} 股票行情`,
+      subtitle: meta.exchangeName || meta.fullExchangeName || "Yahoo Finance",
+      timestamp: new Date().toISOString(),
+      metrics: [
+        {
+          label: "代码",
+          value: cleanSymbol,
+        },
+        {
+          label: "价格",
+          value: latest !== undefined ? String(Number(latest).toFixed(3)) : "--",
+          unit: meta.currency || "",
+        },
+        {
+          label: "涨跌",
+          value: change !== null ? String(change.toFixed(3)) : "--",
+        },
+        {
+          label: "涨跌幅",
+          value: changePercent !== null ? `${changePercent.toFixed(2)}%` : "--",
+        },
+      ],
+      rawText: "股票数据来自 Yahoo Finance chart 接口。行情可能有延迟，仅供信息参考。",
+    },
+    source: {
+      title: "Yahoo Finance Chart API",
+      url: `https://finance.yahoo.com/quote/${encodeURIComponent(cleanSymbol)}`,
+      domain: "finance.yahoo.com",
+      snippet: "股票、ETF、指数等市场行情来源。",
+    },
+  };
+}
+
+async function getStructuredDataWithSource(intent) {
+  if (!intent) {
+    return {
+      structuredData: null,
+      structuredSource: null,
+    };
+  }
+
+  if (intent.type === "weather") {
+    const result = await getWeatherData(intent.query);
+    return {
+      structuredData: result.data,
+      structuredSource: result.source,
+    };
+  }
+
+  if (intent.type === "exchange_rate") {
+    const result = await getExchangeRateData(intent.from, intent.to);
+    return {
+      structuredData: result.data,
+      structuredSource: result.source,
+    };
+  }
+
+  if (intent.type === "stock") {
+    const result = await getStockData(intent.symbol);
+    return {
+      structuredData: result.data,
+      structuredSource: result.source,
+    };
+  }
+
+  return {
+    structuredData: null,
+    structuredSource: null,
+  };
+}
+
+async function tavilySearch(query) {
+  const key = process.env.TAVILY_API_KEY;
+
+  if (!key) {
+    return {
+      sources: [],
+      provider: null,
+    };
+  }
+
+  const res = await fetchWithTimeout("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      api_key: key,
+      query,
+      search_depth: "basic",
+      include_answer: false,
+      include_raw_content: false,
+      max_results: 5,
+    }),
+  }, 15000);
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`tavily ${res.status} ${text.slice(0, 160)}`);
+  }
+
+  const data = JSON.parse(text);
+
+  const sources = (Array.isArray(data.results) ? data.results : []).map((item) => {
+    const url = String(item.url || "");
+
+    return {
+      title: String(item.title || url || "搜索来源"),
+      url,
+      domain: url.replace(/^https?:\/\//, "").split("/")[0],
+      snippet: String(item.content || item.snippet || "").slice(0, 360),
+      publishedAt: item.published_date || item.publishedAt || "",
+    };
+  });
+
+  return {
+    sources,
+    provider: "tavily",
+  };
+}
+
+function dedupeSources(sources) {
+  const seen = new Set();
+  const clean = [];
+
+  for (const source of sources) {
+    const url = String(source?.url || "");
+    const key = url || String(source?.title || "");
+
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    clean.push(source);
+  }
+
+  return clean.slice(0, 6);
+}
+
+function buildSourceContext(sources) {
+  if (!sources.length) return "";
+
+  return sources.map((source, index) => {
+    return `[${index + 1}] ${source.title}\n${source.url}\n${source.snippet}`;
+  }).join("\n\n");
+}
+
+function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent, body = {}) {
+  const messages = normalizeMessages(bodyMessages, prompt);
+  const contextBlocks = [];
+
+  if (toolIntent) {
+    contextBlocks.push(`工具路由判断：\n${JSON.stringify(toolIntent, null, 2)}`);
+  }
+
+  if (structuredData) {
+    contextBlocks.push(`结构化实时数据：\n${JSON.stringify(structuredData, null, 2)}`);
+  }
+
+  const sourceContext = buildSourceContext(sources);
+
+  if (sourceContext) {
+    contextBlocks.push(`联网搜索资料：\n${sourceContext}`);
+  }
+
+  const commandInstruction = String(body.commandProtocolInstruction || body.systemPrompt || "").trim();
+
+  const system = [
+    "你是可靠、清晰、简洁的中文助手。",
+    "如果提供了结构化实时数据或联网搜索资料，必须优先基于这些资料回答。",
+    "不要编造来源；无法确认时要说明不确定。",
+    "如果用户明确表达手机本地能力、设备控制、打开 App、导航、闹钟、偏好保存、屏幕观察或手机智能体任务意图，必须输出 AI_LEDGER_COMMAND 机器标记。",
+    "agentAction 只允许 observe_screen 或 run_agent_task；具体点击、输入、滑动动作必须交给智能体规划接口，不要在聊天回复里直接输出。",
+    "回答要自然；除 AI_LEDGER_COMMAND 机器标记外，不要暴露其他内部工具调用 JSON。",
+  ];
+
+  if (commandInstruction) {
+    system.push(commandInstruction);
+  }
+
+  if (contextBlocks.length) {
+    system.push(contextBlocks.join("\n\n"));
+  }
+
+  return [
+    {
+      role: "system",
+      content: system.join("\n"),
+    },
+    ...messages,
+  ];
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    if (req.method === "OPTIONS") {
+      return sendJson(res, 204, {});
+    }
+
+    if (req.method === "GET") {
+      return sendJson(res, 200, {
+        ok: true,
+        mode: "aliyun-fc-custom-runtime",
+        version: WORKER_VERSION,
+        features: [
+          "qwen",
+          "qwen_vision",
+          "qwen_omni",
+          "image_understanding",
+          "multimodal_chat",
+          "deepseek",
+          "model_tool_router",
+          "web_search_sources",
+          "weather",
+          "exchange_rate",
+          "stock",
+          "command_protocol",
+          "agent_action",
+          "run_agent_task",
+          "screen_observation",
+          "screenshot_visual_fallback",
+          "computer_use_vision",
+          "agent_step_planner",
+          "mobile_action",
+          "preference_update",
+        ],
+        limits: {
+          maxBodyBytes: MAX_BODY_BYTES,
+          maxImages: 4,
+        },
+      });
+    }
+
+    if (req.method !== "POST") {
+      return sendJson(res, 405, {
+        ok: false,
+        error: "method_not_allowed",
+      });
+    }
+
+    const readBodyStartedAt = Date.now();
+    const body = await readJsonBody(req);
+    const readBodyMs = Date.now() - readBodyStartedAt;
+    body.__debugRequestBytes = Number(req.headers["content-length"] || 0) || JSON.stringify(body).length;
+    body.__debugReadBodyMs = readBodyMs;
+    const images = normalizeImages(body);
+
+    const prompt =
+      body.message ||
+      body.prompt ||
+      body.text ||
+      body.content ||
+      latestUserText(body.messages) ||
+      (images.length ? "请识别这张图片，说明图中内容，并回答我可能关心的问题。" : "");
+
+    if (!prompt || !String(prompt).trim()) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: "empty_prompt",
+      });
+    }
+
+    const modelPref = String(
+      body.modelPreference ||
+      body.aiModelPreference ||
+      body.requestedModelPreference ||
+      body.modelId ||
+      body.model ||
+      "auto"
+    ).toLowerCase().trim();
+
+    const useVision = images.length > 0 || modelPref === "qwen_vision" || modelPref === "qwen-vision";
+    const resolved = useVision ? "qwen_vision" : resolveModel(modelPref, prompt);
+
+    if (resolved === "unsupported") {
+      return sendJson(res, 200, {
+        ok: false,
+        unsupportedModel: true,
+        shouldFallback: true,
+        code: "model_not_available",
+        error: `CN gateway does not support model: ${modelPref}`,
+        model: modelPref,
+        version: WORKER_VERSION,
+      });
+    }
+
+    if (isAgentOutcomeVerificationRequest(body)) {
+      const verifyResult = await handleAgentOutcomeVerificationRequest(body, prompt, resolved === "qwen_vision" ? "qwen" : resolved);
+      return sendJson(res, verifyResult.ok === false ? 400 : 200, verifyResult);
+    }
+
+    if (isAgentModeRequest(body)) {
+      const agentResult = await handleAgentStepRequest(body, prompt, resolved === "qwen_vision" ? "qwen" : resolved);
+      return sendJson(res, agentResult.ok === false ? 400 : 200, agentResult);
+    }
+
+    if (useVision) {
+      if (!images.length) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: "vision_model_requires_image",
+          code: "empty_images",
+          model: "qwen_vision",
+          version: WORKER_VERSION,
+        });
+      }
+
+      const visionMessages = buildVisionMessages(prompt, images, body);
+      const visionModel = process.env.QWEN_VISION_MODEL;
+
+      const reply = await callOpenAICompatible(
+        process.env.QWEN_BASE_URL,
+        process.env.QWEN_API_KEY,
+        visionModel,
+        visionMessages,
+        "Qwen Vision",
+        {
+          temperature: 0.25,
+          max_tokens: Number(process.env.QWEN_VISION_MAX_TOKENS || 1800),
+          timeoutMs: Number(process.env.QWEN_VISION_TIMEOUT_MS || REQUEST_TIMEOUT_MS),
+        }
+      );
+
+      const commandPayload = extractCommandPayload(reply);
+      const cleanReply = stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload);
+
+      return sendJson(res, 200, {
+        ok: true,
+        reply: cleanReply,
+        agentAction: commandPayload.agentAction,
+        mobileAction: commandPayload.mobileAction,
+        preferenceUpdate: commandPayload.preferenceUpdate,
+        source: "qwen_vision",
+        sourceDetail: "qwen_vision",
+        model: "qwen_vision",
+        modelId: "qwen_vision",
+        providerModel: visionModel,
+        modelLabel: "Qwen 识图 · Omni Plus",
+        imageCount: images.length,
+        searchUsed: false,
+        structuredUsed: false,
+        searchProvider: null,
+        toolUsed: commandPayload.agentAction ? "agent_action" : "vision",
+        toolReason: commandPayload.agentAction?.reason || "",
+        searchError: null,
+        sources: [],
+        structuredData: null,
+        structuredError: null,
+        toolIntent: null,
+        intentError: null,
+        deviceIntent: null,
+        deviceIntentError: null,
+        version: WORKER_VERSION,
+      });
+    }
+
+    let deviceIntent = { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "", source: "none" };
+    let deviceIntentError = null;
+
+    try {
+      deviceIntent = await detectDeviceIntentByModel(prompt, body);
+    } catch (e) {
+      deviceIntentError = String(e.message || e);
+    }
+
+    if (deviceIntent?.agentAction || deviceIntent?.mobileAction || deviceIntent?.preferenceUpdate) {
+      return sendJson(res, 200, {
+        ok: true,
+        reply: buildDeviceActionReply(deviceIntent),
+        agentAction: deviceIntent.agentAction || null,
+        mobileAction: deviceIntent.mobileAction || null,
+        preferenceUpdate: deviceIntent.preferenceUpdate || null,
+        source: "device_action_router",
+        sourceDetail: deviceIntent.source || "device_router",
+        model: resolved,
+        modelId: resolved,
+        modelLabel: resolved === "deepseek_v4" ? "DeepSeek V4 Pro" : "Qwen Max",
+        searchUsed: false,
+        structuredUsed: false,
+        searchProvider: null,
+        toolUsed: "device_action",
+        toolReason: deviceIntent.reason || "",
+        sources: [],
+        structuredData: null,
+        toolIntent: null,
+        intentError: null,
+        deviceIntent,
+        deviceIntentError,
+        version: WORKER_VERSION,
+      });
+    }
+
+    const forceSearch = isForceWebSearch(body);
+    const routed = await detectStructuredIntent(prompt, forceSearch);
+    const structuredIntent = routed.intent;
+    const toolIntent = routed.toolIntent;
+    const intentError = routed.intentError;
+
+    let structuredData = null;
+    let structuredSource = null;
+    let structuredError = null;
+
+    if (structuredIntent) {
+      try {
+        const structured = await getStructuredDataWithSource(structuredIntent);
+        structuredData = structured.structuredData;
+        structuredSource = structured.structuredSource;
+      } catch (e) {
+        structuredError = String(e.message || e);
+      }
+    }
+
+    let sources = [];
+    let searchProvider = null;
+    let searchError = null;
+
+    if (forceSearch && !structuredData) {
+      try {
+        const search = await tavilySearch(prompt);
+        sources = search.sources;
+        searchProvider = search.provider;
+      } catch (e) {
+        searchError = String(e.message || e);
+      }
+    }
+
+    if (structuredSource) {
+      sources = [structuredSource, ...sources];
+      searchProvider = searchProvider || structuredSource.domain;
+    }
+
+    sources = dedupeSources(sources);
+
+    const messages = buildMessages(body.messages, prompt, structuredData, sources, toolIntent, body);
+
+    const reply =
+      resolved === "deepseek_v4"
+        ? await callOpenAICompatible(
+            process.env.DEEPSEEK_BASE_URL,
+            process.env.DEEPSEEK_API_KEY,
+            process.env.DEEPSEEK_MODEL,
+            messages,
+            "DeepSeek"
+          )
+        : await callOpenAICompatible(
+            process.env.QWEN_BASE_URL,
+            process.env.QWEN_API_KEY,
+            process.env.QWEN_MODEL,
+            messages,
+            "Qwen"
+          );
+
+    const commandPayload = extractCommandPayload(reply);
+    const cleanReply = stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload);
+
+    return sendJson(res, 200, {
+      ok: true,
+      reply: cleanReply,
+      agentAction: commandPayload.agentAction,
+      mobileAction: commandPayload.mobileAction,
+      preferenceUpdate: commandPayload.preferenceUpdate,
+      source: sources.length || structuredData ? "web_search_tool" : resolved === "deepseek_v4" ? "deepseek" : "qwen",
+      sourceDetail: resolved === "deepseek_v4" ? "deepseek" : "qwen",
+      model: resolved,
+      modelId: resolved,
+      modelLabel: resolved === "deepseek_v4" ? "DeepSeek V4 Pro" : "Qwen Max",
+      searchUsed: Boolean(forceSearch && sources.length),
+      structuredUsed: Boolean(structuredData),
+      searchProvider,
+      toolUsed: commandPayload.agentAction ? "agent_action" : toolIntent?.tool || "none",
+      toolReason: commandPayload.agentAction?.reason || toolIntent?.reason || "",
+      searchError,
+      sources,
+      structuredData,
+      structuredError,
+      toolIntent,
+      intentError,
+      deviceIntent,
+      deviceIntentError,
+      version: WORKER_VERSION,
+    });
+  } catch (e) {
+    return sendJson(res, 502, {
+      ok: false,
+      error: String(e.message || e),
+      code: "provider_call_failed",
+      version: WORKER_VERSION,
+    });
+  }
+});
+
+server.listen(PORT, () => {
+  console.log(`AI Ledger CN web-data qwen-vision model-router server listening on ${PORT}`);
+});
