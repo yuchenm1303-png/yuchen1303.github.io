@@ -1,1 +1,1 @@
-触发 Build Compose Android APK：行情首页看盘模块丰富 2026-06-06
+触发 Build Compose Android APK：K线独立接口加载与状态覆盖修复 2026-06-06
