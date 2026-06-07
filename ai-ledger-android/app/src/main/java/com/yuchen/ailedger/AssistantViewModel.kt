@@ -388,11 +388,11 @@ class AssistantViewModel(
                 val total = fullText.length
                 val firstFlush = displayed == 0
                 if (firstFlush) {
-                    if (available < 6 && elapsed < 300L) return displayed
+                    if (available < 4 && elapsed < 180L) return displayed
                     val firstMax = when {
-                        total >= 96 -> 18
-                        total >= 48 -> 14
-                        else -> 10
+                        total >= 96 -> 12
+                        total >= 48 -> 10
+                        else -> 8
                     }
                     val softEnd = minOf(fullText.length, displayed + firstMax)
                     for (index in displayed + 5 until softEnd) {
@@ -402,27 +402,27 @@ class AssistantViewModel(
                 }
 
                 val minChunk = when {
-                    total >= 1600 -> 42
-                    total >= 900 -> 34
-                    total >= 420 -> 26
-                    else -> 18
+                    total >= 1600 -> 28
+                    total >= 900 -> 24
+                    total >= 420 -> 18
+                    else -> 10
                 }
                 val idealChunk = when {
-                    total >= 1600 -> 78
-                    total >= 900 -> 64
-                    total >= 420 -> 52
-                    else -> 38
+                    total >= 1600 -> 56
+                    total >= 900 -> 46
+                    total >= 420 -> 36
+                    else -> 24
                 }
                 val relaxedMin = maxOf(8, minChunk / 2)
-                if (available < minChunk && elapsed < 220L) return displayed
-                if (available < relaxedMin && elapsed < 360L) return displayed
+                if (available < minChunk && elapsed < 140L) return displayed
+                if (available < relaxedMin && elapsed < 260L) return displayed
 
                 val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk))
                 val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk))
                 for (index in minEnd - 1 until maxEnd) {
                     if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
                 }
-                if (available >= idealChunk || elapsed >= 260L) return maxEnd
+                if (available >= idealChunk || elapsed >= 190L) return maxEnd
                 return displayed
             }
 
@@ -470,7 +470,7 @@ class AssistantViewModel(
 
             val streamSmootherJob = launch {
                 while (!streamClosed) {
-                    delay(120L)
+                    delay(72L)
                     flushStreamingText(force = false)
                 }
             }
