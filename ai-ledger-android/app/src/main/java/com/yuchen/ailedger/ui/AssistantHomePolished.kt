@@ -486,12 +486,16 @@ private fun ChatPanelV2(
     val listState = rememberLazyListState()
     val bubbleLayerState = rememberChatBubbleLayerState()
     var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
+    var collapsedLongReplyMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val messages = state.messages
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
     LaunchedEffect(activeMessageIds) {
         bubbleLayerState.removeMissing(activeMessageIds)
         if (revealedMessageIds.any { it !in activeMessageIds }) {
             revealedMessageIds = revealedMessageIds.intersect(activeMessageIds)
+        }
+        if (collapsedLongReplyMessageIds.any { it !in activeMessageIds }) {
+            collapsedLongReplyMessageIds = collapsedLongReplyMessageIds.intersect(activeMessageIds)
         }
     }
     val lastMessage = messages.lastOrNull()
@@ -566,7 +570,15 @@ private fun ChatPanelV2(
                                 motionClock = motionClock,
                                 showActions = message.id == lastActionableMessageId,
                                 revealAlreadyPlayed = message.id in revealedMessageIds,
+                                longReplyExpanded = message.id !in collapsedLongReplyMessageIds,
                                 onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
+                                onLongReplyExpandedChange = { id, expanded ->
+                                    collapsedLongReplyMessageIds = if (expanded) {
+                                        collapsedLongReplyMessageIds - id
+                                    } else {
+                                        collapsedLongReplyMessageIds + id
+                                    }
+                                },
                                 onCopyMessage = onCopyMessage,
                                 onRetryMessage = onRetryMessage
                             )
@@ -650,7 +662,9 @@ private fun AnimatedMessageBubbleV2(
     motionClock: AssistantHomeMotionClock,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
+    longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
+    onLongReplyExpandedChange: (String, Boolean) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
@@ -678,7 +692,9 @@ private fun AnimatedMessageBubbleV2(
             appear = appear,
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
+            longReplyExpanded = longReplyExpanded,
             onRevealCompleted = onRevealCompleted,
+            onLongReplyExpandedChange = onLongReplyExpandedChange,
             onCopyMessage = onCopyMessage,
             onRetryMessage = onRetryMessage
         )
@@ -693,7 +709,9 @@ private fun MessageBubbleV2(
     appear: Float = 1f,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
+    longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
+    onLongReplyExpandedChange: (String, Boolean) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
 ) {
@@ -722,7 +740,7 @@ private fun MessageBubbleV2(
     }
 
     val longReply = !fromUser && !sending && rawText.length >= 520
-    var expanded by remember(message.id) { mutableStateOf(true) }
+    val expanded = !longReply || longReplyExpanded
     val displayBaseText = if (sending) rawText else revealedText
     val displayText = if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
     val contentAlpha by animateFloatAsState(
@@ -791,7 +809,9 @@ private fun MessageBubbleV2(
                     TypewriterTrailV2(motionClock)
                 }
                 if (longReply && revealFinished) {
-                    LongReplyToggleV2(expanded = expanded) { expanded = !expanded }
+                    LongReplyToggleV2(expanded = expanded) {
+                        onLongReplyExpandedChange(message.id, !expanded)
+                    }
                 }
             }
 
