@@ -35,10 +35,11 @@ EASTMONEY_TRENDS_URLS = [
     "https://push2.eastmoney.com/api/qt/stock/trends2/get",
 ]
 EASTMONEY_KLINE_URLS = [
-    "https://push2delay.eastmoney.com/api/qt/stock/kline/get",
     "https://push2his.eastmoney.com/api/qt/stock/kline/get",
     "https://push2.eastmoney.com/api/qt/stock/kline/get",
+    "https://push2delay.eastmoney.com/api/qt/stock/kline/get",
 ]
+TENCENT_KLINE_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
 INDEX_SECURITIES = [
     {"name": "上证", "code": "000001", "secid": "1.000001"},
     {"name": "深成", "code": "399001", "secid": "0.399001"},
@@ -55,6 +56,11 @@ KLINE_PERIODS = {
     "monthly": "103",
     "month": "103",
     "m": "103",
+}
+TENCENT_KLINE_PERIODS = {
+    "daily": "day",
+    "weekly": "week",
+    "monthly": "month",
 }
 FAST_CACHE_SECONDS = 18
 STALE_CACHE_SECONDS = 6 * 60 * 60
@@ -198,6 +204,23 @@ def _eastmoney_get_first(client: httpx.Client, urls: list[str], params: dict[str
             last_error = f"{type(exc).__name__}: {exc}"
     warnings.append(f"{label}_failed: {last_error}")
     raise ValueError(last_error or f"{label}: all endpoints failed")
+
+
+def _tencent_get(client: httpx.Client, params: dict[str, Any]) -> dict[str, Any]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+        "Referer": "https://gu.qq.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
+    response = client.get(TENCENT_KLINE_URL, params=params, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("鑵捐琛屾儏杩斿洖鐨?JSON 涓嶆槸瀵硅薄")
+    return data
 
 
 def _search_security(client: httpx.Client, query: str) -> dict[str, str] | None:
@@ -425,23 +448,77 @@ def _trade_ticks_from_minute(minute_points: list[dict[str, Any]], quote: dict[st
     return ticks
 
 
-def _load_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], period: str = "daily", limit: int = 120) -> list[dict[str, Any]]:
-    canonical_period, klt = _normalize_period(period)
-    raw = _eastmoney_get_first(
-        client,
-        EASTMONEY_KLINE_URLS,
-        {"secid": security["secid"], "klt": klt, "fqt": "1", "lmt": str(limit), "end": "20500101", "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"},
-        f"{canonical_period}_kline",
-        warnings,
-    )
+def _parse_eastmoney_kline_rows(raw: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for item in (raw.get("data") or {}).get("klines") or []:
         parts = str(item).split(",")
         if len(parts) < 11:
             continue
-        rows.append({"date": parts[0][5:], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": max(_safe_float(parts[5]) / 10000.0, 0.01), "amount": max(_safe_float(parts[6]) / 100000000.0, 0.01), "amplitude": _format_percent(parts[7], signed=False), "changePercent": _format_percent(parts[8]), "changeAmount": _format_signed(parts[9]), "turnoverRate": _format_percent(parts[10], signed=False)})
+        rows.append({"date": parts[0], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": max(_safe_float(parts[5]), 0.0), "amount": max(_safe_float(parts[6]), 0.0), "amplitude": _safe_str(parts[7]), "changePercent": _safe_str(parts[8]), "changeAmount": _safe_str(parts[9]), "turnoverRate": _safe_str(parts[10])})
+    return rows[-limit:]
+
+
+def _load_eastmoney_history_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], period: str, limit: int) -> list[dict[str, Any]]:
+    canonical_period, klt = _normalize_period(period)
+    params = {"secid": security["secid"], "klt": klt, "fqt": "1", "lmt": str(limit), "beg": "0", "end": "20500101", "iscca": "1", "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"}
+    last_error: str | None = None
+    for url in EASTMONEY_KLINE_URLS:
+        try:
+            rows = _parse_eastmoney_kline_rows(_eastmoney_get(client, url, params), limit)
+            if rows:
+                return rows
+            last_error = f"{url}: empty_klines"
+        except (httpx.HTTPError, ValueError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+    warnings.append(f"{canonical_period}_kline_eastmoney_history_failed: {last_error}")
+    return []
+
+
+def _tencent_symbol(security: dict[str, str]) -> str:
+    code = security["code"]
+    return f"sh{code}" if security["secid"].startswith("1.") or code.startswith(("6", "9")) else f"sz{code}"
+
+
+def _load_tencent_history_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], period: str, limit: int) -> list[dict[str, Any]]:
+    canonical_period, _ = _normalize_period(period)
+    tencent_period = TENCENT_KLINE_PERIODS[canonical_period]
+    symbol = _tencent_symbol(security)
+    raw = _tencent_get(client, {"param": f"{symbol},{tencent_period},,,{limit},qfq"})
+    stock_data = ((raw.get("data") or {}).get(symbol) or {})
+    values = stock_data.get(f"qfq{tencent_period}") or stock_data.get(tencent_period) or []
+    rows: list[dict[str, Any]] = []
+    previous_close = 0.0
+    for item in values[-limit:]:
+        if not isinstance(item, list) or len(item) < 6:
+            continue
+        open_price = _safe_float(item[1])
+        close = _safe_float(item[2])
+        high = _safe_float(item[3])
+        low = _safe_float(item[4])
+        volume = max(_safe_float(item[5]), 0.0)
+        base = previous_close if previous_close > 0 else open_price
+        change_amount = close - base if base else 0.0
+        change_percent = change_amount / base * 100 if base else 0.0
+        amplitude = (high - low) / base * 100 if base else 0.0
+        rows.append({"date": _safe_str(item[0]), "open": open_price, "close": close, "high": high, "low": low, "volume": volume, "amount": max(volume * close * 100.0, 0.0), "amplitude": f"{amplitude:.2f}", "changePercent": f"{change_percent:.2f}", "changeAmount": f"{change_amount:.2f}", "turnoverRate": "--"})
+        if close > 0:
+            previous_close = close
+    if rows:
+        warnings.append(f"{canonical_period}_kline: eastmoney_history_unavailable_using_tencent_history")
+    return rows
+
+
+def _load_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], period: str = "daily", limit: int = 120) -> list[dict[str, Any]]:
+    canonical_period, _ = _normalize_period(period)
+    rows = _load_eastmoney_history_kline(client, security, warnings, canonical_period, limit)
     if rows:
         return rows
+    try:
+        rows = _load_tencent_history_kline(client, security, warnings, canonical_period, limit)
+        if rows:
+            return rows
+    except (httpx.HTTPError, ValueError, KeyError) as exc:
+        warnings.append(f"{canonical_period}_kline_tencent_history_failed: {type(exc).__name__}: {exc}")
     if canonical_period == "daily":
         rebuilt = _load_daily_kline_from_trends(client, security, warnings)
         if rebuilt:
@@ -473,7 +550,7 @@ def _load_daily_kline_from_trends(client: httpx.Client, security: dict[str, str]
         day = parts[0][:10]
         row = by_date.setdefault(
             day,
-            {"date": day[5:], "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": 0.0, "amount": 0.0},
+            {"date": day, "open": _safe_float(parts[1]), "close": _safe_float(parts[2]), "high": _safe_float(parts[3]), "low": _safe_float(parts[4]), "volume": 0.0, "amount": 0.0},
         )
         row["close"] = _safe_float(parts[2], row["close"])
         row["high"] = max(row["high"], _safe_float(parts[3], row["high"]))
@@ -486,7 +563,7 @@ def _load_daily_kline_from_trends(client: httpx.Client, security: dict[str, str]
         previous = _safe_float(row["open"])
         change_amount = _safe_float(row["close"]) - previous
         change_percent = change_amount / previous * 100 if previous else 0.0
-        rows.append({"date": row["date"], "open": row["open"], "close": row["close"], "high": row["high"], "low": row["low"], "volume": max(_safe_float(row["volume"]) / 10000.0, 0.01), "amount": max(_safe_float(row["amount"]) / 100000000.0, 0.01), "amplitude": "--", "changePercent": _format_percent(change_percent), "changeAmount": _format_signed(change_amount), "turnoverRate": "--"})
+        rows.append({"date": row["date"], "open": row["open"], "close": row["close"], "high": row["high"], "low": row["low"], "volume": max(_safe_float(row["volume"]), 0.0), "amount": max(_safe_float(row["amount"]), 0.0), "amplitude": "--", "changePercent": f"{change_percent:.2f}", "changeAmount": f"{change_amount:.2f}", "turnoverRate": "--"})
     return rows[-80:]
 
 
@@ -853,7 +930,7 @@ def crawl_a_share_kline(
         with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
             security = _resolve_security(client, query)
             points = _load_kline(client, security, warnings, period=canonical_period, limit=limit)
-        return {"provider": "crawl_eastmoney_public_json", "updatedAt": datetime.now(timezone.utc).isoformat(), "period": canonical_period, "kLinePoints": points, "warnings": warnings}
+        return {"provider": "crawl_eastmoney_public_json", "updatedAt": datetime.now(timezone.utc).isoformat(), "period": canonical_period, "klinePoints": points, "count": len(points), "warnings": warnings}
 
     return _cached_response("kline", query, f"{period}:{limit}", build)
 
