@@ -25,13 +25,16 @@ class ChatBubbleLayerState {
         appear: Float,
         phaseOffset: Float,
         speedFactor: Float,
-        radiusDp: Int
+        radiusDp: Int,
+        thinkingSweepStrength: Float = if (!fromUser && status == MessageStatus.Sending) 1f else 0f
     ) {
         val nextAppear = appear.coerceIn(0f, 1.18f)
+        val nextThinkingSweepStrength = thinkingSweepStrength.coerceIn(0f, 1f)
         val current = visuals[id]
         if (
             current == null ||
             abs(current.appear - nextAppear) > 0.001f ||
+            abs(current.thinkingSweepStrength - nextThinkingSweepStrength) > 0.001f ||
             current.status != status ||
             current.fromUser != fromUser ||
             current.radiusDp != radiusDp
@@ -43,7 +46,8 @@ class ChatBubbleLayerState {
                 appear = nextAppear,
                 phaseOffset = phaseOffset,
                 speedFactor = speedFactor,
-                radiusDp = radiusDp
+                radiusDp = radiusDp,
+                thinkingSweepStrength = nextThinkingSweepStrength
             )
         }
     }
@@ -71,9 +75,25 @@ class ChatBubbleLayerState {
             appear = 1f,
             phaseOffset = ((message.id.hashCode() ushr 1) % 997) / 997f,
             speedFactor = 1f,
-            radiusDp = if (message.role == MessageRole.User) 26 else 28
+            radiusDp = if (message.role == MessageRole.User) 26 else 28,
+            thinkingSweepStrength = chatBubbleFallbackThinkingSweepStrength(message)
         )
     }
+}
+
+private fun chatBubbleFallbackThinkingSweepStrength(message: ChatMessage): Float {
+    if (message.role != MessageRole.Assistant || message.status != MessageStatus.Sending) return 0f
+    val clean = message.text.trim()
+    return if (
+        clean == "正在思考…" ||
+        clean == "正在重新生成…" ||
+        clean == "正在思考" ||
+        clean == "正在重新生成" ||
+        clean == "正在理解视觉附件…" ||
+        clean == "正在理解视觉附件" ||
+        clean == "正在执行手机智能体任务…" ||
+        clean == "正在执行手机智能体任务"
+    ) 1f else 0f
 }
 
 @Stable
@@ -84,7 +104,8 @@ data class ChatBubbleLayerVisual(
     val appear: Float,
     val phaseOffset: Float,
     val speedFactor: Float,
-    val radiusDp: Int
+    val radiusDp: Int,
+    val thinkingSweepStrength: Float
 )
 
 @Stable
@@ -177,7 +198,12 @@ fun ChatBubbleMaterialLayer(
             val rect = rawRect.transformedBy(transform)
             val intersectsViewport = rect.right > 0f && rect.left < viewportWidth && rect.bottom > 0f && rect.top < viewportHeight
             if (intersectsViewport && rect.width > 1f && rect.height > 1f) {
-                val sending = visualInfo.status == MessageStatus.Sending && !fromUser
+                val thinkingSweepStrength = if (!fromUser && visualInfo.status == MessageStatus.Sending) {
+                    visualInfo.thinkingSweepStrength.coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                val sending = thinkingSweepStrength > 0.001f
                 val itemPhase = if (sending) {
                     ((basePhase * 3f) + visualInfo.phaseOffset) % 1f
                 } else {
@@ -191,7 +217,8 @@ fun ChatBubbleMaterialLayer(
                     failed = visualInfo.status == MessageStatus.Failed,
                     motionIntensity = motion,
                     radiusDp = visualInfo.radiusDp,
-                    layerAlpha = transform.alpha
+                    layerAlpha = transform.alpha,
+                    thinkingSweepStrength = thinkingSweepStrength
                 )
             }
         }
