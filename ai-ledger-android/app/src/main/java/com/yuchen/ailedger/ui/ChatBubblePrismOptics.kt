@@ -31,7 +31,8 @@ fun Modifier.chatBubblePrismSurface(
         failed = failed,
         motionIntensity = motionIntensity,
         radiusDp = radiusDp,
-        layerAlpha = 1f
+        layerAlpha = 1f,
+        thinkingSweepStrength = if (sending) 1f else 0f
     )
     drawContent()
 }
@@ -44,7 +45,8 @@ fun DrawScope.drawChatBubblePrismMaterial(
     failed: Boolean,
     motionIntensity: Float,
     radiusDp: Int,
-    layerAlpha: Float = 1f
+    layerAlpha: Float = 1f,
+    thinkingSweepStrength: Float = if (sending) 1f else 0f
 ) {
     val a = layerAlpha.coerceIn(0f, 1f)
     if (a <= 0.001f || rect.width <= 1f || rect.height <= 1f) return
@@ -54,13 +56,14 @@ fun DrawScope.drawChatBubblePrismMaterial(
     val w = rect.width.coerceAtLeast(1f)
     val h = rect.height.coerceAtLeast(1f)
     val motion = motionIntensity.coerceIn(0f, 1f)
-    val active = if (sending) 1f else 0.58f
+    val sweepStrength = if (sending) thinkingSweepStrength.coerceIn(0f, 1f) else 0f
+    val active = 0.58f + 0.42f * sweepStrength
     val phase01 = phase.coerceIn(0f, 1f)
     val cycle = phase01 * 2f * PI.toFloat()
     val sendingSweep = -0.28f + phase01 * 1.62f
     val sendingSatin = -0.20f + phase01 * 1.44f
-    val sweepWave = if (sending) sendingSweep else 0.50f + 0.42f * sin(cycle)
-    val satinWave = if (sending) sendingSatin else 0.50f + 0.28f * sin(cycle + 1.35f)
+    val sweepWave = if (sweepStrength > 0.001f) sendingSweep else 0.50f + 0.42f * sin(cycle)
+    val satinWave = if (sweepStrength > 0.001f) sendingSatin else 0.50f + 0.28f * sin(cycle + 1.35f)
     val glowWave = sin(cycle + if (fromUser) 0.72f else 1.08f)
     val radiusPx = radiusDp.dp.toPx()
     val corner = CornerRadius(radiusPx, radiusPx)
@@ -133,17 +136,17 @@ fun DrawScope.drawChatBubblePrismMaterial(
         blendMode = BlendMode.Screen
     )
 
-    if (sending) {
+    if (sweepStrength > 0.001f) {
         val bandX = -0.72f + phase01 * 2.34f
         drawRoundRect(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF58D2).copy(alpha = 0.115f * motion * a),
-                    Color(0xFFFFD66E).copy(alpha = 0.190f * motion * a),
-                    Color.White.copy(alpha = 0.285f * motion * a),
-                    Color(0xFF62FFF0).copy(alpha = 0.255f * motion * a),
-                    Color(0xFF8EA2FF).copy(alpha = 0.165f * motion * a),
+                    Color(0xFFFF58D2).copy(alpha = 0.115f * motion * a * sweepStrength),
+                    Color(0xFFFFD66E).copy(alpha = 0.190f * motion * a * sweepStrength),
+                    Color.White.copy(alpha = 0.285f * motion * a * sweepStrength),
+                    Color(0xFF62FFF0).copy(alpha = 0.255f * motion * a * sweepStrength),
+                    Color(0xFF8EA2FF).copy(alpha = 0.165f * motion * a * sweepStrength),
                     Color.Transparent
                 ),
                 start = Offset(l + w * (bandX - 0.64f), t + h * 1.16f),
@@ -158,10 +161,10 @@ fun DrawScope.drawChatBubblePrismMaterial(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color.White.copy(alpha = 0.030f * motion * a),
-                    Color.White.copy(alpha = 0.210f * motion * a),
-                    Color.White.copy(alpha = 0.360f * motion * a),
-                    Color(0xFFB9FFF7).copy(alpha = 0.250f * motion * a),
+                    Color.White.copy(alpha = 0.030f * motion * a * sweepStrength),
+                    Color.White.copy(alpha = 0.210f * motion * a * sweepStrength),
+                    Color.White.copy(alpha = 0.360f * motion * a * sweepStrength),
+                    Color(0xFFB9FFF7).copy(alpha = 0.250f * motion * a * sweepStrength),
                     Color.Transparent
                 ),
                 start = Offset(l + w * (bandX - 0.30f), t + h * 1.03f),
@@ -183,10 +186,10 @@ fun DrawScope.drawChatBubblePrismMaterial(
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = (if (sending) 0.260f else 0.155f) * a),
-                accentA.copy(alpha = (if (sending) 0.170f else 0.090f) * a),
+                Color.White.copy(alpha = mixBubbleValue(0.155f, 0.260f, sweepStrength) * a),
+                accentA.copy(alpha = mixBubbleValue(0.090f, 0.170f, sweepStrength) * a),
                 Color(0xFF000A28).copy(alpha = 0.070f * a),
-                Color.White.copy(alpha = (if (sending) 0.135f else 0.058f) * a)
+                Color.White.copy(alpha = mixBubbleValue(0.058f, 0.135f, sweepStrength) * a)
             ),
             start = Offset(l, t),
             end = Offset(l + w, t + h)
@@ -194,7 +197,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 1.10.dp.toPx() else 0.72.dp.toPx()),
+        style = Stroke(width = mixBubbleValue(0.72f, 1.10f, sweepStrength).dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
@@ -202,11 +205,11 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = (if (sending) 0.320f else 0.190f) * prismPower * a),
-                Color(0xFFFFF0A8).copy(alpha = (if (sending) 0.285f else 0.165f) * prismPower * a),
-                Color.White.copy(alpha = (if (sending) 0.260f else 0.150f) * prismPower * a),
-                accentB.copy(alpha = (if (sending) 0.320f else 0.190f) * prismPower * a),
-                accentA.copy(alpha = (if (sending) 0.210f else 0.125f) * prismPower * a),
+                accentC.copy(alpha = mixBubbleValue(0.190f, 0.320f, sweepStrength) * prismPower * a),
+                Color(0xFFFFF0A8).copy(alpha = mixBubbleValue(0.165f, 0.285f, sweepStrength) * prismPower * a),
+                Color.White.copy(alpha = mixBubbleValue(0.150f, 0.260f, sweepStrength) * prismPower * a),
+                accentB.copy(alpha = mixBubbleValue(0.190f, 0.320f, sweepStrength) * prismPower * a),
+                accentA.copy(alpha = mixBubbleValue(0.125f, 0.210f, sweepStrength) * prismPower * a),
                 Color.Transparent
             ),
             start = Offset(l + w * (sweepWave - 0.38f), t - h * 0.12f),
@@ -215,7 +218,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 3.20.dp.toPx() else 2.05.dp.toPx()),
+        style = Stroke(width = mixBubbleValue(2.05f, 3.20f, sweepStrength).dp.toPx()),
         blendMode = BlendMode.Screen
     )
 
@@ -223,9 +226,9 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                accentC.copy(alpha = (if (sending) 0.500f else 0.340f) * prismPower * a),
-                Color.White.copy(alpha = (if (sending) 0.610f else 0.410f) * prismPower * a),
-                accentB.copy(alpha = (if (sending) 0.520f else 0.350f) * prismPower * a),
+                accentC.copy(alpha = mixBubbleValue(0.340f, 0.500f, sweepStrength) * prismPower * a),
+                Color.White.copy(alpha = mixBubbleValue(0.410f, 0.610f, sweepStrength) * prismPower * a),
+                accentB.copy(alpha = mixBubbleValue(0.350f, 0.520f, sweepStrength) * prismPower * a),
                 Color.Transparent
             ),
             start = Offset(l + w * (sweepWave - 0.20f), t - h * 0.03f),
@@ -234,7 +237,7 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = rimTopLeft,
         size = rimSize,
         cornerRadius = rimCorner,
-        style = Stroke(width = if (sending) 1.50.dp.toPx() else 0.92.dp.toPx()),
+        style = Stroke(width = mixBubbleValue(0.92f, 1.50f, sweepStrength).dp.toPx()),
         blendMode = BlendMode.Plus
     )
 
@@ -242,8 +245,8 @@ fun DrawScope.drawChatBubblePrismMaterial(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = (if (sending) 0.190f else 0.112f) * a),
-                Color(0xFF8DF9EA).copy(alpha = (if (sending) 0.125f else 0.064f) * a),
+                Color.White.copy(alpha = mixBubbleValue(0.112f, 0.190f, sweepStrength) * a),
+                Color(0xFF8DF9EA).copy(alpha = mixBubbleValue(0.064f, 0.125f, sweepStrength) * a),
                 Color.Transparent
             ),
             start = Offset(l + w * (satinWave - 0.30f), t),
@@ -252,9 +255,14 @@ fun DrawScope.drawChatBubblePrismMaterial(
         topLeft = Offset(l + inset * 1.15f, t + inset * 1.15f),
         size = Size((w - inset * 2.3f).coerceAtLeast(1f), (h - inset * 2.3f).coerceAtLeast(1f)),
         cornerRadius = CornerRadius((radiusPx - inset * 1.15f).coerceAtLeast(1f), (radiusPx - inset * 1.15f).coerceAtLeast(1f)),
-        style = Stroke(width = if (sending) 0.70.dp.toPx() else 0.50.dp.toPx()),
+        style = Stroke(width = mixBubbleValue(0.50f, 0.70f, sweepStrength).dp.toPx()),
         blendMode = BlendMode.Screen
     )
+}
+
+private fun mixBubbleValue(base: Float, active: Float, amount: Float): Float {
+    val t = amount.coerceIn(0f, 1f)
+    return base + (active - base) * t
 }
 
 fun Modifier.thinkingPearlSurface(color: Color, wave: Float, index: Int): Modifier = drawWithContent {
