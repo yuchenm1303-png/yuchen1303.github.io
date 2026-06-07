@@ -3,9 +3,20 @@ const http = require("http");
 const PORT = Number(process.env.PORT || process.env.FC_SERVER_PORT || 9000);
 const REQUEST_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 30000);
 const TOOL_ROUTER_TIMEOUT_MS = Number(process.env.TOOL_ROUTER_TIMEOUT_MS || 18000);
+const STRUCTURED_ROUTER_TIMEOUT_MS = Number(process.env.STRUCTURED_ROUTER_TIMEOUT_MS || 2800);
+const SEARCH_TIMEOUT_MS = Number(process.env.SEARCH_TIMEOUT_MS || 6000);
+const DEVICE_ROUTER_TIMEOUT_MS = Number(process.env.DEVICE_ROUTER_TIMEOUT_MS || 2800);
+const ENABLE_DEVICE_MODEL_ROUTER = String(process.env.ENABLE_DEVICE_MODEL_ROUTER || "false").toLowerCase() === "true";
+const ENABLE_AUTO_WEB_SEARCH_ON_ONLINE = String(process.env.ENABLE_AUTO_WEB_SEARCH_ON_ONLINE || "false").toLowerCase() === "true";
 const AGENT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_PLANNER_TIMEOUT_MS || 7000);
+const AGENT_STEP_TOTAL_BUDGET_MS = Number(process.env.AGENT_STEP_TOTAL_BUDGET_MS || 8000);
+const AGENT_STEP_VISION_TIMEOUT_MS = Number(process.env.AGENT_STEP_VISION_TIMEOUT_MS || process.env.AGENT_REALTIME_VISION_TIMEOUT_MS || 4300);
+const AGENT_FAST_VISION_MAX_TOKENS = Number(process.env.AGENT_FAST_VISION_MAX_TOKENS || 180);
 const AGENT_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_TEXT_PLANNER_TIMEOUT_MS || 7000);
-const AGENT_VISION_MAX_TOKENS = Number(process.env.AGENT_VISION_MAX_TOKENS || 320);
+const AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS || 1000);
+const AGENT_STEP_FALLBACK_MIN_BUDGET_MS = Number(process.env.AGENT_STEP_FALLBACK_MIN_BUDGET_MS || 900);
+const AGENT_RESPONSE_SAFETY_MARGIN_MS = Number(process.env.AGENT_RESPONSE_SAFETY_MARGIN_MS || 350);
+const AGENT_VISION_MAX_TOKENS = Number(process.env.AGENT_VISION_MAX_TOKENS || 360);
 const AGENT_TEXT_MAX_TOKENS = Number(process.env.AGENT_TEXT_MAX_TOKENS || 300);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024);
 const AGENT_SESSION_TTL_MS = Number(process.env.AGENT_SESSION_TTL_MS || 8 * 60 * 1000);
@@ -14,7 +25,23 @@ const AGENT_VISUAL_CACHE_MIN_CONFIDENCE = Number(process.env.AGENT_VISUAL_CACHE_
 const AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE = Number(process.env.AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE || 0.45);
 const AGENT_SESSIONS = new Map();
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v24-agent-single-model-loop-runtime-fix";
+const AGENT_GUI_PROVIDER = normalizeAgentGuiProviderName(process.env.AGENT_GUI_PROVIDER || process.env.GUI_PROVIDER || "qwen_omni");
+const AGENT_GUI_PROVIDER_URL = String(process.env.AGENT_GUI_PROVIDER_URL || process.env.GUI_PROVIDER_URL || "").trim();
+const AGENT_GUI_PROVIDER_BASE_URL = String(process.env.AGENT_GUI_PROVIDER_BASE_URL || process.env.GUI_PROVIDER_BASE_URL || "").trim();
+const AGENT_GUI_PROVIDER_API_KEY = String(process.env.AGENT_GUI_PROVIDER_API_KEY || process.env.GUI_PROVIDER_API_KEY || "").trim();
+const AGENT_GUI_PROVIDER_MODEL = String(process.env.AGENT_GUI_PROVIDER_MODEL || process.env.GUI_PROVIDER_MODEL || "").trim();
+const AGENT_GUI_PROVIDER_TIMEOUT_MS = Number(process.env.AGENT_GUI_PROVIDER_TIMEOUT_MS || process.env.GUI_PROVIDER_TIMEOUT_MS || AGENT_STEP_VISION_TIMEOUT_MS);
+const AGENT_GUI_PROVIDER_MAX_TOKENS = Number(process.env.AGENT_GUI_PROVIDER_MAX_TOKENS || process.env.GUI_PROVIDER_MAX_TOKENS || AGENT_FAST_VISION_MAX_TOKENS);
+const AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN = String(process.env.AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN || "true").toLowerCase() !== "false";
+
+// v34 架构保护开关：普通聊天、显式智能体、agent_step、联网工具彻底分流。
+// 默认关闭历史“普通聊天里用关键词/模型路由触发手机动作”的行为。
+const ENABLE_LEGACY_CHAT_DEVICE_ROUTER = String(process.env.ENABLE_LEGACY_CHAT_DEVICE_ROUTER || "false").toLowerCase() === "true";
+const ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT = String(process.env.ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT || "false").toLowerCase() === "true";
+const ENABLE_AGENT_SUGGESTION_CARD = String(process.env.ENABLE_AGENT_SUGGESTION_CARD || "false").toLowerCase() === "true";
+
+
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v34-clean-architecture";
 const EMBEDDED_COMMAND_PREFIX = "[[AI_LEDGER_COMMAND:";
 const EMBEDDED_COMMAND_SUFFIX = "]]";
 
@@ -23,9 +50,56 @@ function sendJson(res, status, data) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "content-type, authorization, x-client",
+    "Access-Control-Allow-Headers": "content-type, authorization, x-client, x-ai-ledger-stream, accept",
   });
   res.end(JSON.stringify(data));
+}
+
+function wantsStreamResponse(req, body) {
+  const accept = String(req.headers.accept || "").toLowerCase();
+  const streamHeader = String(req.headers["x-ai-ledger-stream"] || "").toLowerCase();
+  const responseMode = String(body?.responseMode || body?.streamMode || "").toLowerCase();
+  const streamFormat = String(body?.streamFormat || "").toLowerCase();
+  return Boolean(
+    body?.stream === true ||
+      body?.streaming === true ||
+      responseMode === "stream" ||
+      streamFormat === "sse" ||
+      streamHeader === "sse" ||
+      streamHeader === "true" ||
+      accept.includes("text/event-stream")
+  );
+}
+
+function sendSseHeaders(res) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "content-type, authorization, x-client, x-ai-ledger-stream, accept",
+  });
+  if (typeof res.flushHeaders === "function") res.flushHeaders();
+  // 先发一个 SSE 注释帧，强制链路尽早建立；Android 端会忽略它，仍保持“正在思考…”。
+  res.write(": ai-ledger-stream-ready\n\n");
+}
+
+function writeSse(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function endSse(res, payload = null) {
+  if (payload) writeSse(res, payload);
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
+function safeStreamError(error) {
+  return String(error?.message || error || "stream_failed")
+    .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***")
+    .slice(0, 240);
 }
 
 function readJsonBody(req) {
@@ -153,7 +227,7 @@ function buildVisionMessages(prompt, images, body = {}) {
   ];
 
   const commandInstruction = String(body.commandProtocolInstruction || body.systemPrompt || "").trim();
-  if (commandInstruction) {
+  if (shouldAllowModelCommandsInChat(body) && commandInstruction) {
     systemBlocks.push(commandInstruction);
   }
 
@@ -207,9 +281,26 @@ function resolveModel(modelPref, prompt) {
   return "unsupported";
 }
 
-function isForceWebSearch(body) {
+function hasFreshSearchSignal(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  return hasAny(text, [
+    "联网", "搜索", "查一下", "帮我查", "搜一下", "网上", "资料", "引用", "来源",
+    "最新", "现在", "今天", "当前", "实时", "新闻", "价格", "股价", "行情", "天气", "汇率",
+    "today", "latest", "current", "real-time", "news", "price", "weather", "stock"
+  ]);
+}
+
+function isForceWebSearch(body, prompt = "") {
   const mode = String(body.webSearchMode || body.searchMode || body.webSearch?.mode || "").toLowerCase();
-  return Boolean(body.onlineEnabled || body.searchEnabled || body.forceWebSearch || body.webSearch?.force || mode === "force");
+  if (body.forceWebSearch || body.webSearch?.force || mode === "force") return true;
+
+  // 关键保护：onlineEnabled/searchEnabled 在 App 里可能是常驻开关，不能把每次普通问答都变成联网/工具路由。
+  // 只有显式打开 ENABLE_AUTO_WEB_SEARCH_ON_ONLINE 且文本确实像实时检索时，才自动联网。
+  if (ENABLE_AUTO_WEB_SEARCH_ON_ONLINE && (body.onlineEnabled || body.searchEnabled || mode === "auto")) {
+    return hasFreshSearchSignal(prompt);
+  }
+
+  return false;
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -226,6 +317,46 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
     clearTimeout(timer);
   }
 }
+
+function agentRemainingBudgetMs(startedAt) {
+  const elapsed = Date.now() - Number(startedAt || Date.now());
+  return Math.max(0, AGENT_STEP_TOTAL_BUDGET_MS - elapsed);
+}
+
+function boundedAgentTimeoutMs(preferredMs, remainingMs, fallbackMs = 1200) {
+  const preferred = Number(preferredMs);
+  const fallback = Number(fallbackMs);
+  const base = Number.isFinite(preferred) && preferred > 0 ? preferred : fallback;
+  const room = Number.isFinite(remainingMs) && remainingMs > 0
+    ? Math.max(300, remainingMs - AGENT_RESPONSE_SAFETY_MARGIN_MS)
+    : base;
+  return Math.max(300, Math.min(base, room));
+}
+
+function isAgentBudgetNearlyExhausted(startedAt, minMs = AGENT_STEP_FALLBACK_MIN_BUDGET_MS) {
+  return agentRemainingBudgetMs(startedAt) < minMs;
+}
+
+function isTimeoutLikeError(error) {
+  const name = String(error?.name || "").toLowerCase();
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    name.includes("abort") ||
+    name.includes("timeout") ||
+    message.includes("abort") ||
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("etimedout") ||
+    message.includes("exceeded")
+  );
+}
+
+function sanitizeProviderError(error, max = 160) {
+  return String(error?.message || error || "provider_failed")
+    .replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***")
+    .slice(0, max);
+}
+
 
 async function callOpenAICompatible(base, key, model, messages, name, options = {}) {
   if (!key) throw new Error(`${name} key missing`);
@@ -279,6 +410,121 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
   }
 
   return String(reply).trim();
+}
+
+async function callOpenAICompatibleStream(base, key, model, messages, name, options = {}, onDelta = () => {}) {
+  if (!key) throw new Error(`${name} key missing`);
+  if (!base) throw new Error(`${name} base url missing`);
+  if (!model) throw new Error(`${name} model missing`);
+
+  const endpoint = `${String(base).replace(/\/+$/g, "")}/chat/completions`;
+
+  const payload = {
+    model,
+    messages,
+    temperature: options.temperature ?? 0.35,
+    max_tokens: options.max_tokens ?? 1200,
+    stream: true,
+  };
+
+  const r = await fetchWithTimeout(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${key}`,
+      accept: "text/event-stream, application/json, text/plain",
+    },
+    body: JSON.stringify(payload),
+  }, options.timeoutMs || REQUEST_TIMEOUT_MS);
+
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`${name} ${r.status} ${t.slice(0, 300)}`);
+  }
+
+  if (!r.body || typeof r.body.getReader !== "function") {
+    const t = await r.text();
+    let data;
+    try {
+      data = JSON.parse(t);
+    } catch (_) {
+      data = null;
+    }
+    const fallbackReply =
+      data?.choices?.[0]?.message?.content ||
+      data?.choices?.[0]?.text ||
+      data?.reply ||
+      data?.response ||
+      data?.answer ||
+      t ||
+      "";
+    if (!String(fallbackReply).trim()) throw new Error(`${name} empty`);
+    onDelta(String(fallbackReply));
+    return String(fallbackReply).trim();
+  }
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let reply = "";
+
+  function consumePayload(rawPayload) {
+    const clean = String(rawPayload || "").trim();
+    if (!clean || clean === "[DONE]") return;
+
+    let data;
+    try {
+      data = JSON.parse(clean);
+    } catch (_) {
+      reply += clean;
+      onDelta(clean);
+      return;
+    }
+
+    const choice = Array.isArray(data?.choices) ? data.choices[0] : null;
+    const delta =
+      choice?.delta?.content ??
+      choice?.message?.content ??
+      choice?.text ??
+      data?.delta ??
+      data?.replyDelta ??
+      data?.text ??
+      data?.content ??
+      "";
+
+    if (typeof delta === "string" && delta.length) {
+      reply += delta;
+      onDelta(delta);
+    }
+  }
+
+  function consumeLine(rawLine) {
+    const line = String(rawLine || "").trim();
+    if (!line || line.startsWith(":") || line.startsWith("event:")) return;
+    if (line.startsWith("data:")) {
+      consumePayload(line.slice(5).trim());
+    } else if (line.startsWith("{")) {
+      consumePayload(line);
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) consumeLine(line);
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    for (const line of buffer.split(/\r?\n/)) consumeLine(line);
+  }
+
+  const cleanReply = String(reply || "").trim();
+  if (!cleanReply) throw new Error(`${name} empty`);
+  return cleanReply;
 }
 
 async function callOpenAICompatibleJsonFirst(base, key, model, messages, name, options = {}) {
@@ -459,25 +705,105 @@ function mightNeedDeviceRouter(prompt) {
   ]);
 }
 
-function buildDirectAgentAction(prompt) {
-  const text = String(prompt || "").trim();
-  const compact = text.replace(/\s+/g, "");
-  const observeSignals = [
-    /看(看|一下|下)?(我)?(现在|当前)?(手机)?(屏幕|界面|页面|画面|状态|内容)/,
-    /(观察|读取|识别|扫描|分析|理解).*(屏幕|界面|页面|手机|当前)/,
-    /(当前|现在).*(屏幕|界面|页面).*(什么|内容|按钮|输入框|状态)/,
-    /(打开|开启|启动|进入).*(手机智能体|智能体模式|屏幕观察|观察卡|无障碍观察)/,
-    /(这个|当前).*(页面|界面).*(有哪些|有什么|按钮|输入框|能点)/,
-  ];
-  if (observeSignals.some((pattern) => pattern.test(compact))) {
+function shouldAllowModelCommandsInChat(body) {
+  return Boolean(
+    ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT ||
+      body?.intent === "command_chat" ||
+      body?.commandProtocol?.allowModelCommands === true ||
+      body?.responseFormat?.allowModelCommands === true
+  );
+}
+
+function normalizeIntentName(value) {
+  return String(value || "").toLowerCase().trim().replace(/[\s\-]+/g, "_");
+}
+
+function normalizeExplicitDeviceIntent(body, prompt = "") {
+  const intent = normalizeIntentName(body?.intent || body?.action || body?.type || body?.requestType);
+  const agentActionFromBody = normalizeAgentAction(body?.agentAction || body?.commandProtocol?.agentAction);
+  const mobileActionFromBody = normalizeMobileAction(body?.mobileAction || body?.commandProtocol?.mobileAction);
+  const preferenceUpdateFromBody = normalizePreferenceUpdate(body?.preferenceUpdate || body?.commandProtocol?.preferenceUpdate);
+
+  if (agentActionFromBody) {
     return {
-      capability: "observe_screen",
-      title: "观察当前屏幕",
-      requiresConfirmation: false,
-      reason: "设备能力路由判断用户希望手机智能体读取当前界面",
+      agentAction: agentActionFromBody,
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: "explicit_agent_action_payload",
+      source: "explicit_payload",
     };
   }
-  return null;
+
+  if (mobileActionFromBody || preferenceUpdateFromBody) {
+    return {
+      agentAction: null,
+      mobileAction: mobileActionFromBody,
+      preferenceUpdate: preferenceUpdateFromBody,
+      reason: "explicit_mobile_or_preference_payload",
+      source: "explicit_payload",
+    };
+  }
+
+  const wantsAgentStart = Boolean(
+    intent === "agent_start" ||
+      intent === "run_agent_task" ||
+      intent === "mobile_agent_task" ||
+      body?.agentStart === true ||
+      body?.runAgentTask === true ||
+      body?.commandProtocol?.intent === "agent_start" ||
+      body?.commandProtocol?.mode === "agent_start"
+  );
+
+  if (wantsAgentStart) {
+    const goal = safeText(body?.agentGoal || body?.goal || body?.task || prompt, 240);
+    if (!goal) {
+      return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "empty_explicit_agent_goal", source: "explicit_payload" };
+    }
+    const compact = goal.replace(/\s+/g, "");
+    return {
+      agentAction: {
+        capability: "run_agent_task",
+        title: safeText(body?.title || "手机智能体任务", 40),
+        goal,
+        requiresConfirmation: HIGH_RISK_AGENT_WORDS.some((word) => compact.includes(word)),
+        reason: "显式 agent_start 请求，进入手机智能体专用链路。",
+      },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: "explicit_agent_start",
+      source: "explicit_payload",
+    };
+  }
+
+  const wantsObserve = Boolean(
+    intent === "observe_screen" ||
+      intent === "screen_observation" ||
+      body?.observeScreen === true ||
+      body?.commandProtocol?.intent === "observe_screen" ||
+      body?.commandProtocol?.mode === "observe_screen"
+  );
+
+  if (wantsObserve) {
+    return {
+      agentAction: {
+        capability: "observe_screen",
+        title: safeText(body?.title || "观察当前屏幕", 40),
+        requiresConfirmation: false,
+        reason: "显式 observe_screen 请求，进入屏幕观察链路。",
+      },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: "explicit_observe_screen",
+      source: "explicit_payload",
+    };
+  }
+
+  return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "no_explicit_device_intent", source: "none" };
+}
+
+function buildDirectAgentAction(prompt, body = {}) {
+  const explicit = normalizeExplicitDeviceIntent(body, prompt);
+  return explicit.agentAction || null;
 }
 
 function normalizeDeviceRouterPayload(value) {
@@ -491,13 +817,29 @@ function normalizeDeviceRouterPayload(value) {
 }
 
 async function detectDeviceIntentByModel(prompt, body) {
-  const directAgentAction = buildDirectAgentAction(prompt);
-  if (directAgentAction) {
-    return { agentAction: directAgentAction, mobileAction: null, preferenceUpdate: null, reason: directAgentAction.reason, source: "direct_router" };
+  const explicit = normalizeExplicitDeviceIntent(body, prompt);
+  if (explicit.agentAction || explicit.mobileAction || explicit.preferenceUpdate) {
+    return explicit;
   }
 
-  if (!isCommandProtocolEnabled(body) && !mightNeedDeviceRouter(prompt)) {
-    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_router", source: "skip" };
+  // v34 默认普通聊天绝对不走设备模型路由，避免关键词和模型路由污染问答链路。
+  if (!ENABLE_LEGACY_CHAT_DEVICE_ROUTER) {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_legacy_device_router_clean_architecture", source: "skip" };
+  }
+
+  const explicitDeviceRouter = Boolean(
+    body?.intent === "device_route" ||
+      body?.intent === "device_action" ||
+      body?.commandProtocol?.forceDeviceRouter ||
+      body?.responseFormat?.forceDeviceRouter ||
+      String(body?.deviceRouterMode || "").toLowerCase() === "force"
+  );
+  if (!explicitDeviceRouter && !(ENABLE_DEVICE_MODEL_ROUTER && isCommandProtocolEnabled(body) && mightNeedDeviceRouter(prompt))) {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_device_model_router_normal_chat", source: "skip" };
+  }
+
+  if (!mightNeedDeviceRouter(prompt)) {
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_device_model_router_no_signal", source: "skip" };
   }
 
   const messages = [
@@ -506,25 +848,8 @@ async function detectDeviceIntentByModel(prompt, body) {
       content: [
         "你是 Android 手机 AI 助手的设备能力路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
         "你只判断用户是不是在请求手机本地能力；不要回答问题本身。",
-        "",
-        "支持的能力：",
-        "1. agentAction.observe_screen：用户明确要求看屏幕、读当前页面、分析当前界面、查看当前手机上有什么、查看按钮/输入框、开启/打开屏幕观察模式。",
-        "2. agentAction.run_agent_task：用户明确要求你操作手机完成任务，尤其是在某个 App 内进入页面、查找对象、搜索内容、点击入口、输入文字、滑动浏览、执行多步流程。",
-        "3. mobileAction.open_app：用户只要求打开某个 App，并且没有提出进入 App 内页面、查找对象、搜索内容、点击控件、输入文字等后续目标。",
-        "4. mobileAction.navigate：用户要求导航到某地点。",
-        "5. mobileAction.set_alarm：用户要求设置闹钟或提醒。",
-        "6. preferenceUpdate.navigation_address：用户要求保存家、学校、公司、宿舍等常用导航地址。",
-        "7. none：不是手机本地能力请求。",
-        "",
-        "关键规则：",
-        "- 普通知识问答、代码问题、数学题、解释“为什么”、项目讨论、翻译、写作润色、闲聊，必须返回全部 null。",
-        "- 不要因为问题里出现“App、应用、打开、搜索、为什么、同花顺”等词就触发手机能力；只有用户明确让你操作手机或打开手机里的 App 时才触发。",
-        "- 用户说“观察屏幕、看一下当前手机界面、读一下页面、这个页面有什么按钮”，返回 observe_screen。",
-        "- 用户说“打开/进入某 App 并找到/进入/点击/搜索某页面或内容”“在某 App 里完成某事”，返回 run_agent_task，并把用户原始目标完整放入 goal。",
-        "- 例如：打开同花顺并找到热榜 => run_agent_task；打开 QQ 联系人界面 => run_agent_task；打开微信朋友圈 => run_agent_task。",
-        "- 只有纯粹的“打开某 App”才返回 mobileAction.open_app。",
-        "- 对发送消息、支付、转账、删除、发布、授权、登录、验证码、密码等高风险目标，可以返回 run_agent_task，但 reason 里说明执行中需要确认。",
-        "",
+        "普通问答、写作、翻译、代码、项目讨论，必须全部返回 null。",
+        "只有明确要求操作手机或打开手机中的 App 时才触发。",
         "输出格式必须是单个 JSON 对象：",
         "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task\",\"title\":\"\",\"goal\":\"完整任务，仅 run_agent_task 需要\",\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"open_app|navigate|set_alarm\",\"appName\":\"\",\"packageName\":\"\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
       ].join("\n"),
@@ -540,17 +865,17 @@ async function detectDeviceIntentByModel(prompt, body) {
     "Qwen Device Router",
     {
       temperature: 0,
-      max_tokens: 520,
-      timeoutMs: TOOL_ROUTER_TIMEOUT_MS,
+      max_tokens: Number(process.env.DEVICE_ROUTER_MAX_TOKENS || 220),
+      timeoutMs: DEVICE_ROUTER_TIMEOUT_MS,
       response_format: { type: "json_object" },
     }
   );
 
   try {
     const parsed = JSON.parse(extractJsonText(raw));
-    return { ...normalizeDeviceRouterPayload(parsed), source: "model_router", raw };
+    return { ...normalizeDeviceRouterPayload(parsed), source: "legacy_model_router", raw };
   } catch (e) {
-    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: `device_router_json_parse_failed: ${String(raw).slice(0, 120)}`, source: "model_router_error", raw };
+    return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: `device_router_json_parse_failed: ${String(raw).slice(0, 120)}`, source: "legacy_model_router_error", raw };
   }
 }
 
@@ -720,8 +1045,7 @@ function normalizeAgentScreenshot(body) {
     source: safeText(top.source || visual.source || "", 80),
     reason: safeText(top.reason || visual.reason || "", 160),
   };
-}
-
+}\n
 function clamp01(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
@@ -1579,8 +1903,7 @@ function isVisualFrameCacheable(visualFrame) {
   const confidence = Number(visualFrame?.confidence || 0);
   if (visualFrame?.isComplete || visualFrame?.isWrong) return confidence >= AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE;
   return confidence >= AGENT_VISUAL_CACHE_MIN_CONFIDENCE;
-}
-
+}\n
 function latestActionKeyFromRecent(recentActions) {
   if (!Array.isArray(recentActions) || !recentActions.length) return "";
   return safeText(recentActions[recentActions.length - 1] || "", 160);
@@ -1768,12 +2091,12 @@ function visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goa
     const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence, reason: completionEvidence.reason } }, step);
     return { agentStep: step, agentState: state, source: "visual_frame_completion_evidence" };
   }
-  if (visualFrame.isComplete && visualFrame.confidence >= 0.68) {
+  if (visualFrame.isComplete && visualFrame.confidence >= 0.58) {
     const step = normalizeAgentStep({ agentStep: { type: "finish", reason: visualFrame.completionEvidence || visualFrame.reason || "视觉状态已确认目标完成。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
     const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: visualFrame.confidence, reason: visualFrame.completionEvidence || visualFrame.reason || "视觉状态已确认目标完成。" } }, step);
     return { agentStep: step, agentState: state, source: "visual_frame_complete" };
   }
-  if (visualFrame.isWrong && visualFrame.confidence >= 0.78) {
+  if (visualFrame.isWrong && visualFrame.confidence >= 0.82) {
     const step = normalizeAgentStep({ agentStep: { type: "back", reason: visualFrame.reason || "视觉状态判断当前页面偏离目标，返回上一层。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
     const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: true, confidence: visualFrame.confidence, reason: visualFrame.reason || "视觉状态判断当前页面偏离目标。" } }, step);
     return { agentStep: step, agentState: state, source: "visual_frame_wrong" };
@@ -1784,7 +2107,7 @@ function visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goa
   const visualSuggestionConsumed = fromCache && isLatestActionLikelyConsumedVisualSuggestion(visualFrame, latestActionKey);
   const x = Number(suggested.x ?? visualFrame.targetX);
   const y = Number(suggested.y ?? visualFrame.targetY);
-  if (!visualSuggestionConsumed && (actionType === "tap_xy" || (!actionType && visualFrame.targetVisible)) && Number.isFinite(x) && Number.isFinite(y) && visualFrame.confidence >= 0.45) {
+  if (!visualSuggestionConsumed && (actionType === "tap_xy" || (!actionType && visualFrame.targetVisible)) && Number.isFinite(x) && Number.isFinite(y) && visualFrame.confidence >= 0.38) {
     const step = normalizeAgentStep({ agentStep: { type: "tap_xy", x, y, targetText: suggested.targetText || visualFrame.targetText, reason: suggested.reason || visualFrame.reason || "视觉状态发现目标入口，执行坐标点击。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
     const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.55, visualFrame.confidence), reason: visualFrame.reason || "视觉状态发现目标入口，继续执行。" } }, step);
     return { agentStep: step, agentState: state, source: "visual_frame_target" };
@@ -1858,7 +2181,7 @@ function buildAgentTextPlannerMessages(goal, snapshot, supportedSteps, visualFra
   ];
 }
 
-async function callAgentVisualObserver(goal, snapshot, screenshotInfo, session, recentAgentActions, providerModel) {
+async function callAgentVisualObserver(goal, snapshot, screenshotInfo, session, recentAgentActions, providerModel, timeoutMs = AGENT_STEP_VISION_TIMEOUT_MS) {
   const messages = buildAgentVisualObserverMessages(goal, snapshot, screenshotInfo, session, recentAgentActions);
   const raw = await callOpenAICompatible(
     process.env.QWEN_BASE_URL,
@@ -1868,8 +2191,8 @@ async function callAgentVisualObserver(goal, snapshot, screenshotInfo, session, 
     "Qwen Vision Agent Observer",
     {
       temperature: 0,
-      max_tokens: Math.min(AGENT_VISION_MAX_TOKENS, 260),
-      timeoutMs: Number(process.env.AGENT_VISION_TIMEOUT_MS || process.env.QWEN_VISION_TIMEOUT_MS || AGENT_PLANNER_TIMEOUT_MS),
+      max_tokens: Math.min(AGENT_VISION_MAX_TOKENS, 220),
+      timeoutMs: Math.max(300, Number(timeoutMs || AGENT_STEP_VISION_TIMEOUT_MS)),
     }
   );
   let parsed;
@@ -1877,7 +2200,7 @@ async function callAgentVisualObserver(goal, snapshot, screenshotInfo, session, 
   return normalizeVisualFrame(parsed);
 }
 
-async function callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory) {
+async function callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory, timeoutMs = AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS) {
   const messages = buildAgentTextPlannerMessages(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory);
   const raw = await callOpenAICompatible(
     process.env.QWEN_BASE_URL,
@@ -1887,8 +2210,8 @@ async function callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame,
     "Qwen Agent Text Planner",
     {
       temperature: 0,
-      max_tokens: AGENT_TEXT_MAX_TOKENS,
-      timeoutMs: AGENT_TEXT_PLANNER_TIMEOUT_MS,
+      max_tokens: Math.min(AGENT_TEXT_MAX_TOKENS, 220),
+      timeoutMs: Math.max(300, Math.min(Number(timeoutMs || AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS), AGENT_TEXT_PLANNER_TIMEOUT_MS)),
       response_format: { type: "json_object" },
     }
   );
@@ -1901,74 +2224,93 @@ async function callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame,
 
 
 function buildAgentVisionPlannerSystemPrompt(supportedSteps) {
+  const allowed = supportedSteps.join(", ");
   return [
-    "你是 Android Computer Use 的视觉主导单步规划器，只能输出严格 JSON。",
-    "你在本轮同时承担两件事：看截图形成 visualFrame，并直接给出 agentState 与 agentStep。",
-    "禁止把本轮结果交给另一个文本模型再规划；你必须一次性完成本轮单步决策。",
+    "你是 Android 手机 Computer Use 的云端 GUI 操作员，只能输出严格 JSON。",
+    "目标：用一轮低延迟视觉决策完成“感知→规划→决策→反思”闭环。不要聊天，不要解释过程，只输出最终动作对象。",
     "",
-    `允许动作：${supportedSteps.join(", ")}`,
+    `允许动作：${allowed}`,
     "",
-    "输出必须是单个 JSON 对象，不能有 Markdown、解释文字或代码块：",
-    "{\"agentState\":{\"isComplete\":false,\"expectedProgress\":false,\"isWrong\":false,\"confidence\":0.0,\"reason\":\"\",\"nextHint\":\"\"},\"visualFrame\":{\"pageTitle\":\"\",\"pageType\":\"\",\"summary\":\"\",\"isComplete\":false,\"isWrong\":false,\"targetVisible\":false,\"targetText\":\"\",\"targetX\":0.0,\"targetY\":0.0,\"suggestedAction\":{\"type\":\"tap_xy|scroll|swipe|back|wait|none\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"reason\":\"\"},\"completionEvidence\":\"\",\"confidence\":0.0,\"reason\":\"\"},\"agentStep\":{\"type\":\"tap_xy|tap_node|input_text|scroll|swipe|back|home|wait|finish|need_user_help\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low|medium|high\",\"requiresConfirmation\":false},\"agentSteps\":[{\"type\":\"tap_xy|scroll|swipe|wait\",\"targetText\":\"\",\"x\":0.0,\"y\":0.0,\"direction\":\"up|down|left|right\",\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low\",\"requiresConfirmation\":false}],\"stopConditions\":[\"visual_after_input\",\"visual_after_system_action\",\"visual_after_uncertain_progress\"]}",
-    "agentSteps/actionBatch is optional. Use it only for 2-3 low-risk local actions that are safe without a fresh screenshot. agentStep must equal the first item.",
-    "Never batch input_text, open_app, back/home/system actions, high/medium risk actions, or actions requiring confirmation.",
+    "输出短 JSON，字段越少越好，但必须足够执行：",
+    "{\"s\":\"p|d|w|u\",\"phase\":\"感知/规划/决策/反思简词\",\"page\":\"当前界面\",\"a\":\"tap_xy|tap_node|scroll|swipe|back|wait|finish|need_user_help\",\"x\":0.5,\"y\":0.5,\"b\":[0.1,0.2,0.3,0.4],\"t\":\"目标控件\",\"n\":\"节点id\",\"d\":\"up|down|left|right\",\"v\":\"输入内容\",\"r\":\"low|medium|high\",\"q\":false,\"c\":0.78,\"e\":\"截图证据\"}",
     "",
-    "核心规则：",
-    "- screenshot 是主观察源；screenSnapshot 节点只作为 affordance 提示。",
-    "- 每轮只返回一步最小动作。",
-    "- 如果目标页面/目标功能已经打开，agentState.isComplete=true，agentStep.type=finish。",
-    "- 如果目标入口可见，优先返回 tap_xy，坐标必须是 0 到 1 的归一化屏幕坐标。",
-    "- 如果页面只是更接近目标，expectedProgress=true，并返回下一步动作。",
-    "- 如果明显走错，isWrong=true，通常返回 back。",
-    "- 除非截图明显加载、空白、刷新或动画过渡，否则不要返回 wait。",
-    "- 不要连续等待；如果页面内容稳定但不能继续，应返回 need_user_help、back 或可执行探索动作。",
-    "- 入口可见不等于完成；完成必须来自截图里的页面标题、已选中状态或主体内容。",
-    "- 节点文字不能单独证明完成，但可以帮助选择 tap_node/tap_xy。",
-    "- 涉及支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码时，riskLevel=high 且 requiresConfirmation=true。",
+    "分层规则：",
+    "1. 感知层：先识别当前 App/页面/主要 Tab/可点击控件，只相信整张截图；节点文字和 bounds 只作为辅助落点证据。",
+    "2. 规划层：判断目标是否已经完成、是否更接近目标、是否走错。完成才 finish，走错才 back。",
+    "3. 决策层：低风险入口可见就直接输出点击动作；不要因为不确定而反复观察。",
+    "4. 反思层：结合 last/recent/prev 判断上一步是否已经点过且页面未变化。若同一坐标刚点过且无变化，不要重复同点，改选另一个入口、scroll 或 back。",
+    "",
+    "坐标和 bbox：",
+    "- x/y 与 b 必须相对于整张手机截图归一化 0-1，包括状态栏、顶部栏和底部导航栏。",
+    "- b 为目标控件框 [left,top,right,bottom]，x/y 必须是 b 的中心。能给 b 就给 b，但不要为了列候选拖慢。",
+    "- 如果使用节点辅助，n/t 应对应节点；如果节点与视觉不一致，以截图视觉为准。",
+    "",
+    "动作策略：",
+    "- 低风险导航点击要果断：设置、首页、行情、联系人、搜索、热榜、榜单、资讯、Tab、列表入口、返回、展开菜单等。",
+    "- 目标控件可见且未完成：s=p，a=tap_xy 或 tap_node，给 x/y 或 n。",
+    "- 目标页面已经打开且主体内容切换：s=d，a=finish。",
+    "- 入口不在当前屏但页面可滚动：a=scroll 或 swipe。",
+    "- 当前页面明显偏离目标：s=w，a=back。",
+    "- 只有截图明显加载、空白、刷新、跳转动画时才 a=wait；普通静止页面禁止 wait。",
+    "- 除非没有截图、没有任何候选、也无法探索，否则不要 need_user_help。",
+    "- 支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码：r=high 且 q=true。",
+    "",
+    "禁止事项：",
+    "- 不要定位调试浮窗、状态栏、广告、无关头像或无关搜索框。",
+    "- 不要输出 Markdown、自然语言、agentState、visualFrame、agentSteps 或 stopConditions。",
   ].join("\n");
 }
 
 function buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null) {
   const previous = session?.visualFrame ? {
-    pageTitle: session.visualFrame.pageTitle,
-    pageType: session.visualFrame.pageType,
-    summary: session.visualFrame.summary,
-    isComplete: session.visualFrame.isComplete,
-    targetVisible: session.visualFrame.targetVisible,
-    targetText: session.visualFrame.targetText,
-    confidence: session.visualFrame.confidence,
+    title: safeText(session.visualFrame.pageTitle || session.visualFrame.pageType || "", 32),
+    target: safeText(session.visualFrame.targetText || "", 32),
+    complete: Boolean(session.visualFrame.isComplete),
+    confidence: Number(session.visualFrame.confidence || 0),
   } : null;
-  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
   const compactDeviceContext = deviceContextSummaryForPrompt(deviceContext);
-  const plannerApps = plannerAppsForPrompt(deviceContext, goal, true);
+  const targetCore = goalCoreForCompletion(goal, deviceContext || {});
+  const targetApps = targetAppCandidatesFromDeviceContext(deviceContext || {});
+  const nodeHints = [
+    ...(Array.isArray(snapshot.clickableNodes) ? snapshot.clickableNodes : []),
+    ...(Array.isArray(snapshot.inputNodes) ? snapshot.inputNodes : []),
+  ].map((node) => ({
+    id: safeText(node.id || "", 24),
+    text: safeText(node.text || "", 48),
+    bounds: safeText(node.bounds || "", 48),
+    clickable: Boolean(node.clickable),
+    editable: Boolean(node.editable),
+  })).filter((node) => node.text || node.bounds).slice(0, 18);
+
+  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
   const payload = {
-    goal,
-    previousVisualFrame: previous,
-    latestAction: latestActionKeyFromRecent(recentActions),
-    currentApp: snapshot.currentApp || snapshot.packageName || "",
-    supportedSteps,
-    deviceContext: {
+    g: goal,
+    target: targetCore || goal,
+    targetApps: targetApps.slice(0, 4).map((app) => ({ label: app.label, packageName: app.packageName })),
+    app: snapshot.currentApp || snapshot.packageName || "",
+    last: latestActionKeyFromRecent(recentActions),
+    recent: Array.isArray(recentActions) ? recentActions.slice(-5) : [],
+    prev: previous,
+    loop: compactMemory.loopSignals || {},
+    screen: {
+      w: screenshotInfo.width,
+      h: screenshotInfo.height,
+      dw: screenshotInfo.displayWidth,
+      dh: screenshotInfo.displayHeight,
+      coord: "normalized_full_screenshot_0_1",
+    },
+    device: {
       currentApp: compactDeviceContext.currentApp,
       screen: compactDeviceContext.screen,
-      installedApps: plannerApps,
-      installedAppCount: compactDeviceContext.installedAppCount,
     },
-    memory: compactMemory,
-    snapshotHints: {
-      packageName: snapshot.packageName,
-      nodeCount: snapshot.nodeCount,
-      texts: (snapshot.texts || []).slice(0, 12),
-      clickableTexts: (snapshot.clickableNodes || []).map((node) => node.text).filter(Boolean).slice(0, 16),
-      inputNodes: (snapshot.inputNodes || []).slice(0, 3),
-      scrollableNodes: (snapshot.scrollableNodes || []).slice(0, 3),
+    hints: {
+      pkg: snapshot.packageName,
+      nodes: snapshot.nodeCount,
+      txt: (snapshot.texts || []).slice(0, 12),
+      nodeBoxes: nodeHints,
+      scroll: (snapshot.scrollableNodes || []).length,
     },
-    screenshot: {
-      width: screenshotInfo.width,
-      height: screenshotInfo.height,
-      displayWidth: screenshotInfo.displayWidth,
-      displayHeight: screenshotInfo.displayHeight,
-    },
-    task: "看当前截图，直接输出 visualFrame、agentState 和本轮唯一 agentStep。",
+    task: "按感知→规划→决策→反思给出本轮最优低风险动作。不要强制列候选；普通静止页面不要 wait；低风险入口可见就直接点。",
   };
   return [
     { role: "system", content: buildAgentVisionPlannerSystemPrompt(supportedSteps) },
@@ -1982,24 +2324,444 @@ function buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session
   ];
 }
 
-async function callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerModel) {
+function isCompactVisionPlannerOutput(value) {
+  if (!value || typeof value !== "object") return false;
+  if (value.agentStep || value.visualFrame || value.agentState || value.step || value.actionStep) return false;
+  return ["s", "a", "x", "y", "t", "n", "c", "e"].some((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function normalizeCompactVisionStatus(value, actionType) {
+  const raw = String(value || "").toLowerCase().trim();
+  if (["d", "done", "complete", "completed", "finish", "success", "expected"].includes(raw) || actionType === "finish") return "complete";
+  if (["w", "wrong", "bad", "off", "mismatch", "failed"].includes(raw)) return "wrong";
+  if (["p", "progress", "next", "continue", "ok", "found", "visible", "target"].includes(raw)) return "progress";
+  return "uncertain";
+}
+
+function normalizeCompactRisk(value) {
+  const raw = String(value || "low").toLowerCase().trim();
+  if (["h", "high", "danger"].includes(raw)) return "high";
+  if (["m", "medium", "mid"].includes(raw)) return "medium";
+  return "low";
+}
+
+function normalizeCompactVisionAction(value, status) {
+  const raw = String(value || "").toLowerCase().trim().replace(/-/g, "_");
+  if (["tap", "click", "press", "point"].includes(raw)) return "tap_xy";
+  if (["done", "complete", "completed"].includes(raw)) return "finish";
+  if (["none", "noop", "unknown", "uncertain"].includes(raw)) return status === "complete" ? "finish" : "need_user_help";
+  const normalized = normalizeAgentStepType(raw);
+  if (normalized === "need_user_help" && status === "complete") return "finish";
+  return normalized;
+}
+
+function normalizeCompactGroundingBox(parsed) {
+  const rawBox = parsed.b ?? parsed.box ?? parsed.bbox ?? parsed.rect ?? parsed.bounds;
+  let list = Array.isArray(rawBox) ? rawBox : [];
+  if (!list.length && rawBox && typeof rawBox === "object") {
+    list = [rawBox.l ?? rawBox.left ?? rawBox.x1, rawBox.t ?? rawBox.top ?? rawBox.y1, rawBox.r ?? rawBox.right ?? rawBox.x2, rawBox.b ?? rawBox.bottom ?? rawBox.y2];
+  }
+  if (list.length < 4) return null;
+  const left = clamp01(list[0]);
+  const top = clamp01(list[1]);
+  const right = clamp01(list[2]);
+  const bottom = clamp01(list[3]);
+  if (![left, top, right, bottom].every(Number.isFinite)) return null;
+  if (right <= left || bottom <= top) return null;
+  return { left, top, right, bottom, centerX: (left + right) / 2, centerY: (top + bottom) / 2 };
+}
+
+function normalizeCompactFound(value, hasCoordinate, hasBox, status) {
+  if (value === true || value === "true" || value === 1 || value === "1" || value === "yes" || value === "found") return true;
+  if (value === false || value === "false" || value === 0 || value === "0" || value === "no" || value === "missing") return false;
+  if (status === "complete") return true;
+  return Boolean(hasCoordinate || hasBox);
+}
+
+
+function normalizeCompactGroundingCandidates(parsed) {
+  const raw = parsed.k ?? parsed.candidates ?? parsed.options ?? parsed.targets ?? [];
+  const list = Array.isArray(raw) ? raw : [];
+  return list
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const box = normalizeCompactGroundingBox(item);
+      const confidenceRaw = Number(item.c ?? item.confidence ?? item.score ?? 0);
+      const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0;
+      return {
+        text: safeText(item.t ?? item.text ?? item.label ?? item.targetText ?? "", 60),
+        box: box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : undefined,
+        centerX: box ? box.centerX : undefined,
+        centerY: box ? box.centerY : undefined,
+        confidence,
+        evidence: safeText(item.e ?? item.evidence ?? item.reason ?? "", 80),
+      };
+    })
+    .filter((item) => item && (item.text || item.box || item.evidence))
+    .slice(0, 3);
+}
+
+function adaptCompactVisionPlan(parsed) {
+  if (!isCompactVisionPlannerOutput(parsed)) return parsed && typeof parsed === "object" ? parsed : {};
+  const box = normalizeCompactGroundingBox(parsed);
+  const candidates = normalizeCompactGroundingCandidates(parsed);
+  const bestCandidate = candidates
+    .filter((item) => Number.isFinite(item.centerX) && Number.isFinite(item.centerY))
+    .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))[0] || null;
+  let x = clamp01(parsed.x ?? parsed.cx ?? parsed.centerX ?? parsed.targetX);
+  let y = clamp01(parsed.y ?? parsed.cy ?? parsed.centerY ?? parsed.targetY);
+  if ((!Number.isFinite(x) || !Number.isFinite(y)) && box) {
+    x = box.centerX;
+    y = box.centerY;
+  }
+  if ((!Number.isFinite(x) || !Number.isFinite(y)) && bestCandidate) {
+    x = bestCandidate.centerX;
+    y = bestCandidate.centerY;
+  }
+  const confidenceRaw = Number(parsed.c ?? parsed.confidence ?? parsed.score ?? bestCandidate?.confidence ?? 0.55);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.55;
+  const status = normalizeCompactVisionStatus(parsed.s ?? parsed.status, parsed.a);
+  let actionType = normalizeCompactVisionAction(parsed.a ?? parsed.action ?? parsed.type, status);
+  const hasCoordinate = Number.isFinite(x) && Number.isFinite(y);
+  const found = normalizeCompactFound(parsed.found ?? parsed.f ?? parsed.visible ?? parsed.targetVisible, hasCoordinate, Boolean(box), status);
+  const riskLevel = normalizeCompactRisk(parsed.r ?? parsed.risk ?? parsed.riskLevel);
+  const requiresConfirmation = Boolean(parsed.q ?? parsed.confirm ?? parsed.requiresConfirmation) || riskLevel !== "low";
+  const targetText = safeText(parsed.t ?? parsed.targetText ?? parsed.label ?? parsed.textTarget ?? bestCandidate?.text ?? "", 80);
+  const targetNodeId = safeText(parsed.n ?? parsed.nodeId ?? parsed.targetNodeId ?? "", 32);
+  const inputText = safeText(parsed.v ?? parsed.text ?? parsed.inputText ?? "", 180);
+  const direction = normalizeAgentDirection(parsed.d ?? parsed.direction ?? "");
+  let reason = safeText(parsed.e ?? parsed.evidence ?? parsed.reason ?? parsed.rationale ?? bestCandidate?.evidence ?? "视觉定位规划。", 160);
+  const isComplete = status === "complete";
+  const isWrong = !isComplete && status === "wrong";
+
+  if (actionType === "need_user_help" && status !== "complete" && bestCandidate && !requiresConfirmation) {
+    actionType = "tap_xy";
+    reason = reason || "候选目标已经定位，执行低风险点击。";
+  }
+  if (actionType === "tap_xy" && (!found || !hasCoordinate)) {
+    actionType = "need_user_help";
+    reason = found ? "视觉定位未给出可靠中心坐标。" : "视觉未可靠定位目标控件，禁止猜坐标。";
+  }
+
+  const expectedProgress = isComplete || status === "progress" || ["tap_xy", "tap_node", "scroll", "swipe", "wait", "back"].includes(actionType);
+  const targetVisible = found && (hasCoordinate || Boolean(targetText));
+  return {
+    agentState: {
+      isComplete,
+      expectedProgress: isWrong ? false : expectedProgress,
+      isWrong,
+      confidence,
+      reason,
+      nextHint: "",
+    },
+    visualFrame: {
+      pageTitle: safeText(parsed.p ?? parsed.pageTitle ?? "", 60),
+      pageType: safeText(parsed.pt ?? parsed.pageType ?? parsed.phase ?? "", 60),
+      summary: safeText(parsed.m ?? parsed.summary ?? parsed.page ?? parsed.phase ?? reason, 160),
+      isComplete,
+      isWrong,
+      targetVisible,
+      targetText,
+      targetX: targetVisible && hasCoordinate ? x : undefined,
+      targetY: targetVisible && hasCoordinate ? y : undefined,
+      targetBox: box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : bestCandidate?.box,
+      suggestedAction: {
+        type: actionType === "finish" ? "" : actionType,
+        targetText,
+        x: actionType === "tap_xy" && hasCoordinate ? x : undefined,
+        y: actionType === "tap_xy" && hasCoordinate ? y : undefined,
+        direction,
+        reason,
+      },
+      completionEvidence: isComplete ? reason : "",
+      reason,
+      confidence,
+      groundingFound: found,
+      candidates,
+    },
+    agentStep: {
+      type: actionType,
+      targetNodeId: targetNodeId || undefined,
+      targetText: targetText || undefined,
+      text: actionType === "input_text" ? inputText : inputText || undefined,
+      direction: ["scroll", "swipe"].includes(actionType) ? direction || "up" : direction || undefined,
+      x: actionType === "tap_xy" && hasCoordinate ? x : undefined,
+      y: actionType === "tap_xy" && hasCoordinate ? y : undefined,
+      durationMs: actionType === "wait" ? Number(parsed.ms || parsed.durationMs || 500) : undefined,
+      reason,
+      riskLevel,
+      requiresConfirmation,
+    },
+    stopConditions: ["visual_after_input", "visual_after_system_action", "visual_after_uncertain_progress"],
+    compactVision: true,
+    guiGrounding: true,
+  };
+}
+
+async function callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerModel, timeoutMs = AGENT_STEP_VISION_TIMEOUT_MS) {
   const messages = buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory);
   const raw = await callOpenAICompatible(
     process.env.QWEN_BASE_URL,
     process.env.QWEN_API_KEY,
     providerModel,
     messages,
-    "Qwen Vision Agent Planner",
+    "Qwen Vision Agent GUI Grounding",
     {
       temperature: 0,
-      max_tokens: Math.min(AGENT_VISION_MAX_TOKENS, 360),
-      timeoutMs: Number(process.env.AGENT_VISION_TIMEOUT_MS || process.env.QWEN_VISION_TIMEOUT_MS || AGENT_PLANNER_TIMEOUT_MS),
+      max_tokens: Math.min(AGENT_FAST_VISION_MAX_TOKENS, AGENT_VISION_MAX_TOKENS, 220),
+      timeoutMs: Math.max(300, Number(timeoutMs || AGENT_STEP_VISION_TIMEOUT_MS)),
     }
   );
   let parsed;
   try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
-  return parsed && typeof parsed === "object" ? parsed : {};
+  return adaptCompactVisionPlan(parsed);
 }
+
+function normalizeAgentGuiProviderName(value) {
+  const raw = String(value || "qwen_omni").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (!raw || ["qwen", "qwen_omni", "qwen_vision", "omni", "default"].includes(raw)) return "qwen_omni";
+  if (["ui_tars", "uitars", "ui_tars_2"].includes(raw)) return "ui_tars";
+  if (["ui_venus", "uivenus", "ui_venus_15", "ui_venus_1_5"].includes(raw)) return "ui_venus";
+  if (["showui", "show_ui"].includes(raw)) return "showui";
+  if (["claude", "claude_computer_use", "anthropic"].includes(raw)) return "claude_computer_use";
+  if (["openai_compatible", "openai", "vllm", "sglang"].includes(raw)) return "openai_compatible";
+  if (["http", "http_json", "custom", "custom_http", "external", "external_http"].includes(raw)) return "external_http";
+  return raw;
+}
+
+function resolveAgentGuiProviderConfig(screenshotInfo, qwenVisionModel) {
+  if (!screenshotInfo?.hasImage) {
+    return {
+      requestedProvider: AGENT_GUI_PROVIDER,
+      provider: "text_only",
+      mode: "text_only",
+      providerModel: process.env.QWEN_MODEL || "",
+      modelLabel: "文本规划",
+      externalUrlConfigured: false,
+      fallbackToQwen: false,
+      fallbackReason: "",
+    };
+  }
+
+  const requested = normalizeAgentGuiProviderName(AGENT_GUI_PROVIDER);
+  if (requested === "qwen_omni") {
+    return {
+      requestedProvider: requested,
+      provider: "qwen_omni",
+      mode: "qwen_openai_compatible",
+      providerModel: qwenVisionModel,
+      modelLabel: "Qwen Omni GUI Provider",
+      externalUrlConfigured: false,
+      fallbackToQwen: false,
+      fallbackReason: "",
+    };
+  }
+
+  const hasOpenAiCompatibleConfig = Boolean(AGENT_GUI_PROVIDER_BASE_URL && AGENT_GUI_PROVIDER_MODEL);
+  const hasExternalHttpConfig = Boolean(AGENT_GUI_PROVIDER_URL);
+
+  if (["openai_compatible", "ui_tars", "ui_venus", "showui"].includes(requested) && hasOpenAiCompatibleConfig) {
+    return {
+      requestedProvider: requested,
+      provider: requested,
+      mode: "openai_compatible",
+      providerModel: AGENT_GUI_PROVIDER_MODEL,
+      modelLabel: `${requested} · OpenAI-compatible GUI Provider`,
+      externalUrlConfigured: true,
+      fallbackToQwen: false,
+      fallbackReason: "",
+    };
+  }
+
+  if (["external_http", "claude_computer_use", "ui_tars", "ui_venus", "showui"].includes(requested) && hasExternalHttpConfig) {
+    return {
+      requestedProvider: requested,
+      provider: requested,
+      mode: "external_http_json",
+      providerModel: AGENT_GUI_PROVIDER_MODEL || requested,
+      modelLabel: `${requested} · external GUI Provider`,
+      externalUrlConfigured: true,
+      fallbackToQwen: false,
+      fallbackReason: "",
+    };
+  }
+
+  if (AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN) {
+    return {
+      requestedProvider: requested,
+      provider: "qwen_omni",
+      mode: "qwen_openai_compatible",
+      providerModel: qwenVisionModel,
+      modelLabel: "Qwen Omni GUI Provider",
+      externalUrlConfigured: hasOpenAiCompatibleConfig || hasExternalHttpConfig,
+      fallbackToQwen: true,
+      fallbackReason: `GUI provider ${requested} 未配置可用 URL/BaseURL/Model，已回退 Qwen。`,
+    };
+  }
+
+  return {
+    requestedProvider: requested,
+    provider: requested,
+    mode: "unconfigured",
+    providerModel: AGENT_GUI_PROVIDER_MODEL || requested,
+    modelLabel: `${requested} · unconfigured`,
+    externalUrlConfigured: hasOpenAiCompatibleConfig || hasExternalHttpConfig,
+    fallbackToQwen: false,
+    fallbackReason: `GUI provider ${requested} 未配置可用 URL/BaseURL/Model。`,
+  };
+}
+
+function buildExternalGuiProviderPayload(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig) {
+  const nodeBoxes = [
+    ...(Array.isArray(snapshot.clickableNodes) ? snapshot.clickableNodes : []),
+    ...(Array.isArray(snapshot.inputNodes) ? snapshot.inputNodes : []),
+  ].map((node) => ({
+    id: safeText(node.id || "", 24),
+    text: safeText(node.text || "", 48),
+    bounds: safeText(node.bounds || "", 48),
+    clickable: Boolean(node.clickable),
+    editable: Boolean(node.editable),
+  })).filter((node) => node.text || node.bounds).slice(0, 24);
+
+  return {
+    schema: "ai_ledger_gui_provider_v1",
+    provider: providerConfig?.provider || AGENT_GUI_PROVIDER,
+    mode: providerConfig?.mode || "external_http_json",
+    goal,
+    supportedSteps,
+    coordinateSystem: "normalized_full_screenshot_0_1",
+    outputSchema: {
+      description: "返回单个 JSON。按感知→规划→决策→反思给出本轮最优动作；低风险入口可见时直接给动作，不要泛泛 wait。",
+      compact: "{\"s\":\"p|d|w|u\",\"phase\":\"感知/规划/决策/反思简词\",\"a\":\"tap_xy|tap_node|scroll|swipe|back|finish|need_user_help\",\"x\":0.5,\"y\":0.5,\"b\":[0.4,0.4,0.6,0.6],\"t\":\"目标文字\",\"c\":0.8,\"e\":\"短证据\"}",
+      fields: {
+        s: "p=继续/进展, d=完成, w=走错页, u=不确定",
+        a: "动作类型",
+        x: "归一化中心 x，相对整张手机截图",
+        y: "归一化中心 y，相对整张手机截图",
+        b: "目标框 [left,top,right,bottom]，归一化坐标",
+        t: "目标控件文字或目标名",
+        c: "0-1 置信度",
+        phase: "可选：感知/规划/决策/反思的极短标签",
+        e: "不超过 40 字的可见证据",
+      },
+    },
+    screen: {
+      currentApp: snapshot.currentApp || snapshot.packageName || "",
+      packageName: snapshot.packageName || "",
+      texts: (snapshot.texts || []).slice(0, 18),
+      nodeCount: snapshot.nodeCount || 0,
+      capturedNodeCount: snapshot.capturedNodeCount || 0,
+      clickableNodes: nodeBoxes,
+      screenshot: {
+        mimeType: screenshotInfo.mimeType || "image/jpeg",
+        width: screenshotInfo.width || 0,
+        height: screenshotInfo.height || 0,
+        displayWidth: screenshotInfo.displayWidth || screenshotInfo.width || 0,
+        displayHeight: screenshotInfo.displayHeight || screenshotInfo.height || 0,
+        base64: screenshotInfo.base64 || "",
+      },
+    },
+    memory: {
+      recentActions: Array.isArray(recentActions) ? recentActions.slice(-8) : [],
+      loopSignals: agentMemory?.loopSignals || {},
+      previousVisualFrame: session?.visualFrame ? {
+        pageTitle: safeText(session.visualFrame.pageTitle || "", 60),
+        pageType: safeText(session.visualFrame.pageType || "", 60),
+        targetText: safeText(session.visualFrame.targetText || "", 60),
+        confidence: Number(session.visualFrame.confidence || 0),
+      } : null,
+    },
+    deviceContext: deviceContext || {},
+  };
+}
+
+function extractGuiProviderPayload(data) {
+  if (!data || typeof data !== "object") return {};
+  if (data.agentStep || data.agentState || data.visualFrame || data.s || data.a || data.x || data.y) return data;
+  if (data.result && typeof data.result === "object") return data.result;
+  if (data.plan && typeof data.plan === "object") return data.plan;
+  if (data.data && typeof data.data === "object") return data.data;
+  if (data.output && typeof data.output === "object") return data.output;
+  if (data.action && typeof data.action === "object") return data.action;
+
+  const content =
+    data.choices?.[0]?.message?.content ||
+    data.choices?.[0]?.text ||
+    data.message?.content ||
+    data.text ||
+    data.reply ||
+    data.content ||
+    "";
+  if (content) {
+    try {
+      return JSON.parse(extractJsonText(content));
+    } catch (_) {
+      return {};
+    }
+  }
+  return {};
+}
+
+async function callExternalHttpGuiProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
+  const payload = buildExternalGuiProviderPayload(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig);
+  const headers = {
+    "content-type": "application/json",
+    "x-ai-ledger-provider": providerConfig.provider,
+  };
+  if (AGENT_GUI_PROVIDER_API_KEY) {
+    headers.authorization = `Bearer ${AGENT_GUI_PROVIDER_API_KEY}`;
+  }
+  const r = await fetchWithTimeout(AGENT_GUI_PROVIDER_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  }, Math.max(300, Number(timeoutMs || AGENT_GUI_PROVIDER_TIMEOUT_MS || AGENT_STEP_VISION_TIMEOUT_MS)));
+  const t = await r.text();
+  if (!r.ok) {
+    throw new Error(`GUI provider ${providerConfig.provider} ${r.status} ${t.slice(0, 260)}`);
+  }
+  let data;
+  try {
+    data = JSON.parse(t);
+  } catch (_) {
+    data = { text: t };
+  }
+  const parsed = extractGuiProviderPayload(data);
+  return adaptCompactVisionPlan(parsed);
+}
+
+async function callOpenAICompatibleGuiProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
+  const messages = buildAgentVisionPlannerMessages(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory);
+  const raw = await callOpenAICompatible(
+    AGENT_GUI_PROVIDER_BASE_URL,
+    AGENT_GUI_PROVIDER_API_KEY || process.env.QWEN_API_KEY,
+    providerConfig.providerModel,
+    messages,
+    `${providerConfig.provider} GUI Provider`,
+    {
+      temperature: 0,
+      max_tokens: Math.min(AGENT_GUI_PROVIDER_MAX_TOKENS, AGENT_VISION_MAX_TOKENS, 260),
+      timeoutMs: Math.max(300, Number(timeoutMs || AGENT_GUI_PROVIDER_TIMEOUT_MS || AGENT_STEP_VISION_TIMEOUT_MS)),
+    }
+  );
+  let parsed;
+  try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+  return adaptCompactVisionPlan(parsed);
+}
+
+async function callAgentGuiProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerConfig, qwenProviderModel, timeoutMs) {
+  if (!providerConfig || providerConfig.provider === "qwen_omni") {
+    return callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, qwenProviderModel, timeoutMs);
+  }
+  if (providerConfig.mode === "openai_compatible") {
+    return callOpenAICompatibleGuiProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs);
+  }
+  if (providerConfig.mode === "external_http_json") {
+    return callExternalHttpGuiProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs);
+  }
+  throw new Error(providerConfig.fallbackReason || `GUI provider ${providerConfig.provider} unavailable`);
+}
+
 
 function parsedVisionPlanHasUsableStep(parsed) {
   if (!parsed || typeof parsed !== "object") return false;
@@ -2020,6 +2782,176 @@ function cachedFrameNeedsTextPlanner(visualFrame, recentActions) {
   if (["tap_xy", "scroll", "swipe", "back", "wait"].includes(actionType)) return false;
   return true;
 }
+
+function findGoalMatchedClickableNode(goal, snapshot) {
+  const core = goalCoreForCompletion(goal, {});
+  const normalizedGoal = normalizeForMatch(goal);
+  const nodes = Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : [];
+  let best = null;
+  let bestScore = 0;
+  for (const node of nodes) {
+    const text = safeText(node?.text || "", 80);
+    const normalizedText = normalizeForMatch(text);
+    if (!normalizedText || normalizedText.length < 2) continue;
+    let score = 0;
+    if (core && normalizedText === core) score = 1000;
+    else if (core && (normalizedText.includes(core) || core.includes(normalizedText))) score = 880 + Math.min(core.length, normalizedText.length);
+    else if (normalizedGoal && normalizedGoal.includes(normalizedText)) score = 650 + normalizedText.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = node;
+    }
+  }
+  return bestScore >= 650 ? best : null;
+}
+
+function buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, reasonTag = "local_fallback") {
+  const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, true);
+  if (direct) {
+    return {
+      agentStep: direct.agentStep,
+      agentState: direct.agentState,
+      parsed: null,
+      source: `${direct.source || "visual_frame"}_${reasonTag}`,
+      reason: direct.agentStep?.reason || direct.agentState?.reason || "",
+    };
+  }
+
+  const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
+  if (completionEvidence) {
+    const step = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, step);
+    return { agentStep: step, agentState: state, parsed: null, source: `completion_evidence_${reasonTag}`, reason: completionEvidence.reason };
+  }
+
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  const targetApps = targetAppCandidatesFromDeviceContext(deviceContext || {});
+  const firstTargetApp = targetApps[0];
+  if (firstTargetApp && supportedSteps.includes("open_app") && firstTargetApp.packageName && firstTargetApp.packageName !== currentPackage) {
+    const step = normalizeAgentStep({
+      agentStep: {
+        type: "open_app",
+        appName: firstTargetApp.label,
+        packageName: firstTargetApp.packageName,
+        reason: `视觉云端超时，先用 deviceContext 打开目标应用：${firstTargetApp.label}。`,
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.62, reason: "本地设备上下文命中目标应用，先打开目标 App。" } }, step);
+    return { agentStep: step, agentState: state, parsed: null, source: `open_app_${reasonTag}`, reason: step.reason };
+  }
+
+  const highRiskRequested = HIGH_RISK_AGENT_WORDS.some((word) => normalizeForMatch(goal).includes(normalizeForMatch(word)));
+  const matchedNode = highRiskRequested ? null : findGoalMatchedClickableNode(goal, snapshot);
+  if (matchedNode && supportedSteps.includes("tap_node")) {
+    const step = normalizeAgentStep({
+      agentStep: {
+        type: "tap_node",
+        targetNodeId: matchedNode.id,
+        targetText: matchedNode.text,
+        reason: `视觉云端超时，节点中已出现与目标匹配的低风险入口：${matchedNode.text}。`,
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.58, reason: "使用节点 affordance 进行低风险兜底点击。" } }, step);
+    return { agentStep: step, agentState: state, parsed: null, source: `tap_node_${reasonTag}`, reason: step.reason };
+  }
+
+  if ((snapshot?.scrollableNodes || []).length > 0 && supportedSteps.includes("scroll") && countRecentActionKind(recentAgentActions, "scroll") === 0 && countRecentActionKind(recentAgentActions, "swipe") === 0) {
+    const step = normalizeAgentStep({
+      agentStep: {
+        type: "scroll",
+        direction: "down",
+        reason: "视觉云端超时，当前页面可滚动，先执行一次低风险滚动探索。",
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.46, reason: "低风险滚动探索后继续视觉复核。" } }, step);
+    return { agentStep: step, agentState: state, parsed: null, source: `scroll_${reasonTag}`, reason: step.reason };
+  }
+
+  if (screenshotInfo?.hasImage && countRecentActionKind(recentAgentActions, "wait") === 0 && isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+    const step = normalizeAgentStep({
+      agentStep: {
+        type: "wait",
+        durationMs: 500,
+        reason: "视觉云端超时且页面可能仍在加载，短暂等待后重新观察。",
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.42, reason: "页面可能处于加载或过渡状态。" } }, step);
+    return { agentStep: step, agentState: state, parsed: null, source: `wait_${reasonTag}`, reason: step.reason };
+  }
+
+  const reason = "视觉云端超时且本地没有足够可靠的低风险兜底动作，已暂停避免盲目操作。";
+  const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.28, reason } }, step);
+  return { agentStep: step, agentState: state, parsed: null, source: `need_help_${reasonTag}`, reason };
+}
+
+async function tryAgentTextPlannerFallback(context) {
+  const {
+    startedAt,
+    goal,
+    snapshot,
+    supportedSteps,
+    visualFrame,
+    session,
+    recentAgentActions,
+    deviceContext,
+    agentMemory,
+    screenshotInfo,
+    reasonTag,
+  } = context;
+  if (isAgentBudgetNearlyExhausted(startedAt)) {
+    return buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, `${reasonTag}_budget_exhausted`);
+  }
+
+  const timeoutMs = boundedAgentTimeoutMs(AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), 1200);
+  const plannerStartedAt = Date.now();
+  try {
+    const parsed = await callAgentTextPlanner(goal, snapshot, supportedSteps, visualFrame, session, recentAgentActions, deviceContext, agentMemory, timeoutMs);
+    const textPlannerMs = Date.now() - plannerStartedAt;
+    let agentStep = normalizeAgentStep(parsed, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    let agentState = normalizeAgentState(parsed, agentStep);
+
+    const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
+    if (completionEvidence && ["wait", "scroll", "swipe", "need_user_help"].includes(agentStep.type)) {
+      agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+      agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
+    } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+      const local = buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, `${reasonTag}_text_wait_guard`);
+      return { ...local, textPlannerMs, textPlannerError: "" };
+    }
+
+    if (agentStep.type === "need_user_help") {
+      const local = buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, `${reasonTag}_text_no_action`);
+      if (local.agentStep?.type !== "need_user_help") return { ...local, textPlannerMs, textPlannerError: "" };
+    }
+
+    return {
+      parsed,
+      agentStep,
+      agentState,
+      textPlannerMs,
+      textPlannerError: "",
+      source: `text_fallback_${reasonTag}`,
+      reason: agentStep.reason || agentState.reason || "",
+    };
+  } catch (error) {
+    const local = buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, `${reasonTag}_text_error`);
+    return {
+      ...local,
+      textPlannerMs: Date.now() - plannerStartedAt,
+      textPlannerError: sanitizeProviderError(error, 140),
+    };
+  }
+}
+
 async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const startedAt = Date.now();
   const goal = safeText(body.agentGoal || body.goal || prompt, 240);
@@ -2035,19 +2967,19 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   session.step += 1;
 
   const qwenProviderModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
-  const activeProviderModel = String(
-    process.env.AGENT_GUI_PROVIDER_MODEL ||
-    (String(process.env.AGENT_GUI_PROVIDER || "").trim().toLowerCase() === "external_http" ? "external_http" : "") ||
-    qwenProviderModel ||
-    "external_http"
-  ).trim();
+  const guiProviderConfig = resolveAgentGuiProviderConfig(screenshotInfo, qwenProviderModel);
   const baseMeta = {
     source: "agent_step_single_model_loop",
-    sourceDetail: screenshotInfo.hasImage ? "vision_planner_or_cache" : "text_planner_only",
-    model: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
-    modelId: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
-    modelLabel: screenshotInfo.hasImage ? "Qwen 视觉单步规划 / 缓存" : "Qwen 文本规划",
-    providerModel: screenshotInfo.hasImage ? activeProviderModel : process.env.QWEN_MODEL,
+    sourceDetail: screenshotInfo.hasImage ? "gui_provider_planner_or_cache" : "text_planner_only",
+    model: screenshotInfo.hasImage ? guiProviderConfig.provider : "qwen",
+    modelId: screenshotInfo.hasImage ? guiProviderConfig.provider : "qwen",
+    modelLabel: screenshotInfo.hasImage ? guiProviderConfig.modelLabel : "Qwen 文本规划",
+    providerModel: screenshotInfo.hasImage ? guiProviderConfig.providerModel : process.env.QWEN_MODEL,
+    guiProvider: guiProviderConfig.provider,
+    requestedGuiProvider: guiProviderConfig.requestedProvider,
+    guiProviderMode: guiProviderConfig.mode,
+    guiProviderFallbackToQwen: Boolean(guiProviderConfig.fallbackToQwen),
+    guiProviderFallbackReason: guiProviderConfig.fallbackReason || "",
     version: WORKER_VERSION,
   };
 
@@ -2073,7 +3005,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const stableScreenMatched = Boolean(session.lastStableScreenKey && session.lastStableScreenKey === screenKey);
   const legacyFingerprintMatched = Boolean(!session.lastStableScreenKey && session.lastFingerprint && session.lastFingerprint === fingerprint);
   const hasCachedFrame = Boolean(session.visualFrame && cachedFrameUseful && (stableScreenMatched || legacyFingerprintMatched));
-  const shouldCallVisual = Boolean(screenshotInfo.hasImage && (hardForceVisual || !hasCachedFrame));
+  const shouldCallVisual = Boolean(screenshotInfo.hasImage && (hardForceVisual || androidRequestedVisual || !hasCachedFrame));
 
   let visualFrame = hasCachedFrame ? session.visualFrame : null;
   let visualCalled = false;
@@ -2089,7 +3021,8 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   if (shouldCallVisual) {
     const providerStartedAt = Date.now();
     try {
-      parsed = await callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, qwenProviderModel);
+      const visionTimeoutMs = boundedAgentTimeoutMs(AGENT_STEP_VISION_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_PLANNER_TIMEOUT_MS);
+      parsed = await callAgentGuiProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, guiProviderConfig, qwenProviderModel, visionTimeoutMs);
       providerMs = Date.now() - providerStartedAt;
       visualCalled = true;
       visualFrame = normalizeVisualFrame(parsed);
@@ -2134,7 +3067,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     } catch (error) {
       providerMs = Date.now() - providerStartedAt;
       visualCalled = true;
-      visualError = String(error?.message || error || "vision_planner_failed").replace(/Bearer\s+[A-Za-z0-9_\-\.]+/gi, "Bearer ***").slice(0, 160);
+      visualError = `${isTimeoutLikeError(error) ? "timeout: " : ""}${sanitizeProviderError(error, 150)}`;
       session.failedVisualCount = Number(session.failedVisualCount || 0) + 1;
       if (isVisualFrameCacheable(session.visualFrame)) {
         visualFrame = session.visualFrame;
@@ -2187,6 +3120,38 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     }
   }
 
+  const shouldTryRealtimeFallback = Boolean(
+    agentStep?.type === "need_user_help" &&
+      (
+        planSource === "vision_planner_failed" ||
+        planSource === "vision_planner_no_action" ||
+        planSource === "vision_wait_guard"
+      )
+  );
+  if (shouldTryRealtimeFallback) {
+    const fallback = await tryAgentTextPlannerFallback({
+      startedAt,
+      goal,
+      snapshot,
+      supportedSteps,
+      visualFrame,
+      session,
+      recentAgentActions,
+      deviceContext,
+      agentMemory,
+      screenshotInfo,
+      reasonTag: planSource,
+    });
+    if (fallback) {
+      if (fallback.parsed) parsed = fallback.parsed;
+      agentStep = fallback.agentStep;
+      agentState = fallback.agentState;
+      textPlannerMs += Number(fallback.textPlannerMs || 0);
+      if (fallback.textPlannerError) visualError = [visualError, `textFallback=${fallback.textPlannerError}`].filter(Boolean).join(" | ").slice(0, 220);
+      planSource = fallback.source || `${planSource}_fallback`;
+    }
+  }
+
   const screenshotBytesApprox = screenshotInfo.hasImage ? Math.round((screenshotInfo.base64.length * 3) / 4) : 0;
   const promptChars = JSON.stringify({ visualFrame, snapshotHints: { texts: (snapshot.texts || []).slice(0, 12), clickableNodes: (snapshot.clickableNodes || []).slice(0, 12) } }).length;
   const totalMs = Date.now() - startedAt;
@@ -2213,7 +3178,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     model: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelId: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelLabel: visualCalled ? "Qwen 视觉单步规划" : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
-    providerModel: visualCalled ? activeProviderModel : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
+    providerModel: visualCalled ? (guiProviderConfig.providerModel || qwenProviderModel || process.env.QWEN_VISION_MODEL || "qwen-vl-plus") : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
     searchUsed: false,
     structuredUsed: false,
     searchProvider: null,
@@ -2249,14 +3214,37 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       textPlannerMs,
       parseMs: 0,
       totalMs,
+      agentStepTotalBudgetMs: AGENT_STEP_TOTAL_BUDGET_MS,
+      agentStepVisionTimeoutMs: AGENT_STEP_VISION_TIMEOUT_MS,
+      agentStepTextFallbackTimeoutMs: AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS,
+      remainingBudgetMs: agentRemainingBudgetMs(startedAt),
       singleModelLoop: true,
       blockedVisionThenText: Boolean(visualCalled && textPlannerMs === 0),
       visionJsonMode: false,
+      compactVisionMode: true,
+      guiGroundingMode: true,
+      guiOperatorMode: true,
+      pluggableGuiProvider: true,
+      layeredAgentRuntime: true,
+      agentArchitecture: "perception_planning_decision_reflection_memory",
+      guiProvider: guiProviderConfig.provider,
+      requestedGuiProvider: guiProviderConfig.requestedProvider,
+      guiProviderMode: guiProviderConfig.mode,
+      guiProviderExternalUrlConfigured: Boolean(guiProviderConfig.externalUrlConfigured),
+      guiProviderFallbackToQwen: Boolean(guiProviderConfig.fallbackToQwen),
+      guiProviderFallbackReason: guiProviderConfig.fallbackReason || "",
+      fastVisionMaxTokens: Math.min(
+        guiProviderConfig.provider === "qwen_omni" ? AGENT_FAST_VISION_MAX_TOKENS : AGENT_GUI_PROVIDER_MAX_TOKENS,
+        AGENT_VISION_MAX_TOKENS,
+        260
+      ),
+      fastVisionPrompt: guiProviderConfig.provider === "qwen_omni" ? "layered_gui_operator_v1" : "pluggable_layered_gui_provider_v1",
       visualCalled,
       visualCacheHit,
       androidRequestedVisual,
       hardForceVisual,
       visualError,
+      realtimeFallbackUsed: shouldTryRealtimeFallback,
       visualFrameConfidence: visualFrame?.confidence || 0,
       visualFrameCacheable: isVisualFrameCacheable(visualFrame),
       cacheEligible: hasCachedFrame,
@@ -2325,7 +3313,7 @@ async function detectIntentByModel(prompt) {
     {
       temperature: 0,
       max_tokens: 260,
-      timeoutMs: TOOL_ROUTER_TIMEOUT_MS,
+      timeoutMs: STRUCTURED_ROUTER_TIMEOUT_MS,
       response_format: { type: "json_object" }
     }
   );
@@ -2375,8 +3363,20 @@ function normalizeStockSymbol(symbol, rawText) {
   return clean;
 }
 
+function mightNeedStructuredTool(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  return hasAny(text, [
+    "天气", "气温", "下雨", "带伞", "冷不冷", "热不热", "湿度", "风速",
+    "汇率", "兑换", "外汇", "美元", "人民币", "日元", "欧元",
+    "股票", "股价", "行情", "涨跌", "指数", "etf", "a股", "港股", "美股",
+    "weather", "exchange rate", "stock", "price", "ticker"
+  ]);
+}
+
 async function detectStructuredIntent(prompt, forceSearch) {
-  if (!forceSearch) return { intent: null, toolIntent: null, intentError: null };
+  if (!forceSearch || !mightNeedStructuredTool(prompt)) {
+    return { intent: null, toolIntent: null, intentError: null };
+  }
 
   try {
     const toolIntent = await detectIntentByModel(prompt);
@@ -2683,7 +3683,7 @@ async function tavilySearch(query) {
       include_raw_content: false,
       max_results: 5,
     }),
-  }, 15000);
+  }, SEARCH_TIMEOUT_MS);
 
   const text = await res.text();
 
@@ -2736,9 +3736,10 @@ function buildSourceContext(sources) {
   }).join("\n\n");
 }
 
-function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent, body = {}) {
+function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent, body = {}, options = {}) {
   const messages = normalizeMessages(bodyMessages, prompt);
   const contextBlocks = [];
+  const includeCommandProtocol = Boolean(options.includeCommandProtocol);
 
   if (toolIntent) {
     contextBlocks.push(`工具路由判断：\n${JSON.stringify(toolIntent, null, 2)}`);
@@ -2760,13 +3761,15 @@ function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent
     "你是可靠、清晰、简洁的中文助手。",
     "如果提供了结构化实时数据或联网搜索资料，必须优先基于这些资料回答。",
     "不要编造来源；无法确认时要说明不确定。",
-    "如果用户明确表达手机本地能力、设备控制、打开 App、导航、闹钟、偏好保存、屏幕观察或手机智能体任务意图，必须输出 AI_LEDGER_COMMAND 机器标记。",
-    "agentAction 只允许 observe_screen 或 run_agent_task；具体点击、输入、滑动动作必须交给智能体规划接口，不要在聊天回复里直接输出。",
-    "回答要自然；除 AI_LEDGER_COMMAND 机器标记外，不要暴露其他内部工具调用 JSON。",
+    "普通聊天路径只负责回答用户问题，不启动手机动作、不输出机器指令、不模拟已经操作手机。",
   ];
 
-  if (commandInstruction) {
-    system.push(commandInstruction);
+  if (includeCommandProtocol) {
+    system.push(
+      "仅当本次请求显式允许模型命令时，才可以输出 AI_LEDGER_COMMAND 机器标记；否则不要输出任何内部 JSON 或机器标记。",
+      "agentAction 只允许 observe_screen 或 run_agent_task；具体点击、输入、滑动动作必须交给 agent_step 智能体规划接口。"
+    );
+    if (commandInstruction) system.push(commandInstruction);
   }
 
   if (contextBlocks.length) {
@@ -2781,6 +3784,7 @@ function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent
     ...messages,
   ];
 }
+
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -2812,6 +3816,10 @@ const server = http.createServer(async (req, res) => {
           "screenshot_visual_fallback",
           "computer_use_vision",
           "agent_step_planner",
+          "pluggable_gui_provider",
+          "clean_route_architecture",
+          "explicit_agent_intent",
+          "normal_chat_isolation",
           "mobile_action",
           "preference_update",
         ],
@@ -2841,6 +3849,9 @@ const server = http.createServer(async (req, res) => {
       body.prompt ||
       body.text ||
       body.content ||
+      body.agentGoal ||
+      body.goal ||
+      body.task ||
       latestUserText(body.messages) ||
       (images.length ? "请识别这张图片，说明图中内容，并回答我可能关心的问题。" : "");
 
@@ -2898,6 +3909,70 @@ const server = http.createServer(async (req, res) => {
 
       const visionMessages = buildVisionMessages(prompt, images, body);
       const visionModel = process.env.QWEN_VISION_MODEL;
+      const allowModelCommands = shouldAllowModelCommandsInChat(body);
+
+      if (wantsStreamResponse(req, body) && !allowModelCommands) {
+        sendSseHeaders(res);
+        try {
+          const reply = await callOpenAICompatibleStream(
+            process.env.QWEN_BASE_URL,
+            process.env.QWEN_API_KEY,
+            visionModel,
+            visionMessages,
+            "Qwen Vision",
+            {
+              temperature: 0.25,
+              max_tokens: Number(process.env.QWEN_VISION_MAX_TOKENS || 1800),
+              timeoutMs: Number(process.env.QWEN_VISION_TIMEOUT_MS || REQUEST_TIMEOUT_MS),
+            },
+            (delta) => {
+              if (delta) writeSse(res, { type: "delta", delta, text: delta });
+            }
+          );
+
+          const finalPayload = {
+            type: "done",
+            ok: true,
+            reply,
+            agentAction: null,
+            mobileAction: null,
+            preferenceUpdate: null,
+            source: "qwen_vision",
+            sourceDetail: "qwen_vision",
+            model: "qwen_vision",
+            modelId: "qwen_vision",
+            providerModel: visionModel,
+            modelLabel: "Qwen 识图 · Omni Plus",
+            imageCount: images.length,
+            searchUsed: false,
+            structuredUsed: false,
+            searchProvider: null,
+            toolUsed: "vision",
+            toolReason: "",
+            searchError: null,
+            sources: [],
+            structuredData: null,
+            structuredError: null,
+            toolIntent: null,
+            intentError: null,
+            deviceIntent: null,
+            deviceIntentError: null,
+            version: WORKER_VERSION,
+          };
+          return endSse(res, finalPayload);
+        } catch (error) {
+          return endSse(res, {
+            type: "done",
+            ok: false,
+            reply: `云端视觉流式请求失败：${safeStreamError(error)}`,
+            source: "cloud_fetch_failed",
+            model: "qwen_vision",
+            modelId: "qwen_vision",
+            modelLabel: "云端连接失败",
+            version: WORKER_VERSION,
+          });
+        }
+      }
 
       const reply = await callOpenAICompatible(
         process.env.QWEN_BASE_URL,
@@ -2912,8 +3987,8 @@ const server = http.createServer(async (req, res) => {
         }
       );
 
-      const commandPayload = extractCommandPayload(reply);
-      const cleanReply = stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload);
+      const commandPayload = allowModelCommands ? extractCommandPayload(reply) : { agentAction: null, mobileAction: null, preferenceUpdate: null };
+      const cleanReply = allowModelCommands ? (stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload)) : reply;
 
       return sendJson(res, 200, {
         ok: true,
@@ -2981,7 +4056,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    const forceSearch = isForceWebSearch(body);
+    const forceSearch = isForceWebSearch(body, prompt);
     const routed = await detectStructuredIntent(prompt, forceSearch);
     const structuredIntent = routed.intent;
     const toolIntent = routed.toolIntent;
@@ -3022,7 +4097,94 @@ const server = http.createServer(async (req, res) => {
 
     sources = dedupeSources(sources);
 
-    const messages = buildMessages(body.messages, prompt, structuredData, sources, toolIntent, body);
+    const allowModelCommands = shouldAllowModelCommandsInChat(body);
+    const messages = buildMessages(body.messages, prompt, structuredData, sources, toolIntent, body, { includeCommandProtocol: allowModelCommands });
+    const source = sources.length || structuredData ? "web_search_tool" : resolved === "deepseek_v4" ? "deepseek" : "qwen";
+    const sourceDetail = resolved === "deepseek_v4" ? "deepseek" : "qwen";
+    const modelLabel = resolved === "deepseek_v4" ? "DeepSeek V4 Pro" : "Qwen Max";
+
+    if (wantsStreamResponse(req, body) && !allowModelCommands) {
+      sendSseHeaders(res);
+      try {
+        const reply =
+          resolved === "deepseek_v4"
+            ? await callOpenAICompatibleStream(
+                process.env.DEEPSEEK_BASE_URL,
+                process.env.DEEPSEEK_API_KEY,
+                process.env.DEEPSEEK_MODEL,
+                messages,
+                "DeepSeek",
+                {},
+                (delta) => {
+                  if (delta) writeSse(res, { type: "delta", delta, text: delta });
+                }
+              )
+            : await callOpenAICompatibleStream(
+                process.env.QWEN_BASE_URL,
+                process.env.QWEN_API_KEY,
+                process.env.QWEN_MODEL,
+                messages,
+                "Qwen",
+                {},
+                (delta) => {
+                  if (delta) writeSse(res, { type: "delta", delta, text: delta });
+                }
+              );
+
+        return endSse(res, {
+          type: "done",
+          ok: true,
+          reply,
+          agentAction: null,
+          mobileAction: null,
+          preferenceUpdate: null,
+          source,
+          sourceDetail,
+          model: resolved,
+          modelId: resolved,
+          modelLabel,
+          searchUsed: Boolean(forceSearch && sources.length),
+          structuredUsed: Boolean(structuredData),
+          searchProvider,
+          toolUsed: toolIntent?.tool || "none",
+          toolReason: toolIntent?.reason || "",
+          searchError,
+          sources,
+          structuredData,
+          structuredError,
+          toolIntent,
+          intentError,
+          deviceIntent,
+          deviceIntentError,
+          version: WORKER_VERSION,
+        });
+      } catch (error) {
+        return endSse(res, {
+          type: "done",
+          ok: false,
+          reply: `云端流式请求失败：${safeStreamError(error)}`,
+          source: "cloud_fetch_failed",
+          sourceDetail,
+          model: resolved,
+          modelId: resolved,
+          modelLabel: "云端连接失败",
+          searchUsed: Boolean(forceSearch && sources.length),
+          structuredUsed: Boolean(structuredData),
+          searchProvider,
+          toolUsed: toolIntent?.tool || "none",
+          toolReason: toolIntent?.reason || "",
+          searchError,
+          sources,
+          structuredData,
+          structuredError,
+          toolIntent,
+          intentError,
+          deviceIntent,
+          deviceIntentError,
+          version: WORKER_VERSION,
+        });
+      }
+    }
 
     const reply =
       resolved === "deepseek_v4"
@@ -3041,8 +4203,8 @@ const server = http.createServer(async (req, res) => {
             "Qwen"
           );
 
-    const commandPayload = extractCommandPayload(reply);
-    const cleanReply = stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload);
+    const commandPayload = allowModelCommands ? extractCommandPayload(reply) : { agentAction: null, mobileAction: null, preferenceUpdate: null };
+    const cleanReply = allowModelCommands ? (stripEmbeddedCommand(reply) || buildDeviceActionReply(commandPayload)) : reply;
 
     return sendJson(res, 200, {
       ok: true,
@@ -3050,11 +4212,11 @@ const server = http.createServer(async (req, res) => {
       agentAction: commandPayload.agentAction,
       mobileAction: commandPayload.mobileAction,
       preferenceUpdate: commandPayload.preferenceUpdate,
-      source: sources.length || structuredData ? "web_search_tool" : resolved === "deepseek_v4" ? "deepseek" : "qwen",
-      sourceDetail: resolved === "deepseek_v4" ? "deepseek" : "qwen",
+      source,
+      sourceDetail,
       model: resolved,
       modelId: resolved,
-      modelLabel: resolved === "deepseek_v4" ? "DeepSeek V4 Pro" : "Qwen Max",
+      modelLabel,
       searchUsed: Boolean(forceSearch && sources.length),
       structuredUsed: Boolean(structuredData),
       searchProvider,
