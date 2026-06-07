@@ -72,7 +72,7 @@ class AgentTaskRunner(
             memory.observe(snapshot, decision)
 
             if (!snapshot.hasVisualImage && shouldPromoteToVisualNow(goal, snapshot, decision)) {
-                val promoted = ObservationDecision.Visual("轻量观察信息不足，本轮立即补充截图")
+                val promoted = ObservationDecision.Visual("轻量观察信息不足，本轮补一次截图")
                 captureStart = SystemClock.elapsedRealtime()
                 observation = captureOnce(forceVisual = true)
                 captureMs += SystemClock.elapsedRealtime() - captureStart
@@ -384,8 +384,9 @@ class AgentTaskRunner(
     private fun chooseObservationDecision(goal: String, memory: AgentRunMemory): ObservationDecision {
         val clean = normalize(goal)
         return when {
-            memory.forceNextVisual -> ObservationDecision.Visual("动作后按 Computer Use 闭环截图复核")
+            memory.forceNextVisual -> ObservationDecision.Visual("关键状态变化后截图复核")
             memory.executedStepCount == 0 && isToolOnlyLaunchGoal(clean) -> ObservationDecision.Lightweight("纯打开 App 首轮只用 deviceContext/open_app")
+            memory.preferLightweightNext && memory.lightRoundsSinceVisual < MAX_LIGHTWEIGHT_ROUNDS_BETWEEN_VISUAL -> ObservationDecision.Lightweight("低风险动作后轻量 affordance 复核")
             else -> ObservationDecision.Visual("视觉主导观察，节点仅作为辅助 affordance")
         }
     }
@@ -495,6 +496,7 @@ class AgentTaskRunner(
         var executedStepCount: Int = 0,
         var loopIndex: Int = 0,
         var forceNextVisual: Boolean = false,
+        var preferLightweightNext: Boolean = false,
         var lightRoundsSinceVisual: Int = 0,
         private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
@@ -509,6 +511,7 @@ class AgentTaskRunner(
                 lightRoundsSinceVisual = 0
             } else {
                 lightRoundsSinceVisual += 1
+                preferLightweightNext = false
             }
             lastObservationLine = "观察=${decision.label} · ${decision.reason}"
             lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · $lastObservationLine · 步数=$executedStepCount"
@@ -530,6 +533,7 @@ class AgentTaskRunner(
         fun recordPlannerRejection(step: CloudAgentStep, reason: String) {
             repeatedCloudRejects += 1
             forceNextVisual = true
+            preferLightweightNext = false
             val line = "拒绝执行：${describeStep(step)} · $reason"
             blockedActionLines += line
             recentActionLines += line
@@ -547,6 +551,7 @@ class AgentTaskRunner(
             recentStepKeys += key
             executedStepCount += 1
             forceNextVisual = if (result.ok && !forceVisualAfterSuccess) false else shouldForceVisualAfterStep(step, result)
+            preferLightweightNext = result.ok && !forceNextVisual && step.type in LIGHTWEIGHT_AFTER_ACTION_TYPES
             val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
             recentActionLines += line
             if (!result.ok) failedActionLines += line
@@ -573,6 +578,7 @@ class AgentTaskRunner(
             if (step.type !in RECOVERABLE_FAILURE_ACTIONS) return false
             recoverableFailures += 1
             forceNextVisual = true
+            preferLightweightNext = false
             return recoverableFailures <= MAX_RECOVERABLE_FAILURES
         }
 
@@ -590,7 +596,7 @@ class AgentTaskRunner(
         }
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v7_visual_first_optimized")
+            put("schema", "agent_loop_memory_v8_lightweight_review")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -602,15 +608,16 @@ class AgentTaskRunner(
                 put("backAttempts", backAttempts)
                 put("rejectedFinishAttempts", rejectedFinishAttempts)
                 put("forceNextVisual", forceNextVisual)
+                put("preferLightweightNext", preferLightweightNext)
                 put("lightRoundsSinceVisual", lightRoundsSinceVisual)
                 put("lastObservation", lastObservationLine)
             })
             put("policyHints", JSONArray().apply {
-                put("这是视觉主导 Computer Use 循环：除纯 open_app 工具任务外，应以截图为主判断当前状态。")
+                put("这是视觉主导 Computer Use 循环，但低风险 tap/scroll 后允许一次轻量 affordance 复核，避免连续完整扫节点截图。")
                 put("Accessibility 节点只作为可点击/可输入/可滚动 affordance 提示，不代表页面已完成。")
                 put("如果任务包含本机目标 App 名，Android 会先本地 open_app，再进入 App 内视觉观察。")
                 put("视觉 tap_xy 坐标会原样执行，只做归一化换算和边界保护，不再进行本地底部导航吸附。")
-                put("每次执行 open_app、tap、input、scroll、swipe、back、home、wait 后，下一轮应通过截图复核页面状态。")
+                put("open_app、input、back、home、全局动作后仍强制视觉复核；普通 tap/scroll 可先轻量观察，信息不足再补截图。")
                 put("不要重复 blockedActions 或 failedActions 中的同一路径。")
                 put("如果 open_app 失败，必须改用 deviceContext.targetAppCandidates 或 installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
             })
@@ -663,29 +670,31 @@ class AgentTaskRunner(
 
     companion object {
         private const val DEFAULT_MAX_STEPS = 8
-        private const val DEFAULT_STEP_DELAY_MS = 360L
-        private const val REPLAN_DELAY_MS = 180L
-        private const val OPEN_APP_DELAY_MS = 720L
-        private const val TAP_DELAY_MS = 240L
-        private const val INPUT_DELAY_MS = 220L
-        private const val SCROLL_DELAY_MS = 360L
-        private const val DEFAULT_WAIT_DELAY_MS = 460L
-        private const val GLOBAL_ACTION_DELAY_MS = 300L
-        private const val MIN_CUSTOM_STEP_DELAY_MS = 80L
-        private const val MAX_CUSTOM_STEP_DELAY_MS = 1_200L
+        private const val DEFAULT_STEP_DELAY_MS = 280L
+        private const val REPLAN_DELAY_MS = 140L
+        private const val OPEN_APP_DELAY_MS = 640L
+        private const val TAP_DELAY_MS = 160L
+        private const val INPUT_DELAY_MS = 180L
+        private const val SCROLL_DELAY_MS = 260L
+        private const val DEFAULT_WAIT_DELAY_MS = 360L
+        private const val GLOBAL_ACTION_DELAY_MS = 240L
+        private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
+        private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
         private const val MAX_BACK_ATTEMPTS = 2
         private const val MAX_REJECTED_FINISH_ATTEMPTS = 2
         private const val MAX_REPLAN_REJECTS = 2
         private const val MAX_RECOVERABLE_FAILURES = 2
+        private const val MAX_LIGHTWEIGHT_ROUNDS_BETWEEN_VISUAL = 1
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
         private const val SPARSE_NODE_VISUAL_THRESHOLD = 12
         private const val SPARSE_CAPTURED_NODE_THRESHOLD = 8
         private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val SOFT_REPEATABLE_ACTIONS = setOf("scroll", "swipe", "wait")
+        private val LIGHTWEIGHT_AFTER_ACTION_TYPES = setOf("tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val BATCH_BREAK_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
         private val STRICT_REPLAN_STOP_CONDITIONS = setOf("after_each_action", "visual_after_each_action", "cloud_after_each_action", "replan_after_each_action")
-        private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "wait", "back", "home", "recents", "notifications", "quick_settings")
+        private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
         private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
         private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
         private val currentScreenWords = listOf("当前", "屏幕", "页面", "界面", "这个", "这里", "看一下", "看看", "点击", "输入", "滑动", "滚动", "按钮")
