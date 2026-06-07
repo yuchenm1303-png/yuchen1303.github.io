@@ -1,7 +1,9 @@
 import base64
+import asyncio
 import io
 import os
 import re
+import time
 from typing import Any, Dict, Optional, Tuple
 
 import uvicorn
@@ -15,6 +17,7 @@ PORT = int(os.getenv("SHOWUI_PORT", "9100"))
 MIN_PIXELS = int(os.getenv("SHOWUI_MIN_PIXELS", "200704"))
 MAX_PIXELS = int(os.getenv("SHOWUI_MAX_PIXELS", "602112"))
 MAX_NEW_TOKENS = int(os.getenv("SHOWUI_MAX_NEW_TOKENS", "64"))
+REQUEST_TIMEOUT_SEC = int(os.getenv("SHOWUI_REQUEST_TIMEOUT_SEC", "180"))
 API_KEY = os.getenv("SHOWUI_PROVIDER_API_KEY", "").strip()
 
 app = FastAPI(title="showui-local-provider")
@@ -38,6 +41,7 @@ def load_model() -> Tuple[Any, Any, str]:
     if _model is not None and _processor is not None:
         return _model, _processor, _device
 
+    started_at = time.time()
     import torch
     from qwen_vl_utils import process_vision_info
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
@@ -47,6 +51,13 @@ def load_model() -> Tuple[Any, Any, str]:
 
     _device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if _device == "cuda" else torch.float32
+    print(f"[ShowUI] Loading model: {MODEL_ID}", flush=True)
+    print(f"[ShowUI] Device: {_device}", flush=True)
+    print(f"[ShowUI] dtype: {dtype}", flush=True)
+    print(
+        f"[ShowUI] max_pixels={MAX_PIXELS}, min_pixels={MIN_PIXELS}, max_new_tokens={MAX_NEW_TOKENS}",
+        flush=True,
+    )
 
     _processor = AutoProcessor.from_pretrained(
         MODEL_ID,
@@ -63,6 +74,8 @@ def load_model() -> Tuple[Any, Any, str]:
     if _device != "cuda":
         _model = _model.to(_device)
     _model.eval()
+    elapsed_ms = int((time.time() - started_at) * 1000)
+    print(f"[ShowUI] Model loaded, elapsedMs={elapsed_ms}", flush=True)
     return _model, _processor, _device
 
 
@@ -101,7 +114,7 @@ def payload_goal(body: Dict[str, Any]) -> str:
     ).strip()
 
 
-def payload_image(body: Dict[str, Any]) -> Tuple[Optional[Image.Image], int, int, str]:
+def payload_image(body: Dict[str, Any]) -> Tuple[Optional[Image.Image], int, int, str, int]:
     screen = body.get("screen") if isinstance(body.get("screen"), dict) else {}
     screenshot = screen.get("screenshot") if isinstance(screen.get("screenshot"), dict) else {}
     image_base64 = (
@@ -112,13 +125,13 @@ def payload_image(body: Dict[str, Any]) -> Tuple[Optional[Image.Image], int, int
         or ""
     )
     if not image_base64:
-        return None, 0, 0, ""
+        return None, 0, 0, "", 0
 
     image = decode_image(str(image_base64))
     width = int(screenshot.get("displayWidth") or screenshot.get("width") or image.width)
     height = int(screenshot.get("displayHeight") or screenshot.get("height") or image.height)
     mime_type = str(screenshot.get("mimeType") or body.get("mimeType") or "image/jpeg")
-    return image, width, height, mime_type
+    return image, width, height, mime_type, len(str(image_base64))
 
 
 def clamp01(value: float) -> float:
@@ -179,6 +192,8 @@ def run_showui(goal: str, image: Image.Image, width: int, height: int) -> str:
     from qwen_vl_utils import process_vision_info
 
     model, processor, device = load_model()
+    started_at = time.time()
+    print("[ShowUI] Inference start", flush=True)
     messages = build_messages(goal, image)
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     image_inputs, video_inputs = process_vision_info(messages)
@@ -201,6 +216,9 @@ def run_showui(goal: str, image: Image.Image, width: int, height: int) -> str:
         skip_special_tokens=True,
         clean_up_tokenization_spaces=False,
     )[0]
+    elapsed_ms = int((time.time() - started_at) * 1000)
+    print(f"[ShowUI] Inference done, elapsedMs={elapsed_ms}", flush=True)
+    print(f"[ShowUI] raw output={str(output_text).strip()[:1000]}", flush=True)
     return str(output_text).strip()
 
 
@@ -220,6 +238,9 @@ def health() -> Dict[str, Any]:
         "model": MODEL_ID,
         "device": current_device(),
         "coordinateSystem": "normalized_full_screenshot_0_1",
+        "pid": os.getpid(),
+        "maxPixels": MAX_PIXELS,
+        "maxNewTokens": MAX_NEW_TOKENS,
     }
 
 
@@ -235,16 +256,25 @@ async def plan(request: Request, authorization: Optional[str] = Header(default=N
         return compact_error("", "payload must be an object")
 
     goal = payload_goal(body)
-    image, width, height, _mime_type = payload_image(body)
+    image, width, height, _mime_type, base64_size = payload_image(body)
+    print(
+        f"[ShowUI] POST / goal={goal[:120]!r}, hasImage={image is not None}, "
+        f"imageSize={image.size if image is not None else None}, base64Size={base64_size}",
+        flush=True,
+    )
     if not goal:
         return compact_error(goal, "missing goal")
     if image is None:
         return compact_error(goal, "missing screenshot image")
 
     try:
-        raw = run_showui(goal, image, width or image.width, height or image.height)
+        raw = await asyncio.wait_for(
+            asyncio.to_thread(run_showui, goal, image, width or image.width, height or image.height),
+            timeout=REQUEST_TIMEOUT_SEC,
+        )
         point = parse_coordinate(raw, width or image.width, height or image.height)
         if point is None:
+            print("[ShowUI] parse_failed", flush=True)
             return compact_error(goal, "unable to parse coordinate from model output", raw)
         x, y = point
         return {
@@ -259,7 +289,22 @@ async def plan(request: Request, authorization: Optional[str] = Header(default=N
         }
     except HTTPException:
         raise
+    except asyncio.TimeoutError:
+        print(f"[ShowUI] inference timeout after {REQUEST_TIMEOUT_SEC}s", flush=True)
+        return compact_error(goal, "ShowUI local provider inference timeout")
     except Exception as exc:
+        message = str(exc).lower()
+        if "out of memory" in message or ("cuda" in message and "memory" in message):
+            print("[ShowUI] CUDA OOM detected", flush=True)
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            return compact_error(goal, "ShowUI local provider CUDA out of memory")
+        print(f"[ShowUI] inference error: {type(exc).__name__}: {str(exc)[:160]}", flush=True)
         return compact_error(goal, f"showui inference failed: {type(exc).__name__}")
 
 

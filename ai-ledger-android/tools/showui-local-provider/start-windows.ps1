@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $EnvName = "showui"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
+$Port = 9100
 
 function Find-Conda {
   $cmd = Get-Command conda -ErrorAction SilentlyContinue
@@ -35,17 +36,46 @@ function Test-ShowuiEnv {
   return [bool]($envList | Select-String -Pattern "^\s*$EnvName\s")
 }
 
+function Get-ListeningPortOwners {
+  $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.LocalAddress -eq "127.0.0.1" -or
+      $_.LocalAddress -eq "0.0.0.0" -or
+      $_.LocalAddress -eq "::" -or
+      $_.LocalAddress -eq "::1"
+    }
+  return $connections | Select-Object -ExpandProperty OwningProcess -Unique
+}
+
+Write-Host "Current directory: $ScriptDir"
+
 $script:CondaExe = Find-Conda
 if (-not $script:CondaExe) {
   Write-Host "Conda was not found. Install Miniconda, then run .\bootstrap-windows.ps1."
   exit 1
 }
+Write-Host "Conda path: $script:CondaExe"
 
 if (-not (Test-ShowuiEnv)) {
   Write-Host "Conda env showui was not found. Run first:"
   Write-Host "  .\bootstrap-windows.ps1"
   exit 1
 }
+Write-Host "Conda env showui exists: True"
+
+$portOwners = @(Get-ListeningPortOwners)
+if ($portOwners -and $portOwners.Count -gt 0) {
+  Write-Host "Port 9100 is already in use. Cleaning old ShowUI provider process..."
+  & (Join-Path $ScriptDir "stop-windows.ps1")
+  Start-Sleep -Seconds 1
+}
+
+Write-Host "Checking Python..."
+$pythonVersion = & $script:CondaExe run -n $EnvName python --version
+if ($LASTEXITCODE -ne 0) {
+  throw "Python check failed in showui env."
+}
+Write-Host "Python: $pythonVersion"
 
 Write-Host "Checking PyTorch..."
 $torchVersion = & $script:CondaExe run -n $EnvName python -c "import torch; print(torch.__version__)" 2>$null
@@ -73,11 +103,18 @@ if ($cudaInfo -match "False") {
 
 $env:SHOWUI_HOST = if ($env:SHOWUI_HOST) { $env:SHOWUI_HOST } else { "127.0.0.1" }
 $env:SHOWUI_PORT = if ($env:SHOWUI_PORT) { $env:SHOWUI_PORT } else { "9100" }
-$env:SHOWUI_MAX_PIXELS = if ($env:SHOWUI_MAX_PIXELS) { $env:SHOWUI_MAX_PIXELS } else { "602112" }
-$env:SHOWUI_MAX_NEW_TOKENS = if ($env:SHOWUI_MAX_NEW_TOKENS) { $env:SHOWUI_MAX_NEW_TOKENS } else { "64" }
+$env:SHOWUI_MAX_PIXELS = if ($env:SHOWUI_MAX_PIXELS) { $env:SHOWUI_MAX_PIXELS } else { "301056" }
+$env:SHOWUI_MAX_NEW_TOKENS = if ($env:SHOWUI_MAX_NEW_TOKENS) { $env:SHOWUI_MAX_NEW_TOKENS } else { "32" }
 
 Write-Host ""
+Write-Host "SHOWUI_MAX_PIXELS=$($env:SHOWUI_MAX_PIXELS)"
+Write-Host "SHOWUI_MAX_NEW_TOKENS=$($env:SHOWUI_MAX_NEW_TOKENS)"
 Write-Host "Service URL: http://$($env:SHOWUI_HOST):$($env:SHOWUI_PORT)"
 Write-Host "Health URL:  http://$($env:SHOWUI_HOST):$($env:SHOWUI_PORT)/health"
 Write-Host ""
-Invoke-Conda @("run", "-n", $EnvName, "python", "server.py")
+
+try {
+  Invoke-Conda @("run", "-n", $EnvName, "python", "server.py")
+} finally {
+  Write-Host "Service exited. Please check the error logs above."
+}

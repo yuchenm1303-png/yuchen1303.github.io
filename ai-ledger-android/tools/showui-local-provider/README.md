@@ -21,33 +21,30 @@ First-time install:
 .\bootstrap-windows.ps1
 ```
 
-Start later:
+Start service:
 
 ```powershell
 .\start-windows.ps1
 ```
 
+Stop service:
+
+```powershell
+.\stop-windows.ps1
+```
+
+Restart service:
+
+```powershell
+.\restart-windows.ps1
+```
+
 `run-windows.ps1` is still available as a compatibility entry and forwards to
 `start-windows.ps1`.
 
-## Why This Works Without Activate
+## Health Check
 
-The scripts do not require manual `conda activate`.
-
-The scripts do not require `python` or `pip` to exist in the system `PATH`.
-
-All install, verification, and start commands run through:
-
-```powershell
-conda run -n showui python ...
-```
-
-The bootstrap script also finds `conda.exe` from common Miniconda/Anaconda
-install paths if `Get-Command conda` cannot find it.
-
-## Test Health
-
-Open another PowerShell after the service starts:
+Keep the service PowerShell window open. Open a second PowerShell window and run:
 
 ```powershell
 curl http://127.0.0.1:9100/health
@@ -66,8 +63,10 @@ Expected response includes:
 
 ## Test A Screenshot
 
+Run this in the second PowerShell window:
+
 ```powershell
-.\test-provider.ps1 -ImagePath "C:\Users\邹羽宸\Pictures\qq.png" -Goal "Click the Contacts tab."
+.\test-provider.ps1 -ImagePath "C:\Users\邹羽宸\qq.png" -Goal "Click the Contacts tab."
 ```
 
 Success criteria:
@@ -83,15 +82,35 @@ Success criteria:
 
 `x` and `y` are normalized full-screen coordinates in the `0..1` range.
 
+## What The Scripts Do
+
+`start-windows.ps1` automatically checks port `9100`. If an old local ShowUI
+service is still listening, it calls `stop-windows.ps1` to kill only the process
+listening on that port before starting the new service.
+
+The scripts do not require manual `conda activate`.
+
+The scripts do not require `python` or `pip` to exist in the system `PATH`.
+
+All install, verification, and start commands run through:
+
+```powershell
+conda run -n showui python ...
+```
+
+`start-windows.ps1` prints the current directory, conda path, Python version,
+PyTorch version, CUDA state, GPU name, `SHOWUI_MAX_PIXELS`,
+`SHOWUI_MAX_NEW_TOKENS`, service URL, and health URL.
+
 ## Environment Defaults
 
-`start-windows.ps1` sets these defaults before launching the server:
+`start-windows.ps1` sets conservative defaults before launching the server:
 
 ```text
 SHOWUI_HOST=127.0.0.1
 SHOWUI_PORT=9100
-SHOWUI_MAX_PIXELS=602112
-SHOWUI_MAX_NEW_TOKENS=64
+SHOWUI_MAX_PIXELS=301056
+SHOWUI_MAX_NEW_TOKENS=32
 ```
 
 Optional API key:
@@ -108,13 +127,37 @@ Authorization: Bearer test-key
 
 `GET /health` does not require authorization.
 
-## Common Problems
+## If It Hangs
 
-If conda is not found:
+Check the `start-windows.ps1` window first. The server prints logs when it loads
+the model, receives a request, starts inference, finishes inference, or fails to
+parse coordinates.
 
-- Install Miniconda.
-- Reopen PowerShell.
-- Run `.\bootstrap-windows.ps1` again.
+Run:
+
+```powershell
+nvidia-smi
+```
+
+If the service is really running inference, you should usually see `python.exe`
+using GPU memory. The first startup can be slow because the model
+`showlab/ShowUI-2B` may need to be downloaded.
+
+If VRAM is insufficient, lower image size and restart:
+
+```powershell
+$env:SHOWUI_MAX_PIXELS="200704"
+$env:SHOWUI_MAX_NEW_TOKENS="32"
+.\restart-windows.ps1
+```
+
+You can also try:
+
+```powershell
+$env:SHOWUI_MAX_PIXELS="301056"
+$env:SHOWUI_MAX_NEW_TOKENS="32"
+.\restart-windows.ps1
+```
 
 If `CUDA=False`:
 
@@ -122,33 +165,6 @@ If `CUDA=False`:
 - Your NVIDIA driver may be too old or may not match the selected CUDA wheel.
 - Upgrade the NVIDIA driver, or use the current Windows CUDA wheel recommended
   by the PyTorch official selector.
-
-Default CUDA 12.1 install used by the bootstrap script:
-
-```powershell
-conda run -n showui python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
-If VRAM is insufficient:
-
-```powershell
-$env:SHOWUI_MAX_PIXELS="401408"
-```
-
-For a more conservative setting:
-
-```powershell
-$env:SHOWUI_MAX_PIXELS="301056"
-```
-
-Then run:
-
-```powershell
-.\start-windows.ps1
-```
-
-First startup can be slow because the model `showlab/ShowUI-2B` may need to be
-downloaded.
 
 ## Temporary Alibaba Cloud Access
 
