@@ -40,6 +40,8 @@ class AgentOverlayService : Service() {
     private var primaryChoiceView: TextView? = null
     private var secondaryChoiceView: TextView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var latestProgress: AgentOverlayProgress = AgentRuntimeController.progress.value
+    private var hiddenForCleanCapture: Boolean = AgentRuntimeController.overlayHiddenForCapture.value
 
     override fun onCreate() {
         super.onCreate()
@@ -50,11 +52,15 @@ class AgentOverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as? WindowManager
         createOverlay()
         scope.launch {
-            AgentRuntimeController.progress.collectLatest { progress -> updateProgress(progress) }
+            AgentRuntimeController.progress.collectLatest { progress ->
+                latestProgress = progress
+                updateProgress(progress)
+            }
         }
         scope.launch {
             AgentRuntimeController.overlayHiddenForCapture.collectLatest { hidden ->
-                rootView?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+                hiddenForCleanCapture = hidden
+                applyOverlayVisibility()
             }
         }
     }
@@ -83,7 +89,6 @@ class AgentOverlayService : Service() {
         val density = resources.displayMetrics.density.coerceAtLeast(1f)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            visibility = if (AgentRuntimeController.overlayHiddenForCapture.value) View.INVISIBLE else View.VISIBLE
             setPadding((14 * density).toInt(), (11 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
@@ -202,6 +207,7 @@ class AgentOverlayService : Service() {
         }
         rootView = panel
         layoutParams = params
+        applyOverlayVisibility()
         runCatching { wm.addView(panel, params) }.onFailure { stopSelf() }
     }
 
@@ -219,6 +225,17 @@ class AgentOverlayService : Service() {
             primaryChoiceView?.text = pending.positiveText
             secondaryChoiceView?.text = pending.negativeText
         }
+        applyOverlayVisibility(progress)
+    }
+
+    private fun applyOverlayVisibility(progress: AgentOverlayProgress = latestProgress) {
+        rootView?.visibility = if (shouldShowOverlay(progress)) View.VISIBLE else View.INVISIBLE
+    }
+
+    private fun shouldShowOverlay(progress: AgentOverlayProgress): Boolean {
+        if (hiddenForCleanCapture) return false
+        if (progress.pendingConfirmation != null) return true
+        return !progress.running
     }
 
     private fun roundedBackground(fill: Int, stroke: Int, radius: Float): GradientDrawable {
