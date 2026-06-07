@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.service
 
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +43,9 @@ object AgentRuntimeController {
     private var pendingConfirmationDeferred: CompletableDeferred<Boolean>? = null
 
     private val overlayCaptureLock = Any()
+    private val overlayCaptureRestoreHandler = Handler(Looper.getMainLooper())
     private var overlayCaptureDepth: Int = 0
+    private var overlayCaptureGeneration: Long = 0L
 
     fun isEnabled(): Boolean = mutableEnabled.value
 
@@ -49,6 +53,9 @@ object AgentRuntimeController {
         if (!value) {
             completePendingConfirmation(false)
             AiAgentAccessibilityService.endTaskSession()
+            resetCleanVisualCapture()
+        } else {
+            ensureOverlayCaptureVisibleIfIdle()
         }
         mutableEnabled.value = value
         mutableProgress.value = mutableProgress.value.copy(
@@ -63,21 +70,54 @@ object AgentRuntimeController {
     }
 
     fun beginCleanVisualCapture() {
+        val generation: Long
         synchronized(overlayCaptureLock) {
             overlayCaptureDepth += 1
+            overlayCaptureGeneration += 1L
+            generation = overlayCaptureGeneration
             mutableOverlayHiddenForCapture.value = true
         }
+        overlayCaptureRestoreHandler.postDelayed({
+            synchronized(overlayCaptureLock) {
+                if (overlayCaptureDepth > 0 && overlayCaptureGeneration == generation) {
+                    overlayCaptureDepth = 0
+                    overlayCaptureGeneration += 1L
+                    mutableOverlayHiddenForCapture.value = false
+                }
+            }
+        }, OVERLAY_CAPTURE_WATCHDOG_MS)
     }
 
     fun endCleanVisualCapture() {
         synchronized(overlayCaptureLock) {
             overlayCaptureDepth = (overlayCaptureDepth - 1).coerceAtLeast(0)
-            if (overlayCaptureDepth == 0) mutableOverlayHiddenForCapture.value = false
+            if (overlayCaptureDepth == 0) {
+                overlayCaptureGeneration += 1L
+                mutableOverlayHiddenForCapture.value = false
+            }
+        }
+    }
+
+    fun resetCleanVisualCapture() {
+        synchronized(overlayCaptureLock) {
+            overlayCaptureDepth = 0
+            overlayCaptureGeneration += 1L
+            mutableOverlayHiddenForCapture.value = false
+        }
+    }
+
+    fun ensureOverlayCaptureVisibleIfIdle() {
+        synchronized(overlayCaptureLock) {
+            if (overlayCaptureDepth == 0 && mutableOverlayHiddenForCapture.value) {
+                overlayCaptureGeneration += 1L
+                mutableOverlayHiddenForCapture.value = false
+            }
         }
     }
 
     fun startTask(goal: String) {
         completePendingConfirmation(false)
+        resetCleanVisualCapture()
         AiAgentAccessibilityService.beginTaskSession()
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
         mutableProgress.value = AgentOverlayProgress(
@@ -93,6 +133,7 @@ object AgentRuntimeController {
     fun finishTask(message: String, completed: Boolean) {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
+        resetCleanVisualCapture()
         val resultText = message.trim().take(72).ifBlank { if (completed) "任务完成" else "任务暂停" }
         mutableProgress.value = mutableProgress.value.copy(
             running = false,
@@ -108,6 +149,7 @@ object AgentRuntimeController {
     fun failTask(message: String) {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
+        resetCleanVisualCapture()
         val resultText = message.trim().take(72).ifBlank { "智能体执行失败" }
         mutableProgress.value = mutableProgress.value.copy(
             running = false,
@@ -121,6 +163,7 @@ object AgentRuntimeController {
     }
 
     fun noteAction(step: CloudAgentStep) {
+        ensureOverlayCaptureVisibleIfIdle()
         val actionText = buildActionText(step)
         mutableProgress.value = mutableProgress.value.copy(
             enabled = true,
@@ -134,6 +177,7 @@ object AgentRuntimeController {
     }
 
     fun noteResult(step: CloudAgentStep, result: AgentExecutionResult) {
+        ensureOverlayCaptureVisibleIfIdle()
         val resultText = result.message.take(64)
         mutableProgress.value = mutableProgress.value.copy(
             running = result.shouldContinue && result.ok,
@@ -163,6 +207,7 @@ object AgentRuntimeController {
     }
 
     suspend fun requestRiskConfirmation(goal: String, step: CloudAgentStep): Boolean {
+        ensureOverlayCaptureVisibleIfIdle()
         val actionText = buildActionText(step)
         val confirmation = AgentPendingConfirmation(
             id = System.currentTimeMillis(),
@@ -217,6 +262,7 @@ object AgentRuntimeController {
 
     fun cancelPendingRiskAction() {
         AiAgentAccessibilityService.endTaskSession()
+        resetCleanVisualCapture()
         val deferred = synchronized(confirmationLock) {
             val current = pendingConfirmationDeferred ?: return
             pendingConfirmationDeferred = null
@@ -249,6 +295,7 @@ object AgentRuntimeController {
         synchronized(confirmationLock) {
             if (pendingConfirmationId == id && pendingConfirmationDeferred === deferred) {
                 AiAgentAccessibilityService.endTaskSession()
+                resetCleanVisualCapture()
                 pendingConfirmationDeferred = null
                 pendingConfirmationId = 0L
                 mutableProgress.value = mutableProgress.value.copy(
@@ -285,4 +332,5 @@ object AgentRuntimeController {
     }
 
     private const val MAX_LOGS = 7
+    private const val OVERLAY_CAPTURE_WATCHDOG_MS = 2_500L
 }
