@@ -8,6 +8,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.StructuredMetric
 import com.yuchen.ailedger.model.WebSource
+import java.io.BufferedReader
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
@@ -68,6 +69,36 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             }
         }
         throw lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
+    }
+
+    @Throws(IOException::class)
+    fun streamChat(
+        messages: List<ChatMessage>,
+        modelPreference: ChatModel = ChatModel.Auto,
+        onlineEnabled: Boolean = false,
+        onDelta: (String) -> Unit
+    ): AiChatResponse {
+        val route = resolveModelRoute(messages, modelPreference)
+        val endpoints = endpointPlan(route)
+        if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
+        val payload = buildPayload(messages, route, onlineEnabled).apply {
+            put("stream", true)
+            put("streaming", true)
+            put("streamFormat", "sse")
+            put("responseMode", "stream")
+        }
+        var lastError: IOException? = null
+        endpointLoop@ for (cleanEndpoint in endpoints) {
+            for (candidate in endpointCandidates(cleanEndpoint)) {
+                try {
+                    return postStreamChat(candidate, payload, route, onDelta)
+                } catch (error: IOException) {
+                    lastError = error
+                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
+                }
+            }
+        }
+        throw lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
     }
 
     private fun endpointPool(primary: String, fallbacks: List<String>): List<String> = (listOf(primary) + fallbacks).map { it.trim().trimEnd('/') }.filter { it.isNotBlank() }.distinct()
@@ -182,20 +213,202 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             val data = body.toJsonOrNull()
             if (status !in 200..299) throw IOException(data?.optString("error").notBlankOrNull() ?: data?.optString("message").notBlankOrNull() ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" })
             throwIfServerReturnedFallbackSignal(data)
-            val rawReply = extractReply(data, body).trim()
-            val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
-            val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
-            val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
-            val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
-            val parsedAgentAction = parseCloudAgentAction(data) ?: parseCloudAgentAction(embeddedCommand) ?: payloadToAgentAction(payload)
-            if (displayReply.isBlank() && embeddedCommand == null && parsedMobileAction == null && parsedPreferenceUpdate == null && parsedAgentAction == null) throw IOException("云端没有返回有效回复")
-            val rawModel = data?.optString("model").notBlankOrNull() ?: data?.optString("modelId").notBlankOrNull() ?: if (payload.optBoolean("hasImage")) QWEN_VISION_ROUTE_ID else route.resolved.id
-            val rawVersion = data?.optString("version").notBlankOrNull()
-            val resolvedLabel = data?.optString("modelLabel").notBlankOrNull() ?: data?.optString("modelName").notBlankOrNull() ?: modelLabelFromId(rawModel) ?: if (rawModel == QWEN_VISION_ROUTE_ID) "Qwen 识图 · Omni Plus" else route.resolved.label
-            val displayLabel = if (route.isAuto && !resolvedLabel.startsWith("自动选择")) "自动选择 · $resolvedLabel" else resolvedLabel
-            val fallbackReply = when { parsedAgentAction != null -> "我识别到一个手机智能体动作。"; parsedMobileAction != null -> "我识别到一个手机动作，请确认后执行。"; parsedPreferenceUpdate != null -> "我已识别到一项偏好更新。"; else -> rawReply }
-            AiChatResponse(reply = displayReply.ifBlank { fallbackReply }, source = data?.optString("source").notBlankOrNull() ?: "cloud_ai", model = rawModel, modelLabel = displayLabel, version = rawVersion, webSources = parseWebSources(data), structuredData = parseStructuredData(data), mobileAction = parsedMobileAction, preferenceUpdate = parsedPreferenceUpdate, agentAction = parsedAgentAction, searchUsed = data?.optBoolean("searchUsed", false) ?: false, searchProvider = data?.optString("searchProvider").notBlankOrNull())
+            parseChatResponse(data = data, body = body, payload = payload, route = route)
         } catch (error: SocketTimeoutException) { throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error) } finally { connection.disconnect() }
+    }
+
+    private fun postStreamChat(
+        endpoint: String,
+        payload: JSONObject,
+        route: ModelRoute,
+        onDelta: (String) -> Unit
+    ): AiChatResponse {
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = config.connectTimeoutMs
+            readTimeout = config.readTimeoutMs
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "text/event-stream, application/x-ndjson, application/json, text/plain")
+            setRequestProperty("X-Client", "android-compose")
+            setRequestProperty("X-AI-Ledger-Stream", "sse")
+        }
+
+        return try {
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val contentType = connection.contentType.orEmpty().lowercase()
+
+            if (status !in 200..299) {
+                val body = readBody(connection, status)
+                val data = body.toJsonOrNull()
+                throw IOException(
+                    data?.optString("error").notBlankOrNull()
+                        ?: data?.optString("message").notBlankOrNull()
+                        ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" }
+                )
+            }
+
+            if (!contentType.contains("text/event-stream") && !contentType.contains("application/x-ndjson")) {
+                val body = readBody(connection, status)
+                val data = body.toJsonOrNull()
+                throwIfServerReturnedFallbackSignal(data)
+                return parseChatResponse(data = data, body = body, payload = payload, route = route)
+            }
+
+            val streamedReply = StringBuilder()
+            var finalData: JSONObject? = null
+            connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.forEachStreamPayload { payloadText ->
+                    val event = parseStreamPayload(payloadText) ?: return@forEachStreamPayload
+                    if (event.delta.isNotBlank()) {
+                        streamedReply.append(event.delta)
+                        onDelta(event.delta)
+                    }
+                    if (event.done) {
+                        finalData = event.data ?: finalData
+                    }
+                }
+            }
+
+            val streamedText = streamedReply.toString().trim()
+            val finalJson = finalData
+            when {
+                finalJson != null -> parseChatResponse(
+                    data = finalJson,
+                    body = finalJson.toString(),
+                    payload = payload,
+                    route = route,
+                    replyOverride = streamedText.takeIf { it.isNotBlank() }
+                )
+                streamedText.isNotBlank() -> AiChatResponse(
+                    reply = streamedText,
+                    source = "cloud_ai",
+                    model = route.resolved.id,
+                    modelLabel = if (route.isAuto) "自动选择 · ${route.resolved.label}" else route.resolved.label
+                )
+                else -> throw IOException("云端流式回复结束，但没有返回有效内容")
+            }
+        } catch (error: SocketTimeoutException) {
+            throw IOException("云端 AI 流式请求超时：${endpoint.substringAfter("://")}", error)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private data class StreamPayload(
+        val delta: String = "",
+        val done: Boolean = false,
+        val data: JSONObject? = null
+    )
+
+    private fun BufferedReader.forEachStreamPayload(block: (String) -> Unit) {
+        val sseData = StringBuilder()
+        while (true) {
+            val line = readLine() ?: break
+            when {
+                line.isBlank() -> {
+                    val payload = sseData.toString().trim()
+                    if (payload.isNotBlank()) block(payload)
+                    sseData.clear()
+                }
+                line.startsWith("data:") -> {
+                    val data = line.removePrefix("data:").trimStart()
+                    if (data == "[DONE]") {
+                        block(data)
+                    } else {
+                        if (sseData.isNotEmpty()) sseData.append('\n')
+                        sseData.append(data)
+                    }
+                }
+                line.startsWith("{") -> block(line)
+            }
+        }
+        val tail = sseData.toString().trim()
+        if (tail.isNotBlank()) block(tail)
+    }
+
+    private fun parseStreamPayload(payload: String): StreamPayload? {
+        val clean = payload.trim()
+        if (clean.isBlank()) return null
+        if (clean == "[DONE]") return StreamPayload(done = true)
+
+        val data = clean.toJsonOrNull() ?: return StreamPayload(delta = clean)
+        val type = data.optString("type").lowercase()
+        val choices = data.optJSONArray("choices")
+        val firstChoice = choices?.optJSONObject(0)
+        val choiceDelta = firstChoice?.optJSONObject("delta")?.optString("content").orEmpty()
+        val choiceText = firstChoice?.optString("text").orEmpty()
+        val finishReason = firstChoice?.optString("finish_reason").orEmpty()
+
+        val hasFinalReply = data.has("reply") || data.has("response") || data.has("answer") ||
+            data.optJSONObject("data") != null || data.optJSONObject("result") != null
+        val done = type in setOf("done", "final", "complete", "completed") ||
+            data.optBoolean("done", false) ||
+            data.optBoolean("completed", false) ||
+            finishReason.isNotBlank() ||
+            (type.isBlank() && hasFinalReply && data.optString("delta").isBlank() && choiceDelta.isBlank())
+
+        if (done) {
+            val responseData = data.optJSONObject("response") ?: data.optJSONObject("final") ?: data
+            return StreamPayload(done = true, data = responseData)
+        }
+
+        val delta = data.optString("delta")
+            .ifBlank { data.optString("text") }
+            .ifBlank { data.optString("content") }
+            .ifBlank { data.optString("replyDelta") }
+            .ifBlank { choiceDelta }
+            .ifBlank { choiceText }
+
+        return if (delta.isNotBlank()) StreamPayload(delta = delta) else null
+    }
+
+    private fun parseChatResponse(
+        data: JSONObject?,
+        body: String,
+        payload: JSONObject,
+        route: ModelRoute,
+        replyOverride: String? = null
+    ): AiChatResponse {
+        val rawReply = (replyOverride?.takeIf { it.isNotBlank() } ?: extractReply(data, body)).trim()
+        val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
+        val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
+        val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
+        val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
+        val parsedAgentAction = parseCloudAgentAction(data) ?: parseCloudAgentAction(embeddedCommand) ?: payloadToAgentAction(payload)
+        if (displayReply.isBlank() && embeddedCommand == null && parsedMobileAction == null && parsedPreferenceUpdate == null && parsedAgentAction == null) {
+            throw IOException("云端没有返回有效回复")
+        }
+        val rawModel = data?.optString("model").notBlankOrNull()
+            ?: data?.optString("modelId").notBlankOrNull()
+            ?: if (payload.optBoolean("hasImage")) QWEN_VISION_ROUTE_ID else route.resolved.id
+        val rawVersion = data?.optString("version").notBlankOrNull()
+        val resolvedLabel = data?.optString("modelLabel").notBlankOrNull()
+            ?: data?.optString("modelName").notBlankOrNull()
+            ?: modelLabelFromId(rawModel)
+            ?: if (rawModel == QWEN_VISION_ROUTE_ID) "Qwen 识图 · Omni Plus" else route.resolved.label
+        val displayLabel = if (route.isAuto && !resolvedLabel.startsWith("自动选择")) "自动选择 · $resolvedLabel" else resolvedLabel
+        val fallbackReply = when {
+            parsedAgentAction != null -> "我识别到一个手机智能体动作。"
+            parsedMobileAction != null -> "我识别到一个手机动作，请确认后执行。"
+            parsedPreferenceUpdate != null -> "我已识别到一项偏好更新。"
+            else -> rawReply
+        }
+        return AiChatResponse(
+            reply = displayReply.ifBlank { fallbackReply },
+            source = data?.optString("source").notBlankOrNull() ?: "cloud_ai",
+            model = rawModel,
+            modelLabel = displayLabel,
+            version = rawVersion,
+            webSources = parseWebSources(data),
+            structuredData = parseStructuredData(data),
+            mobileAction = parsedMobileAction,
+            preferenceUpdate = parsedPreferenceUpdate,
+            agentAction = parsedAgentAction,
+            searchUsed = data?.optBoolean("searchUsed", false) ?: false,
+            searchProvider = data?.optString("searchProvider").notBlankOrNull()
+        )
     }
 
     private fun payloadToAgentAction(payload: JSONObject): CloudAgentAction? {
