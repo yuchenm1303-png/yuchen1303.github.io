@@ -487,6 +487,7 @@ private fun ChatPanelV2(
     val bubbleLayerState = rememberChatBubbleLayerState()
     var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var streamedMessageIds by remember { mutableStateOf(emptySet<String>()) }
+    var streamRevealCompletedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var collapsedLongReplyMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val messages = state.messages
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
@@ -497,6 +498,9 @@ private fun ChatPanelV2(
         }
         if (streamedMessageIds.any { it !in activeMessageIds }) {
             streamedMessageIds = streamedMessageIds.intersect(activeMessageIds)
+        }
+        if (streamRevealCompletedMessageIds.any { it !in activeMessageIds }) {
+            streamRevealCompletedMessageIds = streamRevealCompletedMessageIds.intersect(activeMessageIds)
         }
         if (collapsedLongReplyMessageIds.any { it !in activeMessageIds }) {
             collapsedLongReplyMessageIds = collapsedLongReplyMessageIds.intersect(activeMessageIds)
@@ -591,8 +595,10 @@ private fun ChatPanelV2(
                                 showActions = message.id == lastActionableMessageId,
                                 revealAlreadyPlayed = message.id in revealedMessageIds || message.id in streamedMessageIds,
                                 wasStreamed = message.id in streamedMessageIds,
+                                streamRevealAlreadyCompleted = message.id in streamRevealCompletedMessageIds,
                                 longReplyExpanded = message.id !in collapsedLongReplyMessageIds,
                                 onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
+                                onStreamRevealCompleted = { id -> streamRevealCompletedMessageIds = streamRevealCompletedMessageIds + id },
                                 onLongReplyExpandedChange = { id, expanded ->
                                     collapsedLongReplyMessageIds = if (expanded) {
                                         collapsedLongReplyMessageIds - id
@@ -684,8 +690,10 @@ private fun AnimatedMessageBubbleV2(
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
     wasStreamed: Boolean,
+    streamRevealAlreadyCompleted: Boolean,
     longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
+    onStreamRevealCompleted: (String) -> Unit,
     onLongReplyExpandedChange: (String, Boolean) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
@@ -715,8 +723,10 @@ private fun AnimatedMessageBubbleV2(
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
             wasStreamed = wasStreamed,
+            streamRevealAlreadyCompleted = streamRevealAlreadyCompleted,
             longReplyExpanded = longReplyExpanded,
             onRevealCompleted = onRevealCompleted,
+            onStreamRevealCompleted = onStreamRevealCompleted,
             onLongReplyExpandedChange = onLongReplyExpandedChange,
             onCopyMessage = onCopyMessage,
             onRetryMessage = onRetryMessage
@@ -733,8 +743,10 @@ private fun MessageBubbleV2(
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
     wasStreamed: Boolean,
+    streamRevealAlreadyCompleted: Boolean,
     longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
+    onStreamRevealCompleted: (String) -> Unit,
     onLongReplyExpandedChange: (String, Boolean) -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit
@@ -749,13 +761,14 @@ private fun MessageBubbleV2(
     val rawText = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
     val textColor = remember(message.id, message.status, fromUser) { messageTextColor(message, fromUser) }
     val hasLiveStreamingText = remember(rawText) { hasStreamingLiveTextV2(rawText) }
-    val smoothStreamingActive = !fromUser && hasLiveStreamingText && (sending || wasStreamed)
+    val streamRevealShouldAnimate = !fromUser && hasLiveStreamingText && !streamRevealAlreadyCompleted && (sending || wasStreamed)
     val smoothStreamingState = rememberFluidStreamingTextStateV2(
         messageId = message.id,
         targetText = rawText,
-        enabled = smoothStreamingActive
+        enabled = streamRevealShouldAnimate
     )
-    val smoothStreamingFinished = smoothStreamingState.finished
+    val smoothStreamingFinished = streamRevealAlreadyCompleted || smoothStreamingState.finished
+    val smoothStreamingActive = !fromUser && hasLiveStreamingText && (streamRevealShouldAnimate || streamRevealAlreadyCompleted || wasStreamed)
     val shouldReveal = !fromUser &&
         !sending &&
         !revealAlreadyPlayed &&
@@ -771,11 +784,17 @@ private fun MessageBubbleV2(
     LaunchedEffect(message.id, shouldReveal, baseRevealFinished) {
         if (shouldReveal && baseRevealFinished) onRevealCompleted(message.id)
     }
+    LaunchedEffect(message.id, hasLiveStreamingText, streamRevealShouldAnimate, smoothStreamingState.finished) {
+        if (hasLiveStreamingText && streamRevealShouldAnimate && smoothStreamingState.finished) {
+            onStreamRevealCompleted(message.id)
+        }
+    }
 
     val longReply = !fromUser && !sending && rawText.length >= 520
     val expanded = !longReply || longReplyExpanded
     val displayBaseText = when {
-        smoothStreamingActive -> smoothStreamingState.text
+        streamRevealShouldAnimate -> smoothStreamingState.text
+        streamRevealAlreadyCompleted && hasLiveStreamingText -> rawText
         sending -> rawText
         else -> revealedText
     }
@@ -837,13 +856,13 @@ private fun MessageBubbleV2(
                 StreamingAssistantContentV2(
                     message = message,
                     motionClock = motionClock,
-                    smoothState = if (smoothStreamingActive) smoothStreamingState else null,
+                    smoothState = if (streamRevealShouldAnimate) smoothStreamingState else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = contentAlpha }
                 )
             } else {
-                if (smoothStreamingActive && !smoothStreamingFinished) {
+                if (streamRevealShouldAnimate && !smoothStreamingFinished) {
                     StreamingLivePlainTextV2(
                         text = displayText,
                         revealHead = smoothStreamingState.revealHead,
