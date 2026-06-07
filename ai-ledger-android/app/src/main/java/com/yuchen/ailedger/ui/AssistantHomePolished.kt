@@ -742,7 +742,9 @@ private fun MessageBubbleV2(
     val longReply = !fromUser && !sending && rawText.length >= 520
     val expanded = !longReply || longReplyExpanded
     val displayBaseText = if (sending) rawText else revealedText
-    val displayText = if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
+    val displayText = remember(displayBaseText, longReply, expanded) {
+        if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
+    }
     val contentAlpha by animateFloatAsState(
         targetValue = if (sending) 0.88f else 1f,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
@@ -848,7 +850,7 @@ private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: Assis
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
-            RichMessageContent(
+            OptimizedRichMessageContent(
                 text = text,
                 color = Color.White.copy(alpha = 0.86f),
                 fontSize = 14.sp,
@@ -1004,7 +1006,7 @@ private fun GeneratingMessageContentV2(
     modifier: Modifier = Modifier
 ) {
     if (!active) {
-        RichMessageContent(
+        OptimizedRichMessageContent(
             text = text,
             color = color,
             fontSize = fontSize,
