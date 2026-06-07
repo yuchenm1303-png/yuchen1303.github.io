@@ -33,6 +33,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
+    private var taskSessionDepth: Int = 0
     private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ai-agent-screenshot").apply { isDaemon = true }
     }
@@ -94,6 +95,20 @@ class AiAgentAccessibilityService : AccessibilityService() {
         currentAccessibilityMode = AccessibilityRuntimeMode.Working
     }
 
+    private fun beginTaskWorkingSession() {
+        synchronized(modeLock) {
+            taskSessionDepth += 1
+            configureWorkingServiceInfo()
+        }
+    }
+
+    private fun endTaskWorkingSession() {
+        synchronized(modeLock) {
+            taskSessionDepth = (taskSessionDepth - 1).coerceAtLeast(0)
+            if (taskSessionDepth == 0 && workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+        }
+    }
+
     private fun beginWorkingSession() {
         synchronized(modeLock) {
             workingSessionDepth += 1
@@ -104,7 +119,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun endWorkingSession() {
         synchronized(modeLock) {
             workingSessionDepth = (workingSessionDepth - 1).coerceAtLeast(0)
-            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+            if (workingSessionDepth == 0 && taskSessionDepth == 0) configureIdleServiceInfo(force = true)
         }
     }
 
@@ -130,7 +145,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 append(selected.windowTitle)
                 append(" · nodeMs=").append(nodeMs)
                 if (selected.capture.truncated) append(" · 节点截断")
-                if (forceVisual) append(" · 视觉轻采样")
+                if (forceVisual) append(" · 极简视觉节点")
             }.take(120)
             ScreenObservation(
                 enabled = true,
@@ -669,6 +684,14 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         fun isConnected(): Boolean = activeService != null
 
+        fun beginTaskSession() {
+            activeService?.beginTaskWorkingSession()
+        }
+
+        fun endTaskSession() {
+            activeService?.endTaskWorkingSession()
+        }
+
         fun captureFreshSnapshot(forceVisual: Boolean = false): ScreenObservation {
             val service = activeService ?: return ScreenObservation(updatedAt = System.currentTimeMillis())
             val snapshot = service.captureSnapshotInternal(forceVisual = forceVisual)
@@ -697,40 +720,40 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private val SYSTEM_SURFACE_PACKAGES = setOf("android", "com.android.systemui")
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 96
-        private const val VISUAL_AFFORDANCE_NODES = 56
-        private const val MAX_EXECUTION_NODES = 140
-        private const val ROOT_SELECTION_SAMPLE_NODES = 48
-        private const val FAST_TEXT_FALLBACK_NODES = 64
-        private const val MAX_ROOT_CANDIDATES = 3
-        private const val MAX_DEPTH = 8
-        private const val MAX_CHILDREN_PER_NODE = 18
-        private const val MAX_PENDING_NODE_QUEUE = 160
-        private const val CHILD_TEXT_FALLBACK_LIMIT = 4
-        private const val CHILD_TEXT_MAX_DEPTH = 2
-        private const val MAX_CHILD_TEXT_QUEUE = 48
-        private const val TEXT_LIMIT = 42
-        private const val ALL_NODE_LIMIT = 90
-        private const val CLICKABLE_LIMIT = 36
-        private const val INPUT_LIMIT = 8
-        private const val SCROLLABLE_LIMIT = 8
-        private const val CLICK_PARENT_DEPTH = 8
-        private const val SCROLL_PARENT_DEPTH = 8
-        private const val DEFAULT_TAP_MS = 48L
-        private const val DEFAULT_SWIPE_MS = 300L
-        private const val DEFAULT_WAIT_MS = 650L
+        private const val MAX_SNAPSHOT_NODES = 72
+        private const val VISUAL_AFFORDANCE_NODES = 28
+        private const val MAX_EXECUTION_NODES = 96
+        private const val ROOT_SELECTION_SAMPLE_NODES = 32
+        private const val FAST_TEXT_FALLBACK_NODES = 40
+        private const val MAX_ROOT_CANDIDATES = 2
+        private const val MAX_DEPTH = 6
+        private const val MAX_CHILDREN_PER_NODE = 10
+        private const val MAX_PENDING_NODE_QUEUE = 96
+        private const val CHILD_TEXT_FALLBACK_LIMIT = 2
+        private const val CHILD_TEXT_MAX_DEPTH = 1
+        private const val MAX_CHILD_TEXT_QUEUE = 18
+        private const val TEXT_LIMIT = 30
+        private const val ALL_NODE_LIMIT = 48
+        private const val CLICKABLE_LIMIT = 20
+        private const val INPUT_LIMIT = 6
+        private const val SCROLLABLE_LIMIT = 5
+        private const val CLICK_PARENT_DEPTH = 6
+        private const val SCROLL_PARENT_DEPTH = 6
+        private const val DEFAULT_TAP_MS = 42L
+        private const val DEFAULT_SWIPE_MS = 260L
+        private const val DEFAULT_WAIT_MS = 500L
         private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
-        private const val SCREENSHOT_TIMEOUT_MS = 1200L
-        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 90L
-        private const val SNAPSHOT_NODE_BUDGET_MS = 520L
-        private const val VISUAL_AFFORDANCE_BUDGET_MS = 280L
-        private const val ROOT_SELECTION_BUDGET_MS = 260L
-        private const val EXECUTION_NODE_BUDGET_MS = 420L
-        private const val QUICK_TEXT_NODE_BUDGET_MS = 260L
-        private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 420L
-        private const val NODE_HANDLE_BUDGET_MS = 80L
-        private const val CHILD_TEXT_BUDGET_MS = 35L
+        private const val SCREENSHOT_TIMEOUT_MS = 1000L
+        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 40L
+        private const val SNAPSHOT_NODE_BUDGET_MS = 360L
+        private const val VISUAL_AFFORDANCE_BUDGET_MS = 150L
+        private const val ROOT_SELECTION_BUDGET_MS = 180L
+        private const val EXECUTION_NODE_BUDGET_MS = 260L
+        private const val QUICK_TEXT_NODE_BUDGET_MS = 150L
+        private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 260L
+        private const val NODE_HANDLE_BUDGET_MS = 34L
+        private const val CHILD_TEXT_BUDGET_MS = 10L
         private const val VISUAL_COORDINATE_EPSILON = 24f
     }
 }
