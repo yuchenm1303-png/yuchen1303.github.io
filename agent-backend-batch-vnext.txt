@@ -2034,14 +2034,20 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const session = getAgentSession(body, goal);
   session.step += 1;
 
-  const providerModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
+  const qwenProviderModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
+  const activeProviderModel = String(
+    process.env.AGENT_GUI_PROVIDER_MODEL ||
+    (String(process.env.AGENT_GUI_PROVIDER || "").trim().toLowerCase() === "external_http" ? "external_http" : "") ||
+    qwenProviderModel ||
+    "external_http"
+  ).trim();
   const baseMeta = {
     source: "agent_step_single_model_loop",
     sourceDetail: screenshotInfo.hasImage ? "vision_planner_or_cache" : "text_planner_only",
     model: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
     modelId: screenshotInfo.hasImage ? "qwen_vision_or_cache" : "qwen",
     modelLabel: screenshotInfo.hasImage ? "Qwen 视觉单步规划 / 缓存" : "Qwen 文本规划",
-    providerModel: screenshotInfo.hasImage ? providerModel : process.env.QWEN_MODEL,
+    providerModel: screenshotInfo.hasImage ? activeProviderModel : process.env.QWEN_MODEL,
     version: WORKER_VERSION,
   };
 
@@ -2083,7 +2089,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   if (shouldCallVisual) {
     const providerStartedAt = Date.now();
     try {
-      parsed = await callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerModel);
+      parsed = await callAgentVisionPlanner(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, qwenProviderModel);
       providerMs = Date.now() - providerStartedAt;
       visualCalled = true;
       visualFrame = normalizeVisualFrame(parsed);
@@ -2207,7 +2213,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     model: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelId: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelLabel: visualCalled ? "Qwen 视觉单步规划" : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
-    providerModel: visualCalled ? providerModel : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
+    providerModel: visualCalled ? activeProviderModel : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
     searchUsed: false,
     structuredUsed: false,
     searchProvider: null,
