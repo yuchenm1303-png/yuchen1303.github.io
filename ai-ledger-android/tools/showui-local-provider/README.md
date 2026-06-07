@@ -27,9 +27,18 @@ PyTorch should be installed with the wheel that matches your driver/CUDA setup.
 
 ## Install
 
+Run the following commands one line at a time in PowerShell. Do not paste
+multiple commands onto the same line.
+
 ```powershell
-cd ai-ledger-android\tools\showui-local-provider
+cd "C:\Users\邹羽宸\OneDrive\文档\New project 2-cloud-dev-update-1\ai-ledger-android\tools\showui-local-provider"
+```
+
+```powershell
 conda create -n showui python=3.10 -y
+```
+
+```powershell
 conda activate showui
 ```
 
@@ -42,7 +51,15 @@ https://pytorch.org/get-started/locally/
 Common CUDA 12.1 example:
 
 ```powershell
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+python -m ensurepip --upgrade
+```
+
+```powershell
+python -m pip install --upgrade pip
+```
+
+```powershell
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
 If your driver supports a newer CUDA wheel, you can choose `cu126` or `cu128`
@@ -51,7 +68,13 @@ from the PyTorch site.
 Then install the provider dependencies:
 
 ```powershell
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+```
+
+Verify CUDA:
+
+```powershell
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
 ```
 
 ## Start

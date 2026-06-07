@@ -14,7 +14,7 @@ Write-Host "Install the CUDA build of PyTorch from the official selector:"
 Write-Host "  https://pytorch.org/get-started/locally/"
 Write-Host ""
 Write-Host "Default CUDA 12.1 example for many Windows NVIDIA setups:"
-Write-Host "  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+Write-Host "  python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
 Write-Host "If your driver supports a newer CUDA wheel, you can choose cu126 or cu128 from the PyTorch site."
 Write-Host ""
 
@@ -22,12 +22,39 @@ if (-not (Test-Path ".\requirements.txt")) {
   throw "requirements.txt not found. Please run this script from tools/showui-local-provider."
 }
 
-python -c "import sys; print(sys.version)"
-pip install -r requirements.txt
+Write-Host "Python runtime:"
+python --version
+python -c "import sys; print(sys.executable)"
+
+python -m ensurepip --upgrade
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+Write-Host ""
+Write-Host "Checking PyTorch installation..."
+$torchVersion = python -c "import torch; print(torch.__version__)" 2>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "PyTorch is not installed in the current Python environment."
+  Write-Host "Please run the CUDA PyTorch install command first, then run this script again:"
+  Write-Host "  python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+  Write-Host "If your driver supports a newer CUDA wheel, choose cu126 or cu128 from https://pytorch.org/get-started/locally/."
+  exit 1
+}
+Write-Host "PyTorch: $torchVersion"
 
 Write-Host ""
 Write-Host "CUDA check:"
-python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+$cudaInfo = python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+Write-Host $cudaInfo
+if ($cudaInfo -match "False") {
+  Write-Host ""
+  Write-Host "CUDA is not available."
+  Write-Host "- PyTorch may have been installed as the CPU-only build."
+  Write-Host "- Your NVIDIA driver may not match the selected CUDA wheel."
+  Write-Host "- Re-run the CUDA PyTorch install command, for example:"
+  Write-Host "  python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+}
 
 $env:SHOWUI_MODEL_ID = if ($env:SHOWUI_MODEL_ID) { $env:SHOWUI_MODEL_ID } else { "showlab/ShowUI-2B" }
 $env:SHOWUI_HOST = if ($env:SHOWUI_HOST) { $env:SHOWUI_HOST } else { "127.0.0.1" }
