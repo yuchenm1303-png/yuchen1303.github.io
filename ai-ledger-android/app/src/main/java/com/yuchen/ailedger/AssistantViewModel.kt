@@ -46,6 +46,7 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -365,8 +366,58 @@ class AssistantViewModel(
         val onlineEnabled = uiState.onlineEnabled || shouldAutoEnableOnline(requestMessages)
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
+            val deltaChannel = Channel<String>(Channel.UNLIMITED)
+            val streamBuffer = StringBuilder()
+            var lastFlushedText = ""
+            var lastFlushAt = 0L
+
+            fun flushStreamingText(force: Boolean = false) {
+                val nextText = streamBuffer.toString()
+                if (nextText.isBlank() || nextText == lastFlushedText) return
+                val now = System.currentTimeMillis()
+                val enoughTime = now - lastFlushAt >= 80L
+                val enoughChars = nextText.length - lastFlushedText.length >= 24
+                if (!force && !enoughTime && !enoughChars) return
+                lastFlushedText = nextText
+                lastFlushAt = now
+                if (activePendingMessageId == pendingMessage.id) {
+                    replaceMessage(
+                        pendingMessage.id,
+                        pendingMessage.copy(
+                            text = nextText,
+                            status = MessageStatus.Sending,
+                            source = "cloud_ai",
+                            modelLabel = selectedModel.label,
+                            errorText = null
+                        )
+                    )
+                }
+            }
+
+            val streamCollectorJob = launch {
+                try {
+                    for (delta in deltaChannel) {
+                        if (delta.isBlank()) continue
+                        streamBuffer.append(delta)
+                        flushStreamingText(force = false)
+                    }
+                } finally {
+                    flushStreamingText(force = true)
+                }
+            }
+
             try {
-                val response = withContext(Dispatchers.IO) { aiWorkerClient.sendChat(requestMessages, selectedModel, onlineEnabled) }
+                val response = withContext(Dispatchers.IO) {
+                    try {
+                        aiWorkerClient.streamChat(requestMessages, selectedModel, onlineEnabled) { delta ->
+                            if (delta.isNotBlank()) deltaChannel.trySend(delta)
+                        }
+                    } finally {
+                        deltaChannel.close()
+                    }
+                }
+                streamCollectorJob.join()
+
                 if (activePendingMessageId == pendingMessage.id) {
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
                     val cloudAgentAction = response.agentAction
@@ -376,12 +427,31 @@ class AssistantViewModel(
                         cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal)))
                         cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
                         cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
-                        else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider))
+                        else -> replaceMessage(
+                            pendingMessage.id,
+                            pendingMessage.copy(
+                                text = decorateReply(response, onlineEnabled),
+                                status = MessageStatus.Sent,
+                                source = response.source,
+                                model = response.model,
+                                modelLabel = response.modelLabel ?: selectedModel.label,
+                                version = response.version,
+                                errorText = null,
+                                webSources = response.webSources,
+                                structuredData = response.structuredData,
+                                searchUsed = response.searchUsed,
+                                searchProvider = response.searchProvider
+                            )
+                        )
                     }
                 }
             } catch (error: CancellationException) {
+                deltaChannel.close()
+                streamCollectorJob.cancel()
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
             } catch (error: Throwable) {
+                deltaChannel.close()
+                streamCollectorJob.join()
                 if (activePendingMessageId == pendingMessage.id) {
                     val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
                     replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
