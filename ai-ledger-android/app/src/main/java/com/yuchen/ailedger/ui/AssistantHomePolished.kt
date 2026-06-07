@@ -486,6 +486,7 @@ private fun ChatPanelV2(
     val listState = rememberLazyListState()
     val bubbleLayerState = rememberChatBubbleLayerState()
     var revealedMessageIds by remember { mutableStateOf(emptySet<String>()) }
+    var streamedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var collapsedLongReplyMessageIds by remember { mutableStateOf(emptySet<String>()) }
     val messages = state.messages
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
@@ -494,10 +495,29 @@ private fun ChatPanelV2(
         if (revealedMessageIds.any { it !in activeMessageIds }) {
             revealedMessageIds = revealedMessageIds.intersect(activeMessageIds)
         }
+        if (streamedMessageIds.any { it !in activeMessageIds }) {
+            streamedMessageIds = streamedMessageIds.intersect(activeMessageIds)
+        }
         if (collapsedLongReplyMessageIds.any { it !in activeMessageIds }) {
             collapsedLongReplyMessageIds = collapsedLongReplyMessageIds.intersect(activeMessageIds)
         }
     }
+    val liveStreamingMessageIds = remember(messages) {
+        messages
+            .filter { message ->
+                message.role == MessageRole.Assistant &&
+                    message.status == MessageStatus.Sending &&
+                    hasStreamingLiveTextV2(messageText(message))
+            }
+            .map { it.id }
+            .toSet()
+    }
+    LaunchedEffect(liveStreamingMessageIds) {
+        if (liveStreamingMessageIds.isNotEmpty()) {
+            streamedMessageIds = streamedMessageIds + liveStreamingMessageIds
+        }
+    }
+
     val lastMessage = messages.lastOrNull()
     val lastMessageId = lastMessage?.id
     val lastMessageStatus = lastMessage?.status
@@ -569,7 +589,8 @@ private fun ChatPanelV2(
                                 bubbleLayerState = bubbleLayerState,
                                 motionClock = motionClock,
                                 showActions = message.id == lastActionableMessageId,
-                                revealAlreadyPlayed = message.id in revealedMessageIds,
+                                revealAlreadyPlayed = message.id in revealedMessageIds || message.id in streamedMessageIds,
+                                wasStreamed = message.id in streamedMessageIds,
                                 longReplyExpanded = message.id !in collapsedLongReplyMessageIds,
                                 onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
                                 onLongReplyExpandedChange = { id, expanded ->
@@ -662,6 +683,7 @@ private fun AnimatedMessageBubbleV2(
     motionClock: AssistantHomeMotionClock,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
+    wasStreamed: Boolean,
     longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
     onLongReplyExpandedChange: (String, Boolean) -> Unit,
@@ -692,6 +714,7 @@ private fun AnimatedMessageBubbleV2(
             appear = appear,
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
+            wasStreamed = wasStreamed,
             longReplyExpanded = longReplyExpanded,
             onRevealCompleted = onRevealCompleted,
             onLongReplyExpandedChange = onLongReplyExpandedChange,
@@ -709,6 +732,7 @@ private fun MessageBubbleV2(
     appear: Float = 1f,
     showActions: Boolean,
     revealAlreadyPlayed: Boolean,
+    wasStreamed: Boolean,
     longReplyExpanded: Boolean,
     onRevealCompleted: (String) -> Unit,
     onLongReplyExpandedChange: (String, Boolean) -> Unit,
@@ -724,6 +748,15 @@ private fun MessageBubbleV2(
 
     val rawText = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
     val textColor = remember(message.id, message.status, fromUser) { messageTextColor(message, fromUser) }
+    val hasLiveStreamingText = remember(rawText) { hasStreamingLiveTextV2(rawText) }
+    val smoothStreamingActive = !fromUser && hasLiveStreamingText && (sending || wasStreamed)
+    val smoothStreamingState = rememberFluidStreamingTextStateV2(
+        messageId = message.id,
+        targetText = rawText,
+        enabled = smoothStreamingActive
+    )
+    val smoothStreamingText = smoothStreamingState.first
+    val smoothStreamingFinished = smoothStreamingState.second
     val shouldReveal = !fromUser &&
         !sending &&
         !revealAlreadyPlayed &&
@@ -732,16 +765,21 @@ private fun MessageBubbleV2(
         rawText.length > 24
     val revealState = rememberRevealTextStateV2(message.id, rawText, shouldReveal)
     val revealedText = revealState.first
-    val revealFinished = revealState.second
-    val revealActive = shouldReveal && !revealFinished
+    val baseRevealFinished = revealState.second
+    val revealFinished = if (smoothStreamingActive) smoothStreamingFinished else baseRevealFinished
+    val revealActive = shouldReveal && !baseRevealFinished
 
-    LaunchedEffect(message.id, shouldReveal, revealFinished) {
-        if (shouldReveal && revealFinished) onRevealCompleted(message.id)
+    LaunchedEffect(message.id, shouldReveal, baseRevealFinished) {
+        if (shouldReveal && baseRevealFinished) onRevealCompleted(message.id)
     }
 
     val longReply = !fromUser && !sending && rawText.length >= 520
     val expanded = !longReply || longReplyExpanded
-    val displayBaseText = if (sending) rawText else revealedText
+    val displayBaseText = when {
+        smoothStreamingActive -> smoothStreamingText
+        sending -> rawText
+        else -> revealedText
+    }
     val displayText = remember(displayBaseText, longReply, expanded) {
         if (longReply && !expanded) displayBaseText.take(420).trimEnd() + "…" else displayBaseText
     }
@@ -800,23 +838,38 @@ private fun MessageBubbleV2(
                 StreamingAssistantContentV2(
                     message = message,
                     motionClock = motionClock,
+                    smoothText = if (smoothStreamingActive) smoothStreamingText else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = contentAlpha }
                 )
             } else {
-                GeneratingMessageContentV2(
-                    text = displayText,
-                    color = textColor,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
-                    active = revealActive,
-                    motionClock = motionClock,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer { alpha = contentAlpha }
-                )
+                if (smoothStreamingActive && !smoothStreamingFinished) {
+                    StreamingLivePlainTextV2(
+                        text = displayText,
+                        color = textColor,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                        motionClock = motionClock,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = contentAlpha }
+                    )
+                } else {
+                    GeneratingMessageContentV2(
+                        text = displayText,
+                        color = textColor,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                        active = revealActive,
+                        motionClock = motionClock,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = contentAlpha }
+                    )
+                }
                 if (revealActive) {
                     TypewriterTrailV2(motionClock)
                 }
@@ -854,16 +907,22 @@ private fun MessageBubbleV2(
 }
 
 @Composable
-private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: AssistantHomeMotionClock, modifier: Modifier = Modifier) {
-    val text = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
-    val hasLiveText = remember(text) { hasStreamingLiveTextV2(text) }
-    val useFullRichStreaming = remember(text) { shouldUseFullRichStreamingV2(text) }
+private fun StreamingAssistantContentV2(
+    message: ChatMessage,
+    motionClock: AssistantHomeMotionClock,
+    smoothText: String? = null,
+    modifier: Modifier = Modifier
+) {
+    val targetText = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
+    val hasLiveText = remember(targetText) { hasStreamingLiveTextV2(targetText) }
+    val displayText = smoothText?.takeIf { it.isNotBlank() } ?: targetText
+    val useFullRichStreaming = remember(targetText) { shouldUseFullRichStreamingV2(targetText) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
             if (useFullRichStreaming) {
                 OptimizedRichMessageContent(
-                    text = text,
+                    text = displayText,
                     color = Color.White.copy(alpha = 0.86f),
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
@@ -872,11 +931,12 @@ private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: Assis
                 )
             } else {
                 StreamingLivePlainTextV2(
-                    text = text,
+                    text = displayText,
                     color = Color.White.copy(alpha = 0.86f),
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     fontWeight = FontWeight.Medium,
+                    motionClock = motionClock,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -912,21 +972,35 @@ private fun StreamingLivePlainTextV2(
     fontSize: TextUnit,
     lineHeight: TextUnit,
     fontWeight: FontWeight,
+    motionClock: AssistantHomeMotionClock,
     modifier: Modifier = Modifier
 ) {
-    val annotated = remember(text, color) {
+    val phase = motionClock.phase(1380L)
+    val annotated = remember(text, color, phase) {
         val tailLength = when {
-            text.length >= 900 -> 58
-            text.length >= 420 -> 46
-            else -> 34
+            text.length >= 1200 -> 42
+            text.length >= 640 -> 34
+            text.length >= 240 -> 28
+            else -> 22
         }.coerceAtMost(text.length)
         val stableText = text.dropLast(tailLength)
         val freshText = text.takeLast(tailLength)
+        val shimmerX = phase * 260f - 96f
+        val freshBrush = Brush.linearGradient(
+            colors = listOf(
+                color.copy(alpha = 0.82f),
+                Color.White.copy(alpha = 0.98f),
+                Color(0xFFB9FFF7).copy(alpha = 0.88f),
+                color.copy(alpha = 0.90f)
+            ),
+            start = Offset(shimmerX, 0f),
+            end = Offset(shimmerX + 180f, 38f)
+        )
         buildAnnotatedString {
             withStyle(SpanStyle(color = color.copy(alpha = 0.86f))) {
                 append(stableText)
             }
-            withStyle(SpanStyle(color = Color.White.copy(alpha = 0.96f))) {
+            withStyle(SpanStyle(brush = freshBrush)) {
                 append(freshText)
             }
         }
@@ -938,6 +1012,110 @@ private fun StreamingLivePlainTextV2(
         fontWeight = fontWeight,
         modifier = modifier
     )
+}
+
+@Composable
+private fun rememberFluidStreamingTextStateV2(
+    messageId: String,
+    targetText: String,
+    enabled: Boolean
+): Pair<String, Boolean> {
+    var visibleText by remember(messageId) { mutableStateOf(if (enabled) "" else targetText) }
+    LaunchedEffect(messageId, targetText, enabled) {
+        if (!enabled) {
+            visibleText = targetText
+            return@LaunchedEffect
+        }
+        if (targetText.isBlank()) {
+            visibleText = ""
+            return@LaunchedEffect
+        }
+        if (visibleText.length > targetText.length || !targetText.startsWith(visibleText)) {
+            val common = commonPrefixLengthV2(visibleText, targetText)
+            visibleText = targetText.take(common)
+        }
+        if (visibleText.isBlank()) {
+            val firstEnd = initialFluidRevealEndV2(targetText)
+            visibleText = targetText.take(firstEnd)
+            delay(fluidRevealDelayV2(targetText, firstEnd, targetText.length - firstEnd))
+        }
+        while (visibleText.length < targetText.length) {
+            val current = visibleText.length
+            val backlog = targetText.length - current
+            val nextEnd = nextFluidRevealEndV2(targetText, current, backlog)
+            if (nextEnd <= current) {
+                delay(24L)
+            } else {
+                visibleText = targetText.take(nextEnd)
+                delay(fluidRevealDelayV2(targetText, nextEnd, backlog))
+            }
+        }
+    }
+    return visibleText to (visibleText.length >= targetText.length && targetText.startsWith(visibleText))
+}
+
+private fun commonPrefixLengthV2(a: String, b: String): Int {
+    val max = minOf(a.length, b.length)
+    var index = 0
+    while (index < max && a[index] == b[index]) index += 1
+    return safeStreamingEndV2(b, index)
+}
+
+private fun initialFluidRevealEndV2(text: String): Int {
+    if (text.isBlank()) return 0
+    val maxEnd = minOf(text.length, if (text.length <= 12) 4 else 6)
+    for (index in 1 until maxEnd) {
+        if (isFluidPauseCharV2(text[index])) return safeStreamingEndV2(text, index + 1)
+    }
+    return safeStreamingEndV2(text, maxEnd.coerceAtLeast(1))
+}
+
+private fun nextFluidRevealEndV2(text: String, current: Int, backlog: Int): Int {
+    if (current >= text.length) return text.length
+    val step = when {
+        backlog >= 260 -> 16
+        backlog >= 140 -> 12
+        backlog >= 72 -> 9
+        backlog >= 30 -> 6
+        else -> 4
+    }
+    val softEnd = (current + step).coerceAtMost(text.length)
+    val scanEnd = (softEnd + 8).coerceAtMost(text.length)
+    for (index in softEnd - 1 until scanEnd) {
+        if (index in text.indices && isFluidPauseCharV2(text[index])) {
+            return safeStreamingEndV2(text, index + 1)
+        }
+    }
+    return safeStreamingEndV2(text, softEnd)
+}
+
+private fun fluidRevealDelayV2(text: String, end: Int, backlog: Int): Long {
+    if (end <= 0 || end > text.length) return 28L
+    val last = text[end - 1]
+    return when {
+        last == '
+' -> 92L
+        last == '。' || last == '！' || last == '？' || last == '.' || last == '!' || last == '?' -> 62L
+        last == '，' || last == ',' || last == '；' || last == ';' || last == '：' || last == ':' -> 42L
+        backlog >= 180 -> 18L
+        backlog >= 80 -> 24L
+        else -> 32L
+    }
+}
+
+private fun isFluidPauseCharV2(char: Char): Boolean {
+    return char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' ||
+        char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' ||
+        char == '
+' || char == '）' || char == ')' || char == '】' || char == ']'
+}
+
+private fun safeStreamingEndV2(text: String, end: Int): Int {
+    val safe = end.coerceIn(0, text.length)
+    if (safe in 1 until text.length && Character.isHighSurrogate(text[safe - 1]) && Character.isLowSurrogate(text[safe])) {
+        return safe + 1
+    }
+    return safe
 }
 
 private fun shouldUseFullRichStreamingV2(text: String): Boolean {
