@@ -1045,7 +1045,8 @@ function normalizeAgentScreenshot(body) {
     source: safeText(top.source || visual.source || "", 80),
     reason: safeText(top.reason || visual.reason || "", 160),
   };
-}\n
+}
+
 function clamp01(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
@@ -1903,7 +1904,8 @@ function isVisualFrameCacheable(visualFrame) {
   const confidence = Number(visualFrame?.confidence || 0);
   if (visualFrame?.isComplete || visualFrame?.isWrong) return confidence >= AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE;
   return confidence >= AGENT_VISUAL_CACHE_MIN_CONFIDENCE;
-}\n
+}
+
 function latestActionKeyFromRecent(recentActions) {
   if (!Array.isArray(recentActions) || !recentActions.length) return "";
   return safeText(recentActions[recentActions.length - 1] || "", 160);
@@ -3178,7 +3180,11 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     model: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelId: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
     modelLabel: visualCalled ? "Qwen 视觉单步规划" : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
-    providerModel: visualCalled ? (guiProviderConfig.providerModel || qwenProviderModel || process.env.QWEN_VISION_MODEL || "qwen-vl-plus") : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
+    providerModel: visualCalled
+      ? (guiProviderConfig.providerModel || qwenProviderModel || process.env.QWEN_VISION_MODEL || "qwen-vl-plus")
+      : textPlannerMs > 0
+        ? process.env.QWEN_MODEL
+        : "cache",
     searchUsed: false,
     structuredUsed: false,
     searchProvider: null,
