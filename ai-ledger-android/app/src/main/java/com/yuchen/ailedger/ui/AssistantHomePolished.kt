@@ -857,17 +857,29 @@ private fun MessageBubbleV2(
 private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: AssistantHomeMotionClock, modifier: Modifier = Modifier) {
     val text = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
     val hasLiveText = remember(text) { hasStreamingLiveTextV2(text) }
+    val useFullRichStreaming = remember(text) { shouldUseFullRichStreamingV2(text) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
-            OptimizedRichMessageContent(
-                text = text,
-                color = Color.White.copy(alpha = 0.86f),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.fillMaxWidth()
-            )
+            if (useFullRichStreaming) {
+                OptimizedRichMessageContent(
+                    text = text,
+                    color = Color.White.copy(alpha = 0.86f),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                StreamingLivePlainTextV2(
+                    text = text,
+                    color = Color.White.copy(alpha = 0.86f),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 SweepingProgressTextV2(
                     text = progressLabel,
@@ -890,6 +902,52 @@ private fun StreamingAssistantContentV2(message: ChatMessage, motionClock: Assis
                 ThinkingDotsV2(size = 7, color = Color.White.copy(alpha = 0.66f), motionClock = motionClock)
             }
         }
+    }
+}
+
+@Composable
+private fun StreamingLivePlainTextV2(
+    text: String,
+    color: Color,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier
+) {
+    val annotated = remember(text, color) {
+        val tailLength = when {
+            text.length >= 900 -> 58
+            text.length >= 420 -> 46
+            else -> 34
+        }.coerceAtMost(text.length)
+        val stableText = text.dropLast(tailLength)
+        val freshText = text.takeLast(tailLength)
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = color.copy(alpha = 0.86f))) {
+                append(stableText)
+            }
+            withStyle(SpanStyle(color = Color.White.copy(alpha = 0.96f))) {
+                append(freshText)
+            }
+        }
+    }
+    Text(
+        text = annotated,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = fontWeight,
+        modifier = modifier
+    )
+}
+
+private fun shouldUseFullRichStreamingV2(text: String): Boolean {
+    if (text.length > 360) return false
+    val clean = text.trim()
+    if (clean.contains("$$") || clean.contains("\\(") || clean.contains("\\[") || clean.contains("```")) return true
+    val lines = clean.lines()
+    return lines.any { line ->
+        val trimmed = line.trim()
+        trimmed.length >= 5 && trimmed.startsWith("|") && trimmed.endsWith("|")
     }
 }
 
