@@ -48,6 +48,7 @@ import kotlin.math.max
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -369,15 +370,76 @@ class AssistantViewModel(
             val deltaChannel = Channel<String>(Channel.UNLIMITED)
             val streamBuffer = StringBuilder()
             var lastFlushedText = ""
-            var lastFlushAt = 0L
+            var lastFlushAt = System.currentTimeMillis()
+            var streamClosed = false
+
+            fun isStreamingBreakChar(char: Char): Boolean {
+                return char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' ||
+                    char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' ||
+                    char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
+            }
+
+            fun nextStreamingFlushEnd(fullText: String, displayed: Int, force: Boolean, now: Long): Int {
+                if (force) return fullText.length
+                val available = fullText.length - displayed
+                if (available <= 0) return displayed
+
+                val elapsed = now - lastFlushAt
+                val total = fullText.length
+                val firstFlush = displayed == 0
+                if (firstFlush) {
+                    if (available < 6 && elapsed < 300L) return displayed
+                    val firstMax = when {
+                        total >= 96 -> 18
+                        total >= 48 -> 14
+                        else -> 10
+                    }
+                    val softEnd = minOf(fullText.length, displayed + firstMax)
+                    for (index in displayed + 5 until softEnd) {
+                        if (isStreamingBreakChar(fullText[index])) return index + 1
+                    }
+                    return softEnd
+                }
+
+                val minChunk = when {
+                    total >= 1600 -> 42
+                    total >= 900 -> 34
+                    total >= 420 -> 26
+                    else -> 18
+                }
+                val idealChunk = when {
+                    total >= 1600 -> 78
+                    total >= 900 -> 64
+                    total >= 420 -> 52
+                    else -> 38
+                }
+                val relaxedMin = maxOf(8, minChunk / 2)
+                if (available < minChunk && elapsed < 220L) return displayed
+                if (available < relaxedMin && elapsed < 360L) return displayed
+
+                val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk))
+                val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk))
+                for (index in minEnd - 1 until maxEnd) {
+                    if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
+                }
+                if (available >= idealChunk || elapsed >= 260L) return maxEnd
+                return displayed
+            }
 
             fun flushStreamingText(force: Boolean = false) {
-                val nextText = streamBuffer.toString()
-                if (nextText.isBlank() || nextText == lastFlushedText) return
+                if (streamBuffer.isEmpty()) return
+                val fullText = streamBuffer.toString()
                 val now = System.currentTimeMillis()
-                val enoughTime = now - lastFlushAt >= 80L
-                val enoughChars = nextText.length - lastFlushedText.length >= 24
-                if (!force && !enoughTime && !enoughChars) return
+                val nextEnd = nextStreamingFlushEnd(
+                    fullText = fullText,
+                    displayed = lastFlushedText.length,
+                    force = force,
+                    now = now
+                )
+                if (nextEnd <= lastFlushedText.length) return
+
+                val nextText = fullText.take(nextEnd)
+                if (nextText.isBlank() || nextText == lastFlushedText) return
                 lastFlushedText = nextText
                 lastFlushAt = now
                 if (activePendingMessageId == pendingMessage.id) {
@@ -406,6 +468,13 @@ class AssistantViewModel(
                 }
             }
 
+            val streamSmootherJob = launch {
+                while (!streamClosed) {
+                    delay(120L)
+                    flushStreamingText(force = false)
+                }
+            }
+
             try {
                 val response = withContext(Dispatchers.IO) {
                     try {
@@ -416,7 +485,10 @@ class AssistantViewModel(
                         deltaChannel.close()
                     }
                 }
+                streamClosed = true
                 streamCollectorJob.join()
+                streamSmootherJob.cancel()
+                flushStreamingText(force = true)
 
                 if (activePendingMessageId == pendingMessage.id) {
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
@@ -446,17 +518,23 @@ class AssistantViewModel(
                     }
                 }
             } catch (error: CancellationException) {
+                streamClosed = true
                 deltaChannel.close()
                 streamCollectorJob.cancel()
+                streamSmootherJob.cancel()
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
             } catch (error: Throwable) {
+                streamClosed = true
                 deltaChannel.close()
                 streamCollectorJob.join()
+                streamSmootherJob.cancel()
                 if (activePendingMessageId == pendingMessage.id) {
                     val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
                     replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
                 }
             } finally {
+                streamClosed = true
+                streamSmootherJob.cancel()
                 if (activePendingMessageId == pendingMessage.id) {
                     activeSendJob = null
                     activePendingMessageId = null
