@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -89,6 +90,7 @@ fun SettingsPolishedScreen(
     val listState = rememberLazyListState()
     SyncGlassBackdropToScroll(listState)
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Service) }
+    val entranceSessions = remember { mutableStateMapOf<String, Int>() }
 
     LazyColumn(
         state = listState,
@@ -96,12 +98,24 @@ fun SettingsPolishedScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
-        item { SettingsEntrance(0, -8, 0.985f) { SettingsHeader() } }
-        item { SettingsEntrance(90, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) } }
-        item { SettingsEntrance(170, 18, 0.97f) { SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。") } }
-        item { SettingsEntrance(260, 20, 0.965f) { SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it } } }
-        item {
-            SettingsEntrance(370, 22, 0.965f) {
+        item(key = "settings-header") {
+            SettingsEntrance("settings-header", entranceSessions, 0, -8, 0.985f) { SettingsHeader() }
+        }
+        item(key = "settings-overview") {
+            SettingsEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) { SettingsOverviewCard(state, aiEndpoint) }
+        }
+        item(key = "settings-section-title") {
+            SettingsEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
+                SettingsSectionTitle("常用设置", "选中的入口会持续呼吸，方便快速定位当前面板。")
+            }
+        }
+        item(key = "settings-dashboard") {
+            SettingsEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
+                SettingsDashboardGrid(state, aiEndpoint, selectedPanel) { selectedPanel = it }
+            }
+        }
+        item(key = "settings-detail") {
+            SettingsEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
                 SettingsDetailPanel(
                     panel = selectedPanel,
                     state = state,
@@ -120,23 +134,40 @@ fun SettingsPolishedScreen(
                 )
             }
         }
-        item { SettingsEntrance(470, 24, 0.96f) { SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug } } }
+        item(key = "settings-lab-entry") {
+            SettingsEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
+                SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) { selectedPanel = SettingsPanel.Debug }
+            }
+        }
     }
 }
 
 @Composable
-private fun SettingsEntrance(delayMs: Long, initialOffsetY: Int = 24, initialScale: Float = 0.96f, content: @Composable () -> Unit) {
+private fun SettingsEntrance(
+    entranceKey: String,
+    playedSessions: MutableMap<String, Int>,
+    delayMs: Long,
+    initialOffsetY: Int = 24,
+    initialScale: Float = 0.96f,
+    content: @Composable () -> Unit
+) {
     val pageActive = LocalPageActive.current
     val pageLeaving = LocalPageLeaving.current
     val activationTick = LocalPageActivationTick.current
-    var visible by remember { mutableStateOf(false) }
+    val alreadyPlayedForSession = pageActive && playedSessions[entranceKey] == activationTick
+    var visible by remember(entranceKey, activationTick) { mutableStateOf(alreadyPlayedForSession) }
 
-    LaunchedEffect(pageActive, pageLeaving, activationTick, delayMs) {
+    LaunchedEffect(pageActive, pageLeaving, activationTick, delayMs, entranceKey) {
         if (pageActive) {
+            if (playedSessions[entranceKey] == activationTick) {
+                visible = true
+                return@LaunchedEffect
+            }
             visible = false
             yield()
             if (delayMs > 0L) delay(delayMs)
             visible = true
+            playedSessions[entranceKey] = activationTick
         } else {
             if (pageLeaving && delayMs > 0L) delay((delayMs / 18L).coerceAtMost(34L))
             visible = false
