@@ -366,20 +366,21 @@ private fun DetailKeyMetricsSection(stock: StockDetailUiState) {
 
 @Composable
 private fun ProfessionalChartSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
+    val isTimeShare = ui.selectedTab == "分时" || ui.selectedTab == "五日"
     Column(Modifier.fillMaxWidth().height(318.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(34.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("集合竞价", color = Color.White.copy(alpha = 0.60f), fontSize = 11.sp, fontWeight = FontWeight.Black)
-            Text("均价 ${averageLineLabel(ui.stock)}", color = AvgYellow.copy(alpha = 0.92f), fontSize = 11.sp, fontWeight = FontWeight.Black)
-            Text("最新 ${ui.stock.quote.price}", color = quoteColor(ui.stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text(if (isTimeShare) "集合竞价" else "历史K线", color = Color.White.copy(alpha = 0.60f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text(if (isTimeShare) "均价 ${averageLineLabel(ui.stock)}" else "MA5 / MA10", color = AvgYellow.copy(alpha = 0.92f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text(if (isTimeShare) "最新 ${ui.stock.quote.price}" else "${ui.selectedTab} ${ui.stock.kLinePoints.size}根", color = quoteColor(ui.stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
             Spacer(Modifier.weight(1f))
             Text(ui.stock.quote.changePercent, color = quoteColor(ui.stock.quote.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black)
         }
         StockMainChartCanvas(ui.stock, ui.selectedTab, Modifier.fillMaxWidth().weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricTile("MACD", "副图待接入", AvgYellow, Modifier.weight(1f))
+            MetricTile(if (isTimeShare) "MACD" else "均线", if (isTimeShare) "副图待接入" else "MA5/MA10", AvgYellow, Modifier.weight(1f))
             MetricTile("成交量", ui.stock.quote.amount, Color.White, Modifier.weight(1f))
             MetricTile("PB", ui.stock.quote.pb, Color.White, Modifier.weight(1f))
         }
@@ -654,46 +655,135 @@ private fun StockIconButton(appState: AssistantUiState, text: String, onClick: (
 
 @Composable
 private fun StockMainChartCanvas(stock: StockDetailUiState, selectedTab: String, modifier: Modifier) {
+    val isTimeShare = selectedTab == "分时" || selectedTab == "五日"
+    if (isTimeShare || stock.kLinePoints.size < 2) {
+        TimeShareChartCanvas(stock, modifier)
+    } else {
+        KLineCandleChartCanvas(stock, modifier)
+    }
+}
+
+@Composable
+private fun TimeShareChartCanvas(stock: StockDetailUiState, modifier: Modifier) {
     val minuteValues = stock.minutePoints.map { it.price }
     val averageValues = stock.minutePoints.map { it.average }
-    val kValues = stock.kLinePoints.map { it.close }
-    val values = if (selectedTab == "分时" || selectedTab == "五日") minuteValues else kValues.ifEmpty { minuteValues }
-    val avgValues = if (selectedTab == "分时" || selectedTab == "五日") averageValues else emptyList()
-    val displayValues = values.ifEmpty { listOf(stock.quote.previousClose) }
+    val displayValues = minuteValues.ifEmpty { listOf(stock.quote.previousClose) }
     Canvas(modifier = modifier) {
         val width = size.width
         val height = size.height
+        val chartHeight = height * 0.80f
+        val volumeTop = chartHeight + 8.dp.toPx()
+        val volumeHeight = (height - volumeTop).coerceAtLeast(1f)
         repeat(4) { index ->
-            val y = height * (index + 1) / 5f
+            val y = chartHeight * (index + 1) / 5f
             drawLine(Color.White.copy(alpha = 0.10f), Offset(0f, y), Offset(width, y), strokeWidth = 1.dp.toPx())
         }
         repeat(3) { index ->
             val x = width * (index + 1) / 4f
-            drawLine(Color.White.copy(alpha = 0.06f), Offset(x, 0f), Offset(x, height), strokeWidth = 1.dp.toPx())
+            drawLine(Color.White.copy(alpha = 0.06f), Offset(x, 0f), Offset(x, chartHeight), strokeWidth = 1.dp.toPx())
         }
         if (displayValues.size < 2) return@Canvas
-        val minValue = (displayValues + avgValues).minOrNull() ?: return@Canvas
-        val maxValue = (displayValues + avgValues).maxOrNull() ?: return@Canvas
+        val minValue = (displayValues + averageValues).minOrNull() ?: return@Canvas
+        val maxValue = (displayValues + averageValues).maxOrNull() ?: return@Canvas
         val range = (maxValue - minValue).takeIf { abs(it) > 0.0001f } ?: 1f
+        fun yFor(value: Float): Float = chartHeight - ((value - minValue) / range) * chartHeight
         fun buildPath(series: List<Float>): Path {
             val path = Path()
             val stepX = width / series.lastIndex.coerceAtLeast(1)
             series.forEachIndexed { index, value ->
                 val x = index * stepX
-                val y = height - ((value - minValue) / range) * height
+                val y = yFor(value)
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             return path
         }
-        drawLine(Color.White.copy(alpha = 0.16f), Offset(0f, height / 2f), Offset(width, height / 2f), strokeWidth = 1.dp.toPx())
-        if (avgValues.size > 1) drawPath(buildPath(avgValues), color = AvgYellow.copy(alpha = 0.88f), style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
+        val maxVolume = stock.minutePoints.maxOfOrNull { it.volumeRatio }?.takeIf { it > 0f } ?: 1f
+        val barWidth = (width / stock.minutePoints.size.coerceAtLeast(1) * 0.56f).coerceIn(1.dp.toPx(), 5.dp.toPx())
+        stock.minutePoints.forEachIndexed { index, point ->
+            val stepX = width / stock.minutePoints.size.coerceAtLeast(1)
+            val x = index * stepX + stepX / 2f
+            val top = volumeTop + volumeHeight * (1f - (point.volumeRatio / maxVolume).coerceIn(0f, 1f))
+            drawLine(Color.White.copy(alpha = 0.16f), Offset(x, height), Offset(x, top), strokeWidth = barWidth, cap = StrokeCap.Butt)
+        }
+        drawLine(Color.White.copy(alpha = 0.16f), Offset(0f, chartHeight / 2f), Offset(width, chartHeight / 2f), strokeWidth = 1.dp.toPx())
+        if (averageValues.size > 1) drawPath(buildPath(averageValues), color = AvgYellow.copy(alpha = 0.88f), style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
         drawPath(buildPath(displayValues), color = quoteColor(stock.quote.isRising), style = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round))
     }
 }
 
 @Composable
+private fun KLineCandleChartCanvas(stock: StockDetailUiState, modifier: Modifier) {
+    val candles = stock.kLinePoints.takeLast(72)
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        val chartHeight = height * 0.78f
+        val volumeTop = chartHeight + 8.dp.toPx()
+        val volumeHeight = (height - volumeTop).coerceAtLeast(1f)
+        repeat(4) { index ->
+            val y = chartHeight * (index + 1) / 5f
+            drawLine(Color.White.copy(alpha = 0.10f), Offset(0f, y), Offset(width, y), strokeWidth = 1.dp.toPx())
+        }
+        repeat(3) { index ->
+            val x = width * (index + 1) / 4f
+            drawLine(Color.White.copy(alpha = 0.06f), Offset(x, 0f), Offset(x, chartHeight), strokeWidth = 1.dp.toPx())
+        }
+        if (candles.size < 2) return@Canvas
+        val minValue = candles.minOfOrNull { it.low } ?: return@Canvas
+        val maxValue = candles.maxOfOrNull { it.high } ?: return@Canvas
+        val range = (maxValue - minValue).takeIf { abs(it) > 0.0001f } ?: 1f
+        val stepX = width / candles.size.coerceAtLeast(1)
+        val bodyWidth = (stepX * 0.56f).coerceIn(2.5.dp.toPx(), 9.dp.toPx())
+        val maxVolume = candles.maxOfOrNull { it.volume }?.takeIf { it > 0f } ?: 1f
+        fun xFor(index: Int): Float = index * stepX + stepX / 2f
+        fun yFor(value: Float): Float = chartHeight - ((value - minValue) / range) * chartHeight
+        candles.forEachIndexed { index, candle ->
+            val x = xFor(index)
+            val rising = candle.close >= candle.open
+            val color = if (rising) RiseRed else FallGreen
+            val highY = yFor(candle.high)
+            val lowY = yFor(candle.low)
+            val openY = yFor(candle.open)
+            val closeY = yFor(candle.close)
+            val bodyTop = minOf(openY, closeY)
+            val bodyBottom = maxOf(openY, closeY)
+            drawLine(color.copy(alpha = 0.88f), Offset(x, highY), Offset(x, lowY), strokeWidth = 1.2.dp.toPx(), cap = StrokeCap.Butt)
+            if (bodyBottom - bodyTop < 1.2.dp.toPx()) {
+                drawLine(color, Offset(x - bodyWidth / 2f, closeY), Offset(x + bodyWidth / 2f, closeY), strokeWidth = 1.6.dp.toPx(), cap = StrokeCap.Butt)
+            } else {
+                drawLine(color, Offset(x, bodyTop), Offset(x, bodyBottom), strokeWidth = bodyWidth, cap = StrokeCap.Butt)
+            }
+            val volumeTopY = volumeTop + volumeHeight * (1f - (candle.volume / maxVolume).coerceIn(0f, 1f))
+            drawLine(color.copy(alpha = 0.36f), Offset(x, height), Offset(x, volumeTopY), strokeWidth = (bodyWidth * 0.9f), cap = StrokeCap.Butt)
+        }
+        fun movingAveragePath(window: Int): Path? {
+            if (candles.size < window) return null
+            val path = Path()
+            var hasPoint = false
+            candles.forEachIndexed { index, _ ->
+                if (index >= window - 1) {
+                    val avg = candles.subList(index - window + 1, index + 1).map { it.close }.average().toFloat()
+                    val x = xFor(index)
+                    val y = yFor(avg)
+                    if (!hasPoint) {
+                        path.moveTo(x, y)
+                        hasPoint = true
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                }
+            }
+            return if (hasPoint) path else null
+        }
+        movingAveragePath(5)?.let { drawPath(it, color = AvgYellow.copy(alpha = 0.86f), style = Stroke(width = 1.35.dp.toPx(), cap = StrokeCap.Round)) }
+        movingAveragePath(10)?.let { drawPath(it, color = Aqua.copy(alpha = 0.72f), style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round)) }
+        drawLine(Color.White.copy(alpha = 0.14f), Offset(0f, volumeTop), Offset(width, volumeTop), strokeWidth = 1.dp.toPx())
+    }
+}
+
+@Composable
 private fun MiniTrendCanvas(stock: StockDetailUiState, modifier: Modifier) {
-    StockMainChartCanvas(stock, "分时", modifier)
+    TimeShareChartCanvas(stock, modifier)
 }
 
 private fun quoteColor(isRising: Boolean): Color = if (isRising) RiseRed else FallGreen
