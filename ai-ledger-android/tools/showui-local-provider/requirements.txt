@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+transformers==4.47.1
+accelerate
+qwen-vl-utils==0.0.8
+pillow
+numpy
+python-multipart
+requests
