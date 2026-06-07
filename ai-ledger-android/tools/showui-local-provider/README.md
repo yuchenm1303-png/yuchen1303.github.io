@@ -57,7 +57,10 @@ Expected response includes:
   "ok": true,
   "name": "showui-local-provider",
   "model": "showlab/ShowUI-2B",
-  "coordinateSystem": "normalized_full_screenshot_0_1"
+  "coordinateSystem": "normalized_full_screenshot_0_1",
+  "modelLoaded": true,
+  "cudaMemoryAllocatedMb": 1234.5,
+  "cudaMemoryReservedMb": 1234.5
 }
 ```
 
@@ -132,6 +135,10 @@ Authorization: Bearer test-key
 Check the `start-windows.ps1` window first. The server prints logs when it loads
 the model, receives a request, starts inference, finishes inference, or fails to
 parse coordinates.
+
+The model is preloaded during server startup, before the first POST request. If
+`/health` returns `modelLoaded=false`, POST requests will immediately return
+`need_user_help` with `ShowUI model not loaded` instead of waiting forever.
 
 Run:
 

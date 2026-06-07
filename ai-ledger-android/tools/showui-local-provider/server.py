@@ -19,12 +19,14 @@ MAX_PIXELS = int(os.getenv("SHOWUI_MAX_PIXELS", "602112"))
 MAX_NEW_TOKENS = int(os.getenv("SHOWUI_MAX_NEW_TOKENS", "64"))
 REQUEST_TIMEOUT_SEC = int(os.getenv("SHOWUI_REQUEST_TIMEOUT_SEC", "180"))
 API_KEY = os.getenv("SHOWUI_PROVIDER_API_KEY", "").strip()
+LOW_MEMORY = os.getenv("SHOWUI_LOW_MEMORY", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 app = FastAPI(title="showui-local-provider")
 
 _model = None
 _processor = None
 _device = "cpu"
+_last_error = ""
 
 
 def current_device() -> str:
@@ -36,13 +38,34 @@ def current_device() -> str:
         return "cpu"
 
 
+def cuda_memory_mb() -> Tuple[float, float]:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return 0.0, 0.0
+        allocated = torch.cuda.memory_allocated() / 1024 / 1024
+        reserved = torch.cuda.memory_reserved() / 1024 / 1024
+        return round(allocated, 1), round(reserved, 1)
+    except Exception:
+        return 0.0, 0.0
+
+
+def is_model_loaded() -> bool:
+    return _model is not None and _processor is not None
+
+
 def load_model() -> Tuple[Any, Any, str]:
-    global _model, _processor, _device
-    if _model is not None and _processor is not None:
+    global _last_error, _model, _processor, _device
+    if is_model_loaded():
         return _model, _processor, _device
 
-    started_at = time.time()
+    total_started_at = time.time()
+    _last_error = ""
+    print("[ShowUI] Startup begin", flush=True)
     import torch
+    print("[ShowUI] Import torch ok", flush=True)
+    print(f"[ShowUI] torch.cuda.is_available={torch.cuda.is_available()}", flush=True)
     from qwen_vl_utils import process_vision_info
     from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
@@ -55,28 +78,62 @@ def load_model() -> Tuple[Any, Any, str]:
     print(f"[ShowUI] Device: {_device}", flush=True)
     print(f"[ShowUI] dtype: {dtype}", flush=True)
     print(
-        f"[ShowUI] max_pixels={MAX_PIXELS}, min_pixels={MIN_PIXELS}, max_new_tokens={MAX_NEW_TOKENS}",
+        f"[ShowUI] max_pixels={MAX_PIXELS}, min_pixels={MIN_PIXELS}, max_new_tokens={MAX_NEW_TOKENS}, low_memory={LOW_MEMORY}",
         flush=True,
     )
 
+    processor_started_at = time.time()
+    print("[ShowUI] Loading processor...", flush=True)
     _processor = AutoProcessor.from_pretrained(
         MODEL_ID,
         min_pixels=MIN_PIXELS,
         max_pixels=MAX_PIXELS,
         trust_remote_code=True,
     )
+    processor_ms = int((time.time() - processor_started_at) * 1000)
+    print(f"[ShowUI] Processor loaded, elapsedMs={processor_ms}", flush=True)
+
+    model_started_at = time.time()
+    print("[ShowUI] Loading model...", flush=True)
+    model_kwargs = {
+        "torch_dtype": dtype,
+        "device_map": "auto" if _device == "cuda" else None,
+        "trust_remote_code": True,
+    }
+    if LOW_MEMORY:
+        model_kwargs["low_cpu_mem_usage"] = True
+
     _model = Qwen2VLForConditionalGeneration.from_pretrained(
         MODEL_ID,
-        torch_dtype=dtype,
-        device_map="auto" if _device == "cuda" else None,
-        trust_remote_code=True,
+        **model_kwargs,
     )
     if _device != "cuda":
         _model = _model.to(_device)
     _model.eval()
-    elapsed_ms = int((time.time() - started_at) * 1000)
-    print(f"[ShowUI] Model loaded, elapsedMs={elapsed_ms}", flush=True)
+    model_ms = int((time.time() - model_started_at) * 1000)
+    print(f"[ShowUI] Model loaded, elapsedMs={model_ms}", flush=True)
+    allocated, reserved = cuda_memory_mb()
+    print(f"[ShowUI] CUDA memory allocated/reserved={allocated}/{reserved} MB", flush=True)
+    total_ms = int((time.time() - total_started_at) * 1000)
+    print(f"[ShowUI] Startup done, elapsedMs={total_ms}", flush=True)
     return _model, _processor, _device
+
+
+@app.on_event("startup")
+def preload_model() -> None:
+    global _last_error
+    try:
+        load_model()
+    except Exception as exc:
+        _last_error = f"{type(exc).__name__}: {str(exc)[:180]}"
+        print(f"[ShowUI] Model load failed: {_last_error}", flush=True)
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
 
 def compact_error(goal: str, message: str, raw: str = "") -> Dict[str, Any]:
@@ -191,7 +248,9 @@ def run_showui(goal: str, image: Image.Image, width: int, height: int) -> str:
     import torch
     from qwen_vl_utils import process_vision_info
 
-    model, processor, device = load_model()
+    if not is_model_loaded():
+        raise RuntimeError("ShowUI model not loaded")
+    model, processor, device = _model, _processor, _device
     started_at = time.time()
     print("[ShowUI] Inference start", flush=True)
     messages = build_messages(goal, image)
@@ -232,6 +291,7 @@ def check_auth(authorization: Optional[str]) -> None:
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
+    allocated, reserved = cuda_memory_mb()
     return {
         "ok": True,
         "name": "showui-local-provider",
@@ -241,6 +301,10 @@ def health() -> Dict[str, Any]:
         "pid": os.getpid(),
         "maxPixels": MAX_PIXELS,
         "maxNewTokens": MAX_NEW_TOKENS,
+        "modelLoaded": is_model_loaded(),
+        "cudaMemoryAllocatedMb": allocated,
+        "cudaMemoryReservedMb": reserved,
+        "lastError": _last_error,
     }
 
 
@@ -266,6 +330,9 @@ async def plan(request: Request, authorization: Optional[str] = Header(default=N
         return compact_error(goal, "missing goal")
     if image is None:
         return compact_error(goal, "missing screenshot image")
+    if not is_model_loaded():
+        print(f"[ShowUI] model_not_loaded: {_last_error}", flush=True)
+        return compact_error(goal, "ShowUI model not loaded")
 
     try:
         raw = await asyncio.wait_for(

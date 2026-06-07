@@ -111,6 +111,8 @@ Write-Host "SHOWUI_MAX_PIXELS=$($env:SHOWUI_MAX_PIXELS)"
 Write-Host "SHOWUI_MAX_NEW_TOKENS=$($env:SHOWUI_MAX_NEW_TOKENS)"
 Write-Host "Service URL: http://$($env:SHOWUI_HOST):$($env:SHOWUI_PORT)"
 Write-Host "Health URL:  http://$($env:SHOWUI_HOST):$($env:SHOWUI_PORT)/health"
+Write-Host "After startup finishes, open another PowerShell and run nvidia-smi."
+Write-Host "Normally python.exe should be visible with GPU memory usage after the model is loaded."
 Write-Host ""
 
 try {
