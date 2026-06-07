@@ -1093,8 +1093,7 @@ private fun fluidRevealDelayV2(text: String, end: Int, backlog: Int): Long {
     if (end <= 0 || end > text.length) return 28L
     val last = text[end - 1]
     return when {
-        last == '
-' -> 92L
+        last == '\n' -> 92L
         last == '。' || last == '！' || last == '？' || last == '.' || last == '!' || last == '?' -> 62L
         last == '，' || last == ',' || last == '；' || last == ';' || last == '：' || last == ':' -> 42L
         backlog >= 180 -> 18L
@@ -1106,8 +1105,7 @@ private fun fluidRevealDelayV2(text: String, end: Int, backlog: Int): Long {
 private fun isFluidPauseCharV2(char: Char): Boolean {
     return char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' ||
         char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' ||
-        char == '
-' || char == '）' || char == ')' || char == '】' || char == ']'
+        char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
 }
 
 private fun safeStreamingEndV2(text: String, end: Int): Int {
