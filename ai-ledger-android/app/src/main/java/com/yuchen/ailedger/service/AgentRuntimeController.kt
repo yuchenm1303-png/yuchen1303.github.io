@@ -46,7 +46,10 @@ object AgentRuntimeController {
     fun isEnabled(): Boolean = mutableEnabled.value
 
     fun setEnabled(value: Boolean) {
-        if (!value) completePendingConfirmation(false)
+        if (!value) {
+            completePendingConfirmation(false)
+            AiAgentAccessibilityService.endTaskSession()
+        }
         mutableEnabled.value = value
         mutableProgress.value = mutableProgress.value.copy(
             enabled = value,
@@ -75,6 +78,7 @@ object AgentRuntimeController {
 
     fun startTask(goal: String) {
         completePendingConfirmation(false)
+        AiAgentAccessibilityService.beginTaskSession()
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
         mutableProgress.value = AgentOverlayProgress(
             enabled = mutableEnabled.value,
@@ -88,6 +92,7 @@ object AgentRuntimeController {
 
     fun finishTask(message: String, completed: Boolean) {
         completePendingConfirmation(false)
+        AiAgentAccessibilityService.endTaskSession()
         val resultText = message.trim().take(72).ifBlank { if (completed) "任务完成" else "任务暂停" }
         mutableProgress.value = mutableProgress.value.copy(
             running = false,
@@ -102,6 +107,7 @@ object AgentRuntimeController {
 
     fun failTask(message: String) {
         completePendingConfirmation(false)
+        AiAgentAccessibilityService.endTaskSession()
         val resultText = message.trim().take(72).ifBlank { "智能体执行失败" }
         mutableProgress.value = mutableProgress.value.copy(
             running = false,
@@ -210,6 +216,7 @@ object AgentRuntimeController {
     }
 
     fun cancelPendingRiskAction() {
+        AiAgentAccessibilityService.endTaskSession()
         val deferred = synchronized(confirmationLock) {
             val current = pendingConfirmationDeferred ?: return
             pendingConfirmationDeferred = null
@@ -241,6 +248,7 @@ object AgentRuntimeController {
     private fun clearPendingIfSame(id: Long, deferred: CompletableDeferred<Boolean>) {
         synchronized(confirmationLock) {
             if (pendingConfirmationId == id && pendingConfirmationDeferred === deferred) {
+                AiAgentAccessibilityService.endTaskSession()
                 pendingConfirmationDeferred = null
                 pendingConfirmationId = 0L
                 mutableProgress.value = mutableProgress.value.copy(
