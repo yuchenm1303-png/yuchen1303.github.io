@@ -1,0 +1,11 @@
+node_modules
+.gradle
+.kotlin
+build
+android
+app
+assets
+debug
+www
+*.log
+npm-debug.log*
