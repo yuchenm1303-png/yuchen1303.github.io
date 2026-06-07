@@ -1,102 +1,96 @@
 # Local ShowUI GUI Provider
 
-This tool starts a local HTTP GUI provider for AI Ledger. It converts a mobile
-screenshot plus a target goal into a compact `tap_xy` action that the Alibaba
-Cloud backend can call through `AGENT_GUI_PROVIDER=external_http`.
+This tool runs `showlab/ShowUI-2B` locally on Windows and exposes an HTTP GUI
+provider for AI Ledger. It converts a screenshot plus a goal into compact
+`tap_xy` JSON for the Alibaba Cloud backend.
 
-It is intentionally not wired into the Android project. It is a local Windows
-tool for testing `showlab/ShowUI-2B` on your own NVIDIA GPU.
+It does not modify or depend on the Android app build. It is only a local test
+tool under `ai-ledger-android/tools/showui-local-provider/`.
 
-## Why Local
+## Quick Start
 
-Free hosted CPU inference is usually too slow for GUI grounding, and hosted GPU
-inference costs money. A local RTX 3070 Ti Laptop GPU with 8GB VRAM is a good
-first test path if image size is kept conservative.
-
-## Requirements
-
-- Windows
-- NVIDIA GPU, 8GB VRAM or more recommended
-- Recent NVIDIA driver
-- Python 3.10
-- Conda recommended
-- CUDA PyTorch installed from the official PyTorch selector
-
-`requirements.txt` deliberately does not include `torch`, because Windows CUDA
-PyTorch should be installed with the wheel that matches your driver/CUDA setup.
-
-## Install
-
-Run the following commands one line at a time in PowerShell. Do not paste
-multiple commands onto the same line.
+Open PowerShell and enter the tool directory:
 
 ```powershell
 cd "C:\Users\邹羽宸\OneDrive\文档\New project 2-cloud-dev-update-1\ai-ledger-android\tools\showui-local-provider"
 ```
 
-```powershell
-conda create -n showui python=3.10 -y
-```
+First-time install:
 
 ```powershell
-conda activate showui
+.\bootstrap-windows.ps1
 ```
 
-Install PyTorch CUDA from the official selector:
+Start later:
+
+```powershell
+.\start-windows.ps1
+```
+
+`run-windows.ps1` is still available as a compatibility entry and forwards to
+`start-windows.ps1`.
+
+## Why This Works Without Activate
+
+The scripts do not require manual `conda activate`.
+
+The scripts do not require `python` or `pip` to exist in the system `PATH`.
+
+All install, verification, and start commands run through:
+
+```powershell
+conda run -n showui python ...
+```
+
+The bootstrap script also finds `conda.exe` from common Miniconda/Anaconda
+install paths if `Get-Command conda` cannot find it.
+
+## Test Health
+
+Open another PowerShell after the service starts:
+
+```powershell
+curl http://127.0.0.1:9100/health
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "name": "showui-local-provider",
+  "model": "showlab/ShowUI-2B",
+  "coordinateSystem": "normalized_full_screenshot_0_1"
+}
+```
+
+## Test A Screenshot
+
+```powershell
+.\test-provider.ps1 -ImagePath "C:\Users\邹羽宸\Pictures\qq.png" -Goal "Click the Contacts tab."
+```
+
+Success criteria:
+
+```json
+{
+  "s": "p",
+  "a": "tap_xy",
+  "x": 0.5,
+  "y": 0.9
+}
+```
+
+`x` and `y` are normalized full-screen coordinates in the `0..1` range.
+
+## Environment Defaults
+
+`start-windows.ps1` sets these defaults before launching the server:
 
 ```text
-https://pytorch.org/get-started/locally/
-```
-
-Common CUDA 12.1 example:
-
-```powershell
-python -m ensurepip --upgrade
-```
-
-```powershell
-python -m pip install --upgrade pip
-```
-
-```powershell
-python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
-If your driver supports a newer CUDA wheel, you can choose `cu126` or `cu128`
-from the PyTorch site.
-
-Then install the provider dependencies:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Verify CUDA:
-
-```powershell
-python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
-```
-
-## Start
-
-```powershell
-.\run-windows.ps1
-```
-
-Default service address:
-
-```text
-http://127.0.0.1:9100
-```
-
-Default environment variables:
-
-```text
-SHOWUI_MODEL_ID=showlab/ShowUI-2B
 SHOWUI_HOST=127.0.0.1
 SHOWUI_PORT=9100
 SHOWUI_MAX_PIXELS=602112
-SHOWUI_MIN_PIXELS=200704
 SHOWUI_MAX_NEW_TOKENS=64
 ```
 
@@ -114,109 +108,31 @@ Authorization: Bearer test-key
 
 `GET /health` does not require authorization.
 
-## Check CUDA
+## Common Problems
+
+If conda is not found:
+
+- Install Miniconda.
+- Reopen PowerShell.
+- Run `.\bootstrap-windows.ps1` again.
+
+If `CUDA=False`:
+
+- PyTorch may have been installed as the CPU-only build.
+- Your NVIDIA driver may be too old or may not match the selected CUDA wheel.
+- Upgrade the NVIDIA driver, or use the current Windows CUDA wheel recommended
+  by the PyTorch official selector.
+
+Default CUDA 12.1 install used by the bootstrap script:
 
 ```powershell
-python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+conda run -n showui python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Expected for local GPU inference:
-
-```text
-True
-NVIDIA GeForce RTX 3070 Ti Laptop GPU
-```
-
-If CUDA is not available, check the NVIDIA driver and make sure PyTorch was not
-installed as the CPU-only build.
-
-## Test With A Screenshot
-
-Start the server first, then run:
-
-```powershell
-.\test-provider.ps1 -ImagePath "C:\Users\you\Pictures\qq.png" -Goal "Click the Contacts tab."
-```
-
-Success criteria:
-
-```json
-{
-  "s": "p",
-  "a": "tap_xy",
-  "x": 0.5,
-  "y": 0.9
-}
-```
-
-`x` and `y` are always clamped normalized full-screen coordinates in the `0..1`
-range. If ShowUI returns pixel coordinates, the provider converts them using
-the screenshot width and height.
-
-## HTTP API
-
-Health:
-
-```http
-GET /health
-```
-
-Example response:
-
-```json
-{
-  "ok": true,
-  "name": "showui-local-provider",
-  "model": "showlab/ShowUI-2B",
-  "device": "cuda",
-  "coordinateSystem": "normalized_full_screenshot_0_1"
-}
-```
-
-Planning:
-
-```http
-POST /
-```
-
-Backend-compatible payload:
-
-```json
-{
-  "goal": "Click the Contacts tab.",
-  "screen": {
-    "screenshot": {
-      "base64": "...",
-      "mimeType": "image/jpeg",
-      "width": 1080,
-      "height": 2400,
-      "displayWidth": 1080,
-      "displayHeight": 2400
-    },
-    "texts": [],
-    "clickableNodes": []
-  },
-  "supportedSteps": []
-}
-```
-
-Simple test payload:
-
-```json
-{
-  "goal": "Click the Contacts tab.",
-  "imageBase64": "..."
-}
-```
-
-## OOM Tips
-
-8GB VRAM can be tight. If you hit out-of-memory errors, lower the image token
-budget:
+If VRAM is insufficient:
 
 ```powershell
 $env:SHOWUI_MAX_PIXELS="401408"
-$env:SHOWUI_MAX_NEW_TOKENS="32"
 ```
 
 For a more conservative setting:
@@ -225,12 +141,19 @@ For a more conservative setting:
 $env:SHOWUI_MAX_PIXELS="301056"
 ```
 
-Restart `server.py` after changing these values.
+Then run:
+
+```powershell
+.\start-windows.ps1
+```
+
+First startup can be slow because the model `showlab/ShowUI-2B` may need to be
+downloaded.
 
 ## Temporary Alibaba Cloud Access
 
 The Alibaba Cloud backend cannot call `127.0.0.1` on your laptop directly. For
-temporary testing, expose the local service with Cloudflare Tunnel or ngrok:
+temporary testing, expose local port `9100` through Cloudflare Tunnel or ngrok:
 
 ```powershell
 cloudflared tunnel --url http://127.0.0.1:9100
@@ -257,11 +180,5 @@ Use the same `AGENT_GUI_PROVIDER_API_KEY` as `SHOWUI_PROVIDER_API_KEY`. If you
 do not set `SHOWUI_PROVIDER_API_KEY`, leave the backend API key empty for this
 temporary test.
 
-Important notes:
-
-- Your laptop must stay powered on.
-- `server.py` must keep running.
-- The tunnel process must keep running.
-- Free tunnel URLs may change. If the URL changes, update
-  `AGENT_GUI_PROVIDER_URL` in Alibaba Cloud.
-- This is a test setup, not a long-term production deployment.
+This is a test setup, not a long-term production deployment. Your laptop,
+`server.py`, and the tunnel process must all stay running.
