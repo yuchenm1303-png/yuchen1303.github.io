@@ -13,7 +13,8 @@
     "android:build:debug": "cd android && gradlew.bat assembleDebug",
     "android:build:release": "cd android && gradlew.bat assembleRelease",
     "android:build:compose": "android\\gradlew.bat -p . :app:assembleDebug",
-    "gui-provider:mock": "node scripts/gui-provider-mock.js"
+    "gui-provider:mock": "node scripts/gui-provider-mock.js",
+    "gui-provider:test": "node scripts/test-gui-provider-mock.js"
   },
   "dependencies": {
     "@capacitor/android": "6.2.1",

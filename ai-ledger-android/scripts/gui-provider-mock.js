@@ -3,12 +3,9 @@
 /**
  * AI Ledger GUI Provider Mock
  *
- * This tiny HTTP service is used to validate the external GUI provider chain
- * without deploying a real grounding model first.
- *
- * Input:  ai-ledger backend external_http GUI provider payload.
- * Output: compact GUI action JSON accepted by the backend:
- *   { s, a, x, y, b, t, r, q, c, e }
+ * Validates the backend external_http GUI provider chain without deploying a
+ * real visual grounding model. It accepts the backend payload shape and returns
+ * compact action JSON: { s, a, x, y, b, t, r, q, c, e }.
  */
 const http = require("http");
 
@@ -64,7 +61,7 @@ function readJsonBody(req) {
     req.on("end", () => {
       try {
         resolve(raw ? JSON.parse(raw) : {});
-      } catch (error) {
+      } catch {
         reject(new Error("invalid_json"));
       }
     });
@@ -104,7 +101,6 @@ function aliasTermsForGoal(goal) {
     }
   }
 
-  // Remove generic command words so "进入联系人" can still match "通讯录".
   const stripped = cleanGoal
     .replace(/帮我|请|麻烦|一下|这个|那个|软件|应用|app|页面|界面|功能/g, "")
     .replace(/打开|开启|启动|进入|找到|查找|查看|看一下|看|去到|跳到|前往|点击|点开/g, "");
@@ -189,7 +185,7 @@ function normalizedTapForNode(node, screen) {
 function nodeScore(node, goalTerms, screenTexts) {
   const text = safeText(node?.text || node?.label || node?.contentDescription || "", 80);
   const cleanText = normalizeText(text);
-  if (!cleanText || cleanText.length < 1) return 0;
+  if (!cleanText) return 0;
 
   let score = 0;
   for (const term of goalTerms) {
@@ -199,7 +195,6 @@ function nodeScore(node, goalTerms, screenTexts) {
     else if (term.includes(cleanText) && cleanText.length >= 2) score = Math.max(score, 900 + cleanText.length);
   }
 
-  // A small bonus for visible navigation words on stable screens.
   if (screenTexts.some((item) => normalizeText(item).includes(cleanText))) score += 20;
   if (node.clickable === false && node.editable !== true) score -= 120;
 
@@ -235,17 +230,16 @@ function compactNumber(value) {
 function buildNeedHelp(screen, reason, confidence = 0.2) {
   return {
     s: "u",
-    phase: "反思",
-    page: safeText(screen?.currentApp || screen?.packageName || "", 60),
     a: "need_user_help",
     r: "low",
     q: false,
     c: confidence,
     e: safeText(reason, 80),
+    t: safeText(screen?.currentApp || screen?.packageName || "", 60),
   };
 }
 
-function buildTapPlan(goal, screen, match) {
+function buildTapPlan(screen, match) {
   const node = match.node;
   const tap = match.tap;
   const text = safeText(node.text || node.label || node.contentDescription || "目标控件", 80);
@@ -253,8 +247,6 @@ function buildTapPlan(goal, screen, match) {
 
   return {
     s: "p",
-    phase: "决策",
-    page: safeText(screen?.currentApp || screen?.packageName || "", 60),
     a: "tap_xy",
     x: compactNumber(tap.x),
     y: compactNumber(tap.y),
@@ -275,7 +267,7 @@ function planFromPayload(body) {
   if (isHighRiskGoal(goal)) return buildNeedHelp(screen, "高风险目标不由 mock provider 自动执行", 0.18);
 
   const match = findBestClickableNode(goal, screen);
-  if (match) return buildTapPlan(goal, screen, match);
+  if (match) return buildTapPlan(screen, match);
 
   return buildNeedHelp(screen, "未找到可靠可点击目标", 0.24);
 }
