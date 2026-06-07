@@ -755,8 +755,7 @@ private fun MessageBubbleV2(
         targetText = rawText,
         enabled = smoothStreamingActive
     )
-    val smoothStreamingText = smoothStreamingState.first
-    val smoothStreamingFinished = smoothStreamingState.second
+    val smoothStreamingFinished = smoothStreamingState.finished
     val shouldReveal = !fromUser &&
         !sending &&
         !revealAlreadyPlayed &&
@@ -838,7 +837,7 @@ private fun MessageBubbleV2(
                 StreamingAssistantContentV2(
                     message = message,
                     motionClock = motionClock,
-                    smoothText = if (smoothStreamingActive) smoothStreamingText else null,
+                    smoothState = if (smoothStreamingActive) smoothStreamingState else null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer { alpha = contentAlpha }
@@ -847,6 +846,7 @@ private fun MessageBubbleV2(
                 if (smoothStreamingActive && !smoothStreamingFinished) {
                     StreamingLivePlainTextV2(
                         text = displayText,
+                        revealHead = smoothStreamingState.revealHead,
                         color = textColor,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
@@ -910,12 +910,13 @@ private fun MessageBubbleV2(
 private fun StreamingAssistantContentV2(
     message: ChatMessage,
     motionClock: AssistantHomeMotionClock,
-    smoothText: String? = null,
+    smoothState: FluidStreamingTextVisualStateV2? = null,
     modifier: Modifier = Modifier
 ) {
     val targetText = remember(message.id, message.text, message.status, message.errorText) { messageText(message) }
     val hasLiveText = remember(targetText) { hasStreamingLiveTextV2(targetText) }
-    val displayText = smoothText?.takeIf { it.isNotBlank() } ?: targetText
+    val displayText = smoothState?.text?.takeIf { it.isNotBlank() } ?: targetText
+    val revealHead = smoothState?.revealHead ?: displayText.length.toFloat()
     val useFullRichStreaming = remember(targetText) { shouldUseFullRichStreamingV2(targetText) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -932,6 +933,7 @@ private fun StreamingAssistantContentV2(
             } else {
                 StreamingLivePlainTextV2(
                     text = displayText,
+                    revealHead = revealHead,
                     color = Color.White.copy(alpha = 0.86f),
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
@@ -965,9 +967,18 @@ private fun StreamingAssistantContentV2(
     }
 }
 
+
+@Immutable
+private data class FluidStreamingTextVisualStateV2(
+    val text: String,
+    val revealHead: Float,
+    val finished: Boolean
+)
+
 @Composable
 private fun StreamingLivePlainTextV2(
     text: String,
+    revealHead: Float? = null,
     color: Color,
     fontSize: TextUnit,
     lineHeight: TextUnit,
@@ -975,35 +986,17 @@ private fun StreamingLivePlainTextV2(
     motionClock: AssistantHomeMotionClock,
     modifier: Modifier = Modifier
 ) {
-    val phase = motionClock.phase(1380L)
-    val annotated = remember(text, color, phase) {
-        val tailLength = when {
-            text.length >= 1200 -> 42
-            text.length >= 640 -> 34
-            text.length >= 240 -> 28
-            else -> 22
-        }.coerceAtMost(text.length)
-        val stableText = text.dropLast(tailLength)
-        val freshText = text.takeLast(tailLength)
-        val shimmerX = phase * 260f - 96f
-        val freshBrush = Brush.linearGradient(
-            colors = listOf(
-                color.copy(alpha = 0.82f),
-                Color.White.copy(alpha = 0.98f),
-                Color(0xFFB9FFF7).copy(alpha = 0.88f),
-                color.copy(alpha = 0.90f)
-            ),
-            start = Offset(shimmerX, 0f),
-            end = Offset(shimmerX + 180f, 38f)
+    val phase = motionClock.phase(1480L)
+    val head = remember(text, revealHead) {
+        (revealHead ?: text.length.toFloat()).coerceIn(0f, text.length.toFloat())
+    }
+    val annotated = remember(text, color, head, phase) {
+        buildStreamingDevelopingTextV2(
+            text = text,
+            revealHead = head,
+            color = color,
+            phase = phase
         )
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = color.copy(alpha = 0.86f))) {
-                append(stableText)
-            }
-            withStyle(SpanStyle(brush = freshBrush)) {
-                append(freshText)
-            }
-        }
     }
     Text(
         text = annotated,
@@ -1019,93 +1012,143 @@ private fun rememberFluidStreamingTextStateV2(
     messageId: String,
     targetText: String,
     enabled: Boolean
-): Pair<String, Boolean> {
-    var visibleText by remember(messageId) { mutableStateOf(if (enabled) "" else targetText) }
+): FluidStreamingTextVisualStateV2 {
+    var revealHead by remember(messageId) { mutableStateOf(if (enabled) 0f else targetText.length.toFloat()) }
+
     LaunchedEffect(messageId, targetText, enabled) {
         if (!enabled) {
-            visibleText = targetText
+            revealHead = targetText.length.toFloat()
             return@LaunchedEffect
         }
         if (targetText.isBlank()) {
-            visibleText = ""
+            revealHead = 0f
             return@LaunchedEffect
         }
-        if (visibleText.length > targetText.length || !targetText.startsWith(visibleText)) {
-            val common = commonPrefixLengthV2(visibleText, targetText)
-            visibleText = targetText.take(common)
+        if (revealHead > targetText.length || (revealHead > 1f && !targetText.startsWith(targetText.take(revealHead.toInt().coerceAtMost(targetText.length))))) {
+            revealHead = revealHead.coerceIn(0f, targetText.length.toFloat())
         }
-        if (visibleText.isBlank()) {
-            val firstEnd = initialFluidRevealEndV2(targetText)
-            visibleText = targetText.take(firstEnd)
-            delay(fluidRevealDelayV2(targetText, firstEnd, targetText.length - firstEnd))
-        }
-        while (visibleText.length < targetText.length) {
-            val current = visibleText.length
-            val backlog = targetText.length - current
-            val nextEnd = nextFluidRevealEndV2(targetText, current, backlog)
-            if (nextEnd <= current) {
-                delay(24L)
+
+        var lastFrameNanos = 0L
+        while (revealHead < targetText.length - 0.01f) {
+            val frameNanos = withFrameNanos { it }
+            val dt = if (lastFrameNanos == 0L) {
+                1f / 60f
             } else {
-                visibleText = targetText.take(nextEnd)
-                delay(fluidRevealDelayV2(targetText, nextEnd, backlog))
+                ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.006f, 0.048f)
+            }
+            lastFrameNanos = frameNanos
+
+            val backlog = targetText.length - revealHead
+            val speed = fluidRevealCharsPerSecondV2(backlog)
+            val pauseFactor = fluidPauseFactorV2(targetText, revealHead)
+            val next = revealHead + speed * pauseFactor * dt
+            revealHead = minOf(targetText.length.toFloat(), next)
+
+            if (targetText.length - revealHead < 0.35f) {
+                revealHead = targetText.length.toFloat()
             }
         }
     }
-    return visibleText to (visibleText.length >= targetText.length && targetText.startsWith(visibleText))
+
+    val head = revealHead.coerceIn(0f, targetText.length.toFloat())
+    val previewEnd = fluidPreviewEndV2(targetText, head)
+    val textForLayout = remember(targetText, previewEnd) { targetText.take(previewEnd) }
+    return FluidStreamingTextVisualStateV2(
+        text = textForLayout,
+        revealHead = head.coerceAtMost(textForLayout.length.toFloat()),
+        finished = head >= targetText.length - 0.01f
+    )
 }
 
-private fun commonPrefixLengthV2(a: String, b: String): Int {
-    val max = minOf(a.length, b.length)
-    var index = 0
-    while (index < max && a[index] == b[index]) index += 1
-    return safeStreamingEndV2(b, index)
+private fun fluidRevealCharsPerSecondV2(backlog: Float): Float = when {
+    backlog >= 220f -> 190f
+    backlog >= 120f -> 150f
+    backlog >= 56f -> 118f
+    backlog >= 20f -> 92f
+    else -> 68f
 }
 
-private fun initialFluidRevealEndV2(text: String): Int {
+private fun fluidPauseFactorV2(text: String, revealHead: Float): Float {
+    val index = revealHead.toInt().coerceIn(0, text.length)
+    if (index <= 0 || index > text.length) return 1f
+    val last = text[index - 1]
+    val local = revealHead - index.toFloat()
+    val justCrossed = local in 0f..0.38f
+    if (!justCrossed) return 1f
+    return when (last) {
+        '\n' -> 0.36f
+        '。', '！', '？', '.', '!', '?' -> 0.48f
+        '，', ',', '；', ';', '：', ':' -> 0.68f
+        else -> 1f
+    }
+}
+
+private fun fluidPreviewEndV2(text: String, revealHead: Float): Int {
     if (text.isBlank()) return 0
-    val maxEnd = minOf(text.length, if (text.length <= 12) 4 else 6)
-    for (index in 1 until maxEnd) {
-        if (isFluidPauseCharV2(text[index])) return safeStreamingEndV2(text, index + 1)
+    val preview = when {
+        text.length >= 1200 -> 20
+        text.length >= 520 -> 18
+        else -> 14
     }
-    return safeStreamingEndV2(text, maxEnd.coerceAtLeast(1))
+    val base = revealHead.toInt() + if (revealHead > revealHead.toInt().toFloat()) 1 else 0
+    return safeStreamingEndV2(text, (base + preview).coerceIn(1, text.length))
 }
 
-private fun nextFluidRevealEndV2(text: String, current: Int, backlog: Int): Int {
-    if (current >= text.length) return text.length
-    val step = when {
-        backlog >= 260 -> 16
-        backlog >= 140 -> 12
-        backlog >= 72 -> 9
-        backlog >= 30 -> 6
-        else -> 4
-    }
-    val softEnd = (current + step).coerceAtMost(text.length)
-    val scanEnd = (softEnd + 8).coerceAtMost(text.length)
-    for (index in softEnd - 1 until scanEnd) {
-        if (index in text.indices && isFluidPauseCharV2(text[index])) {
-            return safeStreamingEndV2(text, index + 1)
+private fun buildStreamingDevelopingTextV2(
+    text: String,
+    revealHead: Float,
+    color: Color,
+    phase: Float
+) = buildAnnotatedString {
+    if (text.isEmpty()) return@buildAnnotatedString
+
+    val head = revealHead.coerceIn(0f, text.length.toFloat())
+    val stableEnd = safeStreamingEndV2(text, (head - 22f).toInt().coerceAtLeast(0))
+    if (stableEnd > 0) {
+        withStyle(SpanStyle(color = color.copy(alpha = 0.86f))) {
+            append(text.substring(0, stableEnd))
         }
     }
-    return safeStreamingEndV2(text, softEnd)
-}
 
-private fun fluidRevealDelayV2(text: String, end: Int, backlog: Int): Long {
-    if (end <= 0 || end > text.length) return 28L
-    val last = text[end - 1]
-    return when {
-        last == '\n' -> 92L
-        last == '。' || last == '！' || last == '？' || last == '.' || last == '!' || last == '?' -> 62L
-        last == '，' || last == ',' || last == '；' || last == ';' || last == '：' || last == ':' -> 42L
-        backlog >= 180 -> 18L
-        backlog >= 80 -> 24L
-        else -> 32L
+    val softStart = stableEnd
+    val softEnd = text.length
+    val shimmerCenter = 0.34f + 0.32f * sin((phase * 2f * PI).toFloat())
+    for (index in softStart until softEnd) {
+        val distance = head - index.toFloat()
+        val alpha = fluidGlyphAlphaV2(distance)
+        if (alpha <= 0.006f) continue
+
+        val glow = if (distance in -2f..10f) {
+            (1f - kotlin.math.abs(distance - shimmerCenter * 8f) / 12f).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val glyphColor = blendStreamingGlyphColorV2(color, alpha, glow)
+        withStyle(SpanStyle(color = glyphColor)) {
+            append(text[index])
+        }
     }
 }
 
-private fun isFluidPauseCharV2(char: Char): Boolean {
-    return char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' ||
-        char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' ||
-        char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
+private fun fluidGlyphAlphaV2(distanceFromHead: Float): Float {
+    return when {
+        distanceFromHead >= 14f -> 0.86f
+        distanceFromHead >= 8f -> 0.76f + (distanceFromHead - 8f) / 6f * 0.10f
+        distanceFromHead >= 0f -> 0.18f + distanceFromHead / 8f * 0.58f
+        distanceFromHead >= -6f -> 0.055f + (distanceFromHead + 6f) / 6f * 0.125f
+        distanceFromHead >= -14f -> 0.018f + (distanceFromHead + 14f) / 8f * 0.037f
+        else -> 0f
+    }.coerceIn(0f, 0.92f)
+}
+
+private fun blendStreamingGlyphColorV2(base: Color, alpha: Float, glow: Float): Color {
+    val glowAlpha = (0.08f * glow).coerceIn(0f, 0.10f)
+    return Color(
+        red = (base.red * (1f - glowAlpha) + 1f * glowAlpha).coerceIn(0f, 1f),
+        green = (base.green * (1f - glowAlpha) + 1f * glowAlpha).coerceIn(0f, 1f),
+        blue = (base.blue * (1f - glowAlpha) + 1f * glowAlpha).coerceIn(0f, 1f),
+        alpha = alpha
+    )
 }
 
 private fun safeStreamingEndV2(text: String, end: Int): Int {
