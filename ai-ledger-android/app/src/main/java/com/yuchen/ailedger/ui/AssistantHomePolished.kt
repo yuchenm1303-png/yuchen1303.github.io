@@ -775,7 +775,7 @@ private fun MessageBubbleV2(
     val longReply = !fromUser && !sending && rawText.length >= 520
     val expanded = !longReply || longReplyExpanded
     val displayBaseText = when {
-        smoothStreamingActive -> smoothStreamingText
+        smoothStreamingActive -> smoothStreamingState.text
         sending -> rawText
         else -> revealedText
     }
