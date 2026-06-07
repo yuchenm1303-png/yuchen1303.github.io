@@ -750,6 +750,15 @@ private fun MessageBubbleV2(
         animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "message-content-state-alpha"
     )
+    val thinkingSweepActive = sending && !fromUser && isThinkingSweepPlaceholderV2(rawText)
+    val thinkingSweepStrength by animateFloatAsState(
+        targetValue = if (thinkingSweepActive) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (sending) 680 else 300,
+            easing = FastOutSlowInEasing
+        ),
+        label = "message-thinking-sweep-strength"
+    )
 
     SideEffect {
         bubbleLayerState.updateBubbleVisual(
@@ -759,7 +768,8 @@ private fun MessageBubbleV2(
             appear = appear,
             phaseOffset = phaseOffset,
             speedFactor = speedFactor,
-            radiusDp = bubbleRadius
+            radiusDp = bubbleRadius,
+            thinkingSweepStrength = thinkingSweepStrength
         )
     }
     DisposableEffect(message.id) {
@@ -1095,6 +1105,15 @@ private fun hasStreamingLiveTextV2(text: String): Boolean {
 private fun isThinkingPlaceholderV2(text: String): Boolean {
     val clean = text.trim()
     return clean == "正在思考…" || clean == "正在重新生成…" || clean == "正在思考" || clean == "正在重新生成"
+}
+
+private fun isThinkingSweepPlaceholderV2(text: String): Boolean {
+    val clean = text.trim()
+    return isThinkingPlaceholderV2(clean) ||
+        clean == "正在理解视觉附件…" ||
+        clean == "正在理解视觉附件" ||
+        clean == "正在执行手机智能体任务…" ||
+        clean == "正在执行手机智能体任务"
 }
 
 
