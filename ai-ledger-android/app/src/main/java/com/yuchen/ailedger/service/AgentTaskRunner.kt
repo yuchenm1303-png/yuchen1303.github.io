@@ -138,7 +138,9 @@ class AgentTaskRunner(
                     riskLevel = "low",
                     requiresConfirmation = false,
                 )
+                memory.prepareVerification(snapshot, backStep)
                 val result = executeTimed(backStep, snapshot.currentApp, logs, memory)
+                if (!result.ok) memory.cancelPendingVerification()
                 memory.remember(backStep, result)
                 delayForStep(backStep)
                 continue
@@ -184,7 +186,9 @@ class AgentTaskRunner(
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
+                memory.prepareVerification(snapshot, chosenStep)
                 val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
+                if (!result.ok) memory.cancelPendingVerification()
                 val isLastStep = index >= steps.lastIndex
                 memory.remember(
                     step = chosenStep,
@@ -224,8 +228,8 @@ class AgentTaskRunner(
     }
 
     private fun shouldStopBatchAfterStep(step: CloudAgentStep, result: AgentExecutionResult, isLastStep: Boolean): Boolean {
-        if (isLastStep || !result.ok || !result.shouldContinue) return true
-        return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
+        if (!result.ok || !result.shouldContinue) return true
+        return isLastStep || step.type in BATCH_BREAK_AFTER_ACTION_TYPES
     }
 
     private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
@@ -293,23 +297,28 @@ class AgentTaskRunner(
         private var lastScreenFingerprint: String = "",
         private var lastActionSignature: String = "",
         private var sameActionCount: Int = 0,
+        private var pendingVerification: PendingVerification? = null,
         private val blockedActionSignatures: MutableSet<String> = mutableSetOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
         private val failedActionLines: MutableList<String> = mutableListOf(),
         private val blockedActionLines: MutableList<String> = mutableListOf(),
+        private val verificationLines: MutableList<String> = mutableListOf(),
         var lastDebugLine: String = "",
     ) {
         fun observe(snapshot: AgentScreenSnapshot) {
             val fingerprint = screenFingerprint(snapshot)
-            if (fingerprint == lastScreenFingerprint) {
+            val verificationResolved = resolvePendingVerification(snapshot, fingerprint)
+            val sameAsLast = fingerprint == lastScreenFingerprint
+            if (sameAsLast) {
                 sameScreenCount += 1
-                if (lastActionSignature.isNotBlank()) noProgressCount += 1
+                if (!verificationResolved && lastActionSignature.isNotBlank()) noProgressCount += 1
             } else {
                 sameScreenCount = 0
-                if (noProgressCount > 0) noProgressCount -= 1
+                if (!verificationResolved && noProgressCount > 0) noProgressCount -= 1
             }
             lastScreenFingerprint = fingerprint
-            lastDebugLine = "调试：阶段=云端观察 · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount · 同屏=$sameScreenCount · 无进展=$noProgressCount · 同动作=$sameActionCount"
+            val pendingText = pendingVerification?.signature ?: "无"
+            lastDebugLine = "调试：阶段=云端观察 · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount · 同屏=$sameScreenCount · 无进展=$noProgressCount · 同动作=$sameActionCount · 待验=$pendingText"
         }
 
         fun rememberState(state: CloudAgentState) {
@@ -333,15 +342,36 @@ class AgentTaskRunner(
             trimHistory()
         }
 
+        fun prepareVerification(snapshot: AgentScreenSnapshot, step: CloudAgentStep) {
+            val signature = actionSignature(step)
+            if (signature.isBlank() || !step.requiresPostActionVerification()) {
+                pendingVerification = null
+                return
+            }
+            val beforeFingerprint = lastScreenFingerprint.ifBlank { screenFingerprint(snapshot) }
+            pendingVerification = PendingVerification(
+                signature = signature,
+                beforeFingerprint = beforeFingerprint,
+                beforeEvidenceText = screenEvidenceText(snapshot),
+                expectedEvidence = expectedEvidenceFor(step),
+                actionSummary = describeStep(step),
+                createdAtLoop = loopIndex,
+            )
+        }
+
+        fun cancelPendingVerification() {
+            pendingVerification = null
+        }
+
         fun repetitionBlockReason(step: CloudAgentStep): String? {
             val signature = actionSignature(step)
             if (signature.isBlank()) return null
             if (signature in blockedActionSignatures) {
                 return "该动作本轮任务内已被判定为无进展：$signature。请重新观察，换一个入口、搜索、菜单、返回或其他策略。"
             }
-            if (signature == lastActionSignature && sameActionCount >= MAX_CONSECUTIVE_SAME_ACTIONS) {
+            if (signature == lastActionSignature && sameActionCount >= MAX_CONSECUTIVE_SAME_ACTIONS && noProgressCount >= 1) {
                 blockedActionSignatures += signature
-                return "连续 $sameActionCount 次执行同一动作但没有可靠推进：$signature。拒绝继续重复点击，请换路线。"
+                return "连续 $sameActionCount 次执行同一动作且画面没有可靠推进：$signature。拒绝继续重复点击，请换路线。"
             }
             if (noProgressCount >= NO_PROGRESS_SPECULATIVE_THRESHOLD && step.isSpeculativeExploration()) {
                 blockedActionSignatures += signature
@@ -373,11 +403,13 @@ class AgentTaskRunner(
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v11_progress_governor")
+            put("schema", "agent_loop_memory_v12a_think_act_verify_runtime")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
+            put("verificationEvents", JSONArray().apply { verificationLines.takeLast(6).forEach { put(it) } })
             put("blockedActionSignatures", JSONArray().apply { blockedActionSignatures.take(12).forEach { put(it) } })
+            put("pendingVerification", pendingVerification?.toJson() ?: JSONObject.NULL)
             put("loopSignals", JSONObject().apply {
                 put("executedStepCount", executedStepCount)
                 put("loopIndex", loopIndex)
@@ -385,20 +417,56 @@ class AgentTaskRunner(
                 put("noProgressCount", noProgressCount)
                 put("lastActionSignature", lastActionSignature)
                 put("sameActionCount", sameActionCount)
+                put("pendingVerificationSignature", pendingVerification?.signature ?: "")
             })
             put("policyHints", JSONArray().apply {
                 put("Agent 开关开启时，手机任务统一走视觉主导智能体主循环。")
                 put("Local/Shizuku/InstalledAppIndex 只能作为执行工具和设备上下文，不能绕过主循环直接宣布复合任务完成或失败。")
-                put("点击手势提交成功不等于页面有效推进；如果 recent/blocked actions 提示某坐标无进展，必须换路线。")
-                put("不要连续点击同一坐标或同一入口；同屏无进展时优先使用明确搜索入口、菜单、返回上一层或请求用户协助。")
-                put("每轮都根据最新截图重新判断，不要因为步数变多就提前结束。")
+                put("点击手势提交成功不等于页面有效推进；必须等待下一轮截图验证是否变化或出现成功证据。")
+                put("不要连续点击同一坐标或同一入口；如果 verificationEvents/blockedActions 提示某动作无进展，必须换路线。")
+                put("同屏无进展时优先使用明确搜索入口、菜单、返回上一层或请求用户协助。")
+                put("每轮最多执行一个会改变页面的动作，然后重新截图观察。")
             })
+        }
+
+        private fun resolvePendingVerification(snapshot: AgentScreenSnapshot, currentFingerprint: String): Boolean {
+            val pending = pendingVerification ?: return false
+            pendingVerification = null
+            val currentEvidenceText = screenEvidenceText(snapshot)
+            val evidenceHit = pending.expectedEvidence.any { evidence ->
+                val normalized = normalizeEvidence(evidence)
+                normalized.length >= 2 && currentEvidenceText.contains(normalized) && !pending.beforeEvidenceText.contains(normalized)
+            }
+            val changed = currentFingerprint != pending.beforeFingerprint
+            val message = when {
+                evidenceHit -> {
+                    noProgressCount = 0
+                    sameActionCount = 0
+                    blockedActionSignatures.remove(pending.signature)
+                    "验证通过：${pending.signature} 后出现新的目标证据。"
+                }
+                changed -> {
+                    if (noProgressCount > 0) noProgressCount -= 1
+                    "验证通过：${pending.signature} 后屏幕结构已变化，继续观察是否接近目标。"
+                }
+                else -> {
+                    noProgressCount += 1
+                    blockedActionSignatures += pending.signature
+                    "验证失败：${pending.signature} 手势已提交但屏幕无可靠变化，已临时拉黑该动作。"
+                }
+            }
+            verificationLines += message
+            recentActionLines += "验证：$message"
+            AgentRuntimeController.noteDiagnostic(message.take(90))
+            trimHistory()
+            return true
         }
 
         private fun trimHistory() {
             while (recentActionLines.size > 10) recentActionLines.removeAt(0)
             while (failedActionLines.size > 8) failedActionLines.removeAt(0)
             while (blockedActionLines.size > 8) blockedActionLines.removeAt(0)
+            while (verificationLines.size > 8) verificationLines.removeAt(0)
         }
 
         private fun screenFingerprint(snapshot: AgentScreenSnapshot): String {
@@ -417,6 +485,39 @@ class AgentTaskRunner(
                 snapshot.scrollableNodes.size.toString(),
                 textKey,
             ).joinToString("#").take(600)
+        }
+
+        private fun screenEvidenceText(snapshot: AgentScreenSnapshot): String {
+            val raw = (snapshot.allNodes.map { it.text } + snapshot.clickableNodes.map { it.text } + snapshot.inputNodes.map { it.text })
+                .joinToString(" ")
+            return normalizeEvidence(raw)
+        }
+
+        private fun normalizeEvidence(value: String?): String {
+            return value.orEmpty()
+                .lowercase()
+                .replace(Regex("[\\s\\u3000，。,.、:：/\\\\_\\-]+"), "")
+                .take(800)
+        }
+
+        private fun expectedEvidenceFor(step: CloudAgentStep): List<String> {
+            val rawParts = listOfNotNull(
+                step.targetText,
+                if (step.type == "open_app") step.appName else null,
+                if (step.type == "input_text") step.text else null,
+                step.reason,
+            )
+            val generic = setOf(
+                "点击", "屏幕", "页面", "入口", "按钮", "当前", "目标", "打开", "进入", "返回", "查看", "可能", "尝试", "寻找", "相关", "坐标", "归一化",
+                "click", "tap", "screen", "page", "button", "target", "open", "try", "possible"
+            )
+            return rawParts
+                .flatMap { it.split(Regex("[\\s，。,.、:：/\\\\_\\-]+")) }
+                .map { it.trim() }
+                .filter { it.length in 2..24 }
+                .filterNot { normalizeEvidence(it) in generic }
+                .distinctBy { normalizeEvidence(it) }
+                .take(8)
         }
 
         private fun actionSignature(step: CloudAgentStep): String {
@@ -447,6 +548,10 @@ class AgentTaskRunner(
             step.y?.let { append(" y=").append("%.3f".format(it)) }
         }
 
+        private fun CloudAgentStep.requiresPostActionVerification(): Boolean {
+            return type in POST_ACTION_VERIFY_TYPES
+        }
+
         private fun CloudAgentStep.isSpeculativeExploration(): Boolean {
             if (type !in setOf("tap_xy", "tap_node", "scroll", "swipe")) return false
             val text = listOfNotNull(reason, targetText, text, direction)
@@ -456,9 +561,28 @@ class AgentTaskRunner(
                 .any { text.contains(it) }
         }
 
+        private data class PendingVerification(
+            val signature: String,
+            val beforeFingerprint: String,
+            val beforeEvidenceText: String,
+            val expectedEvidence: List<String>,
+            val actionSummary: String,
+            val createdAtLoop: Int,
+        ) {
+            fun toJson(): JSONObject = JSONObject().apply {
+                put("signature", signature)
+                put("actionSummary", actionSummary)
+                put("expectedEvidence", JSONArray().apply { expectedEvidence.forEach { put(it) } })
+                put("createdAtLoop", createdAtLoop)
+            }
+        }
+
         private companion object {
             private const val MAX_CONSECUTIVE_SAME_ACTIONS = 2
             private const val NO_PROGRESS_SPECULATIVE_THRESHOLD = 3
+            private val POST_ACTION_VERIFY_TYPES = setOf(
+                "open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "home", "recents", "notifications", "quick_settings"
+            )
         }
     }
 
@@ -476,6 +600,8 @@ class AgentTaskRunner(
         private const val MAX_BACK_ATTEMPTS = 2
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
-        private val BATCH_BREAK_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
+        private val BATCH_BREAK_AFTER_ACTION_TYPES = setOf(
+            "open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "home", "recents", "notifications", "quick_settings"
+        )
     }
 }
