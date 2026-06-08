@@ -63,9 +63,30 @@ TENCENT_KLINE_PERIODS = {
     "monthly": "month",
 }
 FAST_CACHE_SECONDS = 18
+REALTIME_CACHE_SECONDS = 1.0
+REALTIME_STALE_SECONDS = 20
 STALE_CACHE_SECONDS = 6 * 60 * 60
 MAX_CACHE_ITEMS = 360
 _cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+_realtime_http_client: httpx.Client | None = None
+
+
+def _get_realtime_client() -> httpx.Client:
+    global _realtime_http_client
+    if _realtime_http_client is None:
+        _realtime_http_client = httpx.Client(
+            timeout=httpx.Timeout(0.95, connect=0.35),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=10.0),
+        )
+    return _realtime_http_client
+
+
+@app.on_event("shutdown")
+def _close_realtime_client() -> None:
+    global _realtime_http_client
+    if _realtime_http_client is not None:
+        _realtime_http_client.close()
+        _realtime_http_client = None
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -162,6 +183,18 @@ def _cache_get(key: str, max_age_seconds: int) -> tuple[dict[str, Any], int] | N
     return deepcopy(payload), age
 
 
+def _cache_get_seconds(key: str, max_age_seconds: float) -> tuple[dict[str, Any], float] | None:
+    entry = _cache.get(key)
+    if entry is None:
+        return None
+    created_at, payload = entry
+    age = monotonic() - created_at
+    if age > max_age_seconds:
+        return None
+    _cache.move_to_end(key)
+    return deepcopy(payload), age
+
+
 def _cache_put(key: str, payload: dict[str, Any]) -> None:
     _cache[key] = (monotonic(), deepcopy(payload))
     _cache.move_to_end(key)
@@ -174,6 +207,13 @@ def _with_cache_label(payload: dict[str, Any], age: int) -> dict[str, Any]:
     quote = cached.get("quote") or {}
     cached["dataSourceLabel"] = f"爬虫教学源 · 东方财富公开JSON缓存 · {quote.get('code', '--')} · {age}s前"
     cached["warnings"] = list(cached.get("warnings") or []) + [f"cache: hit age={age}s"]
+    return cached
+
+
+def _with_realtime_cache_label(payload: dict[str, Any], age: float, stale: bool = False) -> dict[str, Any]:
+    cached = deepcopy(payload)
+    prefix = "realtime_cache: stale" if stale else "realtime_cache: hit"
+    cached["warnings"] = list(cached.get("warnings") or []) + [f"{prefix} age={age:.2f}s"]
     return cached
 
 
@@ -338,10 +378,18 @@ def _quote_summary_from_raw(data: dict[str, Any], security: dict[str, str]) -> d
         "price": quote["price"],
         "changeAmount": quote["changeAmount"],
         "changePercent": quote["changePercent"],
-        "isRising": quote["isRising"],
+        "previousClose": quote["previousClose"],
+        "high": quote["high"],
+        "low": quote["low"],
+        "open": quote["open"],
         "amount": quote["amount"],
         "turnoverRate": quote["turnoverRate"],
         "volumeRatio": quote["volumeRatio"],
+        "totalMarketValue": quote["totalMarketValue"],
+        "floatMarketValue": quote["floatMarketValue"],
+        "peTtm": quote["peTtm"],
+        "pb": quote["pb"],
+        "popularityRank": quote["popularityRank"],
     }
 
 
@@ -401,6 +449,35 @@ def _load_minute_points(client: httpx.Client, security: dict[str, str], quote: d
         "minute_points",
         warnings,
     )
+    parsed: list[tuple[str, float, float, float]] = []
+    max_volume = 1.0
+    for item in (raw.get("data") or {}).get("trends") or []:
+        parts = str(item).split(",")
+        if len(parts) < 8:
+            continue
+        price = _safe_float(parts[2])
+        volume = _safe_float(parts[5])
+        average = _safe_float(parts[7], price)
+        if price <= 0:
+            continue
+        parsed.append((parts[0][-5:], price, average, volume))
+        max_volume = max(max_volume, volume)
+    if not parsed:
+        warnings.append("minute_points: empty_rebuilt_from_quote")
+        return _fallback_minute_from_quote(quote)
+    return [{"time": t, "price": p, "average": a, "volumeRatio": min(max(v / max_volume, 0.02), 1.0)} for t, p, a, v in parsed[-120:]]
+
+
+def _load_realtime_minute_points(client: httpx.Client, security: dict[str, str], quote: dict[str, Any], warnings: list[str]) -> list[dict[str, Any]]:
+    try:
+        raw = _eastmoney_get(
+            client,
+            EASTMONEY_TRENDS_URLS[0],
+            {"secid": security["secid"], "fields1": "f1,f2,f3,f4,f5,f6,f7,f8", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58", "iscr": "0", "ndays": "1"},
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        warnings.append(f"minute_points_realtime_failed: {type(exc).__name__}: {exc}")
+        return _fallback_minute_from_quote(quote)
     parsed: list[tuple[str, float, float, float]] = []
     max_volume = 1.0
     for item in (raw.get("data") or {}).get("trends") or []:
@@ -796,21 +873,23 @@ def _build_search_payload(query: str, limit: int) -> dict[str, Any]:
 
 
 def _build_quotes_payload(codes: str) -> dict[str, Any]:
-    warnings = ["crawl: eastmoney_a_share_quotes"]
+    warnings = ["realtime: eastmoney_a_share_quotes"]
     raw_codes = [item.strip() for item in codes.replace("，", ",").split(",") if item.strip()]
     if not raw_codes:
         raise HTTPException(status_code=400, detail="codes 不能为空，例如 600519,000001")
     if len(raw_codes) > 50:
         raise HTTPException(status_code=400, detail="单次最多查询 50 个代码")
     quotes: list[dict[str, Any]] = []
-    with httpx.Client(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
-        for item in raw_codes:
-            try:
-                security = _resolve_security(client, item)
-                raw_quote = _load_quote_raw(client, security)
-                quotes.append(_quote_summary_from_raw(raw_quote, security))
-            except Exception as exc:
-                warnings.append(f"quote_{item}_failed: {type(exc).__name__}: {exc}")
+    client = _get_realtime_client()
+    for item in raw_codes:
+        try:
+            security = _resolve_security(client, item)
+            raw_quote = _load_quote_raw(client, security)
+            quotes.append(_quote_summary_from_raw(raw_quote, security))
+        except Exception as exc:
+            warnings.append(f"quote_{item}_failed: {type(exc).__name__}: {exc}")
+    if not quotes:
+        raise ValueError("all realtime quotes failed")
     return {
         "provider": "crawl_eastmoney_public_json",
         "updatedAt": datetime.now(timezone.utc).isoformat(),
@@ -822,18 +901,24 @@ def _build_quotes_payload(codes: str) -> dict[str, Any]:
 
 
 def _build_minute_payload(query: str) -> dict[str, Any]:
-    warnings = ["crawl: eastmoney_a_share_minute"]
-    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
-        security = _resolve_security(client, query)
-        raw_quote = _load_quote_raw(client, security)
-        quote = _quote_from_raw(raw_quote, security)
-        points = _load_minute_points(client, security, quote, warnings)
+    warnings = ["realtime: eastmoney_a_share_minute"]
+    client = _get_realtime_client()
+    security = _resolve_security(client, query)
+    raw_quote = _load_quote_raw(client, security)
+    quote = _quote_from_raw(raw_quote, security)
+    sell_levels, buy_levels = _order_book_from_raw(raw_quote, quote, warnings)
+    points = _load_realtime_minute_points(client, security, quote, warnings)
+    trade_ticks = _trade_ticks_from_minute(points, quote)
+    warnings.append("trade_ticks: rebuilt_from_minute_tail")
     return {
         "provider": "crawl_eastmoney_public_json",
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "dataSourceLabel": f"爬虫教学源 · 东方财富A股分时 · {quote.get('code', '--')}",
         "quote": quote,
         "minutePoints": points,
+        "sellLevels": sell_levels,
+        "buyLevels": buy_levels,
+        "tradeTicks": trade_ticks,
         "warnings": warnings,
     }
 
@@ -860,6 +945,34 @@ def _cached_response(kind: str, query: str, mode: str, builder) -> dict[str, Any
             payload, age = stale
             return _with_cache_label(payload, age)
         raise HTTPException(status_code=502, detail=f"东方财富公开 JSON 请求失败：{type(exc).__name__}: {exc}") from exc
+
+
+def _realtime_cached_response(kind: str, query: str, mode: str, builder) -> dict[str, Any]:
+    key = _cache_key(kind, query, mode)
+    fresh = _cache_get_seconds(key, REALTIME_CACHE_SECONDS)
+    if fresh is not None:
+        payload, age = fresh
+        return _with_realtime_cache_label(payload, age)
+    try:
+        payload = builder()
+        _cache_put(key, payload)
+        return payload
+    except HTTPException as exc:
+        stale = _cache_get_seconds(key, REALTIME_STALE_SECONDS)
+        if stale is not None:
+            payload, age = stale
+            cached = _with_realtime_cache_label(payload, age, stale=True)
+            cached["warnings"] = list(cached.get("warnings") or []) + [f"realtime_upstream_failed: HTTPException: {exc.detail}"]
+            return cached
+        raise
+    except (httpx.HTTPError, ValueError) as exc:
+        stale = _cache_get_seconds(key, REALTIME_STALE_SECONDS)
+        if stale is not None:
+            payload, age = stale
+            cached = _with_realtime_cache_label(payload, age, stale=True)
+            cached["warnings"] = list(cached.get("warnings") or []) + [f"realtime_upstream_failed: {type(exc).__name__}: {exc}"]
+            return cached
+        raise HTTPException(status_code=502, detail=f"realtime quote/minute request failed: {type(exc).__name__}: {exc}") from exc
 
 
 @app.get("/health")
@@ -905,7 +1018,7 @@ def crawl_a_share_search(
 def crawl_a_share_quotes(
     codes: str = Query(..., description="逗号分隔股票代码，例如 600519,000001,300750"),
 ) -> dict[str, Any]:
-    return _cached_response("quotes", codes, "batch", lambda: _build_quotes_payload(codes))
+    return _realtime_cached_response("quotes", codes, "batch", lambda: _build_quotes_payload(codes))
 
 
 @app.get("/api/stock/crawl/a-share/detail")
@@ -939,7 +1052,7 @@ def crawl_a_share_kline(
 def crawl_a_share_minute(
     query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台"),
 ) -> dict[str, Any]:
-    return _cached_response("minute", query, "1d", lambda: _build_minute_payload(query))
+    return _realtime_cached_response("minute", query, "1d", lambda: _build_minute_payload(query))
 
 
 @app.get("/api/stock/crawl/a-share/market/overview")
