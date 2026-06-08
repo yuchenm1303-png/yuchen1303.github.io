@@ -2,8 +2,6 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.os.Build
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
 data class DeviceShellStatus(
@@ -23,7 +21,7 @@ data class DeviceShellExecResult(
 )
 
 class DeviceShellBridge(
-    private val context: Context,
+    context: Context,
 ) {
     private val appContext = context.applicationContext
 
@@ -87,8 +85,8 @@ class DeviceShellBridge(
                 process.destroy()
                 return ShellRawResult(ok = false, output = "", error = "命令超时", exitCode = null)
             }
-            val output = process.inputStream.bufferedReader().use(BufferedReader::readText).trim()
-            val error = process.errorStream.bufferedReader().use(BufferedReader::readText).trim()
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            val error = process.errorStream.bufferedReader().use { it.readText() }.trim()
             val exit = process.exitValue()
             ShellRawResult(ok = exit == 0, output = output, error = error, exitCode = exit)
         }.getOrElse { error ->
