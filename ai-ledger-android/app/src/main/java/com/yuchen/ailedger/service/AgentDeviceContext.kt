@@ -37,8 +37,9 @@ object AgentDeviceContextProvider {
         val currentPackage = screen.currentApp.ifBlank { "unknown" }
         val installedAppsJson = appsToJsonArray(inventoryApps, installedAppIndex)
         val candidateAppsJson = appsToJsonArray(candidateApps, installedAppIndex)
+        val shellStatus = runCatching { DeviceShellBridge(appContext).probe() }.getOrNull()
         val json = JSONObject().apply {
-            put("schema", "android_device_context_v2")
+            put("schema", "android_device_context_v3_internal_control")
             put("device", JSONObject().apply {
                 put("manufacturer", Build.MANUFACTURER.orEmpty())
                 put("brand", Build.BRAND.orEmpty())
@@ -73,15 +74,31 @@ object AgentDeviceContextProvider {
             put("uploadedAppCount", inventoryApps.size)
             put("installedAppsTruncated", allLaunchableApps.size > inventoryApps.size)
             put("availableTools", JSONArray(CloudAgentStep.supportedTypes.toList()))
+            put("internalDeviceControl", JSONObject().apply {
+                put("enabled", true)
+                put("runtime", "DeviceControlRuntime")
+                put("policy", "prefer_internal_tool_before_visual_computer_use")
+                put("capabilities", DeviceControlCapabilityRegistry.toJsonArray())
+                shellStatus?.let { status ->
+                    put("shell", JSONObject().apply {
+                        put("available", status.available)
+                        put("uidLine", status.uidLine)
+                        put("adbShellLike", status.isAdbShellLike)
+                        put("androidRelease", status.androidRelease)
+                        put("message", status.message)
+                    })
+                }
+            })
             put("toolRules", JSONArray().apply {
                 put("打开应用必须优先使用 open_app，并优先从 targetAppCandidates 选择；targetAppCandidates 为空时再从 installedApps 选择真实 label/packageName。")
                 put("不要凭常识编 packageName。目标应用不在 targetAppCandidates 或 installedApps 时，返回 need_user_help。")
                 put("在桌面或启动器页面时，不要通过点击文件夹或翻页肉眼寻找 App 图标；如果目标是打开应用，直接返回 open_app。")
                 put("App 内页面导航才使用 tap_xy、tap_node、scroll、swipe。")
+                put("能由 internalDeviceControl 直接完成的系统级任务不要转成视觉点击；高风险内部控制必须停止并请求确认或说明需要 Shizuku/ADB。")
                 put("同一个动作失败或被本地拒绝后，下一轮必须避开相同路径，改用其他工具或说明无法继续。")
             })
             put("privacy", JSONObject().apply {
-                put("scope", "只上传可启动应用名称、包名和基础设备执行能力，不上传联系人、文件、权限列表或后台运行应用。")
+                put("scope", "只上传可启动应用名称、包名、基础设备执行能力和增强模式可用性，不上传联系人、文件、权限列表或后台运行应用。")
             })
         }
         val summary = buildString {
@@ -96,6 +113,7 @@ object AgentDeviceContextProvider {
             append("，当前包名 ").append(currentPackage)
             append("，可启动应用 ").append(allLaunchableApps.size).append(" 个")
             append("，目标候选 ").append(candidateApps.size).append(" 个")
+            shellStatus?.let { append("，Shell ").append(if (it.available) "可用" else "不可用") }
             if (allLaunchableApps.size > inventoryApps.size) append("，已上传优先清单 ${inventoryApps.size} 个")
             append("。")
         }
