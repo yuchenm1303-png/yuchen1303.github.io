@@ -428,6 +428,8 @@ private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
     canvas.drawBitmap(source, Rect(cropX, cropY, cropX + cropW, cropY + cropH), RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()), paint)
 }
 
+private val ANDROID_BACKDROP_CLOUD_Y_FRACTIONS = floatArrayOf(0.12f, 0.28f, 0.48f, 0.68f)
+
 private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, params: BackdropDebugParams) {
     val canvas = Canvas(bitmap)
     val w = bitmap.width.toFloat()
@@ -441,7 +443,8 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, pa
     drawGlow(canvas, paint, w * 0.34f, h * 0.82f, w * 0.70f, h * 0.34f, p.warm, 0.34f)
     drawGlow(canvas, paint, w * 0.24f, h * 0.44f, w * 0.46f, h * 0.28f, p.blue, 0.22f)
     val cloudAlpha = params.cloudAlpha.coerceIn(0.25f, 2.2f)
-    listOf(0.12f, 0.28f, 0.48f, 0.68f).forEachIndexed { index, y ->
+    for (index in ANDROID_BACKDROP_CLOUD_Y_FRACTIONS.indices) {
+        val y = ANDROID_BACKDROP_CLOUD_Y_FRACTIONS[index]
         drawGlow(canvas, paint, w * (0.12f + index * 0.24f), h * y, w * 0.42f, h * 0.12f, p.cloudLight, 0.22f * cloudAlpha)
         drawGlow(canvas, paint, w * (0.32f + index * 0.18f), h * (y + 0.05f), w * 0.36f, h * 0.10f, p.cloudWarm, 0.16f * cloudAlpha)
     }
@@ -455,24 +458,29 @@ private fun drawGlow(canvas: Canvas, paint: Paint, cx: Float, cy: Float, rx: Flo
 
 private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
     if (radius <= 0 || iterations <= 0) return input
-    var current = input.copy(Bitmap.Config.ARGB_8888, false)
-    repeat(iterations) {
-        val next = boxBlurOnce(current, radius)
-        if (current !== input && !current.isRecycled) current.recycle()
-        current = next
-    }
-    return current
-}
 
-private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
     val width = input.width
     val height = input.height
-    val source = IntArray(width * height)
-    val temp = IntArray(width * height)
-    val output = IntArray(width * height)
+    val pixelCount = width * height
+    var source = IntArray(pixelCount)
+    val temp = IntArray(pixelCount)
+    var output = IntArray(pixelCount)
     input.getPixels(source, 0, width, 0, 0, width, height)
-    val window = radius * 2 + 1
 
+    val window = radius * 2 + 1
+    repeat(iterations) { iteration ->
+        boxBlurHorizontal(source, temp, width, height, radius, window)
+        boxBlurVertical(temp, output, width, height, radius, window)
+        if (iteration < iterations - 1) {
+            val reusable = source
+            source = output
+            output = reusable
+        }
+    }
+    return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
+}
+
+private fun boxBlurHorizontal(source: IntArray, temp: IntArray, width: Int, height: Int, radius: Int, window: Int) {
     for (y in 0 until height) {
         var a = 0; var r = 0; var g = 0; var b = 0
         val row = y * width
@@ -491,7 +499,9 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
             b += (add and 0xFF) - (remove and 0xFF)
         }
     }
+}
 
+private fun boxBlurVertical(temp: IntArray, output: IntArray, width: Int, height: Int, radius: Int, window: Int) {
     for (x in 0 until width) {
         var a = 0; var r = 0; var g = 0; var b = 0
         for (i in -radius..radius) {
@@ -509,14 +519,12 @@ private fun boxBlurOnce(input: Bitmap, radius: Int): Bitmap {
             b += (add and 0xFF) - (remove and 0xFF)
         }
     }
-    return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
 }
 
 private fun tuneBitmapTone(input: Bitmap, brightness: Float, contrast: Float, saturation: Float): Bitmap {
     val width = input.width
     val height = input.height
     val pixels = IntArray(width * height)
-    val output = IntArray(width * height)
     input.getPixels(pixels, 0, width, 0, 0, width, height)
     pixels.forEachIndexed { index, color ->
         val a = color ushr 24
@@ -530,9 +538,9 @@ private fun tuneBitmapTone(input: Bitmap, brightness: Float, contrast: Float, sa
         val r = (((sr - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
         val g = (((sg - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
         val b = (((sb - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
-        output[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        pixels[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
-    return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
+    return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
 }
 
 private data class AndroidWeatherPalette(
