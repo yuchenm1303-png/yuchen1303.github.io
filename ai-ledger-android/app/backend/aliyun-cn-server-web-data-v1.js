@@ -9,12 +9,14 @@ const DEVICE_ROUTER_TIMEOUT_MS = Number(process.env.DEVICE_ROUTER_TIMEOUT_MS || 
 const ENABLE_DEVICE_MODEL_ROUTER = String(process.env.ENABLE_DEVICE_MODEL_ROUTER || "false").toLowerCase() === "true";
 const ENABLE_AUTO_WEB_SEARCH_ON_ONLINE = String(process.env.ENABLE_AUTO_WEB_SEARCH_ON_ONLINE || "false").toLowerCase() === "true";
 const AGENT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_PLANNER_TIMEOUT_MS || 7000);
-const AGENT_STEP_TOTAL_BUDGET_MS = Number(process.env.AGENT_STEP_TOTAL_BUDGET_MS || 8000);
-const AGENT_STEP_VISION_TIMEOUT_MS = Number(process.env.AGENT_STEP_VISION_TIMEOUT_MS || process.env.AGENT_REALTIME_VISION_TIMEOUT_MS || 4300);
+const AGENT_STEP_TOTAL_BUDGET_MS = Number(process.env.AGENT_STEP_TOTAL_BUDGET_MS || 18000);
+const AGENT_STEP_VISION_TIMEOUT_MS = Number(process.env.AGENT_STEP_VISION_TIMEOUT_MS || process.env.AGENT_REALTIME_VISION_TIMEOUT_MS || 15000);
 const AGENT_FAST_VISION_MAX_TOKENS = Number(process.env.AGENT_FAST_VISION_MAX_TOKENS || 180);
 const AGENT_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_TEXT_PLANNER_TIMEOUT_MS || 7000);
 const AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS || 1000);
 const AGENT_STEP_FALLBACK_MIN_BUDGET_MS = Number(process.env.AGENT_STEP_FALLBACK_MIN_BUDGET_MS || 900);
+const AGENT_ROUTE_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_ROUTE_PLANNER_TIMEOUT_MS || 1800);
+const AGENT_ROUTE_PLANNER_MAX_TOKENS = Number(process.env.AGENT_ROUTE_PLANNER_MAX_TOKENS || 360);
 const AGENT_RESPONSE_SAFETY_MARGIN_MS = Number(process.env.AGENT_RESPONSE_SAFETY_MARGIN_MS || 350);
 const AGENT_VISION_MAX_TOKENS = Number(process.env.AGENT_VISION_MAX_TOKENS || 360);
 const AGENT_TEXT_MAX_TOKENS = Number(process.env.AGENT_TEXT_MAX_TOKENS || 300);
@@ -46,7 +48,7 @@ const ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT = String(process.env.ENABLE_MODEL_COM
 const ENABLE_AGENT_SUGGESTION_CARD = String(process.env.ENABLE_AGENT_SUGGESTION_CARD || "false").toLowerCase() === "true";
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v37-aliyun-gui-plus-mobile-use";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v39-route-planner-gui-grounder";
 const EMBEDDED_COMMAND_PREFIX = "[[AI_LEDGER_COMMAND:";
 const EMBEDDED_COMMAND_SUFFIX = "]]";
 
@@ -396,11 +398,21 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
     throw new Error(`${name} invalid_json_response ${t.slice(0, 160)}`);
   }
 
-  const reply =
-    data?.choices?.[0]?.message?.content ||
-    data?.choices?.[0]?.text ||
-    data?.reply ||
-    "";
+  const choice = data?.choices?.[0] || {};
+  const message = choice.message || {};
+  const contentReply = message.content || choice.text || data?.reply || "";
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const functionCall = message.function_call || null;
+  const nativeToolPayload = toolCalls.length
+    ? toolCalls.map((item) => ({
+        name: item?.function?.name || item?.name || "",
+        arguments: item?.function?.arguments || item?.arguments || item?.args || {},
+      }))
+    : functionCall
+      ? [{ name: functionCall.name || "", arguments: functionCall.arguments || {} }]
+      : [];
+
+  const reply = String(contentReply || "").trim() || (nativeToolPayload.length ? JSON.stringify({ tool_calls: nativeToolPayload }) : "");
 
   if (!String(reply).trim()) {
     throw new Error(`${name} empty`);
@@ -893,7 +905,7 @@ function buildDeviceActionReply(deviceIntent) {
 
 
 const SUPPORTED_AGENT_STEP_TYPES = ["open_app", "home", "back", "recents", "notifications", "quick_settings", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "wait", "finish", "need_user_help"];
-const AGENT_ACTION_BATCH_MAX = Math.max(1, Math.min(3, Number(process.env.AGENT_ACTION_BATCH_MAX || 3)));
+const AGENT_ACTION_BATCH_MAX = Math.max(1, Math.min(3, Number(process.env.AGENT_ACTION_BATCH_MAX || 1)));
 const HIGH_RISK_AGENT_WORDS = [
   "支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意",
   "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "确认付款",
@@ -1594,6 +1606,293 @@ function compactAgentMemoryForPrompt(agentMemory, recentActions) {
     loopSignals: memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {},
     policyHints: Array.isArray(memory.policyHints) ? memory.policyHints.slice(0, 8) : [],
   };
+}
+
+
+function routeEvidenceText(snapshot, visualFrame = null) {
+  return evidenceTextForCompletion(snapshot, visualFrame);
+}
+
+function routeTextContainsAny(text, words) {
+  const normalized = normalizeForMatch(text);
+  return words.some((word) => normalized.includes(normalizeForMatch(word)));
+}
+
+function normalizeAgentRoutePlan(value, fallbackGoal = "") {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.routePlan || raw.plan || raw.result || raw;
+  const preferredAction = normalizeAgentStepType(nested.preferredAction || nested.action || nested.nextAction || "tap_xy");
+  const subgoal = safeText(nested.subgoal || nested.groundingGoal || nested.nextTarget || fallbackGoal, 220);
+  const expectedEvidence = Array.isArray(nested.expectedEvidence) ? nested.expectedEvidence.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 8) : [];
+  const avoidEvidence = Array.isArray(nested.avoidEvidence) ? nested.avoidEvidence.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 8) : [];
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? 0);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0;
+  const allowScrollRaw = nested.allowScroll;
+  const allowScroll = allowScrollRaw === undefined || allowScrollRaw === null
+    ? !["back", "finish", "need_user_help"].includes(preferredAction)
+    : Boolean(allowScrollRaw);
+  const directAction = ["back", "home", "wait", "finish", "need_user_help"].includes(preferredAction) ? preferredAction : "";
+  return {
+    stage: safeText(nested.stage || nested.phase || "route", 40),
+    currentAssessment: safeText(nested.currentAssessment || nested.assessment || nested.pageAssessment || "", 180),
+    subgoal: subgoal || safeText(fallbackGoal, 220),
+    groundingGoal: safeText(nested.groundingGoal || subgoal || fallbackGoal, 240),
+    preferredAction,
+    directAction,
+    allowScroll,
+    expectedEvidence,
+    avoidEvidence,
+    routeState: safeText(nested.routeState || nested.status || "", 40),
+    reason: safeText(nested.reason || nested.rationale || nested.currentAssessment || "路线规划器生成当前子目标。", 220),
+    confidence,
+    source: safeText(nested.source || "model", 40),
+  };
+}
+
+function buildLocalRoutePlan(goal, snapshot, visualFrame = null, recentActions = [], deviceContext = null) {
+  const normalizedGoal = normalizeForMatch(goal);
+  const evidence = routeEvidenceText(snapshot, visualFrame);
+  const recent = normalizeForMatch(Array.isArray(recentActions) ? recentActions.join(" ") : "");
+  const wantsSettings = ["设置", "settings", "setting", "选项", "账号管理", "隐私", "通用"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
+  const wantsContacts = ["联系人", "通讯录", "contacts"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
+  const wantsBack = ["返回", "上一页", "back"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
+
+  if (wantsBack) {
+    return normalizeAgentRoutePlan({
+      preferredAction: "back",
+      subgoal: "返回上一页",
+      groundingGoal: "返回上一页",
+      allowScroll: false,
+      expectedEvidence: ["上一页"],
+      reason: "用户目标本身是返回，直接使用系统 back，避免坐标误点。",
+      confidence: 0.86,
+      source: "local_rule",
+    }, goal);
+  }
+
+  if (wantsSettings) {
+    const looksLikeChannelProfile = routeTextContainsAny(evidence, ["个人中心", "我的频道", "我关注的作者", "创建频道", "我发表的帖子", "频道钱包", "签约中心", "频道"]);
+    const settingVisible = routeTextContainsAny(evidence, ["设置", "账号管理", "隐私", "通用", "辅助功能"]);
+    const repeatedSwipe = (recent.match(/swipe|scroll|滑动|滚动/g) || []).length >= 1;
+    if (looksLikeChannelProfile && !settingVisible) {
+      return normalizeAgentRoutePlan({
+        preferredAction: "back",
+        subgoal: "返回上一页；当前个人中心频道页不是设置路径，不要继续在此页滑动找设置",
+        groundingGoal: "点击左上角返回箭头或执行返回，离开当前个人中心频道页",
+        allowScroll: false,
+        expectedEvidence: ["QQ 主页面", "侧边菜单", "设置入口"],
+        avoidEvidence: ["我的频道", "创建频道", "帖子", "频道钱包", "签约中心"],
+        reason: "当前页面是个人中心/频道资料页，未出现设置入口，继续滑动属于盲找，应返回换路径。",
+        confidence: repeatedSwipe ? 0.92 : 0.86,
+        source: "local_rule",
+      }, goal);
+    }
+    if (settingVisible) {
+      return normalizeAgentRoutePlan({
+        preferredAction: "tap_xy",
+        subgoal: "点击屏幕中可见的“设置”入口",
+        groundingGoal: "点击可见的“设置”入口",
+        allowScroll: false,
+        expectedEvidence: ["设置页", "账号管理", "隐私", "通用"],
+        reason: "设置入口已经可见，交给 GUI Plus 精确定位点击。",
+        confidence: 0.82,
+        source: "local_rule",
+      }, goal);
+    }
+    if (repeatedSwipe) {
+      return normalizeAgentRoutePlan({
+        preferredAction: "back",
+        subgoal: "停止在当前页继续滑动，返回上一层重新寻找设置入口",
+        groundingGoal: "点击左上角返回箭头或执行返回",
+        allowScroll: false,
+        expectedEvidence: ["QQ 主页面", "菜单", "设置"],
+        reason: "近期已经滑动但没有找到设置，路线价值低，应返回重选入口。",
+        confidence: 0.78,
+        source: "local_rule",
+      }, goal);
+    }
+    return normalizeAgentRoutePlan({
+      preferredAction: "tap_xy",
+      subgoal: "寻找并点击明确的设置入口；如果当前页没有设置入口，不要盲滑，优先返回上一层",
+      groundingGoal: "点击当前屏幕可见的设置入口；若不可见则返回上一层",
+      allowScroll: false,
+      expectedEvidence: ["设置", "账号管理", "隐私", "通用"],
+      avoidEvidence: ["频道页", "帖子列表", "钱包", "签约中心"],
+      reason: "目标是设置，需要先找到明确设置入口，禁止在无关个人中心页盲目滚动。",
+      confidence: 0.58,
+      source: "local_rule",
+    }, goal);
+  }
+
+  if (wantsContacts) {
+    return normalizeAgentRoutePlan({
+      preferredAction: "tap_xy",
+      subgoal: "点击当前屏幕中可见的“联系人”入口或底部联系人标签",
+      groundingGoal: "点击“联系人”入口",
+      allowScroll: false,
+      expectedEvidence: ["联系人页", "好友", "群聊"],
+      reason: "联系人属于低风险导航入口，交给 GUI Plus 定位可见标签。",
+      confidence: 0.72,
+      source: "local_rule",
+    }, goal);
+  }
+
+  return normalizeAgentRoutePlan({
+    preferredAction: "tap_xy",
+    subgoal: safeText(goal, 220),
+    groundingGoal: safeText(goal, 240),
+    allowScroll: true,
+    expectedEvidence: [],
+    avoidEvidence: [],
+    reason: "没有命中特定路线规则，使用用户目标作为当前子目标。",
+    confidence: 0.42,
+    source: "local_fallback",
+  }, goal);
+}
+
+function buildAgentRoutePlannerSystemPrompt() {
+  return [
+    "你是 Android GUI Agent 的路线规划器，不负责点击坐标，只负责把用户大目标拆成当前屏幕的一步子目标。",
+    "你必须只输出严格 JSON，不能输出 Markdown、自然语言解释或代码块。",
+    "GUI Plus 后续只负责定位坐标，所以你输出的 groundingGoal 必须是明确可定位的当前一步目标，例如“点击左上角返回箭头”“点击底部联系人 Tab”“点击可见的设置入口”。",
+    "不要让 GUI Plus 自己猜整条路线；不要输出宽泛目标如“找到设置”。",
+    "如果当前页面明显不是目标路线，例如进入了个人中心频道页、帖子页、钱包页、广告页，而目标是设置/联系人/搜索等，应 preferredAction=back，allowScroll=false。",
+    "只有当前页面本身可滚动且目标可能就在同一列表中时，才 allowScroll=true。",
+    "如果已经看到目标入口，preferredAction=tap_xy，groundingGoal 指向该入口。",
+    "如果目标已完成，preferredAction=finish。",
+    "输出格式：",
+    "{\"routePlan\":{\"stage\":\"route\",\"currentAssessment\":\"当前页判断\",\"subgoal\":\"当前一步子目标\",\"groundingGoal\":\"给 GUI Plus 的具体定位目标\",\"preferredAction\":\"tap_xy|back|swipe|scroll|wait|finish|need_user_help\",\"allowScroll\":false,\"expectedEvidence\":[\"\"],\"avoidEvidence\":[\"\"],\"routeState\":\"on_route|off_route|done|uncertain\",\"reason\":\"简短原因\",\"confidence\":0.0}}"
+  ].join("\n");
+}
+
+function buildAgentRoutePlannerMessages(goal, snapshot, visualFrame, recentActions, deviceContext, agentMemory) {
+  const payload = {
+    goal,
+    currentApp: snapshot.currentApp || snapshot.packageName || "",
+    currentEvidence: {
+      visualFrame: visualFrame ? {
+        pageTitle: visualFrame.pageTitle || "",
+        pageType: visualFrame.pageType || "",
+        summary: visualFrame.summary || "",
+        targetText: visualFrame.targetText || "",
+        confidence: visualFrame.confidence || 0,
+      } : null,
+      texts: (snapshot.texts || []).slice(0, 24),
+      clickableTexts: (snapshot.clickableNodes || []).map((node) => node.text).filter(Boolean).slice(0, 24),
+      nodeCount: snapshot.nodeCount,
+    },
+    recentActions: Array.isArray(recentActions) ? recentActions.slice(-8) : [],
+    memory: compactAgentMemoryForPrompt(agentMemory, recentActions),
+    device: deviceContextSummaryForPrompt(deviceContext),
+    task: "输出当前路线判断和给 GUI Plus 的具体 groundingGoal。不要输出坐标。",
+  };
+  return [
+    { role: "system", content: buildAgentRoutePlannerSystemPrompt() },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+}
+
+async function callAgentRoutePlanner(goal, snapshot, visualFrame, recentActions, deviceContext, agentMemory, timeoutMs = AGENT_ROUTE_PLANNER_TIMEOUT_MS) {
+  const local = buildLocalRoutePlan(goal, snapshot, visualFrame, recentActions, deviceContext);
+  if (local.confidence >= 0.78 || local.directAction) return local;
+  try {
+    const raw = await callOpenAICompatible(
+      process.env.QWEN_BASE_URL,
+      process.env.QWEN_API_KEY,
+      process.env.QWEN_MODEL,
+      buildAgentRoutePlannerMessages(goal, snapshot, visualFrame, recentActions, deviceContext, agentMemory),
+      "Qwen Agent Route Planner",
+      {
+        temperature: 0,
+        max_tokens: AGENT_ROUTE_PLANNER_MAX_TOKENS,
+        timeoutMs: Math.max(300, Number(timeoutMs || AGENT_ROUTE_PLANNER_TIMEOUT_MS)),
+        response_format: { type: "json_object" },
+      }
+    );
+    let parsed = {};
+    try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+    const modelPlan = normalizeAgentRoutePlan(parsed, goal);
+    if (modelPlan.confidence >= 0.45 && modelPlan.groundingGoal) return { ...modelPlan, source: "model" };
+  } catch (error) {
+    return { ...local, reason: `${local.reason} 路线模型暂不可用：${sanitizeProviderError(error, 80)}`.slice(0, 220), source: `${local.source}_model_error` };
+  }
+  return local;
+}
+
+function routePlanToDirectAgentPlan(routePlan, snapshot, supportedSteps, goal, screenshotInfo, deviceContext) {
+  if (!routePlan || !routePlan.directAction) return null;
+  const action = routePlan.directAction;
+  if (!["back", "home", "wait", "finish", "need_user_help"].includes(action)) return null;
+  const step = normalizeAgentStep({
+    agentStep: {
+      type: action,
+      durationMs: action === "wait" ? 700 : undefined,
+      reason: routePlan.reason || routePlan.subgoal || "路线规划器给出直接动作。",
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+  }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const state = normalizeAgentState({
+    agentState: {
+      isComplete: action === "finish",
+      expectedProgress: ["back", "home", "wait", "finish"].includes(action),
+      isWrong: action === "back" && routePlan.routeState === "off_route",
+      confidence: Math.max(0.45, Number(routePlan.confidence || 0)),
+      reason: routePlan.reason || routePlan.currentAssessment || "",
+      nextHint: routePlan.subgoal || "",
+    },
+  }, step);
+  return { agentStep: step, agentState: state, source: `route_planner_direct_${action}` };
+}
+
+function applyRoutePlanGuard(routePlan, agentStep, agentState, snapshot, supportedSteps, goal, screenshotInfo, deviceContext) {
+  if (!routePlan || !agentStep) return { agentStep, agentState, guarded: false, reason: "" };
+  if (routePlan.allowScroll === false && ["scroll", "swipe"].includes(agentStep.type)) {
+    const fallbackAction = routePlan.preferredAction === "back" || routePlan.directAction === "back" ? "back" : "need_user_help";
+    const reason = routePlan.reason || "路线规划禁止在当前页继续盲目滑动。";
+    const guardedStep = normalizeAgentStep({
+      agentStep: {
+        type: fallbackAction,
+        reason: `${reason} 已拦截 GUI Plus 的 ${agentStep.type}。`,
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const guardedState = normalizeAgentState({
+      agentState: {
+        isComplete: false,
+        expectedProgress: fallbackAction === "back",
+        isWrong: fallbackAction === "back",
+        confidence: Math.max(0.55, Number(routePlan.confidence || 0)),
+        reason: guardedStep.reason,
+        nextHint: routePlan.subgoal || "",
+      },
+    }, guardedStep);
+    return { agentStep: guardedStep, agentState: guardedState, guarded: true, reason: guardedStep.reason };
+  }
+  if (routePlan.preferredAction === "tap_xy" && ["wait", "need_user_help"].includes(agentStep.type) && routePlan.confidence >= 0.7) {
+    const reason = routePlan.reason || "路线规划已经给出明确可点击子目标，但 GUI Plus 未返回点击。";
+    const guardedStep = normalizeAgentStep({
+      agentStep: {
+        type: "need_user_help",
+        reason: `${reason} 需要重新截图或人工确认，禁止盲目等待。`,
+        riskLevel: "low",
+        requiresConfirmation: false,
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const guardedState = normalizeAgentState({
+      agentState: {
+        isComplete: false,
+        expectedProgress: false,
+        isWrong: false,
+        confidence: Math.max(0.4, Number(routePlan.confidence || 0)),
+        reason: guardedStep.reason,
+        nextHint: routePlan.subgoal || "",
+      },
+    }, guardedStep);
+    return { agentStep: guardedStep, agentState: guardedState, guarded: true, reason: guardedStep.reason };
+  }
+  return { agentStep, agentState, guarded: false, reason: "" };
 }
 
 
@@ -3141,7 +3440,13 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, recentA
     {
       temperature: 0,
       max_tokens: Math.min(ALIYUN_GUI_MAX_TOKENS, AGENT_VISION_MAX_TOKENS, 512),
-      timeoutMs: Math.max(300, Number(timeoutMs || ALIYUN_GUI_TIMEOUT_MS)),
+      timeoutMs: Math.max(
+        300,
+        Math.min(
+          Math.max(Number(timeoutMs || 0), Number(ALIYUN_GUI_TIMEOUT_MS || 15000)),
+          Math.max(300, Number(AGENT_STEP_TOTAL_BUDGET_MS || 18000) - AGENT_RESPONSE_SAFETY_MARGIN_MS)
+        )
+      ),
     }
   );
   const compact = normalizeAliyunMobileUseRawToCompact(raw, screenshotInfo, goal);
@@ -3477,12 +3782,36 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   let agentStep = null;
   let agentState = null;
   let planSource = "";
+  let routePlan = null;
+  let routePlannerMs = 0;
+  let routePlannerError = "";
+  let routeGuarded = false;
+  let routeGuardReason = "";
+  let groundingGoal = goal;
 
-  if (shouldCallVisual) {
+  const routeStartedAt = Date.now();
+  try {
+    const routeTimeoutMs = boundedAgentTimeoutMs(AGENT_ROUTE_PLANNER_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_ROUTE_PLANNER_TIMEOUT_MS);
+    routePlan = await callAgentRoutePlanner(goal, snapshot, visualFrame, recentAgentActions, deviceContext, agentMemory, routeTimeoutMs);
+    routePlannerMs = Date.now() - routeStartedAt;
+    groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
+  } catch (error) {
+    routePlannerMs = Date.now() - routeStartedAt;
+    routePlannerError = sanitizeProviderError(error, 120);
+    routePlan = buildLocalRoutePlan(goal, snapshot, visualFrame, recentAgentActions, deviceContext);
+    groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
+  }
+
+  const directRoutePlan = routePlanToDirectAgentPlan(routePlan, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  if (directRoutePlan) {
+    agentStep = directRoutePlan.agentStep;
+    agentState = directRoutePlan.agentState;
+    planSource = directRoutePlan.source || "route_planner_direct";
+  } else if (shouldCallVisual) {
     const providerStartedAt = Date.now();
     try {
       const visionTimeoutMs = boundedAgentTimeoutMs(AGENT_STEP_VISION_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_PLANNER_TIMEOUT_MS);
-      parsed = await callAgentGuiProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, guiProviderConfig, qwenProviderModel, visionTimeoutMs);
+      parsed = await callAgentGuiProvider(groundingGoal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, guiProviderConfig, qwenProviderModel, visionTimeoutMs);
       providerMs = Date.now() - providerStartedAt;
       visualCalled = true;
       visualFrame = normalizeVisualFrame(parsed);
@@ -3512,6 +3841,15 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "视觉单步规划器没有返回可靠动作，已暂停避免盲目操作。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
         agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: Math.max(0.25, Number(visualFrame?.confidence || 0)), reason: visualFrame?.reason || "视觉单步规划器没有返回可靠动作。" } }, agentStep);
         planSource = "vision_planner_no_action";
+      }
+
+      const routeGuard = applyRoutePlanGuard(routePlan, agentStep, agentState, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+      if (routeGuard.guarded) {
+        agentStep = routeGuard.agentStep;
+        agentState = routeGuard.agentState;
+        routeGuarded = true;
+        routeGuardReason = routeGuard.reason;
+        planSource = `${planSource}_route_guard`;
       }
 
       const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
@@ -3548,7 +3886,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     }
   } else {
     const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, visualCacheHit);
-    if (direct && (!cachedFrameNeedsTextPlanner(visualFrame, recentAgentActions) || direct.agentState?.isComplete || direct.agentState?.isWrong)) {
+    if (direct && (!cachedFrameNeedsTextPlanner(visualFrame, recentActions) || direct.agentState?.isComplete || direct.agentState?.isWrong)) {
       agentStep = direct.agentStep;
       agentState = direct.agentState;
       planSource = direct.source || "visual_cache_direct";
@@ -3559,6 +3897,15 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         textPlannerMs = Date.now() - plannerStartedAt;
         agentStep = normalizeAgentStep(parsed, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
         agentState = normalizeAgentState(parsed, agentStep);
+        const routeGuard = applyRoutePlanGuard(routePlan, agentStep, agentState, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+        if (routeGuard.guarded) {
+          agentStep = routeGuard.agentStep;
+          agentState = routeGuard.agentState;
+          routeGuarded = true;
+          routeGuardReason = routeGuard.reason;
+          planSource = `${planSource || "text_planner"}_route_guard`;
+        }
+
         const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
         if (completionEvidence && ["wait", "scroll", "swipe"].includes(agentStep.type)) {
           agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
@@ -3635,9 +3982,9 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     stopConditions,
     ...baseMeta,
     sourceDetail: planSource || baseMeta.sourceDetail,
-    model: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
-    modelId: visualCalled ? "qwen_vision" : textPlannerMs > 0 ? "qwen" : "cache_rule",
-    modelLabel: visualCalled ? "Qwen 视觉单步规划" : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
+    model: visualCalled ? guiProviderConfig.provider : textPlannerMs > 0 ? "qwen" : "cache_rule",
+    modelId: visualCalled ? guiProviderConfig.provider : textPlannerMs > 0 ? "qwen" : "cache_rule",
+    modelLabel: visualCalled ? guiProviderConfig.modelLabel : textPlannerMs > 0 ? "Qwen 文本规划" : "视觉缓存规则",
     providerModel: visualCalled ? (guiProviderConfig.providerModel || qwenProviderModel || process.env.QWEN_VISION_MODEL || "qwen-vl-plus") : textPlannerMs > 0 ? process.env.QWEN_MODEL : "cache",
     searchUsed: false,
     structuredUsed: false,
@@ -3651,6 +3998,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     deviceIntent: null,
     deviceIntentError: null,
     visualFrame,
+    routePlan,
     debug: {
       currentApp: snapshot.currentApp,
       packageName: snapshot.packageName,
@@ -3672,6 +4020,12 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       buildMessagesMs: 0,
       providerMs,
       textPlannerMs,
+      routePlannerMs,
+      routePlannerError,
+      routeGuarded,
+      routeGuardReason,
+      groundingGoal,
+      routePlan,
       parseMs: 0,
       totalMs,
       agentStepTotalBudgetMs: AGENT_STEP_TOTAL_BUDGET_MS,
@@ -3686,7 +4040,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       guiOperatorMode: true,
       pluggableGuiProvider: true,
       layeredAgentRuntime: true,
-      agentArchitecture: "perception_planning_decision_reflection_memory",
+      agentArchitecture: "route_planner_gui_grounder_verifier_memory",
       guiProvider: guiProviderConfig.provider,
       requestedGuiProvider: guiProviderConfig.requestedProvider,
       guiProviderMode: guiProviderConfig.mode,
@@ -3806,6 +4160,7 @@ async function detectIntentByModel(prompt) {
 
 function normalizeStockSymbol(symbol, rawText) {
   const clean = String(symbol || "").toUpperCase().trim();
+
   if (!clean) return "";
 
   if (clean.includes(".")) return clean;
