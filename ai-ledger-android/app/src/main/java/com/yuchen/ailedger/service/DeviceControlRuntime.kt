@@ -33,6 +33,7 @@ class DeviceControlRuntime(
     private val installedAppIndex: InstalledAppIndex = InstalledAppIndex(context.applicationContext),
 ) {
     private val appContext: Context = context.applicationContext
+    private val shellBridge: DeviceShellBridge = DeviceShellBridge(appContext)
 
     fun tryExecute(rawGoal: String): DeviceControlResult? {
         val goal = rawGoal.trim()
@@ -43,6 +44,10 @@ class DeviceControlRuntime(
             ?: trySetScreenTimeout(goal, normalized)
             ?: tryOpenAppScopedSettings(goal, normalized)
             ?: tryOpenSystemSettings(goal, normalized)
+            ?: tryOpenEnhancedModeStatus(goal, normalized)
+            ?: tryBlockHighRiskEnhancedActions(goal, normalized)
+            ?: trySetAnimationScalePlaceholder(goal, normalized)
+            ?: tryRunSafeShellDiagnostic(goal, normalized)
             ?: tryBuildDeviceHealthReport(goal, normalized)
             ?: tryOpenPlainApp(goal, normalized)
     }
@@ -56,6 +61,7 @@ class DeviceControlRuntime(
         val battery = batteryStatus()
         val network = networkStatus()
         val appCount = runCatching { installedAppIndex.getLaunchableApps(forceReload = false).size }.getOrDefault(0)
+        val shell = shellBridge.probe()
         val cleanupHint = if (hasAny(normalized, listOf("清内存", "清理后台", "释放内存"))) {
             "\n\n清理说明：普通 Android App 不能直接强制清理其他 App 进程；我已完成状态检查。后续接入 Shizuku/ADB 增强模式后，可以把强停、dumpsys、appops 做成真正的内部工具。"
         } else {
@@ -71,8 +77,73 @@ class DeviceControlRuntime(
                 append("内存：").append(memory).append('\n')
                 append("存储：").append(storage).append('\n')
                 append("网络：").append(network).append('\n')
-                append("可启动应用：").append(appCount).append(" 个")
+                append("可启动应用：").append(appCount).append(" 个\n")
+                append("Shell：").append(if (shell.available) "基础可用" else "不可用")
+                append(" · ").append(if (shell.isAdbShellLike) "ADB/shell 级" else "App 沙箱级")
                 append(cleanupHint)
+            },
+        )
+    }
+
+    private fun tryOpenEnhancedModeStatus(goal: String, normalized: String): DeviceControlResult? {
+        if (!hasAny(normalized, listOf("shizuku", "adb", "shell状态", "增强模式", "内部控制状态", "控制能力", "能力列表", "codex能力", "设备工具状态", "devicecontrol"))) return null
+        return DeviceControlResult(
+            ok = true,
+            title = "增强模式状态",
+            message = shellBridge.enhancedModeGuide(),
+        )
+    }
+
+    private fun tryRunSafeShellDiagnostic(goal: String, normalized: String): DeviceControlResult? {
+        val key = when {
+            hasAny(normalized, listOf("shell身份", "运行身份", "uid状态")) -> "identity"
+            hasAny(normalized, listOf("系统属性", "设备属性", "getprop", "安卓版本", "android版本")) -> "system_properties"
+            hasAny(normalized, listOf("动画缩放状态", "查看动画缩放", "读取动画缩放")) -> "animation_scales"
+            hasAny(normalized, listOf("电池dumpsys", "dumpsys电池", "电池详情", "电池dump")) -> "battery_dump"
+            else -> null
+        } ?: return null
+        val result = shellBridge.runSafeDiagnostic(key) ?: return null
+        return DeviceControlResult(
+            ok = result.ok,
+            title = result.title,
+            message = buildString {
+                append(result.title).append(if (result.ok) "完成" else "失败")
+                result.exitCode?.let { append(" · exit=").append(it) }
+                append("\n\n")
+                append(result.output.ifBlank { "无输出" })
+                if (result.error.isNotBlank()) append("\n\n错误：").append(result.error)
+            },
+        )
+    }
+
+    private fun tryBlockHighRiskEnhancedActions(goal: String, normalized: String): DeviceControlResult? {
+        if (!hasAny(normalized, highRiskEnhancedKeywords)) return null
+        val query = extractAppQuery(goal, highRiskEnhancedKeywords)
+        val app = query.takeIf { it.isNotBlank() }?.let { installedAppIndex.findBestApp(it) }
+        val target = app?.let { "${it.label}（${it.packageName}）" } ?: query.ifBlank { "目标应用" }
+        return DeviceControlResult(
+            ok = false,
+            title = "需要增强权限",
+            message = buildString {
+                append("这个动作属于高风险内部控制：").append(target).append("。\n\n")
+                append("普通 App 权限不能可靠执行强停、卸载、禁用、清除数据、appops 或 secure/global settings 写入。")
+                append("下一步要接入 Shizuku/ADB Bridge，并为这类动作加二次确认与执行日志。\n\n")
+                append("当前已安全拦截，没有执行任何破坏性操作。")
+            },
+        )
+    }
+
+    private fun trySetAnimationScalePlaceholder(goal: String, normalized: String): DeviceControlResult? {
+        if (!hasAny(normalized, listOf("动画缩放", "窗口动画", "过渡动画", "animator_duration"))) return null
+        if (!hasAny(normalized, listOf("设置", "修改", "改成", "调到", "关闭", "调低", "调高"))) return null
+        val opened = launchActivity(Intent(ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT))
+        return DeviceControlResult(
+            ok = false,
+            title = "动画缩放需要增强权限",
+            message = buildString {
+                append("动画缩放属于 global settings 写入，普通 App 的 WRITE_SETTINGS 覆盖不到这个权限级别。")
+                if (opened) append("我已先打开开发者选项入口，你可以手动调整。")
+                append("\n\n接入 Shizuku/ADB 后可以用内部命令安全执行，例如 settings put global window_animation_scale 0.5，并在执行前做二次确认。")
             },
         )
     }
@@ -334,6 +405,10 @@ class DeviceControlRuntime(
         private const val ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT = "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
         private const val ACTION_MANAGE_WRITE_SETTINGS_COMPAT = "android.settings.action.MANAGE_WRITE_SETTINGS"
         private const val EXTRA_APP_PACKAGE_COMPAT = "android.provider.extra.APP_PACKAGE"
+
+        private val highRiskEnhancedKeywords = listOf(
+            "强停", "force-stop", "forcestop", "关闭后台", "杀后台", "结束进程", "清除数据", "清空数据", "卸载", "禁用", "启用", "appops", "授权权限", "撤销权限", "secure settings", "global settings",
+        )
 
         private val deepNavigationWords = listOf(
             "页面", "界面", "联系人", "朋友圈", "聊天", "消息", "搜索", "找到", "详情", "热榜", "行情", "文件", "小程序", "设置页",
