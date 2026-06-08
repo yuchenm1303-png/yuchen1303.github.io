@@ -152,6 +152,10 @@ data class CloudAgentStep(
     val x: Float? = null,
     val y: Float? = null,
     val durationMs: Long? = null,
+    val inputMode: String? = null,
+    val requiresInputNode: Boolean = true,
+    val expectsFocusedInput: Boolean = false,
+    val useFocusedInput: Boolean = false,
 ) {
     val typeLabel: String
         get() = when (type) {
@@ -172,7 +176,20 @@ data class CloudAgentStep(
             else -> type
         }
 
+    val shouldUseFocusedDirectInput: Boolean
+        get() = inputMode?.lowercase()?.replace('-', '_') in focusedInputModes || useFocusedInput || expectsFocusedInput || !requiresInputNode
+
     companion object {
+        private val focusedInputModes = setOf(
+            "focused_direct",
+            "focused",
+            "direct",
+            "keyboard",
+            "ime",
+            "active_input",
+            "current_focus",
+        )
+
         val supportedTypes = setOf(
             "open_app",
             "tap_node",
@@ -208,6 +225,26 @@ data class CloudAgentStep(
                 ?: item.optString("app").notBlankOrNull()
             val parsedPackageName = item.optString("packageName").notBlankOrNull()
                 ?: item.optString("package").notBlankOrNull()
+            val parsedInputMode = item.optString("inputMode").notBlankOrNull()
+                ?: item.optString("input_mode").notBlankOrNull()
+                ?: item.optString("inputStrategy").notBlankOrNull()
+                ?: item.optString("input_strategy").notBlankOrNull()
+            val inputModeKey = parsedInputMode?.lowercase()?.replace('-', '_')
+            val explicitUseFocusedInput = item.optFlexibleBoolean("useFocusedInput")
+                ?: item.optFlexibleBoolean("use_focused_input")
+                ?: item.optFlexibleBoolean("focusedDirect")
+                ?: item.optFlexibleBoolean("focused_direct")
+            val parsedExpectsFocusedInput = item.optFlexibleBoolean("expectsFocusedInput")
+                ?: item.optFlexibleBoolean("expects_focused_input")
+                ?: item.optFlexibleBoolean("focusedInput")
+                ?: item.optFlexibleBoolean("focused_input")
+                ?: false
+            val inferredFocusedDirect = inputModeKey in focusedInputModes || explicitUseFocusedInput == true || parsedExpectsFocusedInput
+            val parsedRequiresInputNode = item.optFlexibleBoolean("requiresInputNode")
+                ?: item.optFlexibleBoolean("requires_input_node")
+                ?: item.optFlexibleBoolean("inputNodeRequired")
+                ?: item.optFlexibleBoolean("input_node_required")
+                ?: !inferredFocusedDirect
             return CloudAgentStep(
                 type = normalizedType,
                 targetNodeId = item.optString("targetNodeId").notBlankOrNull()
@@ -227,6 +264,10 @@ data class CloudAgentStep(
                 x = item.optNullableFloat("x"),
                 y = item.optNullableFloat("y"),
                 durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
+                inputMode = parsedInputMode,
+                requiresInputNode = parsedRequiresInputNode,
+                expectsFocusedInput = parsedExpectsFocusedInput,
+                useFocusedInput = explicitUseFocusedInput ?: inferredFocusedDirect,
             )
         }
     }
