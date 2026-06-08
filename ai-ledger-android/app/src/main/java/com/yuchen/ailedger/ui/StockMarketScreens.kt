@@ -64,8 +64,8 @@ private val SectionLine = Color.White.copy(alpha = 0.085f)
 private val MarketOverviewPanelHeight = 340.dp
 private val MarketHotPanelHeight = 470.dp
 private val MarketWatchPanelHeight = 450.dp
-private val StockDetailCorePanelHeight = 880.dp
-private val StockDetailInfoPanelHeight = 560.dp
+private val StockDetailCorePanelHeight = 960.dp
+private val StockDetailInfoPanelHeight = 590.dp
 
 @Composable
 fun AStockMarketScreenV2(
@@ -180,12 +180,12 @@ private fun HomeHeader(appState: AssistantUiState, ui: StockMarketUiState, onBac
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
             Spacer(Modifier.weight(1f))
-            Text("市场总览 · A股", color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("市场总览 · A股", color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             StockIconButton(appState, if (ui.loading || ui.marketLoading) "…" else "⟳", onRefresh)
         }
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("A-SHARE MARKET", color = Aqua.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-            Text("市场概览", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text("A-SHARE MARKET", color = Aqua.copy(alpha = 0.72f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black)
+            Text("市场概览", color = Color.White, fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(statusText(ui), color = statusColor(ui), fontSize = 12.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -197,8 +197,8 @@ private fun DetailTopBar(appState: AssistantUiState, ui: StockMarketUiState, onB
         StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
         Spacer(Modifier.weight(1f))
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(ui.stock.quote.name, color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${ui.stock.quote.code} · ${ui.stock.quote.market}", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(ui.stock.quote.name, color = Color.White.copy(alpha = 0.82f), fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${ui.stock.quote.code} · ${ui.stock.quote.market}", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
         StockIconButton(appState, if (ui.loading || ui.kLineLoading) "…" else "⟳", onRefresh)
     }
@@ -272,19 +272,19 @@ private fun WatchNewsAiHomeSection(stock: StockDetailUiState, onOpenCode: (Strin
 @Composable
 private fun TopSearchBar(appState: AssistantUiState, ui: StockMarketUiState, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("⌕", color = Aqua.copy(alpha = 0.88f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+        Text("⌕", color = Aqua.copy(alpha = 0.88f), fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
         BasicTextField(
             value = ui.query,
             onValueChange = onQueryChange,
             singleLine = true,
-            textStyle = TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black),
+            textStyle = TextStyle(color = Color.White, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black),
             cursorBrush = SolidColor(Color.White.copy(alpha = 0.92f)),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearch() }),
             modifier = Modifier.weight(1f),
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    if (ui.query.isBlank()) Text("搜索股票 / 板块 / 新闻", color = Color.White.copy(alpha = 0.38f), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (ui.query.isBlank()) Text("搜索股票 / 板块 / 新闻", color = Color.White.copy(alpha = 0.38f), fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold)
                     inner()
                 }
             }
@@ -301,12 +301,12 @@ private fun MarketMoodSection(stock: StockDetailUiState, onOpenDetail: () -> Uni
             MetricTile("谨慎观察", "${fallingCount(stock)} 个", FallGreen, Modifier.weight(1f))
             MetricTile("热点池", "${hotPoolCount(stock)} 条", Aqua, Modifier.weight(1f))
         }
-        Row(Modifier.fillMaxWidth().height(42.dp).clickable(onClick = onOpenDetail), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("当前关注", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxWidth().height(44.dp).clickable(onClick = onOpenDetail), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                Text("当前关注", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
+                Text("${stock.quote.name} · ${stock.quote.code}", color = Color.White.copy(alpha = 0.92f), fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(stock.quote.changePercent, color = quoteColor(stock.quote.isRising), fontSize = 13.sp, fontWeight = FontWeight.Black)
+            Text(stock.quote.changePercent, color = quoteColor(stock.quote.isRising), fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black)
         }
     }
 }
@@ -315,21 +315,21 @@ private fun MarketMoodSection(stock: StockDetailUiState, onOpenDetail: () -> Uni
 private fun DetailQuoteHeaderSection(stock: StockDetailUiState) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stock.quote.name.ifBlank { "个股详情" }, color = Color.White, fontSize = 30.sp, lineHeight = 32.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${stock.quote.code} · ${stock.quote.market} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("人气排名 ${stock.quote.popularityRank}", color = Aqua.copy(alpha = 0.78f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(stock.quote.name.ifBlank { "个股详情" }, color = Color.White, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${stock.quote.code} · ${stock.quote.market} · ${stock.dataSourceLabel}", color = Color.White.copy(alpha = 0.48f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("人气排名 ${stock.quote.popularityRank}", color = Aqua.copy(alpha = 0.78f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(stock.quote.price.ifBlank { "--" }, color = quoteColor(stock.quote.isRising), fontSize = 39.sp, lineHeight = 40.sp, fontWeight = FontWeight.Black)
-            Text("${stock.quote.changeAmount}  ${stock.quote.changePercent}", color = quoteColor(stock.quote.isRising), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text("成交额 ${stock.quote.amount}", color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(stock.quote.price.ifBlank { "--" }, color = quoteColor(stock.quote.isRising), fontSize = 39.sp, lineHeight = 45.sp, fontWeight = FontWeight.Black)
+            Text("${stock.quote.changeAmount}  ${stock.quote.changePercent}", color = quoteColor(stock.quote.isRising), fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text("成交额 ${stock.quote.amount}", color = Color.White.copy(alpha = 0.50f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
 
 @Composable
 private fun DetailMetricTickerSection(stock: StockDetailUiState) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             CompactMetricCell("高", stock.quote.high, RiseRed, Modifier.weight(1f))
             CompactMetricCell("低", stock.quote.low, FallGreen, Modifier.weight(1f))
@@ -354,18 +354,18 @@ private fun DetailMetricTickerSection(stock: StockDetailUiState) {
 @Composable
 private fun ProfessionalTerminalSection(appState: AssistantUiState, ui: StockMarketUiState, onSelectTab: (String) -> Unit) {
     val isTimeShare = ui.selectedTab == "分时" || ui.selectedTab == "五日"
-    Column(Modifier.fillMaxWidth().height(440.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().height(430.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(34.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
+            StockTabs.forEach { tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), { onSelectTab(tab) }, active = ui.selectedTab == tab) }
         }
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (isTimeShare) "集合竞价" else "历史K线", color = Color.White.copy(alpha = 0.60f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text(if (isTimeShare) "均价 ${averageLineLabel(ui.stock)}" else "MA5", color = AvgYellow.copy(alpha = 0.92f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text(if (isTimeShare) "最新 ${ui.stock.quote.price}" else "MA10", color = if (isTimeShare) quoteColor(ui.stock.quote.isRising) else MaBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(if (isTimeShare) "集合竞价" else "历史K线", color = Color.White.copy(alpha = 0.60f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black)
+                    Text(if (isTimeShare) "均价 ${averageLineLabel(ui.stock)}" else "MA5", color = AvgYellow.copy(alpha = 0.92f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black)
+                    Text(if (isTimeShare) "最新 ${ui.stock.quote.price}" else "MA10", color = if (isTimeShare) quoteColor(ui.stock.quote.isRising) else MaBlue, fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
-                    Text(ui.stock.quote.changePercent, color = quoteColor(ui.stock.quote.isRising), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(ui.stock.quote.changePercent, color = quoteColor(ui.stock.quote.isRising), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black)
                 }
                 StockMainChartCanvas(ui.stock, ui.selectedTab, Modifier.fillMaxWidth().weight(1f))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -373,7 +373,7 @@ private fun ProfessionalTerminalSection(appState: AssistantUiState, ui: StockMar
                     CompactMetricCell("成交量", ui.stock.quote.amount, Color.White, Modifier.weight(1f))
                     CompactMetricCell("PB", ui.stock.quote.pb, Color.White, Modifier.weight(1f))
                 }
-                ui.requestMessage?.let { Text(it, color = Color(0xFFFFC857).copy(alpha = 0.82f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                ui.requestMessage?.let { Text(it, color = Color(0xFFFFC857).copy(alpha = 0.82f), fontSize = 10.sp, lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             RightDepthTapeColumn(ui.stock, Modifier.width(118.dp).fillMaxSize())
         }
@@ -383,12 +383,12 @@ private fun ProfessionalTerminalSection(appState: AssistantUiState, ui: StockMar
 @Composable
 private fun RightDepthTapeColumn(stock: StockDetailUiState, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("盘口", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("盘口", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1)
         DepthMiniRows(stock.sellLevels, isAskSide = true, Modifier.weight(1.25f))
         Box(Modifier.fillMaxWidth().height(2.dp).background(quoteColor(stock.quote.isRising).copy(alpha = 0.56f)))
         DepthMiniRows(stock.buyLevels, isAskSide = false, Modifier.weight(1.25f))
         SectionDivider()
-        Text("逐笔", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1)
+        Text("逐笔", color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1)
         TradeMiniRows(stock.tradeTicks, Modifier.weight(1f))
     }
 }
@@ -399,9 +399,9 @@ private fun DepthMiniRows(levels: List<StockOrderLevel>, isAskSide: Boolean, mod
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.SpaceEvenly) {
         display.take(6).forEach { level ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(level.label.take(2), color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, modifier = Modifier.width(20.dp), maxLines = 1)
-                Text(level.price, color = quoteColor(!level.isAsk), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(level.volume, color = Color.White.copy(alpha = 0.68f), fontSize = 8.sp, textAlign = TextAlign.End, modifier = Modifier.width(32.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(level.label.take(2), color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, lineHeight = 10.sp, modifier = Modifier.width(20.dp), maxLines = 1)
+                Text(level.price, color = quoteColor(!level.isAsk), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(level.volume, color = Color.White.copy(alpha = 0.68f), fontSize = 8.sp, lineHeight = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(32.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -412,9 +412,9 @@ private fun TradeMiniRows(ticks: List<StockTradeTick>, modifier: Modifier) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.SpaceEvenly) {
         ticks.take(6).ifEmpty { fallbackTicks() }.forEach { tick ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(tick.time.takeLast(5), color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, modifier = Modifier.width(30.dp), maxLines = 1)
-                Text(tick.price, color = quoteColor(tick.isBuy), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1)
-                Text(tick.volume, color = Color.White.copy(alpha = 0.65f), fontSize = 8.sp, textAlign = TextAlign.End, modifier = Modifier.width(34.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(tick.time.takeLast(5), color = Color.White.copy(alpha = 0.42f), fontSize = 8.sp, lineHeight = 10.sp, modifier = Modifier.width(30.dp), maxLines = 1)
+                Text(tick.price, color = quoteColor(tick.isBuy), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1)
+                Text(tick.volume, color = Color.White.copy(alpha = 0.65f), fontSize = 8.sp, lineHeight = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(34.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -427,7 +427,7 @@ private fun DetailActionBar(appState: AssistantUiState, ui: StockMarketUiState, 
             StockButton(
                 appState = appState,
                 text = if (action == "加自选" && ui.isWatched) "已自选" else action,
-                modifier = Modifier.weight(1f).height(40.dp),
+                modifier = Modifier.weight(1f).height(42.dp),
                 onClick = { onAction(if (action == "买入" || action == "卖出") "交易" else action) },
                 active = ui.activeAction == action || (action == "买入" && ui.activeAction == "交易")
             )
@@ -439,7 +439,7 @@ private fun DetailActionBar(appState: AssistantUiState, ui: StockMarketUiState, 
 private fun DetailDecisionSection(appState: AssistantUiState, stock: StockDetailUiState, onOpenAssistant: () -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DetailInfoTabs.forEachIndexed { index, tab -> StockButton(appState, tab, Modifier.weight(1f).height(34.dp), onClick = {}, active = index == 0) }
+            DetailInfoTabs.forEachIndexed { index, tab -> StockButton(appState, tab, Modifier.weight(1f).height(36.dp), onClick = {}, active = index == 0) }
         }
         SectionDivider()
         AiSummarySection(stock, onOpenAssistant)
@@ -492,12 +492,12 @@ private fun FundamentalsSection(stock: StockDetailUiState) {
 
 @Composable
 private fun IndexStripSection(indices: List<StockIndexSnapshot>) {
-    Row(Modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(62.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         indices.take(3).ifEmpty { listOf(StockIndexSnapshot("上证", "--", "--", true), StockIndexSnapshot("深成", "--", "--", true), StockIndexSnapshot("创业板", "--", "--", false)) }.forEach { item ->
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(item.name, color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(item.value, color = Color.White.copy(alpha = 0.90f), fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(item.name, color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(item.value, color = Color.White.copy(alpha = 0.90f), fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
             }
         }
     }
@@ -533,13 +533,13 @@ private fun WatchListSection(stock: StockDetailUiState, onOpenCode: (String) -> 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Section("自选股", stock.dataSourceLabel)
         stock.watchlist.take(4).forEach { item ->
-            Row(Modifier.fillMaxWidth().height(40.dp).clickable { onOpenCode(item.code) }, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(item.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(item.code, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth().height(44.dp).clickable { onOpenCode(item.code) }, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(item.name, color = Color.White, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(item.code, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
                 }
-                Text(item.price, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(68.dp), textAlign = TextAlign.End)
+                Text(item.price, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black)
+                Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(68.dp), textAlign = TextAlign.End)
             }
         }
     }
@@ -558,9 +558,9 @@ private fun NewsSignalSection(stock: StockDetailUiState) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Section("新闻与公告", "市场快讯、自选相关新闻和公告入口")
         marketNewsLines(stock).take(3).forEachIndexed { index, text ->
-            Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text((index + 1).toString(), color = Aqua.copy(alpha = 0.82f), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(18.dp), textAlign = TextAlign.Center)
-                Text(text, color = Color.White.copy(alpha = 0.74f), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text((index + 1).toString(), color = Aqua.copy(alpha = 0.82f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(18.dp), textAlign = TextAlign.Center)
+                Text(text, color = Color.White.copy(alpha = 0.74f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -568,14 +568,14 @@ private fun NewsSignalSection(stock: StockDetailUiState) {
 
 @Composable
 private fun RankRow(rank: Int, item: StockRankItem, onOpenCode: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().height(38.dp).clickable { onOpenCode(item.code) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(rank.toString(), color = Aqua.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp), textAlign = TextAlign.Center)
-        Column(Modifier.weight(1f)) {
-            Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(item.code, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth().height(42.dp).clickable { onOpenCode(item.code) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(rank.toString(), color = Aqua.copy(alpha = 0.88f), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp), textAlign = TextAlign.Center)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+            Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(item.code, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
         }
-        Text(item.value, color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
+        Text(item.value, color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(item.changePercent, color = quoteColor(item.isRising), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
     }
 }
 
@@ -597,25 +597,27 @@ private fun SectionText(title: String, text: String) {
 
 @Composable
 private fun Section(title: String, subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         subtitle?.takeIf { it.isNotBlank() }?.let { Text(it, color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
     }
 }
 
 @Composable
 private fun MetricTile(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier.height(46.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value.ifBlank { "--" }, color = color.copy(alpha = 0.94f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(modifier.height(54.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Text(value.ifBlank { "--" }, color = color.copy(alpha = 0.94f), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun CompactMetricCell(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Column(modifier.height(34.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color.White.copy(alpha = 0.38f), fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value.ifBlank { "--" }, color = color.copy(alpha = 0.94f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Column(modifier.height(54.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(4.dp))
+        Text(value.ifBlank { "--" }, color = color.copy(alpha = 0.94f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -632,7 +634,7 @@ private fun StockButton(appState: AssistantUiState, text: String, modifier: Modi
             .padding(horizontal = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = Color.White.copy(alpha = textAlpha), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Text(text, color = Color.White.copy(alpha = textAlpha), fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
 
