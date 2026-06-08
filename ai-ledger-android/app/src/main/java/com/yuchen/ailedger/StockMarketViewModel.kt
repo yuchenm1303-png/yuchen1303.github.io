@@ -2,14 +2,17 @@ package com.yuchen.ailedger
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yuchen.ailedger.data.StockRealtimeRepository
 import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,7 +32,8 @@ data class StockMarketUiState(
 )
 
 class StockMarketViewModel(
-    private val repository: StockRepository = StockRepository()
+    private val repository: StockRepository = StockRepository(),
+    private val realtimeRepository: StockRealtimeRepository = StockRealtimeRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StockMarketUiState(loading = true, marketLoading = true))
     val uiState: StateFlow<StockMarketUiState> = _uiState
@@ -38,6 +42,7 @@ class StockMarketViewModel(
     private var marketJob: Job? = null
     private var kLineJob: Job? = null
     private var minuteJob: Job? = null
+    private var realtimeJob: Job? = null
     private var requestSeq = 0
 
     init {
@@ -49,6 +54,7 @@ class StockMarketViewModel(
     }
 
     fun refreshHome() {
+        stopRealtimeLoop()
         loadLite(openDetail = false)
     }
 
@@ -62,11 +68,13 @@ class StockMarketViewModel(
             loadLite(openDetail = true)
         } else {
             _uiState.update { it.copy(showDetail = true, activeAction = null) }
+            startRealtimeLoop(state.stock.quote.code)
             if (state.selectedTab == "分时") loadMinute() else loadKLineForTab(state.selectedTab)
         }
     }
 
     fun backToHome() {
+        stopRealtimeLoop()
         _uiState.update { it.copy(showDetail = false, activeAction = null) }
     }
 
@@ -106,6 +114,7 @@ class StockMarketViewModel(
     }
 
     fun openCode(code: String) {
+        stopRealtimeLoop()
         _uiState.update { it.copy(query = code, selectedTab = "分时", requestMessage = null) }
         loadLite(openDetail = true, forcedQuery = code)
     }
@@ -115,6 +124,7 @@ class StockMarketViewModel(
         val target = (forcedQuery ?: _uiState.value.query).trim().ifBlank { _uiState.value.stock.quote.code }
         quoteJob?.cancel()
         quoteJob = viewModelScope.launch {
+            if (openDetail) stopRealtimeLoop()
             _uiState.update { it.copy(loading = true, requestMessage = "连接新版A股行情代理中") }
             val mode = if (openDetail || _uiState.value.showDetail) "full" else "lite"
             val loaded = withContext(Dispatchers.IO) { repository.loadAStock(target, mode = mode) }
@@ -129,6 +139,7 @@ class StockMarketViewModel(
                 )
             }
             loadMarketOverview(loaded.quote.code)
+            if (openDetail || _uiState.value.showDetail) startRealtimeLoop(loaded.quote.code)
             if (_uiState.value.selectedTab == "分时") loadMinute(loaded.quote.code) else loadKLineForTab(_uiState.value.selectedTab, loaded.quote.code)
         }
     }
@@ -184,6 +195,47 @@ class StockMarketViewModel(
                 )
             }
         }
+    }
+
+    private fun startRealtimeLoop(code: String) {
+        val target = code.ifBlank { _uiState.value.stock.quote.code }.ifBlank { _uiState.value.query }
+        if (realtimeJob?.isActive == true && _uiState.value.stock.quote.code == target) return
+        realtimeJob?.cancel()
+        realtimeJob = viewModelScope.launch {
+            while (isActive) {
+                if (!_uiState.value.showDetail) break
+                val current = _uiState.value.stock
+                val activeCode = current.quote.code.ifBlank { target }
+                val result = withContext(Dispatchers.IO) { realtimeRepository.loadRealtimeFrame(activeCode, current) }
+                result.onSuccess { realtime ->
+                    _uiState.update { state ->
+                        if (!state.showDetail || state.stock.quote.code != activeCode) state else state.copy(
+                            stock = state.stock.copy(
+                                quote = realtime.quote,
+                                topMetrics = realtime.topMetrics,
+                                minutePoints = realtime.minutePoints,
+                                sellLevels = realtime.sellLevels,
+                                buyLevels = realtime.buyLevels,
+                                tradeTicks = realtime.tradeTicks,
+                                dataSourceLabel = realtime.dataSourceLabel
+                            ),
+                            requestMessage = null
+                        )
+                    }
+                }
+                delay(1000L)
+            }
+        }
+    }
+
+    private fun stopRealtimeLoop() {
+        realtimeJob?.cancel()
+        realtimeJob = null
+    }
+
+    override fun onCleared() {
+        stopRealtimeLoop()
+        super.onCleared()
     }
 
     private fun periodForTab(tab: String): String = when (tab) {
