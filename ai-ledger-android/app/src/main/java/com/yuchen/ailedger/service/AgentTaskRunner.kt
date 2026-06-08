@@ -46,7 +46,6 @@ class AgentTaskRunner(
         }
 
         AgentRuntimeController.startTask(goal)
-        AiAgentAccessibilityService.beginTaskSession()
         return try {
             runStartedTask(goal, modelPreference, logs)
         } catch (error: CancellationException) {
@@ -65,14 +64,12 @@ class AgentTaskRunner(
     ): AgentTaskRunResult {
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val memory = AgentRunMemory()
-        var activeGoal = goal
-        var brainRouteChecked = false
         installedAppIndex?.let { index ->
             val preloadStart = SystemClock.elapsedRealtime()
             withContext(Dispatchers.IO) { index.getLaunchableApps(forceReload = false) }
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
-        memory.recordTrace("DeepSeek AgentBrain 负责总路由；Local/Shizuku 仅作为结构化工具，不再抢占自然语言任务。")
+        memory.recordTrace("Agent 开关已开启：Local/Shizuku 只作为执行工具，不抢任务完成权；本次任务统一进入智能体主循环。")
 
         while (true) {
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
@@ -95,50 +92,14 @@ class AgentTaskRunner(
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
 
             val deviceStart = SystemClock.elapsedRealtime()
-            val deviceContext = buildDeviceContext(snapshot, activeGoal)
+            val deviceContext = buildDeviceContext(snapshot, goal)
             val deviceMs = SystemClock.elapsedRealtime() - deviceStart
-
-            if (!brainRouteChecked) {
-                brainRouteChecked = true
-                val brainStartedAt = SystemClock.elapsedRealtime()
-                val brainRoute = runCatching {
-                    withContext(Dispatchers.IO) {
-                        aiWorkerClient.requestAgentBrainRoute(
-                            goal = goal,
-                            snapshot = snapshot,
-                            recentActions = memory.recentActionSummaries(),
-                            deviceContext = deviceContext,
-                            agentMemory = memory.toJson(),
-                        )
-                    }
-                }.onFailure { error ->
-                    memory.recordTrace("AgentBrain 路由不可用，回退视觉主循环：${error.message ?: "未知错误"}")
-                }.getOrNull()
-                if (brainRoute != null) {
-                    memory.rememberBrainRoute(brainRoute, SystemClock.elapsedRealtime() - brainStartedAt)
-                    when {
-                        brainRoute.isAskUser -> {
-                            val message = memory.withDebug(brainRoute.question.ifBlank { brainRoute.reason.ifBlank { "需要补充信息后才能继续。" } })
-                            AgentRuntimeController.finishTask(message, completed = false)
-                            return AgentTaskRunResult(false, false, message, logs)
-                        }
-                        brainRoute.isRefuse -> {
-                            val message = memory.withDebug(brainRoute.refusalReason.ifBlank { brainRoute.reason.ifBlank { "该任务不适合自动执行。" } })
-                            AgentRuntimeController.finishTask(message, completed = false)
-                            return AgentTaskRunResult(false, false, message, logs)
-                        }
-                        else -> {
-                            activeGoal = brainRoute.visualGoalOrDefault(goal)
-                        }
-                    }
-                }
-            }
 
             val plan = try {
                 val cloudStart = SystemClock.elapsedRealtime()
                 val result = withContext(Dispatchers.IO) {
                     aiWorkerClient.requestAgentPlan(
-                        goal = activeGoal,
+                        goal = goal,
                         snapshot = snapshot,
                         modelPreference = modelPreference,
                         recentActions = memory.recentActionSummaries(),
@@ -195,6 +156,12 @@ class AgentTaskRunner(
                 if (chosenStep == null) {
                     memory.recordPlannerRejection(rawStep, "云端动作不可执行或缺少必要参数。")
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, rawStep, null)
+                    continue
+                }
+                val blockReason = memory.repetitionBlockReason(chosenStep)
+                if (blockReason != null) {
+                    memory.recordPlannerRejection(chosenStep, blockReason)
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep.copy(reason = blockReason), null)
                     continue
                 }
                 if (chosenStep.type == "need_user_help") {
@@ -321,25 +288,33 @@ class AgentTaskRunner(
         var backAttempts: Int = 0,
         var executedStepCount: Int = 0,
         var loopIndex: Int = 0,
+        var sameScreenCount: Int = 0,
+        var noProgressCount: Int = 0,
+        private var lastScreenFingerprint: String = "",
+        private var lastActionSignature: String = "",
+        private var sameActionCount: Int = 0,
+        private val blockedActionSignatures: MutableSet<String> = mutableSetOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
         private val failedActionLines: MutableList<String> = mutableListOf(),
         private val blockedActionLines: MutableList<String> = mutableListOf(),
         var lastDebugLine: String = "",
     ) {
         fun observe(snapshot: AgentScreenSnapshot) {
-            lastDebugLine = "调试：阶段=云端观察 · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount"
+            val fingerprint = screenFingerprint(snapshot)
+            if (fingerprint == lastScreenFingerprint) {
+                sameScreenCount += 1
+                if (lastActionSignature.isNotBlank()) noProgressCount += 1
+            } else {
+                sameScreenCount = 0
+                if (noProgressCount > 0) noProgressCount -= 1
+            }
+            lastScreenFingerprint = fingerprint
+            lastDebugLine = "调试：阶段=云端观察 · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount · 同屏=$sameScreenCount · 无进展=$noProgressCount · 同动作=$sameActionCount"
         }
 
         fun rememberState(state: CloudAgentState) {
             if (state.reason.isBlank() && state.nextHint.isBlank()) return
             recentActionLines += "状态：complete=${state.isComplete}, progress=${state.expectedProgress}, wrong=${state.isWrong}, confidence=${"%.2f".format(state.confidence)} · ${state.reason.ifBlank { state.nextHint }}"
-            trimHistory()
-        }
-
-        fun rememberBrainRoute(route: AgentBrainRoutePlan, elapsedMs: Long) {
-            val stepSummary = route.steps.joinToString(" -> ") { "${it.executor}:${it.tool}" }.ifBlank { "no_step" }
-            recentActionLines += "主脑：${route.route} ${elapsedMs}ms · ${"%.2f".format(route.confidence)} · $stepSummary · ${route.reason.take(80)}"
-            AgentRuntimeController.noteDiagnostic("主脑路由：${route.route} · $stepSummary")
             trimHistory()
         }
 
@@ -354,7 +329,25 @@ class AgentTaskRunner(
             val line = "拒绝执行：${describeStep(step)} · $reason"
             blockedActionLines += line
             recentActionLines += line
+            AgentRuntimeController.noteDiagnostic(reason.take(90))
             trimHistory()
+        }
+
+        fun repetitionBlockReason(step: CloudAgentStep): String? {
+            val signature = actionSignature(step)
+            if (signature.isBlank()) return null
+            if (signature in blockedActionSignatures) {
+                return "该动作本轮任务内已被判定为无进展：$signature。请重新观察，换一个入口、搜索、菜单、返回或其他策略。"
+            }
+            if (signature == lastActionSignature && sameActionCount >= MAX_CONSECUTIVE_SAME_ACTIONS) {
+                blockedActionSignatures += signature
+                return "连续 $sameActionCount 次执行同一动作但没有可靠推进：$signature。拒绝继续重复点击，请换路线。"
+            }
+            if (noProgressCount >= NO_PROGRESS_SPECULATIVE_THRESHOLD && step.isSpeculativeExploration()) {
+                blockedActionSignatures += signature
+                return "连续 $noProgressCount 轮画面无明显推进，拒绝继续执行推测性探索动作：$signature。请优先使用明确搜索入口、菜单、返回上一层或请求用户协助。"
+            }
+            return null
         }
 
         fun withDebug(message: String): String = if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
@@ -362,6 +355,15 @@ class AgentTaskRunner(
         fun remember(step: CloudAgentStep, result: AgentExecutionResult, forceVisualAfterSuccess: Boolean = true) {
             executedStepCount += 1
             if (step.type == "back" && result.ok) backAttempts += 1
+            val signature = actionSignature(step)
+            if (signature.isNotBlank()) {
+                if (signature == lastActionSignature) {
+                    sameActionCount += 1
+                } else {
+                    lastActionSignature = signature
+                    sameActionCount = 1
+                }
+            }
             val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
             recentActionLines += line
             if (!result.ok) failedActionLines += line
@@ -371,18 +373,24 @@ class AgentTaskRunner(
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v11_deepseek_agent_brain_route")
+            put("schema", "agent_loop_memory_v11_progress_governor")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
+            put("blockedActionSignatures", JSONArray().apply { blockedActionSignatures.take(12).forEach { put(it) } })
             put("loopSignals", JSONObject().apply {
                 put("executedStepCount", executedStepCount)
                 put("loopIndex", loopIndex)
+                put("sameScreenCount", sameScreenCount)
+                put("noProgressCount", noProgressCount)
+                put("lastActionSignature", lastActionSignature)
+                put("sameActionCount", sameActionCount)
             })
             put("policyHints", JSONArray().apply {
-                put("DeepSeek AgentBrain 是总主脑，只负责选择 device_tool、visual_agent、hybrid、ask_user 或 refuse。")
-                put("DeviceControlRuntime 只能执行结构化工具命令，不能直接抢占自然语言任务。")
-                put("App 内页面任务必须由视觉智能体根据最新截图继续完成。")
+                put("Agent 开关开启时，手机任务统一走视觉主导智能体主循环。")
+                put("Local/Shizuku/InstalledAppIndex 只能作为执行工具和设备上下文，不能绕过主循环直接宣布复合任务完成或失败。")
+                put("点击手势提交成功不等于页面有效推进；如果 recent/blocked actions 提示某坐标无进展，必须换路线。")
+                put("不要连续点击同一坐标或同一入口；同屏无进展时优先使用明确搜索入口、菜单、返回上一层或请求用户协助。")
                 put("每轮都根据最新截图重新判断，不要因为步数变多就提前结束。")
             })
         }
@@ -393,6 +401,42 @@ class AgentTaskRunner(
             while (blockedActionLines.size > 8) blockedActionLines.removeAt(0)
         }
 
+        private fun screenFingerprint(snapshot: AgentScreenSnapshot): String {
+            val textKey = snapshot.allNodes
+                .map { it.text.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(18)
+                .joinToString("|")
+                .replace(Regex("\\s+"), " ")
+            return listOf(
+                snapshot.currentApp,
+                snapshot.allNodes.size.toString(),
+                snapshot.clickableNodes.size.toString(),
+                snapshot.inputNodes.size.toString(),
+                snapshot.scrollableNodes.size.toString(),
+                textKey,
+            ).joinToString("#").take(600)
+        }
+
+        private fun actionSignature(step: CloudAgentStep): String {
+            return when (step.type) {
+                "tap_xy" -> {
+                    val x = step.x ?: return ""
+                    val y = step.y ?: return ""
+                    val qx = (x * 50f).toInt()
+                    val qy = (y * 50f).toInt()
+                    "tap@$qx,$qy"
+                }
+                "tap_node" -> "tap_node@${step.targetNodeId ?: step.targetText.orEmpty().take(24)}"
+                "open_app" -> "open@${step.packageName ?: step.appName.orEmpty().take(24)}"
+                "input_text" -> "input@${step.text.orEmpty().take(24)}"
+                "scroll", "swipe" -> "${step.type}@${step.direction.orEmpty().lowercase()}"
+                "back", "home", "recents", "notifications", "quick_settings" -> step.type
+                else -> ""
+            }
+        }
+
         private fun describeStep(step: CloudAgentStep): String = buildString {
             append(step.type)
             step.appName?.let { append(" · app=").append(it) }
@@ -401,6 +445,20 @@ class AgentTaskRunner(
             step.direction?.let { append(" · ").append(it) }
             step.x?.let { append(" · x=").append("%.3f".format(it)) }
             step.y?.let { append(" y=").append("%.3f".format(it)) }
+        }
+
+        private fun CloudAgentStep.isSpeculativeExploration(): Boolean {
+            if (type !in setOf("tap_xy", "tap_node", "scroll", "swipe")) return false
+            val text = listOfNotNull(reason, targetText, text, direction)
+                .joinToString(" ")
+                .lowercase()
+            return listOf("可能", "探索", "尝试", "试试", "寻找", "相关", "猜测", "也许", "maybe", "try", "explore", "possible")
+                .any { text.contains(it) }
+        }
+
+        private companion object {
+            private const val MAX_CONSECUTIVE_SAME_ACTIONS = 2
+            private const val NO_PROGRESS_SPECULATIVE_THRESHOLD = 3
         }
     }
 
