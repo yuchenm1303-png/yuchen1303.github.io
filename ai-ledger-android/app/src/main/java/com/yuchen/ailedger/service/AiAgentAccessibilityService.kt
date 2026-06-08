@@ -7,6 +7,9 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
@@ -502,15 +505,40 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val text = step.text?.takeIf { it.isNotBlank() }
             ?: return AgentExecutionResult(false, "缺少输入内容", false)
 
-        val root = selectBestRoot()
-            ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+        var lastCandidateCount = 0
+        repeat(INPUT_FOCUS_RETRY_COUNT) { attempt ->
+            val root = selectBestRoot() ?: return@repeat
+            val handles = collectNodeHandles(
+                root,
+                MAX_EXECUTION_NODES,
+                SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
+            ).handles
+            val candidateNodes = collectInputCandidateNodes(root, handles, step)
+            lastCandidateCount = maxOf(lastCandidateCount, candidateNodes.size)
 
-        val handles = collectNodeHandles(
-            root,
-            MAX_EXECUTION_NODES,
-            SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
-        ).handles
+            for (node in candidateNodes) {
+                val result = tryInputTextOnNode(node, text)
+                if (result != null) return result
+            }
 
+            if (attempt < INPUT_FOCUS_RETRY_COUNT - 1) {
+                SystemClock.sleep(INPUT_FOCUS_RETRY_DELAY_MS)
+            }
+        }
+
+        val message = if (lastCandidateCount > 0) {
+            "已找到当前焦点/候选输入节点，但 SET_TEXT 和粘贴都失败"
+        } else {
+            "没有找到可写入的当前焦点或输入框"
+        }
+        return AgentExecutionResult(false, message, false)
+    }
+
+    private fun collectInputCandidateNodes(
+        root: AccessibilityNodeInfo,
+        handles: List<NodeHandle>,
+        step: CloudAgentStep,
+    ): List<AccessibilityNodeInfo> {
         val candidateNodes = mutableListOf<AccessibilityNodeInfo>()
 
         fun addCandidate(node: AccessibilityNodeInfo?) {
@@ -522,6 +550,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 rect.flattenToString(),
                 node.text?.toString().orEmpty(),
                 node.contentDescription?.toString().orEmpty(),
+                node.hintText?.toString().orEmpty(),
             ).joinToString("|")
             val duplicated = candidateNodes.any { existing ->
                 val existingRect = Rect()
@@ -531,37 +560,48 @@ class AiAgentAccessibilityService : AccessibilityService() {
                     existingRect.flattenToString(),
                     existing.text?.toString().orEmpty(),
                     existing.contentDescription?.toString().orEmpty(),
+                    existing.hintText?.toString().orEmpty(),
                 ).joinToString("|") == key
             }
             if (!duplicated) candidateNodes += node
         }
 
         // GUI Plus 的 type 语义是“向已激活输入框输入”。
-        // 因此这里先尝试当前输入焦点，再回退到目标节点和 editable 节点。
+        // 先尝试系统输入焦点，再回退到目标节点、已聚焦节点、editable 节点。
         addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
         addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))
         addCandidate(findTargetHandle(handles, step)?.node)
         addCandidate(handles.firstOrNull { it.node.isFocused || it.node.isAccessibilityFocused }?.node)
-        addCandidate(handles.firstOrNull { it.observed.editable }?.node)
-
-        for (node in candidateNodes) {
-            if (trySetTextOnNode(node, text)) {
-                return AgentExecutionResult(ok = true, message = "已向当前焦点输入文字", shouldContinue = true)
-            }
-        }
-
-        return AgentExecutionResult(false, "没有找到可写入的当前焦点或输入框", false)
+        handles.filter { it.observed.editable }.forEach { addCandidate(it.node) }
+        return candidateNodes
     }
 
-    private fun trySetTextOnNode(node: AccessibilityNodeInfo, text: String): Boolean {
+    private fun tryInputTextOnNode(node: AccessibilityNodeInfo, text: String): AgentExecutionResult? {
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            return AgentExecutionResult(ok = true, message = "已通过 SET_TEXT 输入文字", shouldContinue = true)
+        }
+        if (pasteTextOnNode(node, text)) {
+            return AgentExecutionResult(ok = true, message = "已通过剪贴板粘贴输入文字", shouldContinue = true)
+        }
+        return null
+    }
+
+    private fun pasteTextOnNode(node: AccessibilityNodeInfo, text: String): Boolean {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        clipboard.setPrimaryClip(ClipData.newPlainText("AI 输入", text))
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        SystemClock.sleep(INPUT_PASTE_FOCUS_DELAY_MS)
+        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
     }
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
+        if (step.indicatesBackNavigation()) {
+            return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 scroll 返回语义）")
+        }
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
@@ -572,6 +612,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeSwipe(step: CloudAgentStep): AgentExecutionResult {
+        if (step.indicatesBackNavigation()) {
+            return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 swipe 返回语义）")
+        }
         val direction = step.direction.orEmpty().lowercase().ifBlank { "up" }
         val reference = currentTapReferenceFrame()
         val w = reference.width
@@ -584,6 +627,20 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
         val ok = dispatchSwipe(startX, startY, endX, endY, step.durationMs ?: DEFAULT_SWIPE_MS)
         return AgentExecutionResult(ok = ok, message = if (ok) "已滑动：$direction" else "滑动失败：$direction", shouldContinue = ok)
+    }
+
+    private fun CloudAgentStep.indicatesBackNavigation(): Boolean {
+        val raw = listOfNotNull(reason, targetText, text, direction)
+            .joinToString(" ")
+            .lowercase()
+        if (raw.isBlank()) return false
+        val backIntent = listOf(
+            "返回上一", "返回上个", "返回到上一", "回到上一", "上一界面", "上一页面", "上一层", "返回微信", "go back", "back to", "previous screen", "previous page",
+        ).any { raw.contains(it) }
+        val explicitScrollIntent = listOf(
+            "查看更多", "看新消息", "看旧消息", "浏览", "滚动", "滑动查看", "scroll", "swipe to view",
+        ).any { raw.contains(it) }
+        return backIntent && !explicitScrollIntent
     }
 
     private fun findNodeByTextFast(root: AccessibilityNodeInfo, targetText: String): NodeHandle? {
@@ -794,6 +851,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val DEFAULT_TAP_MS = 42L
         private const val DEFAULT_SWIPE_MS = 260L
         private const val DEFAULT_WAIT_MS = 500L
+        private const val INPUT_FOCUS_RETRY_COUNT = 3
+        private const val INPUT_FOCUS_RETRY_DELAY_MS = 180L
+        private const val INPUT_PASTE_FOCUS_DELAY_MS = 60L
         private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1000L
