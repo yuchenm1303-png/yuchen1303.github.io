@@ -251,6 +251,10 @@ class AgentTaskRunner(
 
     private suspend fun executeAndRecord(step: CloudAgentStep, currentApp: String, logs: MutableList<AgentTaskStepLog>): AgentExecutionResult {
         AgentRuntimeController.noteAction(step)
+        // noteAction() 会先要求悬浮窗进入 clean 模式。这里必须用协程 delay 让出主线程，
+        // 否则 AccessibilityService 在主线程里马上执行手势时，悬浮窗的隐藏 Flow 还没来得及被 UI 消费，
+        // 就会出现“截图看不到浮窗，但真实点击打到浮窗”的竞态。
+        delay(ACTION_OVERLAY_HIDE_STABILIZE_MS)
         val result = withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
         AgentRuntimeController.noteResult(step, result)
         logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
@@ -589,8 +593,9 @@ class AgentTaskRunner(
     companion object {
         private const val DEFAULT_STEP_DELAY_MS = 280L
         private const val REPLAN_DELAY_MS = 140L
+        private const val ACTION_OVERLAY_HIDE_STABILIZE_MS = 260L
         private const val OPEN_APP_DELAY_MS = 640L
-        private const val TAP_DELAY_MS = 160L
+        private const val TAP_DELAY_MS = 220L
         private const val INPUT_DELAY_MS = 180L
         private const val SCROLL_DELAY_MS = 260L
         private const val DEFAULT_WAIT_DELAY_MS = 360L
