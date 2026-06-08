@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
+        installAccessibilityPerformanceShield(window.decorView)
         requestHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
@@ -59,6 +60,17 @@ class MainActivity : ComponentActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+    }
+
+    private fun installAccessibilityPerformanceShield(root: View) {
+        // 当前 App 的玻璃、背景、OpenGL 外壳和聊天装饰树非常大。
+        // 当系统无障碍总开关开启时，Compose 会额外维护语义树；这里把宿主界面从系统语义树中裁掉，
+        // 避免“只打开无障碍、不运行智能体也掉帧”。视觉、点击、输入和智能体外部 App 控制不受影响。
+        root.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            root.isFocusedByDefault = false
+            root.isScreenReaderFocusable = false
         }
     }
 
