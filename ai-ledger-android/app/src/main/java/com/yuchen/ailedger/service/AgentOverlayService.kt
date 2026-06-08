@@ -45,37 +45,39 @@ import kotlin.math.min
 class AgentOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var windowManager: WindowManager? = null
-    private var rootView: AgentGlassPanelView? = null
-    private var bodyContainer: LinearLayout? = null
+    private var rootView: AgentCapsulePanelView? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
+    private var snapAnimator: ValueAnimator? = null
+
+    private var statusDotView: AgentStatusOrbView? = null
     private var titleView: TextView? = null
-    private var statusPillView: TextView? = null
-    private var compactActionView: TextView? = null
-    private var actionEyebrowView: TextView? = null
-    private var actionView: TextView? = null
-    private var subtitleView: TextView? = null
+    private var stateChipView: TextView? = null
+    private var compactLineView: TextView? = null
+    private var contentGroup: LinearLayout? = null
+    private var actionLabelView: TextView? = null
+    private var actionTitleView: TextView? = null
+    private var actionSubtitleView: TextView? = null
+    private var railView: AgentCapsuleRailView? = null
     private var resultView: TextView? = null
-    private var latestLogView: TextView? = null
-    private var logPanel: LinearLayout? = null
-    private var logView: TextView? = null
-    private var detailToggleView: TextView? = null
-    private var collapseView: TextView? = null
-    private var stopTaskView: TextView? = null
+    private var latestView: TextView? = null
     private var choicePanel: LinearLayout? = null
     private var choiceTitleView: TextView? = null
     private var choiceMessageView: TextView? = null
     private var primaryChoiceView: TextView? = null
     private var secondaryChoiceView: TextView? = null
-    private var statusDotView: AgentStatusDotView? = null
-    private var progressLineView: AgentShimmerLineView? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
-    private var snapAnimator: ValueAnimator? = null
+    private var logsPanel: LinearLayout? = null
+    private var logsView: TextView? = null
+    private var collapseView: TextView? = null
+    private var detailView: TextView? = null
+    private var stopView: TextView? = null
+
+    private var density: Float = 1f
     private var isExpanded: Boolean = true
     private var logsExpanded: Boolean = false
     private var latestProgress: AgentOverlayProgress = AgentOverlayProgress()
+    private var latestMode: AgentOverlayMode = AgentOverlayMode.Idle
     private var latestActionText: String = ""
     private var latestCompactText: String = ""
-    private var latestVisualMode: AgentPanelVisualMode = AgentPanelVisualMode.Idle
-    private var density: Float = 1f
 
     override fun onCreate() {
         super.onCreate()
@@ -87,10 +89,10 @@ class AgentOverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as? WindowManager
         createOverlay()
         scope.launch {
-            AgentRuntimeController.progress.collectLatest { progress -> updateProgress(progress) }
+            AgentRuntimeController.progress.collectLatest { updateProgress(it) }
         }
         scope.launch {
-            AgentRuntimeController.overlayHiddenForCapture.collectLatest { hidden -> setHiddenForCleanCapture(hidden) }
+            AgentRuntimeController.overlayHiddenForCapture.collectLatest { setHiddenForCleanCapture(it) }
         }
     }
 
@@ -108,9 +110,9 @@ class AgentOverlayService : Service() {
         scope.cancel()
         snapAnimator?.cancel()
         statusDotView?.stopPulse()
-        progressLineView?.stopSweep()
+        railView?.stopSweep()
         rootView?.stopSweep()
-        rootView?.let { view -> runCatching { windowManager?.removeView(view) } }
+        rootView?.let { runCatching { windowManager?.removeView(it) } }
         rootView = null
         super.onDestroy()
     }
@@ -120,171 +122,100 @@ class AgentOverlayService : Service() {
     private fun createOverlay() {
         if (rootView != null) return
         val wm = windowManager ?: return
-        val panel = AgentGlassPanelView(this).apply {
+        val panel = AgentCapsulePanelView(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = if (AgentRuntimeController.overlayHiddenForCapture.value) View.INVISIBLE else View.VISIBLE
             alpha = if (AgentRuntimeController.overlayHiddenForCapture.value) 0f else 1f
-            setPadding(dp(14f), dp(12f), dp(14f), dp(12f))
+            setPadding(dp(13f), dp(12f), dp(13f), dp(12f))
             elevation = dp(18f).toFloat()
             isClickable = true
         }
 
-        statusDotView = AgentStatusDotView(this)
-        titleView = overlayText("AI 智能体", 14f, Color.WHITE, bold = true).apply {
-            letterSpacing = 0.03f
-        }
-        statusPillView = overlayText("待命", 10f, Color.argb(230, 226, 244, 255), bold = true).apply {
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            setPadding(dp(8f), dp(4f), dp(8f), dp(4f))
-        }
-        val openAppView = headerIcon("↗") { openMainApp() }
-        val closeView = headerIcon("×") { stopSelf() }
-
-        val brandRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(statusDotView, LinearLayout.LayoutParams(dp(18f), dp(18f)).apply { marginEnd = dp(7f) })
-            addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(statusPillView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(24f)).apply { marginStart = dp(8f) })
-            addView(openAppView, LinearLayout.LayoutParams(dp(30f), dp(28f)).apply { marginStart = dp(5f) })
-            addView(closeView, LinearLayout.LayoutParams(dp(30f), dp(28f)))
-            setOnClickListener { toggleExpanded() }
-        }
-
-        compactActionView = overlayText("等待任务", 11f, Color.argb(218, 226, 238, 255), bold = true).apply {
-            maxLines = 1
-            includeFontPadding = false
+        val header = createHeaderRow()
+        compactLineView = text("等待任务", 11.5f, Color.argb(218, 230, 239, 255), bold = true).apply {
             visibility = View.GONE
-            setPadding(dp(2f), dp(7f), dp(2f), dp(1f))
-        }
-
-        actionEyebrowView = overlayText("CURRENT ACTION", 9f, Color.argb(210, 157, 232, 235), bold = true).apply {
-            letterSpacing = 0.16f
             includeFontPadding = false
-        }
-        actionView = overlayText("等待任务", 15f, Color.WHITE, bold = true).apply {
-            maxLines = 2
-            setLineSpacing(dp(1f).toFloat(), 1.02f)
-            setPadding(0, dp(5f), 0, 0)
-        }
-        subtitleView = overlayText("轻点面板可收起，拖动可移动位置。", 10.5f, Color.argb(188, 220, 231, 255)).apply {
-            maxLines = 2
-            setPadding(0, dp(3f), 0, 0)
-        }
-        progressLineView = AgentShimmerLineView(this).apply {
-            visibility = View.GONE
+            maxLines = 1
+            setPadding(dp(2f), dp(7f), dp(2f), 0)
         }
 
-        resultView = overlayText("", 10.5f, Color.argb(212, 245, 249, 255)).apply {
+        actionLabelView = text("CURRENT ACTION", 8.8f, Color.argb(205, 152, 231, 234), bold = true).apply {
+            includeFontPadding = false
+            letterSpacing = 0.18f
+        }
+        actionTitleView = text("等待任务", 15.6f, Color.WHITE, bold = true).apply {
+            maxLines = 2
+            setLineSpacing(dp(1f).toFloat(), 1.03f)
+        }
+        actionSubtitleView = text("轻点面板可收起，拖动可移动位置。", 10.6f, Color.argb(184, 225, 235, 255)).apply {
             maxLines = 2
         }
-        latestLogView = overlayText("", 9.5f, Color.argb(174, 220, 232, 255)).apply {
-            maxLines = 1
-            setPadding(0, dp(5f), 0, 0)
-        }
-        val resultCard = LinearLayout(this).apply {
+        railView = AgentCapsuleRailView(this).apply { visibility = View.GONE }
+
+        val actionCapsule = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
-            background = roundedBackground(
-                fill = Color.argb(56, 255, 255, 255),
-                stroke = Color.argb(46, 210, 235, 255),
-                radius = dp(15f).toFloat()
+            setPadding(dp(13f), dp(12f), dp(13f), dp(10f))
+            background = capsuleBackground(
+                fill = Color.argb(54, 255, 255, 255),
+                stroke = Color.argb(54, 215, 235, 255),
+                radiusDp = 22f
+            )
+            addView(actionLabelView)
+            addView(actionTitleView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(9f)
+            })
+            addView(actionSubtitleView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6f)
+            })
+            addView(railView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(14f)).apply {
+                topMargin = dp(12f)
+            })
+        }
+
+        resultView = text("", 10.7f, Color.argb(222, 246, 250, 255)).apply { maxLines = 2 }
+        latestView = text("", 9.5f, Color.argb(164, 222, 234, 255)).apply {
+            maxLines = 1
+            includeFontPadding = false
+        }
+        val resultCapsule = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13f), dp(10f), dp(13f), dp(10f))
+            background = capsuleBackground(
+                fill = Color.argb(42, 255, 255, 255),
+                stroke = Color.argb(36, 230, 240, 255),
+                radiusDp = 19f
             )
             addView(resultView)
-            addView(latestLogView)
-        }
-
-        choiceTitleView = overlayText("需要确认", 12f, Color.WHITE, bold = true)
-        choiceMessageView = overlayText("", 10.5f, Color.argb(232, 255, 245, 224)).apply {
-            maxLines = 4
-            setLineSpacing(dp(1f).toFloat(), 1.05f)
-        }
-        secondaryChoiceView = actionButton("取消任务", ButtonTone.Ghost) {
-            AgentRuntimeController.choosePendingAction(false)
-        }
-        primaryChoiceView = actionButton("继续执行", ButtonTone.Primary) {
-            AgentRuntimeController.choosePendingAction(true)
-        }
-        val choiceRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(secondaryChoiceView, LinearLayout.LayoutParams(0, dp(35f), 1f).apply { marginEnd = dp(8f) })
-            addView(primaryChoiceView, LinearLayout.LayoutParams(0, dp(35f), 1f))
-        }
-        choicePanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(dp(11f), dp(10f), dp(11f), dp(11f))
-            background = roundedBackground(
-                fill = Color.argb(110, 110, 66, 34),
-                stroke = Color.argb(145, 255, 208, 118),
-                radius = dp(18f).toFloat()
-            )
-            addView(choiceTitleView)
-            addView(choiceMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(5f)
-                bottomMargin = dp(10f)
+            addView(latestView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6f)
             })
-            addView(choiceRow)
         }
 
-        collapseView = actionButton("收起", ButtonTone.Ghost) { toggleExpanded() }
-        detailToggleView = actionButton("详情", ButtonTone.Ghost) { toggleLogsExpanded() }
-        stopTaskView = actionButton("停止", ButtonTone.Danger) { AgentRuntimeController.stopTaskByUser() }.apply {
-            visibility = View.GONE
-        }
-        val controlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(collapseView, LinearLayout.LayoutParams(0, dp(34f), 1f).apply { marginEnd = dp(8f) })
-            addView(detailToggleView, LinearLayout.LayoutParams(0, dp(34f), 1f).apply { marginEnd = dp(8f) })
-            addView(stopTaskView, LinearLayout.LayoutParams(0, dp(34f), 1f))
-        }
+        choicePanel = createChoicePanel()
+        val controls = createControlRow()
+        logsPanel = createLogsPanel()
 
-        logView = overlayText("", 9.2f, Color.argb(178, 225, 235, 255)).apply {
-            maxLines = 6
-            setLineSpacing(dp(1f).toFloat(), 1.05f)
-        }
-        logPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(dp(10f), dp(8f), dp(10f), dp(8f))
-            background = roundedBackground(
-                fill = Color.argb(42, 8, 18, 48),
-                stroke = Color.argb(52, 210, 230, 255),
-                radius = dp(14f).toFloat()
-            )
-            addView(logView)
-        }
-
-        bodyContainer = LinearLayout(this).apply {
+        contentGroup = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(12f), 0, 0)
-            addView(actionEyebrowView)
-            addView(actionView)
-            addView(subtitleView)
-            addView(progressLineView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(6f)).apply {
-                topMargin = dp(10f)
-                bottomMargin = dp(8f)
-            })
-            addView(resultCard, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(1f)
+            addView(actionCapsule)
+            addView(resultCapsule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(9f)
             })
             addView(choicePanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10f)
             })
-            addView(controlRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            addView(controls, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10f)
             })
-            addView(logPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            addView(logsPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(8f)
             })
         }
 
-        panel.addView(brandRow)
-        panel.addView(compactActionView)
-        panel.addView(bodyContainer)
+        panel.addView(header)
+        panel.addView(compactLineView)
+        panel.addView(contentGroup)
         panel.setOnTouchListener(DragTouchListener())
 
         val params = WindowManager.LayoutParams(
@@ -295,9 +226,10 @@ class AgentOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(12f)
-            y = dp(86f)
+            x = dp(14f)
+            y = dp(88f)
         }
+
         rootView = panel
         layoutParams = params
         runCatching { wm.addView(panel, params) }
@@ -308,33 +240,108 @@ class AgentOverlayService : Service() {
             .onFailure { stopSelf() }
     }
 
+    private fun createHeaderRow(): LinearLayout {
+        statusDotView = AgentStatusOrbView(this)
+        titleView = text("AI 智能体", 14.4f, Color.WHITE, bold = true).apply {
+            includeFontPadding = false
+            letterSpacing = 0.02f
+        }
+        stateChipView = text("待命", 10.2f, Color.argb(232, 232, 246, 255), bold = true).apply {
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            setPadding(dp(10f), 0, dp(10f), dp(1f))
+        }
+        val openView = iconChip("↗") { openMainApp() }
+        val closeView = iconChip("×") { stopSelf() }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(statusDotView, LinearLayout.LayoutParams(dp(22f), dp(22f)).apply { marginEnd = dp(9f) })
+            addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(stateChipView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(27f)).apply { marginStart = dp(8f) })
+            addView(openView, LinearLayout.LayoutParams(dp(34f), dp(30f)).apply { marginStart = dp(7f) })
+            addView(closeView, LinearLayout.LayoutParams(dp(34f), dp(30f)).apply { marginStart = dp(5f) })
+        }
+    }
+
+    private fun createControlRow(): LinearLayout {
+        collapseView = capsuleButton("收起", ButtonTone.Ghost) { toggleExpanded() }
+        detailView = capsuleButton("详情", ButtonTone.Ghost) { toggleLogsExpanded() }
+        stopView = capsuleButton("停止", ButtonTone.Danger) { AgentRuntimeController.stopTaskByUser() }.apply {
+            visibility = View.GONE
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(collapseView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
+            addView(detailView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
+            addView(stopView, LinearLayout.LayoutParams(0, dp(37f), 1f))
+        }
+    }
+
+    private fun createChoicePanel(): LinearLayout {
+        choiceTitleView = text("需要确认", 13f, Color.argb(255, 255, 235, 190), bold = true)
+        choiceMessageView = text("", 10.7f, Color.argb(232, 255, 244, 222)).apply {
+            maxLines = 4
+            setLineSpacing(dp(1f).toFloat(), 1.05f)
+        }
+        secondaryChoiceView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
+            AgentRuntimeController.choosePendingAction(false)
+        }
+        primaryChoiceView = capsuleButton("继续执行", ButtonTone.PrimaryWarm) {
+            AgentRuntimeController.choosePendingAction(true)
+        }
+        val choiceRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(secondaryChoiceView, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(9f) })
+            addView(primaryChoiceView, LinearLayout.LayoutParams(0, dp(38f), 1f))
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(13f), dp(12f), dp(13f), dp(13f))
+            background = capsuleBackground(
+                fill = Color.argb(92, 116, 70, 38),
+                stroke = Color.argb(112, 255, 214, 132),
+                radiusDp = 24f
+            )
+            addView(choiceTitleView)
+            addView(choiceMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8f)
+                bottomMargin = dp(11f)
+            })
+            addView(choiceRow)
+        }
+    }
+
+    private fun createLogsPanel(): LinearLayout {
+        logsView = text("", 9.3f, Color.argb(176, 224, 235, 255)).apply {
+            maxLines = 6
+            setLineSpacing(dp(1f).toFloat(), 1.05f)
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            background = capsuleBackground(
+                fill = Color.argb(36, 0, 12, 38),
+                stroke = Color.argb(38, 215, 230, 255),
+                radiusDp = 18f
+            )
+            addView(logsView)
+        }
+    }
+
     private fun updateProgress(progress: AgentOverlayProgress) {
         latestProgress = progress
         val pending = progress.pendingConfirmation
         val mode = when {
-            pending != null -> AgentPanelVisualMode.Confirm
-            !progress.enabled -> AgentPanelVisualMode.Paused
-            progress.running -> AgentPanelVisualMode.Running
-            else -> AgentPanelVisualMode.Idle
+            pending != null -> AgentOverlayMode.Confirm
+            !progress.enabled -> AgentOverlayMode.Paused
+            progress.running -> AgentOverlayMode.Running
+            else -> AgentOverlayMode.Idle
         }
-        updateVisualMode(mode)
-
-        titleView?.text = progress.title
-        statusPillView?.apply {
-            text = when (mode) {
-                AgentPanelVisualMode.Running -> "执行中"
-                AgentPanelVisualMode.Confirm -> "待确认"
-                AgentPanelVisualMode.Paused -> "已关闭"
-                AgentPanelVisualMode.Idle -> progress.status.ifBlank { "待命" }
-            }
-            background = statusPillBackground(mode)
-        }
-        actionEyebrowView?.text = when (mode) {
-            AgentPanelVisualMode.Confirm -> "CONFIRM ACTION"
-            AgentPanelVisualMode.Running -> "CURRENT ACTION"
-            AgentPanelVisualMode.Paused -> "AGENT PAUSED"
-            AgentPanelVisualMode.Idle -> "READY"
-        }
+        updateMode(mode)
 
         val actionText = when {
             pending != null -> pending.actionText.ifBlank { "高风险动作确认" }
@@ -342,51 +349,68 @@ class AgentOverlayService : Service() {
             else -> "等待任务"
         }
         val compactText = when {
-            pending != null -> "需要确认 · ${pending.actionText}".take(32)
-            progress.running -> "正在执行 · $actionText".take(32)
-            !progress.enabled -> "自动执行已暂停"
-            else -> actionText.take(32)
+            pending != null -> "需要确认 · ${pending.actionText}".take(34)
+            progress.running -> "执行中 · $actionText".take(34)
+            !progress.enabled -> "已暂停 · 点击回到应用"
+            else -> actionText.take(34)
         }
-        actionView?.setAnimatedText(actionText, latestActionText)
-        compactActionView?.setAnimatedText(compactText, latestCompactText)
+
+        titleView?.text = progress.title
+        stateChipView?.apply {
+            text = when (mode) {
+                AgentOverlayMode.Running -> "执行中"
+                AgentOverlayMode.Confirm -> "待确认"
+                AgentOverlayMode.Paused -> "已关闭"
+                AgentOverlayMode.Idle -> progress.status.ifBlank { "待命" }
+            }
+            background = stateChipBackground(mode)
+        }
+        actionLabelView?.text = when (mode) {
+            AgentOverlayMode.Confirm -> "CONFIRM ACTION"
+            AgentOverlayMode.Running -> "CURRENT ACTION"
+            AgentOverlayMode.Paused -> "AGENT PAUSED"
+            AgentOverlayMode.Idle -> "READY"
+        }
+        actionTitleView?.setAnimatedText(actionText, latestActionText)
+        compactLineView?.setAnimatedText(compactText, latestCompactText)
         latestActionText = actionText
         latestCompactText = compactText
 
-        subtitleView?.text = when (mode) {
-            AgentPanelVisualMode.Confirm -> "这一步需要你确认后，智能体才会继续执行。"
-            AgentPanelVisualMode.Running -> "正在观察屏幕、验证目标并执行下一步。"
-            AgentPanelVisualMode.Paused -> "智能体自动执行已暂停，可以回到应用中重新开启。"
-            AgentPanelVisualMode.Idle -> "轻点面板可收起，拖动可移动位置。"
+        actionSubtitleView?.text = when (mode) {
+            AgentOverlayMode.Confirm -> "这一步需要确认后，智能体才会继续执行。"
+            AgentOverlayMode.Running -> "正在观察屏幕，验证目标并执行下一步。"
+            AgentOverlayMode.Paused -> "自动执行已暂停，可以回到应用中重新开启。"
+            AgentOverlayMode.Idle -> "轻点面板可收起，拖动可移动位置。"
         }
-        resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "上一步：$it" } ?: "上一步：暂无执行结果"
-        latestLogView?.text = progress.logs.lastOrNull()?.let { "最近：$it" } ?: "最近：暂无运行日志"
-        logView?.text = progress.logs.takeLast(6).joinToString("\n") { "• $it" }.ifBlank { "暂无详细日志" }
-        detailToggleView?.text = if (logsExpanded) "收起日志" else "详情"
-        stopTaskView?.visibility = if (progress.running) View.VISIBLE else View.GONE
+        resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "上一步 · $it" } ?: "上一步 · 暂无执行结果"
+        latestView?.text = progress.logs.lastOrNull()?.let { "最近 · $it" } ?: "最近 · 暂无运行日志"
+        logsView?.text = progress.logs.takeLast(6).joinToString("\n") { "• $it" }.ifBlank { "暂无详细日志" }
+        detailView?.text = if (logsExpanded) "收起日志" else "详情"
+        stopView?.visibility = if (progress.running) View.VISIBLE else View.GONE
 
-        choicePanel.setVisibleAnimated(pending != null && isExpanded)
         if (pending != null) {
+            if (!isExpanded) isExpanded = true
             choiceTitleView?.text = pending.title
             choiceMessageView?.text = pending.message
             primaryChoiceView?.text = pending.positiveText
             secondaryChoiceView?.text = pending.negativeText
-            if (!isExpanded) isExpanded = true
         }
         refreshExpandedState(animated = true)
     }
 
-    private fun updateVisualMode(mode: AgentPanelVisualMode) {
-        if (latestVisualMode == mode) return
-        latestVisualMode = mode
-        rootView?.setVisualMode(mode)
-        statusDotView?.setVisualMode(mode)
-        progressLineView?.setVisualMode(mode)
-        if (mode == AgentPanelVisualMode.Running || mode == AgentPanelVisualMode.Confirm) {
+    private fun updateMode(mode: AgentOverlayMode) {
+        if (latestMode == mode) return
+        latestMode = mode
+        rootView?.setMode(mode)
+        statusDotView?.setMode(mode)
+        railView?.setMode(mode)
+        val active = mode == AgentOverlayMode.Running || mode == AgentOverlayMode.Confirm
+        if (active) {
             rootView?.startSweep()
-            progressLineView?.startSweep()
+            railView?.startSweep()
         } else {
             rootView?.stopSweep()
-            progressLineView?.stopSweep()
+            railView?.stopSweep()
         }
         rootView?.animateModePulse()
     }
@@ -406,14 +430,14 @@ class AgentOverlayService : Service() {
     private fun refreshExpandedState(animated: Boolean) {
         val pending = latestProgress.pendingConfirmation
         val expanded = isExpanded || pending != null
-        bodyContainer.setVisibleAnimated(expanded && !AgentRuntimeController.overlayHiddenForCapture.value)
-        compactActionView.setVisibleAnimated(!expanded && !AgentRuntimeController.overlayHiddenForCapture.value)
-        logPanel.setVisibleAnimated(expanded && logsExpanded)
-        progressLineView.setVisibleAnimated(expanded && latestProgress.running && pending == null)
+        contentGroup.setVisibleAnimated(expanded && !AgentRuntimeController.overlayHiddenForCapture.value)
+        compactLineView.setVisibleAnimated(!expanded && !AgentRuntimeController.overlayHiddenForCapture.value)
+        railView.setVisibleAnimated(expanded && latestProgress.running && pending == null)
         choicePanel.setVisibleAnimated(expanded && pending != null)
+        logsPanel.setVisibleAnimated(expanded && logsExpanded)
         collapseView?.text = if (expanded) "收起" else "展开"
-        detailToggleView?.visibility = if (expanded) View.VISIBLE else View.GONE
-        detailToggleView?.text = if (logsExpanded) "收起日志" else "详情"
+        detailView?.visibility = if (expanded) View.VISIBLE else View.GONE
+        detailView?.text = if (logsExpanded) "收起日志" else "详情"
         val targetWidth = when {
             pending != null -> CONFIRM_WIDTH_DP
             expanded -> EXPANDED_WIDTH_DP
@@ -430,8 +454,8 @@ class AgentOverlayService : Service() {
         runCatching { windowManager?.updateViewLayout(view, params) }
         if (animated) {
             view.animate().cancel()
-            view.scaleX = 0.985f
-            view.scaleY = 0.985f
+            view.scaleX = 0.988f
+            view.scaleY = 0.988f
             view.animate()
                 .scaleX(1f)
                 .scaleY(1f)
@@ -450,8 +474,8 @@ class AgentOverlayService : Service() {
         } else {
             view.visibility = View.VISIBLE
             if (view.alpha < 1f) {
-                view.scaleX = 0.985f
-                view.scaleY = 0.985f
+                view.scaleX = 0.99f
+                view.scaleY = 0.99f
                 view.animate()
                     .alpha(1f)
                     .scaleX(1f)
@@ -475,7 +499,7 @@ class AgentOverlayService : Service() {
             .scaleY(1f)
             .translationY(0f)
             .setDuration(420L)
-            .setInterpolator(OvershootInterpolator(1.04f))
+            .setInterpolator(OvershootInterpolator(1.02f))
             .start()
     }
 
@@ -493,6 +517,7 @@ class AgentOverlayService : Service() {
                 .translationY(0f)
                 .setDuration(160L)
                 .setInterpolator(SOFT_OUT)
+                .setListener(null)
                 .start()
         } else if (view.visibility == View.VISIBLE) {
             view.animate()
@@ -517,25 +542,25 @@ class AgentOverlayService : Service() {
         animate().cancel()
         animate()
             .alpha(0f)
-            .translationY(-dp(5f).toFloat())
-            .setDuration(86L)
+            .translationY(-dp(4f).toFloat())
+            .setDuration(80L)
             .setInterpolator(SOFT_OUT)
             .withEndAction {
                 text = newText
-                translationY = dp(5f).toFloat()
+                translationY = dp(4f).toFloat()
                 animate()
                     .alpha(1f)
                     .translationY(0f)
-                    .setDuration(145L)
+                    .setDuration(140L)
                     .setInterpolator(SOFT_OUT)
                     .start()
             }
             .start()
     }
 
-    private fun overlayText(textValue: String, sp: Float, color: Int, bold: Boolean = false): TextView {
+    private fun text(value: String, sp: Float, color: Int, bold: Boolean = false): TextView {
         return TextView(this).apply {
-            text = textValue
+            text = value
             textSize = sp
             setTextColor(color)
             includeFontPadding = true
@@ -543,21 +568,24 @@ class AgentOverlayService : Service() {
         }
     }
 
-    private fun headerIcon(textValue: String, onClick: () -> Unit): TextView {
-        return overlayText(textValue, 17f, Color.argb(226, 255, 255, 255), bold = true).apply {
+    private fun iconChip(value: String, onClick: () -> Unit): TextView {
+        return text(value, 17f, Color.argb(228, 245, 250, 255), bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
-            background = roundedBackground(Color.argb(28, 255, 255, 255), Color.argb(42, 220, 235, 255), dp(13f).toFloat())
+            background = capsuleBackground(
+                fill = Color.argb(28, 255, 255, 255),
+                stroke = Color.argb(36, 230, 240, 255),
+                radiusDp = 15f
+            )
             setOnClickListener { onClick() }
         }
     }
 
-    private fun actionButton(textValue: String, tone: ButtonTone, onClick: () -> Unit): TextView {
-        return overlayText(textValue, 11.5f, Color.WHITE, bold = true).apply {
-            text = textValue
+    private fun capsuleButton(label: String, tone: ButtonTone, onClick: () -> Unit): TextView {
+        return text(label, 11.6f, Color.WHITE, bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
-            setPadding(dp(8f), 0, dp(8f), dp(1f))
+            setPadding(dp(10f), 0, dp(10f), dp(1f))
             background = buttonBackground(tone)
             setOnClickListener { onClick() }
         }
@@ -565,38 +593,40 @@ class AgentOverlayService : Service() {
 
     private fun buttonBackground(tone: ButtonTone): GradientDrawable {
         val colors = when (tone) {
-            ButtonTone.Primary -> intArrayOf(Color.argb(232, 50, 160, 130), Color.argb(222, 84, 105, 238))
-            ButtonTone.Danger -> intArrayOf(Color.argb(218, 196, 61, 92), Color.argb(214, 112, 48, 112))
-            ButtonTone.Ghost -> intArrayOf(Color.argb(70, 255, 255, 255), Color.argb(44, 170, 205, 255))
+            ButtonTone.PrimaryWarm -> intArrayOf(Color.argb(178, 186, 118, 46), Color.argb(155, 255, 214, 98))
+            ButtonTone.GhostWarm -> intArrayOf(Color.argb(52, 255, 238, 218), Color.argb(32, 255, 201, 142))
+            ButtonTone.Danger -> intArrayOf(Color.argb(126, 172, 48, 98), Color.argb(110, 88, 42, 106))
+            ButtonTone.Ghost -> intArrayOf(Color.argb(40, 255, 255, 255), Color.argb(24, 160, 204, 255))
         }
         val stroke = when (tone) {
-            ButtonTone.Primary -> Color.argb(120, 216, 255, 245)
-            ButtonTone.Danger -> Color.argb(116, 255, 205, 222)
-            ButtonTone.Ghost -> Color.argb(68, 230, 240, 255)
+            ButtonTone.PrimaryWarm -> Color.argb(132, 255, 224, 135)
+            ButtonTone.GhostWarm -> Color.argb(72, 255, 224, 170)
+            ButtonTone.Danger -> Color.argb(86, 255, 178, 214)
+            ButtonTone.Ghost -> Color.argb(54, 230, 240, 255)
         }
         return GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors).apply {
-            cornerRadius = dp(16f).toFloat()
+            cornerRadius = dp(19f).toFloat()
             setStroke(dp(1f).coerceAtLeast(1), stroke)
         }
     }
 
-    private fun statusPillBackground(mode: AgentPanelVisualMode): GradientDrawable {
+    private fun stateChipBackground(mode: AgentOverlayMode): GradientDrawable {
         val colors = when (mode) {
-            AgentPanelVisualMode.Running -> intArrayOf(Color.argb(96, 88, 240, 218), Color.argb(72, 116, 128, 255))
-            AgentPanelVisualMode.Confirm -> intArrayOf(Color.argb(112, 255, 184, 88), Color.argb(76, 255, 112, 92))
-            AgentPanelVisualMode.Paused -> intArrayOf(Color.argb(70, 190, 198, 216), Color.argb(42, 130, 140, 160))
-            AgentPanelVisualMode.Idle -> intArrayOf(Color.argb(60, 210, 224, 255), Color.argb(36, 160, 190, 255))
+            AgentOverlayMode.Running -> intArrayOf(Color.argb(72, 95, 255, 218), Color.argb(44, 96, 148, 255))
+            AgentOverlayMode.Confirm -> intArrayOf(Color.argb(88, 255, 184, 90), Color.argb(46, 255, 112, 92))
+            AgentOverlayMode.Paused -> intArrayOf(Color.argb(48, 195, 202, 218), Color.argb(26, 132, 142, 160))
+            AgentOverlayMode.Idle -> intArrayOf(Color.argb(42, 214, 228, 255), Color.argb(24, 160, 190, 255))
         }
         return GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors).apply {
-            cornerRadius = dp(12f).toFloat()
-            setStroke(dp(1f).coerceAtLeast(1), Color.argb(58, 235, 248, 255))
+            cornerRadius = dp(14f).toFloat()
+            setStroke(dp(1f).coerceAtLeast(1), Color.argb(48, 235, 248, 255))
         }
     }
 
-    private fun roundedBackground(fill: Int, stroke: Int, radius: Float): GradientDrawable {
+    private fun capsuleBackground(fill: Int, stroke: Int, radiusDp: Float): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = radius
+            cornerRadius = dp(radiusDp).toFloat()
             setColor(fill)
             setStroke(dp(1f).coerceAtLeast(1), stroke)
         }
@@ -611,9 +641,9 @@ class AgentOverlayService : Service() {
         val targetX = if (params.x + view.width / 2 < screenWidth / 2) edge else max(edge, screenWidth - view.width - edge)
         val maxY = max(edge, screenHeight - view.height - dp(28f))
         val targetY = params.y.coerceIn(edge, maxY)
-        snapAnimator?.cancel()
         val startX = params.x
         val startY = params.y
+        snapAnimator?.cancel()
         snapAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 260L
             interpolator = SOFT_OUT
@@ -654,7 +684,7 @@ class AgentOverlayService : Service() {
                     startX = params.x
                     startY = params.y
                     dragging = false
-                    view.animate().scaleX(0.985f).scaleY(0.985f).setDuration(90L).start()
+                    view.animate().scaleX(0.988f).scaleY(0.988f).setDuration(90L).start()
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -681,8 +711,8 @@ class AgentOverlayService : Service() {
     }
 
     companion object {
-        private const val COMPACT_WIDTH_DP = 205f
-        private const val EXPANDED_WIDTH_DP = 312f
+        private const val COMPACT_WIDTH_DP = 218f
+        private const val EXPANDED_WIDTH_DP = 306f
         private const val CONFIRM_WIDTH_DP = 318f
         private val SOFT_OUT: TimeInterpolator = DecelerateInterpolator(1.55f)
 
@@ -713,10 +743,10 @@ class AgentOverlayService : Service() {
     }
 }
 
-private enum class AgentPanelVisualMode { Idle, Running, Confirm, Paused }
-private enum class ButtonTone { Primary, Danger, Ghost }
+private enum class AgentOverlayMode { Idle, Running, Confirm, Paused }
+private enum class ButtonTone { Ghost, Danger, PrimaryWarm, GhostWarm }
 
-private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
+private class AgentCapsulePanelView(context: Context) : LinearLayout(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val rect = RectF()
     private val clipPath = Path()
@@ -725,7 +755,7 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val sweepPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var visualMode: AgentPanelVisualMode = AgentPanelVisualMode.Idle
+    private var mode: AgentOverlayMode = AgentOverlayMode.Idle
     private var sweepAnimator: ValueAnimator? = null
     private var sweepProgress: Float = 0f
         set(value) {
@@ -739,16 +769,16 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
         clipToPadding = false
     }
 
-    fun setVisualMode(mode: AgentPanelVisualMode) {
-        if (visualMode == mode) return
-        visualMode = mode
+    fun setMode(value: AgentOverlayMode) {
+        if (mode == value) return
+        mode = value
         invalidate()
     }
 
     fun animateModePulse() {
         animate().cancel()
-        scaleX = 0.992f
-        scaleY = 0.992f
+        scaleX = 0.994f
+        scaleY = 0.994f
         animate()
             .scaleX(1f)
             .scaleY(1f)
@@ -760,10 +790,10 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
     fun startSweep() {
         if (sweepAnimator?.isStarted == true) return
         sweepAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 2600L
+            duration = 3200L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
-            addUpdateListener { animator -> sweepProgress = animator.animatedValue as Float }
+            addUpdateListener { sweepProgress = it.animatedValue as Float }
             start()
         }
     }
@@ -781,18 +811,18 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
             super.onDraw(canvas)
             return
         }
-        val inset = 1.5f * density
-        val radius = 24f * density
+        val inset = 1.4f * density
+        val radius = min(36f * density, h / 2f - inset).coerceAtLeast(22f * density)
         rect.set(inset, inset, w - inset, h - inset)
         clipPath.reset()
         clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW)
 
         shadowPaint.style = Paint.Style.FILL
-        shadowPaint.color = when (visualMode) {
-            AgentPanelVisualMode.Confirm -> Color.argb(58, 255, 157, 90)
-            AgentPanelVisualMode.Running -> Color.argb(58, 85, 190, 255)
-            AgentPanelVisualMode.Paused -> Color.argb(42, 120, 132, 160)
-            AgentPanelVisualMode.Idle -> Color.argb(44, 94, 142, 255)
+        shadowPaint.color = when (mode) {
+            AgentOverlayMode.Confirm -> Color.argb(54, 255, 156, 78)
+            AgentOverlayMode.Running -> Color.argb(48, 80, 178, 255)
+            AgentOverlayMode.Paused -> Color.argb(36, 112, 128, 160)
+            AgentOverlayMode.Idle -> Color.argb(38, 90, 136, 255)
         }
         shadowPaint.setShadowLayer(22f * density, 0f, 8f * density, shadowPaint.color)
         canvas.drawRoundRect(rect, radius, radius, shadowPaint)
@@ -803,8 +833,8 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
             0f,
             w,
             h,
-            panelFillColors(),
-            floatArrayOf(0f, 0.56f, 1f),
+            panelColors(),
+            floatArrayOf(0f, 0.52f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(rect, radius, radius, fillPaint)
@@ -812,124 +842,125 @@ private class AgentGlassPanelView(context: Context) : LinearLayout(context) {
 
         canvas.save()
         canvas.clipPath(clipPath)
-        glowPaint.shader = RadialGradient(
-            w * 0.12f,
-            h * 0.02f,
-            max(w, h) * 0.62f,
-            intArrayOf(Color.argb(84, 210, 255, 250), Color.TRANSPARENT),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, w, h, glowPaint)
-        glowPaint.shader = RadialGradient(
-            w * 0.9f,
-            h * 1.05f,
-            max(w, h) * 0.7f,
-            intArrayOf(panelCornerGlow(), Color.TRANSPARENT),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, w, h, glowPaint)
-        glowPaint.shader = null
-        drawSweep(canvas, w, h)
+        drawSoftGlows(canvas, w, h)
+        drawBroadSweep(canvas, w, h)
         canvas.restore()
 
-        borderPaint.strokeWidth = 1.15f * density
+        borderPaint.strokeWidth = 1.1f * density
         borderPaint.shader = LinearGradient(
             0f,
             0f,
             w,
             h,
-            intArrayOf(Color.argb(172, 219, 255, 255), panelBorderColor(), Color.argb(72, 255, 255, 255)),
-            floatArrayOf(0f, 0.45f, 1f),
+            intArrayOf(Color.argb(150, 226, 250, 255), borderColor(), Color.argb(56, 255, 255, 255)),
+            floatArrayOf(0f, 0.48f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(rect, radius, radius, borderPaint)
         borderPaint.shader = null
 
         borderPaint.strokeWidth = 0.55f * density
-        borderPaint.color = Color.argb(55, 255, 255, 255)
-        val inner = RectF(rect.left + 2f * density, rect.top + 2f * density, rect.right - 2f * density, rect.bottom - 2f * density)
-        canvas.drawRoundRect(inner, radius - 2f * density, radius - 2f * density, borderPaint)
-
+        borderPaint.color = Color.argb(38, 255, 255, 255)
+        val inner = RectF(rect.left + 2.4f * density, rect.top + 2.4f * density, rect.right - 2.4f * density, rect.bottom - 2.4f * density)
+        canvas.drawRoundRect(inner, radius - 2.4f * density, radius - 2.4f * density, borderPaint)
         super.onDraw(canvas)
     }
 
-    private fun drawSweep(canvas: Canvas, width: Float, height: Float) {
-        if (visualMode != AgentPanelVisualMode.Running && visualMode != AgentPanelVisualMode.Confirm) return
-        val sweepWidth = 72f * density
-        val start = -width + sweepProgress * (width * 2.35f)
-        val color = if (visualMode == AgentPanelVisualMode.Confirm) Color.argb(76, 255, 210, 128) else Color.argb(72, 184, 248, 255)
+    private fun drawSoftGlows(canvas: Canvas, w: Float, h: Float) {
+        glowPaint.shader = RadialGradient(
+            w * 0.06f,
+            h * 0.02f,
+            max(w, h) * 0.62f,
+            intArrayOf(Color.argb(58, 184, 255, 244), Color.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w, h, glowPaint)
+        glowPaint.shader = RadialGradient(
+            w * 0.92f,
+            h * 0.92f,
+            max(w, h) * 0.76f,
+            intArrayOf(cornerGlow(), Color.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w, h, glowPaint)
+        glowPaint.shader = null
+    }
+
+    private fun drawBroadSweep(canvas: Canvas, w: Float, h: Float) {
+        if (mode != AgentOverlayMode.Running && mode != AgentOverlayMode.Confirm) return
+        val sweepWidth = 150f * density
+        val start = -w + sweepProgress * (w * 2.15f)
+        val core = if (mode == AgentOverlayMode.Confirm) Color.argb(58, 255, 210, 126) else Color.argb(52, 168, 238, 255)
         sweepPaint.shader = LinearGradient(
             start,
             0f,
             start + sweepWidth,
             0f,
-            intArrayOf(Color.TRANSPARENT, color, Color.TRANSPARENT),
+            intArrayOf(Color.TRANSPARENT, core, Color.TRANSPARENT),
             floatArrayOf(0f, 0.5f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.save()
-        canvas.rotate(-16f, width / 2f, height / 2f)
-        canvas.drawRect(start, -height, start + sweepWidth, height * 2f, sweepPaint)
+        canvas.rotate(-15f, w / 2f, h / 2f)
+        canvas.drawRect(start, -h, start + sweepWidth, h * 2.0f, sweepPaint)
         canvas.restore()
         sweepPaint.shader = null
     }
 
-    private fun panelFillColors(): IntArray {
-        return when (visualMode) {
-            AgentPanelVisualMode.Confirm -> intArrayOf(Color.argb(232, 44, 36, 72), Color.argb(224, 96, 60, 78), Color.argb(232, 28, 30, 68))
-            AgentPanelVisualMode.Running -> intArrayOf(Color.argb(232, 20, 35, 76), Color.argb(224, 42, 65, 125), Color.argb(232, 30, 22, 66))
-            AgentPanelVisualMode.Paused -> intArrayOf(Color.argb(226, 26, 31, 54), Color.argb(218, 46, 50, 78), Color.argb(226, 25, 27, 50))
-            AgentPanelVisualMode.Idle -> intArrayOf(Color.argb(230, 20, 32, 68), Color.argb(218, 40, 48, 96), Color.argb(226, 26, 23, 60))
+    private fun panelColors(): IntArray {
+        return when (mode) {
+            AgentOverlayMode.Confirm -> intArrayOf(Color.argb(224, 32, 28, 52), Color.argb(206, 86, 58, 72), Color.argb(224, 22, 18, 44))
+            AgentOverlayMode.Running -> intArrayOf(Color.argb(224, 12, 22, 48), Color.argb(202, 32, 50, 92), Color.argb(222, 14, 18, 48))
+            AgentOverlayMode.Paused -> intArrayOf(Color.argb(218, 18, 22, 40), Color.argb(198, 38, 42, 64), Color.argb(218, 16, 18, 36))
+            AgentOverlayMode.Idle -> intArrayOf(Color.argb(220, 14, 24, 52), Color.argb(198, 34, 44, 82), Color.argb(218, 16, 18, 46))
         }
     }
 
-    private fun panelBorderColor(): Int {
-        return when (visualMode) {
-            AgentPanelVisualMode.Confirm -> Color.argb(156, 255, 201, 120)
-            AgentPanelVisualMode.Running -> Color.argb(150, 150, 242, 255)
-            AgentPanelVisualMode.Paused -> Color.argb(96, 210, 220, 245)
-            AgentPanelVisualMode.Idle -> Color.argb(118, 195, 218, 255)
+    private fun borderColor(): Int {
+        return when (mode) {
+            AgentOverlayMode.Confirm -> Color.argb(136, 255, 210, 126)
+            AgentOverlayMode.Running -> Color.argb(128, 152, 235, 255)
+            AgentOverlayMode.Paused -> Color.argb(78, 210, 220, 245)
+            AgentOverlayMode.Idle -> Color.argb(96, 195, 218, 255)
         }
     }
 
-    private fun panelCornerGlow(): Int {
-        return when (visualMode) {
-            AgentPanelVisualMode.Confirm -> Color.argb(64, 255, 138, 82)
-            AgentPanelVisualMode.Running -> Color.argb(58, 118, 122, 255)
-            AgentPanelVisualMode.Paused -> Color.argb(38, 180, 190, 220)
-            AgentPanelVisualMode.Idle -> Color.argb(46, 116, 134, 255)
+    private fun cornerGlow(): Int {
+        return when (mode) {
+            AgentOverlayMode.Confirm -> Color.argb(56, 255, 138, 72)
+            AgentOverlayMode.Running -> Color.argb(46, 120, 118, 255)
+            AgentOverlayMode.Paused -> Color.argb(30, 175, 190, 220)
+            AgentOverlayMode.Idle -> Color.argb(36, 118, 134, 255)
         }
     }
 }
 
-private class AgentStatusDotView(context: Context) : View(context) {
+private class AgentStatusOrbView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var visualMode: AgentPanelVisualMode = AgentPanelVisualMode.Idle
-    private var pulse: Float = 0f
-    private var pulseAnimator: ValueAnimator? = null
+    private var mode: AgentOverlayMode = AgentOverlayMode.Idle
+    private var pulse = 0f
+    private var animator: ValueAnimator? = null
 
-    init {
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
-    }
+    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
 
-    fun setVisualMode(mode: AgentPanelVisualMode) {
-        visualMode = mode
-        if (mode == AgentPanelVisualMode.Running || mode == AgentPanelVisualMode.Confirm) startPulse() else stopPulse()
+    fun setMode(value: AgentOverlayMode) {
+        mode = value
+        if (value == AgentOverlayMode.Running || value == AgentOverlayMode.Confirm) startPulse() else stopPulse()
         invalidate()
     }
 
     fun startPulse() {
-        if (pulseAnimator?.isStarted == true) return
-        pulseAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1180L
+        if (animator?.isStarted == true) return
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1220L
             repeatCount = ValueAnimator.INFINITE
             repeatMode = ValueAnimator.REVERSE
             interpolator = DecelerateInterpolator(1.35f)
-            addUpdateListener { animator ->
-                pulse = animator.animatedValue as Float
+            addUpdateListener {
+                pulse = it.animatedValue as Float
                 invalidate()
             }
             start()
@@ -937,54 +968,53 @@ private class AgentStatusDotView(context: Context) : View(context) {
     }
 
     fun stopPulse() {
-        pulseAnimator?.cancel()
-        pulseAnimator = null
+        animator?.cancel()
+        animator = null
         pulse = 0f
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val cx = width / 2f
         val cy = height / 2f
-        val base = min(width, height) * 0.24f
-        val color = when (visualMode) {
-            AgentPanelVisualMode.Running -> Color.argb(255, 117, 255, 226)
-            AgentPanelVisualMode.Confirm -> Color.argb(255, 255, 198, 108)
-            AgentPanelVisualMode.Paused -> Color.argb(230, 178, 190, 210)
-            AgentPanelVisualMode.Idle -> Color.argb(240, 180, 220, 255)
+        val color = when (mode) {
+            AgentOverlayMode.Running -> Color.argb(255, 116, 255, 224)
+            AgentOverlayMode.Confirm -> Color.argb(255, 255, 196, 104)
+            AgentOverlayMode.Paused -> Color.argb(230, 170, 184, 206)
+            AgentOverlayMode.Idle -> Color.argb(240, 176, 220, 255)
         }
+        val radius = min(width, height) * 0.25f
         paint.style = Paint.Style.FILL
+        paint.color = Color.argb((44 + 42 * pulse).toInt(), Color.red(color), Color.green(color), Color.blue(color))
+        canvas.drawCircle(cx, cy, radius * (2.0f + pulse * 0.55f), paint)
         paint.color = color
-        paint.setShadowLayer((8f + 4f * pulse) * density, 0f, 0f, color)
-        canvas.drawCircle(cx, cy, base * (1f + 0.12f * pulse), paint)
+        paint.setShadowLayer((7f + 4f * pulse) * density, 0f, 0f, color)
+        canvas.drawCircle(cx, cy, radius * (1f + 0.1f * pulse), paint)
         paint.clearShadowLayer()
-        paint.color = Color.argb((46 + 62 * pulse).toInt(), Color.red(color), Color.green(color), Color.blue(color))
-        canvas.drawCircle(cx, cy, base * (2.0f + 0.65f * pulse), paint)
     }
 }
 
-private class AgentShimmerLineView(context: Context) : View(context) {
+private class AgentCapsuleRailView(context: Context) : View(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val rect = RectF()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var visualMode: AgentPanelVisualMode = AgentPanelVisualMode.Running
-    private var progress: Float = 0f
+    private var mode: AgentOverlayMode = AgentOverlayMode.Running
+    private var progress = 0f
     private var animator: ValueAnimator? = null
 
-    fun setVisualMode(mode: AgentPanelVisualMode) {
-        visualMode = mode
+    fun setMode(value: AgentOverlayMode) {
+        mode = value
         invalidate()
     }
 
     fun startSweep() {
         if (animator?.isStarted == true) return
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1500L
+            duration = 1800L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
-            addUpdateListener { valueAnimator ->
-                progress = valueAnimator.animatedValue as Float
+            addUpdateListener {
+                progress = it.animatedValue as Float
                 invalidate()
             }
             start()
@@ -999,16 +1029,17 @@ private class AgentShimmerLineView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val h = height.toFloat().coerceAtLeast(1f)
-        val radius = h / 2f
-        rect.set(0f, h * 0.28f, width.toFloat(), h * 0.72f)
+        val cy = h / 2f
+        val baseHeight = 5.5f * density
+        rect.set(0f, cy - baseHeight / 2f, width.toFloat(), cy + baseHeight / 2f)
         paint.shader = null
-        paint.color = Color.argb(48, 225, 240, 255)
-        canvas.drawRoundRect(rect, radius, radius, paint)
-        val shimmerWidth = max(42f * density, width * 0.25f)
+        paint.color = Color.argb(38, 225, 240, 255)
+        canvas.drawRoundRect(rect, baseHeight / 2f, baseHeight / 2f, paint)
+
+        val shimmerWidth = max(90f * density, width * 0.38f)
         val start = -shimmerWidth + progress * (width + shimmerWidth * 2f)
-        val core = if (visualMode == AgentPanelVisualMode.Confirm) Color.argb(210, 255, 207, 120) else Color.argb(210, 135, 248, 255)
+        val core = if (mode == AgentOverlayMode.Confirm) Color.argb(210, 255, 205, 118) else Color.argb(210, 132, 248, 255)
         paint.shader = LinearGradient(
             start,
             0f,
@@ -1018,7 +1049,7 @@ private class AgentShimmerLineView(context: Context) : View(context) {
             floatArrayOf(0f, 0.5f, 1f),
             Shader.TileMode.CLAMP
         )
-        canvas.drawRoundRect(rect, radius, radius, paint)
+        canvas.drawRoundRect(rect, baseHeight / 2f, baseHeight / 2f, paint)
         paint.shader = null
     }
 }
