@@ -275,7 +275,7 @@ class DeviceControlRuntime(
         var value = goal.trim()
         val removeWords = listOf("帮我", "请", "麻烦", "一下", "打开", "进入", "查看", "管理", "修改", "关闭", "设置", "应用", "app", "APP", "的", "到") + markers
         removeWords.forEach { word -> value = value.replace(word, "", ignoreCase = true) }
-        return value.replace(Regex("[，。,.、:：/\\_\u3000\s]+"), "").take(40)
+        return value.replace(Regex("[，。,.、:：/_　\\s]+"), "").take(40)
     }
 
     private fun firstNumber(value: String): Int? {
