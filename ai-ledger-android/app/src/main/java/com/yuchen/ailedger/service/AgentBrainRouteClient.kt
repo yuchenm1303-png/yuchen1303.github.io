@@ -109,9 +109,9 @@ fun AiWorkerClient.requestAgentBrainRoute(
                 )
             )
         )
-        put("routingPolicy", "quick_gate_only_never_rewrite_visual_goal")
+        put("routingPolicy", "complete_route_lightweight_input_never_rewrite_visual_goal")
         put("client", "android-compose")
-        put("clientFeature", "agent_brain_route_v2_quick_gate")
+        put("clientFeature", "agent_brain_route_v3_complete_lightweight")
         put("now", System.currentTimeMillis())
     }
 
@@ -140,7 +140,7 @@ private fun postAgentBrainRoute(endpoint: String, payload: JSONObject): AgentBra
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-agent-brain-quick-gate")
+        setRequestProperty("X-Client", "android-compose-agent-brain-complete-lightweight")
     }
     return try {
         connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
@@ -158,7 +158,7 @@ private fun postAgentBrainRoute(endpoint: String, payload: JSONObject): AgentBra
             ?: throw IOException("AgentBrain 返回为空")
         parseAgentBrainRoutePlan(routeJson)
     } catch (error: SocketTimeoutException) {
-        throw IOException("DeepSeek AgentBrain 快速路由超时：${endpoint.substringAfter("://")}", error)
+        throw IOException("DeepSeek AgentBrain 完整路由超时：${endpoint.substringAfter("://")}", error)
     } finally {
         connection.disconnect()
     }
@@ -294,5 +294,5 @@ private fun String.toAgentBrainJsonOrNull(): JSONObject? {
     return try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
 }
 
-private const val AGENT_BRAIN_CONNECT_TIMEOUT_MS = 450
-private const val AGENT_BRAIN_READ_TIMEOUT_MS = 650
+private const val AGENT_BRAIN_CONNECT_TIMEOUT_MS = 1_200
+private const val AGENT_BRAIN_READ_TIMEOUT_MS = 3_200
