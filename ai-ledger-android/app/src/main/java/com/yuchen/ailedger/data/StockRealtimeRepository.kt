@@ -24,9 +24,10 @@ class StockRealtimeRepository(
         Thread(runnable, "ai-ledger-stock-realtime-http").apply { isDaemon = true }
     }
 
-    fun loadRealtimeFrame(query: String, current: StockDetailUiState): Result<StockDetailUiState> = runCatching {
+    fun loadRealtimeFrame(query: String, current: StockDetailUiState, minuteDays: Int = 1): Result<StockDetailUiState> = runCatching {
         val normalized = query.trim().ifBlank { current.quote.code }
         val encoded = encode(normalized)
+        val safeDays = minuteDays.coerceIn(1, 5)
 
         val quote = runCatching {
             val quoteBody = httpGet("${baseUrl()}/api/stock/a-share/quotes?codes=$encoded", timeoutMs = 2400)
@@ -39,9 +40,9 @@ class StockRealtimeRepository(
         }.getOrElse { current.quote }
 
         val minuteObj = runCatching {
-            JSONObject(httpGet("${baseUrl()}/api/stock/a-share/minute?query=$encoded", timeoutMs = 2600))
+            JSONObject(httpGet("${baseUrl()}/api/stock/a-share/minute?query=$encoded&ndays=$safeDays&days=$safeDays", timeoutMs = 3000))
         }.recoverCatching {
-            JSONObject(httpGet("${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded", timeoutMs = 2600))
+            JSONObject(httpGet("${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded&ndays=$safeDays&days=$safeDays", timeoutMs = 3000))
         }.getOrNull()
 
         val payload = minuteObj?.let { payloadObject(it) }
@@ -58,7 +59,7 @@ class StockRealtimeRepository(
             sellLevels = sellLevels,
             buyLevels = buyLevels,
             tradeTicks = tradeTicks,
-            dataSourceLabel = "A股实时行情代理 · 1s quotes/minute/depth"
+            dataSourceLabel = if (safeDays >= 5) "A股实时行情代理 · 1s quotes/5d-minute/depth" else "A股实时行情代理 · 1s quotes/minute/depth"
         )
     }
 
@@ -117,7 +118,7 @@ class StockRealtimeRepository(
                 if (price <= 0f) continue
                 add(
                     StockMinutePoint(
-                        time = firstText(item, "time", "minute", "t", "时间") ?: "",
+                        time = firstText(item, "time", "minute", "t", "datetime", "dateTime", "时间") ?: "",
                         price = price,
                         average = firstDouble(item, "average", "avg", "avgPrice", "均价") ?: price,
                         volumeRatio = (firstDouble(item, "volumeRatio", "ratio") ?: firstDouble(item, "volume", "vol") ?: 0.0f).coerceIn(0.02f, 1f)
