@@ -219,7 +219,7 @@ private fun AgentScreenSnapshot.toAgentBrainRouteSnapshotJson(): JSONObject {
         put("inputCount", inputNodes.size)
         put("scrollableCount", scrollableNodes.size)
         put("hasVisualImage", hasVisualImage)
-        put("topTexts", JSONArray(textItems.take(12)))
+        put("topTexts", JSONArray(texts.take(12)))
     }
 }
 
