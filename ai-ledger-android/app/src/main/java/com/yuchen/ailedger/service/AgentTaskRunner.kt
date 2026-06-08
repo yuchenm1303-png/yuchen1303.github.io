@@ -64,12 +64,14 @@ class AgentTaskRunner(
     ): AgentTaskRunResult {
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val memory = AgentRunMemory()
+        var activeGoal = goal
+        var brainRouteChecked = false
         installedAppIndex?.let { index ->
             val preloadStart = SystemClock.elapsedRealtime()
             withContext(Dispatchers.IO) { index.getLaunchableApps(forceReload = false) }
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
-        memory.recordTrace("Agent 开关已开启：Local/Shizuku 只作为执行工具，不抢任务完成权；本次任务统一进入智能体主循环。")
+        memory.recordTrace("DeepSeek AgentBrain 负责总路由；Local/Shizuku 仅作为结构化工具，不再抢占自然语言任务。")
 
         while (true) {
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
@@ -92,14 +94,50 @@ class AgentTaskRunner(
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
 
             val deviceStart = SystemClock.elapsedRealtime()
-            val deviceContext = buildDeviceContext(snapshot, goal)
+            val deviceContext = buildDeviceContext(snapshot, activeGoal)
             val deviceMs = SystemClock.elapsedRealtime() - deviceStart
+
+            if (!brainRouteChecked) {
+                brainRouteChecked = true
+                val brainStartedAt = SystemClock.elapsedRealtime()
+                val brainRoute = runCatching {
+                    withContext(Dispatchers.IO) {
+                        aiWorkerClient.requestAgentBrainRoute(
+                            goal = goal,
+                            snapshot = snapshot,
+                            recentActions = memory.recentActionSummaries(),
+                            deviceContext = deviceContext,
+                            agentMemory = memory.toJson(),
+                        )
+                    }
+                }.onFailure { error ->
+                    memory.recordTrace("AgentBrain 路由不可用，回退视觉主循环：${error.message ?: "未知错误"}")
+                }.getOrNull()
+                if (brainRoute != null) {
+                    memory.rememberBrainRoute(brainRoute, SystemClock.elapsedRealtime() - brainStartedAt)
+                    when {
+                        brainRoute.isAskUser -> {
+                            val message = memory.withDebug(brainRoute.question.ifBlank { brainRoute.reason.ifBlank { "需要补充信息后才能继续。" } })
+                            AgentRuntimeController.finishTask(message, completed = false)
+                            return AgentTaskRunResult(false, false, message, logs)
+                        }
+                        brainRoute.isRefuse -> {
+                            val message = memory.withDebug(brainRoute.refusalReason.ifBlank { brainRoute.reason.ifBlank { "该任务不适合自动执行。" } })
+                            AgentRuntimeController.finishTask(message, completed = false)
+                            return AgentTaskRunResult(false, false, message, logs)
+                        }
+                        else -> {
+                            activeGoal = brainRoute.visualGoalOrDefault(goal)
+                        }
+                    }
+                }
+            }
 
             val plan = try {
                 val cloudStart = SystemClock.elapsedRealtime()
                 val result = withContext(Dispatchers.IO) {
                     aiWorkerClient.requestAgentPlan(
-                        goal = goal,
+                        goal = activeGoal,
                         snapshot = snapshot,
                         modelPreference = modelPreference,
                         recentActions = memory.recentActionSummaries(),
@@ -297,6 +335,13 @@ class AgentTaskRunner(
             trimHistory()
         }
 
+        fun rememberBrainRoute(route: AgentBrainRoutePlan, elapsedMs: Long) {
+            val stepSummary = route.steps.joinToString(" -> ") { "${it.executor}:${it.tool}" }.ifBlank { "no_step" }
+            recentActionLines += "主脑：${route.route} ${elapsedMs}ms · ${"%.2f".format(route.confidence)} · $stepSummary · ${route.reason.take(80)}"
+            AgentRuntimeController.noteDiagnostic("主脑路由：${route.route} · $stepSummary")
+            trimHistory()
+        }
+
         fun recordTrace(text: String) {
             val line = text.take(100)
             recentActionLines += "诊断：$line"
@@ -325,7 +370,7 @@ class AgentTaskRunner(
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v10_agent_switch_forces_main_loop")
+            put("schema", "agent_loop_memory_v11_deepseek_agent_brain_route")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -334,9 +379,9 @@ class AgentTaskRunner(
                 put("loopIndex", loopIndex)
             })
             put("policyHints", JSONArray().apply {
-                put("Agent 开关开启时，手机任务统一走视觉主导智能体主循环。")
-                put("Local/Shizuku/InstalledAppIndex 只能作为执行工具和设备上下文，不能绕过主循环直接宣布复合任务完成或失败。")
-                put("纯打开 App 可以由 open_app 完成；App 内页面任务必须在打开目标 App 后继续观察和操作。")
+                put("DeepSeek AgentBrain 是总主脑，只负责选择 device_tool、visual_agent、hybrid、ask_user 或 refuse。")
+                put("DeviceControlRuntime 只能执行结构化工具命令，不能直接抢占自然语言任务。")
+                put("App 内页面任务必须由视觉智能体根据最新截图继续完成。")
                 put("每轮都根据最新截图重新判断，不要因为步数变多就提前结束。")
             })
         }
