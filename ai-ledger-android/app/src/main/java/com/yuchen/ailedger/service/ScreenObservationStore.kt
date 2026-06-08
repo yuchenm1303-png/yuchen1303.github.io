@@ -28,6 +28,9 @@ data class ScreenVisualObservation(
 ) {
     val hasImage: Boolean
         get() = available && base64Jpeg.isNotBlank() && width > 0 && height > 0
+
+    val hasReferenceFrame: Boolean
+        get() = width > 0 && height > 0 && displayWidth > 0 && displayHeight > 0
 }
 
 data class ScreenObservation(
@@ -55,7 +58,8 @@ object ScreenObservationStore {
     }
 
     fun markConnectedWaitingForWindow() {
-        mutableObservation.value = mutableObservation.value.copy(
+        val current = mutableObservation.value
+        mutableObservation.value = current.copy(
             enabled = true,
             serviceConnected = true,
             packageName = "",
@@ -67,7 +71,7 @@ object ScreenObservationStore {
             scrollableItems = emptyList(),
             nodeCount = 0,
             capturedNodeCount = 0,
-            visual = null,
+            visual = current.visual?.takeIf { it.hasReferenceFrame },
             updatedAt = System.currentTimeMillis(),
         )
     }
@@ -86,7 +90,7 @@ object ScreenObservationStore {
             scrollableItems = emptyList(),
             nodeCount = 0,
             capturedNodeCount = 0,
-            visual = null,
+            visual = current.visual?.takeIf { it.hasReferenceFrame },
             updatedAt = System.currentTimeMillis(),
         )
     }
