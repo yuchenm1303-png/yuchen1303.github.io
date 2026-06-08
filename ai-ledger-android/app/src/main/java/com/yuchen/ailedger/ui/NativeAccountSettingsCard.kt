@@ -48,6 +48,7 @@ import kotlinx.coroutines.withContext
 
 private enum class AccountAuthMode { Login, Register }
 private enum class AccountMessageTone { Normal, Success, Error }
+private const val AccountFormPressMotion = 0f
 
 @Composable
 fun NativeAccountSettingsCard(state: AssistantUiState) {
@@ -240,7 +241,7 @@ private fun AccountStatusPill(loggedIn: Boolean) {
 
 @Composable
 private fun AccountModeChip(text: String, selected: Boolean, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 999, modifier.height(40.dp), if (selected) GlassRole.Floating else GlassRole.Chip, onClick = onClick) {
+    PressableGlass(state.quality, state.glassIntensity, AccountFormPressMotion, 999, modifier.height(40.dp), if (selected) GlassRole.Floating else GlassRole.Chip, onClick = onClick) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text, color = Color.White.copy(alpha = if (selected) 0.96f else 0.62f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
         }
@@ -249,7 +250,7 @@ private fun AccountModeChip(text: String, selected: Boolean, state: AssistantUiS
 
 @Composable
 private fun AccountActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(state.quality, state.glassIntensity, state.motionIntensity, 23, modifier.height(58.dp), GlassRole.Chip, onClick = onClick) {
+    PressableGlass(state.quality, state.glassIntensity, AccountFormPressMotion, 23, modifier.height(58.dp), GlassRole.Chip, onClick = onClick) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
