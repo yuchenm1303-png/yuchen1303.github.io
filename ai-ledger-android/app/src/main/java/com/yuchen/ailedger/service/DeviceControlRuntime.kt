@@ -22,10 +22,21 @@ import kotlin.math.roundToInt
  * system/app operations directly through Android APIs and Intents, before falling
  * back to the visual Computer Use loop.
  */
+data class DeviceControlPendingAction(
+    val title: String,
+    val target: String,
+    val command: String,
+    val riskLevel: DeviceControlRiskLevel,
+    val reason: String,
+    val successMessage: String,
+    val timeoutMs: Long = 1_500L,
+)
+
 data class DeviceControlResult(
     val ok: Boolean,
     val title: String,
     val message: String,
+    val pendingAction: DeviceControlPendingAction? = null,
 )
 
 class DeviceControlRuntime(
@@ -45,11 +56,33 @@ class DeviceControlRuntime(
             ?: tryOpenAppScopedSettings(goal, normalized)
             ?: tryOpenSystemSettings(goal, normalized)
             ?: tryOpenEnhancedModeStatus(goal, normalized)
-            ?: tryBlockHighRiskEnhancedActions(goal, normalized)
-            ?: trySetAnimationScalePlaceholder(goal, normalized)
+            ?: tryPreparePrivilegedAppAction(goal, normalized)
+            ?: tryPrepareAnimationScaleAction(goal, normalized)
             ?: tryRunSafeShellDiagnostic(goal, normalized)
             ?: tryBuildDeviceHealthReport(goal, normalized)
             ?: tryOpenPlainApp(goal, normalized)
+    }
+
+    fun executePendingAction(action: DeviceControlPendingAction): DeviceControlResult {
+        val result = shellBridge.runEnhancedCommand(
+            title = action.title,
+            command = action.command,
+            timeoutMs = action.timeoutMs,
+        )
+        return DeviceControlResult(
+            ok = result.ok,
+            title = action.title,
+            message = buildString {
+                if (result.ok) {
+                    append(action.successMessage)
+                } else {
+                    append(action.title).append("执行失败。")
+                }
+                result.exitCode?.let { append("\nexit=").append(it) }
+                if (result.output.isNotBlank() && result.output != "无输出") append("\n\n输出：").append(result.output)
+                if (result.error.isNotBlank()) append("\n\n错误：").append(result.error)
+            },
+        )
     }
 
     private fun tryBuildDeviceHealthReport(goal: String, normalized: String): DeviceControlResult? {
@@ -116,35 +149,105 @@ class DeviceControlRuntime(
         )
     }
 
-    private fun tryBlockHighRiskEnhancedActions(goal: String, normalized: String): DeviceControlResult? {
+    private fun tryPreparePrivilegedAppAction(goal: String, normalized: String): DeviceControlResult? {
         if (!hasAny(normalized, highRiskEnhancedKeywords)) return null
+        val shell = shellBridge.probe()
+        val actionType = when {
+            hasAny(normalized, listOf("强停", "force-stop", "forcestop", "关闭后台", "杀后台", "结束进程")) -> PrivilegedAppAction.ForceStop
+            hasAny(normalized, listOf("清除数据", "清空数据")) -> PrivilegedAppAction.ClearData
+            hasAny(normalized, listOf("卸载")) -> PrivilegedAppAction.UninstallForUser
+            hasAny(normalized, listOf("禁用")) -> PrivilegedAppAction.Disable
+            hasAny(normalized, listOf("启用")) -> PrivilegedAppAction.Enable
+            else -> null
+        }
+        if (actionType == null) {
+            return DeviceControlResult(
+                ok = false,
+                title = "需要增强权限",
+                message = "该内部控制动作需要 Shizuku/ADB Bridge 和专门的安全策略，当前已安全拦截，没有执行任何操作。",
+            )
+        }
         val query = extractAppQuery(goal, highRiskEnhancedKeywords)
         val app = query.takeIf { it.isNotBlank() }?.let { installedAppIndex.findBestApp(it) }
-        val target = app?.let { "${it.label}（${it.packageName}）" } ?: query.ifBlank { "目标应用" }
+        if (app == null) {
+            return DeviceControlResult(
+                ok = false,
+                title = "未找到目标应用",
+                message = "我识别到${actionType.title}请求，但没有找到“$query”对应的已安装应用。为了安全，没有执行任何操作。",
+            )
+        }
+        val packageName = app.packageName.takeIf { isSafePackageName(it) }
+            ?: return DeviceControlResult(false, "包名不安全", "目标应用包名格式异常，已安全拦截。")
+        val target = "${app.label}（$packageName）"
+        if (!shell.isAdbShellLike) {
+            return DeviceControlResult(
+                ok = false,
+                title = "需要增强权限",
+                message = buildString {
+                    append("这个动作属于高风险内部控制：").append(actionType.title).append(" ").append(target).append("。\n\n")
+                    append("当前运行身份是：").append(shell.uidLine).append("。普通 App 权限不能可靠执行该动作。\n")
+                    append("需要先接入并授权 Shizuku/ADB Bridge，之后会在执行前弹出二次确认。\n\n")
+                    append("当前已安全拦截，没有执行任何破坏性操作。")
+                },
+            )
+        }
+        val pending = DeviceControlPendingAction(
+            title = actionType.title,
+            target = target,
+            command = actionType.command(packageName),
+            riskLevel = actionType.riskLevel,
+            reason = "即将通过增强 Shell 执行：${actionType.title} $target",
+            successMessage = "已执行：${actionType.title} $target。",
+            timeoutMs = actionType.timeoutMs,
+        )
         return DeviceControlResult(
             ok = false,
-            title = "需要增强权限",
-            message = buildString {
-                append("这个动作属于高风险内部控制：").append(target).append("。\n\n")
-                append("普通 App 权限不能可靠执行强停、卸载、禁用、清除数据、appops 或 secure/global settings 写入。")
-                append("下一步要接入 Shizuku/ADB Bridge，并为这类动作加二次确认与执行日志。\n\n")
-                append("当前已安全拦截，没有执行任何破坏性操作。")
-            },
+            title = actionType.title,
+            message = "需要确认后执行：${pending.reason}",
+            pendingAction = pending,
         )
     }
 
-    private fun trySetAnimationScalePlaceholder(goal: String, normalized: String): DeviceControlResult? {
+    private fun tryPrepareAnimationScaleAction(goal: String, normalized: String): DeviceControlResult? {
         if (!hasAny(normalized, listOf("动画缩放", "窗口动画", "过渡动画", "animator_duration"))) return null
         if (!hasAny(normalized, listOf("设置", "修改", "改成", "调到", "关闭", "调低", "调高"))) return null
-        val opened = launchActivity(Intent(ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT))
+        val scale = when {
+            hasAny(normalized, listOf("关闭", "关掉", "禁用")) -> 0f
+            else -> firstDecimal(goal)?.coerceIn(0f, 10f) ?: 0.5f
+        }
+        val shell = shellBridge.probe()
+        if (!shell.isAdbShellLike) {
+            val opened = launchActivity(Intent(ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT))
+            return DeviceControlResult(
+                ok = false,
+                title = "动画缩放需要增强权限",
+                message = buildString {
+                    append("动画缩放属于 global settings 写入，普通 App 的 WRITE_SETTINGS 覆盖不到这个权限级别。")
+                    if (opened) append("我已先打开开发者选项入口，你可以手动调整。")
+                    append("\n\n接入 Shizuku/ADB 后可以用内部命令安全执行，并在执行前做二次确认。")
+                },
+            )
+        }
+        val scaleText = formatShellScale(scale)
+        val command = listOf(
+            "settings put global window_animation_scale $scaleText",
+            "settings put global transition_animation_scale $scaleText",
+            "settings put global animator_duration_scale $scaleText",
+        ).joinToString(" && ")
+        val pending = DeviceControlPendingAction(
+            title = "设置动画缩放",
+            target = "系统动画缩放=$scaleText",
+            command = command,
+            riskLevel = DeviceControlRiskLevel.High,
+            reason = "即将写入 global settings，把三项动画缩放设置为 $scaleText",
+            successMessage = "已把窗口/过渡/动画程序时长缩放设置为 $scaleText。",
+            timeoutMs = 2_000L,
+        )
         return DeviceControlResult(
             ok = false,
-            title = "动画缩放需要增强权限",
-            message = buildString {
-                append("动画缩放属于 global settings 写入，普通 App 的 WRITE_SETTINGS 覆盖不到这个权限级别。")
-                if (opened) append("我已先打开开发者选项入口，你可以手动调整。")
-                append("\n\n接入 Shizuku/ADB 后可以用内部命令安全执行，例如 settings put global window_animation_scale 0.5，并在执行前做二次确认。")
-            },
+            title = pending.title,
+            message = "需要确认后执行：${pending.reason}",
+            pendingAction = pending,
         )
     }
 
@@ -353,6 +456,10 @@ class DeviceControlRuntime(
         return Regex("\\d{1,3}").findAll(value).mapNotNull { it.value.toIntOrNull() }.firstOrNull()
     }
 
+    private fun firstDecimal(value: String): Float? {
+        return Regex("\\d+(?:\\.\\d+)?").findAll(value).mapNotNull { it.value.toFloatOrNull() }.firstOrNull()
+    }
+
     private fun parseTimeoutMs(value: String): Int? {
         val number = firstNumber(value) ?: return null
         val normalized = normalize(value)
@@ -369,6 +476,11 @@ class DeviceControlRuntime(
         return if (seconds >= 60 && seconds % 60 == 0) "${seconds / 60} 分钟" else "$seconds 秒"
     }
 
+    private fun formatShellScale(scale: Float): String {
+        val rounded = (scale * 10f).roundToInt() / 10f
+        return if (rounded % 1f == 0f) rounded.toInt().toString() else rounded.toString()
+    }
+
     private fun hasAny(normalizedText: String, words: List<String>): Boolean {
         return words.any { normalizedText.contains(normalize(it)) }
     }
@@ -379,7 +491,35 @@ class DeviceControlRuntime(
             .replace("％", "%")
     }
 
+    private fun isSafePackageName(packageName: String): Boolean {
+        return packageName.matches(Regex("""[A-Za-z0-9_.]+""")) && packageName.contains('.')
+    }
+
     private enum class AppSettingsKind { Notification, Permission, Battery, Details }
+
+    private enum class PrivilegedAppAction(
+        val title: String,
+        val riskLevel: DeviceControlRiskLevel,
+        val timeoutMs: Long,
+    ) {
+        ForceStop("强停应用", DeviceControlRiskLevel.High, 1_500L) {
+            override fun command(packageName: String): String = "am force-stop $packageName"
+        },
+        ClearData("清除应用数据", DeviceControlRiskLevel.Critical, 6_000L) {
+            override fun command(packageName: String): String = "pm clear $packageName"
+        },
+        UninstallForUser("卸载当前用户应用", DeviceControlRiskLevel.Critical, 6_000L) {
+            override fun command(packageName: String): String = "pm uninstall --user 0 $packageName"
+        },
+        Disable("禁用应用", DeviceControlRiskLevel.Critical, 3_000L) {
+            override fun command(packageName: String): String = "pm disable-user --user 0 $packageName"
+        },
+        Enable("启用应用", DeviceControlRiskLevel.High, 3_000L) {
+            override fun command(packageName: String): String = "pm enable $packageName"
+        };
+
+        abstract fun command(packageName: String): String
+    }
 
     private data class SystemSettingTarget(
         val title: String,
