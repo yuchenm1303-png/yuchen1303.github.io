@@ -53,6 +53,8 @@ class AgentTaskRunner(
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
 
+        tryRunInternalDeviceControl(goal, memory)?.let { return it }
+
         while (true) {
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
 
@@ -192,6 +194,21 @@ class AgentTaskRunner(
     private fun stoppedByUserResult(memory: AgentRunMemory, logs: List<AgentTaskStepLog>): AgentTaskRunResult {
         val message = memory.withDebug("用户已手动停止本次智能体任务。")
         return AgentTaskRunResult(false, false, message, logs)
+    }
+
+    private suspend fun tryRunInternalDeviceControl(goal: String, memory: AgentRunMemory): AgentTaskRunResult? {
+        val context = applicationContext ?: return null
+        val runtime = DeviceControlRuntime(context, installedAppIndex ?: InstalledAppIndex(context))
+        val result = withContext(Dispatchers.Main) { runtime.tryExecute(goal) } ?: return null
+        memory.recordTrace("内部控制：${result.title}")
+        val message = memory.withDebug(result.message)
+        AgentRuntimeController.finishTask(message, completed = result.ok)
+        return AgentTaskRunResult(
+            completed = result.ok,
+            stoppedForConfirmation = false,
+            message = message,
+            logs = emptyList(),
+        )
     }
 
     private fun shouldForceVisualAfterBatchStep(step: CloudAgentStep, result: AgentExecutionResult, isLastStep: Boolean): Boolean {
