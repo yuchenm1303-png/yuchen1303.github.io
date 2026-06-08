@@ -106,12 +106,12 @@ class DeviceControlRuntime(
             ?: return DeviceControlResult(false, "应用设置", "没有找到“$query”对应的已安装应用。")
 
         val intent = when (kind) {
-            AppSettingsKind.Notification -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                putExtra(Settings.EXTRA_APP_PACKAGE, app.packageName)
+            AppSettingsKind.Notification -> Intent(ACTION_APP_NOTIFICATION_SETTINGS_COMPAT).apply {
+                putExtra(EXTRA_APP_PACKAGE_COMPAT, app.packageName)
             }
             AppSettingsKind.Permission,
             AppSettingsKind.Battery,
-            AppSettingsKind.Details -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}"))
+            AppSettingsKind.Details -> Intent(ACTION_APPLICATION_DETAILS_SETTINGS_COMPAT, Uri.parse("package:${app.packageName}"))
         }
         val ok = launchActivity(intent)
         val title = when (kind) {
@@ -213,9 +213,9 @@ class DeviceControlRuntime(
 
     private fun openWriteSettingsPermission() {
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${appContext.packageName}"))
+            Intent(ACTION_MANAGE_WRITE_SETTINGS_COMPAT, Uri.parse("package:${appContext.packageName}"))
         } else {
-            Intent(Settings.ACTION_SETTINGS)
+            Intent(ACTION_SETTINGS_COMPAT)
         }
         launchActivity(intent)
     }
@@ -275,7 +275,7 @@ class DeviceControlRuntime(
         var value = goal.trim()
         val removeWords = listOf("帮我", "请", "麻烦", "一下", "打开", "进入", "查看", "管理", "修改", "关闭", "设置", "应用", "app", "APP", "的", "到") + markers
         removeWords.forEach { word -> value = value.replace(word, "", ignoreCase = true) }
-        return value.replace(Regex("[，。,.、:：/_　\\s]+"), "").take(40)
+        return value.replace(Regex("""[，。,.、:：/_　\s]+"""), "").take(40)
     }
 
     private fun firstNumber(value: String): Int? {
@@ -317,24 +317,42 @@ class DeviceControlRuntime(
     )
 
     private companion object {
+        private const val ACTION_SETTINGS_COMPAT = "android.settings.SETTINGS"
+        private const val ACTION_WIFI_SETTINGS_COMPAT = "android.settings.WIFI_SETTINGS"
+        private const val ACTION_BLUETOOTH_SETTINGS_COMPAT = "android.settings.BLUETOOTH_SETTINGS"
+        private const val ACTION_NOTIFICATION_SETTINGS_COMPAT = "android.settings.NOTIFICATION_SETTINGS"
+        private const val ACTION_APP_NOTIFICATION_SETTINGS_COMPAT = "android.settings.APP_NOTIFICATION_SETTINGS"
+        private const val ACTION_BATTERY_SETTINGS_COMPAT = "android.settings.BATTERY_SETTINGS"
+        private const val ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT = "android.settings.INTERNAL_STORAGE_SETTINGS"
+        private const val ACTION_APPLICATION_SETTINGS_COMPAT = "android.settings.APPLICATION_SETTINGS"
+        private const val ACTION_APPLICATION_DETAILS_SETTINGS_COMPAT = "android.settings.APPLICATION_DETAILS_SETTINGS"
+        private const val ACTION_ACCESSIBILITY_SETTINGS_COMPAT = "android.settings.ACCESSIBILITY_SETTINGS"
+        private const val ACTION_DISPLAY_SETTINGS_COMPAT = "android.settings.DISPLAY_SETTINGS"
+        private const val ACTION_SOUND_SETTINGS_COMPAT = "android.settings.SOUND_SETTINGS"
+        private const val ACTION_LOCATION_SOURCE_SETTINGS_COMPAT = "android.settings.LOCATION_SOURCE_SETTINGS"
+        private const val ACTION_DATA_USAGE_SETTINGS_COMPAT = "android.settings.DATA_USAGE_SETTINGS"
+        private const val ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT = "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+        private const val ACTION_MANAGE_WRITE_SETTINGS_COMPAT = "android.settings.action.MANAGE_WRITE_SETTINGS"
+        private const val EXTRA_APP_PACKAGE_COMPAT = "android.provider.extra.APP_PACKAGE"
+
         private val deepNavigationWords = listOf(
             "页面", "界面", "联系人", "朋友圈", "聊天", "消息", "搜索", "找到", "详情", "热榜", "行情", "文件", "小程序", "设置页",
         )
 
         private val systemSettingTargets = listOf(
-            SystemSettingTarget("Wi‑Fi 设置", Settings.ACTION_WIFI_SETTINGS, listOf("wifi设置", "wi-fi设置", "无线网设置", "无线网络设置")),
-            SystemSettingTarget("蓝牙设置", Settings.ACTION_BLUETOOTH_SETTINGS, listOf("蓝牙设置", "bluetooth设置")),
-            SystemSettingTarget("系统通知设置", Settings.ACTION_NOTIFICATION_SETTINGS, listOf("系统通知设置", "通知管理", "通知设置")),
-            SystemSettingTarget("电池设置", Settings.ACTION_BATTERY_SETTINGS, listOf("电池设置", "电量设置", "省电设置", "省电模式")),
-            SystemSettingTarget("存储设置", Settings.ACTION_INTERNAL_STORAGE_SETTINGS, listOf("存储设置", "空间设置", "储存设置")),
-            SystemSettingTarget("应用管理", Settings.ACTION_APPLICATION_SETTINGS, listOf("应用管理", "应用列表", "app管理", "应用设置")),
-            SystemSettingTarget("无障碍设置", Settings.ACTION_ACCESSIBILITY_SETTINGS, listOf("无障碍设置", "辅助功能设置")),
-            SystemSettingTarget("显示设置", Settings.ACTION_DISPLAY_SETTINGS, listOf("显示设置", "屏幕设置")),
-            SystemSettingTarget("声音设置", Settings.ACTION_SOUND_SETTINGS, listOf("声音设置", "音量设置")),
-            SystemSettingTarget("定位设置", Settings.ACTION_LOCATION_SOURCE_SETTINGS, listOf("定位设置", "位置设置", "gps设置")),
-            SystemSettingTarget("流量设置", Settings.ACTION_DATA_USAGE_SETTINGS, listOf("流量设置", "数据使用", "移动数据设置")),
-            SystemSettingTarget("开发者选项", Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS, listOf("开发者选项", "开发者设置")),
-            SystemSettingTarget("修改系统设置授权", Settings.ACTION_MANAGE_WRITE_SETTINGS, listOf("修改系统设置", "写入系统设置", "系统设置授权")),
+            SystemSettingTarget("Wi‑Fi 设置", ACTION_WIFI_SETTINGS_COMPAT, listOf("wifi设置", "wi-fi设置", "无线网设置", "无线网络设置")),
+            SystemSettingTarget("蓝牙设置", ACTION_BLUETOOTH_SETTINGS_COMPAT, listOf("蓝牙设置", "bluetooth设置")),
+            SystemSettingTarget("系统通知设置", ACTION_NOTIFICATION_SETTINGS_COMPAT, listOf("系统通知设置", "通知管理", "通知设置")),
+            SystemSettingTarget("电池设置", ACTION_BATTERY_SETTINGS_COMPAT, listOf("电池设置", "电量设置", "省电设置", "省电模式")),
+            SystemSettingTarget("存储设置", ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT, listOf("存储设置", "空间设置", "储存设置")),
+            SystemSettingTarget("应用管理", ACTION_APPLICATION_SETTINGS_COMPAT, listOf("应用管理", "应用列表", "app管理", "应用设置")),
+            SystemSettingTarget("无障碍设置", ACTION_ACCESSIBILITY_SETTINGS_COMPAT, listOf("无障碍设置", "辅助功能设置")),
+            SystemSettingTarget("显示设置", ACTION_DISPLAY_SETTINGS_COMPAT, listOf("显示设置", "屏幕设置")),
+            SystemSettingTarget("声音设置", ACTION_SOUND_SETTINGS_COMPAT, listOf("声音设置", "音量设置")),
+            SystemSettingTarget("定位设置", ACTION_LOCATION_SOURCE_SETTINGS_COMPAT, listOf("定位设置", "位置设置", "gps设置")),
+            SystemSettingTarget("流量设置", ACTION_DATA_USAGE_SETTINGS_COMPAT, listOf("流量设置", "数据使用", "移动数据设置")),
+            SystemSettingTarget("开发者选项", ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT, listOf("开发者选项", "开发者设置")),
+            SystemSettingTarget("修改系统设置授权", ACTION_MANAGE_WRITE_SETTINGS_COMPAT, listOf("修改系统设置", "写入系统设置", "系统设置授权")),
         )
     }
 }
