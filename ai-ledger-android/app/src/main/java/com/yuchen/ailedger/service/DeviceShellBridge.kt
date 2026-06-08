@@ -58,6 +58,30 @@ class DeviceShellBridge(
         )
     }
 
+    fun runEnhancedCommand(
+        title: String,
+        command: String,
+        timeoutMs: Long = 1_500L,
+    ): DeviceShellExecResult {
+        val status = probe()
+        if (!status.isAdbShellLike) {
+            return DeviceShellExecResult(
+                ok = false,
+                title = title,
+                output = "",
+                error = "当前不是 ADB/shell 级运行身份：${status.uidLine}。需要先接入并授权 Shizuku/ADB Bridge。",
+            )
+        }
+        val result = executeRaw(command, timeoutMs = timeoutMs.coerceIn(500L, 6_000L))
+        return DeviceShellExecResult(
+            ok = result.ok,
+            title = title,
+            output = result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" },
+            exitCode = result.exitCode,
+            error = result.error.take(MAX_OUTPUT_CHARS),
+        )
+    }
+
     fun enhancedModeGuide(): String {
         val probe = probe()
         return buildString {
