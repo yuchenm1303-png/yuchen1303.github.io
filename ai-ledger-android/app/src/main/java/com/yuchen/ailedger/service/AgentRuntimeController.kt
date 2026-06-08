@@ -190,7 +190,7 @@ object AgentRuntimeController {
 
     fun noteAction(step: CloudAgentStep) {
         if (!mutableProgress.value.running) return
-        ensureOverlayCaptureVisibleIfIdle()
+        beginCleanVisualCapture()
         val actionText = buildActionText(step)
         mutableProgress.value = mutableProgress.value.copy(
             enabled = true,
@@ -204,8 +204,8 @@ object AgentRuntimeController {
     }
 
     fun noteResult(step: CloudAgentStep, result: AgentExecutionResult) {
+        endCleanVisualCapture()
         if (!mutableProgress.value.running) return
-        ensureOverlayCaptureVisibleIfIdle()
         val resultText = result.message.take(64)
         mutableProgress.value = mutableProgress.value.copy(
             running = result.shouldContinue && result.ok,
