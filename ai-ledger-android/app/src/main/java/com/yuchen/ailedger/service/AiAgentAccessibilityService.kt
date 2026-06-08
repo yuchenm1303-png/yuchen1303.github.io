@@ -499,14 +499,66 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
-        val text = step.text?.takeIf { it.isNotBlank() } ?: return AgentExecutionResult(false, "缺少输入内容", false)
-        val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
-        val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.editable } ?: return AgentExecutionResult(false, "没有找到输入框", false)
-        target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        val ok = target.node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-        return AgentExecutionResult(ok = ok, message = if (ok) "已输入文字" else "输入文字失败", shouldContinue = ok)
+        val text = step.text?.takeIf { it.isNotBlank() }
+            ?: return AgentExecutionResult(false, "缺少输入内容", false)
+
+        val root = selectBestRoot()
+            ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
+
+        val handles = collectNodeHandles(
+            root,
+            MAX_EXECUTION_NODES,
+            SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
+        ).handles
+
+        val candidateNodes = mutableListOf<AccessibilityNodeInfo>()
+
+        fun addCandidate(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val rect = Rect()
+            runCatching { node.getBoundsInScreen(rect) }
+            val key = listOf(
+                node.className?.toString().orEmpty(),
+                rect.flattenToString(),
+                node.text?.toString().orEmpty(),
+                node.contentDescription?.toString().orEmpty(),
+            ).joinToString("|")
+            val duplicated = candidateNodes.any { existing ->
+                val existingRect = Rect()
+                runCatching { existing.getBoundsInScreen(existingRect) }
+                listOf(
+                    existing.className?.toString().orEmpty(),
+                    existingRect.flattenToString(),
+                    existing.text?.toString().orEmpty(),
+                    existing.contentDescription?.toString().orEmpty(),
+                ).joinToString("|") == key
+            }
+            if (!duplicated) candidateNodes += node
+        }
+
+        // GUI Plus 的 type 语义是“向已激活输入框输入”。
+        // 因此这里先尝试当前输入焦点，再回退到目标节点和 editable 节点。
+        addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
+        addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))
+        addCandidate(findTargetHandle(handles, step)?.node)
+        addCandidate(handles.firstOrNull { it.node.isFocused || it.node.isAccessibilityFocused }?.node)
+        addCandidate(handles.firstOrNull { it.observed.editable }?.node)
+
+        for (node in candidateNodes) {
+            if (trySetTextOnNode(node, text)) {
+                return AgentExecutionResult(ok = true, message = "已向当前焦点输入文字", shouldContinue = true)
+            }
+        }
+
+        return AgentExecutionResult(false, "没有找到可写入的当前焦点或输入框", false)
+    }
+
+    private fun trySetTextOnNode(node: AccessibilityNodeInfo, text: String): Boolean {
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
