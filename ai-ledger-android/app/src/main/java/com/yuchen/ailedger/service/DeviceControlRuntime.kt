@@ -55,6 +55,7 @@ class DeviceControlRuntime(
             ?: trySetScreenTimeout(goal, normalized)
             ?: tryOpenAppScopedSettings(goal, normalized)
             ?: tryOpenSystemSettings(goal, normalized)
+            ?: tryRequestShizukuPermission(goal, normalized)
             ?: tryOpenEnhancedModeStatus(goal, normalized)
             ?: tryPreparePrivilegedAppAction(goal, normalized)
             ?: tryPrepareAnimationScaleAction(goal, normalized)
@@ -112,8 +113,22 @@ class DeviceControlRuntime(
                 append("网络：").append(network).append('\n')
                 append("可启动应用：").append(appCount).append(" 个\n")
                 append("Shell：").append(if (shell.available) "基础可用" else "不可用")
-                append(" · ").append(if (shell.isAdbShellLike) "ADB/shell 级" else "App 沙箱级")
+                append(" · ").append(if (shell.isAdbShellLike) "增强级" else "App 沙箱级")
+                append(" · Shizuku ").append(if (shell.shizukuGranted) "已授权" else if (shell.shizukuAvailable) "待授权" else "未运行")
                 append(cleanupHint)
+            },
+        )
+    }
+
+    private fun tryRequestShizukuPermission(goal: String, normalized: String): DeviceControlResult? {
+        if (!hasAny(normalized, listOf("请求shizuku授权", "shizuku授权", "授权shizuku", "开启shizuku", "启用shizuku", "连接shizuku"))) return null
+        val result = shellBridge.requestShizukuPermission()
+        return DeviceControlResult(
+            ok = result.ok,
+            title = result.title,
+            message = buildString {
+                append(result.output.ifBlank { result.title })
+                if (result.error.isNotBlank()) append("\n\n错误：").append(result.error)
             },
         )
     }
@@ -186,7 +201,11 @@ class DeviceControlRuntime(
                 message = buildString {
                     append("这个动作属于高风险内部控制：").append(actionType.title).append(" ").append(target).append("。\n\n")
                     append("当前运行身份是：").append(shell.uidLine).append("。普通 App 权限不能可靠执行该动作。\n")
-                    append("需要先接入并授权 Shizuku/ADB Bridge，之后会在执行前弹出二次确认。\n\n")
+                    if (shell.shizukuAvailable && !shell.shizukuGranted) {
+                        append("Shizuku 服务已运行，但还没有授权本应用。你可以先说“请求 Shizuku 授权”。\n\n")
+                    } else {
+                        append("需要先安装/启动 Shizuku，或使用 ADB 模式启动增强服务。\n\n")
+                    }
                     append("当前已安全拦截，没有执行任何破坏性操作。")
                 },
             )
@@ -224,7 +243,11 @@ class DeviceControlRuntime(
                 message = buildString {
                     append("动画缩放属于 global settings 写入，普通 App 的 WRITE_SETTINGS 覆盖不到这个权限级别。")
                     if (opened) append("我已先打开开发者选项入口，你可以手动调整。")
-                    append("\n\n接入 Shizuku/ADB 后可以用内部命令安全执行，并在执行前做二次确认。")
+                    if (shell.shizukuAvailable && !shell.shizukuGranted) {
+                        append("\n\nShizuku 服务已运行，但还没有授权本应用。你可以先说“请求 Shizuku 授权”。")
+                    } else {
+                        append("\n\n接入 Shizuku/ADB 后可以用内部命令安全执行，并在执行前做二次确认。")
+                    }
                 },
             )
         }
