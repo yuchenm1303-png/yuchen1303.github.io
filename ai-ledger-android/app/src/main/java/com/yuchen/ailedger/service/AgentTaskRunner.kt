@@ -31,10 +31,11 @@ class AgentTaskRunner(
     private val applicationContext: Context? = appContext?.applicationContext
     private val installedAppIndex: InstalledAppIndex? = applicationContext?.let { InstalledAppIndex(it) }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun run(
         goal: String,
         modelPreference: ChatModel,
-        maxSteps: Int = DEFAULT_MAX_STEPS,
+        maxSteps: Int = Int.MAX_VALUE,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
         if (!AgentRuntimeController.isEnabled()) {
@@ -44,6 +45,7 @@ class AgentTaskRunner(
         }
 
         AgentRuntimeController.startTask(goal)
+        val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val memory = AgentRunMemory()
         installedAppIndex?.let { index ->
             val preloadStart = SystemClock.elapsedRealtime()
@@ -51,41 +53,25 @@ class AgentTaskRunner(
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
 
-        tryLocalAppLaunchBootstrap(goal, logs, memory)?.let { return it }
+        while (true) {
+            if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
 
-        repeat(maxSteps.coerceAtMost(DEFAULT_MAX_STEPS)) {
             val loopStart = SystemClock.elapsedRealtime()
-            val decision = chooseObservationDecision(goal, memory)
-
-            var captureStart = SystemClock.elapsedRealtime()
-            var observation = captureOnce(forceVisual = decision.forceVisual)
-            var captureMs = SystemClock.elapsedRealtime() - captureStart
+            val captureStart = SystemClock.elapsedRealtime()
+            val observation = captureOnce(forceVisual = true)
+            val captureMs = SystemClock.elapsedRealtime() - captureStart
             if (!observation.enabled || !observation.serviceConnected) {
                 val message = "无障碍服务未开启"
                 AgentRuntimeController.failTask(message)
                 return AgentTaskRunResult(false, false, message, logs)
             }
 
-            var snapshotStart = SystemClock.elapsedRealtime()
-            var snapshot = observation.toAgentScreenSnapshot()
-            var snapshotMs = SystemClock.elapsedRealtime() - snapshotStart
-            memory.observe(snapshot, decision)
+            val snapshotStart = SystemClock.elapsedRealtime()
+            val snapshot = observation.toAgentScreenSnapshot()
+            val snapshotMs = SystemClock.elapsedRealtime() - snapshotStart
+            memory.observe(snapshot)
 
-            if (!snapshot.hasVisualImage && shouldPromoteToVisualNow(goal, snapshot, decision)) {
-                val promoted = ObservationDecision.Visual("轻量观察信息不足，本轮补一次截图")
-                captureStart = SystemClock.elapsedRealtime()
-                observation = captureOnce(forceVisual = true)
-                captureMs += SystemClock.elapsedRealtime() - captureStart
-                if (!observation.enabled || !observation.serviceConnected) {
-                    val message = "无障碍服务未开启"
-                    AgentRuntimeController.failTask(message)
-                    return AgentTaskRunResult(false, false, message, logs)
-                }
-                snapshotStart = SystemClock.elapsedRealtime()
-                snapshot = observation.toAgentScreenSnapshot()
-                snapshotMs += SystemClock.elapsedRealtime() - snapshotStart
-                memory.observe(snapshot, promoted)
-            }
+            if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
 
             val deviceStart = SystemClock.elapsedRealtime()
             val deviceContext = buildDeviceContext(snapshot, goal)
@@ -117,7 +103,6 @@ class AgentTaskRunner(
 
             val state = plan.state
             state?.let { memory.rememberState(it) }
-
             if (state != null && state.isComplete && state.confidence >= COMPLETE_CONFIDENCE_THRESHOLD) {
                 val reason = state.reason.ifBlank { plan.step.reason ?: "云端状态判断任务已完成。" }
                 val finishStep = CloudAgentStep(type = "finish", reason = reason, riskLevel = "low", requiresConfirmation = false)
@@ -128,12 +113,7 @@ class AgentTaskRunner(
                 return AgentTaskRunResult(true, false, message, logs)
             }
 
-            if (state != null && state.isWrong && state.confidence >= WRONG_CONFIDENCE_THRESHOLD) {
-                if (memory.backAttempts >= MAX_BACK_ATTEMPTS) {
-                    val message = memory.withDebug(state.reason.ifBlank { "云端判断当前页面偏离目标，但已达到最大返回次数。" })
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
-                }
+            if (state != null && state.isWrong && state.confidence >= WRONG_CONFIDENCE_THRESHOLD && memory.backAttempts < MAX_BACK_ATTEMPTS) {
                 val backStep = CloudAgentStep(
                     type = "back",
                     reason = state.reason.ifBlank { "云端状态判断当前页面偏离目标，返回上一层重新观察。" },
@@ -142,267 +122,82 @@ class AgentTaskRunner(
                 )
                 val result = executeTimed(backStep, snapshot.currentApp, logs, memory)
                 memory.remember(backStep, result)
-                if (!result.ok || !result.shouldContinue) {
+                delayForStep(backStep)
+                continue
+            }
+
+            val steps = plan.executableSteps
+                .filterNot { it.type == "finish" }
+                .take(CloudAgentPlan.MAX_BATCH_STEPS)
+                .ifEmpty { listOf(plan.step) }
+
+            var executedAny = false
+            for ((index, rawStep) in steps.withIndex()) {
+                if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
+                val chosenStep = chooseAction(snapshot, rawStep)
+                if (chosenStep == null) {
+                    memory.recordPlannerRejection(rawStep, "云端动作不可执行或缺少必要参数。")
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, rawStep, null)
+                    continue
+                }
+                if (chosenStep.type == "need_user_help") {
+                    val message = memory.withDebug(chosenStep.reason ?: "需要用户协助。")
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
+                }
+
+                val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
+                    val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, chosenStep)
+                    if (!confirmed) return stoppedByUserResult(memory, logs)
+                    true
+                } else {
+                    false
+                }
+                if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
+                    val message = memory.withDebug(chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}")
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
+                }
+
+                val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
+                val isLastStep = index >= steps.lastIndex
+                memory.remember(
+                    step = chosenStep,
+                    result = result,
+                    forceVisualAfterSuccess = shouldForceVisualAfterBatchStep(chosenStep, result, isLastStep),
+                )
+                executedAny = true
+                if (!result.ok) {
+                    delay(REPLAN_DELAY_MS)
+                    break
+                }
+                if (!result.shouldContinue) {
                     val message = memory.withDebug(result.message)
                     AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
-                delayForStep(backStep)
-                return@repeat
+                delayForStep(chosenStep)
+                if (shouldStopBatchAfterStep(chosenStep, result, isLastStep)) break
             }
 
-            if (plan.executableSteps.size > 1) {
-                when (val batchOutcome = executePlannedBatch(goal, snapshot, plan, state, logs, memory)) {
-                    BatchExecutionOutcome.ContinueLoop -> return@repeat
-                    BatchExecutionOutcome.Replan -> {
-                        delay(REPLAN_DELAY_MS)
-                        return@repeat
-                    }
-                    is BatchExecutionOutcome.Finished -> return batchOutcome.result
-                }
-            }
-
-            if (plan.step.type == "finish") {
-                memory.rejectedFinishAttempts += 1
-                memory.forceNextVisual = true
-                if (memory.rejectedFinishAttempts >= MAX_REJECTED_FINISH_ATTEMPTS) {
-                    val reason = state?.reason?.takeIf { it.isNotBlank() }
-                        ?: "云端返回完成动作，但状态置信度不足，已暂停避免过早结束。"
-                    val message = memory.withDebug(reason)
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
-                }
-                memory.recordPlannerRejection(plan.step, "finish 状态置信度不足，下一轮强制视觉复核。")
-                delay(REPLAN_DELAY_MS)
-                return@repeat
-            }
-
-            val chosenStep = chooseAction(snapshot, plan.step, memory)
-            if (chosenStep == null) {
-                memory.recordPlannerRejection(plan.step, "云端动作不可执行、缺少参数或与近期失败动作重复。")
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, plan.step, null)
-                if (memory.repeatedCloudRejects <= MAX_REPLAN_REJECTS) {
-                    memory.forceNextVisual = true
-                    delay(REPLAN_DELAY_MS)
-                    return@repeat
-                }
-                val message = memory.withDebug(plan.step.reason ?: state?.nextHint ?: "云端连续返回不可执行或重复动作")
-                AgentRuntimeController.finishTask(message, completed = false)
-                return AgentTaskRunResult(false, false, message, logs)
-            }
-
-            val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
-                val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, chosenStep)
-                if (!confirmed) {
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                    val message = memory.withDebug("用户已取消需要确认的动作：${chosenStep.typeLabel}")
-                    return AgentTaskRunResult(false, true, message, logs)
-                }
-                true
-            } else {
-                false
-            }
-            if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                val message = memory.withDebug(chosenStep.reason ?: "当前动作暂不能自动执行：${chosenStep.typeLabel}")
-                AgentRuntimeController.finishTask(message, completed = false)
-                return AgentTaskRunResult(false, false, message, logs)
-            }
-
-            val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
-            memory.remember(chosenStep, result)
-            if (!result.ok) {
-                if (memory.shouldReplanAfterFailure(chosenStep)) {
-                    memory.forceNextVisual = true
-                    delay(REPLAN_DELAY_MS)
-                    return@repeat
-                }
-                val message = memory.withDebug(result.message)
-                AgentRuntimeController.finishTask(message, completed = false)
-                return AgentTaskRunResult(false, false, message, logs)
-            }
-            if (!result.shouldContinue) {
-                val message = memory.withDebug(result.message)
-                AgentRuntimeController.finishTask(message, completed = false)
-                return AgentTaskRunResult(false, false, message, logs)
-            }
-
-            delayForStep(chosenStep)
+            if (!executedAny) delay(REPLAN_DELAY_MS)
         }
+    }
 
-        val message = memory.withDebug("已达到最大执行步数，请检查当前页面后继续。")
-        AgentRuntimeController.finishTask(message, completed = false)
+    private fun stoppedByUserResult(memory: AgentRunMemory, logs: List<AgentTaskStepLog>): AgentTaskRunResult {
+        val message = memory.withDebug("用户已手动停止本次智能体任务。")
         return AgentTaskRunResult(false, false, message, logs)
     }
 
-    private suspend fun executePlannedBatch(
-        goal: String,
-        snapshot: AgentScreenSnapshot,
-        plan: CloudAgentPlan,
-        state: CloudAgentState?,
-        logs: MutableList<AgentTaskStepLog>,
-        memory: AgentRunMemory,
-    ): BatchExecutionOutcome {
-        val plannedSteps = plan.executableSteps.take(CloudAgentPlan.MAX_BATCH_STEPS)
-        memory.recordTrace("batch plan ${plannedSteps.size} steps")
-
-        plannedSteps.forEachIndexed { index, rawStep ->
-            val chosenStep = chooseAction(snapshot, rawStep, memory)
-            if (chosenStep == null) {
-                memory.recordPlannerRejection(rawStep, "batch step rejected locally")
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, rawStep, null)
-                return if (memory.repeatedCloudRejects <= MAX_REPLAN_REJECTS) {
-                    memory.forceNextVisual = true
-                    BatchExecutionOutcome.Replan
-                } else {
-                    val message = memory.withDebug(rawStep.reason ?: state?.nextHint ?: "batch returned repeated or invalid action")
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
-                }
-            }
-
-            val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, chosenStep)) {
-                val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, chosenStep)
-                if (!confirmed) {
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                    val message = memory.withDebug("user cancelled confirmation: ${chosenStep.type}")
-                    return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, true, message, logs))
-                }
-                true
-            } else {
-                false
-            }
-            if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, chosenStep)) {
-                logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, chosenStep, null)
-                val message = memory.withDebug(chosenStep.reason ?: "batch action is not safe for auto execution: ${chosenStep.type}")
-                AgentRuntimeController.finishTask(message, completed = false)
-                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
-            }
-
-            val result = executeTimed(chosenStep, snapshot.currentApp, logs, memory)
-            val isLastStep = index >= plannedSteps.lastIndex
-            memory.remember(
-                step = chosenStep,
-                result = result,
-                forceVisualAfterSuccess = shouldForceVisualAfterBatchStep(chosenStep, result, plan, isLastStep),
-            )
-            if (!result.ok) {
-                if (memory.shouldReplanAfterFailure(chosenStep)) {
-                    memory.forceNextVisual = true
-                    return BatchExecutionOutcome.Replan
-                }
-                val message = memory.withDebug(result.message)
-                AgentRuntimeController.finishTask(message, completed = false)
-                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
-            }
-            if (!result.shouldContinue) {
-                val message = memory.withDebug(result.message)
-                AgentRuntimeController.finishTask(message, completed = false)
-                return BatchExecutionOutcome.Finished(AgentTaskRunResult(false, false, message, logs))
-            }
-
-            delayForStep(chosenStep)
-            if (shouldStopBatchAfterStep(chosenStep, result, plan, isLastStep)) return BatchExecutionOutcome.ContinueLoop
-        }
-
-        return BatchExecutionOutcome.ContinueLoop
-    }
-
-    private fun shouldForceVisualAfterBatchStep(
-        step: CloudAgentStep,
-        result: AgentExecutionResult,
-        plan: CloudAgentPlan,
-        isLastStep: Boolean,
-    ): Boolean {
+    private fun shouldForceVisualAfterBatchStep(step: CloudAgentStep, result: AgentExecutionResult, isLastStep: Boolean): Boolean {
         if (!result.ok || isLastStep) return true
-        if (plan.stopConditions.any { it in STRICT_REPLAN_STOP_CONDITIONS }) return true
         return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
     }
 
-    private fun shouldStopBatchAfterStep(
-        step: CloudAgentStep,
-        result: AgentExecutionResult,
-        plan: CloudAgentPlan,
-        isLastStep: Boolean,
-    ): Boolean {
+    private fun shouldStopBatchAfterStep(step: CloudAgentStep, result: AgentExecutionResult, isLastStep: Boolean): Boolean {
         if (isLastStep || !result.ok || !result.shouldContinue) return true
-        if (plan.stopConditions.any { it in STRICT_REPLAN_STOP_CONDITIONS }) return true
         return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
-    }
-
-    private suspend fun tryLocalAppLaunchBootstrap(goal: String, logs: MutableList<AgentTaskStepLog>, memory: AgentRunMemory): AgentTaskRunResult? {
-        val index = installedAppIndex ?: return null
-        val candidates = withContext(Dispatchers.IO) { index.findCandidateApps(goal, limit = 3) }
-        val best = candidates.firstOrNull() ?: return null
-        if (!isAppMentionedInGoal(goal, best, index)) return null
-        val pureOpenGoal = isPureOpenAppGoal(goal, best, index)
-        val step = CloudAgentStep(
-            type = "open_app",
-            appName = best.label,
-            packageName = best.packageName,
-            reason = if (pureOpenGoal) "本机应用索引命中，纯打开 App 任务跳过云端视觉循环。" else "本机应用索引命中，先打开目标 App，再进入视觉主导页面任务。",
-            riskLevel = "low",
-            requiresConfirmation = false,
-        )
-        AgentRuntimeController.noteDiagnostic("本地启动目标应用：${best.label}")
-        val result = executeTimed(step, "local_app_bootstrap", logs, memory)
-        memory.remember(step, result)
-        if (!result.ok) {
-            memory.recordTrace("本地启动目标应用失败，转入视觉主导云端循环：${result.message}")
-            memory.forceNextVisual = true
-            return null
-        }
-        delayForStep(step)
-        if (!pureOpenGoal) {
-            memory.recordTrace("已打开 ${best.label}，继续用视觉主导查找 App 内目标。")
-            memory.forceNextVisual = true
-            return null
-        }
-        val message = memory.withDebug("已打开 ${best.label}。")
-        AgentRuntimeController.finishTask(message, completed = true)
-        return AgentTaskRunResult(true, false, message, logs)
-    }
-
-    private fun isAppMentionedInGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
-        val clean = normalize(goal)
-        val aliases = index.aliasesFor(app).map(::normalize).filter { it.length >= 2 }.distinct()
-        return aliases.any { clean.contains(it) }
-    }
-
-    private fun isPureOpenAppGoal(goal: String, app: InstalledAppEntry, index: InstalledAppIndex): Boolean {
-        val clean = normalize(goal)
-        if (!isToolOnlyLaunchGoal(clean)) return false
-        val aliases = index.aliasesFor(app).map(::normalize).filter { it.length >= 2 }.distinct()
-        if (aliases.none { clean.contains(it) }) return false
-        var residual = clean
-        pureOpenWords.forEach { residual = residual.replace(it, "") }
-        aliases.forEach { residual = residual.replace(it, "") }
-        residual = residual.replace(Regex("[请帮我把一下这个软件应用app]+"), "")
-        return residual.isBlank()
-    }
-
-    private fun chooseObservationDecision(goal: String, memory: AgentRunMemory): ObservationDecision {
-        val clean = normalize(goal)
-        return when {
-            memory.forceNextVisual -> ObservationDecision.Visual("关键状态变化后截图复核")
-            memory.executedStepCount == 0 && isToolOnlyLaunchGoal(clean) -> ObservationDecision.Lightweight("纯打开 App 首轮只用 deviceContext/open_app")
-            memory.preferLightweightNext && memory.lightRoundsSinceVisual < MAX_LIGHTWEIGHT_ROUNDS_BETWEEN_VISUAL -> ObservationDecision.Lightweight("低风险动作后轻量 affordance 复核")
-            else -> ObservationDecision.Visual("视觉主导观察，节点仅作为辅助 affordance")
-        }
-    }
-
-    private fun shouldPromoteToVisualNow(goal: String, snapshot: AgentScreenSnapshot, decision: ObservationDecision): Boolean {
-        if (decision.forceVisual || snapshot.hasVisualImage) return false
-        if (isToolOnlyLaunchGoal(normalize(goal))) return false
-        return snapshot.isSparseForComputerUse()
-    }
-
-    private fun isToolOnlyLaunchGoal(cleanGoal: String): Boolean {
-        if (pureOpenWords.none { cleanGoal.startsWith(it) || cleanGoal.contains(it) }) return false
-        if (complexGoalWords.any { cleanGoal.contains(it) }) return false
-        if (currentScreenWords.any { cleanGoal.contains(it) }) return false
-        if (highRiskGoalWords.any { cleanGoal.contains(it) }) return false
-        return true
     }
 
     private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
@@ -444,14 +239,11 @@ class AgentTaskRunner(
         if (delayMs > 0L) delay(delayMs)
     }
 
-    private fun chooseAction(snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep, memory: AgentRunMemory): CloudAgentStep? {
-        val candidate = sanitizeCloudStep(cloudStep, snapshot) ?: return null
-        if (memory.isBlocked(candidate)) return null
-        return candidate
+    private fun chooseAction(snapshot: AgentScreenSnapshot, cloudStep: CloudAgentStep): CloudAgentStep? {
+        return sanitizeCloudStep(cloudStep, snapshot)
     }
 
     private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep? {
-        if (step.type == "need_user_help") return null
         if (step.type !in CloudAgentStep.supportedTypes) return null
         if (step.type == "tap_xy") {
             val x = step.x ?: return null
@@ -461,60 +253,20 @@ class AgentTaskRunner(
         if (step.type == "tap_node" && step.targetNodeId.isNullOrBlank() && step.targetText.isNullOrBlank()) return null
         if (step.type == "input_text" && step.text.isNullOrBlank()) return null
         if (step.type == "open_app" && step.packageName != null && step.packageName == snapshot.currentApp) return null
-        if (step.type == "wait" && snapshot.hasVisualImage && !isLoadingWaitReason(step.reason.orEmpty())) return null
         return step
     }
 
-    private fun isLoadingWaitReason(reason: String): Boolean {
-        val clean = normalize(reason)
-        return loadingWaitWords.any { clean.contains(normalize(it)) }
-    }
-
-    private fun normalize(value: String): String = value.lowercase().replace(Regex("[\\s\u3000，。,.、:：/\\-]+"), "")
-
-    private sealed class ObservationDecision(
-        val forceVisual: Boolean,
-        val label: String,
-        val reason: String,
-    ) {
-        class Visual(reason: String) : ObservationDecision(true, "视觉", reason)
-        class Lightweight(reason: String) : ObservationDecision(false, "轻量", reason)
-    }
-
-    private sealed class BatchExecutionOutcome {
-        object ContinueLoop : BatchExecutionOutcome()
-        object Replan : BatchExecutionOutcome()
-        data class Finished(val result: AgentTaskRunResult) : BatchExecutionOutcome()
-    }
-
     private data class AgentRunMemory(
-        var phase: AgentTaskPhase = AgentTaskPhase.Verifying,
         var backAttempts: Int = 0,
-        var repeatedCloudRejects: Int = 0,
-        var rejectedFinishAttempts: Int = 0,
-        var recoverableFailures: Int = 0,
         var executedStepCount: Int = 0,
         var loopIndex: Int = 0,
-        var forceNextVisual: Boolean = false,
-        var preferLightweightNext: Boolean = false,
-        var lightRoundsSinceVisual: Int = 0,
-        private val recentStepKeys: MutableList<String> = mutableListOf(),
         private val recentActionLines: MutableList<String> = mutableListOf(),
         private val failedActionLines: MutableList<String> = mutableListOf(),
         private val blockedActionLines: MutableList<String> = mutableListOf(),
         var lastDebugLine: String = "",
-        var lastObservationLine: String = "观察=视觉 · 初始化",
     ) {
-        fun observe(snapshot: AgentScreenSnapshot, decision: ObservationDecision) {
-            if (snapshot.hasVisualImage) {
-                forceNextVisual = false
-                lightRoundsSinceVisual = 0
-            } else {
-                lightRoundsSinceVisual += 1
-                preferLightweightNext = false
-            }
-            lastObservationLine = "观察=${decision.label} · ${decision.reason}"
-            lastDebugLine = "调试：阶段=${phase.label} · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · $lastObservationLine · 步数=$executedStepCount"
+        fun observe(snapshot: AgentScreenSnapshot) {
+            lastDebugLine = "调试：阶段=云端观察 · app=${snapshot.currentApp.ifBlank { "未知" }} · 节点=${snapshot.nodeCount}/${snapshot.capturedNodeCount} · 全量=${snapshot.allNodes.size} · 点击=${snapshot.clickableNodes.size} · 输入=${snapshot.inputNodes.size} · 滚动=${snapshot.scrollableNodes.size} · 截图=${if (snapshot.hasVisualImage) "有" else "无"} · 步数=$executedStepCount"
         }
 
         fun rememberState(state: CloudAgentState) {
@@ -531,9 +283,6 @@ class AgentTaskRunner(
         }
 
         fun recordPlannerRejection(step: CloudAgentStep, reason: String) {
-            repeatedCloudRejects += 1
-            forceNextVisual = true
-            preferLightweightNext = false
             val line = "拒绝执行：${describeStep(step)} · $reason"
             blockedActionLines += line
             recentActionLines += line
@@ -542,90 +291,31 @@ class AgentTaskRunner(
 
         fun withDebug(message: String): String = if (lastDebugLine.isBlank()) message else "$message\n$lastDebugLine"
 
-        fun remember(
-            step: CloudAgentStep,
-            result: AgentExecutionResult,
-            forceVisualAfterSuccess: Boolean = true,
-        ) {
-            val key = stepKey(step)
-            recentStepKeys += key
+        fun remember(step: CloudAgentStep, result: AgentExecutionResult, forceVisualAfterSuccess: Boolean = true) {
             executedStepCount += 1
-            forceNextVisual = if (result.ok && !forceVisualAfterSuccess) false else shouldForceVisualAfterStep(step, result)
-            preferLightweightNext = result.ok && !forceNextVisual && step.type in LIGHTWEIGHT_AFTER_ACTION_TYPES
+            if (step.type == "back" && result.ok) backAttempts += 1
             val line = "动作：${describeStep(step)} → ${if (result.ok) "成功" else "失败"}：${result.message.take(100)}"
             recentActionLines += line
             if (!result.ok) failedActionLines += line
             trimHistory()
-            if (recentStepKeys.size > 10) recentStepKeys.removeAt(0)
-            if (step.type == "back") {
-                backAttempts += 1
-                if (result.ok) {
-                    recentStepKeys.clear()
-                    repeatedCloudRejects = 0
-                    rejectedFinishAttempts = 0
-                    phase = AgentTaskPhase.Verifying
-                }
-            }
-            if (result.ok && step.type != "finish") {
-                repeatedCloudRejects = 0
-                rejectedFinishAttempts = 0
-                recoverableFailures = 0
-            }
-            if (!result.ok) repeatedCloudRejects += 1
-        }
-
-        fun shouldReplanAfterFailure(step: CloudAgentStep): Boolean {
-            if (step.type !in RECOVERABLE_FAILURE_ACTIONS) return false
-            recoverableFailures += 1
-            forceNextVisual = true
-            preferLightweightNext = false
-            return recoverableFailures <= MAX_RECOVERABLE_FAILURES
         }
 
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
 
-        fun isLikelyRepeated(step: CloudAgentStep): Boolean {
-            val count = recentStepKeys.count { it == stepKey(step) }
-            return count >= if (step.type in SOFT_REPEATABLE_ACTIONS) 2 else 1
-        }
-
-        fun isBlocked(step: CloudAgentStep): Boolean {
-            if (!isLikelyRepeated(step)) return false
-            if (step.type in SOFT_REPEATABLE_ACTIONS && repeatedCloudRejects == 0 && recoverableFailures == 0) return false
-            return true
-        }
-
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v8_lightweight_review")
+            put("schema", "agent_loop_memory_v9_unlimited_manual_stop")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
             put("loopSignals", JSONObject().apply {
                 put("executedStepCount", executedStepCount)
                 put("loopIndex", loopIndex)
-                put("repeatedCloudRejects", repeatedCloudRejects)
-                put("recoverableFailures", recoverableFailures)
-                put("backAttempts", backAttempts)
-                put("rejectedFinishAttempts", rejectedFinishAttempts)
-                put("forceNextVisual", forceNextVisual)
-                put("preferLightweightNext", preferLightweightNext)
-                put("lightRoundsSinceVisual", lightRoundsSinceVisual)
-                put("lastObservation", lastObservationLine)
             })
             put("policyHints", JSONArray().apply {
-                put("这是视觉主导 Computer Use 循环，但低风险 tap/scroll 后允许一次轻量 affordance 复核，避免连续完整扫节点截图。")
-                put("Accessibility 节点只作为可点击/可输入/可滚动 affordance 提示，不代表页面已完成。")
-                put("如果任务包含本机目标 App 名，Android 会先本地 open_app，再进入 App 内视觉观察。")
-                put("视觉 tap_xy 坐标会原样执行，只做归一化换算和边界保护，不再进行本地底部导航吸附。")
-                put("open_app、input、back、home、全局动作后仍强制视觉复核；普通 tap/scroll 可先轻量观察，信息不足再补截图。")
-                put("不要重复 blockedActions 或 failedActions 中的同一路径。")
-                put("如果 open_app 失败，必须改用 deviceContext.targetAppCandidates 或 installedApps 中真实存在的 appName/packageName，或返回 need_user_help。")
+                put("这是无固定步数上限的视觉主导 Computer Use 循环。")
+                put("只有用户手动停止、任务完成、无障碍/云端失败或安全策略拦截才会结束。")
+                put("每轮都根据最新截图重新判断，不要因为步数变多就提前结束。")
             })
-        }
-
-        private fun shouldForceVisualAfterStep(step: CloudAgentStep, result: AgentExecutionResult): Boolean {
-            if (!result.ok) return true
-            return step.type in VISUAL_AFTER_ACTION_TYPES
         }
 
         private fun trimHistory() {
@@ -643,33 +333,9 @@ class AgentTaskRunner(
             step.x?.let { append(" · x=").append("%.3f".format(it)) }
             step.y?.let { append(" y=").append("%.3f".format(it)) }
         }
-
-        private fun stepKey(step: CloudAgentStep): String = listOf(
-            step.type,
-            step.targetNodeId,
-            step.targetText,
-            step.text,
-            step.direction,
-            step.x?.let { "%.4f".format(it) },
-            step.y?.let { "%.4f".format(it) },
-            step.appName,
-            step.packageName,
-        ).joinToString("|")
-    }
-
-    private enum class AgentTaskPhase(val label: String) {
-        Verifying("云端观察"),
-    }
-
-    private fun AgentScreenSnapshot.isSparseForComputerUse(): Boolean {
-        if (nodeCount <= SPARSE_NODE_VISUAL_THRESHOLD) return true
-        if (allNodes.size <= SPARSE_CAPTURED_NODE_THRESHOLD) return true
-        if (clickableNodes.isEmpty() && inputNodes.isEmpty() && scrollableNodes.isEmpty()) return true
-        return false
     }
 
     companion object {
-        private const val DEFAULT_MAX_STEPS = 8
         private const val DEFAULT_STEP_DELAY_MS = 280L
         private const val REPLAN_DELAY_MS = 140L
         private const val OPEN_APP_DELAY_MS = 640L
@@ -681,24 +347,8 @@ class AgentTaskRunner(
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
         private const val MAX_BACK_ATTEMPTS = 2
-        private const val MAX_REJECTED_FINISH_ATTEMPTS = 2
-        private const val MAX_REPLAN_REJECTS = 2
-        private const val MAX_RECOVERABLE_FAILURES = 2
-        private const val MAX_LIGHTWEIGHT_ROUNDS_BETWEEN_VISUAL = 1
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val WRONG_CONFIDENCE_THRESHOLD = 0.78f
-        private const val SPARSE_NODE_VISUAL_THRESHOLD = 12
-        private const val SPARSE_CAPTURED_NODE_THRESHOLD = 8
-        private val RECOVERABLE_FAILURE_ACTIONS = setOf("open_app", "tap_node", "tap_xy", "scroll", "swipe", "wait")
-        private val SOFT_REPEATABLE_ACTIONS = setOf("scroll", "swipe", "wait")
-        private val LIGHTWEIGHT_AFTER_ACTION_TYPES = setOf("tap_node", "tap_xy", "scroll", "swipe", "wait")
         private val BATCH_BREAK_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
-        private val STRICT_REPLAN_STOP_CONDITIONS = setOf("after_each_action", "visual_after_each_action", "cloud_after_each_action", "replan_after_each_action")
-        private val VISUAL_AFTER_ACTION_TYPES = setOf("open_app", "input_text", "back", "home", "recents", "notifications", "quick_settings")
-        private val loadingWaitWords = listOf("加载", "正在", "等待", "过渡", "动画", "空白", "刷新", "刚变化", "loading", "blank", "transition", "wait")
-        private val pureOpenWords = listOf("打开", "开启", "启动", "进入")
-        private val currentScreenWords = listOf("当前", "屏幕", "页面", "界面", "这个", "这里", "看一下", "看看", "点击", "输入", "滑动", "滚动", "按钮")
-        private val highRiskGoalWords = listOf("支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意", "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "pay", "transfer", "delete", "send", "submit", "publish", "password", "login", "otp")
-        private val complexGoalWords = listOf("热榜", "联系人", "通讯录", "朋友圈", "发现", "动态", "搜索", "找到", "页面", "界面", "点击", "发送", "发布", "删除", "设置", "消息", "扫一扫", "视频", "直播", "自选", "行情", "新闻", "小程序", "群", "聊天", "给", "评论", "登录", "支付", "转账")
     }
 }
