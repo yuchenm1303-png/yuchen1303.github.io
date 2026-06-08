@@ -58,6 +58,8 @@ object AgentRuntimeController {
     }
 
     fun setEnabled(value: Boolean) {
+        val current = mutableProgress.value
+        if (mutableEnabled.value == value && current.enabled == value) return
         if (!value) {
             manualStopGeneration += 1L
             completePendingConfirmation(false)
@@ -67,14 +69,16 @@ object AgentRuntimeController {
             ensureOverlayCaptureVisibleIfIdle()
         }
         mutableEnabled.value = value
-        mutableProgress.value = mutableProgress.value.copy(
-            enabled = value,
-            running = if (value) mutableProgress.value.running else false,
-            status = if (value) "待命" else "已关闭",
-            currentAction = if (value) "等待任务" else "智能体自动执行已暂停",
-            lastResult = if (value) mutableProgress.value.lastResult else "",
-            pendingConfirmation = if (value) mutableProgress.value.pendingConfirmation else null,
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                enabled = value,
+                running = if (value) current.running else false,
+                status = if (value) "待命" else "已关闭",
+                currentAction = if (value) "等待任务" else "智能体自动执行已暂停",
+                lastResult = if (value) current.lastResult else "",
+                pendingConfirmation = if (value) current.pendingConfirmation else null,
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -84,14 +88,18 @@ object AgentRuntimeController {
             overlayCaptureDepth += 1
             overlayCaptureGeneration += 1L
             generation = overlayCaptureGeneration
-            mutableOverlayHiddenForCapture.value = true
+            if (!mutableOverlayHiddenForCapture.value) {
+                mutableOverlayHiddenForCapture.value = true
+            }
         }
         overlayCaptureRestoreHandler.postDelayed({
             synchronized(overlayCaptureLock) {
                 if (overlayCaptureDepth > 0 && overlayCaptureGeneration == generation) {
                     overlayCaptureDepth = 0
                     overlayCaptureGeneration += 1L
-                    mutableOverlayHiddenForCapture.value = false
+                    if (mutableOverlayHiddenForCapture.value) {
+                        mutableOverlayHiddenForCapture.value = false
+                    }
                 }
             }
         }, OVERLAY_CAPTURE_WATCHDOG_MS)
@@ -102,7 +110,9 @@ object AgentRuntimeController {
             overlayCaptureDepth = (overlayCaptureDepth - 1).coerceAtLeast(0)
             if (overlayCaptureDepth == 0) {
                 overlayCaptureGeneration += 1L
-                mutableOverlayHiddenForCapture.value = false
+                if (mutableOverlayHiddenForCapture.value) {
+                    mutableOverlayHiddenForCapture.value = false
+                }
             }
         }
     }
@@ -111,7 +121,9 @@ object AgentRuntimeController {
         synchronized(overlayCaptureLock) {
             overlayCaptureDepth = 0
             overlayCaptureGeneration += 1L
-            mutableOverlayHiddenForCapture.value = false
+            if (mutableOverlayHiddenForCapture.value) {
+                mutableOverlayHiddenForCapture.value = false
+            }
         }
     }
 
@@ -129,13 +141,15 @@ object AgentRuntimeController {
         resetCleanVisualCapture()
         AiAgentAccessibilityService.beginTaskSession()
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
-        mutableProgress.value = AgentOverlayProgress(
-            enabled = mutableEnabled.value,
-            running = true,
-            title = "AI 智能体",
-            status = "准备执行",
-            currentAction = cleanGoal,
-            logs = listOf("目标：$cleanGoal"),
+        publishProgress(
+            AgentOverlayProgress(
+                enabled = mutableEnabled.value,
+                running = true,
+                title = "AI 智能体",
+                status = "准备执行",
+                currentAction = cleanGoal,
+                logs = listOf("目标：$cleanGoal"),
+            )
         )
     }
 
@@ -144,15 +158,18 @@ object AgentRuntimeController {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
+        val current = mutableProgress.value
         val resultText = message.trim().take(72).ifBlank { "用户手动停止了本次智能体任务。" }
-        mutableProgress.value = mutableProgress.value.copy(
-            running = false,
-            status = "已手动停止",
-            currentAction = "用户手动停止",
-            lastResult = resultText,
-            pendingConfirmation = null,
-            logs = (mutableProgress.value.logs + "停止：$resultText").takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                running = false,
+                status = "已手动停止",
+                currentAction = "用户手动停止",
+                lastResult = resultText,
+                pendingConfirmation = null,
+                logs = (current.logs + "停止：$resultText").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -160,15 +177,18 @@ object AgentRuntimeController {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
+        val current = mutableProgress.value
         val resultText = message.trim().take(72).ifBlank { if (completed) "任务完成" else "任务暂停" }
-        mutableProgress.value = mutableProgress.value.copy(
-            running = false,
-            status = if (completed) "已完成" else "已暂停",
-            currentAction = if (completed) "任务完成" else "任务已暂停",
-            lastResult = resultText,
-            pendingConfirmation = null,
-            logs = (mutableProgress.value.logs + "最终：$resultText").takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                running = false,
+                status = if (completed) "已完成" else "已暂停",
+                currentAction = if (completed) "任务完成" else "任务已暂停",
+                lastResult = resultText,
+                pendingConfirmation = null,
+                logs = (current.logs + "最终：$resultText").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -176,49 +196,58 @@ object AgentRuntimeController {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
+        val current = mutableProgress.value
         val resultText = message.trim().take(72).ifBlank { "智能体执行失败" }
-        mutableProgress.value = mutableProgress.value.copy(
-            running = false,
-            status = "执行失败",
-            currentAction = "任务异常",
-            lastResult = resultText,
-            pendingConfirmation = null,
-            logs = (mutableProgress.value.logs + "失败：$resultText").takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                running = false,
+                status = "执行失败",
+                currentAction = "任务异常",
+                lastResult = resultText,
+                pendingConfirmation = null,
+                logs = (current.logs + "失败：$resultText").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
     fun noteAction(step: CloudAgentStep) {
-        if (!mutableProgress.value.running) return
+        val current = mutableProgress.value
+        if (!current.running) return
         beginCleanVisualCapture()
         val actionText = buildActionText(step)
-        mutableProgress.value = mutableProgress.value.copy(
-            enabled = true,
-            running = true,
-            status = "执行中",
-            currentAction = actionText,
-            pendingConfirmation = null,
-            logs = (mutableProgress.value.logs + actionText).takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                enabled = true,
+                running = true,
+                status = "执行中",
+                currentAction = actionText,
+                pendingConfirmation = null,
+                logs = (current.logs + actionText).takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
     fun noteResult(step: CloudAgentStep, result: AgentExecutionResult) {
         endCleanVisualCapture()
-        if (!mutableProgress.value.running) return
+        val current = mutableProgress.value
+        if (!current.running) return
         val resultText = result.message.take(64)
-        mutableProgress.value = mutableProgress.value.copy(
-            running = if (result.ok) result.shouldContinue else true,
-            status = when {
-                result.ok && result.shouldContinue -> "执行中"
-                result.ok -> "已完成"
-                else -> "重新规划"
-            },
-            currentAction = buildActionText(step),
-            lastResult = resultText,
-            pendingConfirmation = null,
-            logs = (mutableProgress.value.logs + "结果：$resultText").takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                running = if (result.ok) result.shouldContinue else true,
+                status = when {
+                    result.ok && result.shouldContinue -> "执行中"
+                    result.ok -> "已完成"
+                    else -> "重新规划"
+                },
+                currentAction = buildActionText(step),
+                lastResult = resultText,
+                pendingConfirmation = null,
+                logs = (current.logs + "结果：$resultText").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -227,10 +256,12 @@ object AgentRuntimeController {
         if (!current.running && current.pendingConfirmation == null) return
         val text = message.trim().take(90)
         if (text.isBlank()) return
-        mutableProgress.value = current.copy(
-            lastResult = text,
-            logs = (current.logs + "诊断：$text").takeLast(MAX_LOGS),
-            updatedAt = System.currentTimeMillis(),
+        publishProgress(
+            current.copy(
+                lastResult = text,
+                logs = (current.logs + "诊断：$text").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
     }
 
@@ -247,15 +278,18 @@ object AgentRuntimeController {
             pendingConfirmationDeferred?.complete(false)
             pendingConfirmationId = confirmation.id
             pendingConfirmationDeferred = deferred
-            mutableProgress.value = mutableProgress.value.copy(
-                enabled = true,
-                running = true,
-                status = "等待确认",
-                currentAction = "高风险动作确认",
-                lastResult = confirmation.message,
-                pendingConfirmation = confirmation,
-                logs = (mutableProgress.value.logs + "等待确认：$actionText").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
+            val current = mutableProgress.value
+            publishProgress(
+                current.copy(
+                    enabled = true,
+                    running = true,
+                    status = "等待确认",
+                    currentAction = "高风险动作确认",
+                    lastResult = confirmation.message,
+                    pendingConfirmation = confirmation,
+                    logs = (current.logs + "等待确认：$actionText").takeLast(MAX_LOGS),
+                    updatedAt = System.currentTimeMillis(),
+                )
             )
         }
         return try {
@@ -271,19 +305,22 @@ object AgentRuntimeController {
 
     fun confirmPendingRiskAction() {
         val deferred = synchronized(confirmationLock) {
-            val current = pendingConfirmationDeferred ?: return
+            val currentDeferred = pendingConfirmationDeferred ?: return
             pendingConfirmationDeferred = null
             pendingConfirmationId = 0L
-            mutableProgress.value = mutableProgress.value.copy(
-                running = true,
-                status = "已确认",
-                currentAction = mutableProgress.value.pendingConfirmation?.actionText ?: "继续执行",
-                lastResult = "用户已确认，继续执行。",
-                pendingConfirmation = null,
-                logs = (mutableProgress.value.logs + "确认：继续执行").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
+            val current = mutableProgress.value
+            publishProgress(
+                current.copy(
+                    running = true,
+                    status = "已确认",
+                    currentAction = current.pendingConfirmation?.actionText ?: "继续执行",
+                    lastResult = "用户已确认，继续执行。",
+                    pendingConfirmation = null,
+                    logs = (current.logs + "确认：继续执行").takeLast(MAX_LOGS),
+                    updatedAt = System.currentTimeMillis(),
+                )
             )
-            current
+            currentDeferred
         }
         deferred.complete(true)
     }
@@ -316,16 +353,35 @@ object AgentRuntimeController {
                 resetCleanVisualCapture()
                 pendingConfirmationDeferred = null
                 pendingConfirmationId = 0L
-                mutableProgress.value = mutableProgress.value.copy(
-                    running = false,
-                    status = "已暂停",
-                    currentAction = "确认已失效",
-                    lastResult = "高风险确认已取消。",
-                    pendingConfirmation = null,
-                    updatedAt = System.currentTimeMillis(),
+                publishProgress(
+                    mutableProgress.value.copy(
+                        running = false,
+                        status = "已暂停",
+                        currentAction = "确认已失效",
+                        lastResult = "高风险确认已取消。",
+                        pendingConfirmation = null,
+                        updatedAt = System.currentTimeMillis(),
+                    )
                 )
             }
         }
+    }
+
+    private fun publishProgress(next: AgentOverlayProgress) {
+        val current = mutableProgress.value
+        if (current.hasSameOverlayContent(next)) return
+        mutableProgress.value = next
+    }
+
+    private fun AgentOverlayProgress.hasSameOverlayContent(other: AgentOverlayProgress): Boolean {
+        return enabled == other.enabled &&
+            running == other.running &&
+            title == other.title &&
+            status == other.status &&
+            currentAction == other.currentAction &&
+            lastResult == other.lastResult &&
+            logs == other.logs &&
+            pendingConfirmation == other.pendingConfirmation
     }
 
     private fun buildActionText(step: CloudAgentStep): String {
