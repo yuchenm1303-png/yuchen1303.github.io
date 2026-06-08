@@ -48,7 +48,6 @@ class AgentOverlayService : Service() {
             return
         }
         windowManager = getSystemService(WINDOW_SERVICE) as? WindowManager
-        createOverlay()
         scope.launch {
             AgentRuntimeController.progress.collectLatest { progress -> updateProgress(progress) }
         }
@@ -57,6 +56,7 @@ class AgentOverlayService : Service() {
                 rootView?.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
             }
         }
+        updateProgress(AgentRuntimeController.progress.value)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -64,19 +64,42 @@ class AgentOverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (rootView == null) createOverlay()
-        rootView?.visibility = if (AgentRuntimeController.overlayHiddenForCapture.value) View.INVISIBLE else View.VISIBLE
+        updateProgress(AgentRuntimeController.progress.value)
         return START_STICKY
     }
 
     override fun onDestroy() {
         scope.cancel()
-        rootView?.let { view -> runCatching { windowManager?.removeView(view) } }
-        rootView = null
+        removeOverlay()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun shouldShowOverlay(progress: AgentOverlayProgress): Boolean {
+        return progress.running || progress.pendingConfirmation != null
+    }
+
+    private fun ensureOverlayCreated() {
+        if (rootView != null) return
+        createOverlay()
+    }
+
+    private fun removeOverlay() {
+        rootView?.let { view -> runCatching { windowManager?.removeView(view) } }
+        rootView = null
+        titleView = null
+        statusView = null
+        actionView = null
+        resultView = null
+        logView = null
+        choicePanel = null
+        choiceTitleView = null
+        choiceMessageView = null
+        primaryChoiceView = null
+        secondaryChoiceView = null
+        layoutParams = null
+    }
 
     private fun createOverlay() {
         if (rootView != null) return
@@ -126,7 +149,7 @@ class AgentOverlayService : Service() {
             setTextColor(Color.argb(220, 255, 255, 255))
             gravity = Gravity.CENTER
             setPadding((8 * density).toInt(), 0, 0, 0)
-            setOnClickListener { stopSelf() }
+            setOnClickListener { removeOverlay() }
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -203,10 +226,15 @@ class AgentOverlayService : Service() {
         }
         rootView = panel
         layoutParams = params
-        runCatching { wm.addView(panel, params) }.onFailure { stopSelf() }
+        runCatching { wm.addView(panel, params) }.onFailure { removeOverlay() }
     }
 
     private fun updateProgress(progress: AgentOverlayProgress) {
+        if (!shouldShowOverlay(progress)) {
+            removeOverlay()
+            return
+        }
+        ensureOverlayCreated()
         titleView?.text = progress.title
         statusView?.text = "${if (progress.enabled) "已开启" else "已关闭"} · ${progress.status}"
         actionView?.text = progress.currentAction
