@@ -46,6 +46,7 @@ class AgentTaskRunner(
         }
 
         AgentRuntimeController.startTask(goal)
+        AiAgentAccessibilityService.beginTaskSession()
         return try {
             runStartedTask(goal, modelPreference, logs)
         } catch (error: CancellationException) {
