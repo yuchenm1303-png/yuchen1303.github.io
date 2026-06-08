@@ -135,7 +135,7 @@ class DeviceControlRuntime(
     private fun trySetBrightness(goal: String, normalized: String): DeviceControlResult? {
         if (!hasAny(normalized, listOf("亮度", "屏幕亮度"))) return null
         val percent = firstNumber(goal)?.coerceIn(0, 100) ?: return DeviceControlResult(false, "调节亮度", "我识别到亮度控制，但没有找到 0–100 的亮度百分比。")
-        if (!Settings.System.canWrite(appContext)) {
+        if (!canWriteSystemSettings()) {
             openWriteSettingsPermission()
             return DeviceControlResult(
                 ok = false,
@@ -160,7 +160,7 @@ class DeviceControlRuntime(
         if (!hasAny(normalized, listOf("锁屏时间", "息屏时间", "自动锁屏", "屏幕超时", "休眠时间"))) return null
         val timeoutMs = parseTimeoutMs(goal)
             ?: return DeviceControlResult(false, "设置锁屏时间", "我识别到锁屏时间控制，但没有找到明确时长，比如“30秒”或“5分钟”。")
-        if (!Settings.System.canWrite(appContext)) {
+        if (!canWriteSystemSettings()) {
             openWriteSettingsPermission()
             return DeviceControlResult(
                 ok = false,
@@ -207,8 +207,16 @@ class DeviceControlRuntime(
         }.getOrDefault(false)
     }
 
+    private fun canWriteSystemSettings(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(appContext)
+    }
+
     private fun openWriteSettingsPermission() {
-        val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${appContext.packageName}"))
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${appContext.packageName}"))
+        } else {
+            Intent(Settings.ACTION_SETTINGS)
+        }
         launchActivity(intent)
     }
 
