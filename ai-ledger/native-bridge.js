@@ -183,6 +183,44 @@
     openApp: (packageName, fallbackName) => call('openApp', { packageName, fallbackName }),
     setAlarm: (alarm) => call('setAlarm', alarm),
     startNavigation: (target) => call('startNavigation', target),
+    isAgentAccessibilityEnabled: () => {
+      const native = getBridge();
+      try { return Boolean(native?.isAgentAccessibilityEnabled?.()); } catch { return false; }
+    },
+    isAgentInputMethodActive: () => {
+      const native = getBridge();
+      try { return Boolean(native?.isAgentInputMethodActive?.()); } catch { return false; }
+    },
+    observeAgentScreen: () => {
+      const native = getBridge();
+      try {
+        const raw = native?.observeAgentScreen?.();
+        return typeof raw === 'string' ? safeJsonParse(raw, { ok: false }) : (raw || { ok: false });
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error || 'observe failed') };
+      }
+    },
+    executeAgentStep: (step) => {
+      const native = getBridge();
+      try {
+        const raw = native?.executeAgentStep?.(safeJsonStringify(step || {}));
+        return typeof raw === 'string' ? safeJsonParse(raw, { ok: false }) : (raw || { ok: false });
+      } catch (error) {
+        return { ok: false, error: String(error?.message || error || 'execute failed') };
+      }
+    },
+    openAccessibilitySettings: () => {
+      const native = getBridge();
+      try { return Boolean(native?.openAccessibilitySettings?.()); } catch { return call('openAccessibilitySettings'); }
+    },
+    openInputMethodSettings: () => {
+      const native = getBridge();
+      try { return Boolean(native?.openInputMethodSettings?.()); } catch { return call('openInputMethodSettings'); }
+    },
+    showInputMethodPicker: () => {
+      const native = getBridge();
+      try { return Boolean(native?.showInputMethodPicker?.()); } catch { return call('showInputMethodPicker'); }
+    },
     closeQuickAi: () => call('closeQuickAi'),
     openFullApp: () => call('openFullApp'),
     notifyReady,

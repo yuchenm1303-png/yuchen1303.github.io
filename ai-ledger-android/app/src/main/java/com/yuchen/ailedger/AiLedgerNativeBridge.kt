@@ -1,7 +1,13 @@
 package com.yuchen.ailedger
 
 import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import android.webkit.JavascriptInterface
+import android.view.inputmethod.InputMethodManager
+import com.yuchen.ailedger.agent.AgentAccessibilityService
+import com.yuchen.ailedger.agent.AgentInputMethodService
 import org.json.JSONObject
 
 class AiLedgerNativeBridge(
@@ -21,6 +27,11 @@ class AiLedgerNativeBridge(
             .put("openApp", true)
             .put("setAlarm", true)
             .put("startNavigation", true)
+            .put("agentAccessibility", AgentAccessibilityService.isEnabled())
+            .put("agentInputMethodActive", AgentInputMethodService.isActive())
+            .put("agentObserveScreen", true)
+            .put("agentExecuteStep", true)
+            .put("agentActions", "tap_xy,tap_node,long_press,swipe,scroll,input_text,back,home,recents,notifications,quick_settings,wait,finish,need_user_help")
             .put("glassModes", "basic,blur,liquid,safe")
             .toString()
     }
@@ -47,6 +58,11 @@ class AiLedgerNativeBridge(
                 "openApp" -> openApp(payload.optString("packageName"), payload.optString("fallbackName"))
                 "startNavigation" -> startNavigation(payload.optString("target"))
                 "setAlarm" -> setAlarm(payload.toString())
+                "openAccessibilitySettings" -> openAccessibilitySettings()
+                "openInputMethodSettings" -> openInputMethodSettings()
+                "showInputMethodPicker" -> showInputMethodPicker()
+                "executeAgentStep" -> executeAgentStep(payload.toString())
+                "observeAgentScreen" -> observeAgentScreen()
                 "webReady" -> Unit
             }
         }
@@ -77,5 +93,41 @@ class AiLedgerNativeBridge(
         val message = alarm.optString("message", "AI 助手提醒")
         if (hour !in 0..23 || minute !in 0..59) return
         activity.runOnUiThread { systemActionRouter.setAlarm(hour, minute, message) }
+    }
+    @JavascriptInterface
+    fun isAgentAccessibilityEnabled(): Boolean = AgentAccessibilityService.isEnabled()
+
+    @JavascriptInterface
+    fun isAgentInputMethodActive(): Boolean = AgentInputMethodService.isActive()
+
+    @JavascriptInterface
+    fun observeAgentScreen(): String = AgentAccessibilityService.observe().toString()
+
+    @JavascriptInterface
+    fun executeAgentStep(rawStep: String?): String = AgentAccessibilityService.execute(rawStep).toString()
+
+    @JavascriptInterface
+    fun openAccessibilitySettings(): Boolean {
+        return runCatching {
+            activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            true
+        }.getOrDefault(false)
+    }
+
+    @JavascriptInterface
+    fun openInputMethodSettings(): Boolean {
+        return runCatching {
+            activity.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            true
+        }.getOrDefault(false)
+    }
+
+    @JavascriptInterface
+    fun showInputMethodPicker(): Boolean {
+        return runCatching {
+            val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showInputMethodPicker()
+            true
+        }.getOrDefault(false)
     }
 }

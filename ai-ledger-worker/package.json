@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "agent:gui-plus": "node src/index-agent-gui-plus.cjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
