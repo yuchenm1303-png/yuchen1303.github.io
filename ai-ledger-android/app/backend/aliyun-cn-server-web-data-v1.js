@@ -1,4 +1,5 @@
 const http = require("http");
+const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || process.env.FC_SERVER_PORT || 9000);
 const REQUEST_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS || 30000);
@@ -40,6 +41,11 @@ const ALIYUN_GUI_BASE_URL = String(process.env.ALIYUN_GUI_BASE_URL || "https://d
 const ALIYUN_GUI_MODEL = String(process.env.ALIYUN_GUI_MODEL || "gui-plus-2026-02-26").trim();
 const ALIYUN_GUI_TIMEOUT_MS = Number(process.env.ALIYUN_GUI_TIMEOUT_MS || 15000);
 const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 512);
+const ALIYUN_GUI_API_MODE = String(process.env.ALIYUN_GUI_API_MODE || "openai_compatible").trim().toLowerCase();
+const ALIYUN_GUI_HIGH_RESOLUTION_IMAGES = String(process.env.ALIYUN_GUI_HIGH_RESOLUTION_IMAGES || "true").toLowerCase() !== "false";
+const ALIYUN_GUI_ENABLE_THINKING = String(process.env.ALIYUN_GUI_ENABLE_THINKING || "false").toLowerCase() === "true";
+const AGENT_GUI_HISTORY_N = Math.max(0, Math.min(6, Number(process.env.AGENT_GUI_HISTORY_N || 4)));
+const AGENT_GUI_SESSION_MAX = Math.max(4, Math.min(64, Number(process.env.AGENT_GUI_SESSION_MAX || 24)));
 
 // v34 架构保护开关：普通聊天、显式智能体、agent_step、联网工具彻底分流。
 // 默认关闭历史“普通聊天里用关键词/模型路由触发手机动作”的行为。
@@ -48,7 +54,7 @@ const ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT = String(process.env.ENABLE_MODEL_COM
 const ENABLE_AGENT_SUGGESTION_CARD = String(process.env.ENABLE_AGENT_SUGGESTION_CARD || "false").toLowerCase() === "true";
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v39-route-planner-gui-grounder";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v40-aliyun-gui-plus-official-loop";
 const EMBEDDED_COMMAND_PREFIX = "[[AI_LEDGER_COMMAND:";
 const EMBEDDED_COMMAND_SUFFIX = "]]";
 
@@ -375,12 +381,17 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
   if (options.response_format) {
     payload.response_format = options.response_format;
   }
+  if (options.extraBody && typeof options.extraBody === "object") {
+    Object.assign(payload, options.extraBody);
+  }
 
+  const extraHeaders = options.headers && typeof options.headers === "object" ? options.headers : {};
   const r = await fetchWithTimeout(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${key}`,
+      ...extraHeaders,
     },
     body: JSON.stringify(payload),
   }, options.timeoutMs || REQUEST_TIMEOUT_MS);
@@ -1609,6 +1620,7 @@ function compactAgentMemoryForPrompt(agentMemory, recentActions) {
 }
 
 
+
 function routeEvidenceText(snapshot, visualFrame = null) {
   return evidenceTextForCompletion(snapshot, visualFrame);
 }
@@ -1762,7 +1774,7 @@ function buildAgentRoutePlannerSystemPrompt() {
     "如果目标已完成，preferredAction=finish。",
     "输出格式：",
     "{\"routePlan\":{\"stage\":\"route\",\"currentAssessment\":\"当前页判断\",\"subgoal\":\"当前一步子目标\",\"groundingGoal\":\"给 GUI Plus 的具体定位目标\",\"preferredAction\":\"tap_xy|back|swipe|scroll|wait|finish|need_user_help\",\"allowScroll\":false,\"expectedEvidence\":[\"\"],\"avoidEvidence\":[\"\"],\"routeState\":\"on_route|off_route|done|uncertain\",\"reason\":\"简短原因\",\"confidence\":0.0}}"
-  ].join("\n");
+  ].join("\\n");
 }
 
 function buildAgentRoutePlannerMessages(goal, snapshot, visualFrame, recentActions, deviceContext, agentMemory) {
@@ -1894,6 +1906,7 @@ function applyRoutePlanGuard(routePlan, agentStep, agentState, snapshot, support
   }
   return { agentStep, agentState, guarded: false, reason: "" };
 }
+
 
 
 function buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot = false) {
@@ -2055,6 +2068,12 @@ async function handleAgentOutcomeVerificationRequest(body, prompt, resolvedModel
     };
   }
 
+  const officialGuiPlusLoop = Boolean(
+    screenshotInfo.hasImage &&
+      guiProviderConfig.provider === "aliyun_gui_plus" &&
+      guiProviderConfig.mode === "aliyun_openai_compatible"
+  );
+
   if (!goal) {
     return { ok: false, error: "empty_agent_goal", code: "empty_agent_goal", version: WORKER_VERSION };
   }
@@ -2097,9 +2116,10 @@ function cleanupAgentSessions() {
   for (const [key, value] of AGENT_SESSIONS.entries()) {
     if (!value || now - Number(value.updatedAt || 0) > AGENT_SESSION_TTL_MS) AGENT_SESSIONS.delete(key);
   }
-  if (AGENT_SESSIONS.size <= AGENT_SESSION_MAX) return;
+  const maxSessions = Math.min(AGENT_SESSION_MAX, AGENT_GUI_SESSION_MAX);
+  if (AGENT_SESSIONS.size <= maxSessions) return;
   const entries = [...AGENT_SESSIONS.entries()].sort((a, b) => Number(a[1]?.updatedAt || 0) - Number(b[1]?.updatedAt || 0));
-  for (const [key] of entries.slice(0, Math.max(0, AGENT_SESSIONS.size - AGENT_SESSION_MAX))) AGENT_SESSIONS.delete(key);
+  for (const [key] of entries.slice(0, Math.max(0, AGENT_SESSIONS.size - maxSessions))) AGENT_SESSIONS.delete(key);
 }
 
 function normalizeAgentSessionId(body, goal) {
@@ -2120,10 +2140,12 @@ function getAgentSession(body, goal) {
   }
   const created = {
     id,
+    guiSessionId: newAgentGuiSessionId(),
     goal: goal || "",
     createdAt: Date.now(),
     updatedAt: Date.now(),
     step: 0,
+    guiHistory: [],
     visualFrame: null,
     lastFingerprint: "",
     lastStableScreenKey: "",
@@ -2134,6 +2156,69 @@ function getAgentSession(body, goal) {
   AGENT_SESSIONS.set(id, created);
   return created;
 }
+
+
+function newAgentGuiSessionId() {
+  try {
+    if (crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch (_) {}
+  return `gui-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function trimAgentGuiHistory(session) {
+  if (!session || !Array.isArray(session.guiHistory)) return;
+  while (session.guiHistory.length > AGENT_GUI_HISTORY_N) session.guiHistory.shift();
+}
+
+function rememberAgentGuiTurn(session, screenshotInfo, rawOutput, compactAction = null) {
+  if (!session || !screenshotInfo?.hasImage || !rawOutput) return;
+  if (!Array.isArray(session.guiHistory)) session.guiHistory = [];
+  session.guiHistory.push({
+    image: {
+      mimeType: screenshotInfo.mimeType || "image/jpeg",
+      base64: screenshotInfo.base64 || "",
+      width: Number(screenshotInfo.width) || 0,
+      height: Number(screenshotInfo.height) || 0,
+      displayWidth: Number(screenshotInfo.displayWidth) || Number(screenshotInfo.width) || 0,
+      displayHeight: Number(screenshotInfo.displayHeight) || Number(screenshotInfo.height) || 0,
+    },
+    output: String(rawOutput || "").slice(0, 6000),
+    compactAction: compactAction || null,
+    createdAt: Date.now(),
+  });
+  trimAgentGuiHistory(session);
+}
+
+function aliyunGuiDateInfo() {
+  try {
+    const parts = new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Singapore",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "long",
+    }).formatToParts(new Date());
+    const get = (type) => parts.find((p) => p.type === type)?.value || "";
+    return `今天的日期是:${get("year")}年${get("month")}月${get("day")}日 ${get("weekday")}。`;
+  } catch (_) {
+    return "";
+  }
+}
+
+function extractMobileUseActionSummary(output) {
+  const raw = String(output || "").trim();
+  const actionLine = (raw.match(/^Action:\s*(.*)$/im) || [])[1];
+  if (actionLine) return safeText(actionLine, 120);
+  const args = extractAliyunMobileUseToolCall(raw);
+  if (args) {
+    const action = safeText(args.action || "", 24);
+    const text = safeText(args.text || args.button || "", 80);
+    const coordinate = Array.isArray(args.coordinate) ? ` @${args.coordinate.slice(0, 2).join(",")}` : "";
+    return safeText([action, text, coordinate].filter(Boolean).join(" "), 120);
+  }
+  return safeText(raw.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, ""), 120);
+}
+
 
 function screenFingerprint(snapshot, screenshotInfo) {
   const texts = [
@@ -2733,6 +2818,8 @@ function adaptCompactVisionPlan(parsed) {
   const requiresConfirmation = Boolean(parsed.q ?? parsed.confirm ?? parsed.requiresConfirmation) || riskLevel !== "low";
   const targetText = safeText(parsed.t ?? parsed.targetText ?? parsed.label ?? parsed.textTarget ?? bestCandidate?.text ?? "", 80);
   const targetNodeId = safeText(parsed.n ?? parsed.nodeId ?? parsed.targetNodeId ?? "", 32);
+  const appName = safeText(parsed.appName ?? parsed.app ?? parsed.packageLabel ?? (actionType === "open_app" ? targetText : ""), 80);
+  const packageName = safeText(parsed.packageName ?? parsed.package ?? "", 120);
   const inputText = safeText(parsed.v ?? parsed.text ?? parsed.inputText ?? "", 180);
   const direction = normalizeAgentDirection(parsed.d ?? parsed.direction ?? "");
   let reason = safeText(parsed.e ?? parsed.evidence ?? parsed.reason ?? parsed.rationale ?? bestCandidate?.evidence ?? "视觉定位规划。", 160);
@@ -2786,12 +2873,16 @@ function adaptCompactVisionPlan(parsed) {
     },
     agentStep: {
       type: actionType,
+      appName: actionType === "open_app" ? (appName || targetText || undefined) : undefined,
+      packageName: actionType === "open_app" ? (packageName || undefined) : undefined,
       targetNodeId: targetNodeId || undefined,
       targetText: targetText || undefined,
       text: actionType === "input_text" ? inputText : inputText || undefined,
       direction: ["scroll", "swipe"].includes(actionType) ? direction || "up" : direction || undefined,
       x: actionType === "tap_xy" && hasCoordinate ? x : undefined,
       y: actionType === "tap_xy" && hasCoordinate ? y : undefined,
+      x2: actionType === "swipe" ? parsed.x2 : undefined,
+      y2: actionType === "swipe" ? parsed.y2 : undefined,
       durationMs: actionType === "wait" ? Number(parsed.ms || parsed.durationMs || 500) : undefined,
       reason,
       riskLevel,
@@ -3163,9 +3254,7 @@ function normalizeGuiPlusRawToCompact(rawOutput, screenshotInfo) {
   }
 
   const point = normalizeGuiPlusPoint(xRaw, yRaw, screenshotInfo);
-  if (!point) {
-    return guiPlusNeedUserHelp(targetText, "GUI Plus 没有给出可靠坐标，禁止猜测点击。", rawText);
-  }
+  if (!point) return guiPlusNeedUserHelp(targetText, "GUI Plus 没有给出可靠坐标，禁止猜测点击。", rawText);
 
   const safeConfidence = confidence > 0 ? confidence : 0.6;
   if (safeConfidence < 0.25) {
@@ -3234,48 +3323,65 @@ function buildAliyunMobileUseToolProtocolPrompt() {
   ].join("\n");
 }
 
-function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null) {
-  const pureGroundingContext = {
-    task: safeText(goal, 240),
-    currentApp: snapshot.currentApp || snapshot.packageName || "",
-    screenshot: {
-      sourceWidth: screenshotInfo.width,
-      sourceHeight: screenshotInfo.height,
-      displayWidth: screenshotInfo.displayWidth,
-      displayHeight: screenshotInfo.displayHeight,
-      mobileUseCoordinateSystem: "1000x1000",
-    },
-    // 只保留底层 App 的 affordance 提示；不传 recentActions / previousVisualFrame / failed state，避免把智能体自身状态污染 GUI 定位模型。
-    nodeHints: compactNodesForGuiPlusPrompt(snapshot).slice(0, 20),
-    targetAppCandidates: targetAppCandidatesFromDeviceContext(deviceContext || {}).slice(0, 6).map((app) => ({ label: app.label, packageName: app.packageName })),
-    supportedLocalActions: supportedSteps,
-  };
+function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null, session = null) {
+  const history = Array.isArray(session?.guiHistory) ? session.guiHistory.slice(-AGENT_GUI_HISTORY_N) : [];
+  const previousActions = history
+    .map((item, index) => `Step ${index + 1}: ${extractMobileUseActionSummary(item.output)}`)
+    .filter(Boolean)
+    .join("\n") || "None";
 
-  const taskPrompt = [
-    buildAliyunMobileUseToolProtocolPrompt(),
+  const instructionPrompt = [
+    "Please generate the next move according to the UI screenshot, instruction and previous actions.",
     "",
-    "# Task",
-    `Current task: ${safeText(goal, 240)}`,
-    "You are controlling an Android phone screenshot. Decide the next single mobile_use action.",
-    "For low-risk navigation targets such as bottom tabs, contacts, messages, home, search, settings, menu entries and list entries, click the visible target directly.",
-    "Do not infer completion from prior agent/debug text. Do not use previous failure state. Only use the visible app screen and the task.",
-    "If there is an assistant/debug floating panel in the screenshot, do not click that panel. Treat it as an overlay above the app. If the requested target is visible outside the overlay, still click the target.",
-    "If the target is hidden behind an overlay or is genuinely not visible, use wait only for a real loading/transition screen; otherwise terminate with failure.",
-    "High-risk actions involving payment, sending, posting, deleting, authorization, login, password or verification code must not be clicked; terminate with failure instead.",
+    `Instruction: ${aliyunGuiDateInfo()}${safeText(goal, 240)}`,
     "",
-    "# Context JSON",
-    JSON.stringify(pureGroundingContext),
+    "Previous actions:",
+    previousActions,
   ].join("\n");
 
-  return [
+  const messages = [
     {
-      role: "user",
-      content: [
-        { type: "text", text: taskPrompt },
-        { type: "image_url", image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` } },
-      ],
+      role: "system",
+      content: buildAliyunMobileUseToolProtocolPrompt(),
     },
   ];
+
+  if (history.length > 0) {
+    history.forEach((item, historyIndex) => {
+      const content = [];
+      if (historyIndex === 0) content.push({ type: "text", text: instructionPrompt });
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${item.image?.mimeType || "image/jpeg"};base64,${item.image?.base64 || ""}`,
+        },
+      });
+      messages.push({ role: "user", content });
+      messages.push({ role: "assistant", content: String(item.output || "") });
+    });
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "image_url",
+          image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+        },
+      ],
+    });
+  } else {
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: instructionPrompt },
+        {
+          type: "image_url",
+          image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+        },
+      ],
+    });
+  }
+
+  return messages;
 }
 
 function extractAliyunMobileUseToolCall(rawOutput) {
@@ -3370,7 +3476,7 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   if (action === "wait") {
     const seconds = Number(args.time);
     const ms = Number.isFinite(seconds) ? Math.max(300, Math.min(2000, Math.round(seconds * 1000))) : 700;
-    return { s: "p", a: "wait", ms, t: text || "等待", c: 0.68, e: "GUI Plus mobile_use wait.", raw: rawText.slice(0, 1200) };
+    return { s: "p", a: "wait", ms, t: text || "等待", c: 0.68, e: "GUI Plus mobile_use wait：页面加载/过渡/处理等待。", raw: rawText.slice(0, 1200) };
   }
 
   if (action === "system_button") {
@@ -3382,7 +3488,21 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   }
 
   if (action === "swipe") {
-    return { s: "p", a: "swipe", d: mobileUseSwipeDirection(args), t: text || "滑动", c: 0.72, e: "GUI Plus mobile_use swipe.", raw: rawText.slice(0, 1200) };
+    const p1 = normalizeMobileUseCoordinatePair(args.coordinate, screenshotInfo);
+    const p2 = normalizeMobileUseCoordinatePair(args.coordinate2, screenshotInfo);
+    return {
+      s: "p",
+      a: "swipe",
+      d: mobileUseSwipeDirection(args),
+      x: p1?.x,
+      y: p1?.y,
+      x2: p2?.x,
+      y2: p2?.y,
+      t: text || "滑动",
+      c: 0.72,
+      e: "GUI Plus mobile_use swipe.",
+      raw: rawText.slice(0, 1200),
+    };
   }
 
   if (action === "type") {
@@ -3406,8 +3526,20 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
     return guiPlusNeedUserHelp(text || goal, safeText(args.text || actionLine || `GUI Plus mobile_use ${action}.`, 220), rawText);
   }
 
-  if (action === "open" || action === "long_press") {
-    return guiPlusNeedUserHelp(text || goal, `第一阶段不自动执行 mobile_use ${action}，已保守暂停。`, rawText);
+  if (action === "open") {
+    return {
+      s: "p",
+      a: "open_app",
+      appName: text || goal,
+      t: text || goal || "打开应用",
+      c: 0.72,
+      e: "GUI Plus mobile_use open.",
+      raw: rawText.slice(0, 1200),
+    };
+  }
+
+  if (action === "long_press") {
+    return guiPlusNeedUserHelp(text || goal, "第一阶段不自动执行 mobile_use long_press，已保守暂停。", rawText);
   }
 
   return guiPlusNeedUserHelp(text || goal, `未知 mobile_use action=${safeText(action, 32)}。`, rawText);
@@ -3419,27 +3551,34 @@ function logGuiProviderCall(provider, model, screenshotInfo, elapsedMs, compact,
   console.log(`[agent-gui] provider=${provider} model=${model} image=${screenshotInfo?.width || 0}x${screenshotInfo?.height || 0} elapsedMs=${elapsedMs} action=${compact?.a || "unknown"} x=${x} y=${y}${extra ? ` ${extra}` : ""}`);
 }
 
-async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
+async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing: set ALIYUN_GUI_API_KEY or QWEN_API_KEY");
   if (!ALIYUN_GUI_BASE_URL) throw new Error("Aliyun GUI Plus base url missing: set ALIYUN_GUI_BASE_URL");
   if (!ALIYUN_GUI_MODEL) throw new Error("Aliyun GUI Plus model missing: set ALIYUN_GUI_MODEL");
   if (!screenshotInfo?.hasImage) throw new Error("Aliyun GUI Plus requires screenshot");
 
-  // 阿里云百炼 GUI Plus 以官方 mobile_use 工具协议调用：
+  // 阿里云百炼 GUI Plus 当前按 OpenAI-compatible /chat/completions 调用：
   // POST {ALIYUN_GUI_BASE_URL}/chat/completions
   // model=gui-plus-2026-02-26
-  // messages=[{role:"user", content:[官方 mobile_use tool prompt, image_url]}]
-  // 模型输出 Action + <tool_call>{"name":"mobile_use","arguments":{...}}</tool_call>，后端再适配为现有 compact action。
+  // messages=[{role:"user", content:[{type:"text"}, {type:"image_url"}]}]
+  // 如果后续官方文档要求 DashScope 原生专用接口，只替换本函数即可；下游仍保持 compact action JSON。
   const startedAt = Date.now();
   const raw = await callOpenAICompatible(
     ALIYUN_GUI_BASE_URL,
     ALIYUN_GUI_API_KEY,
     ALIYUN_GUI_MODEL,
-    buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions, supportedSteps, deviceContext, agentMemory),
+    buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions, supportedSteps, deviceContext, agentMemory, session),
     "Aliyun GUI Plus",
     {
       temperature: 0,
       max_tokens: Math.min(ALIYUN_GUI_MAX_TOKENS, AGENT_VISION_MAX_TOKENS, 512),
+      headers: {
+        "x-dashscope-gui-session-id": session?.guiSessionId || newAgentGuiSessionId(),
+      },
+      extraBody: {
+        vl_high_resolution_images: ALIYUN_GUI_HIGH_RESOLUTION_IMAGES,
+        enable_thinking: ALIYUN_GUI_ENABLE_THINKING,
+      },
       timeoutMs: Math.max(
         300,
         Math.min(
@@ -3450,8 +3589,9 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, recentA
     }
   );
   const compact = normalizeAliyunMobileUseRawToCompact(raw, screenshotInfo, goal);
-  logGuiProviderCall("aliyun_gui_plus", ALIYUN_GUI_MODEL, screenshotInfo, Date.now() - startedAt, compact, `rawLen=${raw.length}`);
-  return adaptCompactVisionPlan(compact);
+  rememberAgentGuiTurn(session, screenshotInfo, raw, compact);
+  logGuiProviderCall("aliyun_gui_plus", ALIYUN_GUI_MODEL, screenshotInfo, Date.now() - startedAt, compact, `rawLen=${raw.length} history=${session?.guiHistory?.length || 0}`);
+  return { ...adaptCompactVisionPlan(compact), guiPlusRawOutput: raw, guiPlusCompact: compact };
 }
 
 async function callExternalHttpGuiProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
@@ -3507,7 +3647,7 @@ async function callAgentGuiProvider(goal, snapshot, screenshotInfo, session, rec
   }
   if (providerConfig.mode === "aliyun_openai_compatible") {
     try {
-      return await callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs);
+      return await callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs);
     } catch (error) {
       const message = sanitizeProviderError(error, 180);
       console.warn(`[agent-gui] provider=aliyun_gui_plus model=${ALIYUN_GUI_MODEL} error=${message}`);
@@ -3688,7 +3828,7 @@ async function tryAgentTextPlannerFallback(context) {
     if (completionEvidence && ["wait", "scroll", "swipe", "need_user_help"].includes(agentStep.type)) {
       agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
       agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
-    } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+    } else if (!officialGuiPlusLoop && agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
       const local = buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, `${reasonTag}_text_wait_guard`);
       return { ...local, textPlannerMs, textPlannerError: "" };
     }
@@ -3789,17 +3929,24 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   let routeGuardReason = "";
   let groundingGoal = goal;
 
-  const routeStartedAt = Date.now();
-  try {
-    const routeTimeoutMs = boundedAgentTimeoutMs(AGENT_ROUTE_PLANNER_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_ROUTE_PLANNER_TIMEOUT_MS);
-    routePlan = await callAgentRoutePlanner(goal, snapshot, visualFrame, recentAgentActions, deviceContext, agentMemory, routeTimeoutMs);
-    routePlannerMs = Date.now() - routeStartedAt;
-    groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
-  } catch (error) {
-    routePlannerMs = Date.now() - routeStartedAt;
-    routePlannerError = sanitizeProviderError(error, 120);
-    routePlan = buildLocalRoutePlan(goal, snapshot, visualFrame, recentAgentActions, deviceContext);
-    groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
+  if (!officialGuiPlusLoop) {
+    const routeStartedAt = Date.now();
+    try {
+      const routeTimeoutMs = boundedAgentTimeoutMs(AGENT_ROUTE_PLANNER_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_ROUTE_PLANNER_TIMEOUT_MS);
+      routePlan = await callAgentRoutePlanner(goal, snapshot, visualFrame, recentAgentActions, deviceContext, agentMemory, routeTimeoutMs);
+      routePlannerMs = Date.now() - routeStartedAt;
+      groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
+    } catch (error) {
+      routePlannerMs = Date.now() - routeStartedAt;
+      routePlannerError = sanitizeProviderError(error, 120);
+      routePlan = buildLocalRoutePlan(goal, snapshot, visualFrame, recentAgentActions, deviceContext);
+      groundingGoal = routePlan?.groundingGoal || routePlan?.subgoal || goal;
+    }
+  } else {
+    routePlan = null;
+    routePlannerMs = 0;
+    routePlannerError = "";
+    groundingGoal = goal;
   }
 
   const directRoutePlan = routePlanToDirectAgentPlan(routePlan, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
@@ -3857,7 +4004,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
         agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
         planSource = "vision_completion_guard";
-      } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+      } else if (!officialGuiPlusLoop && agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
         agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "页面内容稳定但视觉规划器连续等待，为避免卡住已暂停。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
         agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.45, reason: "连续 wait 且页面非加载态。" } }, agentStep);
         planSource = "vision_wait_guard";
@@ -3886,7 +4033,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     }
   } else {
     const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, visualCacheHit);
-    if (direct && (!cachedFrameNeedsTextPlanner(visualFrame, recentActions) || direct.agentState?.isComplete || direct.agentState?.isWrong)) {
+    if (direct && (!cachedFrameNeedsTextPlanner(visualFrame, recentAgentActions) || direct.agentState?.isComplete || direct.agentState?.isWrong)) {
       agentStep = direct.agentStep;
       agentState = direct.agentState;
       planSource = direct.source || "visual_cache_direct";
@@ -3911,7 +4058,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
           agentStep = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
           agentState = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, agentStep);
           planSource = "cache_text_completion_guard";
-        } else if (agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
+        } else if (!officialGuiPlusLoop && agentStep.type === "wait" && countRecentActionKind(recentAgentActions, "wait") >= 1 && !isLikelyLoadingOrTransition(snapshot, visualFrame)) {
           agentStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: "页面内容已经稳定但规划器连续等待，为避免卡住已暂停。", riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
           agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.45, reason: "连续 wait 且页面非加载态。" } }, agentStep);
           planSource = "cache_text_wait_guard";
@@ -4038,9 +4185,15 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       compactVisionMode: true,
       guiGroundingMode: true,
       guiOperatorMode: true,
+      aliyunOfficialGuiLoop: officialGuiPlusLoop,
+      guiSessionId: session.guiSessionId || "",
+      guiHistoryCount: Array.isArray(session.guiHistory) ? session.guiHistory.length : 0,
+      guiApiMode: ALIYUN_GUI_API_MODE,
+      guiHighResolutionImages: ALIYUN_GUI_HIGH_RESOLUTION_IMAGES,
+      guiEnableThinking: ALIYUN_GUI_ENABLE_THINKING,
       pluggableGuiProvider: true,
       layeredAgentRuntime: true,
-      agentArchitecture: "route_planner_gui_grounder_verifier_memory",
+      agentArchitecture: officialGuiPlusLoop ? "aliyun_gui_plus_official_mobile_use_loop" : "route_planner_gui_grounder_verifier_memory",
       guiProvider: guiProviderConfig.provider,
       requestedGuiProvider: guiProviderConfig.requestedProvider,
       guiProviderMode: guiProviderConfig.mode,
@@ -4052,7 +4205,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         AGENT_VISION_MAX_TOKENS,
         260
       ),
-      fastVisionPrompt: guiProviderConfig.provider === "aliyun_gui_plus" ? "aliyun_mobile_use_tool_protocol_v1" : guiProviderConfig.provider === "qwen_omni" ? "layered_gui_operator_v1" : "pluggable_layered_gui_provider_v1",
+      fastVisionPrompt: officialGuiPlusLoop ? "aliyun_official_mobile_use_loop_v1" : guiProviderConfig.provider === "aliyun_gui_plus" ? "aliyun_mobile_use_tool_protocol_v1" : guiProviderConfig.provider === "qwen_omni" ? "layered_gui_operator_v1" : "pluggable_layered_gui_provider_v1",
       visualCalled,
       visualCacheHit,
       androidRequestedVisual,
@@ -4060,6 +4213,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       visualError,
       realtimeFallbackUsed: shouldTryRealtimeFallback,
       visualFrameConfidence: visualFrame?.confidence || 0,
+      guiRawOutputLen: parsed?.guiPlusRawOutput ? String(parsed.guiPlusRawOutput).length : 0,
       visualFrameCacheable: isVisualFrameCacheable(visualFrame),
       cacheEligible: hasCachedFrame,
       stableScreenMatched,
@@ -4160,7 +4314,6 @@ async function detectIntentByModel(prompt) {
 
 function normalizeStockSymbol(symbol, rawText) {
   const clean = String(symbol || "").toUpperCase().trim();
-
   if (!clean) return "";
 
   if (clean.includes(".")) return clean;
@@ -4633,7 +4786,6 @@ const server = http.createServer(async (req, res) => {
           "agent_step_planner",
           "pluggable_gui_provider",
           "aliyun_gui_plus",
-          "aliyun_gui_plus_mobile_use_protocol",
           "clean_route_architecture",
           "explicit_agent_intent",
           "normal_chat_isolation",
