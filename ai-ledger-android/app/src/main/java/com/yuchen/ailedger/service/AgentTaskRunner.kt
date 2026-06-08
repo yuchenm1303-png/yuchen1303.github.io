@@ -199,12 +199,30 @@ class AgentTaskRunner(
     private suspend fun tryRunInternalDeviceControl(goal: String, memory: AgentRunMemory): AgentTaskRunResult? {
         val context = applicationContext ?: return null
         val runtime = DeviceControlRuntime(context, installedAppIndex ?: InstalledAppIndex(context))
-        val result = withContext(Dispatchers.Main) { runtime.tryExecute(goal) } ?: return null
-        memory.recordTrace("内部控制：${result.title}")
-        val message = memory.withDebug(result.message)
-        AgentRuntimeController.finishTask(message, completed = result.ok)
+        val initialResult = withContext(Dispatchers.Main) { runtime.tryExecute(goal) } ?: return null
+        memory.recordTrace("内部控制：${initialResult.title}")
+
+        val pendingAction = initialResult.pendingAction
+        val finalResult = if (pendingAction != null) {
+            val confirmStep = CloudAgentStep(
+                type = "wait",
+                targetText = pendingAction.target,
+                reason = pendingAction.reason,
+                riskLevel = pendingAction.riskLevel.name.lowercase(),
+                requiresConfirmation = true,
+            )
+            val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, confirmStep)
+            if (!confirmed) return stoppedByUserResult(memory, emptyList())
+            withContext(Dispatchers.IO) { runtime.executePendingAction(pendingAction) }
+        } else {
+            initialResult
+        }
+
+        memory.recordTrace("内部控制结果：${if (finalResult.ok) "成功" else "未完成"} · ${finalResult.title}")
+        val message = memory.withDebug(finalResult.message)
+        AgentRuntimeController.finishTask(message, completed = finalResult.ok)
         return AgentTaskRunResult(
-            completed = result.ok,
+            completed = finalResult.ok,
             stoppedForConfirmation = false,
             message = message,
             logs = emptyList(),
