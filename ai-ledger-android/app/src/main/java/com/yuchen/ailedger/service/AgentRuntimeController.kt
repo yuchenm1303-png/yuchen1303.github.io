@@ -54,7 +54,7 @@ object AgentRuntimeController {
     fun currentManualStopGeneration(): Long = manualStopGeneration
 
     fun isManualStopRequested(startGeneration: Long): Boolean {
-        return manualStopGeneration != startGeneration || !mutableProgress.value.running
+        return manualStopGeneration != startGeneration
     }
 
     fun setEnabled(value: Boolean) {
@@ -208,11 +208,11 @@ object AgentRuntimeController {
         if (!mutableProgress.value.running) return
         val resultText = result.message.take(64)
         mutableProgress.value = mutableProgress.value.copy(
-            running = result.shouldContinue && result.ok,
+            running = if (result.ok) result.shouldContinue else true,
             status = when {
                 result.ok && result.shouldContinue -> "执行中"
                 result.ok -> "已完成"
-                else -> "已暂停"
+                else -> "重新规划"
             },
             currentAction = buildActionText(step),
             lastResult = resultText,
