@@ -382,6 +382,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
+        // noteAction() 会在真正执行动作前隐藏悬浮窗；这里再给 WindowManager/Compose 一点时间完成不可见刷新。
+        // 这样模型截图中的可点击区域和真实手势落点更一致，避免点到自己的 AI 浮窗。
+        SystemClock.sleep(OVERLAY_HIDE_BEFORE_ACTION_MS)
         return if (step.requiresWindowContent()) {
             withWorkingAccessibilityMode { executeStepInternalUnchecked(step) }
         } else {
@@ -857,7 +860,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1000L
-        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 40L
+        private const val OVERLAY_HIDE_BEFORE_ACTION_MS = 90L
+        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 160L
         private const val SNAPSHOT_NODE_BUDGET_MS = 360L
         private const val VISUAL_AFFORDANCE_BUDGET_MS = 150L
         private const val ROOT_SELECTION_BUDGET_MS = 180L
