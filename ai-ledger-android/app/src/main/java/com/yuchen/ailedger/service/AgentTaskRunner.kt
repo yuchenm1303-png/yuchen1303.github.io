@@ -69,8 +69,7 @@ class AgentTaskRunner(
             withContext(Dispatchers.IO) { index.getLaunchableApps(forceReload = false) }
             memory.recordTrace("应用索引 ${SystemClock.elapsedRealtime() - preloadStart}ms")
         }
-
-        tryRunInternalDeviceControl(goal, memory)?.let { return it }
+        memory.recordTrace("Agent 开关已开启：Local/Shizuku 只作为执行工具，不抢任务完成权；本次任务统一进入智能体主循环。")
 
         while (true) {
             if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
@@ -213,39 +212,6 @@ class AgentTaskRunner(
         return AgentTaskRunResult(false, false, message, logs)
     }
 
-    private suspend fun tryRunInternalDeviceControl(goal: String, memory: AgentRunMemory): AgentTaskRunResult? {
-        val context = applicationContext ?: return null
-        val runtime = DeviceControlRuntime(context, installedAppIndex ?: InstalledAppIndex(context))
-        val initialResult = withContext(Dispatchers.Main) { runtime.tryExecute(goal) } ?: return null
-        memory.recordTrace("内部控制：${initialResult.title}")
-
-        val pendingAction = initialResult.pendingAction
-        val finalResult = if (pendingAction != null) {
-            val confirmStep = CloudAgentStep(
-                type = "wait",
-                targetText = pendingAction.target,
-                reason = pendingAction.reason,
-                riskLevel = pendingAction.riskLevel.name.lowercase(),
-                requiresConfirmation = true,
-            )
-            val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, confirmStep)
-            if (!confirmed) return stoppedByUserResult(memory, emptyList())
-            withContext(Dispatchers.IO) { runtime.executePendingAction(pendingAction) }
-        } else {
-            initialResult
-        }
-
-        memory.recordTrace("内部控制结果：${if (finalResult.ok) "成功" else "未完成"} · ${finalResult.title}")
-        val message = memory.withDebug(finalResult.message)
-        AgentRuntimeController.finishTask(message, completed = finalResult.ok)
-        return AgentTaskRunResult(
-            completed = finalResult.ok,
-            stoppedForConfirmation = false,
-            message = message,
-            logs = emptyList(),
-        )
-    }
-
     private fun shouldForceVisualAfterBatchStep(step: CloudAgentStep, result: AgentExecutionResult, isLastStep: Boolean): Boolean {
         if (!result.ok || isLastStep) return true
         return step.type in BATCH_BREAK_AFTER_ACTION_TYPES
@@ -359,7 +325,7 @@ class AgentTaskRunner(
         fun recentActionSummaries(): List<String> = recentActionLines.takeLast(8)
 
         fun toJson(): JSONObject = JSONObject().apply {
-            put("schema", "agent_loop_memory_v9_unlimited_manual_stop")
+            put("schema", "agent_loop_memory_v10_agent_switch_forces_main_loop")
             put("recentActions", JSONArray().apply { recentActionLines.takeLast(8).forEach { put(it) } })
             put("failedActions", JSONArray().apply { failedActionLines.takeLast(6).forEach { put(it) } })
             put("blockedActions", JSONArray().apply { blockedActionLines.takeLast(6).forEach { put(it) } })
@@ -368,8 +334,9 @@ class AgentTaskRunner(
                 put("loopIndex", loopIndex)
             })
             put("policyHints", JSONArray().apply {
-                put("这是无固定步数上限的视觉主导 Computer Use 循环。")
-                put("只有用户手动停止、任务完成、无障碍/云端失败或安全策略拦截才会结束。")
+                put("Agent 开关开启时，手机任务统一走视觉主导智能体主循环。")
+                put("Local/Shizuku/InstalledAppIndex 只能作为执行工具和设备上下文，不能绕过主循环直接宣布复合任务完成或失败。")
+                put("纯打开 App 可以由 open_app 完成；App 内页面任务必须在打开目标 App 后继续观察和操作。")
                 put("每轮都根据最新截图重新判断，不要因为步数变多就提前结束。")
             })
         }
