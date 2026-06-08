@@ -20,7 +20,8 @@ import kotlin.math.roundToInt
  *
  * This is the Android-side equivalent of a small Codex tool layer: it handles stable
  * system/app operations directly through Android APIs and Intents, before falling
- * back to the visual Computer Use loop.
+ * back to the visual Computer Use loop. It must be conservative: when a goal looks
+ * like in-app navigation, the runtime returns null so the visual agent can reason.
  */
 data class DeviceControlPendingAction(
     val title: String,
@@ -74,11 +75,7 @@ class DeviceControlRuntime(
             ok = result.ok,
             title = action.title,
             message = buildString {
-                if (result.ok) {
-                    append(action.successMessage)
-                } else {
-                    append(action.title).append("执行失败。")
-                }
+                if (result.ok) append(action.successMessage) else append(action.title).append("执行失败。")
                 result.exitCode?.let { append("\nexit=").append(it) }
                 if (result.output.isNotBlank() && result.output != "无输出") append("\n\n输出：").append(result.output)
                 if (result.error.isNotBlank()) append("\n\n错误：").append(result.error)
@@ -174,14 +171,12 @@ class DeviceControlRuntime(
             hasAny(normalized, listOf("禁用")) -> PrivilegedAppAction.Disable
             hasAny(normalized, listOf("启用")) -> PrivilegedAppAction.Enable
             else -> null
-        }
-        if (actionType == null) {
-            return DeviceControlResult(
-                ok = false,
-                title = "需要增强权限",
-                message = "该内部控制动作需要 Shizuku/ADB Bridge 和专门的安全策略，当前已安全拦截，没有执行任何操作。",
-            )
-        }
+        } ?: return DeviceControlResult(
+            ok = false,
+            title = "需要增强权限",
+            message = "该内部控制动作需要 Shizuku/ADB Bridge 和专门的安全策略，当前已安全拦截，没有执行任何操作。",
+        )
+
         val query = extractAppQuery(goal, highRiskEnhancedKeywords)
         val app = query.takeIf { it.isNotBlank() }?.let { installedAppIndex.findBestApp(it) }
         if (app == null) {
@@ -299,8 +294,7 @@ class DeviceControlRuntime(
             listOf("通知设置", "通知权限", "应用通知", "app通知", "权限设置", "权限管理", "应用权限", "app权限", "电池设置", "耗电设置", "后台限制", "电池优化", "应用信息", "应用详情", "app信息", "app详情", "应用设置", "app设置"),
         )
         if (query.isBlank()) return null
-        val app = installedAppIndex.findBestApp(query)
-            ?: return DeviceControlResult(false, "应用设置", "没有找到“$query”对应的已安装应用。")
+        val app = installedAppIndex.findBestApp(query) ?: return null
 
         val intent = when (kind) {
             AppSettingsKind.Notification -> Intent(ACTION_APP_NOTIFICATION_SETTINGS_COMPAT).apply {
@@ -380,7 +374,7 @@ class DeviceControlRuntime(
         if (hasAny(normalized, deepNavigationWords)) return null
         val query = extractAppQuery(goal, listOf("打开", "启动", "进入", "应用", "app"))
         if (query.isBlank()) return null
-        val app = installedAppIndex.findBestApp(query) ?: return DeviceControlResult(false, "打开应用", "没有找到“$query”对应的可启动应用。")
+        val app = installedAppIndex.findBestApp(query) ?: return null
         val ok = launchApp(app)
         return DeviceControlResult(
             ok = ok,
@@ -574,7 +568,7 @@ class DeviceControlRuntime(
         )
 
         private val deepNavigationWords = listOf(
-            "页面", "界面", "联系人", "朋友圈", "聊天", "消息", "搜索", "找到", "详情", "热榜", "行情", "文件", "小程序", "设置页",
+            "页面", "界面", "联系人", "朋友圈", "聊天", "消息", "搜索", "找到", "详情", "热榜", "热股", "热股榜", "排行榜", "排行", "榜单", "行情", "股票", "板块", "指数", "文件", "小程序", "设置页",
         )
 
         private val systemSettingTargets = listOf(
