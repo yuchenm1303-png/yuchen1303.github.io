@@ -621,18 +621,18 @@ private fun CompactMetricCell(label: String, value: String, color: Color, modifi
 
 @Composable
 private fun StockButton(appState: AssistantUiState, text: String, modifier: Modifier, onClick: () -> Unit, active: Boolean = false) {
-    PressableGlass(
-        quality = appState.quality,
-        glassIntensity = appState.glassIntensity * if (active) 0.98f else 0.78f,
-        motionIntensity = appState.motionIntensity,
-        radius = 999,
-        modifier = modifier,
-        role = if (active) GlassRole.Floating else GlassRole.Chip,
-        onClick = onClick
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp)
+    val intensity = appState.glassIntensity.coerceIn(0.45f, 1.20f)
+    val fillAlpha = (if (active) 0.20f else 0.075f) * intensity
+    val textAlpha = if (active) 0.98f else 0.76f
+    Box(
+        modifier = modifier
+            .background(Color.White.copy(alpha = fillAlpha), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 2.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = if (active) 0.96f else 0.78f), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-        }
+        Text(text, color = Color.White.copy(alpha = textAlpha), fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
 
