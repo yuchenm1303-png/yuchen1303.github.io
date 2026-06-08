@@ -70,6 +70,7 @@ import kotlin.math.roundToInt
 private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Debug }
 private val SettingsChipRole = GlassRole.Chip
 private val SettingsFloatingRole = GlassRole.Floating
+private val SettingsOverviewRole = GlassRole.Shell
 
 @Composable
 fun SettingsPolishedScreen(
@@ -228,7 +229,17 @@ private fun SettingsGlassFrame(
 
 @Composable
 private fun SettingsOverviewCard(state: AssistantUiState, aiEndpoint: String) {
-    SettingsGlassFrame(modifier = Modifier.height(176.dp), radius = 30) {
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(176.dp),
+        role = SettingsOverviewRole,
+        intensity = (state.glassIntensity * 1.08f).coerceIn(0.78f, 1.30f)
+    ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -471,7 +482,7 @@ private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
 
 @Composable
 private fun AdvancedContent(state: AssistantUiState) {
-    SettingInfoRow("玻璃渲染", "首页大玻璃使用 OpenGL，普通设置控件隔离")
+    SettingInfoRow("玻璃渲染", "首页大玻璃使用 OpenGL，设置顶部状态也使用 Shell OpenGL")
     SettingInfoRow("普通控件", "Card / Chip / Nav / Floating / Flex 完全隔离")
     SettingInfoRow("账号控件", "纯 Compose + REST API，不接入 OpenGL registry")
 }
