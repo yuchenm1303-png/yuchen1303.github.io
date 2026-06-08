@@ -69,7 +69,7 @@ class StockMarketViewModel(
         } else {
             _uiState.update { it.copy(showDetail = true, activeAction = null) }
             startRealtimeLoop(state.stock.quote.code)
-            if (state.selectedTab == "分时") loadMinute() else loadKLineForTab(state.selectedTab)
+            if (isMinuteTab(state.selectedTab)) loadMinute(daysForTab(state.selectedTab)) else loadKLineForTab(state.selectedTab)
         }
     }
 
@@ -83,13 +83,26 @@ class StockMarketViewModel(
     }
 
     fun selectTab(tab: String) {
-        _uiState.update {
-            it.copy(
-                selectedTab = tab,
-                requestMessage = if (tab == "分时") "正在同步真实分时" else "正在加载真实${tab}"
-            )
+        if (isMinuteTab(tab)) {
+            kLineJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    selectedTab = tab,
+                    requestMessage = if (tab == "五日") "正在同步真实五日分时" else "正在同步真实分时"
+                )
+            }
+            loadMinute(daysForTab(tab))
+        } else {
+            minuteJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    selectedTab = tab,
+                    stock = it.stock.copy(kLinePoints = emptyList()),
+                    requestMessage = "正在加载真实${tab}"
+                )
+            }
+            loadKLineForTab(tab)
         }
-        if (tab == "分时") loadMinute() else loadKLineForTab(tab)
     }
 
     fun selectDepthTab(tab: String) {
@@ -140,7 +153,8 @@ class StockMarketViewModel(
             }
             loadMarketOverview(loaded.quote.code)
             if (openDetail || _uiState.value.showDetail) startRealtimeLoop(loaded.quote.code)
-            if (_uiState.value.selectedTab == "分时") loadMinute(loaded.quote.code) else loadKLineForTab(_uiState.value.selectedTab, loaded.quote.code)
+            val tab = _uiState.value.selectedTab
+            if (isMinuteTab(tab)) loadMinute(daysForTab(tab), loaded.quote.code) else loadKLineForTab(tab, loaded.quote.code)
         }
     }
 
@@ -163,16 +177,33 @@ class StockMarketViewModel(
         }
     }
 
-    private fun loadMinute(forcedQuery: String? = null) {
+    private fun loadMinute(days: Int = 1, forcedQuery: String? = null) {
         val target = (forcedQuery ?: _uiState.value.stock.quote.code).ifBlank { _uiState.value.query }
         minuteJob?.cancel()
         minuteJob = viewModelScope.launch {
-            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在同步真实分时") }
-            val result = withContext(Dispatchers.IO) { repository.loadMinutePoints(target) }
+            val message = if (days >= 5) "正在同步真实五日分时" else "正在同步真实分时"
+            _uiState.update { it.copy(kLineLoading = true, requestMessage = message) }
+            val result = withContext(Dispatchers.IO) { realtimeRepository.loadRealtimeFrame(target, _uiState.value.stock, minuteDays = days) }
             _uiState.update { state ->
                 result.fold(
-                    onSuccess = { points -> state.copy(stock = state.stock.copy(minutePoints = points), kLineLoading = false, requestMessage = null) },
-                    onFailure = { error -> state.copy(kLineLoading = false, requestMessage = "分时加载失败：${error.message ?: error.javaClass.simpleName}") }
+                    onSuccess = { realtime ->
+                        state.copy(
+                            stock = state.stock.copy(
+                                quote = realtime.quote,
+                                topMetrics = realtime.topMetrics,
+                                minutePoints = realtime.minutePoints,
+                                sellLevels = realtime.sellLevels,
+                                buyLevels = realtime.buyLevels,
+                                tradeTicks = realtime.tradeTicks,
+                                dataSourceLabel = realtime.dataSourceLabel
+                            ),
+                            kLineLoading = false,
+                            requestMessage = null
+                        )
+                    },
+                    onFailure = { error ->
+                        state.copy(kLineLoading = false, requestMessage = "${if (days >= 5) "五日分时" else "分时"}加载失败：${error.message ?: error.javaClass.simpleName}")
+                    }
                 )
             }
         }
@@ -183,15 +214,15 @@ class StockMarketViewModel(
         val period = periodForTab(tab)
         kLineJob?.cancel()
         kLineJob = viewModelScope.launch {
-            _uiState.update { it.copy(kLineLoading = true, requestMessage = "正在加载真实${tab}") }
+            _uiState.update { it.copy(kLineLoading = true, stock = it.stock.copy(kLinePoints = emptyList()), requestMessage = "正在加载真实${tab}") }
             val result = withContext(Dispatchers.IO) { repository.loadKLinePoints(target, period) }
             _uiState.update { state ->
                 result.fold(
                     onSuccess = { points ->
                         if (points.size >= 2) state.copy(stock = state.stock.copy(kLinePoints = points), kLineLoading = false, requestMessage = null)
-                        else state.copy(kLineLoading = false, requestMessage = "${tab}接口返回数据不足")
+                        else state.copy(stock = state.stock.copy(kLinePoints = emptyList()), kLineLoading = false, requestMessage = "${tab}接口返回数据不足")
                     },
-                    onFailure = { error -> state.copy(kLineLoading = false, requestMessage = "${tab}加载失败：${error.message ?: error.javaClass.simpleName}") }
+                    onFailure = { error -> state.copy(stock = state.stock.copy(kLinePoints = emptyList()), kLineLoading = false, requestMessage = "${tab}加载失败：${error.message ?: error.javaClass.simpleName}") }
                 )
             }
         }
@@ -204,9 +235,11 @@ class StockMarketViewModel(
         realtimeJob = viewModelScope.launch {
             while (isActive) {
                 if (!_uiState.value.showDetail) break
-                val current = _uiState.value.stock
+                val currentState = _uiState.value
+                val current = currentState.stock
                 val activeCode = current.quote.code.ifBlank { target }
-                val result = withContext(Dispatchers.IO) { realtimeRepository.loadRealtimeFrame(activeCode, current) }
+                val minuteDays = daysForTab(currentState.selectedTab)
+                val result = withContext(Dispatchers.IO) { realtimeRepository.loadRealtimeFrame(activeCode, current, minuteDays = minuteDays) }
                 result.onSuccess { realtime ->
                     _uiState.update { state ->
                         if (!state.showDetail || state.stock.quote.code != activeCode) state else state.copy(
@@ -237,6 +270,10 @@ class StockMarketViewModel(
         stopRealtimeLoop()
         super.onCleared()
     }
+
+    private fun isMinuteTab(tab: String): Boolean = tab == "分时" || tab == "五日"
+
+    private fun daysForTab(tab: String): Int = if (tab == "五日") 5 else 1
 
     private fun periodForTab(tab: String): String = when (tab) {
         "周K" -> "weekly"
