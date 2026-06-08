@@ -47,10 +47,19 @@ object AgentRuntimeController {
     private var overlayCaptureDepth: Int = 0
     private var overlayCaptureGeneration: Long = 0L
 
+    @Volatile private var manualStopGeneration: Long = 0L
+
     fun isEnabled(): Boolean = mutableEnabled.value
+
+    fun currentManualStopGeneration(): Long = manualStopGeneration
+
+    fun isManualStopRequested(startGeneration: Long): Boolean {
+        return manualStopGeneration != startGeneration || !mutableProgress.value.running
+    }
 
     fun setEnabled(value: Boolean) {
         if (!value) {
+            manualStopGeneration += 1L
             completePendingConfirmation(false)
             AiAgentAccessibilityService.endTaskSession()
             resetCleanVisualCapture()
@@ -130,6 +139,23 @@ object AgentRuntimeController {
         )
     }
 
+    fun stopTaskByUser(message: String = "用户手动停止了本次智能体任务。") {
+        manualStopGeneration += 1L
+        completePendingConfirmation(false)
+        AiAgentAccessibilityService.endTaskSession()
+        resetCleanVisualCapture()
+        val resultText = message.trim().take(72).ifBlank { "用户手动停止了本次智能体任务。" }
+        mutableProgress.value = mutableProgress.value.copy(
+            running = false,
+            status = "已手动停止",
+            currentAction = "用户手动停止",
+            lastResult = resultText,
+            pendingConfirmation = null,
+            logs = (mutableProgress.value.logs + "停止：$resultText").takeLast(MAX_LOGS),
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
     fun finishTask(message: String, completed: Boolean) {
         completePendingConfirmation(false)
         AiAgentAccessibilityService.endTaskSession()
@@ -163,6 +189,7 @@ object AgentRuntimeController {
     }
 
     fun noteAction(step: CloudAgentStep) {
+        if (!mutableProgress.value.running) return
         ensureOverlayCaptureVisibleIfIdle()
         val actionText = buildActionText(step)
         mutableProgress.value = mutableProgress.value.copy(
@@ -177,6 +204,7 @@ object AgentRuntimeController {
     }
 
     fun noteResult(step: CloudAgentStep, result: AgentExecutionResult) {
+        if (!mutableProgress.value.running) return
         ensureOverlayCaptureVisibleIfIdle()
         val resultText = result.message.take(64)
         mutableProgress.value = mutableProgress.value.copy(
@@ -261,21 +289,11 @@ object AgentRuntimeController {
     }
 
     fun cancelPendingRiskAction() {
-        AiAgentAccessibilityService.endTaskSession()
-        resetCleanVisualCapture()
+        stopTaskByUser("已取消本次智能体任务。")
         val deferred = synchronized(confirmationLock) {
             val current = pendingConfirmationDeferred ?: return
             pendingConfirmationDeferred = null
             pendingConfirmationId = 0L
-            mutableProgress.value = mutableProgress.value.copy(
-                running = false,
-                status = "已取消",
-                currentAction = "用户取消高风险动作",
-                lastResult = "已取消本次智能体任务。",
-                pendingConfirmation = null,
-                logs = (mutableProgress.value.logs + "确认：取消任务").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
-            )
             current
         }
         deferred.complete(false)
