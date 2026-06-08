@@ -178,14 +178,28 @@ class DeviceShellBridge(
         }
     }
 
-    @Suppress("DEPRECATION")
     private fun executeShizukuRaw(command: String, timeoutMs: Long): ShellRawResult {
         return runCatching {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+            val process = createShizukuProcess(command)
             readProcess(process, timeoutMs)
         }.getOrElse { error ->
             ShellRawResult(ok = false, output = "", error = error.message.orEmpty(), exitCode = null)
         }
+    }
+
+    private fun createShizukuProcess(command: String): Process {
+        val method = Shizuku::class.java.getMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Array<String>::class.java,
+            String::class.java,
+        )
+        return method.invoke(
+            null,
+            arrayOf("sh", "-c", command),
+            null,
+            null,
+        ) as Process
     }
 
     private fun readProcess(process: Process, timeoutMs: Long): ShellRawResult {
