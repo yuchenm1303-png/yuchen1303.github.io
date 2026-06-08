@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -45,6 +46,22 @@ class AgentTaskRunner(
         }
 
         AgentRuntimeController.startTask(goal)
+        return try {
+            runStartedTask(goal, modelPreference, logs)
+        } catch (error: CancellationException) {
+            AgentRuntimeController.stopTaskByUser("本次智能体任务已取消。")
+            throw error
+        } finally {
+            AiAgentAccessibilityService.endTaskSession()
+            AgentRuntimeController.resetCleanVisualCapture()
+        }
+    }
+
+    private suspend fun runStartedTask(
+        goal: String,
+        modelPreference: ChatModel,
+        logs: MutableList<AgentTaskStepLog>,
+    ): AgentTaskRunResult {
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val memory = AgentRunMemory()
         installedAppIndex?.let { index ->
