@@ -54,7 +54,7 @@ class AgentTaskRunner(
         }
 
         while (true) {
-            if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
+            if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
 
             val loopStart = SystemClock.elapsedRealtime()
             val captureStart = SystemClock.elapsedRealtime()
@@ -71,7 +71,7 @@ class AgentTaskRunner(
             val snapshotMs = SystemClock.elapsedRealtime() - snapshotStart
             memory.observe(snapshot)
 
-            if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
+            if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
 
             val deviceStart = SystemClock.elapsedRealtime()
             val deviceContext = buildDeviceContext(snapshot, goal)
@@ -133,7 +133,7 @@ class AgentTaskRunner(
 
             var executedAny = false
             for ((index, rawStep) in steps.withIndex()) {
-                if (AgentRuntimeController.isManualStopRequested(stopGeneration)) return stoppedByUserResult(memory, logs)
+                if (isStopped(stopGeneration)) return stoppedByUserResult(memory, logs)
                 val chosenStep = chooseAction(snapshot, rawStep)
                 if (chosenStep == null) {
                     memory.recordPlannerRejection(rawStep, "云端动作不可执行或缺少必要参数。")
@@ -183,6 +183,10 @@ class AgentTaskRunner(
 
             if (!executedAny) delay(REPLAN_DELAY_MS)
         }
+    }
+
+    private fun isStopped(startGeneration: Long): Boolean {
+        return AgentRuntimeController.currentManualStopGeneration() != startGeneration
     }
 
     private fun stoppedByUserResult(memory: AgentRunMemory, logs: List<AgentTaskStepLog>): AgentTaskRunResult {
