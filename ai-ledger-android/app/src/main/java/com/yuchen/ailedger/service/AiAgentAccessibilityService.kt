@@ -34,6 +34,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintAtMs: Long = 0L
     @Volatile private var lastWindowHintKey: String = ""
     @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
+    @Volatile private var foregroundNotificationStarted: Boolean = false
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
     private var taskSessionDepth: Int = 0
@@ -46,7 +47,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         activeService = this
         configureIdleServiceInfo(force = true)
         ScreenObservationStore.markConnectedWaitingForWindow()
-        startAgentForegroundNotification()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -69,7 +69,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         if (activeService === this) activeService = null
         screenshotExecutor.shutdownNow()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopTaskForegroundNotification()
         ScreenObservationStore.markDisabled()
         super.onDestroy()
     }
@@ -84,7 +84,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
         current.flags = IDLE_ACCESSIBILITY_FLAGS
         current.notificationTimeout = IDLE_NOTIFICATION_TIMEOUT_MS
         serviceInfo = current
+        lastWindowHintKey = ""
+        lastWindowHintAtMs = 0L
         currentAccessibilityMode = AccessibilityRuntimeMode.Idle
+        if (taskSessionDepth == 0 && workingSessionDepth == 0) stopTaskForegroundNotification()
     }
 
     private fun configureWorkingServiceInfo() {
@@ -101,6 +104,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun beginTaskWorkingSession() {
         synchronized(modeLock) {
             taskSessionDepth += 1
+            startTaskForegroundNotification()
             configureWorkingServiceInfo()
         }
     }
@@ -757,7 +761,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return dispatchGesture(gesture, null, null)
     }
 
-    private fun startAgentForegroundNotification() {
+    private fun startTaskForegroundNotification() {
+        if (foregroundNotificationStarted) return
         ensureNotificationChannel()
         val openAppIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
         val pendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -771,7 +776,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        try { startForeground(AGENT_NOTIFICATION_ID, notification) } catch (_: Throwable) {}
+        try {
+            startForeground(AGENT_NOTIFICATION_ID, notification)
+            foregroundNotificationStarted = true
+        } catch (_: Throwable) {
+            foregroundNotificationStarted = false
+        }
+    }
+
+    private fun stopTaskForegroundNotification() {
+        if (!foregroundNotificationStarted) return
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Throwable) {
+        } finally {
+            foregroundNotificationStarted = false
+        }
     }
 
     private fun ensureNotificationChannel() {
@@ -823,7 +843,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val WORKING_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
             AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
             AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-        private const val IDLE_NOTIFICATION_TIMEOUT_MS = 1_000L
+        private const val IDLE_NOTIFICATION_TIMEOUT_MS = 10_000L
         private const val WORKING_NOTIFICATION_TIMEOUT_MS = 80L
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
