@@ -23,9 +23,7 @@ data class AgentBrainRoutePlan(
     val isRefuse: Boolean get() = route == ROUTE_REFUSE
 
     fun firstDeviceStep(): AgentBrainRouteStep? = steps.firstOrNull { it.executor == EXECUTOR_DEVICE_TOOL }
-    fun visualGoalOrDefault(defaultGoal: String): String {
-        return steps.firstOrNull { it.executor == EXECUTOR_VISUAL_AGENT }?.goal?.takeIf { it.isNotBlank() } ?: defaultGoal
-    }
+    fun visualGoalOrDefault(defaultGoal: String): String = defaultGoal
 
     companion object {
         const val ROUTE_DEVICE_TOOL = "device_tool"
@@ -84,10 +82,10 @@ fun AiWorkerClient.requestAgentBrainRoute(
         put("agentGoal", goal)
         put("modelPreference", "deepseek_v4")
         put("model", "deepseek_v4")
-        put("screenSnapshot", snapshot.toJson(includeImage = false))
+        put("screenSnapshot", snapshot.toAgentBrainRouteSnapshotJson())
         put("deviceContext", deviceContext?.json ?: JSONObject())
         put("agentMemory", agentMemory)
-        put("recentAgentActions", JSONArray(recentActions))
+        put("recentAgentActions", JSONArray(recentActions.takeLast(4)))
         put("responseFormat", JSONObject().apply { put("includeAgentBrainRoute", true) })
         put("supportedAgentBrainRoutes", JSONArray(listOf("device_tool", "visual_agent", "hybrid", "ask_user", "refuse")))
         put(
@@ -111,8 +109,9 @@ fun AiWorkerClient.requestAgentBrainRoute(
                 )
             )
         )
+        put("routingPolicy", "quick_gate_only_never_rewrite_visual_goal")
         put("client", "android-compose")
-        put("clientFeature", "agent_brain_route_v1")
+        put("clientFeature", "agent_brain_route_v2_quick_gate")
         put("now", System.currentTimeMillis())
     }
 
@@ -141,7 +140,7 @@ private fun postAgentBrainRoute(endpoint: String, payload: JSONObject): AgentBra
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-agent-brain")
+        setRequestProperty("X-Client", "android-compose-agent-brain-quick-gate")
     }
     return try {
         connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
@@ -159,7 +158,7 @@ private fun postAgentBrainRoute(endpoint: String, payload: JSONObject): AgentBra
             ?: throw IOException("AgentBrain 返回为空")
         parseAgentBrainRoutePlan(routeJson)
     } catch (error: SocketTimeoutException) {
-        throw IOException("DeepSeek AgentBrain 路由请求超时：${endpoint.substringAfter("://")}", error)
+        throw IOException("DeepSeek AgentBrain 快速路由超时：${endpoint.substringAfter("://")}", error)
     } finally {
         connection.disconnect()
     }
@@ -208,6 +207,20 @@ private fun parseAgentBrainRouteStep(json: JSONObject, fallbackRoute: String): A
         requiresConfirmation = json.optBoolean("requiresConfirmation", false) || json.optBoolean("confirm", false) || risk in setOf("high", "critical"),
         reason = json.optString("reason").ifBlank { json.optString("rationale") }.take(220),
     )
+}
+
+private fun AgentScreenSnapshot.toAgentBrainRouteSnapshotJson(): JSONObject {
+    return JSONObject().apply {
+        put("schema", "agent_brain_route_screen_compact_v1")
+        put("currentApp", currentApp)
+        put("nodeCount", nodeCount)
+        put("capturedNodeCount", capturedNodeCount)
+        put("clickableCount", clickableNodes.size)
+        put("inputCount", inputNodes.size)
+        put("scrollableCount", scrollableNodes.size)
+        put("hasVisualImage", hasVisualImage)
+        put("topTexts", JSONArray(textItems.take(12)))
+    }
 }
 
 private fun normalizeAgentBrainRoute(value: String): String {
@@ -281,5 +294,5 @@ private fun String.toAgentBrainJsonOrNull(): JSONObject? {
     return try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
 }
 
-private const val AGENT_BRAIN_CONNECT_TIMEOUT_MS = 10_000
-private const val AGENT_BRAIN_READ_TIMEOUT_MS = 12_000
+private const val AGENT_BRAIN_CONNECT_TIMEOUT_MS = 450
+private const val AGENT_BRAIN_READ_TIMEOUT_MS = 650
