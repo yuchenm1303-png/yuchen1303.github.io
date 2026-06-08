@@ -134,16 +134,6 @@ fun chatBubbleVisualTransform(appear: Float, fromUser: Boolean): ChatBubbleVisua
     )
 }
 
-private fun Rect.transformedBy(transform: ChatBubbleVisualTransform): Rect {
-    val pivotX = left + width * transform.originX
-    val pivotY = top + height * transform.originY
-    val nextLeft = pivotX + (left - pivotX) * transform.scaleX + transform.translationX
-    val nextTop = pivotY + (top - pivotY) * transform.scaleY + transform.translationY
-    val nextRight = pivotX + (right - pivotX) * transform.scaleX + transform.translationX
-    val nextBottom = pivotY + (bottom - pivotY) * transform.scaleY + transform.translationY
-    return Rect(nextLeft, nextTop, nextRight, nextBottom)
-}
-
 @Composable
 fun rememberChatBubbleLayerState(): ChatBubbleLayerState = remember { ChatBubbleLayerState() }
 
@@ -181,23 +171,24 @@ fun ChatBubbleMaterialLayer(
             val fromUser = visualInfo.fromUser
             val bubbleFraction = if (fromUser) 0.76f else 0.90f
             val bubbleWidth = contentWidth * bubbleFraction
-            val bubbleLeft = if (fromUser) {
+            val rawLeft = if (fromUser) {
                 horizontalPadding + contentWidth - bubbleWidth
             } else {
                 horizontalPadding
             }
-            val bubbleTop = item.offset.toFloat() + verticalPadding
-            val bubbleHeight = (item.size.toFloat() - verticalPadding * 2f).coerceAtLeast(1f)
-            val rawRect = Rect(
-                left = bubbleLeft,
-                top = bubbleTop,
-                right = bubbleLeft + bubbleWidth,
-                bottom = bubbleTop + bubbleHeight
-            )
+            val rawTop = item.offset.toFloat() + verticalPadding
+            val rawHeight = (item.size.toFloat() - verticalPadding * 2f).coerceAtLeast(1f)
+
             val transform = chatBubbleVisualTransform(visualInfo.appear, fromUser)
-            val rect = rawRect.transformedBy(transform)
-            val intersectsViewport = rect.right > 0f && rect.left < viewportWidth && rect.bottom > 0f && rect.top < viewportHeight
-            if (intersectsViewport && rect.width > 1f && rect.height > 1f) {
+            val pivotX = rawLeft + bubbleWidth * transform.originX
+            val pivotY = rawTop + rawHeight * transform.originY
+            val rectLeft = pivotX + (rawLeft - pivotX) * transform.scaleX + transform.translationX
+            val rectTop = pivotY + (rawTop - pivotY) * transform.scaleY + transform.translationY
+            val rectRight = pivotX + (rawLeft + bubbleWidth - pivotX) * transform.scaleX + transform.translationX
+            val rectBottom = pivotY + (rawTop + rawHeight - pivotY) * transform.scaleY + transform.translationY
+
+            val intersectsViewport = rectRight > 0f && rectLeft < viewportWidth && rectBottom > 0f && rectTop < viewportHeight
+            if (intersectsViewport && rectRight - rectLeft > 1f && rectBottom - rectTop > 1f) {
                 val thinkingSweepStrength = if (!fromUser && visualInfo.status == MessageStatus.Sending) {
                     visualInfo.thinkingSweepStrength.coerceIn(0f, 1f)
                 } else {
@@ -210,7 +201,7 @@ fun ChatBubbleMaterialLayer(
                     (basePhase + visualInfo.phaseOffset) % 1f
                 }
                 drawChatBubblePrismMaterial(
-                    rect = rect,
+                    rect = Rect(rectLeft, rectTop, rectRight, rectBottom),
                     phase = itemPhase,
                     fromUser = fromUser,
                     sending = sending,
