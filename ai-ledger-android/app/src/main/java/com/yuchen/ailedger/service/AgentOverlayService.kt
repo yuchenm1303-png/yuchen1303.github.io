@@ -34,6 +34,7 @@ class AgentOverlayService : Service() {
     private var actionView: TextView? = null
     private var resultView: TextView? = null
     private var logView: TextView? = null
+    private var stopTaskView: TextView? = null
     private var choicePanel: LinearLayout? = null
     private var choiceTitleView: TextView? = null
     private var choiceMessageView: TextView? = null
@@ -120,6 +121,17 @@ class AgentOverlayService : Service() {
             textSize = 9f
             maxLines = 5
         }
+        stopTaskView = TextView(this).apply {
+            text = "停止本次任务"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            visibility = View.GONE
+            background = roundedBackground(Color.argb(214, 230, 75, 96), Color.argb(150, 255, 210, 220), 13f * density)
+            setPadding((8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt())
+            setOnClickListener { AgentRuntimeController.stopTaskByUser() }
+        }
         val closeView = TextView(this).apply {
             text = "×"
             textSize = 18f
@@ -184,6 +196,10 @@ class AgentOverlayService : Service() {
         panel.addView(statusView)
         panel.addView(actionView)
         panel.addView(resultView)
+        panel.addView(stopTaskView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (7 * density).toInt()
+            bottomMargin = (2 * density).toInt()
+        })
         panel.addView(choicePanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             topMargin = (7 * density).toInt()
             bottomMargin = (5 * density).toInt()
@@ -212,6 +228,7 @@ class AgentOverlayService : Service() {
         actionView?.text = progress.currentAction
         resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "结果：$it" }.orEmpty()
         logView?.text = progress.logs.takeLast(4).joinToString("\n") { "• $it" }
+        stopTaskView?.visibility = if (progress.running) View.VISIBLE else View.GONE
         val pending = progress.pendingConfirmation
         choicePanel?.visibility = if (pending == null) View.GONE else View.VISIBLE
         if (pending != null) {
