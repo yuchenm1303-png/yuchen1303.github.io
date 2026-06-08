@@ -97,10 +97,12 @@ fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
         nodeCount = nodeCount,
         capturedNodeCount = capturedNodeCount.takeIf { it > 0 } ?: normalizedAllItems.size,
         texts = textItems
+            .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
-            .take(SNAPSHOT_TEXT_LIMIT),
+            .take(SNAPSHOT_TEXT_LIMIT)
+            .toList(),
         allNodes = normalizedAllItems.toAgentNodes(SNAPSHOT_ALL_NODE_LIMIT),
         clickableNodes = clickableItems.toAgentNodes(SNAPSHOT_CLICKABLE_LIMIT),
         inputNodes = inputItems.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
@@ -124,17 +126,20 @@ private fun ScreenVisualObservation.toAgentVisual(): AgentScreenVisual {
 }
 
 private fun List<ObservedScreenNode>.toAgentNodes(limit: Int): List<AgentScreenNode> {
-    return map {
-        AgentScreenNode(
-            id = it.id,
-            text = it.text.trim().take(80),
-            className = it.className.take(48),
-            bounds = it.bounds,
-            clickable = it.clickable,
-            editable = it.editable,
-            scrollable = it.scrollable,
-        )
-    }.take(limit)
+    return asSequence()
+        .take(limit)
+        .map {
+            AgentScreenNode(
+                id = it.id,
+                text = it.text.trim().take(80),
+                className = it.className.take(48),
+                bounds = it.bounds,
+                clickable = it.clickable,
+                editable = it.editable,
+                scrollable = it.scrollable,
+            )
+        }
+        .toList()
 }
 
 private fun List<AgentScreenNode>.toJsonArray(): JSONArray {
