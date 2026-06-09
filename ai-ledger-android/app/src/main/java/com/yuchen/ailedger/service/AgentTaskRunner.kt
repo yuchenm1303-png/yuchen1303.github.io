@@ -166,9 +166,7 @@ class AgentTaskRunner(
                 delayForStep(executableStep)
             }
 
-            val message = "用户已手动停止本次智能体任务。"
-            AgentRuntimeController.finishTask(message, completed = false)
-            AgentTaskRunResult(false, false, message, logs)
+            stoppedLoopResult(stopGeneration, logs)
         } catch (error: CancellationException) {
             AgentRuntimeController.stopTaskByUser("本次智能体任务已取消。")
             throw error
@@ -194,6 +192,21 @@ class AgentTaskRunner(
     private suspend fun pauseForUserAssistance(message: String, stopGeneration: Long) {
         AgentRuntimeController.pauseForUserTakeover(message.ifBlank { "需要用户协助，智能体已暂停自动执行。" })
         waitWhileUserTakeoverPaused(stopGeneration)
+    }
+
+    private fun stoppedLoopResult(
+        stopGeneration: Long,
+        logs: List<AgentTaskStepLog>,
+    ): AgentTaskRunResult {
+        val message = if (AgentRuntimeController.currentManualStopGeneration() != stopGeneration) {
+            "用户已手动停止本次智能体任务。"
+        } else {
+            "智能体任务已暂停。"
+        }
+        if (AgentRuntimeController.progress.value.running) {
+            AgentRuntimeController.finishTask(message, completed = false)
+        }
+        return AgentTaskRunResult(false, false, message, logs)
     }
 
     private fun stoppedByUserResult(logs: List<AgentTaskStepLog>): AgentTaskRunResult {
