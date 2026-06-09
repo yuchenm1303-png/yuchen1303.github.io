@@ -11,6 +11,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class AgentTaskStepLog(
     val index: Int,
@@ -48,6 +50,7 @@ class AgentTaskRunner(
 
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val recentActions = mutableListOf<String>()
+        val taskSessionId = "android-agent-${System.currentTimeMillis()}"
 
         AgentRuntimeController.startTask(goal)
 
@@ -76,7 +79,7 @@ class AgentTaskRunner(
                             modelPreference = modelPreference,
                             recentActions = recentActions.takeLast(MAX_RECENT_ACTIONS),
                             deviceContext = deviceContext,
-                            agentMemory = null,
+                            agentMemory = buildAgentMemory(taskSessionId, logs.size, recentActions),
                         )
                     }
                 } catch (error: IOException) {
@@ -129,7 +132,7 @@ class AgentTaskRunner(
                 }
 
                 val result = executeAndRecord(step, snapshot.currentApp, logs)
-                recentActions += "${step.typeLabel}：${result.message.take(80)}"
+                recentActions += buildRecentActionSummary(step, result)
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "智能体动作结束。" }
                     AgentRuntimeController.finishTask(message, completed = false)
@@ -159,6 +162,38 @@ class AgentTaskRunner(
     private fun stoppedByUserResult(logs: List<AgentTaskStepLog>): AgentTaskRunResult {
         val message = "用户已手动停止本次智能体任务。"
         return AgentTaskRunResult(false, false, message, logs)
+    }
+
+    private fun buildAgentMemory(
+        taskSessionId: String,
+        loopIndex: Int,
+        recentActions: List<String>,
+    ): JSONObject {
+        return JSONObject().apply {
+            put("schema", "android_agent_loop_memory_v1")
+            put("recentActions", JSONArray().apply {
+                recentActions.takeLast(MAX_RECENT_ACTIONS).forEach { put(it) }
+            })
+            put("loopSignals", JSONObject().apply {
+                put("agentSessionId", taskSessionId)
+                put("loopIndex", loopIndex)
+                put("executedStepCount", loopIndex)
+            })
+        }
+    }
+
+    private fun buildRecentActionSummary(step: CloudAgentStep, result: AgentExecutionResult): String {
+        val parts = mutableListOf<String>()
+        parts += step.typeLabel
+        step.appName?.takeIf { it.isNotBlank() }?.let { parts += "app=$it" }
+        step.packageName?.takeIf { it.isNotBlank() }?.let { parts += "pkg=$it" }
+        step.targetText?.takeIf { it.isNotBlank() }?.let { parts += "target=$it" }
+        step.targetNodeId?.takeIf { it.isNotBlank() }?.let { parts += "node=$it" }
+        step.text?.takeIf { it.isNotBlank() }?.let { parts += "text=${it.take(40)}" }
+        step.direction?.takeIf { it.isNotBlank() }?.let { parts += "direction=$it" }
+        step.reason?.takeIf { it.isNotBlank() }?.let { parts += "reason=${it.take(80)}" }
+        parts += "result=${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
+        return parts.joinToString(" · ")
     }
 
     private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
