@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+private const val MAX_LOGS = 7
+private const val OVERLAY_CAPTURE_WATCHDOG_MS = 2_500L
+
 data class AgentPendingConfirmation(
     val id: Long = System.currentTimeMillis(),
     val title: String = "需要确认",
@@ -14,6 +17,17 @@ data class AgentPendingConfirmation(
     val message: String,
     val positiveText: String = "继续执行",
     val negativeText: String = "取消任务",
+)
+
+data class AgentPendingUserInput(
+    val id: Long = System.currentTimeMillis(),
+    val title: String = "需要你输入",
+    val actionText: String,
+    val message: String,
+    val hint: String = "请输入内容",
+    val positiveText: String = "确认输入",
+    val negativeText: String = "取消任务",
+    val sensitive: Boolean = false,
 )
 
 data class AgentOverlayProgress(
@@ -25,6 +39,8 @@ data class AgentOverlayProgress(
     val lastResult: String = "",
     val logs: List<String> = emptyList(),
     val pendingConfirmation: AgentPendingConfirmation? = null,
+    val pendingUserInput: AgentPendingUserInput? = null,
+    val userTakeoverPaused: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
 )
 
@@ -42,12 +58,17 @@ object AgentRuntimeController {
     private var pendingConfirmationId: Long = 0L
     private var pendingConfirmationDeferred: CompletableDeferred<Boolean>? = null
 
+    private val userInputLock = Any()
+    private var pendingUserInputId: Long = 0L
+    private var pendingUserInputDeferred: CompletableDeferred<String?>? = null
+
     private val overlayCaptureLock = Any()
     private val overlayCaptureRestoreHandler = Handler(Looper.getMainLooper())
     private var overlayCaptureDepth: Int = 0
     private var overlayCaptureGeneration: Long = 0L
 
     @Volatile private var manualStopGeneration: Long = 0L
+    @Volatile private var userTakeoverPaused: Boolean = false
 
     fun isEnabled(): Boolean = mutableEnabled.value
 
@@ -57,12 +78,16 @@ object AgentRuntimeController {
         return manualStopGeneration != startGeneration
     }
 
+    fun isUserTakeoverPaused(): Boolean = userTakeoverPaused
+
     fun setEnabled(value: Boolean) {
         val current = mutableProgress.value
         if (mutableEnabled.value == value && current.enabled == value) return
         if (!value) {
             manualStopGeneration += 1L
+            userTakeoverPaused = false
             completePendingConfirmation(false)
+            completePendingUserInput(null)
             AiAgentAccessibilityService.endTaskSession()
             resetCleanVisualCapture()
         } else {
@@ -77,6 +102,8 @@ object AgentRuntimeController {
                 currentAction = if (value) "等待任务" else "智能体自动执行已暂停",
                 lastResult = if (value) current.lastResult else "",
                 pendingConfirmation = if (value) current.pendingConfirmation else null,
+                pendingUserInput = if (value) current.pendingUserInput else null,
+                userTakeoverPaused = if (value) current.userTakeoverPaused else false,
                 updatedAt = System.currentTimeMillis(),
             )
         )
@@ -138,6 +165,8 @@ object AgentRuntimeController {
 
     fun startTask(goal: String) {
         completePendingConfirmation(false)
+        completePendingUserInput(null)
+        userTakeoverPaused = false
         resetCleanVisualCapture()
         AiAgentAccessibilityService.beginTaskSession()
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
@@ -155,7 +184,9 @@ object AgentRuntimeController {
 
     fun stopTaskByUser(message: String = "用户手动停止了本次智能体任务。") {
         manualStopGeneration += 1L
+        userTakeoverPaused = false
         completePendingConfirmation(false)
+        completePendingUserInput(null)
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
         val current = mutableProgress.value
@@ -167,7 +198,44 @@ object AgentRuntimeController {
                 currentAction = "用户手动停止",
                 lastResult = resultText,
                 pendingConfirmation = null,
+                pendingUserInput = null,
+                userTakeoverPaused = false,
                 logs = (current.logs + "停止：$resultText").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    fun pauseForUserTakeover(message: String = "用户接管中，智能体暂停自动点击。") {
+        ensureOverlayCaptureVisibleIfIdle()
+        userTakeoverPaused = true
+        val current = mutableProgress.value
+        publishProgress(
+            current.copy(
+                enabled = true,
+                running = current.running,
+                status = "用户接管",
+                currentAction = "等待用户接管",
+                lastResult = message.take(72),
+                userTakeoverPaused = true,
+                logs = (current.logs + "接管：$message").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    fun resumeFromUserTakeover(message: String = "用户已恢复智能体执行。") {
+        userTakeoverPaused = false
+        val current = mutableProgress.value
+        publishProgress(
+            current.copy(
+                enabled = true,
+                running = current.running,
+                status = if (current.running) "执行中" else "待命",
+                currentAction = if (current.running) "继续执行" else "等待任务",
+                lastResult = message.take(72),
+                userTakeoverPaused = false,
+                logs = (current.logs + "恢复：$message").takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
         )
@@ -175,6 +243,8 @@ object AgentRuntimeController {
 
     fun finishTask(message: String, completed: Boolean) {
         completePendingConfirmation(false)
+        completePendingUserInput(null)
+        userTakeoverPaused = false
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
         val current = mutableProgress.value
@@ -186,6 +256,8 @@ object AgentRuntimeController {
                 currentAction = if (completed) "任务完成" else "任务已暂停",
                 lastResult = resultText,
                 pendingConfirmation = null,
+                pendingUserInput = null,
+                userTakeoverPaused = false,
                 logs = (current.logs + "最终：$resultText").takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -194,6 +266,8 @@ object AgentRuntimeController {
 
     fun failTask(message: String) {
         completePendingConfirmation(false)
+        completePendingUserInput(null)
+        userTakeoverPaused = false
         AiAgentAccessibilityService.endTaskSession()
         resetCleanVisualCapture()
         val current = mutableProgress.value
@@ -205,6 +279,8 @@ object AgentRuntimeController {
                 currentAction = "任务异常",
                 lastResult = resultText,
                 pendingConfirmation = null,
+                pendingUserInput = null,
+                userTakeoverPaused = false,
                 logs = (current.logs + "失败：$resultText").takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -223,6 +299,7 @@ object AgentRuntimeController {
                 status = "执行中",
                 currentAction = actionText,
                 pendingConfirmation = null,
+                pendingUserInput = null,
                 logs = (current.logs + actionText).takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -245,6 +322,7 @@ object AgentRuntimeController {
                 currentAction = buildActionText(step),
                 lastResult = resultText,
                 pendingConfirmation = null,
+                pendingUserInput = null,
                 logs = (current.logs + "结果：$resultText").takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -253,7 +331,7 @@ object AgentRuntimeController {
 
     fun noteDiagnostic(message: String) {
         val current = mutableProgress.value
-        if (!current.running && current.pendingConfirmation == null) return
+        if (!current.running && current.pendingConfirmation == null && current.pendingUserInput == null) return
         val text = message.trim().take(90)
         if (text.isBlank()) return
         publishProgress(
@@ -287,6 +365,7 @@ object AgentRuntimeController {
                     currentAction = "高风险动作确认",
                     lastResult = confirmation.message,
                     pendingConfirmation = confirmation,
+                    pendingUserInput = null,
                     logs = (current.logs + "等待确认：$actionText").takeLast(MAX_LOGS),
                     updatedAt = System.currentTimeMillis(),
                 )
@@ -295,7 +374,45 @@ object AgentRuntimeController {
         return try {
             deferred.await()
         } finally {
-            clearPendingIfSame(confirmation.id, deferred)
+            clearPendingConfirmationIfSame(confirmation.id, deferred)
+        }
+    }
+
+    suspend fun requestUserInput(goal: String, step: CloudAgentStep): String? {
+        ensureOverlayCaptureVisibleIfIdle()
+        val actionText = buildActionText(step)
+        val sensitive = AgentSafetyPolicy.requiresUserProvidedInput(goal, step)
+        val request = AgentPendingUserInput(
+            id = System.currentTimeMillis(),
+            actionText = actionText,
+            message = buildUserInputMessage(goal, step, sensitive),
+            hint = if (sensitive) "请输入验证码/密码" else "请输入需要填入的内容",
+            sensitive = sensitive,
+        )
+        val deferred = CompletableDeferred<String?>()
+        synchronized(userInputLock) {
+            pendingUserInputDeferred?.complete(null)
+            pendingUserInputId = request.id
+            pendingUserInputDeferred = deferred
+            val current = mutableProgress.value
+            publishProgress(
+                current.copy(
+                    enabled = true,
+                    running = true,
+                    status = "等待输入",
+                    currentAction = request.title,
+                    lastResult = request.message,
+                    pendingConfirmation = null,
+                    pendingUserInput = request,
+                    logs = (current.logs + "等待输入：$actionText").takeLast(MAX_LOGS),
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+        }
+        return try {
+            deferred.await()
+        } finally {
+            clearPendingUserInputIfSame(request.id, deferred)
         }
     }
 
@@ -326,7 +443,6 @@ object AgentRuntimeController {
     }
 
     fun cancelPendingRiskAction() {
-        stopTaskByUser("已取消本次智能体任务。")
         val deferred = synchronized(confirmationLock) {
             val current = pendingConfirmationDeferred ?: return
             pendingConfirmationDeferred = null
@@ -334,6 +450,42 @@ object AgentRuntimeController {
             current
         }
         deferred.complete(false)
+        stopTaskByUser("已取消本次智能体任务。")
+    }
+
+    fun submitPendingUserInput(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        val deferred = synchronized(userInputLock) {
+            val currentDeferred = pendingUserInputDeferred ?: return
+            pendingUserInputDeferred = null
+            pendingUserInputId = 0L
+            val current = mutableProgress.value
+            publishProgress(
+                current.copy(
+                    running = true,
+                    status = "已输入",
+                    currentAction = current.pendingUserInput?.actionText ?: "继续执行",
+                    lastResult = "用户已提供输入，继续执行。",
+                    pendingUserInput = null,
+                    logs = (current.logs + "输入：用户已提供内容").takeLast(MAX_LOGS),
+                    updatedAt = System.currentTimeMillis(),
+                )
+            )
+            currentDeferred
+        }
+        deferred.complete(clean)
+    }
+
+    fun cancelPendingUserInput() {
+        val deferred = synchronized(userInputLock) {
+            val current = pendingUserInputDeferred ?: return
+            pendingUserInputDeferred = null
+            pendingUserInputId = 0L
+            current
+        }
+        deferred.complete(null)
+        stopTaskByUser("用户取消了输入，本次任务已停止。")
     }
 
     private fun completePendingConfirmation(value: Boolean) {
@@ -346,23 +498,32 @@ object AgentRuntimeController {
         deferred.complete(value)
     }
 
-    private fun clearPendingIfSame(id: Long, deferred: CompletableDeferred<Boolean>) {
+    private fun completePendingUserInput(value: String?) {
+        val deferred = synchronized(userInputLock) {
+            val current = pendingUserInputDeferred ?: return
+            pendingUserInputDeferred = null
+            pendingUserInputId = 0L
+            current
+        }
+        deferred.complete(value)
+    }
+
+    private fun clearPendingConfirmationIfSame(id: Long, deferred: CompletableDeferred<Boolean>) {
         synchronized(confirmationLock) {
             if (pendingConfirmationId == id && pendingConfirmationDeferred === deferred) {
-                AiAgentAccessibilityService.endTaskSession()
-                resetCleanVisualCapture()
                 pendingConfirmationDeferred = null
                 pendingConfirmationId = 0L
-                publishProgress(
-                    mutableProgress.value.copy(
-                        running = false,
-                        status = "已暂停",
-                        currentAction = "确认已失效",
-                        lastResult = "高风险确认已取消。",
-                        pendingConfirmation = null,
-                        updatedAt = System.currentTimeMillis(),
-                    )
-                )
+                publishProgress(mutableProgress.value.copy(pendingConfirmation = null, updatedAt = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    private fun clearPendingUserInputIfSame(id: Long, deferred: CompletableDeferred<String?>) {
+        synchronized(userInputLock) {
+            if (pendingUserInputId == id && pendingUserInputDeferred === deferred) {
+                pendingUserInputDeferred = null
+                pendingUserInputId = 0L
+                publishProgress(mutableProgress.value.copy(pendingUserInput = null, updatedAt = System.currentTimeMillis()))
             }
         }
     }
@@ -381,7 +542,9 @@ object AgentRuntimeController {
             currentAction == other.currentAction &&
             lastResult == other.lastResult &&
             logs == other.logs &&
-            pendingConfirmation == other.pendingConfirmation
+            pendingConfirmation == other.pendingConfirmation &&
+            pendingUserInput == other.pendingUserInput &&
+            userTakeoverPaused == other.userTakeoverPaused
     }
 
     private fun buildActionText(step: CloudAgentStep): String {
@@ -398,13 +561,19 @@ object AgentRuntimeController {
         val reason = step.reason?.takeIf { it.isNotBlank() }?.take(48)
         val target = step.targetText?.takeIf { it.isNotBlank() } ?: step.text?.takeIf { it.isNotBlank() }
         return buildString {
-            append("即将执行可能有风险的操作")
+            append("即将执行可能影响账号、资金、消息或数据的操作")
             target?.let { append("：").append(it.take(24)) }
             reason?.let { append("。原因：").append(it) }
             if (goal.isNotBlank()) append("。目标：").append(goal.take(36))
-        }.take(96)
+        }.take(120)
     }
 
-    private const val MAX_LOGS = 7
-    private const val OVERLAY_CAPTURE_WATCHDOG_MS = 2_500L
+    private fun buildUserInputMessage(goal: String, step: CloudAgentStep, sensitive: Boolean): String {
+        val target = step.targetText?.takeIf { it.isNotBlank() } ?: step.reason?.takeIf { it.isNotBlank() }
+        return buildString {
+            append(if (sensitive) "当前步骤需要由你亲自输入验证码、密码或一次性校验码，智能体不会猜测或代填。" else "当前步骤需要你提供输入内容。")
+            target?.let { append(" 位置：").append(it.take(28)) }
+            if (goal.isNotBlank()) append(" 目标：").append(goal.take(36))
+        }.take(130)
+    }
 }
