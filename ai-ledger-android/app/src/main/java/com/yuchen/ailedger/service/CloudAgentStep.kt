@@ -260,7 +260,7 @@ data class CloudAgentStep(
                 riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: "low",
                 requiresConfirmation = item.optBoolean("requiresConfirmation", false),
                 appName = parsedAppName,
-                packageName = if (normalizedType == "open_app" && !parsedAppName.isNullOrBlank()) null else parsedPackageName,
+                packageName = parsedPackageName,
                 x = item.optNullableFloat("x"),
                 y = item.optNullableFloat("y"),
                 durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
