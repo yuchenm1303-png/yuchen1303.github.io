@@ -2,12 +2,15 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.os.SystemClock
+import android.view.Choreographer
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 data class AgentTaskStepLog(
     val index: Int,
@@ -49,6 +52,7 @@ class AgentTaskRunner(
         AgentRuntimeController.startTask(goal)
 
         return try {
+            waitForOverlayAndUiFirstFrameBeforeCapture()
             while (!isStopped(stopGeneration)) {
                 val observation = captureOnce(forceVisual = true)
                 if (!observation.enabled || !observation.serviceConnected) {
@@ -170,6 +174,29 @@ class AgentTaskRunner(
         }.getOrNull()
     }
 
+    private suspend fun waitForOverlayAndUiFirstFrameBeforeCapture() {
+        // 启动任务后先让聊天界面重组、悬浮窗 Service 创建和首帧绘制落地，再进入第一次重采集。
+        // 这只发生在第一轮前，不砍循环、不降低观察能力，也不阻塞主线程。
+        withContext(Dispatchers.Main.immediate) {
+            repeat(FIRST_CAPTURE_UI_FRAME_YIELDS) {
+                awaitNextMainFrame()
+            }
+        }
+        if (FIRST_CAPTURE_OVERLAY_SETTLE_MS > 0L) {
+            delay(FIRST_CAPTURE_OVERLAY_SETTLE_MS)
+        }
+    }
+
+    private suspend fun awaitNextMainFrame() = suspendCancellableCoroutine<Unit> { continuation ->
+        val callback = Choreographer.FrameCallback {
+            if (continuation.isActive) continuation.resume(Unit)
+        }
+        Choreographer.getInstance().postFrameCallback(callback)
+        continuation.invokeOnCancellation {
+            Choreographer.getInstance().removeFrameCallback(callback)
+        }
+    }
+
     private suspend fun captureOnce(forceVisual: Boolean = false): ScreenObservation {
         if (!AgentRuntimeController.progress.value.running) {
             return ScreenObservation(
@@ -228,6 +255,8 @@ class AgentTaskRunner(
 
     companion object {
         private const val DEFAULT_STEP_DELAY_MS = 280L
+        private const val FIRST_CAPTURE_UI_FRAME_YIELDS = 2
+        private const val FIRST_CAPTURE_OVERLAY_SETTLE_MS = 180L
         private const val ACTION_OVERLAY_HIDE_STABILIZE_MS = 260L
         private const val OPEN_APP_DELAY_MS = 640L
         private const val TAP_DELAY_MS = 220L
