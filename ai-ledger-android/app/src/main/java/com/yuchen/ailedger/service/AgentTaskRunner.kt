@@ -290,19 +290,31 @@ class AgentTaskRunner(
     ): AgentExecutionResult? {
         if (!waitWhileUserTakeoverPaused(stopGeneration)) return null
         AgentRuntimeController.noteAction(step)
-        delay(ACTION_OVERLAY_HIDE_STABILIZE_MS)
-        if (AgentRuntimeController.isUserTakeoverPaused()) {
-            AgentRuntimeController.ensureOverlayCaptureVisibleIfIdle()
-            waitWhileUserTakeoverPaused(stopGeneration)
-            return null
+        var cleanVisualCaptureOpen = true
+        return try {
+            delay(ACTION_OVERLAY_HIDE_STABILIZE_MS)
+            if (AgentRuntimeController.isUserTakeoverPaused()) {
+                AgentRuntimeController.endCleanVisualCapture()
+                cleanVisualCaptureOpen = false
+                AgentRuntimeController.ensureOverlayCaptureVisibleIfIdle()
+                waitWhileUserTakeoverPaused(stopGeneration)
+                return null
+            }
+            if (isStopped(stopGeneration)) {
+                AgentRuntimeController.endCleanVisualCapture()
+                cleanVisualCaptureOpen = false
+                return null
+            }
+            val result = withContext(Dispatchers.Main) {
+                AiAgentAccessibilityService.executeStep(step)
+            }
+            AgentRuntimeController.noteResult(step, result)
+            cleanVisualCaptureOpen = false
+            logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
+            result
+        } finally {
+            if (cleanVisualCaptureOpen) AgentRuntimeController.endCleanVisualCapture()
         }
-        if (isStopped(stopGeneration)) return null
-        val result = withContext(Dispatchers.Main) {
-            AiAgentAccessibilityService.executeStep(step)
-        }
-        AgentRuntimeController.noteResult(step, result)
-        logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
-        return result
     }
 
     private suspend fun delayForStep(step: CloudAgentStep) {
