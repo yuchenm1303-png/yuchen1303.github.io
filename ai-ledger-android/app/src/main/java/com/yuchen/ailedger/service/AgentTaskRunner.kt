@@ -116,30 +116,32 @@ class AgentTaskRunner(
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
-                val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, step)) {
-                    val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, step)
+                val executableStep = materializeTapCoordinateFrame(step, snapshot)
+
+                val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, executableStep)) {
+                    val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, executableStep)
                     if (!confirmed) return stoppedByUserResult(logs)
                     true
                 } else {
                     false
                 }
 
-                if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, step)) {
-                    val message = step.reason ?: "当前动作暂不能自动执行：${step.typeLabel}"
+                if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, executableStep)) {
+                    val message = executableStep.reason ?: "当前动作暂不能自动执行：${executableStep.typeLabel}"
                     AgentRuntimeController.finishTask(message, completed = false)
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep, null)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
-                val result = executeAndRecord(step, snapshot.currentApp, logs)
-                recentActions += buildRecentActionSummary(step, result)
+                val result = executeAndRecord(executableStep, snapshot.currentApp, logs)
+                recentActions += buildRecentActionSummary(executableStep, result)
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "智能体动作结束。" }
                     AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
-                delayForStep(step)
+                delayForStep(executableStep)
             }
 
             val message = "用户已手动停止本次智能体任务。"
@@ -273,6 +275,21 @@ class AgentTaskRunner(
                 else -> DEFAULT_STEP_DELAY_MS
             }
         if (delayMs > 0L) delay(delayMs)
+    }
+
+    private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+        if (step.type != "tap_xy") return step
+        val x = step.x ?: return step
+        val y = step.y ?: return step
+        if (x !in 0f..1f || y !in 0f..1f) return step
+        val visual = snapshot.visual ?: return step
+        val visualWidth = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step
+        val visualHeight = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step
+        val pixelX = (x * visualWidth).coerceIn(0f, visualWidth.toFloat())
+        val pixelY = (y * visualHeight).coerceIn(0f, visualHeight.toFloat())
+        val frameNote = "坐标已按截图参考帧转为物理像素 ${visualWidth}x${visualHeight}"
+        val mergedReason = listOfNotNull(step.reason?.takeIf { it.isNotBlank() }, frameNote).joinToString("。")
+        return step.copy(x = pixelX, y = pixelY, reason = mergedReason)
     }
 
     private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep? {
