@@ -34,6 +34,7 @@ class AgentTaskRunner(
 ) {
     private val applicationContext: Context? = appContext?.applicationContext
     private val installedAppIndex: InstalledAppIndex? = applicationContext?.let { InstalledAppIndex(it) }
+    private val deviceToolExecutor: DeviceToolExecutor? = applicationContext?.let { DeviceToolExecutor(it) }
 
     @Suppress("UNUSED_PARAMETER")
     suspend fun run(
@@ -154,6 +155,28 @@ class AgentTaskRunner(
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
+                val deviceToolResult = executeDeviceToolAndRecord(
+                    step = executableStep,
+                    currentApp = snapshot.currentApp,
+                    logs = logs,
+                    confirmedHighRisk = wasConfirmedByUser,
+                )
+                if (deviceToolResult != null) {
+                    recentActions += buildRecentActionSummary(executableStep, deviceToolResult)
+                    if (!deviceToolResult.ok) {
+                        val message = deviceToolResult.message.ifBlank { "内部设备工具执行失败。" }
+                        AgentRuntimeController.finishTask(message, completed = false)
+                        return AgentTaskRunResult(false, false, message, logs)
+                    }
+                    if (!deviceToolResult.shouldContinue) {
+                        val message = deviceToolResult.message.ifBlank { "内部设备工具执行完成。" }
+                        AgentRuntimeController.finishTask(message, completed = true)
+                        return AgentTaskRunResult(true, false, message, logs)
+                    }
+                    delayForStep(executableStep)
+                    continue
+                }
+
                 val result = executeAndRecord(executableStep, snapshot.currentApp, logs, stopGeneration)
                     ?: continue
                 recentActions += buildRecentActionSummary(executableStep, result)
@@ -220,7 +243,7 @@ class AgentTaskRunner(
         recentActions: List<String>,
     ): JSONObject {
         return JSONObject().apply {
-            put("schema", "android_agent_loop_memory_v1")
+            put("schema", "android_agent_loop_memory_v2_device_tool_executor")
             put("recentActions", JSONArray().apply {
                 recentActions.takeLast(MAX_RECENT_ACTIONS).forEach { put(it) }
             })
@@ -228,6 +251,11 @@ class AgentTaskRunner(
                 put("agentSessionId", taskSessionId)
                 put("loopIndex", loopIndex)
                 put("executedStepCount", loopIndex)
+            })
+            put("androidCapabilities", JSONObject().apply {
+                put("structuredDeviceToolExecutor", true)
+                put("deviceToolTypes", JSONArray().apply { CloudAgentStep.deviceToolTypes.forEach { put(it) } })
+                put("policy", "Android executes concrete device_tool steps only; it does not parse raw natural language goals.")
             })
         }
     }
@@ -295,6 +323,23 @@ class AgentTaskRunner(
         }
     }
 
+    private suspend fun executeDeviceToolAndRecord(
+        step: CloudAgentStep,
+        currentApp: String,
+        logs: MutableList<AgentTaskStepLog>,
+        confirmedHighRisk: Boolean,
+    ): AgentExecutionResult? {
+        val executor = deviceToolExecutor ?: return null
+        if (!executor.canExecute(step)) return null
+        AgentRuntimeController.noteAction(step)
+        val result = withContext(Dispatchers.IO) {
+            executor.execute(step, confirmedHighRisk = confirmedHighRisk)
+        }
+        AgentRuntimeController.noteResult(step, result)
+        logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
+        return result
+    }
+
     private suspend fun executeAndRecord(
         step: CloudAgentStep,
         currentApp: String,
@@ -334,12 +379,14 @@ class AgentTaskRunner(
         val delayMs = step.durationMs?.coerceIn(MIN_CUSTOM_STEP_DELAY_MS, MAX_CUSTOM_STEP_DELAY_MS)
             ?: when (step.type) {
                 "open_app" -> OPEN_APP_DELAY_MS
+                "open_system_settings", "open_app_settings" -> GLOBAL_ACTION_DELAY_MS
                 "tap_node", "tap_xy" -> TAP_DELAY_MS
                 "input_text" -> INPUT_DELAY_MS
                 "scroll", "swipe" -> SCROLL_DELAY_MS
                 "wait" -> DEFAULT_WAIT_DELAY_MS
                 "back", "home", "recents", "notifications", "quick_settings" -> GLOBAL_ACTION_DELAY_MS
                 "finish", "need_user_help" -> 0L
+                in CloudAgentStep.deviceToolTypes -> DEVICE_TOOL_DELAY_MS
                 else -> DEFAULT_STEP_DELAY_MS
             }
         if (delayMs > 0L) delay(delayMs)
@@ -442,6 +489,7 @@ class AgentTaskRunner(
         private const val SCROLL_DELAY_MS = 260L
         private const val DEFAULT_WAIT_DELAY_MS = 360L
         private const val GLOBAL_ACTION_DELAY_MS = 240L
+        private const val DEVICE_TOOL_DELAY_MS = 120L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
         private const val MAX_RECENT_ACTIONS = 6
