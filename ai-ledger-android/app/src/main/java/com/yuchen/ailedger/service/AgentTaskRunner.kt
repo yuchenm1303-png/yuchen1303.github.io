@@ -119,6 +119,13 @@ class AgentTaskRunner(
                 }
 
                 val executableStep = materializeTapCoordinateFrame(step, snapshot)
+                val contextualStopMessage = contextBlockingMessage(goal, executableStep, recentActions)
+                if (contextualStopMessage != null) {
+                    val blockedStep = executableStep.copy(reason = cleanStepReason(contextualStopMessage))
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, blockedStep, null)
+                    AgentRuntimeController.finishTask(contextualStopMessage, completed = false)
+                    return AgentTaskRunResult(false, false, contextualStopMessage, logs)
+                }
 
                 val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, executableStep)) {
                     val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, executableStep)
@@ -195,7 +202,7 @@ class AgentTaskRunner(
         step.targetNodeId?.takeIf { it.isNotBlank() }?.let { parts += "node=$it" }
         step.text?.takeIf { it.isNotBlank() }?.let { parts += "text=${it.take(40)}" }
         step.direction?.takeIf { it.isNotBlank() }?.let { parts += "direction=$it" }
-        step.reason?.takeIf { it.isNotBlank() }?.let { parts += "reason=${it.take(80)}" }
+        cleanStepReason(step.reason)?.takeIf { it.isNotBlank() }?.let { parts += "reason=${it.take(80)}" }
         parts += "result=${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
         return parts.joinToString(" · ")
     }
@@ -280,17 +287,17 @@ class AgentTaskRunner(
     }
 
     private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
-        if (step.type != "tap_xy") return step
-        val x = step.x ?: return step
-        val y = step.y ?: return step
-        if (x !in 0f..1f || y !in 0f..1f) return step
-        val visual = snapshot.visual ?: return step
-        val visualWidth = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step
-        val visualHeight = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step
+        if (step.type != "tap_xy") return step.copy(reason = cleanStepReason(step.reason))
+        val x = step.x ?: return step.copy(reason = cleanStepReason(step.reason))
+        val y = step.y ?: return step.copy(reason = cleanStepReason(step.reason))
+        if (x !in 0f..1f || y !in 0f..1f) return step.copy(reason = cleanStepReason(step.reason))
+        val visual = snapshot.visual ?: return step.copy(reason = cleanStepReason(step.reason))
+        val visualWidth = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step.copy(reason = cleanStepReason(step.reason))
+        val visualHeight = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step.copy(reason = cleanStepReason(step.reason))
         val pixelX = (x * visualWidth).coerceIn(0f, visualWidth.toFloat())
         val pixelY = (y * visualHeight).coerceIn(0f, visualHeight.toFloat())
         val frameNote = "坐标已按截图参考帧转为物理像素 ${visualWidth}x${visualHeight}"
-        val mergedReason = listOfNotNull(step.reason?.takeIf { it.isNotBlank() }, frameNote).joinToString("。")
+        val mergedReason = cleanStepReason(listOfNotNull(step.reason, frameNote).joinToString("。"))
         return step.copy(x = pixelX, y = pixelY, reason = mergedReason)
     }
 
@@ -304,7 +311,65 @@ class AgentTaskRunner(
         if (step.type == "tap_node" && step.targetNodeId.isNullOrBlank() && step.targetText.isNullOrBlank()) return null
         if (step.type == "input_text" && step.text.isNullOrBlank()) return null
         if (step.type == "open_app" && step.packageName != null && step.packageName == snapshot.currentApp) return null
-        return step
+        return step.copy(reason = cleanStepReason(step.reason))
+    }
+
+    private fun contextBlockingMessage(
+        goal: String,
+        step: CloudAgentStep,
+        recentActions: List<String>,
+    ): String? {
+        if (!isFinancialTradingGoal(goal)) return null
+        val stepText = listOfNotNull(step.type, step.typeLabel, step.targetText, step.text, step.reason, step.appName)
+            .joinToString(" ")
+            .lowercase()
+        val historyText = recentActions.joinToString(" ").lowercase()
+        val hasTradeProgress = hasTradeInputProgress(historyText) || hasTradeInputProgress(stepText)
+
+        if (step.type in CONTEXT_BREAKING_STEP_TYPES) {
+            return "已进入股票交易/下单相关流程，拦截 ${step.typeLabel}，避免离开当前交易页面导致上下文丢失。请在当前页面接管并确认后手动下单。"
+        }
+
+        if (step.type == "open_app" && hasTradeProgress) {
+            return "已进入股票交易/下单相关流程，拦截重新打开应用，避免覆盖当前交易页面。请在当前页面接管并确认后手动下单。"
+        }
+
+        if (step.type == "tap_xy" || step.type == "tap_node") {
+            if (hasOrderSubmitIntent(stepText)) {
+                return "检测到可能提交/确认真实交易的动作，已按安全策略暂停。请你核对价格、股数和账户后手动下单。"
+            }
+        }
+        return null
+    }
+
+    private fun isFinancialTradingGoal(text: String): Boolean {
+        val clean = text.lowercase()
+        return FINANCIAL_GOAL_KEYWORDS.any { clean.contains(it) } &&
+            TRADING_ACTION_KEYWORDS.any { clean.contains(it) }
+    }
+
+    private fun hasTradeInputProgress(text: String): Boolean {
+        return TRADE_PROGRESS_KEYWORDS.any { text.contains(it) }
+    }
+
+    private fun hasOrderSubmitIntent(text: String): Boolean {
+        return ORDER_SUBMIT_KEYWORDS.any { text.contains(it) }
+    }
+
+    private fun cleanStepReason(reason: String?): String? {
+        val raw = reason?.trim().orEmpty()
+        if (raw.isBlank()) return null
+        val normalized = raw
+            .replace("。。", "。")
+            .replace("..", ".")
+            .replace('\n', ' ')
+            .replace(Regex("\\s+"), " ")
+        val parts = normalized
+            .split('。', '.', '；', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        return parts.joinToString("。").takeIf { it.isNotBlank() }
     }
 
     companion object {
@@ -322,5 +387,11 @@ class AgentTaskRunner(
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
         private const val MAX_RECENT_ACTIONS = 6
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
+
+        private val CONTEXT_BREAKING_STEP_TYPES = setOf("home", "recents", "notifications", "quick_settings")
+        private val FINANCIAL_GOAL_KEYWORDS = listOf("股票", "证券", "同花顺", "东方财富", "涨停", "跌停", "股", "基金", "交易", "委托", "账户")
+        private val TRADING_ACTION_KEYWORDS = listOf("买", "卖", "下单", "委托", "价格", "股数", "100股", "涨停价", "买入", "卖出")
+        private val TRADE_PROGRESS_KEYWORDS = listOf("交易", "买入", "卖出", "买按钮", "价格", "股数", "订单", "委托", "登录", "下单", "涨停", "账户", "验证码", "密码")
+        private val ORDER_SUBMIT_KEYWORDS = listOf("确认下单", "提交订单", "提交委托", "确认买入", "确认卖出", "立即买入", "立即卖出", "委托买入", "委托卖出", "下单按钮", "买入委托", "卖出委托")
     }
 }
