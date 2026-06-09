@@ -265,11 +265,11 @@ data class CloudAgentStep(
                 reason = item.optString("reason").notBlankOrNull()
                     ?: item.optString("rationale").notBlankOrNull(),
                 riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: "low",
-                requiresConfirmation = item.optBoolean("requiresConfirmation", false),
+                requiresConfirmation = item.optFlexibleBoolean("requiresConfirmation") ?: false,
                 appName = parsedAppName,
                 packageName = parsedPackageName,
-                x = item.optNullableFloat("x"),
-                y = item.optNullableFloat("y"),
+                x = item.optTapCoordinateComponent(0),
+                y = item.optTapCoordinateComponent(1),
                 durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
                 inputMode = parsedInputMode,
                 requiresInputNode = parsedRequiresInputNode,
@@ -333,6 +333,32 @@ private fun JSONObject.optNullableFloat(name: String): Float? {
 private fun JSONObject.optNullableLong(name: String): Long? {
     if (!has(name) || isNull(name)) return null
     return runCatching { optLong(name) }.getOrNull()
+}
+
+private fun JSONObject.optTapCoordinateComponent(index: Int): Float? {
+    val directNames = if (index == 0) {
+        listOf("x", "centerX", "tapX", "targetX", "cx")
+    } else {
+        listOf("y", "centerY", "tapY", "targetY", "cy")
+    }
+    for (name in directNames) {
+        optNullableFloat(name)?.let { return it }
+    }
+    val containerNames = listOf("coordinate", "coordinates", "coord", "coords", "point", "position", "center", "tapPoint", "xy")
+    for (name in containerNames) {
+        optJSONArray(name)?.let { array ->
+            if (array.length() > index) {
+                runCatching { array.optDouble(index).toFloat() }.getOrNull()?.let { return it }
+            }
+        }
+        optJSONObject(name)?.let { obj ->
+            for (directName in directNames) {
+                obj.optNullableFloat(directName)?.let { return it }
+            }
+            obj.optNullableFloat(index.toString())?.let { return it }
+        }
+    }
+    return null
 }
 
 private fun JSONObject.optFlexibleBoolean(name: String): Boolean? {
