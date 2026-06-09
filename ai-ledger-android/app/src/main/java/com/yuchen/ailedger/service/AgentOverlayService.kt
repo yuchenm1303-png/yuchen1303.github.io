@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -42,6 +43,7 @@ class AgentOverlayService : Service() {
     private var resultView: TextView? = null
     private var latestView: TextView? = null
     private var logsView: TextView? = null
+    private var logsCard: LinearLayout? = null
 
     private var confirmPanel: LinearLayout? = null
     private var confirmTitleView: TextView? = null
@@ -112,7 +114,7 @@ class AgentOverlayService : Service() {
             orientation = LinearLayout.VERTICAL
             visibility = if (hidden) View.INVISIBLE else View.VISIBLE
             alpha = if (hidden) 0f else 1f
-            setPadding(dp(13f), dp(12f), dp(13f), dp(12f))
+            setPadding(dp(12f), dp(11f), dp(12f), dp(11f))
             background = panelBackground()
             elevation = dp(18f).toFloat()
             isClickable = true
@@ -121,10 +123,10 @@ class AgentOverlayService : Service() {
 
         panel.addView(createHeaderRow())
 
-        actionView = text("等待任务", 15.2f, Color.WHITE, bold = true).apply { maxLines = 2 }
-        resultView = text("上一步 · 暂无执行结果", 10.6f, Color.argb(226, 236, 246, 255)).apply { maxLines = 3 }
-        latestView = text("最近 · 暂无运行日志", 9.6f, Color.argb(176, 222, 235, 255)).apply { maxLines = 1 }
-        logsView = text("暂无详细日志", 9.4f, Color.argb(176, 222, 235, 255)).apply { maxLines = 5 }
+        actionView = text("等待任务", 13.4f, Color.WHITE, bold = true).applyReadable(maxLines = 3, lineSpacingExtraDp = 1.4f)
+        resultView = text("结果：暂无执行结果", 10.25f, Color.argb(232, 236, 246, 255)).applyReadable(maxLines = 4, lineSpacingExtraDp = 1.1f)
+        latestView = text("最近：暂无运行日志", 9.7f, Color.argb(188, 222, 235, 255)).applyReadable(maxLines = 2, lineSpacingExtraDp = 0.7f)
+        logsView = text("暂无详细日志", 9.45f, Color.argb(188, 222, 235, 255)).applyReadable(maxLines = 10, lineSpacingExtraDp = 0.8f)
 
         confirmPanel = createConfirmPanel()
         inputPanel = createInputPanel()
@@ -145,19 +147,26 @@ class AgentOverlayService : Service() {
 
         val actionCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13f), dp(12f), dp(13f), dp(11f))
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
             background = cardBackground()
-            addView(text("CURRENT ACTION", 8.6f, Color.argb(205, 152, 231, 234), bold = true).apply {
-                includeFontPadding = false
-                letterSpacing = 0.16f
-            })
+            addView(sectionLabel("当前动作"))
             addView(actionView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
+                topMargin = dp(6f)
             })
             addView(resultView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
+                topMargin = dp(7f)
             })
             addView(latestView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6f)
+            })
+        }
+
+        logsCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12f), dp(9f), dp(12f), dp(10f))
+            background = logCardBackground()
+            addView(sectionLabel("运行记录"))
+            addView(logsView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(6f)
             })
         }
@@ -165,27 +174,27 @@ class AgentOverlayService : Service() {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(collapseView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
-            addView(takeoverView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
-            addView(resumeView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
-            addView(stopView, LinearLayout.LayoutParams(0, dp(37f), 1f))
+            addView(collapseView, LinearLayout.LayoutParams(0, dp(35f), 1f).apply { marginEnd = dp(6f) })
+            addView(takeoverView, LinearLayout.LayoutParams(0, dp(35f), 1f).apply { marginEnd = dp(6f) })
+            addView(resumeView, LinearLayout.LayoutParams(0, dp(35f), 1f).apply { marginEnd = dp(6f) })
+            addView(stopView, LinearLayout.LayoutParams(0, dp(35f), 1f))
         }
 
         contentGroup = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(11f), 0, 0)
+            setPadding(0, dp(10f), 0, 0)
             addView(actionCard)
             addView(confirmPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10f)
+                topMargin = dp(9f)
             })
             addView(inputPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10f)
+                topMargin = dp(9f)
+            })
+            addView(logsCard, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8f)
             })
             addView(controls, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(10f)
-            })
-            addView(logsView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
+                topMargin = dp(9f)
             })
         }
 
@@ -199,8 +208,8 @@ class AgentOverlayService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(14f)
-            y = dp(88f)
+            x = dp(12f)
+            y = dp(82f)
         }
 
         rootView = panel
@@ -214,11 +223,16 @@ class AgentOverlayService : Service() {
     }
 
     private fun createHeaderRow(): LinearLayout {
-        titleView = text("AI 智能体", 14.2f, Color.WHITE, bold = true).apply { includeFontPadding = false }
-        stateView = text("待命", 10.2f, Color.argb(232, 232, 246, 255), bold = true).apply {
+        titleView = text("AI 智能体", 13.4f, Color.WHITE, bold = true).apply {
+            includeFontPadding = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        stateView = text("待命", 9.5f, Color.argb(232, 232, 246, 255), bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
-            setPadding(dp(10f), 0, dp(10f), dp(1f))
+            setPadding(dp(9f), 0, dp(9f), dp(1f))
+            minWidth = dp(48f)
             background = chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
         }
         val openView = iconChip("↗") { openMainApp() }
@@ -227,15 +241,15 @@ class AgentOverlayService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(stateView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(27f)).apply { marginStart = dp(8f) })
-            addView(openView, LinearLayout.LayoutParams(dp(34f), dp(30f)).apply { marginStart = dp(7f) })
-            addView(closeView, LinearLayout.LayoutParams(dp(34f), dp(30f)).apply { marginStart = dp(5f) })
+            addView(stateView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(26f)).apply { marginStart = dp(7f) })
+            addView(openView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(6f) })
+            addView(closeView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(5f) })
         }
     }
 
     private fun createConfirmPanel(): LinearLayout {
-        confirmTitleView = text("需要确认", 13f, Color.argb(255, 255, 235, 190), bold = true)
-        confirmMessageView = text("", 10.7f, Color.argb(232, 255, 244, 222)).apply { maxLines = 4 }
+        confirmTitleView = text("需要确认", 12.4f, Color.argb(255, 255, 235, 190), bold = true).applyReadable(maxLines = 1)
+        confirmMessageView = text("", 10.4f, Color.argb(232, 255, 244, 222)).applyReadable(maxLines = 5, lineSpacingExtraDp = 1f)
         confirmSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
             AgentRuntimeController.choosePendingAction(false)
         }
@@ -244,33 +258,33 @@ class AgentOverlayService : Service() {
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(confirmSecondaryView, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(9f) })
-            addView(confirmPrimaryView, LinearLayout.LayoutParams(0, dp(38f), 1f))
+            addView(confirmSecondaryView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
+            addView(confirmPrimaryView, LinearLayout.LayoutParams(0, dp(37f), 1f))
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(dp(13f), dp(12f), dp(13f), dp(13f))
-            background = chipBackground(Color.argb(92, 116, 70, 38), Color.argb(112, 255, 214, 132), 24f)
+            setPadding(dp(12f), dp(11f), dp(12f), dp(12f))
+            background = chipBackground(Color.argb(92, 116, 70, 38), Color.argb(112, 255, 214, 132), 22f)
             addView(confirmTitleView)
             addView(confirmMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
-                bottomMargin = dp(11f)
+                topMargin = dp(7f)
+                bottomMargin = dp(10f)
             })
             addView(row)
         }
     }
 
     private fun createInputPanel(): LinearLayout {
-        inputTitleView = text("需要你输入", 13f, Color.argb(255, 224, 244, 255), bold = true)
-        inputMessageView = text("", 10.7f, Color.argb(230, 232, 244, 255)).apply { maxLines = 4 }
+        inputTitleView = text("需要你输入", 12.4f, Color.argb(255, 224, 244, 255), bold = true).applyReadable(maxLines = 1)
+        inputMessageView = text("", 10.4f, Color.argb(230, 232, 244, 255)).applyReadable(maxLines = 5, lineSpacingExtraDp = 1f)
         inputEditText = EditText(this).apply {
-            textSize = 14f
+            textSize = 13.2f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.argb(160, 232, 244, 255))
             hint = "请输入内容"
             setSingleLine(true)
-            setPadding(dp(12f), 0, dp(12f), 0)
+            setPadding(dp(11f), 0, dp(11f), 0)
             background = chipBackground(Color.argb(38, 255, 255, 255), Color.argb(66, 215, 235, 255), 16f)
         }
         inputSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
@@ -281,21 +295,21 @@ class AgentOverlayService : Service() {
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(inputSecondaryView, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(9f) })
-            addView(inputPrimaryView, LinearLayout.LayoutParams(0, dp(38f), 1f))
+            addView(inputSecondaryView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
+            addView(inputPrimaryView, LinearLayout.LayoutParams(0, dp(37f), 1f))
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(dp(13f), dp(12f), dp(13f), dp(13f))
-            background = chipBackground(Color.argb(78, 30, 76, 106), Color.argb(112, 148, 232, 255), 24f)
+            setPadding(dp(12f), dp(11f), dp(12f), dp(12f))
+            background = chipBackground(Color.argb(78, 30, 76, 106), Color.argb(112, 148, 232, 255), 22f)
             addView(inputTitleView)
             addView(inputMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(8f)
-                bottomMargin = dp(9f)
+                topMargin = dp(7f)
+                bottomMargin = dp(8f)
             })
-            addView(inputEditText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42f)).apply {
-                bottomMargin = dp(11f)
+            addView(inputEditText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)).apply {
+                bottomMargin = dp(10f)
             })
             addView(row)
         }
@@ -323,31 +337,43 @@ class AgentOverlayService : Service() {
             !progress.enabled -> chipBackground(Color.argb(48, 195, 202, 218), Color.argb(54, 214, 224, 242), 14f)
             else -> chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
         }
-        actionView?.text = pendingInput?.actionText
+        val actionText = pendingInput?.actionText
             ?: pending?.actionText?.ifBlank { "高风险动作确认" }
             ?: progress.currentAction.ifBlank { "等待任务" }
-        resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "上一步 · $it" } ?: "上一步 · 暂无执行结果"
-        latestView?.text = progress.logs.lastOrNull()?.let { "最近 · $it" } ?: "最近 · 暂无运行日志"
-        logsView?.text = progress.logs.takeLast(6).joinToString("\n") { "• $it" }.ifBlank { "暂无详细日志" }
+        actionView?.text = actionText.cleanOverlayText().limitOverlayText(ACTION_TEXT_LIMIT)
+        resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }
+            ?.let { "结果：${it.cleanOverlayText().limitOverlayText(RESULT_TEXT_LIMIT)}" }
+            ?: "结果：暂无执行结果"
+        latestView?.text = progress.logs.lastOrNull()
+            ?.let { "最近：${it.cleanOverlayText().limitOverlayText(LATEST_TEXT_LIMIT)}" }
+            ?: "最近：暂无运行日志"
+        logsView?.text = buildLogText(progress.logs)
         stopView?.visibility = if (progress.running || pending != null || pendingInput != null) View.VISIBLE else View.GONE
 
         if (pending != null) {
             expanded = true
             confirmTitleView?.text = pending.title
-            confirmMessageView?.text = pending.message
+            confirmMessageView?.text = pending.message.cleanOverlayText().limitOverlayText(PANEL_MESSAGE_TEXT_LIMIT)
             confirmPrimaryView?.text = pending.positiveText
             confirmSecondaryView?.text = pending.negativeText
         }
         if (pendingInput != null) {
             expanded = true
             inputTitleView?.text = pendingInput.title
-            inputMessageView?.text = pendingInput.message
+            inputMessageView?.text = pendingInput.message.cleanOverlayText().limitOverlayText(PANEL_MESSAGE_TEXT_LIMIT)
             inputPrimaryView?.text = pendingInput.positiveText
             inputSecondaryView?.text = pendingInput.negativeText
             inputEditText?.hint = pendingInput.hint
             requestInputFocus()
         }
         refreshExpandedState()
+    }
+
+    private fun buildLogText(logs: List<String>): String {
+        if (logs.isEmpty()) return "暂无详细日志"
+        return logs.takeLast(OVERLAY_LOG_LINES).joinToString("\n") { raw ->
+            "• ${raw.cleanOverlayText().limitOverlayText(LOG_LINE_TEXT_LIMIT)}"
+        }
     }
 
     private fun refreshExpandedState() {
@@ -360,6 +386,7 @@ class AgentOverlayService : Service() {
         contentGroup?.visibility = if (shouldExpand && !hidden) View.VISIBLE else View.GONE
         confirmPanel?.visibility = if (shouldExpand && pending != null && !hidden) View.VISIBLE else View.GONE
         inputPanel?.visibility = if (shouldExpand && pendingInput != null && !hidden) View.VISIBLE else View.GONE
+        logsCard?.visibility = if (shouldExpand && latestProgress.logs.isNotEmpty() && !hidden) View.VISIBLE else View.GONE
         logsView?.visibility = if (shouldExpand && latestProgress.logs.isNotEmpty() && !hidden) View.VISIBLE else View.GONE
         collapseView?.visibility = if (pending == null && pendingInput == null && !paused) View.VISIBLE else View.GONE
         takeoverView?.visibility = if (latestProgress.running && !paused && pending == null && pendingInput == null) View.VISIBLE else View.GONE
@@ -447,13 +474,28 @@ class AgentOverlayService : Service() {
             text = value
             textSize = sp
             setTextColor(color)
-            includeFontPadding = true
+            includeFontPadding = false
             if (bold) typeface = Typeface.DEFAULT_BOLD
         }
     }
 
+    private fun sectionLabel(value: String): TextView {
+        return text(value, 8.2f, Color.argb(205, 152, 231, 234), bold = true).apply {
+            includeFontPadding = false
+            letterSpacing = 0.16f
+            maxLines = 1
+        }
+    }
+
+    private fun TextView.applyReadable(maxLines: Int, lineSpacingExtraDp: Float = 0.8f): TextView {
+        this.maxLines = maxLines
+        ellipsize = TextUtils.TruncateAt.END
+        setLineSpacing(dp(lineSpacingExtraDp).toFloat(), 1.02f)
+        return this
+    }
+
     private fun iconChip(value: String, onClick: () -> Unit): TextView {
-        return text(value, 17f, Color.argb(228, 245, 250, 255), bold = true).apply {
+        return text(value, 16.2f, Color.argb(228, 245, 250, 255), bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             background = chipBackground(Color.argb(28, 255, 255, 255), Color.argb(36, 230, 240, 255), 15f)
@@ -462,10 +504,10 @@ class AgentOverlayService : Service() {
     }
 
     private fun capsuleButton(label: String, tone: ButtonTone, onClick: () -> Unit): TextView {
-        return text(label, 11.6f, Color.WHITE, bold = true).apply {
+        return text(label, 10.8f, Color.WHITE, bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
-            setPadding(dp(10f), 0, dp(10f), dp(1f))
+            setPadding(dp(8f), 0, dp(8f), dp(1f))
             background = buttonBackground(tone)
             setOnClickListener { onClick() }
         }
@@ -485,7 +527,7 @@ class AgentOverlayService : Service() {
             ButtonTone.Ghost -> Color.argb(54, 230, 240, 255)
         }
         return GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors).apply {
-            cornerRadius = dp(19f).toFloat()
+            cornerRadius = dp(18f).toFloat()
             setStroke(dp(1f).coerceAtLeast(1), stroke)
         }
     }
@@ -493,15 +535,19 @@ class AgentOverlayService : Service() {
     private fun panelBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.argb(224, 14, 24, 52), Color.argb(202, 32, 50, 92), Color.argb(222, 14, 18, 48))
+            intArrayOf(Color.argb(226, 14, 24, 52), Color.argb(206, 32, 50, 92), Color.argb(224, 14, 18, 48))
         ).apply {
-            cornerRadius = dp(28f).toFloat()
+            cornerRadius = dp(26f).toFloat()
             setStroke(dp(1f).coerceAtLeast(1), Color.argb(112, 195, 230, 255))
         }
     }
 
     private fun cardBackground(): GradientDrawable {
-        return chipBackground(Color.argb(54, 255, 255, 255), Color.argb(54, 215, 235, 255), 22f)
+        return chipBackground(Color.argb(56, 255, 255, 255), Color.argb(58, 215, 235, 255), 21f)
+    }
+
+    private fun logCardBackground(): GradientDrawable {
+        return chipBackground(Color.argb(34, 255, 255, 255), Color.argb(42, 180, 224, 255), 20f)
     }
 
     private fun chipBackground(fill: Int, stroke: Int, radiusDp: Float): GradientDrawable {
@@ -518,6 +564,17 @@ class AgentOverlayService : Service() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         startActivity(intent)
+    }
+
+    private fun String.cleanOverlayText(): String {
+        return trim()
+            .replace('\n', ' ')
+            .replace(Regex("\\s+"), " ")
+    }
+
+    private fun String.limitOverlayText(limit: Int): String {
+        if (length <= limit) return this
+        return take((limit - 1).coerceAtLeast(1)).trimEnd() + "…"
     }
 
     private fun dp(value: Float): Int = (value * density + 0.5f).toInt()
@@ -572,8 +629,14 @@ class AgentOverlayService : Service() {
     }
 
     companion object {
-        private const val COMPACT_WIDTH_DP = 218f
-        private const val EXPANDED_WIDTH_DP = 326f
+        private const val COMPACT_WIDTH_DP = 236f
+        private const val EXPANDED_WIDTH_DP = 362f
+        private const val ACTION_TEXT_LIMIT = 120
+        private const val RESULT_TEXT_LIMIT = 180
+        private const val LATEST_TEXT_LIMIT = 120
+        private const val LOG_LINE_TEXT_LIMIT = 110
+        private const val PANEL_MESSAGE_TEXT_LIMIT = 260
+        private const val OVERLAY_LOG_LINES = 8
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
         fun canDrawOverlays(context: Context): Boolean {
