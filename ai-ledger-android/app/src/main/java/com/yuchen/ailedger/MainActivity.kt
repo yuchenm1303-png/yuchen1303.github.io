@@ -22,8 +22,13 @@ import com.yuchen.ailedger.ui.StartupMetrics
 
 private const val ENABLE_STARTUP_FRAME_MONITOR = false
 private const val ENABLE_STARTUP_METRICS_OVERLAY = false
+private const val ACCESSIBILITY_SHIELD_DELAY_MS = 1_600L
 
 class MainActivity : ComponentActivity() {
+    private var resumedForDeferredShield: Boolean = false
+    private var accessibilityShieldApplied: Boolean = false
+    private var accessibilityShieldScheduled: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         if (ENABLE_STARTUP_FRAME_MONITOR) {
             StartupMetrics.markOnce("Activity onCreate")
@@ -32,7 +37,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
-        installAccessibilityPerformanceShield(window.decorView)
         requestHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
@@ -42,11 +46,18 @@ class MainActivity : ComponentActivity() {
             if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
             AiAssistantNativeApp()
         }
-        window.decorView.post {
-            installAccessibilityPerformanceShield(window.decorView)
-            suppressAccessibilityForChildren(window.decorView)
-        }
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumedForDeferredShield = true
+        scheduleDeferredAccessibilityShield()
+    }
+
+    override fun onPause() {
+        resumedForDeferredShield = false
+        super.onPause()
     }
 
     private fun prepareWindow(window: Window) {
@@ -67,24 +78,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun installAccessibilityPerformanceShield(root: View) {
-        root.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            root.isFocusedByDefault = false
-            root.isScreenReaderFocusable = false
-        }
+    private fun scheduleDeferredAccessibilityShield() {
+        if (accessibilityShieldApplied || accessibilityShieldScheduled) return
+        val root = window.decorView ?: return
+        accessibilityShieldScheduled = true
+        root.postDelayed({
+            accessibilityShieldScheduled = false
+            if (!resumedForDeferredShield || accessibilityShieldApplied || isFinishing || isDestroyed) {
+                return@postDelayed
+            }
+            installAccessibilityPerformanceShield(root)
+            accessibilityShieldApplied = true
+            if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("延迟无障碍性能屏蔽完成")
+        }, ACCESSIBILITY_SHIELD_DELAY_MS)
     }
 
-    private fun suppressAccessibilityForChildren(root: View) {
+    private fun installAccessibilityPerformanceShield(root: View) {
+        // 只设置根节点即可隐藏整棵 App 视图树。避免首次安装后立刻跳无障碍设置时，
+        // 递归遍历 Compose 子树与系统 Settings 冷启动/服务列表解析叠加造成卡顿。
         root.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             root.isFocusedByDefault = false
             root.isScreenReaderFocusable = false
-        }
-        if (root is ViewGroup) {
-            for (index in 0 until root.childCount) {
-                suppressAccessibilityForChildren(root.getChildAt(index))
-            }
         }
     }
 
