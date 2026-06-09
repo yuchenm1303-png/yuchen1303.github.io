@@ -37,6 +37,9 @@ title = "轻量玻璃",
 title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
             initiallyExpanded = false,
+title = "液态compose",
+            subtitle = "纯 Compose 厚边 / 内折射 / 液态高光样本与参数",
+            initiallyExpanded = true,
 title = "状态预览",
         subtitle = "按住样本可看棱彩局部高光、边缘增强和释放扫光",
         state = state,
@@ -115,6 +118,15 @@ fun GlassDebugFloatingPanel(
         ) {
             AnimatedFrostInfoGlassPreview(state, Modifier.fillMaxWidth())
             FrostInfoGlassLab(state)
+        }
+
+        GlassLabFoldout(
+            title = "液态compose",
+            subtitle = "纯 Compose 厚边 / 内折射 / 液态高光样本与参数",
+            initiallyExpanded = true,
+            state = state
+        ) {
+            LiquidComposeGlassLab(state)
         }
     }
 }
