@@ -219,12 +219,21 @@ data class CloudAgentStep(
             val rawType = item.optString("type").notBlankOrNull()
                 ?: item.optString("action").notBlankOrNull()
                 ?: return null
-            val normalizedType = rawType.lowercase().replace('-', '_')
-            if (normalizedType !in supportedTypes) return null
+            val normalizedType = normalizeStepType(rawType) ?: return null
+            val parsedTargetText = item.optString("targetText").notBlankOrNull()
+                ?: item.optString("label").notBlankOrNull()
+                ?: item.optString("title").notBlankOrNull()
+                ?: item.optString("target").notBlankOrNull()
+            val parsedText = item.optString("text").notBlankOrNull()
+                ?: item.optString("inputText").notBlankOrNull()
+                ?: item.optString("value").notBlankOrNull()
             val parsedAppName = item.optString("appName").notBlankOrNull()
                 ?: item.optString("app").notBlankOrNull()
+                ?: item.optString("application").notBlankOrNull()
+                ?: if (normalizedType == "open_app") parsedTargetText ?: parsedText else null
             val parsedPackageName = item.optString("packageName").notBlankOrNull()
                 ?: item.optString("package").notBlankOrNull()
+                ?: item.optString("pkg").notBlankOrNull()
             val parsedInputMode = item.optString("inputMode").notBlankOrNull()
                 ?: item.optString("input_mode").notBlankOrNull()
                 ?: item.optString("inputStrategy").notBlankOrNull()
@@ -250,10 +259,8 @@ data class CloudAgentStep(
                 targetNodeId = item.optString("targetNodeId").notBlankOrNull()
                     ?: item.optString("nodeId").notBlankOrNull()
                     ?: item.optString("targetId").notBlankOrNull(),
-                targetText = item.optString("targetText").notBlankOrNull()
-                    ?: item.optString("label").notBlankOrNull(),
-                text = item.optString("text").notBlankOrNull()
-                    ?: item.optString("inputText").notBlankOrNull(),
+                targetText = parsedTargetText,
+                text = parsedText,
                 direction = item.optString("direction").notBlankOrNull()?.lowercase(),
                 reason = item.optString("reason").notBlankOrNull()
                     ?: item.optString("rationale").notBlankOrNull(),
@@ -269,6 +276,19 @@ data class CloudAgentStep(
                 expectsFocusedInput = parsedExpectsFocusedInput,
                 useFocusedInput = explicitUseFocusedInput ?: inferredFocusedDirect,
             )
+        }
+
+        private fun normalizeStepType(rawType: String): String? {
+            val key = rawType.lowercase().trim().replace('-', '_')
+            val normalized = when (key) {
+                "open", "launch", "launch_app", "open_application" -> "open_app"
+                "tap", "click", "press", "point", "tap_point", "click_xy", "coordinate_click", "coordinate_tap" -> "tap_xy"
+                "input", "type", "enter_text", "text" -> "input_text"
+                "done", "complete", "completed" -> "finish"
+                "ask_user", "need_help", "clarify" -> "need_user_help"
+                else -> key
+            }
+            return normalized.takeIf { it in supportedTypes }
         }
     }
 }
