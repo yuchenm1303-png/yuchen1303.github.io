@@ -168,7 +168,8 @@ object AgentRuntimeController {
         completePendingUserInput(null)
         userTakeoverPaused = false
         resetCleanVisualCapture()
-        AiAgentAccessibilityService.beginTaskSession()
+        // 不再在整个任务生命周期内常驻 Working 无障碍模式。
+        // 截图、节点读取、点击、输入会由 AiAgentAccessibilityService.withWorkingAccessibilityMode() 临时切换，结束立刻回 Idle。
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
         publishProgress(
             AgentOverlayProgress(
