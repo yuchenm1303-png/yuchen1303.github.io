@@ -57,7 +57,10 @@ class AgentTaskRunner(
         return try {
             waitForOverlayAndUiFirstFrameBeforeCapture()
             while (!isStopped(stopGeneration)) {
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+
                 val observation = captureOnce(forceVisual = true)
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
                 if (!observation.enabled || !observation.serviceConnected) {
                     val message = if (AiAgentAccessibilityService.isConnected()) {
                         "智能体任务已停止，已跳过后台屏幕采集。"
@@ -72,6 +75,7 @@ class AgentTaskRunner(
                 val deviceContext = withContext(Dispatchers.IO) {
                     buildDeviceContext(snapshot, goal)
                 }
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 val plan = try {
                     withContext(Dispatchers.IO) {
@@ -89,6 +93,7 @@ class AgentTaskRunner(
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 val state = plan.state
                 if (state != null && state.isComplete && state.confidence >= COMPLETE_CONFIDENCE_THRESHOLD) {
@@ -135,6 +140,8 @@ class AgentTaskRunner(
                     false
                 }
 
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+
                 if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, executableStep)) {
                     val message = executableStep.reason ?: "当前动作暂不能自动执行：${executableStep.typeLabel}"
                     AgentRuntimeController.finishTask(message, completed = false)
@@ -142,7 +149,8 @@ class AgentTaskRunner(
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
-                val result = executeAndRecord(executableStep, snapshot.currentApp, logs)
+                val result = executeAndRecord(executableStep, snapshot.currentApp, logs, stopGeneration)
+                    ?: continue
                 recentActions += buildRecentActionSummary(executableStep, result)
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "智能体动作结束。" }
@@ -168,6 +176,14 @@ class AgentTaskRunner(
     private fun isStopped(startGeneration: Long): Boolean {
         return AgentRuntimeController.currentManualStopGeneration() != startGeneration ||
             !AgentRuntimeController.progress.value.running
+    }
+
+    private suspend fun waitWhileUserTakeoverPaused(startGeneration: Long): Boolean {
+        while (!isStopped(startGeneration) && AgentRuntimeController.isUserTakeoverPaused()) {
+            AgentRuntimeController.ensureOverlayCaptureVisibleIfIdle()
+            delay(USER_TAKEOVER_POLL_MS)
+        }
+        return !isStopped(startGeneration)
     }
 
     private fun stoppedByUserResult(logs: List<AgentTaskStepLog>): AgentTaskRunResult {
@@ -260,9 +276,17 @@ class AgentTaskRunner(
         step: CloudAgentStep,
         currentApp: String,
         logs: MutableList<AgentTaskStepLog>,
-    ): AgentExecutionResult {
+        stopGeneration: Long,
+    ): AgentExecutionResult? {
+        if (!waitWhileUserTakeoverPaused(stopGeneration)) return null
         AgentRuntimeController.noteAction(step)
         delay(ACTION_OVERLAY_HIDE_STABILIZE_MS)
+        if (AgentRuntimeController.isUserTakeoverPaused()) {
+            AgentRuntimeController.ensureOverlayCaptureVisibleIfIdle()
+            waitWhileUserTakeoverPaused(stopGeneration)
+            return null
+        }
+        if (isStopped(stopGeneration)) return null
         val result = withContext(Dispatchers.Main) {
             AiAgentAccessibilityService.executeStep(step)
         }
@@ -387,6 +411,7 @@ class AgentTaskRunner(
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
         private const val MAX_RECENT_ACTIONS = 6
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
+        private const val USER_TAKEOVER_POLL_MS = 120L
 
         private val CONTEXT_BREAKING_STEP_TYPES = setOf("home", "recents", "notifications", "quick_settings")
         private val FINANCIAL_GOAL_KEYWORDS = listOf("股票", "证券", "同花顺", "东方财富", "涨停", "跌停", "股", "基金", "交易", "委托", "账户")
