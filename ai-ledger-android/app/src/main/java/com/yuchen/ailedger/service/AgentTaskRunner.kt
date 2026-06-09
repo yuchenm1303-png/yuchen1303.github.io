@@ -69,7 +69,9 @@ class AgentTaskRunner(
                 }
 
                 val snapshot = observation.toAgentScreenSnapshot()
-                val deviceContext = buildDeviceContext(snapshot, goal)
+                val deviceContext = withContext(Dispatchers.IO) {
+                    buildDeviceContext(snapshot, goal)
+                }
 
                 val plan = try {
                     withContext(Dispatchers.IO) {
