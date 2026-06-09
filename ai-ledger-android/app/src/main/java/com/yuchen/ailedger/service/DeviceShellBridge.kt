@@ -30,7 +30,24 @@ class DeviceShellBridge(
 ) {
     private val appContext = context.applicationContext
 
-    fun probe(): DeviceShellStatus {
+    fun probe(forceRefresh: Boolean = false): DeviceShellStatus {
+        val now = System.currentTimeMillis()
+        if (!forceRefresh) {
+            cachedProbeStatus?.takeIf { now - cachedProbeAtMs < PROBE_CACHE_TTL_MS }?.let { return it }
+        }
+        return synchronized(probeCacheLock) {
+            val lockedNow = System.currentTimeMillis()
+            if (!forceRefresh) {
+                cachedProbeStatus?.takeIf { lockedNow - cachedProbeAtMs < PROBE_CACHE_TTL_MS }?.let { return@synchronized it }
+            }
+            probeFresh().also { status ->
+                cachedProbeStatus = status
+                cachedProbeAtMs = lockedNow
+            }
+        }
+    }
+
+    private fun probeFresh(): DeviceShellStatus {
         val shizukuAvailable = isShizukuAvailable()
         val shizukuGranted = shizukuAvailable && isShizukuPermissionGranted()
         val shizukuUid = if (shizukuGranted) runCatching { Shizuku.getUid() }.getOrNull() else null
@@ -68,6 +85,7 @@ class DeviceShellBridge(
     }
 
     fun requestShizukuPermission(): DeviceShellExecResult {
+        invalidateProbeCache()
         if (!isShizukuAvailable()) {
             return DeviceShellExecResult(
                 ok = false,
@@ -121,7 +139,7 @@ class DeviceShellBridge(
         command: String,
         timeoutMs: Long = 1_500L,
     ): DeviceShellExecResult {
-        val status = probe()
+        val status = probe(forceRefresh = true)
         val result = when {
             status.shizukuGranted -> executeShizukuRaw(command, timeoutMs = timeoutMs.coerceIn(500L, 6_000L))
             status.isAdbShellLike -> executeRaw(command, timeoutMs = timeoutMs.coerceIn(500L, 6_000L))
@@ -146,7 +164,7 @@ class DeviceShellBridge(
     }
 
     fun enhancedModeGuide(): String {
-        val probe = probe()
+        val probe = probe(forceRefresh = true)
         return buildString {
             append("增强模式状态\n\n")
             append("Shizuku 服务：").append(if (probe.shizukuAvailable) "已检测到" else "未检测到").append('\n')
@@ -238,6 +256,17 @@ class DeviceShellBridge(
     companion object {
         private const val MAX_OUTPUT_CHARS = 1800
         private const val SHIZUKU_PERMISSION_REQUEST_CODE = 23051
+        private const val PROBE_CACHE_TTL_MS = 20_000L
+        private val probeCacheLock = Any()
+        @Volatile private var cachedProbeStatus: DeviceShellStatus? = null
+        @Volatile private var cachedProbeAtMs: Long = 0L
+
+        fun invalidateProbeCache() {
+            synchronized(probeCacheLock) {
+                cachedProbeStatus = null
+                cachedProbeAtMs = 0L
+            }
+        }
 
         private val safeDiagnostics = mapOf(
             "identity" to SafeShellDiagnostic(
