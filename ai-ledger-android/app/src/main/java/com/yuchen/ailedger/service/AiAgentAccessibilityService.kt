@@ -35,9 +35,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintKey: String = ""
     @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
     @Volatile private var foregroundNotificationStarted: Boolean = false
+
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
     private var taskSessionDepth: Int = 0
+
     private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ai-agent-screenshot").apply { isDaemon = true }
     }
@@ -50,15 +52,19 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // 只有短暂 Working 窗口才处理事件，Idle 完全忽略。
         if (!isWorkingMode()) return
         val type = event?.eventType ?: return
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
+
         val packageName = event.packageName?.toString().orEmpty()
         if (packageName.isBlank() || isSystemSurfacePackage(packageName)) return
+
         val windowTitle = event.text?.firstOrNull()?.toString().orEmpty()
         val now = System.currentTimeMillis()
         val key = "$packageName|$windowTitle"
         if (key == lastWindowHintKey && now - lastWindowHintAtMs < WINDOW_HINT_THROTTLE_MS) return
+
         lastWindowHintKey = key
         lastWindowHintAtMs = now
         ScreenObservationStore.updateWindowHint(packageName, windowTitle)
@@ -105,14 +111,16 @@ class AiAgentAccessibilityService : AccessibilityService() {
         synchronized(modeLock) {
             taskSessionDepth += 1
             startTaskForegroundNotification()
-            configureWorkingServiceInfo()
+            // 彻底轻量化：任务会话只保留通知，不常驻 Working。
+            // 真正需要窗口/节点/截图时，由 withWorkingAccessibilityMode() 短暂开启，结束立即回 Idle。
+            configureIdleServiceInfo(force = true)
         }
     }
 
     private fun endTaskWorkingSession() {
         synchronized(modeLock) {
             taskSessionDepth = (taskSessionDepth - 1).coerceAtLeast(0)
-            if (taskSessionDepth == 0 && workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
         }
     }
 
@@ -126,7 +134,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun endWorkingSession() {
         synchronized(modeLock) {
             workingSessionDepth = (workingSessionDepth - 1).coerceAtLeast(0)
-            if (workingSessionDepth == 0 && taskSessionDepth == 0) configureIdleServiceInfo(force = true)
+            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
         }
     }
 
@@ -145,6 +153,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val nodeLimit = if (forceVisual) VISUAL_AFFORDANCE_NODES else MAX_SNAPSHOT_NODES
         val nodeBudgetMs = if (forceVisual) VISUAL_AFFORDANCE_BUDGET_MS else SNAPSHOT_NODE_BUDGET_MS
         val selected = selectBestRootCapture(limit = nodeLimit, timeBudgetMs = nodeBudgetMs)
+
         val nodeObservation = if (selected != null) {
             val nodes = selected.capture.handles.map { it.observed }
             val nodeMs = SystemClock.elapsedRealtime() - startedAt
@@ -154,33 +163,52 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 if (selected.capture.truncated) append(" · 节点截断")
                 if (forceVisual) append(" · 极简视觉节点")
             }.take(120)
+
             ScreenObservation(
                 enabled = true,
                 serviceConnected = true,
                 packageName = selected.packageName,
                 windowTitle = title,
                 updatedAt = now,
-                textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }.distinct().take(TEXT_LIMIT),
-                allItems = nodes.distinctBy { it.bounds + it.text + it.className }.take(ALL_NODE_LIMIT),
-                clickableItems = nodes.filter { it.clickable }.distinctBy { it.bounds + it.text }.take(CLICKABLE_LIMIT),
-                inputItems = nodes.filter { it.editable }.distinctBy { it.bounds }.take(INPUT_LIMIT),
-                scrollableItems = nodes.filter { it.scrollable }.distinctBy { it.bounds }.take(SCROLLABLE_LIMIT),
+                textItems = nodes.mapNotNull { it.text.takeIf { text -> text.isNotBlank() } }
+                    .distinct()
+                    .take(TEXT_LIMIT),
+                allItems = nodes.distinctBy { it.bounds + it.text + it.className }
+                    .take(ALL_NODE_LIMIT),
+                clickableItems = nodes.filter { it.clickable }
+                    .distinctBy { it.bounds + it.text }
+                    .take(CLICKABLE_LIMIT),
+                inputItems = nodes.filter { it.editable }
+                    .distinctBy { it.bounds }
+                    .take(INPUT_LIMIT),
+                scrollableItems = nodes.filter { it.scrollable }
+                    .distinctBy { it.bounds }
+                    .take(SCROLLABLE_LIMIT),
                 nodeCount = selected.capture.rawNodeCount,
                 capturedNodeCount = selected.capture.handles.size,
             )
         } else {
             ScreenObservation(enabled = true, serviceConnected = true, updatedAt = now)
         }
+
         val visual = if (forceVisual) captureVisualObservation("forced") else null
         nodeObservation.copy(visual = visual)
     }
 
     private fun captureVisualObservation(reason: String): ScreenVisualObservation {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return ScreenVisualObservation(available = false, source = "unsupported", reason = "takeScreenshot requires Android 11+")
+            return ScreenVisualObservation(
+                available = false,
+                source = "unsupported",
+                reason = "takeScreenshot requires Android 11+",
+            )
         }
         return runCatching { captureDisplayScreenshotCompat(reason) }.getOrElse { error ->
-            ScreenVisualObservation(available = false, source = "error", reason = error.message ?: "screenshot_failed")
+            ScreenVisualObservation(
+                available = false,
+                source = "error",
+                reason = error.message ?: "screenshot_failed",
+            )
         }
     }
 
@@ -197,12 +225,20 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 object : TakeScreenshotCallback {
                     override fun onSuccess(screenshot: ScreenshotResult) {
                         result = screenshot.toBitmapCopy()?.toVisualObservation(reason)
-                            ?: ScreenVisualObservation(available = false, source = "empty", reason = "screenshot bitmap empty")
+                            ?: ScreenVisualObservation(
+                                available = false,
+                                source = "empty",
+                                reason = "screenshot bitmap empty",
+                            )
                         latch.countDown()
                     }
 
                     override fun onFailure(errorCode: Int) {
-                        result = ScreenVisualObservation(available = false, source = "error", reason = "screenshot error=$errorCode")
+                        result = ScreenVisualObservation(
+                            available = false,
+                            source = "error",
+                            reason = "screenshot error=$errorCode",
+                        )
                         latch.countDown()
                     }
                 },
@@ -231,11 +267,17 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val scale = (VISION_MAX_LONG_SIDE.toFloat() / longSide.toFloat()).coerceAtMost(1f)
         val targetWidth = (originalWidth * scale).toInt().coerceAtLeast(1)
         val targetHeight = (originalHeight * scale).toInt().coerceAtLeast(1)
-        val scaled = if (targetWidth != originalWidth || targetHeight != originalHeight) Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true) else this
+        val scaled = if (targetWidth != originalWidth || targetHeight != originalHeight) {
+            Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
+        } else {
+            this
+        }
+
         val output = ByteArrayOutputStream()
         scaled.compress(Bitmap.CompressFormat.JPEG, VISION_JPEG_QUALITY, output)
         if (scaled !== this) scaled.recycle()
         recycle()
+
         return ScreenVisualObservation(
             available = true,
             mimeType = "image/jpeg",
@@ -251,18 +293,30 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun selectBestRoot(): AccessibilityNodeInfo? {
-        return selectBestRootCapture(limit = ROOT_SELECTION_SAMPLE_NODES, timeBudgetMs = ROOT_SELECTION_BUDGET_MS)?.root ?: rootInActiveWindow
+        return selectBestRootCapture(
+            limit = ROOT_SELECTION_SAMPLE_NODES,
+            timeBudgetMs = ROOT_SELECTION_BUDGET_MS,
+        )?.root ?: rootInActiveWindow
     }
 
-    private fun selectBestRootCapture(limit: Int, timeBudgetMs: Long = NODE_CAPTURE_DEFAULT_BUDGET_MS): RootCapture? {
+    private fun selectBestRootCapture(
+        limit: Int,
+        timeBudgetMs: Long = NODE_CAPTURE_DEFAULT_BUDGET_MS,
+    ): RootCapture? {
         val deadlineMs = SystemClock.elapsedRealtime() + timeBudgetMs
         val candidates = mutableListOf<AccessibilityNodeInfo>()
         rootInActiveWindow?.let { candidates += it }
-        runCatching { windows.orEmpty().forEach { window -> window.root?.let { candidates += it } } }
+        runCatching {
+            windows.orEmpty().forEach { window ->
+                window.root?.let { candidates += it }
+            }
+        }
+
         val distinctCandidates = candidates
             .distinctBy { rootIdentity(it) }
             .sortedByDescending { rootPriority(it) }
             .take(MAX_ROOT_CANDIDATES)
+
         var best: RootCapture? = null
         for (root in distinctCandidates) {
             if (SystemClock.elapsedRealtime() >= deadlineMs) break
@@ -274,8 +328,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
             val scrollableCount = capture.handles.count { it.observed.scrollable }
             val ownOverlayPenalty = if (packageName == applicationContext.packageName) OWN_OVERLAY_WINDOW_PENALTY else 0
             val systemSurfacePenalty = if (isSystemSurfacePackage(packageName)) SYSTEM_SURFACE_WINDOW_PENALTY else 0
-            val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) CONTENT_APP_WINDOW_BONUS else 0
+            val contentAppBonus = if (packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName) {
+                CONTENT_APP_WINDOW_BONUS
+            } else {
+                0
+            }
             val truncatedPenalty = if (capture.truncated) TRUNCATED_CAPTURE_PENALTY else 0
+
             val item = RootCapture(
                 root = root,
                 packageName = packageName,
@@ -300,12 +359,18 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun rootIdentity(root: AccessibilityNodeInfo): String {
         val rect = Rect()
         runCatching { root.getBoundsInScreen(rect) }
-        return listOf(root.packageName?.toString().orEmpty(), root.className?.toString().orEmpty(), rect.flattenToString()).joinToString("|")
+        return listOf(
+            root.packageName?.toString().orEmpty(),
+            root.className?.toString().orEmpty(),
+            rect.flattenToString(),
+        ).joinToString("|")
     }
 
     private fun rootPriority(root: AccessibilityNodeInfo): Int {
         val packageName = root.packageName?.toString().orEmpty()
-        val isContent = packageName.isNotBlank() && !isSystemSurfacePackage(packageName) && packageName != applicationContext.packageName
+        val isContent = packageName.isNotBlank() &&
+            !isSystemSurfacePackage(packageName) &&
+            packageName != applicationContext.packageName
         return when {
             isContent -> 3
             packageName == applicationContext.packageName -> 1
@@ -328,6 +393,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         var rawCount = 0
         var index = 0
         var truncated = false
+
         while (queue.isNotEmpty() && result.size < limit) {
             if (SystemClock.elapsedRealtime() >= deadlineMs) {
                 truncated = true
@@ -335,7 +401,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
             }
             val (node, depth) = queue.removeFirst()
             rawCount += 1
-            node.toHandleOrNull("n$index", deadlineMs)?.let { handle -> result.add(handle); index += 1 }
+            node.toHandleOrNull("n$index", deadlineMs)?.let { handle ->
+                result.add(handle)
+                index += 1
+            }
             if (depth < MAX_DEPTH && SystemClock.elapsedRealtime() < deadlineMs) {
                 val childLimit = node.childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
                 for (childIndex in 0 until childLimit) {
@@ -348,6 +417,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 if (node.childCount > childLimit) truncated = true
             }
         }
+
         if (queue.isNotEmpty() || result.size >= limit) truncated = true
         return NodeCapture(rawNodeCount = rawCount, handles = result, truncated = truncated)
     }
@@ -359,17 +429,29 @@ class AiAgentAccessibilityService : AccessibilityService() {
             ?: ""
     }
 
-    private fun AccessibilityNodeInfo.safeText(deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS): String {
+    private fun AccessibilityNodeInfo.safeText(
+        deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS,
+    ): String {
         val direct = directText()
         if (direct.isNotBlank()) return direct
-        return if (SystemClock.elapsedRealtime() < deadlineMs) collectChildText(CHILD_TEXT_FALLBACK_LIMIT, deadlineMs) else ""
+        return if (SystemClock.elapsedRealtime() < deadlineMs) {
+            collectChildText(CHILD_TEXT_FALLBACK_LIMIT, deadlineMs)
+        } else {
+            ""
+        }
     }
 
-    private fun AccessibilityNodeInfo.collectChildText(limit: Int, deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS): String {
+    private fun AccessibilityNodeInfo.collectChildText(
+        limit: Int,
+        deadlineMs: Long = SystemClock.elapsedRealtime() + CHILD_TEXT_BUDGET_MS,
+    ): String {
         val parts = mutableListOf<String>()
         val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
         val childLimit = childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
-        for (childIndex in 0 until childLimit) getChild(childIndex)?.let { queue.add(it to 0) }
+        for (childIndex in 0 until childLimit) {
+            getChild(childIndex)?.let { queue.add(it to 0) }
+        }
+
         while (queue.isNotEmpty() && parts.size < limit && SystemClock.elapsedRealtime() < deadlineMs) {
             val (child, depth) = queue.removeFirst()
             val text = child.directText()
@@ -382,12 +464,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
                 }
             }
         }
+
         return parts.distinct().joinToString(" ").take(80)
     }
 
     private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
-        // noteAction() 会在真正执行动作前隐藏悬浮窗；这里再给 WindowManager/Compose 一点时间完成不可见刷新。
-        // 这样模型截图中的可点击区域和真实手势落点更一致，避免点到自己的 AI 浮窗。
         SystemClock.sleep(OVERLAY_HIDE_BEFORE_ACTION_MS)
         return if (step.requiresWindowContent()) {
             withWorkingAccessibilityMode { executeStepInternalUnchecked(step) }
@@ -421,15 +502,33 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
-        val explicitPackage = step.packageName?.takeIf { it.isNotBlank() }
-        val app = explicitPackage?.let { InstalledAppEntry(step.appName ?: it, it) }
-            ?: step.appName?.let { InstalledAppIndex(this).findBestApp(it) }
-            ?: step.targetText?.let { InstalledAppIndex(this).findBestApp(it) }
-        val packageName = app?.packageName ?: return AgentExecutionResult(false, "没有找到要打开的应用：${step.appName ?: step.targetText ?: "未知"}", false)
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-            ?: return AgentExecutionResult(false, "应用没有可启动入口：$packageName", false)
-        return runCatching { startActivity(launchIntent); AgentExecutionResult(true, "已打开${app.label.ifBlank { packageName }}") }
-            .getOrElse { AgentExecutionResult(false, "打开应用失败：${it.message ?: packageName}", false) }
+        val packageName = step.packageName?.takeIf { it.isNotBlank() }
+            ?: step.appName?.takeIf { it.isNotBlank() }?.let { resolvePackageByLabel(it) }
+            ?: return AgentExecutionResult(ok = false, message = "缺少应用包名", shouldContinue = false)
+
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: return AgentExecutionResult(ok = false, message = "无法启动应用：$packageName", shouldContinue = false)
+
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return runCatching {
+            startActivity(intent)
+            AgentExecutionResult(ok = true, message = "已打开${step.appName ?: packageName}")
+        }.getOrElse {
+            AgentExecutionResult(ok = false, message = "打开应用失败：${it.message ?: packageName}", shouldContinue = false)
+        }
+    }
+
+    private fun resolvePackageByLabel(label: String): String? {
+        val query = label.trim()
+        if (query.isBlank()) return null
+        val apps = packageManager.getInstalledApplications(0)
+        return apps.firstOrNull { app ->
+            runCatching { packageManager.getApplicationLabel(app).toString() }.getOrDefault("")
+                .equals(query, ignoreCase = true)
+        }?.packageName ?: apps.firstOrNull { app ->
+            runCatching { packageManager.getApplicationLabel(app).toString() }.getOrDefault("")
+                .contains(query, ignoreCase = true)
+        }?.packageName
     }
 
     private fun executeGlobalActionStep(action: Int, label: String): AgentExecutionResult {
@@ -439,93 +538,75 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val quickText = step.targetText?.takeIf { it.isNotBlank() }
-        if (quickText != null) {
-            findNodeByTextFast(root, quickText)?.let { handle ->
-                performClickSmart(handle.node)?.let { return AgentExecutionResult(true, "已快速点击 ${handle.observed.text.ifBlank { quickText }}") }
-                return tapRect(handle.bounds, "已坐标点击 ${handle.observed.text.ifBlank { quickText }}")
-            }
+        step.targetText?.takeIf { it.isNotBlank() }?.let { text ->
+            findNodeByTextFast(root, text)?.let { return tapRect(it.bounds, "已点击：$text") }
         }
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
-        val target = findTargetHandle(handles, step) ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetNodeId ?: step.targetText ?: "未知"}", false)
-        performClickSmart(target.node)?.let { return AgentExecutionResult(true, "已点击节点 ${target.observed.id} ${target.observed.text}".trim()) }
-        return tapRect(target.bounds, "已坐标点击节点 ${target.observed.id}")
+        val handles = collectNodeHandles(
+            root,
+            MAX_EXECUTION_NODES,
+            SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
+        ).handles
+        val target = findTargetHandle(handles, step)
+            ?: return AgentExecutionResult(false, "没有找到目标节点：${step.targetText ?: step.targetNodeId ?: ""}", false)
+        performClickSmart(target.node)?.let { ok ->
+            return AgentExecutionResult(ok = ok, message = if (ok) "已点击节点 ${target.observed.id}" else "节点点击失败", shouldContinue = ok)
+        }
+        return tapRect(target.bounds, "已点击节点 ${target.observed.id}")
     }
 
     private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
-        val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击坐标 x", false)
-        val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击坐标 y", false)
-        val point = normalizeVisualTapPoint(rawX, rawY)
-        val suffix = if (point.source.isNotBlank()) "（${point.source}）" else ""
-        return dispatchTap(point.x, point.y, "视觉坐标 ${point.x.toInt()},${point.y.toInt()}$suffix")
+        val x = step.x ?: return AgentExecutionResult(false, "缺少点击 x 坐标", false)
+        val y = step.y ?: return AgentExecutionResult(false, "缺少点击 y 坐标", false)
+        val point = normalizeTapPoint(x, y)
+        return dispatchTap(point.x, point.y, if (point.wasScaled) {
+            "视觉坐标 ${point.x.toInt()},${point.y.toInt()}（${point.source}）"
+        } else {
+            "点击坐标 ${point.x.toInt()},${point.y.toInt()}"
+        })
     }
 
-    private fun normalizeVisualTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
+    private fun normalizeTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
         val reference = currentTapReferenceFrame()
-        if (rawX in 0f..1f && rawY in 0f..1f) {
-            return NormalizedTapPoint(
-                x = rawX * reference.width,
-                y = rawY * reference.height,
+        return if (rawX in 0f..1.05f && rawY in 0f..1.05f) {
+            NormalizedTapPoint(
+                x = rawX.coerceIn(0f, 1f) * reference.width,
+                y = rawY.coerceIn(0f, 1f) * reference.height,
                 wasScaled = true,
-                source = "归一化坐标 ${"%.3f".format(rawX)},${"%.3f".format(rawY)}→${reference.label} ${reference.width.toInt()}x${reference.height.toInt()}",
+                source = "归一化坐标 ${"%.3f".format(rawX)},${"%.3f".format(rawY)}→${reference.label}",
             )
+        } else {
+            NormalizedTapPoint(rawX, rawY, false, reference.label)
         }
-        val visual = ScreenObservationStore.observation.value.visual?.takeIf { it.hasImage }
-        if (visual != null && visual.width > 0 && visual.height > 0 && visual.displayWidth > 0 && visual.displayHeight > 0) {
-            val imageWidth = visual.width.toFloat()
-            val imageHeight = visual.height.toFloat()
-            val realWidth = visual.displayWidth.toFloat()
-            val realHeight = visual.displayHeight.toFloat()
-            val looksLikeImageCoordinates = (realWidth > imageWidth + VISUAL_COORDINATE_EPSILON || realHeight > imageHeight + VISUAL_COORDINATE_EPSILON) &&
-                rawX <= imageWidth + VISUAL_COORDINATE_EPSILON &&
-                rawY <= imageHeight + VISUAL_COORDINATE_EPSILON
-            if (looksLikeImageCoordinates) {
-                return NormalizedTapPoint(
-                    x = rawX * realWidth / imageWidth,
-                    y = rawY * realHeight / imageHeight,
-                    wasScaled = true,
-                    source = "截图像素坐标换算 ${imageWidth.toInt()}x${imageHeight.toInt()}→${realWidth.toInt()}x${realHeight.toInt()}",
-                )
-            }
-        }
-        return NormalizedTapPoint(rawX, rawY, wasScaled = false, source = "旧像素坐标兼容")
     }
 
     private fun currentTapReferenceFrame(): TapReferenceFrame {
-        val visual = ScreenObservationStore.observation.value.visual?.takeIf { it.hasImage && it.displayWidth > 0 && it.displayHeight > 0 }
-        if (visual != null) {
-            return TapReferenceFrame(
-                width = visual.displayWidth.toFloat().coerceAtLeast(1f),
-                height = visual.displayHeight.toFloat().coerceAtLeast(1f),
-                label = "截图屏幕",
-            )
-        }
         val metrics = resources.displayMetrics
         return TapReferenceFrame(
-            width = metrics.widthPixels.toFloat().coerceAtLeast(1f),
-            height = metrics.heightPixels.toFloat().coerceAtLeast(1f),
-            label = "系统屏幕",
+            width = metrics.widthPixels.toFloat(),
+            height = metrics.heightPixels.toFloat(),
+            label = "屏幕 ${metrics.widthPixels}x${metrics.heightPixels}",
         )
     }
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
-        val text = step.text?.takeIf { it.isNotBlank() }
-            ?: return AgentExecutionResult(false, "缺少输入内容", false)
-
+        val text = step.text ?: return AgentExecutionResult(false, "缺少输入文本", false)
         var lastCandidateCount = 0
-        repeat(INPUT_FOCUS_RETRY_COUNT) { attempt ->
-            val root = selectBestRoot() ?: return@repeat
-            val handles = collectNodeHandles(
-                root,
-                MAX_EXECUTION_NODES,
-                SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
-            ).handles
-            val candidateNodes = collectInputCandidateNodes(root, handles, step)
-            lastCandidateCount = maxOf(lastCandidateCount, candidateNodes.size)
 
-            for (node in candidateNodes) {
-                val result = tryInputTextOnNode(node, text)
-                if (result != null) return result
+        repeat(INPUT_FOCUS_RETRY_COUNT) { attempt ->
+            val root = selectBestRoot()
+            if (root != null) {
+                val handles = collectNodeHandles(
+                    root,
+                    MAX_EXECUTION_NODES,
+                    SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
+                ).handles
+                val candidateNodes = collectInputCandidateNodes(root, handles, step)
+                lastCandidateCount = maxOf(lastCandidateCount, candidateNodes.size)
+
+                for (node in candidateNodes) {
+                    val result = tryInputTextOnNode(node, text)
+                    if (result != null) return result
+                }
             }
 
             if (attempt < INPUT_FOCUS_RETRY_COUNT - 1) {
@@ -573,8 +654,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
             if (!duplicated) candidateNodes += node
         }
 
-        // GUI Plus 的 type 语义是“向已激活输入框输入”。
-        // 先尝试系统输入焦点，再回退到目标节点、已聚焦节点、editable 节点。
         addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
         addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))
         addCandidate(findTargetHandle(handles, step)?.node)
@@ -610,11 +689,21 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 scroll 返回语义）")
         }
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS).handles
+        val handles = collectNodeHandles(
+            root,
+            MAX_EXECUTION_NODES,
+            SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
+        ).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
         val direction = step.direction.orEmpty().lowercase()
-        val action = if (direction in setOf("up", "left", "backward", "previous")) AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        if (target?.node?.isScrollable == true && target.node.performAction(action)) return AgentExecutionResult(true, "已滚动节点 ${target.observed.id}")
+        val action = if (direction in setOf("up", "left", "backward", "previous")) {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+        if (target?.node?.isScrollable == true && target.node.performAction(action)) {
+            return AgentExecutionResult(true, "已滚动节点 ${target.observed.id}")
+        }
         return executeSwipe(step.copy(type = "swipe", direction = direction.ifBlank { "up" }))
     }
 
@@ -633,7 +722,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
             else -> listOf(w * 0.5f, h * 0.72f, w * 0.5f, h * 0.32f)
         }
         val ok = dispatchSwipe(startX, startY, endX, endY, step.durationMs ?: DEFAULT_SWIPE_MS)
-        return AgentExecutionResult(ok = ok, message = if (ok) "已滑动：$direction" else "滑动失败：$direction", shouldContinue = ok)
+        return AgentExecutionResult(
+            ok = ok,
+            message = if (ok) "已滑动：$direction" else "滑动失败：$direction",
+            shouldContinue = ok,
+        )
     }
 
     private fun CloudAgentStep.indicatesBackNavigation(): Boolean {
@@ -642,33 +735,66 @@ class AiAgentAccessibilityService : AccessibilityService() {
             .lowercase()
         if (raw.isBlank()) return false
         val backIntent = listOf(
-            "返回上一", "返回上个", "返回到上一", "回到上一", "上一界面", "上一页面", "上一层", "返回微信", "go back", "back to", "previous screen", "previous page",
+            "返回上一",
+            "返回上个",
+            "返回到上一",
+            "回到上一",
+            "上一界面",
+            "上一页面",
+            "上一层",
+            "返回微信",
+            "go back",
+            "back to",
+            "previous screen",
+            "previous page",
         ).any { raw.contains(it) }
         val explicitScrollIntent = listOf(
-            "查看更多", "看新消息", "看旧消息", "浏览", "滚动", "滑动查看", "scroll", "swipe to view",
+            "查看更多",
+            "看新消息",
+            "看旧消息",
+            "浏览",
+            "滚动",
+            "滑动查看",
+            "scroll",
+            "swipe to view",
         ).any { raw.contains(it) }
         return backIntent && !explicitScrollIntent
     }
 
     private fun findNodeByTextFast(root: AccessibilityNodeInfo, targetText: String): NodeHandle? {
-        val exact = root.findAccessibilityNodeInfosByText(targetText).orEmpty().mapNotNull { it.toHandleOrNull("n-fast", SystemClock.elapsedRealtime() + QUICK_TEXT_NODE_BUDGET_MS) }
+        val deadlineMs = SystemClock.elapsedRealtime() + QUICK_TEXT_NODE_BUDGET_MS
+        val exact = root.findAccessibilityNodeInfosByText(targetText).orEmpty()
+            .mapNotNull { it.toHandleOrNull("n-fast", deadlineMs) }
             .firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
         if (exact != null) return exact
-        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES, SystemClock.elapsedRealtime() + QUICK_TEXT_NODE_BUDGET_MS).handles.firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
+        return collectNodeHandles(root, FAST_TEXT_FALLBACK_NODES, deadlineMs)
+            .handles
+            .firstOrNull { it.observed.text == targetText || it.observed.text.contains(targetText, ignoreCase = true) }
     }
 
-    private fun AccessibilityNodeInfo.toHandleOrNull(id: String, deadlineMs: Long = SystemClock.elapsedRealtime() + NODE_HANDLE_BUDGET_MS): NodeHandle? {
+    private fun AccessibilityNodeInfo.toHandleOrNull(
+        id: String,
+        deadlineMs: Long = SystemClock.elapsedRealtime() + NODE_HANDLE_BUDGET_MS,
+    ): NodeHandle? {
         if (SystemClock.elapsedRealtime() >= deadlineMs) return null
+
         val clickableNode = nearestClickableNode()
         val scrollableNode = nearestScrollableNode()
-        val actionNode = when { isEditable -> this; clickableNode != null -> clickableNode; scrollableNode != null -> scrollableNode; else -> this }
+        val actionNode = when {
+            isEditable -> this
+            clickableNode != null -> clickableNode
+            scrollableNode != null -> scrollableNode
+            else -> this
+        }
         val text = safeText(deadlineMs).ifBlank { actionNode.safeText(deadlineMs) }
         val hasUsefulSignal = text.isNotBlank() || clickableNode != null || isEditable || scrollableNode != null
         if (!hasUsefulSignal) return null
+
         val rect = Rect()
         actionNode.getBoundsInScreen(rect)
         if (rect.isEmpty) getBoundsInScreen(rect)
         if (rect.isEmpty) return null
+
         return NodeHandle(
             observed = ObservedScreenNode(
                 id = id,
@@ -718,7 +844,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun findTargetHandle(handles: List<NodeHandle>, step: CloudAgentStep): NodeHandle? {
-        step.targetNodeId?.let { id -> handles.firstOrNull { it.observed.id == id }?.let { return it } }
+        step.targetNodeId?.let { id ->
+            handles.firstOrNull { it.observed.id == id }?.let { return it }
+        }
         val targetText = step.targetText?.takeIf { it.isNotBlank() } ?: step.text?.takeIf { it.isNotBlank() }
         if (targetText != null) {
             handles.firstOrNull { it.observed.text == targetText }?.let { return it }
@@ -735,7 +863,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
         val (safeX, safeY) = safeTapPoint(x, y)
         val path = Path().apply { moveTo(safeX, safeY) }
-        val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS)).build()
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS))
+            .build()
         val ok = dispatchGesture(gesture, null, null)
         val finalMessage = if (safeX != x || safeY != y) {
             "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}（边界保护）"
@@ -756,16 +886,28 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long): Boolean {
-        val path = Path().apply { moveTo(startX, startY); lineTo(endX, endY) }
-        val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(160L, 900L))).build()
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(endX, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(160L, 900L)))
+            .build()
         return dispatchGesture(gesture, null, null)
     }
 
     private fun startTaskForegroundNotification() {
         if (foregroundNotificationStarted) return
         ensureNotificationChannel()
-        val openAppIntent = Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
-        val pendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification: Notification = NotificationCompat.Builder(this, AGENT_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(getString(R.string.ai_agent_accessibility_notification_title))
@@ -776,6 +918,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
+
         try {
             startForeground(AGENT_NOTIFICATION_ID, notification)
             foregroundNotificationStarted = true
@@ -787,7 +930,12 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun stopTaskForegroundNotification() {
         if (!foregroundNotificationStarted) return
         try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
         } catch (_: Throwable) {
         } finally {
             foregroundNotificationStarted = false
@@ -797,7 +945,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
-        val channel = NotificationChannel(AGENT_CHANNEL_ID, "AI 助手智能体", NotificationManager.IMPORTANCE_LOW).apply {
+        val channel = NotificationChannel(
+            AGENT_CHANNEL_ID,
+            "AI 助手智能体",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
             description = "保持 AI 助手智能体待命，用于用户主动发起的屏幕观察。"
             setShowBadge(false)
         }
@@ -805,11 +957,39 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private enum class AccessibilityRuntimeMode { Idle, Working }
-    private data class RootCapture(val root: AccessibilityNodeInfo, val packageName: String, val windowTitle: String, val capture: NodeCapture, val score: Int)
-    private data class NodeCapture(val rawNodeCount: Int, val handles: List<NodeHandle>, val truncated: Boolean = false)
-    private data class NodeHandle(val observed: ObservedScreenNode, val node: AccessibilityNodeInfo, val bounds: Rect)
-    private data class NormalizedTapPoint(val x: Float, val y: Float, val wasScaled: Boolean, val source: String)
-    private data class TapReferenceFrame(val width: Float, val height: Float, val label: String)
+
+    private data class RootCapture(
+        val root: AccessibilityNodeInfo,
+        val packageName: String,
+        val windowTitle: String,
+        val capture: NodeCapture,
+        val score: Int,
+    )
+
+    private data class NodeCapture(
+        val rawNodeCount: Int,
+        val handles: List<NodeHandle>,
+        val truncated: Boolean = false,
+    )
+
+    private data class NodeHandle(
+        val observed: ObservedScreenNode,
+        val node: AccessibilityNodeInfo,
+        val bounds: Rect,
+    )
+
+    private data class NormalizedTapPoint(
+        val x: Float,
+        val y: Float,
+        val wasScaled: Boolean,
+        val source: String,
+    )
+
+    private data class TapReferenceFrame(
+        val width: Float,
+        val height: Float,
+        val label: String,
+    )
 
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
@@ -837,59 +1017,70 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         private const val WINDOW_HINT_THROTTLE_MS = 900L
+
+        // Idle 绝对低负载：不监听事件、不持有 flags。
         private const val IDLE_EVENT_TYPES = 0
         private const val IDLE_ACCESSIBILITY_FLAGS = 0
+
+        // Working 只在截图、节点读取、点击、输入的短时间窗口开启。
         private const val WORKING_EVENT_TYPES = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOWS_CHANGED
         private const val WORKING_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
             AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
             AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+
         private const val IDLE_NOTIFICATION_TIMEOUT_MS = 10_000L
-        private const val WORKING_NOTIFICATION_TIMEOUT_MS = 80L
+        private const val WORKING_NOTIFICATION_TIMEOUT_MS = 120L
+
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
         private const val CONTENT_APP_WINDOW_BONUS = 4_000
         private const val TRUNCATED_CAPTURE_PENALTY = 1_600
         private val SYSTEM_SURFACE_PACKAGES = setOf("android", "com.android.systemui")
+
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
-        private const val MAX_SNAPSHOT_NODES = 72
-        private const val VISUAL_AFFORDANCE_NODES = 28
-        private const val MAX_EXECUTION_NODES = 96
-        private const val ROOT_SELECTION_SAMPLE_NODES = 32
-        private const val FAST_TEXT_FALLBACK_NODES = 40
+
+        // 彻底轻量化后的节点规模与时间预算。
+        private const val MAX_SNAPSHOT_NODES = 48
+        private const val VISUAL_AFFORDANCE_NODES = 20
+        private const val MAX_EXECUTION_NODES = 72
+        private const val ROOT_SELECTION_SAMPLE_NODES = 24
+        private const val FAST_TEXT_FALLBACK_NODES = 28
         private const val MAX_ROOT_CANDIDATES = 2
-        private const val MAX_DEPTH = 6
-        private const val MAX_CHILDREN_PER_NODE = 10
-        private const val MAX_PENDING_NODE_QUEUE = 96
-        private const val CHILD_TEXT_FALLBACK_LIMIT = 2
+        private const val MAX_DEPTH = 5
+        private const val MAX_CHILDREN_PER_NODE = 8
+        private const val MAX_PENDING_NODE_QUEUE = 64
+        private const val CHILD_TEXT_FALLBACK_LIMIT = 1
         private const val CHILD_TEXT_MAX_DEPTH = 1
-        private const val MAX_CHILD_TEXT_QUEUE = 18
-        private const val TEXT_LIMIT = 30
-        private const val ALL_NODE_LIMIT = 48
-        private const val CLICKABLE_LIMIT = 20
-        private const val INPUT_LIMIT = 6
-        private const val SCROLLABLE_LIMIT = 5
-        private const val CLICK_PARENT_DEPTH = 6
-        private const val SCROLL_PARENT_DEPTH = 6
+        private const val MAX_CHILD_TEXT_QUEUE = 10
+        private const val TEXT_LIMIT = 24
+        private const val ALL_NODE_LIMIT = 36
+        private const val CLICKABLE_LIMIT = 16
+        private const val INPUT_LIMIT = 4
+        private const val SCROLLABLE_LIMIT = 4
+        private const val CLICK_PARENT_DEPTH = 5
+        private const val SCROLL_PARENT_DEPTH = 5
+
         private const val DEFAULT_TAP_MS = 42L
         private const val DEFAULT_SWIPE_MS = 260L
         private const val DEFAULT_WAIT_MS = 500L
         private const val INPUT_FOCUS_RETRY_COUNT = 3
-        private const val INPUT_FOCUS_RETRY_DELAY_MS = 180L
-        private const val INPUT_PASTE_FOCUS_DELAY_MS = 60L
+        private const val INPUT_FOCUS_RETRY_DELAY_MS = 150L
+        private const val INPUT_PASTE_FOCUS_DELAY_MS = 55L
+
         private const val VISION_MAX_LONG_SIDE = 720
         private const val VISION_JPEG_QUALITY = 68
         private const val SCREENSHOT_TIMEOUT_MS = 1000L
         private const val OVERLAY_HIDE_BEFORE_ACTION_MS = 90L
-        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 160L
-        private const val SNAPSHOT_NODE_BUDGET_MS = 360L
-        private const val VISUAL_AFFORDANCE_BUDGET_MS = 150L
-        private const val ROOT_SELECTION_BUDGET_MS = 180L
-        private const val EXECUTION_NODE_BUDGET_MS = 260L
-        private const val QUICK_TEXT_NODE_BUDGET_MS = 150L
-        private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 260L
-        private const val NODE_HANDLE_BUDGET_MS = 34L
-        private const val CHILD_TEXT_BUDGET_MS = 10L
-        private const val VISUAL_COORDINATE_EPSILON = 24f
+        private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 150L
+
+        private const val SNAPSHOT_NODE_BUDGET_MS = 220L
+        private const val VISUAL_AFFORDANCE_BUDGET_MS = 100L
+        private const val ROOT_SELECTION_BUDGET_MS = 120L
+        private const val EXECUTION_NODE_BUDGET_MS = 190L
+        private const val QUICK_TEXT_NODE_BUDGET_MS = 100L
+        private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 180L
+        private const val NODE_HANDLE_BUDGET_MS = 22L
+        private const val CHILD_TEXT_BUDGET_MS = 6L
     }
 }
