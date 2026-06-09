@@ -156,6 +156,7 @@ data class CloudAgentStep(
     val requiresInputNode: Boolean = true,
     val expectsFocusedInput: Boolean = false,
     val useFocusedInput: Boolean = false,
+    val toolArgs: JSONObject? = null,
 ) {
     val typeLabel: String
         get() = when (type) {
@@ -173,11 +174,55 @@ data class CloudAgentStep(
             "wait" -> "等待"
             "finish" -> "任务完成"
             "need_user_help" -> "需要用户协助"
+            "open_system_settings" -> "打开系统设置"
+            "open_app_settings" -> "打开应用设置"
+            "set_brightness" -> "调节亮度"
+            "set_screen_timeout" -> "设置息屏时间"
+            "device_status" -> "设备状态"
+            "shizuku_status" -> "Shizuku 状态"
+            "request_shizuku_permission" -> "请求 Shizuku 授权"
+            "set_animation_scale" -> "设置动画缩放"
+            "force_stop_app" -> "强停应用"
+            "clear_app_data" -> "清除应用数据"
+            "uninstall_app" -> "卸载应用"
+            "disable_app" -> "禁用应用"
+            "enable_app" -> "启用应用"
             else -> type
         }
 
     val shouldUseFocusedDirectInput: Boolean
         get() = inputMode?.lowercase()?.replace('-', '_') in focusedInputModes || useFocusedInput || expectsFocusedInput || !requiresInputNode
+
+    fun argString(vararg names: String): String? {
+        val args = toolArgs ?: return null
+        for (name in names) {
+            val value = args.optString(name).trim()
+            if (value.isNotBlank()) return value
+        }
+        return null
+    }
+
+    fun argFloat(vararg names: String): Float? {
+        val args = toolArgs ?: return null
+        for (name in names) {
+            if (!args.has(name) || args.isNull(name)) continue
+            val value = runCatching { args.getDouble(name).toFloat() }.getOrNull()
+                ?: args.optString(name).trim().removeSuffix("%").toFloatOrNull()
+            if (value != null && value.isFinite()) return value
+        }
+        return null
+    }
+
+    fun argLong(vararg names: String): Long? {
+        val args = toolArgs ?: return null
+        for (name in names) {
+            if (!args.has(name) || args.isNull(name)) continue
+            val value = runCatching { args.getLong(name) }.getOrNull()
+                ?: args.optString(name).trim().toLongOrNull()
+            if (value != null) return value
+        }
+        return null
+    }
 
     companion object {
         private val focusedInputModes = setOf(
@@ -188,6 +233,22 @@ data class CloudAgentStep(
             "ime",
             "active_input",
             "current_focus",
+        )
+
+        val deviceToolTypes = setOf(
+            "open_system_settings",
+            "open_app_settings",
+            "set_brightness",
+            "set_screen_timeout",
+            "device_status",
+            "shizuku_status",
+            "request_shizuku_permission",
+            "set_animation_scale",
+            "force_stop_app",
+            "clear_app_data",
+            "uninstall_app",
+            "disable_app",
+            "enable_app",
         )
 
         val supportedTypes = setOf(
@@ -205,7 +266,7 @@ data class CloudAgentStep(
             "wait",
             "finish",
             "need_user_help",
-        )
+        ) + deviceToolTypes
 
         fun fromJson(root: JSONObject?): CloudAgentStep? {
             val item = root?.optJSONObject("agentStep")
@@ -214,30 +275,45 @@ data class CloudAgentStep(
                 ?: root?.optJSONObject("data")?.optJSONObject("agentStep")
                 ?: root?.optJSONObject("data")?.optJSONObject("step")
                 ?: root?.optJSONObject("result")?.optJSONObject("agentStep")
-                ?: root?.takeIf { it.has("type") || it.has("action") }
+                ?: root?.takeIf { it.has("type") || it.has("action") || it.has("tool") || it.has("name") }
                 ?: return null
+            val toolArgs = item.mergedToolArgs()
+            fun argString(vararg names: String): String? {
+                for (name in names) {
+                    val value = toolArgs.optString(name).trim()
+                    if (value.isNotBlank()) return value
+                }
+                return null
+            }
             val rawType = item.optString("type").notBlankOrNull()
                 ?: item.optString("action").notBlankOrNull()
+                ?: item.optString("tool").notBlankOrNull()
+                ?: item.optString("name").notBlankOrNull()
                 ?: return null
             val normalizedType = normalizeStepType(rawType) ?: return null
             val parsedTargetText = item.optString("targetText").notBlankOrNull()
                 ?: item.optString("label").notBlankOrNull()
                 ?: item.optString("title").notBlankOrNull()
                 ?: item.optString("target").notBlankOrNull()
+                ?: argString("targetText", "target", "label", "title", "page", "kind")
             val parsedText = item.optString("text").notBlankOrNull()
                 ?: item.optString("inputText").notBlankOrNull()
                 ?: item.optString("value").notBlankOrNull()
+                ?: argString("text", "inputText", "value", "query", "content")
             val parsedAppName = item.optString("appName").notBlankOrNull()
                 ?: item.optString("app").notBlankOrNull()
                 ?: item.optString("application").notBlankOrNull()
+                ?: argString("appName", "app", "application", "label", "name")
                 ?: if (normalizedType == "open_app") parsedTargetText ?: parsedText else null
             val parsedPackageName = item.optString("packageName").notBlankOrNull()
                 ?: item.optString("package").notBlankOrNull()
                 ?: item.optString("pkg").notBlankOrNull()
+                ?: argString("packageName", "package", "pkg")
             val parsedInputMode = item.optString("inputMode").notBlankOrNull()
                 ?: item.optString("input_mode").notBlankOrNull()
                 ?: item.optString("inputStrategy").notBlankOrNull()
                 ?: item.optString("input_strategy").notBlankOrNull()
+                ?: argString("inputMode", "input_mode", "inputStrategy", "input_strategy")
             val inputModeKey = parsedInputMode?.lowercase()?.replace('-', '_')
             val explicitUseFocusedInput = item.optFlexibleBoolean("useFocusedInput")
                 ?: item.optFlexibleBoolean("use_focused_input")
@@ -258,23 +334,33 @@ data class CloudAgentStep(
                 type = normalizedType,
                 targetNodeId = item.optString("targetNodeId").notBlankOrNull()
                     ?: item.optString("nodeId").notBlankOrNull()
-                    ?: item.optString("targetId").notBlankOrNull(),
+                    ?: item.optString("targetId").notBlankOrNull()
+                    ?: argString("targetNodeId", "nodeId", "targetId"),
                 targetText = parsedTargetText,
                 text = parsedText,
-                direction = item.optString("direction").notBlankOrNull()?.lowercase(),
+                direction = item.optString("direction").notBlankOrNull()?.lowercase()
+                    ?: argString("direction")?.lowercase(),
                 reason = item.optString("reason").notBlankOrNull()
-                    ?: item.optString("rationale").notBlankOrNull(),
-                riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: "low",
-                requiresConfirmation = item.optFlexibleBoolean("requiresConfirmation") ?: false,
+                    ?: item.optString("rationale").notBlankOrNull()
+                    ?: argString("reason", "rationale"),
+                riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_')
+                    ?: item.optString("risk").notBlankOrNull()?.lowercase()?.replace('-', '_')
+                    ?: argString("riskLevel", "risk")?.lowercase()?.replace('-', '_')
+                    ?: "low",
+                requiresConfirmation = item.optFlexibleBoolean("requiresConfirmation")
+                    ?: item.optFlexibleBoolean("confirm")
+                    ?: false,
                 appName = parsedAppName,
                 packageName = parsedPackageName,
-                x = item.optTapCoordinateComponent(0),
-                y = item.optTapCoordinateComponent(1),
-                durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs"),
+                x = item.optTapCoordinateComponent(0) ?: toolArgs.optTapCoordinateComponent(0),
+                y = item.optTapCoordinateComponent(1) ?: toolArgs.optTapCoordinateComponent(1),
+                durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs") ?: item.optNullableLong("waitMs")
+                    ?: toolArgs.optNullableLong("durationMs") ?: toolArgs.optNullableLong("delayMs") ?: toolArgs.optNullableLong("waitMs"),
                 inputMode = parsedInputMode,
                 requiresInputNode = parsedRequiresInputNode,
                 expectsFocusedInput = parsedExpectsFocusedInput,
                 useFocusedInput = explicitUseFocusedInput ?: inferredFocusedDirect,
+                toolArgs = toolArgs.takeIf { it.length() > 0 },
             )
         }
 
@@ -286,6 +372,19 @@ data class CloudAgentStep(
                 "input", "type", "enter_text", "text" -> "input_text"
                 "done", "complete", "completed" -> "finish"
                 "ask_user", "need_help", "clarify" -> "need_user_help"
+                "settings", "open_settings", "system_settings" -> "open_system_settings"
+                "app_settings", "app_info", "open_app_detail" -> "open_app_settings"
+                "brightness", "screen_brightness" -> "set_brightness"
+                "screen_timeout", "sleep_timeout" -> "set_screen_timeout"
+                "health", "device_health" -> "device_status"
+                "shell_status", "enhanced_status", "shizuku" -> "shizuku_status"
+                "shizuku_permission", "request_shizuku" -> "request_shizuku_permission"
+                "animation_scale" -> "set_animation_scale"
+                "force_stop", "force_stop_application" -> "force_stop_app"
+                "clear_data" -> "clear_app_data"
+                "uninstall" -> "uninstall_app"
+                "disable" -> "disable_app"
+                "enable" -> "enable_app"
                 else -> key
             }
             return normalized.takeIf { it in supportedTypes }
@@ -321,6 +420,20 @@ private fun JSONObject.optStringSet(name: String): Set<String> {
             .toSet()
         else -> emptySet()
     }
+}
+
+private fun JSONObject.mergedToolArgs(): JSONObject {
+    val source = optJSONObject("args") ?: optJSONObject("arguments") ?: JSONObject()
+    val merged = runCatching { JSONObject(source.toString()) }.getOrDefault(JSONObject())
+    val keys = listOf(
+        "appName", "app", "application", "packageName", "package", "pkg", "targetText", "target", "label", "title",
+        "page", "kind", "percent", "brightness", "value", "seconds", "minutes", "timeoutMs", "durationMs", "scale",
+        "text", "query", "reason", "risk", "riskLevel", "direction", "inputMode",
+    )
+    for (key in keys) {
+        if (!merged.has(key) && has(key)) merged.put(key, opt(key))
+    }
+    return merged
 }
 
 private fun String?.notBlankOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
