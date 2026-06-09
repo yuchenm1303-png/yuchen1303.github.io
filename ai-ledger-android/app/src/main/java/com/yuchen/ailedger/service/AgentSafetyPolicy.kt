@@ -5,9 +5,10 @@ object AgentSafetyPolicy {
         "支付", "付款", "转账", "红包", "下单", "购买", "确认付款", "扣款", "充值", "提现",
         "删除", "卸载", "清空", "注销", "退出登录",
         "授权", "同意授权", "实名", "绑定", "银行卡",
-        "发送消息", "发消息", "发给", "发送短信", "提交", "发布", "评论", "私信", "拨打", "呼叫",
-        "拉黑", "举报",
-        "pay", "transfer", "purchase", "delete", "uninstall", "authorize", "submit", "publish", "send message", "call"
+        "发送消息", "发消息", "发给", "发送短信", "确认发送",
+        "发表评论", "发布评论", "提交评论", "回复评论", "发布帖子", "提交表单", "私信",
+        "拨打", "呼叫", "拉黑", "举报",
+        "pay", "transfer", "purchase", "delete", "uninstall", "authorize", "submit", "publish", "send message", "post comment", "call"
     )
 
     private val sensitiveUserInputWords = listOf(
@@ -16,9 +17,10 @@ object AgentSafetyPolicy {
     )
 
     private val navigationOnlyWords = listOf(
-        "打开", "找到", "查找", "寻找", "查看", "进入", "搜索", "跳到", "定位到",
+        "打开", "找到", "查找", "寻找", "查看", "进入", "搜索", "跳到", "定位到", "浏览",
         "聊天框", "详情页", "资料页", "主页", "页面", "列表", "结果页",
-        "open", "find", "search", "view", "show", "go to", "details", "profile"
+        "评论区", "评论社区", "社区", "股吧", "讨论区", "评论页", "看评论", "浏览评论",
+        "open", "find", "search", "view", "show", "go to", "details", "profile", "community", "comment section"
     )
 
     private val executableLowRiskTypes = setOf(
