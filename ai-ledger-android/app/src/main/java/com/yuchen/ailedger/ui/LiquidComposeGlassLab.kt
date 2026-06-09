@@ -128,7 +128,7 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
 }
 
 @Composable
-fun SourceLinkedGlassSurface(
+private fun SourceLinkedGlassSurface(
     modifier: Modifier = Modifier,
     environment: BackdropEnvironment,
     radiusScale: Float,
