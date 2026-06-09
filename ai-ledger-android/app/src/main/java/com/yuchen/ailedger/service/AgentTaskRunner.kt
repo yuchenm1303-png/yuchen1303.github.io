@@ -30,6 +30,7 @@ class AgentTaskRunner(
     private val applicationContext: Context? = appContext?.applicationContext
     private val installedAppIndex: InstalledAppIndex? = applicationContext?.let { InstalledAppIndex(it) }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun run(
         goal: String,
         modelPreference: ChatModel,
@@ -42,19 +43,13 @@ class AgentTaskRunner(
             return AgentTaskRunResult(false, false, message, logs)
         }
 
-        val safeMaxSteps = maxSteps.coerceIn(1, HARD_MAX_TASK_STEPS)
-        val startedAtMs = SystemClock.elapsedRealtime()
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val recentActions = mutableListOf<String>()
 
         AgentRuntimeController.startTask(goal)
 
         return try {
-            while (
-                logs.size < safeMaxSteps &&
-                SystemClock.elapsedRealtime() - startedAtMs < MAX_TASK_WALL_TIME_MS &&
-                !isStopped(stopGeneration)
-            ) {
+            while (!isStopped(stopGeneration)) {
                 val observation = captureOnce(forceVisual = true)
                 if (!observation.enabled || !observation.serviceConnected) {
                     val message = if (AiAgentAccessibilityService.isConnected()) {
@@ -140,13 +135,7 @@ class AgentTaskRunner(
                 delayForStep(step)
             }
 
-            val message = if (isStopped(stopGeneration)) {
-                "用户已手动停止本次智能体任务。"
-            } else if (logs.size >= safeMaxSteps) {
-                "已达到本次任务步数上限 $safeMaxSteps，自动停止以保持无障碍低负载。"
-            } else {
-                "已达到本次任务运行时间上限，自动停止以保持无障碍低负载。"
-            }
+            val message = "用户已手动停止本次智能体任务。"
             AgentRuntimeController.finishTask(message, completed = false)
             AgentTaskRunResult(false, false, message, logs)
         } catch (error: CancellationException) {
@@ -248,8 +237,6 @@ class AgentTaskRunner(
         private const val GLOBAL_ACTION_DELAY_MS = 240L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
-        private const val HARD_MAX_TASK_STEPS = 8
-        private const val MAX_TASK_WALL_TIME_MS = 70_000L
         private const val MAX_RECENT_ACTIONS = 6
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
     }
