@@ -90,7 +90,7 @@ class AssistantPreferencesStore(private val context: Context) {
                 navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
                 navigationCompanyAddress = preferences[Keys.navigationCompanyAddress].orEmpty(),
                 navigationDormAddress = preferences[Keys.navigationDormAddress].orEmpty()
-            )
+            ).also { AssistantLocalMemoryRuntime.update(it) }
         }
 
     suspend fun setRenderQuality(quality: RenderQuality) {
