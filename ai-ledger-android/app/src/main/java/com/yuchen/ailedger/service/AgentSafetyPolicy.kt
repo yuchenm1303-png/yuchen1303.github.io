@@ -1,6 +1,8 @@
 package com.yuchen.ailedger.service
 
 object AgentSafetyPolicy {
+    private val deviceToolStepTypes = CloudAgentStep.deviceToolTypes
+
     private val executableStepTypes = setOf(
         "open_app",
         "home",
@@ -12,7 +14,7 @@ object AgentSafetyPolicy {
         "scroll",
         "swipe",
         "wait",
-    )
+    ) + deviceToolStepTypes
 
     private val passiveStepTypes = setOf(
         "back",
@@ -23,6 +25,8 @@ object AgentSafetyPolicy {
         "scroll",
         "swipe",
         "wait",
+        "device_status",
+        "shizuku_status",
     )
 
     private val foregroundStepTypes = setOf(
@@ -32,11 +36,14 @@ object AgentSafetyPolicy {
     )
 
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
-        if (step.type in passiveStepTypes && !step.requiresConfirmation) return false
-        if (step.type !in foregroundStepTypes) return false
         if (requiresUserProvidedInput(goal, step)) return false
         val level = step.riskLevel.normalizedPolicyLevel()
-        return step.requiresConfirmation || (level.isNotBlank() && level != "low")
+        val highRisk = level == "high" || level == "critical"
+        if (step.requiresConfirmation || highRisk) return true
+        if (step.type in passiveStepTypes) return false
+        if (step.type in deviceToolStepTypes) return false
+        if (step.type !in foregroundStepTypes) return false
+        return level.isNotBlank() && level != "low"
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
