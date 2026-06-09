@@ -1,10 +1,24 @@
 package com.yuchen.ailedger.service
 
 object AgentSafetyPolicy {
-    private val highRiskWords = listOf(
-        "支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意",
-        "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "确认付款",
-        "绑定", "实名", "银行卡", "扣款", "充值", "提现", "评价", "拉黑", "举报",
+    private val destructiveOrSensitiveWords = listOf(
+        "支付", "付款", "转账", "红包", "下单", "购买", "确认付款", "扣款", "充值", "提现",
+        "删除", "卸载", "清空", "注销", "退出登录",
+        "授权", "同意授权", "实名", "绑定", "银行卡",
+        "发送消息", "发消息", "发给", "发送短信", "提交", "发布", "评论", "私信", "拨打", "呼叫",
+        "拉黑", "举报",
+        "pay", "transfer", "purchase", "delete", "uninstall", "authorize", "submit", "publish", "send message", "call"
+    )
+
+    private val sensitiveUserInputWords = listOf(
+        "验证码", "校验码", "短信码", "动态码", "密码", "口令", "支付密码", "登录密码", "二次验证",
+        "otp", "verification code", "password", "passcode", "pin"
+    )
+
+    private val navigationOnlyWords = listOf(
+        "打开", "找到", "查找", "寻找", "查看", "进入", "搜索", "跳到", "定位到",
+        "聊天框", "详情页", "资料页", "主页", "页面", "列表", "结果页",
+        "open", "find", "search", "view", "show", "go to", "details", "profile"
     )
 
     private val executableLowRiskTypes = setOf(
@@ -38,19 +52,44 @@ object AgentSafetyPolicy {
     )
 
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
-        if (step.type in passiveRecoveryTypes && step.requiresConfirmation.not()) return false
+        if (step.type in passiveRecoveryTypes && !step.requiresConfirmation) return false
         if (isLowRiskAppLaunchConfirmation(step)) return false
-        if (step.requiresConfirmation) return true
-        if (step.riskLevel !in setOf("", "low")) return step.type in activeTouchOrInputTypes
-        if (step.type !in executableLowRiskTypes && step.type != "finish") return true
         if (step.type !in activeTouchOrInputTypes) return false
-        val joined = listOf(goal, step.targetText, step.text, step.reason, step.appName).joinToString(" ")
-        return highRiskWords.any { joined.contains(it, ignoreCase = true) }
+
+        val joined = joinedText(goal, step)
+        if (requiresUserProvidedInput(goal, step)) return false
+        if (isNavigationOnly(joined)) return false
+        if (hasDestructiveOrSensitiveIntent(joined)) return true
+
+        val modelFlagged = step.requiresConfirmation || step.riskLevel !in setOf("", "low")
+        return modelFlagged && hasDestructiveOrSensitiveIntent(joined)
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
         if (requiresConfirmation(goal, step)) return false
+        if (requiresUserProvidedInput(goal, step)) return false
         return step.type in executableLowRiskTypes
+    }
+
+    fun requiresUserProvidedInput(goal: String, step: CloudAgentStep): Boolean {
+        if (step.type != "input_text" && step.type != "need_user_help") return false
+        val joined = joinedText(goal, step)
+        return sensitiveUserInputWords.any { joined.contains(it, ignoreCase = true) }
+    }
+
+    private fun joinedText(goal: String, step: CloudAgentStep): String {
+        return listOf(goal, step.targetText, step.text, step.reason, step.appName)
+            .joinToString(" ")
+            .trim()
+    }
+
+    private fun hasDestructiveOrSensitiveIntent(text: String): Boolean {
+        return destructiveOrSensitiveWords.any { text.contains(it, ignoreCase = true) }
+    }
+
+    private fun isNavigationOnly(text: String): Boolean {
+        val hasNavigation = navigationOnlyWords.any { text.contains(it, ignoreCase = true) }
+        return hasNavigation && !hasDestructiveOrSensitiveIntent(text)
     }
 
     private fun isLowRiskAppLaunchConfirmation(step: CloudAgentStep): Boolean {
