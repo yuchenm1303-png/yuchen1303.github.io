@@ -16,6 +16,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.yuchen.ailedger.MainActivity
@@ -40,13 +42,24 @@ class AgentOverlayService : Service() {
     private var resultView: TextView? = null
     private var latestView: TextView? = null
     private var logsView: TextView? = null
+
     private var confirmPanel: LinearLayout? = null
     private var confirmTitleView: TextView? = null
     private var confirmMessageView: TextView? = null
     private var confirmPrimaryView: TextView? = null
     private var confirmSecondaryView: TextView? = null
+
+    private var inputPanel: LinearLayout? = null
+    private var inputTitleView: TextView? = null
+    private var inputMessageView: TextView? = null
+    private var inputEditText: EditText? = null
+    private var inputPrimaryView: TextView? = null
+    private var inputSecondaryView: TextView? = null
+
     private var stopView: TextView? = null
     private var collapseView: TextView? = null
+    private var takeoverView: TextView? = null
+    private var resumeView: TextView? = null
     private var contentGroup: LinearLayout? = null
 
     private var density: Float = 1f
@@ -106,26 +119,28 @@ class AgentOverlayService : Service() {
             setOnTouchListener(DragTouchListener())
         }
 
-        val header = createHeaderRow()
-        actionView = text("等待任务", 15.2f, Color.WHITE, bold = true).apply {
-            maxLines = 2
-        }
-        resultView = text("上一步 · 暂无执行结果", 10.6f, Color.argb(226, 236, 246, 255)).apply {
-            maxLines = 2
-        }
-        latestView = text("最近 · 暂无运行日志", 9.6f, Color.argb(176, 222, 235, 255)).apply {
-            maxLines = 1
-        }
-        logsView = text("暂无详细日志", 9.4f, Color.argb(176, 222, 235, 255)).apply {
-            maxLines = 5
-        }
+        panel.addView(createHeaderRow())
+
+        actionView = text("等待任务", 15.2f, Color.WHITE, bold = true).apply { maxLines = 2 }
+        resultView = text("上一步 · 暂无执行结果", 10.6f, Color.argb(226, 236, 246, 255)).apply { maxLines = 3 }
+        latestView = text("最近 · 暂无运行日志", 9.6f, Color.argb(176, 222, 235, 255)).apply { maxLines = 1 }
+        logsView = text("暂无详细日志", 9.4f, Color.argb(176, 222, 235, 255)).apply { maxLines = 5 }
+
         confirmPanel = createConfirmPanel()
+        inputPanel = createInputPanel()
+
         stopView = capsuleButton("停止", ButtonTone.Danger) { AgentRuntimeController.stopTaskByUser() }
         collapseView = capsuleButton("收起", ButtonTone.Ghost) {
-            if (latestProgress.pendingConfirmation == null) {
+            if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null) {
                 expanded = !expanded
                 refreshExpandedState()
             }
+        }
+        takeoverView = capsuleButton("接管", ButtonTone.GhostWarm) {
+            AgentRuntimeController.pauseForUserTakeover()
+        }
+        resumeView = capsuleButton("恢复", ButtonTone.PrimaryWarm) {
+            AgentRuntimeController.resumeFromUserTakeover()
         }
 
         val actionCard = LinearLayout(this).apply {
@@ -150,7 +165,9 @@ class AgentOverlayService : Service() {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(collapseView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
+            addView(collapseView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
+            addView(takeoverView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
+            addView(resumeView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(7f) })
             addView(stopView, LinearLayout.LayoutParams(0, dp(37f), 1f))
         }
 
@@ -161,6 +178,9 @@ class AgentOverlayService : Service() {
             addView(confirmPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10f)
             })
+            addView(inputPanel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10f)
+            })
             addView(controls, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10f)
             })
@@ -169,14 +189,13 @@ class AgentOverlayService : Service() {
             })
         }
 
-        panel.addView(header)
         panel.addView(contentGroup)
 
         val params = WindowManager.LayoutParams(
             dp(EXPANDED_WIDTH_DP),
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            overlayWindowFlags(hidden),
+            overlayWindowFlags(touchThrough = hidden, wantsInputFocus = false),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -195,9 +214,7 @@ class AgentOverlayService : Service() {
     }
 
     private fun createHeaderRow(): LinearLayout {
-        titleView = text("AI 智能体", 14.2f, Color.WHITE, bold = true).apply {
-            includeFontPadding = false
-        }
+        titleView = text("AI 智能体", 14.2f, Color.WHITE, bold = true).apply { includeFontPadding = false }
         stateView = text("待命", 10.2f, Color.argb(232, 232, 246, 255), bold = true).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
@@ -218,9 +235,7 @@ class AgentOverlayService : Service() {
 
     private fun createConfirmPanel(): LinearLayout {
         confirmTitleView = text("需要确认", 13f, Color.argb(255, 255, 235, 190), bold = true)
-        confirmMessageView = text("", 10.7f, Color.argb(232, 255, 244, 222)).apply {
-            maxLines = 4
-        }
+        confirmMessageView = text("", 10.7f, Color.argb(232, 255, 244, 222)).apply { maxLines = 4 }
         confirmSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
             AgentRuntimeController.choosePendingAction(false)
         }
@@ -246,11 +261,54 @@ class AgentOverlayService : Service() {
         }
     }
 
+    private fun createInputPanel(): LinearLayout {
+        inputTitleView = text("需要你输入", 13f, Color.argb(255, 224, 244, 255), bold = true)
+        inputMessageView = text("", 10.7f, Color.argb(230, 232, 244, 255)).apply { maxLines = 4 }
+        inputEditText = EditText(this).apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.argb(160, 232, 244, 255))
+            hint = "请输入内容"
+            setSingleLine(true)
+            setPadding(dp(12f), 0, dp(12f), 0)
+            background = chipBackground(Color.argb(38, 255, 255, 255), Color.argb(66, 215, 235, 255), 16f)
+        }
+        inputSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
+            AgentRuntimeController.cancelPendingUserInput()
+        }
+        inputPrimaryView = capsuleButton("确认输入", ButtonTone.PrimaryWarm) {
+            AgentRuntimeController.submitPendingUserInput(inputEditText?.text?.toString().orEmpty())
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(inputSecondaryView, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(9f) })
+            addView(inputPrimaryView, LinearLayout.LayoutParams(0, dp(38f), 1f))
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(13f), dp(12f), dp(13f), dp(13f))
+            background = chipBackground(Color.argb(78, 30, 76, 106), Color.argb(112, 148, 232, 255), 24f)
+            addView(inputTitleView)
+            addView(inputMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8f)
+                bottomMargin = dp(9f)
+            })
+            addView(inputEditText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42f)).apply {
+                bottomMargin = dp(11f)
+            })
+            addView(row)
+        }
+    }
+
     private fun updateProgress(progress: AgentOverlayProgress) {
         latestProgress = progress
         val pending = progress.pendingConfirmation
+        val pendingInput = progress.pendingUserInput
         val modeText = when {
+            pendingInput != null -> "待输入"
             pending != null -> "待确认"
+            progress.userTakeoverPaused -> "接管中"
             !progress.enabled -> "已关闭"
             progress.running -> "执行中"
             else -> progress.status.ifBlank { "待命" }
@@ -258,17 +316,20 @@ class AgentOverlayService : Service() {
         titleView?.text = progress.title
         stateView?.text = modeText
         stateView?.background = when {
+            pendingInput != null -> chipBackground(Color.argb(78, 80, 168, 230), Color.argb(132, 148, 232, 255), 14f)
             pending != null -> chipBackground(Color.argb(88, 255, 184, 90), Color.argb(132, 255, 224, 135), 14f)
+            progress.userTakeoverPaused -> chipBackground(Color.argb(70, 255, 210, 104), Color.argb(110, 255, 230, 150), 14f)
             progress.running -> chipBackground(Color.argb(72, 95, 255, 218), Color.argb(86, 164, 255, 232), 14f)
             !progress.enabled -> chipBackground(Color.argb(48, 195, 202, 218), Color.argb(54, 214, 224, 242), 14f)
             else -> chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
         }
-        actionView?.text = pending?.actionText?.ifBlank { "高风险动作确认" }
+        actionView?.text = pendingInput?.actionText
+            ?: pending?.actionText?.ifBlank { "高风险动作确认" }
             ?: progress.currentAction.ifBlank { "等待任务" }
         resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }?.let { "上一步 · $it" } ?: "上一步 · 暂无执行结果"
         latestView?.text = progress.logs.lastOrNull()?.let { "最近 · $it" } ?: "最近 · 暂无运行日志"
         logsView?.text = progress.logs.takeLast(6).joinToString("\n") { "• $it" }.ifBlank { "暂无详细日志" }
-        stopView?.visibility = if (progress.running) View.VISIBLE else View.GONE
+        stopView?.visibility = if (progress.running || pending != null || pendingInput != null) View.VISIBLE else View.GONE
 
         if (pending != null) {
             expanded = true
@@ -277,18 +338,35 @@ class AgentOverlayService : Service() {
             confirmPrimaryView?.text = pending.positiveText
             confirmSecondaryView?.text = pending.negativeText
         }
+        if (pendingInput != null) {
+            expanded = true
+            inputTitleView?.text = pendingInput.title
+            inputMessageView?.text = pendingInput.message
+            inputPrimaryView?.text = pendingInput.positiveText
+            inputSecondaryView?.text = pendingInput.negativeText
+            inputEditText?.hint = pendingInput.hint
+            requestInputFocus()
+        }
         refreshExpandedState()
     }
 
     private fun refreshExpandedState() {
         val hidden = AgentRuntimeController.overlayHiddenForCapture.value
         val pending = latestProgress.pendingConfirmation
-        val shouldExpand = expanded || pending != null
+        val pendingInput = latestProgress.pendingUserInput
+        val paused = latestProgress.userTakeoverPaused
+        val forceExpanded = pending != null || pendingInput != null || paused
+        val shouldExpand = expanded || forceExpanded
         contentGroup?.visibility = if (shouldExpand && !hidden) View.VISIBLE else View.GONE
         confirmPanel?.visibility = if (shouldExpand && pending != null && !hidden) View.VISIBLE else View.GONE
+        inputPanel?.visibility = if (shouldExpand && pendingInput != null && !hidden) View.VISIBLE else View.GONE
         logsView?.visibility = if (shouldExpand && latestProgress.logs.isNotEmpty() && !hidden) View.VISIBLE else View.GONE
+        collapseView?.visibility = if (pending == null && pendingInput == null && !paused) View.VISIBLE else View.GONE
+        takeoverView?.visibility = if (latestProgress.running && !paused && pending == null && pendingInput == null) View.VISIBLE else View.GONE
+        resumeView?.visibility = if (paused) View.VISIBLE else View.GONE
         collapseView?.text = if (shouldExpand) "收起" else "展开"
-        updateWindowWidth(if (shouldExpand || pending != null) dp(EXPANDED_WIDTH_DP) else dp(COMPACT_WIDTH_DP))
+        updateWindowMode(hidden)
+        updateWindowWidth(if (shouldExpand || forceExpanded) dp(EXPANDED_WIDTH_DP) else dp(COMPACT_WIDTH_DP))
     }
 
     private fun updateWindowWidth(targetWidth: Int) {
@@ -299,15 +377,18 @@ class AgentOverlayService : Service() {
         runCatching { windowManager?.updateViewLayout(view, params) }
     }
 
-    private fun overlayWindowFlags(touchThrough: Boolean): Int {
-        val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        return if (touchThrough) base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else base
+    private fun overlayWindowFlags(touchThrough: Boolean, wantsInputFocus: Boolean): Int {
+        var flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        if (touchThrough) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        return flags
     }
 
-    private fun updateOverlayTouchThrough(touchThrough: Boolean) {
+    private fun updateWindowMode(touchThrough: Boolean) {
         val params = layoutParams ?: return
         val view = rootView ?: return
-        val newFlags = overlayWindowFlags(touchThrough)
+        val wantsInputFocus = latestProgress.pendingUserInput != null && !touchThrough
+        val newFlags = overlayWindowFlags(touchThrough, wantsInputFocus)
         if (params.flags == newFlags) return
         params.flags = newFlags
         runCatching { windowManager?.updateViewLayout(view, params) }
@@ -316,7 +397,7 @@ class AgentOverlayService : Service() {
     private fun setHiddenForCleanCapture(hidden: Boolean) {
         val view = rootView ?: return
         view.animate().cancel()
-        updateOverlayTouchThrough(hidden)
+        updateWindowMode(hidden)
         if (hidden) {
             view.alpha = 0f
             view.visibility = View.INVISIBLE
@@ -334,6 +415,15 @@ class AgentOverlayService : Service() {
                     .start()
             }
             refreshExpandedState()
+        }
+    }
+
+    private fun requestInputFocus() {
+        val edit = inputEditText ?: return
+        edit.post {
+            edit.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
@@ -464,7 +554,7 @@ class AgentOverlayService : Service() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.animate().scaleX(1f).scaleY(1f).setDuration(140L).setInterpolator(SOFT_OUT).start()
                     if (!dragging && abs(event.rawX - downRawX) < dp(8f) && abs(event.rawY - downRawY) < dp(8f)) {
-                        if (latestProgress.pendingConfirmation == null) {
+                        if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null) {
                             expanded = !expanded
                             refreshExpandedState()
                         }
@@ -483,7 +573,7 @@ class AgentOverlayService : Service() {
 
     companion object {
         private const val COMPACT_WIDTH_DP = 218f
-        private const val EXPANDED_WIDTH_DP = 306f
+        private const val EXPANDED_WIDTH_DP = 326f
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
         fun canDrawOverlays(context: Context): Boolean {
