@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,26 +36,34 @@ import kotlin.math.roundToInt
 
 @Composable
 fun LiquidComposeGlassLab(state: AssistantUiState) {
-    var bodyAlpha by rememberSaveable { mutableStateOf(0.92f) }
-    var edgeRim by rememberSaveable { mutableStateOf(1.34f) }
-    var topHighlight by rememberSaveable { mutableStateOf(1.18f) }
-    var causticGlow by rememberSaveable { mutableStateOf(1.06f) }
+    var bodyAlpha by rememberSaveable { mutableStateOf(0.86f) }
+    var innerMist by rememberSaveable { mutableStateOf(1.16f) }
+    var innerShadow by rememberSaveable { mutableStateOf(1.10f) }
+    var chroma by rememberSaveable { mutableStateOf(1.04f) }
+    var causticGlow by rememberSaveable { mutableStateOf(1.08f) }
+    var textProtection by rememberSaveable { mutableStateOf(0.92f) }
+    var buttonInset by rememberSaveable { mutableStateOf(0.92f) }
+    var topHighlight by rememberSaveable { mutableStateOf(1.16f) }
     var radiusScale by rememberSaveable { mutableStateOf(1.00f) }
 
     fun resetValues() {
-        bodyAlpha = 0.92f
-        edgeRim = 1.34f
-        topHighlight = 1.18f
-        causticGlow = 1.06f
+        bodyAlpha = 0.86f
+        innerMist = 1.16f
+        innerShadow = 1.10f
+        chroma = 1.04f
+        causticGlow = 1.08f
+        textProtection = 0.92f
+        buttonInset = 0.92f
+        topHighlight = 1.16f
         radiusScale = 1.00f
     }
 
     PressableGlass(
         quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.66f,
+        glassIntensity = state.glassIntensity * 0.62f,
         motionIntensity = state.motionIntensity,
         radius = 30,
-        modifier = Modifier.fillMaxWidth().height(250.dp),
+        modifier = Modifier.fillMaxWidth().height(266.dp),
         role = GlassRole.Flex,
         onClick = {}
     ) {
@@ -64,25 +71,42 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("升级版 Compose 玻璃样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Text("连续场材质：所有雾面、焦散、折边都跨整块玻璃渐变", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("连续场材质：雾面、暗边、焦散、色散和按钮嵌入一体流动", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text("Continuous", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Text("No GL", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
-            LiquidComposeGlassSample(
+            LiquidComposeGlassSurface(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 bodyAlpha = bodyAlpha,
-                edgeRim = edgeRim,
-                topHighlight = topHighlight,
+                innerMist = innerMist,
+                innerShadow = innerShadow,
+                chroma = chroma,
                 causticGlow = causticGlow,
+                textProtection = textProtection,
+                topHighlight = topHighlight,
                 radiusScale = radiusScale
-            )
+            ) {
+                Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Text("Liquid Compose", color = Color.White.copy(alpha = 0.96f), fontSize = 21.sp, lineHeight = 24.sp, fontWeight = FontWeight.Black)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        LiquidComposeInsetPill("Compose", buttonInset, chroma, Modifier.weight(1f))
+                        LiquidComposeInsetPill("Canvas", buttonInset, chroma, Modifier.weight(1f))
+                        LiquidComposeInsetPill("连续", buttonInset, chroma, Modifier.weight(1f))
+                    }
+                    Text("目标：用连续光场先做出厚度、折光和内部流动感。", color = Color.White.copy(alpha = 0.64f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 
-    LiquidComposeSlider("主体透度", "只控制整块玻璃的连续基底，不再铺块状蒙层", bodyAlpha, 0f..2.4f) { bodyAlpha = it }
-    LiquidComposeSlider("厚边强度", "外折边、内暗边和色散边同步增强", edgeRim, 0f..2.8f) { edgeRim = it }
+    LiquidComposeSlider("主体透度", "整块玻璃的连续冷色基底", bodyAlpha, 0f..2.4f) { bodyAlpha = it }
+    LiquidComposeSlider("内部雾面", "玻璃里面的奶雾与柔光体积", innerMist, 0f..2.8f) { innerMist = it }
+    LiquidComposeSlider("内侧暗边", "内折边阴影和厚度压边", innerShadow, 0f..2.6f) { innerShadow = it }
+    LiquidComposeSlider("色散强度", "青蓝紫边缘分离感", chroma, 0f..2.6f) { chroma = it }
+    LiquidComposeSlider("焦散强度", "右下到左上的连续液态光场", causticGlow, 0f..2.8f) { causticGlow = it }
+    LiquidComposeSlider("文字保护暗度", "连续暗场保护标题、标签和说明文字", textProtection, 0f..2.0f) { textProtection = it }
+    LiquidComposeSlider("按钮嵌入深度", "三枚胶囊被玻璃包住的内嵌感", buttonInset, 0f..2.4f) { buttonInset = it }
     LiquidComposeSlider("掠射高光", "沿圆角走向的连续冷白反光", topHighlight, 0f..2.6f) { topHighlight = it }
-    LiquidComposeSlider("焦散流光", "右下到左上的连续液态光场", causticGlow, 0f..2.6f) { causticGlow = it }
     LiquidComposeSlider("圆角倍率", "样本圆角和液滴胶囊感", radiusScale, 0.55f..1.65f) { radiusScale = it }
 
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
@@ -92,13 +116,17 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
 }
 
 @Composable
-private fun LiquidComposeGlassSample(
-    modifier: Modifier,
+fun LiquidComposeGlassSurface(
+    modifier: Modifier = Modifier,
     bodyAlpha: Float,
-    edgeRim: Float,
-    topHighlight: Float,
+    innerMist: Float,
+    innerShadow: Float,
+    chroma: Float,
     causticGlow: Float,
-    radiusScale: Float
+    textProtection: Float,
+    topHighlight: Float,
+    radiusScale: Float,
+    content: @Composable () -> Unit
 ) {
     val radius = (34f * radiusScale.coerceIn(0.55f, 1.65f)).dp
     val shape = RoundedCornerShape(radius)
@@ -110,125 +138,155 @@ private fun LiquidComposeGlassSample(
                 val h = size.height.coerceAtLeast(1f)
                 val r = minOf(w, h) * 0.23f * radiusScale.coerceIn(0.55f, 1.65f)
                 val corner = CornerRadius(r, r)
-                val rimWidth = max(1f, density * (1.2f + edgeRim * 1.55f))
+                val rimWidth = max(1f, density * (1.2f + chroma * 1.30f + innerShadow * 0.45f))
                 val innerInset = rimWidth * 1.85f
                 val innerSize = Size(max(1f, w - innerInset * 2f), max(1f, h - innerInset * 2f))
                 val innerCorner = CornerRadius(max(1f, r - innerInset), max(1f, r - innerInset))
 
                 val baseField = Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.030f * bodyAlpha),
-                        Color(0xFF5B7BFF).copy(alpha = 0.072f * bodyAlpha),
-                        Color(0xFF081138).copy(alpha = 0.285f + 0.030f * bodyAlpha)
+                        Color.White.copy(alpha = 0.022f * bodyAlpha),
+                        Color(0xFF6D82FF).copy(alpha = 0.064f * bodyAlpha),
+                        Color(0xFF081238).copy(alpha = 0.260f + 0.034f * bodyAlpha)
                     ),
                     start = Offset(-w * 0.10f, -h * 0.18f),
                     end = Offset(w * 1.08f, h * 1.12f)
                 )
-                val continuousMist = Brush.radialGradient(
+                val mistField = Brush.radialGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.108f * bodyAlpha),
-                        Color(0xFF95BFFF).copy(alpha = 0.046f * bodyAlpha),
+                        Color.White.copy(alpha = 0.106f * innerMist),
+                        Color(0xFF9FC7FF).copy(alpha = 0.052f * innerMist),
                         Color.Transparent
                     ),
-                    center = Offset(w * 0.34f, h * 0.16f),
-                    radius = w * 0.88f
+                    center = Offset(w * 0.34f, h * 0.15f),
+                    radius = w * 0.90f
                 )
-                val longCaustic = Brush.linearGradient(
+                val causticRibbon = Brush.linearGradient(
                     listOf(
                         Color.Transparent,
-                        Color(0xFF63E7FF).copy(alpha = 0.050f * causticGlow),
-                        Color(0xFF7764FF).copy(alpha = 0.070f * causticGlow),
-                        Color(0xFFFFA6D8).copy(alpha = 0.046f * causticGlow),
+                        Color(0xFF6EEBFF).copy(alpha = 0.048f * causticGlow),
+                        Color(0xFF7463FF).copy(alpha = 0.074f * causticGlow),
+                        Color(0xFFFFA7D8).copy(alpha = 0.044f * causticGlow),
                         Color.Transparent
                     ),
-                    start = Offset(-w * 0.06f, h * 1.08f),
-                    end = Offset(w * 1.12f, -h * 0.10f)
+                    start = Offset(-w * 0.08f, h * 1.10f),
+                    end = Offset(w * 1.14f, -h * 0.12f)
                 )
-                val cornerLens = Brush.radialGradient(
+                val causticLens = Brush.radialGradient(
                     listOf(
-                        Color(0xFFBDF8FF).copy(alpha = 0.140f * causticGlow),
-                        Color(0xFF5D7CFF).copy(alpha = 0.050f * causticGlow),
+                        Color(0xFFC6FAFF).copy(alpha = 0.138f * causticGlow),
+                        Color(0xFF6A80FF).copy(alpha = 0.052f * causticGlow),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.92f, h * 0.82f),
-                    radius = w * 0.48f
+                    radius = w * 0.50f
                 )
                 val glancingLight = Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.210f * topHighlight),
-                        Color.White.copy(alpha = 0.050f * topHighlight),
+                        Color.White.copy(alpha = 0.200f * topHighlight),
+                        Color.White.copy(alpha = 0.052f * topHighlight),
                         Color.Transparent,
                         Color.White.copy(alpha = 0.030f * topHighlight)
                     ),
-                    start = Offset(-w * 0.05f, -h * 0.10f),
-                    end = Offset(w * 0.96f, h * 0.40f)
+                    start = Offset(-w * 0.05f, -h * 0.12f),
+                    end = Offset(w * 0.98f, h * 0.40f)
                 )
                 val prismRim = Brush.linearGradient(
                     listOf(
-                        Color(0xFF7AF7FF).copy(alpha = 0.118f * edgeRim),
-                        Color.White.copy(alpha = 0.060f * edgeRim),
-                        Color(0xFFB493FF).copy(alpha = 0.104f * edgeRim),
-                        Color(0xFFFFA7DC).copy(alpha = 0.074f * edgeRim)
+                        Color(0xFF78F7FF).copy(alpha = 0.120f * chroma),
+                        Color.White.copy(alpha = 0.056f * chroma),
+                        Color(0xFFB493FF).copy(alpha = 0.112f * chroma),
+                        Color(0xFFFFA7DC).copy(alpha = 0.074f * chroma)
                     ),
                     start = Offset(-w * 0.08f, h * 1.04f),
                     end = Offset(w * 1.08f, -h * 0.08f)
                 )
-                val innerShade = Brush.linearGradient(
+                val innerShadeField = Brush.linearGradient(
                     listOf(
                         Color.Transparent,
-                        Color(0xFF010720).copy(alpha = 0.105f * edgeRim),
-                        Color.White.copy(alpha = 0.040f * topHighlight)
+                        Color(0xFF010720).copy(alpha = 0.110f * innerShadow),
+                        Color(0xFF00051A).copy(alpha = 0.070f * innerShadow),
+                        Color.White.copy(alpha = 0.030f * topHighlight)
                     ),
-                    start = Offset(w * 0.05f, h * 0.12f),
-                    end = Offset(w * 0.92f, h * 1.05f)
+                    start = Offset(w * 0.03f, h * 0.08f),
+                    end = Offset(w * 0.96f, h * 1.04f)
+                )
+                val textProtectionField = Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF020724).copy(alpha = 0.150f * textProtection),
+                        Color.Transparent,
+                        Color(0xFF020724).copy(alpha = 0.118f * textProtection)
+                    )
                 )
 
                 onDrawWithContent {
                     drawRoundRect(brush = baseField, size = size, cornerRadius = corner)
-                    drawRoundRect(brush = continuousMist, size = size, cornerRadius = corner)
-                    drawRoundRect(brush = longCaustic, size = size, cornerRadius = corner)
-                    drawRoundRect(brush = cornerLens, size = size, cornerRadius = corner)
-                    drawRoundRect(brush = innerShade, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = mistField, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = causticRibbon, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = causticLens, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = innerShadeField, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = textProtectionField, size = size, cornerRadius = corner)
                     drawContent()
                     drawRoundRect(brush = glancingLight, size = size, cornerRadius = corner)
                     drawRoundRect(brush = prismRim, size = size, cornerRadius = corner, style = Stroke(width = rimWidth * 1.36f))
-                    drawRoundRect(color = Color.White.copy(alpha = 0.070f * edgeRim), size = size, cornerRadius = corner, style = Stroke(width = rimWidth * 0.78f))
-                    drawRoundRect(color = Color.White.copy(alpha = 0.052f * topHighlight), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.34f)))
+                    drawRoundRect(color = Color.White.copy(alpha = 0.068f * max(chroma, innerShadow)), size = size, cornerRadius = corner, style = Stroke(width = rimWidth * 0.80f))
+                    drawRoundRect(color = Color(0xFF02081F).copy(alpha = 0.050f * innerShadow), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.52f)))
+                    drawRoundRect(color = Color.White.copy(alpha = 0.050f * topHighlight), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.28f)))
                 }
             },
         contentAlignment = Alignment.Center
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 15.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text("Liquid Compose", color = Color.White.copy(alpha = 0.96f), fontSize = 21.sp, lineHeight = 24.sp, fontWeight = FontWeight.Black)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                LiquidParamPill("Compose", Modifier.weight(1f))
-                LiquidParamPill("Canvas", Modifier.weight(1f))
-                LiquidParamPill("连续", Modifier.weight(1f))
-            }
-            Text("目标：用连续光场先做出厚度、折光和内部流动感。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
-        }
+        content()
     }
 }
 
 @Composable
-private fun LiquidParamPill(text: String, modifier: Modifier = Modifier) {
+private fun LiquidComposeInsetPill(text: String, insetDepth: Float, chroma: Float, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(999.dp)
     Box(
         modifier
-            .height(28.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(
-                Brush.linearGradient(
+            .height(30.dp)
+            .clip(shape)
+            .drawWithCache {
+                val w = size.width.coerceAtLeast(1f)
+                val h = size.height.coerceAtLeast(1f)
+                val corner = CornerRadius(h / 2f, h / 2f)
+                val body = Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.090f),
-                        Color(0xFF8FB2FF).copy(alpha = 0.052f),
-                        Color.White.copy(alpha = 0.034f)
+                        Color.White.copy(alpha = 0.090f + 0.028f * insetDepth),
+                        Color(0xFF6E84E8).copy(alpha = 0.040f + 0.026f * insetDepth),
+                        Color(0xFF060C2C).copy(alpha = 0.070f * insetDepth)
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h)
+                )
+                val insetShade = Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF00051A).copy(alpha = 0.092f * insetDepth),
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.034f * insetDepth)
                     )
                 )
-            )
+                val edge = Brush.linearGradient(
+                    listOf(
+                        Color(0xFF74F7FF).copy(alpha = 0.030f * chroma),
+                        Color.White.copy(alpha = 0.038f * insetDepth),
+                        Color(0xFFFFA6FF).copy(alpha = 0.026f * chroma)
+                    ),
+                    start = Offset(0f, h),
+                    end = Offset(w, 0f)
+                )
+                onDrawWithContent {
+                    drawRoundRect(brush = body, size = size, cornerRadius = corner)
+                    drawRoundRect(brush = insetShade, size = size, cornerRadius = corner)
+                    drawContent()
+                    drawRoundRect(brush = edge, size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * (0.6f + insetDepth * 0.55f))))
+                }
+            }
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = Color.White.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, color = Color.White.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
     }
 }
 
