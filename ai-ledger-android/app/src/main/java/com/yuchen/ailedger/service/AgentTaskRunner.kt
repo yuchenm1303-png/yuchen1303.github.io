@@ -118,9 +118,9 @@ class AgentTaskRunner(
                 }
 
                 if (step.type == "need_user_help") {
-                    val message = step.reason ?: "需要用户协助。"
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    pauseForUserAssistance(step.reason ?: "需要用户协助。", stopGeneration)
+                    if (isStopped(stopGeneration)) break
+                    continue
                 }
 
                 val executableStep = materializeTapCoordinateFrame(step, snapshot)
@@ -143,6 +143,11 @@ class AgentTaskRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, executableStep)) {
+                    if (AgentSafetyPolicy.requiresUserProvidedInput(goal, executableStep)) {
+                        pauseForUserAssistance(executableStep.reason ?: "当前步骤需要你接管处理：${executableStep.typeLabel}", stopGeneration)
+                        if (isStopped(stopGeneration)) break
+                        continue
+                    }
                     val message = executableStep.reason ?: "当前动作暂不能自动执行：${executableStep.typeLabel}"
                     AgentRuntimeController.finishTask(message, completed = false)
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep, null)
@@ -184,6 +189,11 @@ class AgentTaskRunner(
             delay(USER_TAKEOVER_POLL_MS)
         }
         return !isStopped(startGeneration)
+    }
+
+    private suspend fun pauseForUserAssistance(message: String, stopGeneration: Long) {
+        AgentRuntimeController.pauseForUserTakeover(message.ifBlank { "需要用户协助，智能体已暂停自动执行。" })
+        waitWhileUserTakeoverPaused(stopGeneration)
     }
 
     private fun stoppedByUserResult(logs: List<AgentTaskStepLog>): AgentTaskRunResult {
