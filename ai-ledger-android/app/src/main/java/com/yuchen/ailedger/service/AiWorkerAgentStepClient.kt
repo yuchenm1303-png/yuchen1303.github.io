@@ -60,8 +60,10 @@ private fun buildAgentStepPayload(
     val hasScreenshot = snapshot.hasVisualImage
     val modelId = if (hasScreenshot) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotWithoutImage = snapshot.toJson(includeImage = false)
-    val loopIndex = agentMemory?.optJSONObject("loopSignals")?.optIntOrNull("loopIndex") ?: 0
-    val sessionId = AgentClientSessionStore.sessionId(cleanGoal, loopIndex)
+    val loopSignals = agentMemory?.optJSONObject("loopSignals")
+    val loopIndex = loopSignals?.optIntOrNull("loopIndex") ?: 0
+    val sessionId = loopSignals?.optString("agentSessionId")?.takeIf { it.isNotBlank() }
+        ?: AgentClientSessionStore.sessionId(cleanGoal, loopIndex)
     return JSONObject().apply {
         put("action", "chat")
         put("intent", "agent_step")
