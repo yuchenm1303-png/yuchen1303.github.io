@@ -37,11 +37,12 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.GlassBorderStyle
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private data class HazeEnv(
     val backdropAlpha: Float,
-    val surfaceMist: Float,
+    val centerClarity: Float,
     val frost: Float,
     val edge: Float,
     val readability: Float,
@@ -53,39 +54,39 @@ private data class HazeEnv(
 @Composable
 fun LiquidComposeGlassLab(state: AssistantUiState) {
     var backdropAlpha by rememberSaveable { mutableStateOf(0.96f) }
-    var surfaceMist by rememberSaveable { mutableStateOf(0.52f) }
-    var frost by rememberSaveable { mutableStateOf(0.46f) }
-    var edge by rememberSaveable { mutableStateOf(0.54f) }
-    var readability by rememberSaveable { mutableStateOf(0.50f) }
-    var slotDepth by rememberSaveable { mutableStateOf(0.34f) }
-    var elevationShadow by rememberSaveable { mutableStateOf(0.72f) }
-    var contactShadow by rememberSaveable { mutableStateOf(0.52f) }
+    var centerClarity by rememberSaveable { mutableStateOf(1.35f) }
+    var frost by rememberSaveable { mutableStateOf(0.54f) }
+    var edge by rememberSaveable { mutableStateOf(1.35f) }
+    var readability by rememberSaveable { mutableStateOf(0.54f) }
+    var slotDepth by rememberSaveable { mutableStateOf(0.58f) }
+    var elevationShadow by rememberSaveable { mutableStateOf(1.28f) }
+    var contactShadow by rememberSaveable { mutableStateOf(1.05f) }
     var radiusScale by rememberSaveable { mutableStateOf(1.10f) }
 
     fun resetValues() {
         backdropAlpha = 0.96f
-        surfaceMist = 0.52f
-        frost = 0.46f
-        edge = 0.54f
-        readability = 0.50f
-        slotDepth = 0.34f
-        elevationShadow = 0.72f
-        contactShadow = 0.52f
+        centerClarity = 1.35f
+        frost = 0.54f
+        edge = 1.35f
+        readability = 0.54f
+        slotDepth = 0.58f
+        elevationShadow = 1.28f
+        contactShadow = 1.05f
         radiusScale = 1.10f
     }
 
-    val env = HazeEnv(backdropAlpha, surfaceMist, frost, edge, readability, slotDepth, elevationShadow, contactShadow)
+    val env = HazeEnv(backdropAlpha, centerClarity, frost, edge, readability, slotDepth, elevationShadow, contactShadow)
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("悬浮 Haze 玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Text("外部软投影 + 接触暗边 + 稳定背景采样，不接 OpenGL", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("连续软阴影 + 外侧接触暗边 + 大范围测试参数", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text("Floating", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
         }
 
-        HazeGlassSurface(state, Modifier.fillMaxWidth().height(232.dp), env, radiusScale) {
+        HazeGlassSurface(state, Modifier.fillMaxWidth().height(246.dp), env, radiusScale) {
             Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Liquid Compose", color = Color.White.copy(alpha = 0.95f), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -96,15 +97,15 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
             }
         }
 
-        LiquidComposeSlider("悬浮阴影", "玻璃投到壁纸上的外部软阴影", elevationShadow, 0f..1.6f) { elevationShadow = it }
-        LiquidComposeSlider("接触暗边", "贴着外轮廓的环境遮蔽，不画内部黑框", contactShadow, 0f..1.6f) { contactShadow = it }
-        LiquidComposeSlider("背景透出", "直接控制模糊背景图的可见度", backdropAlpha, 0.34f..1.0f) { backdropAlpha = it }
-        LiquidComposeSlider("中心清透", "数值越高，中间越少白雾、越像厚玻璃", surfaceMist, 0f..1.6f) { surfaceMist = it }
-        LiquidComposeSlider("玻璃雾度", "磨砂玻璃本体的白雾厚度", frost, 0f..1.6f) { frost = it }
-        LiquidComposeSlider("边缘厚度", "极细轮廓、顶部亮边和底部重量", edge, 0f..1.6f) { edge = it }
-        LiquidComposeSlider("可读暗场", "保护文字区域，不画内部黑框", readability, 0f..1.6f) { readability = it }
-        LiquidComposeSlider("槽体压入", "分段槽体的轻微内凹感", slotDepth, 0f..1.6f) { slotDepth = it }
-        LiquidComposeSlider("圆角倍率", "控制高级 Haze 外壳圆角", radiusScale, 0.65f..1.55f) { radiusScale = it }
+        LiquidComposeSlider("悬浮阴影", "连续扩散的外部软阴影，用来拉开玻璃和壁纸距离", elevationShadow, 0f..4f) { elevationShadow = it }
+        LiquidComposeSlider("接触暗边", "外轮廓附近的环境遮蔽，只在玻璃外侧生效", contactShadow, 0f..4f) { contactShadow = it }
+        LiquidComposeSlider("背景透出", "直接控制模糊背景图的可见度", backdropAlpha, 0.1f..1.2f) { backdropAlpha = it }
+        LiquidComposeSlider("中心清透", "大范围测试：数值越高，中间越少白雾", centerClarity, 0f..4f) { centerClarity = it }
+        LiquidComposeSlider("玻璃雾度", "磨砂玻璃本体的白雾厚度", frost, 0f..4f) { frost = it }
+        LiquidComposeSlider("边缘厚度", "大范围测试：轮廓亮边、底部重量和厚度感", edge, 0f..4f) { edge = it }
+        LiquidComposeSlider("可读暗场", "保护文字区域，不画内部黑框", readability, 0f..4f) { readability = it }
+        LiquidComposeSlider("槽体压入", "分段槽体的轻微内凹感", slotDepth, 0f..4f) { slotDepth = it }
+        LiquidComposeSlider("圆角倍率", "控制高级 Haze 外壳圆角", radiusScale, 0.45f..2.2f) { radiusScale = it }
 
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LiquidComposeActionButton("重置悬浮", "恢复悬浮玻璃值", state, Modifier.weight(1f)) { resetValues() }
@@ -122,15 +123,16 @@ private fun HazeGlassSurface(
     content: @Composable () -> Unit
 ) {
     val coordinateSource = remember { GlassCoordinateSource() }
-    val radiusDp = (34f * radiusScale.coerceIn(0.65f, 1.55f)).roundToInt().coerceAtLeast(18)
+    val radiusDp = (34f * radiusScale.coerceIn(0.45f, 2.2f)).roundToInt().coerceAtLeast(14)
     val shape = RoundedCornerShape(radiusDp.dp)
-    val border = remember(env.edge) {
+    val edge = env.edge.coerceIn(0f, 4f)
+    val border = remember(edge) {
         GlassBorderStyle(
-            outerStrokeAlpha = 0.035f + env.edge.coerceIn(0f, 1.6f) * 0.075f,
+            outerStrokeAlpha = 0.018f + min(edge, 4f) * 0.042f,
             innerStrokeAlpha = 0f,
-            topHighlightAlpha = 0.16f + env.edge.coerceIn(0f, 1.6f) * 0.24f,
-            bottomShadowAlpha = 0.035f,
-            ringWidthDp = 3.5f + env.edge.coerceIn(0f, 1.6f) * 3.5f,
+            topHighlightAlpha = 0.10f + min(edge, 4f) * 0.15f,
+            bottomShadowAlpha = 0.025f + min(edge, 4f) * 0.030f,
+            ringWidthDp = 2.8f + min(edge, 4f) * 2.4f,
             bodyAlpha = 0f
         )
     }
@@ -145,7 +147,7 @@ private fun HazeGlassSurface(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 4.dp, top = 3.dp, end = 4.dp, bottom = 11.dp)
+                .padding(start = 8.dp, top = 7.dp, end = 8.dp, bottom = 24.dp)
                 .onPlaced { coordinateSource.coordinates = it }
                 .clip(shape),
             contentAlignment = Alignment.Center
@@ -158,7 +160,7 @@ private fun HazeGlassSurface(
                     quality = state.quality,
                     motionIntensity = state.motionIntensity,
                     theme = state.backgroundTheme,
-                    liftAlpha = env.backdropAlpha.coerceIn(0.34f, 1.0f)
+                    liftAlpha = env.backdropAlpha.coerceIn(0.10f, 1.2f)
                 )
             }
             Box(Modifier.matchParentSize().hazeSkin(env, radiusDp), contentAlignment = Alignment.Center) { content() }
@@ -169,41 +171,62 @@ private fun HazeGlassSurface(
 private fun Modifier.floatingHazeShadow(env: HazeEnv, radiusDp: Int): Modifier = drawWithCache {
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
-    val side = 4.dp.toPx()
-    val top = 3.dp.toPx()
-    val bottom = 11.dp.toPx()
+    val side = 8.dp.toPx()
+    val top = 7.dp.toPx()
+    val bottom = 24.dp.toPx()
+    val cardLeft = side
+    val cardTop = top
     val cardSize = Size(max(1f, w - side * 2f), max(1f, h - top - bottom))
     val cornerRadius = radiusDp.dp.toPx()
-    val corner = CornerRadius(cornerRadius, cornerRadius)
-    val elevation = env.elevationShadow.coerceIn(0f, 1.6f)
-    val contact = env.contactShadow.coerceIn(0f, 1.6f)
+    val elevation = env.elevationShadow.coerceIn(0f, 4f)
+    val contact = env.contactShadow.coerceIn(0f, 4f)
+    val ambientShadow = Brush.radialGradient(
+        listOf(
+            Color.Black.copy(alpha = 0.050f * elevation),
+            Color.Black.copy(alpha = 0.020f * elevation),
+            Color.Transparent
+        ),
+        center = Offset(w * 0.54f, cardTop + cardSize.height + bottom * 0.48f),
+        radius = w * (0.54f + elevation * 0.035f)
+    )
+    val contactBrush = Brush.verticalGradient(
+        listOf(
+            Color.Transparent,
+            Color.Black.copy(alpha = 0.012f * contact),
+            Color.Black.copy(alpha = 0.060f * contact),
+            Color.Black.copy(alpha = 0.018f * contact),
+            Color.Transparent
+        ),
+        startY = cardTop + cardSize.height * 0.60f,
+        endY = cardTop + cardSize.height + bottom
+    )
     onDrawWithContent {
-        drawRoundRect(
-            color = Color.Black.copy(alpha = 0.035f * elevation),
-            topLeft = Offset(side + 2.dp.toPx(), top + 12.dp.toPx()),
-            size = cardSize.copy(height = max(1f, cardSize.height - 1.dp.toPx())),
-            cornerRadius = corner
+        drawOval(
+            brush = ambientShadow,
+            topLeft = Offset(w * -0.05f, cardTop + cardSize.height * 0.68f),
+            size = Size(w * 1.12f, bottom * 2.10f + 28.dp.toPx()),
+            blendMode = BlendMode.Multiply
         )
+        for (i in 10 downTo 1) {
+            val p = i / 10f
+            val spread = (1f - p) * 20.dp.toPx()
+            val yOffset = (1f - p) * 13.dp.toPx() + 6.dp.toPx()
+            val alpha = 0.0065f * elevation * p * p
+            drawRoundRect(
+                color = Color.Black.copy(alpha = alpha),
+                topLeft = Offset(cardLeft - spread * 0.45f, cardTop + yOffset - spread * 0.20f),
+                size = Size(cardSize.width + spread * 0.90f, cardSize.height + spread * 0.46f),
+                cornerRadius = CornerRadius(cornerRadius + spread * 0.40f, cornerRadius + spread * 0.40f),
+                blendMode = BlendMode.Multiply
+            )
+        }
         drawRoundRect(
-            color = Color.Black.copy(alpha = 0.026f * elevation),
-            topLeft = Offset(side - 1.dp.toPx(), top + 7.dp.toPx()),
-            size = Size(cardSize.width + 2.dp.toPx(), cardSize.height + 2.dp.toPx()),
-            cornerRadius = corner
-        )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                listOf(
-                    Color.Black.copy(alpha = 0.000f),
-                    Color.Black.copy(alpha = 0.045f * contact),
-                    Color.Black.copy(alpha = 0.070f * contact)
-                ),
-                startY = top + cardSize.height * 0.55f,
-                endY = top + cardSize.height + bottom
-            ),
-            topLeft = Offset(side, top),
-            size = cardSize,
-            cornerRadius = corner,
-            style = Stroke(width = max(1f, 7.dp.toPx()))
+            brush = contactBrush,
+            topLeft = Offset(cardLeft - 3.dp.toPx(), cardTop + 2.dp.toPx()),
+            size = Size(cardSize.width + 6.dp.toPx(), cardSize.height + bottom * 0.55f),
+            cornerRadius = CornerRadius(cornerRadius + 2.dp.toPx(), cornerRadius + 2.dp.toPx()),
+            style = Stroke(width = max(1f, 10.dp.toPx() + contact * 5.dp.toPx())),
+            blendMode = BlendMode.Multiply
         )
         drawContent()
     }
@@ -214,58 +237,64 @@ private fun Modifier.hazeSkin(env: HazeEnv, radiusDp: Int): Modifier = drawWithC
     val h = size.height.coerceAtLeast(1f)
     val cornerRadius = radiusDp.dp.toPx()
     val corner = CornerRadius(cornerRadius, cornerRadius)
-    val frost = env.frost.coerceIn(0f, 1.6f)
-    val clearCenter = env.surfaceMist.coerceIn(0f, 1.6f)
-    val edge = env.edge.coerceIn(0f, 1.6f)
-    val readability = env.readability.coerceIn(0f, 1.6f)
-    val rimWidth = max(1f, density * (0.40f + edge * 0.26f))
+    val frost = env.frost.coerceIn(0f, 4f)
+    val clear = env.centerClarity.coerceIn(0f, 4f)
+    val edge = env.edge.coerceIn(0f, 4f)
+    val readability = env.readability.coerceIn(0f, 4f)
+    val centerFogFactor = (1f - min(clear / 3.2f, 0.88f)).coerceIn(0.06f, 1f)
+    val rimWidth = max(1f, density * (0.34f + edge * 0.34f))
     val frostVeil = Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = 0.018f * frost),
-            Color.White.copy(alpha = 0.008f * frost * (1f - clearCenter.coerceIn(0f, 1f) * 0.45f)),
-            Color(0xFF10203C).copy(alpha = 0.006f * frost)
+            Color.White.copy(alpha = 0.010f * frost * centerFogFactor + 0.004f * edge),
+            Color.White.copy(alpha = 0.006f * frost * centerFogFactor),
+            Color(0xFF10203C).copy(alpha = 0.004f * frost)
         )
     )
-    val centerClear = Brush.radialGradient(
+    val centerClearField = Brush.radialGradient(
         listOf(
             Color.Transparent,
-            Color.White.copy(alpha = 0.010f * (1f - clearCenter.coerceIn(0f, 1f))),
-            Color.White.copy(alpha = 0.022f * frost)
+            Color.White.copy(alpha = 0.004f * frost * centerFogFactor),
+            Color.White.copy(alpha = 0.028f * frost)
         ),
         center = Offset(w * 0.50f, h * 0.50f),
-        radius = max(w, h) * 0.80f
+        radius = max(w, h) * 0.82f
     )
     val readableShade = Brush.verticalGradient(
         listOf(
-            Color(0xFF020820).copy(alpha = 0.030f * readability),
+            Color(0xFF020820).copy(alpha = 0.020f * readability),
             Color.Transparent,
-            Color(0xFF020820).copy(alpha = 0.040f * readability)
+            Color(0xFF020820).copy(alpha = 0.036f * readability)
         )
     )
     val topGlance = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.050f * edge), Color.White.copy(alpha = 0.018f * edge), Color.Transparent),
-        Offset(-w * 0.04f, -h * 0.05f),
-        Offset(w * 0.82f, h * 0.20f)
+        listOf(Color.White.copy(alpha = 0.030f + 0.050f * edge), Color.White.copy(alpha = 0.014f + 0.018f * edge), Color.Transparent),
+        Offset(-w * 0.04f, -h * 0.06f),
+        Offset(w * 0.84f, h * 0.20f)
+    )
+    val sideGlance = Brush.horizontalGradient(
+        listOf(Color.White.copy(alpha = 0.032f * edge), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.020f * edge)),
+        startX = 0f,
+        endX = w
     )
     val outerLine = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.052f * edge), Color(0xFFC7F3FF).copy(alpha = 0.014f * edge), Color.White.copy(alpha = 0.018f * edge)),
+        listOf(Color.White.copy(alpha = 0.030f + 0.036f * edge), Color(0xFFC7F3FF).copy(alpha = 0.010f + 0.010f * edge), Color.White.copy(alpha = 0.012f + 0.014f * edge)),
         Offset(-w * 0.05f, h * 0.03f),
         Offset(w * 1.04f, h * 0.95f)
     )
+    val bottomWeight = Brush.verticalGradient(
+        listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.018f * edge)),
+        startY = h * 0.42f,
+        endY = h
+    )
     onDrawWithContent {
         drawRoundRect(brush = frostVeil, size = size, cornerRadius = corner)
-        drawRoundRect(brush = centerClear, size = size, cornerRadius = corner)
+        drawRoundRect(brush = centerClearField, size = size, cornerRadius = corner)
         drawRoundRect(brush = readableShade, size = size, cornerRadius = corner)
         drawContent()
         drawRoundRect(brush = topGlance, size = size, cornerRadius = corner)
+        drawRoundRect(brush = sideGlance, size = size, cornerRadius = corner, style = Stroke(width = max(1f, rimWidth * 2.4f)), blendMode = BlendMode.Screen)
+        drawRoundRect(brush = bottomWeight, size = size, cornerRadius = corner, style = Stroke(width = max(1f, rimWidth * 2.6f)), blendMode = BlendMode.Multiply)
         drawRoundRect(brush = outerLine, size = size, cornerRadius = corner, style = Stroke(width = rimWidth))
-        drawRoundRect(
-            brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.030f * edge))),
-            size = size,
-            cornerRadius = corner,
-            style = Stroke(width = max(1f, 1.5.dp.toPx())),
-            blendMode = BlendMode.Multiply
-        )
     }
 }
 
@@ -277,22 +306,22 @@ private fun HazeSegmentedPill(labels: List<String>, env: HazeEnv, modifier: Modi
             val w = size.width.coerceAtLeast(1f)
             val h = size.height.coerceAtLeast(1f)
             val corner = CornerRadius(h / 2f, h / 2f)
-            val edge = env.edge.coerceIn(0f, 1.6f)
-            val slot = env.slotDepth.coerceIn(0f, 1.6f)
-            val frost = env.frost.coerceIn(0f, 1.6f)
+            val edge = env.edge.coerceIn(0f, 4f)
+            val slot = env.slotDepth.coerceIn(0f, 4f)
+            val frost = env.frost.coerceIn(0f, 4f)
             val material = Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.018f + 0.008f * frost),
-                    Color(0xFF061032).copy(alpha = 0.024f + 0.022f * slot),
-                    Color.White.copy(alpha = 0.008f * edge)
+                    Color.White.copy(alpha = 0.014f + 0.006f * frost),
+                    Color(0xFF061032).copy(alpha = 0.020f + 0.020f * slot),
+                    Color.White.copy(alpha = 0.006f * edge)
                 )
             )
             onDrawWithContent {
                 drawRoundRect(brush = material, size = size, cornerRadius = corner)
                 drawContent()
-                drawRoundRect(color = Color.White.copy(alpha = 0.024f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * 0.50f)))
-                drawLine(color = Color.White.copy(alpha = 0.009f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
-                drawLine(color = Color.White.copy(alpha = 0.009f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
+                drawRoundRect(color = Color.White.copy(alpha = 0.020f + 0.014f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * (0.42f + 0.12f * edge))))
+                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
+                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
             }
         }.padding(horizontal = 2.dp),
         contentAlignment = Alignment.Center
