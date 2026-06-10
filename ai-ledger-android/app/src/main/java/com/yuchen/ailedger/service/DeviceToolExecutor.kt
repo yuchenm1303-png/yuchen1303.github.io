@@ -77,7 +77,7 @@ class DeviceToolExecutor(
         return AgentExecutionResult(
             ok = ok,
             message = if (ok) "已打开${target.title}。" else "无法打开${target.title}，当前系统可能不支持该设置入口。",
-            shouldContinue = ok,
+            shouldContinue = false,
         )
     }
 
@@ -105,24 +105,42 @@ class DeviceToolExecutor(
             else -> ""
         }
         val ok = launchActivity(intent)
-        return AgentExecutionResult(ok, if (ok) "已打开$title。$detail".trim() else "无法打开$title。", shouldContinue = ok)
+        return AgentExecutionResult(ok, if (ok) "已打开$title。$detail".trim() else "无法打开$title。", shouldContinue = false)
     }
 
     private fun executeSetBrightness(step: CloudAgentStep): AgentExecutionResult {
-        val percent = step.argFloat("percent", "brightness", "value")
-            ?: firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
-            ?: return AgentExecutionResult(false, "调节亮度失败：缺少 0–100 的亮度百分比。", false)
-        val safePercent = percent.coerceIn(0f, 100f)
+        val currentPercent = currentBrightnessPercent() ?: DEFAULT_BRIGHTNESS_PERCENT
+        val absolutePercent = step.argFloat("percent", "brightness", "value")
+        val deltaPercent = step.argFloat("deltaPercent", "delta", "brightnessDelta", "changePercent", "adjustBy")
+        val operationPercent = brightnessOperationDelta(step)
+        val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
+        val targetPercent = when {
+            absolutePercent != null -> absolutePercent
+            deltaPercent != null -> currentPercent + deltaPercent
+            operationPercent != null -> currentPercent + operationPercent
+            textPercent != null -> textPercent
+            else -> return AgentExecutionResult(false, "调节亮度失败：云端没有给出 percent 或 deltaPercent。", false)
+        }.coerceIn(0f, 100f)
+
         if (!canWriteSystemSettings()) {
             openWriteSettingsPermission()
             return AgentExecutionResult(false, "需要先授权“修改系统设置”。我已打开授权页，开启后可再次执行亮度设置。", false)
         }
-        val value = (safePercent * 255f / 100f).roundToInt().coerceIn(0, 255)
+        val value = (targetPercent * 255f / 100f).roundToInt().coerceIn(0, 255)
         val ok = runCatching {
             Settings.System.putInt(appContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
             Settings.System.putInt(appContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS, value)
         }.getOrDefault(false)
-        return AgentExecutionResult(ok, if (ok) "已把屏幕亮度调到约 ${safePercent.roundToInt()}%。" else "调节亮度失败，当前系统可能限制第三方应用修改该设置。", shouldContinue = false)
+        val message = if (ok) {
+            if (absolutePercent == null && (deltaPercent != null || operationPercent != null)) {
+                "已把屏幕亮度从约 ${currentPercent.roundToInt()}% 调到约 ${targetPercent.roundToInt()}%。"
+            } else {
+                "已把屏幕亮度调到约 ${targetPercent.roundToInt()}%。"
+            }
+        } else {
+            "调节亮度失败，当前系统可能限制第三方应用修改该设置。"
+        }
+        return AgentExecutionResult(ok, message, shouldContinue = false)
     }
 
     private fun executeSetScreenTimeout(step: CloudAgentStep): AgentExecutionResult {
@@ -261,14 +279,14 @@ class DeviceToolExecutor(
             step.argString("page", "kind", "target", "setting"),
             step.targetText,
             step.text,
-        ).joinToString(" ").lowercase()
+        ).joinToString(" ").lowercase().replace('_', ' ')
         return systemSettingTargets.firstOrNull { target ->
             target.keys.any { key.contains(it) }
         } ?: systemSettingTargets.first()
     }
 
     private fun appSettingsKind(step: CloudAgentStep): AppSettingsKind {
-        val key = listOfNotNull(step.argString("page", "kind", "target"), step.targetText, step.text).joinToString(" ").lowercase()
+        val key = listOfNotNull(step.argString("page", "kind", "target"), step.targetText, step.text).joinToString(" ").lowercase().replace('_', ' ')
         return when {
             listOf("通知", "notification").any { key.contains(it) } -> AppSettingsKind.Notification
             listOf("权限", "permission").any { key.contains(it) } -> AppSettingsKind.Permission
@@ -311,6 +329,27 @@ class DeviceToolExecutor(
             Intent(ACTION_SETTINGS_COMPAT)
         }
         launchActivity(intent)
+    }
+
+    private fun currentBrightnessPercent(): Float? {
+        val raw = runCatching {
+            Settings.System.getInt(appContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrNull() ?: return null
+        return (raw.coerceIn(0, 255) * 100f / 255f).coerceIn(0f, 100f)
+    }
+
+    private fun brightnessOperationDelta(step: CloudAgentStep): Float? {
+        val operation = step.argString("operation", "mode", "adjustment", "relative", "direction")
+            ?.lowercase()
+            ?.replace('_', ' ')
+            ?.replace('-', ' ')
+            ?.trim()
+            ?: return null
+        return when (operation) {
+            "decrease", "reduce", "lower", "down", "dim", "darker", "less", "调低", "降低", "变暗" -> -DEFAULT_BRIGHTNESS_DELTA
+            "increase", "raise", "higher", "up", "brighten", "brighter", "more", "调高", "提高", "变亮" -> DEFAULT_BRIGHTNESS_DELTA
+            else -> null
+        }
     }
 
     private fun memoryStatus(): String {
@@ -415,6 +454,8 @@ class DeviceToolExecutor(
     )
 
     private companion object {
+        private const val DEFAULT_BRIGHTNESS_PERCENT = 50f
+        private const val DEFAULT_BRIGHTNESS_DELTA = 15f
         private val executableDeviceToolTypes = CloudAgentStep.deviceToolTypes + setOf("open_app")
 
         private const val ACTION_SETTINGS_COMPAT = "android.settings.SETTINGS"
@@ -437,7 +478,7 @@ class DeviceToolExecutor(
 
         private val systemSettingTargets = listOf(
             SystemSettingTarget("系统设置", ACTION_SETTINGS_COMPAT, listOf("settings", "system", "系统", "设置")),
-            SystemSettingTarget("Wi‑Fi 设置", ACTION_WIFI_SETTINGS_COMPAT, listOf("wifi", "wi-fi", "无线", "无线网")),
+            SystemSettingTarget("Wi‑Fi 设置", ACTION_WIFI_SETTINGS_COMPAT, listOf("wifi", "wi fi", "无线", "无线网")),
             SystemSettingTarget("蓝牙设置", ACTION_BLUETOOTH_SETTINGS_COMPAT, listOf("bluetooth", "蓝牙")),
             SystemSettingTarget("系统通知设置", ACTION_NOTIFICATION_SETTINGS_COMPAT, listOf("notification", "通知")),
             SystemSettingTarget("电池设置", ACTION_BATTERY_SETTINGS_COMPAT, listOf("battery", "电池", "省电")),
@@ -448,7 +489,7 @@ class DeviceToolExecutor(
             SystemSettingTarget("声音设置", ACTION_SOUND_SETTINGS_COMPAT, listOf("sound", "volume", "声音", "音量")),
             SystemSettingTarget("定位设置", ACTION_LOCATION_SOURCE_SETTINGS_COMPAT, listOf("location", "gps", "定位", "位置")),
             SystemSettingTarget("流量设置", ACTION_DATA_USAGE_SETTINGS_COMPAT, listOf("data", "traffic", "流量", "移动数据")),
-            SystemSettingTarget("开发者选项", ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT, listOf("developer", "开发者")),
+            SystemSettingTarget("开发者选项", ACTION_APPLICATION_DEVELOPMENT_SETTINGS_COMPAT, listOf("developer", "developer options", "dev options", "开发者", "开发人员", "开发者选项", "开发人员选项")),
         )
     }
 }
