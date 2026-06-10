@@ -166,22 +166,17 @@ private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (String) -
                 Text(STOCK_MARKET_TOOL_TITLE, color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
                 Text("A股首页、自选、热榜、龙虎榜、板块和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            FrostInfoGlassPanel(
-                radius = 20f,
-                backdropAlpha = 1f,
-                frostAlpha = 0f,
-                dimAlpha = 0f,
-                modifier = Modifier.fillMaxWidth().height(68.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StockHeroMetric("市场", "A股", Modifier.weight(1f))
-                    StockHeroMetric("上证", "3048.03", Modifier.weight(1f))
-                    StockHeroMetric("热点", "龙虎榜", Modifier.weight(1f))
-                }
+                StockHeroMetric("市场", "A股", Modifier.weight(1f))
+                StockHeroMetric("上证", "3048.03", Modifier.weight(1f))
+                StockHeroMetric("热点", "龙虎榜", Modifier.weight(1f))
             }
         }
     }
