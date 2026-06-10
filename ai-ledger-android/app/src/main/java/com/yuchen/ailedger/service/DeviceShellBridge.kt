@@ -80,16 +80,8 @@ class DeviceShellBridge(
         val shizukuAvailable = isShizukuAvailable()
         val shizukuGranted = shizukuAvailable && isShizukuPermissionGranted()
         val shizukuUid = if (shizukuGranted) runCatching { Shizuku.getUid() }.getOrNull() else null
-        val id = if (shizukuGranted) {
-            executeShizukuRaw("id", timeoutMs = 900L)
-        } else {
-            executeRaw("id", timeoutMs = 700L)
-        }
-        val release = if (shizukuGranted) {
-            executeShizukuRaw("getprop ro.build.version.release", timeoutMs = 900L)
-        } else {
-            executeRaw("getprop ro.build.version.release", timeoutMs = 700L)
-        }
+        val id = if (shizukuGranted) executeShizukuRaw("id", 900L) else executeRaw("id", 700L)
+        val release = if (shizukuGranted) executeShizukuRaw("getprop ro.build.version.release", 900L) else executeRaw("getprop ro.build.version.release", 700L)
         val uidLine = id.output.lineSequence().firstOrNull()?.trim().orEmpty()
         val releaseText = release.output.lineSequence().firstOrNull()?.trim().orEmpty().ifBlank { Build.VERSION.RELEASE.orEmpty() }
         val available = id.ok && uidLine.isNotBlank()
@@ -116,72 +108,28 @@ class DeviceShellBridge(
     fun requestShizukuPermission(): DeviceShellExecResult {
         invalidateProbeCache()
         if (!isShizukuAvailable()) {
-            return DeviceShellExecResult(
-                ok = false,
-                title = "请求 Shizuku 授权",
-                output = "",
-                error = "没有检测到正在运行的 Shizuku 服务。请先安装并启动 Shizuku，再回到应用请求授权。",
-            )
+            return DeviceShellExecResult(false, "请求 Shizuku 授权", "", error = "没有检测到正在运行的 Shizuku 服务。请先安装并启动 Shizuku，再回到应用请求授权。")
         }
         if (isShizukuPermissionGranted()) {
-            return DeviceShellExecResult(
-                ok = true,
-                title = "请求 Shizuku 授权",
-                output = "Shizuku 已授权。",
-            )
+            return DeviceShellExecResult(true, "请求 Shizuku 授权", "Shizuku 已授权。")
         }
         return runCatching {
             Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE)
-            DeviceShellExecResult(
-                ok = false,
-                title = "请求 Shizuku 授权",
-                output = "已发起 Shizuku 授权请求。请在系统弹窗中允许，然后再次执行内部控制任务。",
-            )
+            DeviceShellExecResult(false, "请求 Shizuku 授权", "已发起 Shizuku 授权请求。请在系统弹窗中允许，然后再次执行内部控制任务。")
         }.getOrElse { error ->
-            DeviceShellExecResult(
-                ok = false,
-                title = "请求 Shizuku 授权",
-                output = "",
-                error = error.message.orEmpty().ifBlank { "发起 Shizuku 授权失败。" },
-            )
+            DeviceShellExecResult(false, "请求 Shizuku 授权", "", error = error.message.orEmpty().ifBlank { "发起 Shizuku 授权失败。" })
         }
     }
 
     fun runSafeDiagnostic(key: String): DeviceShellExecResult? {
         val command = safeDiagnostics[key] ?: return null
-        val result = runShellCommand(
-            command = command.command,
-            timeoutMs = command.timeoutMs,
-            requireEnhanced = false,
-            preferShizuku = true,
-        )
-        return DeviceShellExecResult(
-            ok = result.ok,
-            title = command.title,
-            output = result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" },
-            exitCode = result.exitCode,
-            error = result.error.take(MAX_OUTPUT_CHARS),
-        )
+        val result = runShellCommand(command.command, command.timeoutMs, requireEnhanced = false, preferShizuku = true)
+        return DeviceShellExecResult(result.ok, command.title, result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" }, result.exitCode, result.error.take(MAX_OUTPUT_CHARS))
     }
 
-    fun runReadOnlyEnhancedCommand(
-        title: String,
-        command: String,
-        timeoutMs: Long = 900L,
-    ): DeviceShellExecResult {
-        val result = runShellCommand(
-            command = command,
-            timeoutMs = timeoutMs.coerceIn(300L, 3_000L),
-            requireEnhanced = false,
-            preferShizuku = true,
-        )
-        return DeviceShellExecResult(
-            ok = result.ok,
-            title = title,
-            output = result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" },
-            exitCode = result.exitCode,
-            error = result.error.take(MAX_OUTPUT_CHARS),
-        )
+    fun runReadOnlyEnhancedCommand(title: String, command: String, timeoutMs: Long = 900L): DeviceShellExecResult {
+        val result = runShellCommand(command, timeoutMs.coerceIn(300L, 3_000L), requireEnhanced = false, preferShizuku = true)
+        return DeviceShellExecResult(result.ok, title, result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" }, result.exitCode, result.error.take(MAX_OUTPUT_CHARS))
     }
 
     fun runVerifiedEnhancedCommand(
@@ -194,11 +142,7 @@ class DeviceShellBridge(
     ): DeviceShellExecResult {
         val execute = runEnhancedCommand(title = title, command = command, timeoutMs = timeoutMs)
         if (!execute.ok) return execute
-        val verify = runReadOnlyEnhancedCommand(
-            title = "$title 验证",
-            command = verifyCommand,
-            timeoutMs = verifyTimeoutMs,
-        )
+        val verify = runReadOnlyEnhancedCommand(title = "$title 验证", command = verifyCommand, timeoutMs = verifyTimeoutMs)
         val verified = verify.ok && verifier(verify.output)
         val mergedOutput = buildString {
             if (execute.output.isNotBlank() && execute.output != "无输出") append(execute.output)
@@ -208,24 +152,14 @@ class DeviceShellBridge(
         val mergedError = buildString {
             if (execute.error.isNotBlank()) append(execute.error)
             if (!verified) {
-                if (isNotBlank()) append('\n')
+                if (length > 0) append('\n')
                 append(verify.error.ifBlank { "执行后验证未通过" })
             }
         }
-        return DeviceShellExecResult(
-            ok = verified,
-            title = title,
-            output = mergedOutput,
-            exitCode = execute.exitCode,
-            error = mergedError.take(MAX_OUTPUT_CHARS),
-        )
+        return DeviceShellExecResult(verified, title, mergedOutput, execute.exitCode, mergedError.take(MAX_OUTPUT_CHARS))
     }
 
-    fun runEnhancedCommand(
-        title: String,
-        command: String,
-        timeoutMs: Long = 1_500L,
-    ): DeviceShellExecResult {
+    fun runEnhancedCommand(title: String, command: String, timeoutMs: Long = 1_500L): DeviceShellExecResult {
         val status = probe(forceRefresh = true)
         if (!status.isAdbShellLike) {
             return DeviceShellExecResult(
@@ -239,24 +173,11 @@ class DeviceShellBridge(
                 },
             )
         }
-        val result = runShellCommand(
-            command = command,
-            timeoutMs = timeoutMs.coerceIn(500L, 6_000L),
-            requireEnhanced = true,
-            preferShizuku = true,
-        )
-        return DeviceShellExecResult(
-            ok = result.ok,
-            title = title,
-            output = result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" },
-            exitCode = result.exitCode,
-            error = result.error.take(MAX_OUTPUT_CHARS),
-        )
+        val result = runShellCommand(command, timeoutMs.coerceIn(500L, 6_000L), requireEnhanced = true, preferShizuku = true)
+        return DeviceShellExecResult(result.ok, title, result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" }, result.exitCode, result.error.take(MAX_OUTPUT_CHARS))
     }
 
-    fun controlledToolCatalogJson(): JSONArray = JSONArray().apply {
-        controlledTools.forEach { put(it.toJson()) }
-    }
+    fun controlledToolCatalogJson(): JSONArray = JSONArray().apply { controlledTools.forEach { put(it.toJson()) } }
 
     fun controlledToolCatalogSummary(): String {
         val readOnly = controlledTools.count { it.readOnly }
@@ -276,11 +197,8 @@ class DeviceShellBridge(
             append("Android：").append(probe.androidRelease).append('\n')
             append("权限级别：").append(if (probe.isAdbShellLike) "增强级" else "普通 App 沙箱级").append("\n\n")
             append(probe.message)
-            if (probe.shizukuAvailable && !probe.shizukuGranted) {
-                append("\n\n你可以说“请求 Shizuku 授权”，我会调起授权请求。")
-            } else if (!probe.shizukuAvailable) {
-                append("\n\n请先安装并启动 Shizuku，再回到应用请求授权。")
-            }
+            if (probe.shizukuAvailable && !probe.shizukuGranted) append("\n\n你可以说“请求 Shizuku 授权”，我会调起授权请求。")
+            else if (!probe.shizukuAvailable) append("\n\n请先安装并启动 Shizuku，再回到应用请求授权。")
             append("\n\n")
             append(controlledToolCatalogSummary())
             append("\n")
@@ -288,89 +206,55 @@ class DeviceShellBridge(
         }
     }
 
-    private fun runShellCommand(
-        command: String,
-        timeoutMs: Long,
-        requireEnhanced: Boolean,
-        preferShizuku: Boolean,
-    ): ShellRawResult {
+    private fun runShellCommand(command: String, timeoutMs: Long, requireEnhanced: Boolean, preferShizuku: Boolean): ShellRawResult {
         val status = probe(forceRefresh = false)
         if (requireEnhanced && !status.isAdbShellLike) {
-            return ShellRawResult(ok = false, output = "", error = "缺少 Shizuku/ADB Shell 增强权限", exitCode = null)
+            return ShellRawResult(false, "", "缺少 Shizuku/ADB Shell 增强权限", null)
         }
         return when {
-            preferShizuku && status.shizukuGranted -> executeShizukuRaw(command, timeoutMs = timeoutMs)
-            else -> executeRaw(command, timeoutMs = timeoutMs)
+            preferShizuku && status.shizukuGranted -> executeShizukuRaw(command, timeoutMs)
+            else -> executeRaw(command, timeoutMs)
         }
     }
 
     private fun executeRaw(command: String, timeoutMs: Long): ShellRawResult {
         return runCatching {
-            val process = ProcessBuilder("sh", "-c", command)
-                .redirectErrorStream(false)
-                .start()
+            val process = ProcessBuilder("sh", "-c", command).redirectErrorStream(false).start()
             readProcess(process, timeoutMs)
-        }.getOrElse { error ->
-            ShellRawResult(ok = false, output = "", error = error.message.orEmpty(), exitCode = null)
-        }
+        }.getOrElse { error -> ShellRawResult(false, "", error.message.orEmpty(), null) }
     }
 
     private fun executeShizukuRaw(command: String, timeoutMs: Long): ShellRawResult {
         return runCatching {
             val process = createShizukuProcess(command)
             readProcess(process, timeoutMs)
-        }.getOrElse { error ->
-            ShellRawResult(ok = false, output = "", error = error.message.orEmpty(), exitCode = null)
-        }
+        }.getOrElse { error -> ShellRawResult(false, "", error.message.orEmpty(), null) }
     }
 
     private fun createShizukuProcess(command: String): Process {
-        val method = Shizuku::class.java.getMethod(
-            "newProcess",
-            Array<String>::class.java,
-            Array<String>::class.java,
-            String::class.java,
-        )
-        return method.invoke(
-            null,
-            arrayOf("sh", "-c", command),
-            null,
-            null,
-        ) as Process
+        val method = Shizuku::class.java.getMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+        return method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
     }
 
     private fun readProcess(process: Process, timeoutMs: Long): ShellRawResult {
         val completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
         if (!completed) {
             process.destroy()
-            return ShellRawResult(ok = false, output = "", error = "命令超时", exitCode = null)
+            return ShellRawResult(false, "", "命令超时", null)
         }
         val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
         val error = process.errorStream.bufferedReader().use { it.readText() }.trim()
         val exit = process.exitValue()
-        return ShellRawResult(ok = exit == 0, output = output, error = error, exitCode = exit)
+        return ShellRawResult(exit == 0, output, error, exit)
     }
 
-    private fun isShizukuAvailable(): Boolean {
-        return runCatching { Shizuku.pingBinder() }.getOrDefault(false)
-    }
+    private fun isShizukuAvailable(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 
-    private fun isShizukuPermissionGranted(): Boolean {
-        return runCatching { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
-    }
+    private fun isShizukuPermissionGranted(): Boolean = runCatching { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
 
-    private data class ShellRawResult(
-        val ok: Boolean,
-        val output: String,
-        val error: String,
-        val exitCode: Int?,
-    )
+    private data class ShellRawResult(val ok: Boolean, val output: String, val error: String, val exitCode: Int?)
 
-    private data class SafeShellDiagnostic(
-        val title: String,
-        val command: String,
-        val timeoutMs: Long = 900L,
-    )
+    private data class SafeShellDiagnostic(val title: String, val command: String, val timeoutMs: Long = 900L)
 
     companion object {
         private const val MAX_OUTPUT_CHARS = 1800
@@ -388,71 +272,18 @@ class DeviceShellBridge(
         }
 
         private val controlledTools = listOf(
-            DeviceShellToolSpec(
-                id = "shell.identity",
-                title = "读取 Shell 身份",
-                privilege = DeviceShellPrivilege.AppSandbox,
-                riskLevel = DeviceControlRiskLevel.Low,
-                readOnly = true,
-                requiresConfirmation = false,
-                description = "执行 id / getprop 等只读命令，用于判断当前内部控制权限。",
-            ),
-            DeviceShellToolSpec(
-                id = "shell.safe_diagnostic",
-                title = "只读系统诊断",
-                privilege = DeviceShellPrivilege.AppSandbox,
-                riskLevel = DeviceControlRiskLevel.Low,
-                readOnly = true,
-                requiresConfirmation = false,
-                description = "执行 allowlist 里的 dumpsys/getprop/settings get 诊断命令。",
-            ),
-            DeviceShellToolSpec(
-                id = "system.global_settings_write",
-                title = "写入 global settings",
-                privilege = DeviceShellPrivilege.ShellOrShizuku,
-                riskLevel = DeviceControlRiskLevel.High,
-                readOnly = false,
-                requiresConfirmation = true,
-                description = "仅允许固定模板写入动画缩放等 global settings，并执行后读取验证。",
-            ),
-            DeviceShellToolSpec(
-                id = "app.force_stop",
-                title = "强停应用",
-                privilege = DeviceShellPrivilege.ShellOrShizuku,
-                riskLevel = DeviceControlRiskLevel.High,
-                readOnly = false,
-                requiresConfirmation = true,
-                description = "固定模板执行 am force-stop，并在执行后尝试用 pidof 验证。",
-            ),
-            DeviceShellToolSpec(
-                id = "app.package_admin",
-                title = "应用数据/启停管理",
-                privilege = DeviceShellPrivilege.ShellOrShizuku,
-                riskLevel = DeviceControlRiskLevel.Critical,
-                readOnly = false,
-                requiresConfirmation = true,
-                description = "固定模板执行 pm clear / uninstall / disable / enable，并通过 package 状态读取验证。",
-            ),
+            DeviceShellToolSpec("shell.identity", "读取 Shell 身份", DeviceShellPrivilege.AppSandbox, DeviceControlRiskLevel.Low, true, false, "执行 id / getprop 等只读命令，用于判断当前内部控制权限。"),
+            DeviceShellToolSpec("shell.safe_diagnostic", "只读系统诊断", DeviceShellPrivilege.AppSandbox, DeviceControlRiskLevel.Low, true, false, "执行 allowlist 里的 dumpsys/getprop/settings get 诊断命令。"),
+            DeviceShellToolSpec("system.global_settings_write", "写入 global settings", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.High, false, true, "仅允许固定模板写入动画缩放等 global settings，并执行后读取验证。"),
+            DeviceShellToolSpec("app.force_stop", "强停应用", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.High, false, true, "固定模板执行 am force-stop，并在执行后尝试用 pidof 验证。"),
+            DeviceShellToolSpec("app.package_admin", "应用数据/启停管理", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Critical, false, true, "固定模板执行 pm clear / uninstall / disable / enable，并通过 package 状态读取验证。"),
         )
 
         private val safeDiagnostics = mapOf(
-            "identity" to SafeShellDiagnostic(
-                title = "Shell 身份",
-                command = "id",
-            ),
-            "system_properties" to SafeShellDiagnostic(
-                title = "系统属性",
-                command = "getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk",
-            ),
-            "animation_scales" to SafeShellDiagnostic(
-                title = "动画缩放状态",
-                command = "settings get global window_animation_scale; settings get global transition_animation_scale; settings get global animator_duration_scale",
-            ),
-            "battery_dump" to SafeShellDiagnostic(
-                title = "电池 dumpsys 摘要",
-                command = "dumpsys battery | sed -n '1,16p'",
-                timeoutMs = 1200L,
-            ),
+            "identity" to SafeShellDiagnostic("Shell 身份", "id"),
+            "system_properties" to SafeShellDiagnostic("系统属性", "getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk"),
+            "animation_scales" to SafeShellDiagnostic("动画缩放状态", "settings get global window_animation_scale; settings get global transition_animation_scale; settings get global animator_duration_scale"),
+            "battery_dump" to SafeShellDiagnostic("电池 dumpsys 摘要", "dumpsys battery | sed -n '1,16p'", 1200L),
         )
     }
 }
