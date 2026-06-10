@@ -713,27 +713,6 @@ private fun Modifier.shellPressSurfaceOptics(
     drawRoundRect(brush = rightEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
 }
 
-private object WebGlassFrostModel {
-    const val frost = 0.15f
-    const val tint = 0.00f
-    const val quiet = 1.40f
-
-    const val topLight = 1.14f
-    const val topWidthDp = 1.45f
-    const val topVariation = 0.46f
-    const val bottomLight = 1.10f
-    const val bottomWidthDp = 2.25f
-
-    const val edgeDepthDp = 0.00f
-    const val innerBevel = 0.00f
-    const val outerRim = 0.40f
-    const val bottomMass = 0.14f
-    const val sideBevel = 0.13f
-    const val sideLight = 0.00f
-
-    const val shadow = 0.27f
-}
-
 fun Modifier.glassSkin(
     quality: RenderQuality,
     radius: Int,
@@ -753,20 +732,21 @@ fun Modifier.glassSkin(
         val intensityScale = glassIntensity.coerceIn(0.25f, 1.45f)
         val pulse = 0.94f + breathe * 0.030f
 
-        val frost = WebGlassFrostModel.frost * intensityScale
-        val tint = WebGlassFrostModel.tint
-        val quiet = WebGlassFrostModel.quiet
-        val topLight = WebGlassFrostModel.topLight * intensityScale
-        val topWidth = WebGlassFrostModel.topWidthDp.dp.toPx()
-        val topVariation = WebGlassFrostModel.topVariation
-        val bottomLight = WebGlassFrostModel.bottomLight * intensityScale
-        val bottomWidth = WebGlassFrostModel.bottomWidthDp.dp.toPx()
-        val edgeDepth = WebGlassFrostModel.edgeDepthDp.dp.toPx()
-        val innerBevel = WebGlassFrostModel.innerBevel
-        val outerRim = WebGlassFrostModel.outerRim * intensityScale
-        val bottomMass = WebGlassFrostModel.bottomMass * intensityScale
-        val sideBevel = WebGlassFrostModel.sideBevel
-        val sideLight = WebGlassFrostModel.sideLight * intensityScale
+        val glass = ComposeGlassLabState.style
+        val frost = glass.frost * intensityScale
+        val tint = glass.tint
+        val quiet = glass.quiet
+        val topLight = glass.topLight * intensityScale
+        val topWidth = glass.topWidthDp.dp.toPx()
+        val topVariation = glass.topVariation
+        val bottomLight = glass.bottomLight * intensityScale
+        val bottomWidth = glass.bottomWidthDp.dp.toPx()
+        val edgeDepth = glass.edgeDepthDp.dp.toPx()
+        val innerBevel = glass.innerBevel
+        val outerRim = glass.outerRim * intensityScale
+        val bottomMass = glass.bottomMass * intensityScale
+        val sideBevel = glass.sideBevel
+        val sideLight = glass.sideLight * intensityScale
 
         val baseField = Brush.linearGradient(
             colors = listOf(
@@ -994,16 +974,17 @@ private fun glassMaterial(intensity: Float, role: GlassRole): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
     val ordinary = role != GlassRole.Shell
     if (ordinary) {
+        val glass = ComposeGlassLabState.style
         return GlassMaterial(
-            frost = (0.044f * WebGlassFrostModel.frost * safeIntensity).coerceIn(0.004f, 0.090f),
-            rim = (0.104f * WebGlassFrostModel.outerRim * safeIntensity).coerceIn(0.010f, 0.240f),
-            innerRim = (0.030f * WebGlassFrostModel.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
-            topHighlight = (0.036f * WebGlassFrostModel.topLight * safeIntensity).coerceIn(0.002f, 0.100f),
-            cornerGlint = (0.020f * WebGlassFrostModel.topVariation * safeIntensity).coerceIn(0f, 0.080f),
-            depthShadow = (0.015f * WebGlassFrostModel.bottomMass * safeIntensity).coerceIn(0.002f, 0.055f),
-            shadowAmbient = (0.028f * WebGlassFrostModel.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
-            shadowSpot = (0.0035f * WebGlassFrostModel.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
-            strokeWidth = (0.42f + WebGlassFrostModel.outerRim * 0.24f).coerceIn(0.40f, 2.20f)
+            frost = (0.044f * glass.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+            rim = (0.104f * glass.outerRim * safeIntensity).coerceIn(0.010f, 0.240f),
+            innerRim = (0.030f * glass.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
+            topHighlight = (0.036f * glass.topLight * safeIntensity).coerceIn(0.002f, 0.100f),
+            cornerGlint = (0.020f * glass.topVariation * safeIntensity).coerceIn(0f, 0.080f),
+            depthShadow = (0.015f * glass.bottomMass * safeIntensity).coerceIn(0.002f, 0.055f),
+            shadowAmbient = (0.028f * glass.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
+            shadowSpot = (0.0035f * glass.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
+            strokeWidth = (0.42f + glass.outerRim * 0.24f).coerceIn(0.40f, 2.20f)
         )
     }
 
