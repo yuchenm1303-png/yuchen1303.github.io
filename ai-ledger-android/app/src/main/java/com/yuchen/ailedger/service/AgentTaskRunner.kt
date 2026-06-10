@@ -51,11 +51,11 @@ class AgentTaskRunner(
             return AgentTaskRunResult(false, false, message, logs)
         }
 
-        val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
         val recentActions = mutableListOf<String>()
         val taskSessionId = "android-agent-${System.currentTimeMillis()}"
 
         AgentRuntimeController.startTask(goal)
+        val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
 
         return try {
             if (executionMode != AgentExecutionMode.NormalChatDeviceTool) {
@@ -227,8 +227,7 @@ class AgentTaskRunner(
     }
 
     private fun isStopped(startGeneration: Long): Boolean {
-        return AgentRuntimeController.currentManualStopGeneration() != startGeneration ||
-            !AgentRuntimeController.progress.value.running
+        return AgentRuntimeController.currentManualStopGeneration() != startGeneration
     }
 
     private suspend fun waitWhileUserTakeoverPaused(startGeneration: Long): Boolean {
@@ -251,7 +250,7 @@ class AgentTaskRunner(
         val message = if (AgentRuntimeController.currentManualStopGeneration() != stopGeneration) {
             "用户已手动停止本次智能体任务。"
         } else {
-            "智能体任务已暂停。"
+            logs.lastOrNull()?.execution?.message?.takeIf { it.isNotBlank() } ?: "智能体任务已暂停。"
         }
         if (AgentRuntimeController.progress.value.running) {
             AgentRuntimeController.finishTask(message, completed = false)
