@@ -22,12 +22,9 @@ import com.yuchen.ailedger.ui.StartupMetrics
 
 private const val ENABLE_STARTUP_FRAME_MONITOR = false
 private const val ENABLE_STARTUP_METRICS_OVERLAY = false
-private const val ACCESSIBILITY_SHIELD_DELAY_MS = 1_600L
 
 class MainActivity : ComponentActivity() {
-    private var resumedForDeferredShield: Boolean = false
     private var accessibilityShieldApplied: Boolean = false
-    private var accessibilityShieldScheduled: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         if (ENABLE_STARTUP_FRAME_MONITOR) {
@@ -40,6 +37,7 @@ class MainActivity : ComponentActivity() {
         requestHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
+        installAccessibilityPerformanceShield(window.decorView)
         if (ENABLE_STARTUP_FRAME_MONITOR) installFirstFrameProbe(window.decorView)
         if (ENABLE_STARTUP_METRICS_OVERLAY) installStartupMetricsOverlay(window.decorView)
         setContent {
@@ -51,13 +49,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        resumedForDeferredShield = true
-        scheduleDeferredAccessibilityShield()
-    }
-
-    override fun onPause() {
-        resumedForDeferredShield = false
-        super.onPause()
+        if (!accessibilityShieldApplied) installAccessibilityPerformanceShield(window.decorView)
     }
 
     private fun prepareWindow(window: Window) {
@@ -78,29 +70,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun scheduleDeferredAccessibilityShield() {
-        if (accessibilityShieldApplied || accessibilityShieldScheduled) return
-        val root = window.decorView ?: return
-        accessibilityShieldScheduled = true
-        root.postDelayed({
-            accessibilityShieldScheduled = false
-            if (!resumedForDeferredShield || accessibilityShieldApplied || isFinishing || isDestroyed) {
-                return@postDelayed
-            }
-            installAccessibilityPerformanceShield(root)
-            accessibilityShieldApplied = true
-            if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("延迟无障碍性能屏蔽完成")
-        }, ACCESSIBILITY_SHIELD_DELAY_MS)
-    }
-
     private fun installAccessibilityPerformanceShield(root: View) {
-        // 只设置根节点即可隐藏整棵 App 视图树。避免首次安装后立刻跳无障碍设置时，
-        // 递归遍历 Compose 子树与系统 Settings 冷启动/服务列表解析叠加造成卡顿。
+        // 首帧前立刻隐藏整棵 Compose 视图树，避免首次启用无障碍时系统递归遍历高复杂 UI。
+        // 智能体真正观察外部应用时走 AccessibilityService 的按需 Working 模式，不依赖本 App 自身语义树。
         root.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             root.isFocusedByDefault = false
             root.isScreenReaderFocusable = false
         }
+        accessibilityShieldApplied = true
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("首帧前无障碍性能屏蔽完成")
     }
 
     private fun requestHighRefreshRate(window: Window) {
