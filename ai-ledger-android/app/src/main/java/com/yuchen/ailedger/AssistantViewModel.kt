@@ -33,6 +33,7 @@ import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AgentExecutionMode
+import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AgentTaskRunner
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
@@ -82,6 +83,19 @@ class AssistantViewModel(
     private val localIdSeed = AtomicLong(System.currentTimeMillis())
 
     init {
+        AgentRuntimeController.setEnabled(false)
+        viewModelScope.launch {
+            AgentRuntimeController.enabled.collect { enabled ->
+                if (enabled && !AiAgentAccessibilityService.isConnected()) {
+                    AgentAccessibilityGuideActivity.open(getApplication<Application>())
+                    AgentRuntimeController.setEnabled(false)
+                    appendAssistantNotice(
+                        text = "视觉智能体需要无障碍权限。已为你打开开启引导；普通聊天里的内部控制不受这个开关影响。",
+                        source = "local_agent"
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             preferencesStore.preferencesFlow.collect { preferences ->
                 uiState = uiState.copy(
