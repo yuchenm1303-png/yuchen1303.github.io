@@ -40,7 +40,7 @@ import kotlin.math.roundToInt
 
 private const val GlassDebugLazyPatchCompatibility = """
 title = "轻量玻璃",
-            subtitle = "材质预设 / 六项核心参数 / 普通控件实时生效",
+            subtitle = "材质预设 / 三项核心参数 / 普通控件实时生效",
             initiallyExpanded = false,
 title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
@@ -91,7 +91,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "材质预设 / 六项核心参数 / 普通控件实时生效",
+            subtitle = "材质预设 / 三项核心参数 / 普通控件实时生效",
             initiallyExpanded = false,
             state = state
         ) {
@@ -174,20 +174,17 @@ private fun ComposeGlassLab(state: AssistantUiState) {
     val style = ComposeGlassLabState.style
     ComposeGlassPreview(state)
     ComposeGlassPresetGrid(state, style.preset)
-    GlassControlGroup("核心材质", "只调真正影响普通 Compose 玻璃的六项", state, true) {
+    GlassControlGroup("核心材质", "只保留肉眼反馈明确的三项", state, true) {
         LabSlider("背景采样", "背景透出强度，越高越清透", style.backdrop, 0.40f..1.45f) { ComposeGlassLabState.update(style.copy(backdrop = it)) }
         LabSlider("雾面密度", "磨砂密度与背景模糊派生", style.density, 0.35f..1.75f) { ComposeGlassLabState.update(style.copy(density = it)) }
-        LabSlider("覆膜色彩", "蓝紫/极光色彩覆膜强度", style.tint, 0f..1.80f) { ComposeGlassLabState.update(style.copy(tint = it)) }
         LabSlider("边缘亮度", "主边框、内边与顶部折光", style.edge, 0.35f..1.90f) { ComposeGlassLabState.update(style.copy(edge = it)) }
-        LabSlider("底部厚度", "底部暗边、阴影与可读性", style.depth, 0.35f..1.90f) { ComposeGlassLabState.update(style.copy(depth = it)) }
-        LabSlider("纹理粗糙", "轻微扫光和材质颗粒感派生", style.grain, 0f..1.60f) { ComposeGlassLabState.update(style.copy(grain = it)) }
     }
-    GlassControlGroup("派生结果", "这些值由 preset + 六项核心参数自动生成", state, false) {
+    GlassControlGroup("派生结果", "其余视觉由 preset 自动派生，不再单独暴露", state, false) {
         SettingDerivedInfo("背景模糊", style.blurScale)
         SettingDerivedInfo("主边框", style.rimAlpha)
         SettingDerivedInfo("内部细边", style.innerRimAlpha)
         SettingDerivedInfo("顶部折光", style.topHighlight)
-        SettingDerivedInfo("角落高光", style.cornerGlint)
+        SettingDerivedInfo("底部厚度", style.bottomShadow)
         SettingDerivedInfo("圆角倍率", style.radiusScale)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
@@ -246,7 +243,7 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Compose 材质玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("${composeGlassPresetLabel(style.preset)} · preset 派生 · 普通控件实时生效", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${composeGlassPresetLabel(style.preset)} · 三核心参数 · 普通控件实时生效", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Box(
                     Modifier
@@ -259,9 +256,9 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ComposeGlassPreviewMetric("采样", style.backdrop, Modifier.weight(1f))
                 ComposeGlassPreviewMetric("密度", style.density, Modifier.weight(1f))
                 ComposeGlassPreviewMetric("边缘", style.edge, Modifier.weight(1f))
-                ComposeGlassPreviewMetric("纹理", style.grain, Modifier.weight(1f))
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ComposeGlassMiniChip("Card", state, Modifier.weight(1f))
