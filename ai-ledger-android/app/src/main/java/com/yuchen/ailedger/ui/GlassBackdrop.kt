@@ -56,7 +56,7 @@ fun SampledWeatherGlassBackdrop(
     val baseAlpha = when (quality) { RenderQuality.Smooth -> 0.15f; RenderQuality.Balanced -> 0.18f; RenderQuality.Experimental -> 0.21f } * alpha
     val milkAlpha = when (quality) { RenderQuality.Smooth -> 0.040f; RenderQuality.Balanced -> 0.052f; RenderQuality.Experimental -> 0.064f } * alpha
     val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha
-    val backdropAlpha = when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f }
+    val backdropAlpha = when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha
 
     Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
         ticker?.frameNanos
