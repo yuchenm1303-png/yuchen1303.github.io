@@ -19,8 +19,9 @@ fun AiWorkerClient.requestAgentStep(
     goal: String,
     snapshot: AgentScreenSnapshot,
     modelPreference: ChatModel = ChatModel.Auto,
+    executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
 ): CloudAgentStep {
-    return requestAgentPlan(goal, snapshot, modelPreference).step
+    return requestAgentPlan(goal, snapshot, modelPreference, executionMode = executionMode).step
 }
 
 @Throws(IOException::class)
@@ -31,8 +32,9 @@ fun AiWorkerClient.requestAgentPlan(
     recentActions: List<String> = emptyList(),
     deviceContext: AgentDeviceContextSnapshot? = null,
     agentMemory: JSONObject? = null,
+    executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
 ): CloudAgentPlan {
-    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions, deviceContext, agentMemory)
+    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions, deviceContext, agentMemory, executionMode)
     val endpoints = listOf(endpoint.trim().trimEnd('/')).filter { it.isNotBlank() }.distinct()
     var lastError: IOException? = null
     for (base in endpoints) {
@@ -55,9 +57,16 @@ private fun buildAgentStepPayload(
     recentActions: List<String>,
     deviceContext: AgentDeviceContextSnapshot?,
     agentMemory: JSONObject?,
+    executionMode: AgentExecutionMode,
 ): JSONObject {
     val cleanGoal = goal.trim().take(240)
     val hasScreenshot = snapshot.hasVisualImage
+    val forceVisual = executionMode != AgentExecutionMode.NormalChatDeviceTool
+    val modeKey = when (executionMode) {
+        AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
+        AgentExecutionMode.VisualForce -> "visual_force"
+        AgentExecutionMode.ExplicitAgent -> "explicit_agent"
+    }
     val modelId = if (hasScreenshot) AGENT_VISION_ROUTE_ID else if (modelPreference == ChatModel.Auto) ChatModel.Kimi.id else modelPreference.id
     val snapshotWithoutImage = snapshot.toJson(includeImage = false)
     val loopSignals = agentMemory?.optJSONObject("loopSignals")
@@ -68,8 +77,12 @@ private fun buildAgentStepPayload(
         put("action", "chat")
         put("intent", "agent_step")
         put("agentMode", true)
-        put("computerUseMode", true)
-        put("visionFirst", hasScreenshot)
+        put("computerUseMode", forceVisual)
+        put("forceVisualAgent", forceVisual)
+        put("allowInternalDeviceTools", true)
+        put("normalChatDeviceToolMode", executionMode == AgentExecutionMode.NormalChatDeviceTool)
+        put("executionMode", modeKey)
+        put("visionFirst", hasScreenshot && forceVisual)
         put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
         put("agentSessionId", sessionId)
@@ -79,36 +92,39 @@ private fun buildAgentStepPayload(
         agentMemory?.let { put("agentMemory", it) }
         deviceContext?.let { put("deviceContext", it.json) }
         put("screenSnapshot", snapshotWithoutImage)
-        put("hasScreenshot", hasScreenshot)
-        put("hasImage", hasScreenshot)
+        put("hasScreenshot", hasScreenshot && forceVisual)
+        put("hasImage", hasScreenshot && forceVisual)
         put("hasImages", false)
-        put("imageCount", if (hasScreenshot) 1 else 0)
-        snapshot.visual?.takeIf { it.hasImage }?.let { visual ->
-            put("screenshot", JSONObject().apply {
-                put("mimeType", visual.mimeType)
-                put("base64Data", visual.base64Jpeg)
-                put("width", visual.width)
-                put("height", visual.height)
-                put("displayWidth", visual.displayWidth)
-                put("displayHeight", visual.displayHeight)
-                put("source", visual.source)
-                put("reason", visual.reason)
-            })
+        put("imageCount", if (hasScreenshot && forceVisual) 1 else 0)
+        if (forceVisual) {
+            snapshot.visual?.takeIf { it.hasImage }?.let { visual ->
+                put("screenshot", JSONObject().apply {
+                    put("mimeType", visual.mimeType)
+                    put("base64Data", visual.base64Jpeg)
+                    put("width", visual.width)
+                    put("height", visual.height)
+                    put("displayWidth", visual.displayWidth)
+                    put("displayHeight", visual.displayHeight)
+                    put("source", visual.source)
+                    put("reason", visual.reason)
+                })
+            }
         }
         put("vision", JSONObject().apply {
-            put("enabled", hasScreenshot)
+            put("enabled", hasScreenshot && forceVisual)
             put("provider", "qwen")
             put("route", AGENT_VISION_ROUTE_ID)
             put("coordinateSystem", "normalized_screen_0_1")
         })
         put("supportedAgentSteps", JSONArray(CloudAgentStep.supportedTypes.toList()))
+        put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
         put("supportsAgentStepBatch", true)
         put("actionBatchMax", CloudAgentPlan.MAX_BATCH_STEPS)
         put("modelPreference", modelId)
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (hasScreenshot) "compose-native-agent-visual-batch-v11-debug" else "compose-native-agent-tool-batch-v11-debug")
+        put("clientVersion", if (hasScreenshot && forceVisual) "compose-native-agent-visual-batch-v12-mode" else "compose-native-agent-tool-batch-v12-mode")
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeAgentState", true)
