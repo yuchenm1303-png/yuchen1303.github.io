@@ -31,11 +31,11 @@ data class AgentPendingUserInput(
 )
 
 data class AgentOverlayProgress(
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val running: Boolean = false,
     val title: String = "AI 智能体",
-    val status: String = "待命",
-    val currentAction: String = "等待任务",
+    val status: String = "已关闭",
+    val currentAction: String = "强制视觉智能体已关闭",
     val lastResult: String = "",
     val logs: List<String> = emptyList(),
     val pendingConfirmation: AgentPendingConfirmation? = null,
@@ -45,7 +45,8 @@ data class AgentOverlayProgress(
 )
 
 object AgentRuntimeController {
-    private val mutableEnabled = MutableStateFlow(true)
+    // 首页 Agent 开关只代表强制 GUI/视觉智能体；普通聊天内部设备工具不受它控制。
+    private val mutableEnabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = mutableEnabled.asStateFlow()
 
     private val mutableProgress = MutableStateFlow(AgentOverlayProgress())
@@ -99,7 +100,7 @@ object AgentRuntimeController {
                 enabled = value,
                 running = if (value) current.running else false,
                 status = if (value) "待命" else "已关闭",
-                currentAction = if (value) "等待任务" else "智能体自动执行已暂停",
+                currentAction = if (value) "等待视觉任务" else "强制视觉智能体已关闭",
                 lastResult = if (value) current.lastResult else "",
                 pendingConfirmation = if (value) current.pendingConfirmation else null,
                 pendingUserInput = if (value) current.pendingUserInput else null,
@@ -291,7 +292,7 @@ object AgentRuntimeController {
     fun noteAction(step: CloudAgentStep) {
         val current = mutableProgress.value
         if (!current.running) return
-        beginCleanVisualCapture()
+        if (step.type !in CloudAgentStep.deviceToolTypes) beginCleanVisualCapture()
         val actionText = buildActionText(step)
         publishProgress(
             current.copy(
@@ -308,7 +309,7 @@ object AgentRuntimeController {
     }
 
     fun noteResult(step: CloudAgentStep, result: AgentExecutionResult) {
-        endCleanVisualCapture()
+        if (step.type !in CloudAgentStep.deviceToolTypes) endCleanVisualCapture()
         val current = mutableProgress.value
         if (!current.running) return
         val resultText = result.message.take(64)
