@@ -34,8 +34,7 @@ data class OpenGLLiquidPotentialLabOptics(
     val flowSmear: Float = 0.82f,
     val lensBlend: Float = 0.76f,
     val brightness: Float = 1.04f,
-    val darkEdge: Float = 0.62f,
-    val alpha: Float = 0.92f
+    val darkEdge: Float = 0.62f
 )
 
 @Composable
@@ -461,6 +460,7 @@ private class LabRenderer {
             uniform sampler2D uLensTexture;
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
+            vec2 clampUv(vec2 uv) { return clamp(uv, vec2(0.0), vec2(1.0)); }
 
             float roundedBoxSdf(vec2 coord, vec2 rectSize, float radius) {
                 vec2 p = coord - rectSize * 0.5;
@@ -476,20 +476,20 @@ private class LabRenderer {
             }
 
             vec3 sampleBlur(vec2 uv) {
-                vec3 realColor = texture2D(uBlurTexture, clamp(uv, 0.0, 1.0)).rgb;
-                return mix(fallbackBackdrop(uv), realColor, sat(uTextureReady));
+                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(uv));
+                return texture2D(uBlurTexture, clampUv(uv)).rgb;
             }
 
             vec3 sampleLens(vec2 uv) {
-                vec3 realColor = texture2D(uLensTexture, clamp(uv, 0.0, 1.0)).rgb;
-                return mix(fallbackBackdrop(uv), realColor, sat(uTextureReady));
+                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(uv));
+                return texture2D(uLensTexture, clampUv(uv)).rgb;
             }
 
             float liquidPotentialAt(vec2 coord, vec2 rectSize, float radius) {
                 float sd = roundedBoxSdf(coord, rectSize, radius);
                 float inside = max(-sd, 0.0);
                 float minSide = max(min(rectSize.x, rectSize.y), 1.0);
-                vec2 local = clamp(coord / rectSize, 0.0, 1.0);
+                vec2 local = clampUv(coord / rectSize);
                 vec2 p = local * 2.0 - 1.0;
                 p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35) * 0.42;
                 float centerD = length(p);
