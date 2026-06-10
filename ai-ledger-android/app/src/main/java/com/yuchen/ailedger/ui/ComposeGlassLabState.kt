@@ -20,13 +20,13 @@ data class ComposeGlassStyle(
 ) {
     val backdropAlpha: Float get() = (backdrop * preset.profile.backdropScale).coerceIn(0.32f, 1.55f)
     val blurScale: Float get() = (preset.profile.blurScale * (0.78f + density * 0.20f)).coerceIn(0.42f, 1.90f)
-    val frostAlpha: Float get() = (preset.profile.frostScale * density).coerceIn(0.05f, 2.80f)
-    val rimAlpha: Float get() = (preset.profile.rimScale * edge).coerceIn(0.10f, 3.20f)
+    val frostAlpha: Float get() = (preset.profile.frostScale * density).coerceIn(0.02f, 2.80f)
+    val rimAlpha: Float get() = (preset.profile.rimScale * edge).coerceIn(0.02f, 3.20f)
     val innerRimAlpha: Float get() = (preset.profile.innerRimScale * edge * (0.72f + density * 0.12f)).coerceIn(0f, 2.80f)
-    val topHighlight: Float get() = (preset.profile.highlightScale * edge).coerceIn(0.08f, 3.40f)
-    val bottomShadow: Float get() = (preset.profile.depthScale * (0.84f + density * 0.10f)).coerceIn(0.08f, 3.00f)
+    val topHighlight: Float get() = (preset.profile.highlightScale * edge).coerceIn(0.02f, 3.40f)
+    val bottomShadow: Float get() = (preset.profile.depthScale * (0.84f + density * 0.10f)).coerceIn(0.02f, 3.00f)
     val cornerGlint: Float get() = (preset.profile.glintScale * edge).coerceIn(0f, 3.00f)
-    val strokeWidth: Float get() = (preset.profile.strokeScale * (0.72f + edge * 0.24f + density * 0.08f)).coerceIn(0.42f, 2.30f)
+    val strokeWidth: Float get() = (preset.profile.strokeScale * (0.72f + edge * 0.24f + density * 0.08f)).coerceIn(0.10f, 2.30f)
     val shadowAlpha: Float get() = (preset.profile.shadowScale * (0.88f + density * 0.08f)).coerceIn(0f, 2.60f)
     val radiusScale: Float get() = preset.profile.radiusScale
 }
@@ -82,17 +82,17 @@ private val ComposeGlassPreset.profile: ComposeGlassPresetProfile
             radiusScale = 1.04f
         )
         ComposeGlassPreset.Frost -> ComposeGlassPresetProfile(
-            backdropScale = 0.94f,
-            blurScale = 1.10f,
-            frostScale = 1.22f,
-            rimScale = 1.10f,
-            innerRimScale = 0.82f,
-            highlightScale = 1.18f,
-            depthScale = 1.04f,
-            glintScale = 0.82f,
-            strokeScale = 1.00f,
-            shadowScale = 0.92f,
-            radiusScale = 1.00f
+            backdropScale = 0.96f,
+            blurScale = 0.86f,
+            frostScale = 1.00f,
+            rimScale = 0.40f,
+            innerRimScale = 0.00f,
+            highlightScale = 1.14f,
+            depthScale = 0.165f,
+            glintScale = 0.46f,
+            strokeScale = 0.42f,
+            shadowScale = 0.31f,
+            radiusScale = 0.92f
         )
         ComposeGlassPreset.Crystal -> ComposeGlassPresetProfile(
             backdropScale = 1.03f,
@@ -145,8 +145,8 @@ private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPr
     ComposeGlassPreset.Frost -> ComposeGlassStyle(
         preset = preset,
         backdrop = 0.96f,
-        density = 1.12f,
-        edge = 1.12f
+        density = 0.15f,
+        edge = 1.00f
     )
     ComposeGlassPreset.Crystal -> ComposeGlassStyle(
         preset = preset,
