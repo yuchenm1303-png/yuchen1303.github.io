@@ -32,6 +32,8 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.AgentExecutionMode
+import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AgentTaskRunner
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
@@ -123,11 +125,7 @@ class AssistantViewModel(
 
     fun deleteLedgerRecord(id: String) { uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id }) }
 
-    fun updateComposer(text: String) {
-        if (text == uiState.composerText) return
-        uiState = uiState.copy(composerText = text)
-    }
-
+    fun updateComposer(text: String) { if (text != uiState.composerText) uiState = uiState.copy(composerText = text) }
     fun submitComposer() { sendUserCommand(uiState.composerText) }
 
     fun sendUserCommand(text: String) {
@@ -137,7 +135,6 @@ class AssistantViewModel(
         val attachments = uiState.composerAttachments.mapNotNull { it.takeIf { item -> item.isReady }?.toChatAttachment() }
         if (uiState.isSending || hasPreparingAttachment) return
         if (cleanText.isBlank() && attachments.isEmpty()) return
-
         val baseText = cleanText.ifBlank { "请根据视觉附件进行分析。" }
         val userText = if (attachments.isNotEmpty()) listOf(baseText, attachmentMessageFlag(attachments)).joinToString("\n\n") else baseText
         val hasImages = attachments.any { it.mimeType.startsWith("image/") }
@@ -160,20 +157,13 @@ class AssistantViewModel(
         val cleanGoal = goal.trim().take(240)
         if (cleanGoal.isBlank() || uiState.isSending) return
         val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanGoal, role = MessageRole.User)
-        val pendingMessage = ChatMessage(
-            id = nextLocalId("assistant"),
-            text = "正在执行手机智能体任务…",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sending,
-            source = "local_agent",
-            modelLabel = "手机智能体"
-        )
+        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在执行手机智能体任务…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "local_agent", modelLabel = "手机智能体")
         uiState = uiState.copy(messages = uiState.messages + userMessage + pendingMessage, composerText = "", isSending = true)
         activeSendJob?.cancel()
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
             try {
-                val message = buildAgentTaskMessage(pendingMessage.id, cleanGoal)
+                val message = buildAgentTaskMessage(pendingMessage.id, cleanGoal, AgentExecutionMode.VisualForce)
                 if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, message)
             } catch (error: CancellationException) {
                 if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
@@ -190,10 +180,20 @@ class AssistantViewModel(
         }
     }
 
-    private suspend fun buildAgentTaskMessage(id: String, goal: String): ChatMessage {
-        if (!AiAgentAccessibilityService.isConnected()) return buildAgentGuideMessage(id)
-        val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8)
+    private suspend fun buildAgentTaskMessage(id: String, goal: String, executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent): ChatMessage {
+        val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8, executionMode = executionMode)
         return buildAgentRunMessage(id, goal, result)
+    }
+
+    private suspend fun tryRunNormalChatDeviceTool(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage, selectedModel: ChatModel): Boolean {
+        if (AgentRuntimeController.isEnabled()) return false
+        if (requestMessages.any { it.hasImageAttachments }) return false
+        val goal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty().take(240)
+        if (goal.isBlank()) return false
+        val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(goal = goal, modelPreference = selectedModel, maxSteps = 2, executionMode = AgentExecutionMode.NormalChatDeviceTool)
+        if (!result.handled) return false
+        if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, buildAgentRunMessage(pendingMessage.id, goal, result))
+        return true
     }
 
     private fun buildAgentRunMessage(id: String, goal: String, result: AgentTaskRunResult): ChatMessage {
@@ -252,7 +252,7 @@ class AssistantViewModel(
             append("手机智能体开启引导\n\n")
             append("状态：未开启\n")
             append("我已为你弹出开启引导。请点击弹窗里的“去开启”，然后在系统无障碍设置里打开“AI助手”。\n\n")
-            append("开启后回到 App，可以让云端判断是否需要执行手机任务。")
+            append("开启后回到 App，可以让云端判断是否需要执行屏幕观察、点击、输入或滚动任务。内部设备工具不依赖这个开关。")
         }
         return ChatMessage(id = id, text = guideText, role = MessageRole.Assistant, source = "local_agent", modelLabel = "需要开启")
     }
@@ -304,9 +304,7 @@ class AssistantViewModel(
         updateNavigationAddress(slot, cleanAddress)
     }
 
-    private fun buildMobileCommandPreviewMessage(id: String, command: MobileCommand): ChatMessage {
-        return ChatMessage(id = id, text = commandReplyPrefix(command) + "\n\n动作：${command.title}\n详情：${command.summary}\n\n回复“确认”执行，或回复“取消”。", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "待确认")
-    }
+    private fun buildMobileCommandPreviewMessage(id: String, command: MobileCommand): ChatMessage = ChatMessage(id = id, text = commandReplyPrefix(command) + "\n\n动作：${command.title}\n详情：${command.summary}\n\n回复“确认”执行，或回复“取消”。", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "待确认")
 
     private fun commandReplyPrefix(command: MobileCommand): String = when (command) {
         is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"
@@ -367,324 +365,110 @@ class AssistantViewModel(
         val onlineEnabled = uiState.onlineEnabled || shouldAutoEnableOnline(requestMessages)
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
+            if (tryRunNormalChatDeviceTool(requestMessages, pendingMessage, selectedModel)) {
+                if (activePendingMessageId == pendingMessage.id) {
+                    activeSendJob = null
+                    activePendingMessageId = null
+                    uiState = uiState.copy(isSending = false)
+                }
+                return@launch
+            }
+
             val deltaChannel = Channel<String>(Channel.UNLIMITED)
             val streamBuffer = StringBuilder()
             var lastFlushedText = ""
             var lastFlushAt = System.currentTimeMillis()
             var streamClosed = false
-
-            fun isStreamingBreakChar(char: Char): Boolean {
-                return char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' ||
-                    char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' ||
-                    char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
-            }
-
+            fun isStreamingBreakChar(char: Char): Boolean = char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' || char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' || char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
             fun nextStreamingFlushEnd(fullText: String, displayed: Int, force: Boolean, now: Long): Int {
                 if (force) return fullText.length
                 val available = fullText.length - displayed
                 if (available <= 0) return displayed
-
                 val elapsed = now - lastFlushAt
                 val total = fullText.length
                 val firstFlush = displayed == 0
                 if (firstFlush) {
                     if (available < 4 && elapsed < 180L) return displayed
-                    val firstMax = when {
-                        total >= 96 -> 12
-                        total >= 48 -> 10
-                        else -> 8
-                    }
+                    val firstMax = when { total >= 96 -> 12; total >= 48 -> 10; else -> 8 }
                     val softEnd = minOf(fullText.length, displayed + firstMax)
-                    for (index in displayed + 5 until softEnd) {
-                        if (isStreamingBreakChar(fullText[index])) return index + 1
-                    }
+                    for (index in displayed + 5 until softEnd) if (isStreamingBreakChar(fullText[index])) return index + 1
                     return softEnd
                 }
-
-                val minChunk = when {
-                    total >= 1600 -> 28
-                    total >= 900 -> 24
-                    total >= 420 -> 18
-                    else -> 10
-                }
-                val idealChunk = when {
-                    total >= 1600 -> 56
-                    total >= 900 -> 46
-                    total >= 420 -> 36
-                    else -> 24
-                }
+                val minChunk = when { total >= 1600 -> 28; total >= 900 -> 24; total >= 420 -> 18; else -> 10 }
+                val idealChunk = when { total >= 1600 -> 56; total >= 900 -> 46; total >= 420 -> 36; else -> 24 }
                 val relaxedMin = maxOf(8, minChunk / 2)
                 if (available < minChunk && elapsed < 140L) return displayed
                 if (available < relaxedMin && elapsed < 260L) return displayed
-
                 val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk))
                 val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk))
-                for (index in minEnd - 1 until maxEnd) {
-                    if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
-                }
+                for (index in minEnd - 1 until maxEnd) if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
                 if (available >= idealChunk || elapsed >= 190L) return maxEnd
                 return displayed
             }
-
             fun flushStreamingText(force: Boolean = false) {
                 if (streamBuffer.isEmpty()) return
                 val fullText = streamBuffer.toString()
                 val now = System.currentTimeMillis()
-                val nextEnd = nextStreamingFlushEnd(
-                    fullText = fullText,
-                    displayed = lastFlushedText.length,
-                    force = force,
-                    now = now
-                )
+                val nextEnd = nextStreamingFlushEnd(fullText, lastFlushedText.length, force, now)
                 if (nextEnd <= lastFlushedText.length) return
-
                 val nextText = fullText.take(nextEnd)
                 if (nextText.isBlank() || nextText == lastFlushedText) return
                 lastFlushedText = nextText
                 lastFlushAt = now
-                if (activePendingMessageId == pendingMessage.id) {
-                    replaceMessage(
-                        pendingMessage.id,
-                        pendingMessage.copy(
-                            text = nextText,
-                            status = MessageStatus.Sending,
-                            source = "cloud_ai",
-                            modelLabel = selectedModel.label,
-                            errorText = null
-                        )
-                    )
-                }
+                if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, pendingMessage.copy(text = nextText, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = selectedModel.label, errorText = null))
             }
-
-            val streamCollectorJob = launch {
-                try {
-                    for (delta in deltaChannel) {
-                        if (delta.isBlank()) continue
-                        streamBuffer.append(delta)
-                        flushStreamingText(force = false)
-                    }
-                } finally {
-                    flushStreamingText(force = true)
-                }
-            }
-
-            val streamSmootherJob = launch {
-                while (!streamClosed) {
-                    delay(72L)
-                    flushStreamingText(force = false)
-                }
-            }
-
+            val streamCollectorJob = launch { try { for (delta in deltaChannel) { if (delta.isNotBlank()) { streamBuffer.append(delta); flushStreamingText(false) } } } finally { flushStreamingText(true) } }
+            val streamSmootherJob = launch { while (!streamClosed) { delay(72L); flushStreamingText(false) } }
             try {
                 val response = withContext(Dispatchers.IO) {
-                    try {
-                        aiWorkerClient.streamChat(requestMessages, selectedModel, onlineEnabled) { delta ->
-                            if (delta.isNotBlank()) deltaChannel.trySend(delta)
-                        }
-                    } finally {
-                        deltaChannel.close()
-                    }
+                    try { aiWorkerClient.streamChat(requestMessages, selectedModel, onlineEnabled) { delta -> if (delta.isNotBlank()) deltaChannel.trySend(delta) } } finally { deltaChannel.close() }
                 }
                 streamClosed = true
-                streamCollectorJob.join()
-                streamSmootherJob.cancel()
-                flushStreamingText(force = true)
-
+                streamCollectorJob.join(); streamSmootherJob.cancel(); flushStreamingText(true)
                 if (activePendingMessageId == pendingMessage.id) {
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     val latestGoal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
                     when {
-                        cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal)))
+                        cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal), AgentExecutionMode.ExplicitAgent))
                         cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
                         cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
-                        else -> replaceMessage(
-                            pendingMessage.id,
-                            pendingMessage.copy(
-                                text = decorateReply(response, onlineEnabled),
-                                status = MessageStatus.Sent,
-                                source = response.source,
-                                model = response.model,
-                                modelLabel = response.modelLabel ?: selectedModel.label,
-                                version = response.version,
-                                errorText = null,
-                                webSources = response.webSources,
-                                structuredData = response.structuredData,
-                                searchUsed = response.searchUsed,
-                                searchProvider = response.searchProvider
-                            )
-                        )
+                        else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider))
                     }
                 }
             } catch (error: CancellationException) {
-                streamClosed = true
-                deltaChannel.close()
-                streamCollectorJob.cancel()
-                streamSmootherJob.cancel()
-                if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
+                streamClosed = true; deltaChannel.close(); streamCollectorJob.cancel(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
             } catch (error: Throwable) {
-                streamClosed = true
-                deltaChannel.close()
-                streamCollectorJob.join()
-                streamSmootherJob.cancel()
-                if (activePendingMessageId == pendingMessage.id) {
-                    val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"
-                    replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly))
-                }
+                streamClosed = true; deltaChannel.close(); streamCollectorJob.join(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"; replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly)) }
             } finally {
-                streamClosed = true
-                streamSmootherJob.cancel()
-                if (activePendingMessageId == pendingMessage.id) {
-                    activeSendJob = null
-                    activePendingMessageId = null
-                    uiState = uiState.copy(isSending = false)
-                }
+                streamClosed = true; streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) }
             }
         }
     }
 
-    private fun markMessageStopped(id: String) {
-        val current = uiState.messages.firstOrNull { it.id == id } ?: return
-        replaceMessage(id, current.copy(text = "已暂停生成。", status = MessageStatus.Sent, source = "local", modelLabel = "已暂停", errorText = null))
-    }
-
+    private fun markMessageStopped(id: String) { val current = uiState.messages.firstOrNull { it.id == id } ?: return; replaceMessage(id, current.copy(text = "已暂停生成。", status = MessageStatus.Sent, source = "local", modelLabel = "已暂停", errorText = null)) }
     fun insertCommandDraft(text: String) { uiState = uiState.copy(composerText = text) }
-
-    fun cycleModel() {
-        if (uiState.isSending) return
-        val next = when (uiState.selectedModel) {
-            ChatModel.Auto -> ChatModel.Workers
-            ChatModel.Workers -> ChatModel.Gemini
-            ChatModel.Gemini -> ChatModel.Kimi
-            ChatModel.Kimi -> ChatModel.Mistral
-            ChatModel.Mistral -> ChatModel.Auto
-            else -> ChatModel.Auto
-        }
-        selectModel(next)
-    }
-
-    fun selectModel(model: ChatModel) {
-        if (uiState.isSending) return
-        uiState = uiState.copy(selectedModel = model, selectedModelLabel = model.label)
-        appendAssistantNotice("已切换为 ${model.label}。", source = "local")
-    }
-
-    fun toggleOnline() {
-        if (uiState.isSending) return
-        val enabled = !uiState.onlineEnabled
-        uiState = uiState.copy(onlineEnabled = enabled)
-        appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local")
-    }
-
-    fun clearChat() {
-        activeSendJob?.cancel(CancellationException("user cleared chat"))
-        activeSendJob = null
-        activePendingMessageId = null
-        uiState = uiState.copy(
-            messages = emptyList(),
-            composerText = "",
-            composerAttachments = emptyList(),
-            isSending = false
-        )
-    }
-
-    fun removeComposerAttachment(id: String) {
-        if (uiState.isSending) return
-        uiState = uiState.copy(composerAttachments = uiState.composerAttachments.filterNot { it.id == id })
-    }
-
-    fun onImagePickedForAssistant(uri: Uri?) {
-        if (uri == null || uiState.isSending) return
-        val attachmentId = nextLocalId("composer-image")
-        val draft = ComposerAttachment(id = attachmentId, localUri = uri.toString(), previewUri = uri.toString(), fileName = uri.lastPathSegment?.takeLast(48), progress = 0.12f, status = ComposerAttachmentStatus.Preparing)
-        uiState = uiState.copy(composerAttachments = uiState.composerAttachments + draft)
-        viewModelScope.launch {
-            try {
-                updateComposerAttachment(attachmentId) { it.copy(progress = 0.42f, status = ComposerAttachmentStatus.Preparing) }
-                val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri, attachmentId) }
-                updateComposerAttachment(attachmentId) { it.copy(mimeType = attachment.mimeType, fileName = attachment.fileName, width = attachment.width, height = attachment.height, sizeBytes = attachment.sizeBytes, base64Data = attachment.base64Data, previewUri = attachment.previewUri, progress = 1f, status = ComposerAttachmentStatus.Ready, errorText = null) }
-            } catch (error: Throwable) {
-                val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"
-                updateComposerAttachment(attachmentId) { it.copy(progress = 1f, status = ComposerAttachmentStatus.Failed, errorText = friendly) }
-            }
-        }
-    }
-
-    private fun updateComposerAttachment(id: String, block: (ComposerAttachment) -> ComposerAttachment) {
-        uiState = uiState.copy(composerAttachments = uiState.composerAttachments.map { item -> if (item.id == id) block(item) else item })
-    }
-
+    fun cycleModel() { if (!uiState.isSending) selectModel(when (uiState.selectedModel) { ChatModel.Auto -> ChatModel.Workers; ChatModel.Workers -> ChatModel.Gemini; ChatModel.Gemini -> ChatModel.Kimi; ChatModel.Kimi -> ChatModel.Mistral; ChatModel.Mistral -> ChatModel.Auto; else -> ChatModel.Auto }) }
+    fun selectModel(model: ChatModel) { if (uiState.isSending) return; uiState = uiState.copy(selectedModel = model, selectedModelLabel = model.label); appendAssistantNotice("已切换为 ${model.label}。", source = "local") }
+    fun toggleOnline() { if (uiState.isSending) return; val enabled = !uiState.onlineEnabled; uiState = uiState.copy(onlineEnabled = enabled); appendAssistantNotice(if (enabled) "已开启联网开关。下一步会随请求传给 Worker。" else "已关闭联网开关。", source = "local") }
+    fun clearChat() { activeSendJob?.cancel(CancellationException("user cleared chat")); activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(messages = emptyList(), composerText = "", composerAttachments = emptyList(), isSending = false) }
+    fun removeComposerAttachment(id: String) { if (!uiState.isSending) uiState = uiState.copy(composerAttachments = uiState.composerAttachments.filterNot { it.id == id }) }
+    fun onImagePickedForAssistant(uri: Uri?) { if (uri == null || uiState.isSending) return; val attachmentId = nextLocalId("composer-image"); val draft = ComposerAttachment(id = attachmentId, localUri = uri.toString(), previewUri = uri.toString(), fileName = uri.lastPathSegment?.takeLast(48), progress = 0.12f, status = ComposerAttachmentStatus.Preparing); uiState = uiState.copy(composerAttachments = uiState.composerAttachments + draft); viewModelScope.launch { try { updateComposerAttachment(attachmentId) { it.copy(progress = 0.42f, status = ComposerAttachmentStatus.Preparing) }; val attachment = withContext(Dispatchers.IO) { encodeAssistantImageAttachment(uri, attachmentId) }; updateComposerAttachment(attachmentId) { it.copy(mimeType = attachment.mimeType, fileName = attachment.fileName, width = attachment.width, height = attachment.height, sizeBytes = attachment.sizeBytes, base64Data = attachment.base64Data, previewUri = attachment.previewUri, progress = 1f, status = ComposerAttachmentStatus.Ready, errorText = null) } } catch (error: Throwable) { val friendly = error.message?.takeIf { it.isNotBlank() } ?: "图片处理失败，请换一张图片再试。"; updateComposerAttachment(attachmentId) { it.copy(progress = 1f, status = ComposerAttachmentStatus.Failed, errorText = friendly) } } } }
+    private fun updateComposerAttachment(id: String, block: (ComposerAttachment) -> ComposerAttachment) { uiState = uiState.copy(composerAttachments = uiState.composerAttachments.map { item -> if (item.id == id) block(item) else item }) }
     private fun stripVisualAttachmentStatus(text: String): String = if (text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) "" else text
-
-    private fun attachmentMessageFlag(attachments: List<ChatAttachment>): String {
-        val first = attachments.firstOrNull()
-        val meta = first?.let { attachmentMeta(it) } ?: "图片 ${attachments.size} 张"
-        return listOf("视觉附件", "图片 ${attachments.size} 张", meta).distinct().joinToString(" · ")
-    }
-
-    private fun attachmentMeta(attachment: ChatAttachment): String {
-        val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"
-        val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"
-        return "$dimensions · $size"
-    }
-
-    private fun encodeAssistantImageAttachment(uri: Uri, attachmentId: String = nextLocalId("image")): ChatAttachment {
-        val resolver = getApplication<Application>().contentResolver
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        val canOpen = resolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds); true } ?: false
-        if (!canOpen) throw IOException("无法读取图片")
-        val rawWidth = bounds.outWidth.takeIf { it > 0 } ?: throw IOException("无法解析图片宽度")
-        val rawHeight = bounds.outHeight.takeIf { it > 0 } ?: throw IOException("无法解析图片高度")
-        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = imageSampleSize(rawWidth, rawHeight, ASSISTANT_IMAGE_MAX_DIMENSION); inPreferredConfig = Bitmap.Config.ARGB_8888 }
-        val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) } ?: throw IOException("图片解码失败")
-        val scaled = decoded.scaleToMaxDimension(ASSISTANT_IMAGE_MAX_DIMENSION)
-        if (scaled !== decoded) decoded.recycle()
-        val width = scaled.width
-        val height = scaled.height
-        val output = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, ASSISTANT_IMAGE_JPEG_QUALITY, output)
-        scaled.recycle()
-        val bytes = output.toByteArray()
-        if (bytes.size > ASSISTANT_IMAGE_MAX_BYTES) throw IOException("图片压缩后仍然过大，请裁剪后再试。")
-        return ChatAttachment(id = attachmentId, mimeType = "image/jpeg", base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP), fileName = uri.lastPathSegment?.takeLast(48), width = width, height = height, sizeBytes = bytes.size, previewUri = uri.toString())
-    }
-
+    private fun attachmentMessageFlag(attachments: List<ChatAttachment>): String { val first = attachments.firstOrNull(); val meta = first?.let { attachmentMeta(it) } ?: "图片 ${attachments.size} 张"; return listOf("视觉附件", "图片 ${attachments.size} 张", meta).distinct().joinToString(" · ") }
+    private fun attachmentMeta(attachment: ChatAttachment): String { val dimensions = if (attachment.width != null && attachment.height != null) "${attachment.width}×${attachment.height}" else "图片"; val size = attachment.sizeBytes?.let { "${max(1, it / 1024)} KB" } ?: "已压缩"; return "$dimensions · $size" }
+    private fun encodeAssistantImageAttachment(uri: Uri, attachmentId: String = nextLocalId("image")): ChatAttachment { val resolver = getApplication<Application>().contentResolver; val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }; val canOpen = resolver.openInputStream(uri)?.use { stream -> BitmapFactory.decodeStream(stream, null, bounds); true } ?: false; if (!canOpen) throw IOException("无法读取图片"); val rawWidth = bounds.outWidth.takeIf { it > 0 } ?: throw IOException("无法解析图片宽度"); val rawHeight = bounds.outHeight.takeIf { it > 0 } ?: throw IOException("无法解析图片高度"); val decodeOptions = BitmapFactory.Options().apply { inSampleSize = imageSampleSize(rawWidth, rawHeight, ASSISTANT_IMAGE_MAX_DIMENSION); inPreferredConfig = Bitmap.Config.ARGB_8888 }; val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) } ?: throw IOException("图片解码失败"); val scaled = decoded.scaleToMaxDimension(ASSISTANT_IMAGE_MAX_DIMENSION); if (scaled !== decoded) decoded.recycle(); val width = scaled.width; val height = scaled.height; val output = ByteArrayOutputStream(); scaled.compress(Bitmap.CompressFormat.JPEG, ASSISTANT_IMAGE_JPEG_QUALITY, output); scaled.recycle(); val bytes = output.toByteArray(); if (bytes.size > ASSISTANT_IMAGE_MAX_BYTES) throw IOException("图片压缩后仍然过大，请裁剪后再试。"); return ChatAttachment(id = attachmentId, mimeType = "image/jpeg", base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP), fileName = uri.lastPathSegment?.takeLast(48), width = width, height = height, sizeBytes = bytes.size, previewUri = uri.toString()) }
     private fun imageSampleSize(width: Int, height: Int, maxDimension: Int): Int { var sample = 1; while (max(width / sample, height / sample) > maxDimension * 2) sample *= 2; return sample.coerceAtLeast(1) }
     private fun Bitmap.scaleToMaxDimension(maxDimension: Int): Bitmap { val longSide = max(width, height); if (longSide <= maxDimension) return this; val scale = maxDimension.toFloat() / longSide.toFloat(); return Bitmap.createScaledBitmap(this, (width * scale).toInt().coerceAtLeast(1), (height * scale).toInt().coerceAtLeast(1), true) }
-
     fun appendAssistantNotice(text: String, source: String? = null) { uiState = uiState.copy(messages = uiState.messages + ChatMessage(id = nextLocalId("assistant"), text = text, role = MessageRole.Assistant, source = source, modelLabel = sourceLabel(source))) }
     private fun replaceMessage(id: String, next: ChatMessage) { uiState = uiState.copy(messages = uiState.messages.map { if (it.id == id) next else it }) }
     private fun sourceLabel(source: String?): String? = when (source) { "local" -> "本地"; "local_ledger" -> "本地记账"; "local_mobile" -> "手机动作"; "local_agent" -> "手机智能体"; "cloud_fetch_failed" -> "云端连接失败"; else -> null }
     private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
-
-    private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
-        if (messages.any { it.hasImageAttachments }) return false
-        val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
-        if (latestUserText.isBlank() || hasNoOnlineIntent(latestUserText)) return false
-        val realtimePattern = Regex(pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)", option = RegexOption.IGNORE_CASE)
-        return realtimePattern.containsMatchIn(latestUserText)
-    }
-
+    private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean { if (messages.any { it.hasImageAttachments }) return false; val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty(); if (latestUserText.isBlank() || hasNoOnlineIntent(latestUserText)) return false; val realtimePattern = Regex(pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)", option = RegexOption.IGNORE_CASE); return realtimePattern.containsMatchIn(latestUserText) }
     private fun hasNoOnlineIntent(text: String): Boolean = Regex(pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)", option = RegexOption.IGNORE_CASE).containsMatchIn(text)
-
-    private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
-        val sections = mutableListOf(response.reply.trim())
-        response.preferenceUpdate?.let { update -> if (update.type == "navigation_address") sections += "已保存导航偏好：${update.label} · ${update.value}" }
-        response.structuredData?.let { data ->
-            val metrics = data.metrics.take(6).joinToString("\n") { metric -> val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty(); val detail = metric.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty(); "- ${metric.label}: ${metric.value}$unit$detail" }
-            val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · ")
-            sections += buildString { append("实时数据："); append(header.ifBlank { data.type }); if (metrics.isNotBlank()) append("\n").append(metrics); data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) } }
-        }
-        if (response.webSources.isNotEmpty()) {
-            val provider = response.searchProvider?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-            val sources = response.webSources.take(4).mapIndexed { index, source -> val domain = source.domain.ifBlank { source.url.substringAfter("://").substringBefore('/') }; val title = source.title.ifBlank { domain.ifBlank { "来源 ${index + 1}" } }; val date = source.publishedAt?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(); "${index + 1}. $title${if (domain.isNotBlank()) " · $domain" else ""}$date" }.joinToString("\n")
-            sections += "联网来源$provider:\n$sources"
-        }
-        if (onlineEnabled && response.structuredData == null && response.webSources.isEmpty()) sections += "联网诊断：App 已发送联网请求，但后端没有返回 structuredData 或 sources[]。请确认阿里云函数已部署 web-data-v2 版本，并且普通搜索已配置 TAVILY_API_KEY。"
-        return sections.filter { it.isNotBlank() }.joinToString("\n\n")
-    }
-
+    private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String { val sections = mutableListOf(response.reply.trim()); response.preferenceUpdate?.let { update -> if (update.type == "navigation_address") sections += "已保存导航偏好：${update.label} · ${update.value}" }; response.structuredData?.let { data -> val metrics = data.metrics.take(6).joinToString("\n") { metric -> val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty(); val detail = metric.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty(); "- ${metric.label}: ${metric.value}$unit$detail" }; val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · "); sections += buildString { append("实时数据："); append(header.ifBlank { data.type }); if (metrics.isNotBlank()) append("\n").append(metrics); data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) } } }; if (response.webSources.isNotEmpty()) { val provider = response.searchProvider?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(); val sources = response.webSources.take(4).mapIndexed { index, source -> val domain = source.domain.ifBlank { source.url.substringAfter("://").substringBefore('/') }; val title = source.title.ifBlank { domain.ifBlank { "来源 ${index + 1}" } }; val date = source.publishedAt?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(); "${index + 1}. $title${if (domain.isNotBlank()) " · $domain" else ""}$date" }.joinToString("\n"); sections += "联网来源$provider:\n$sources" }; if (onlineEnabled && response.structuredData == null && response.webSources.isEmpty()) sections += "联网诊断：App 已发送联网请求，但后端没有返回 structuredData 或 sources[]。请确认阿里云函数已部署 web-data-v2 版本，并且普通搜索已配置 TAVILY_API_KEY。"; return sections.filter { it.isNotBlank() }.joinToString("\n\n") }
     fun selectQuality(quality: RenderQuality) { uiState = uiState.copy(quality = quality); viewModelScope.launch { preferencesStore.setRenderQuality(quality) } }
     fun setShowPreviewConversation(showPreviewConversation: Boolean) { uiState = uiState.copy(showPreviewConversation = showPreviewConversation); viewModelScope.launch { preferencesStore.setShowPreviewConversation(showPreviewConversation) } }
     fun setBackgroundTheme(backgroundTheme: BackgroundTheme) { uiState = uiState.copy(backgroundTheme = backgroundTheme, customBackgroundPath = BUILTIN_THEME_BACKGROUND_PATH); viewModelScope.launch { preferencesStore.setBackgroundTheme(backgroundTheme); preferencesStore.setCustomBackgroundPath(null) } }
