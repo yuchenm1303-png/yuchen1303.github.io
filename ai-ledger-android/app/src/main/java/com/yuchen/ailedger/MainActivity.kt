@@ -25,6 +25,10 @@ private const val ENABLE_STARTUP_METRICS_OVERLAY = false
 
 class MainActivity : ComponentActivity() {
     private var accessibilityShieldApplied: Boolean = false
+    private val accessibilityShieldHandler = Handler(Looper.getMainLooper())
+    private val accessibilityShieldRunnable = Runnable {
+        applyAccessibilityPerformanceShield(window.decorView)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         if (ENABLE_STARTUP_FRAME_MONITOR) {
@@ -44,12 +48,18 @@ class MainActivity : ComponentActivity() {
             if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
             AiAssistantNativeApp()
         }
+        reinforceAccessibilityPerformanceShield(window.decorView)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
     }
 
     override fun onResume() {
         super.onResume()
-        if (!accessibilityShieldApplied) installAccessibilityPerformanceShield(window.decorView)
+        reinforceAccessibilityPerformanceShield(window.decorView)
+    }
+
+    override fun onDestroy() {
+        accessibilityShieldHandler.removeCallbacks(accessibilityShieldRunnable)
+        super.onDestroy()
     }
 
     private fun prepareWindow(window: Window) {
@@ -73,13 +83,30 @@ class MainActivity : ComponentActivity() {
     private fun installAccessibilityPerformanceShield(root: View) {
         // 首帧前立刻隐藏整棵 Compose 视图树，避免首次启用无障碍时系统递归遍历高复杂 UI。
         // 智能体真正观察外部应用时走 AccessibilityService 的按需 Working 模式，不依赖本 App 自身语义树。
+        applyAccessibilityPerformanceShield(root)
+        accessibilityShieldApplied = true
+        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("首帧前无障碍性能屏蔽完成")
+    }
+
+    private fun reinforceAccessibilityPerformanceShield(root: View) {
+        applyAccessibilityPerformanceShield(root)
+        root.post(accessibilityShieldRunnable)
+        accessibilityShieldHandler.removeCallbacks(accessibilityShieldRunnable)
+        accessibilityShieldHandler.postDelayed(accessibilityShieldRunnable, ACCESSIBILITY_SHIELD_REAPPLY_DELAY_MS)
+    }
+
+    private fun applyAccessibilityPerformanceShield(root: View) {
         root.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             root.isFocusedByDefault = false
             root.isScreenReaderFocusable = false
         }
+        if (root is ViewGroup) {
+            for (index in 0 until root.childCount) {
+                applyAccessibilityPerformanceShield(root.getChildAt(index))
+            }
+        }
         accessibilityShieldApplied = true
-        if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("首帧前无障碍性能屏蔽完成")
     }
 
     private fun requestHighRefreshRate(window: Window) {
@@ -193,5 +220,9 @@ class MainActivity : ComponentActivity() {
             }
         }
         ticker.run()
+    }
+
+    private companion object {
+        private const val ACCESSIBILITY_SHIELD_REAPPLY_DELAY_MS = 240L
     }
 }
