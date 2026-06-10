@@ -33,7 +33,6 @@ import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AgentExecutionMode
-import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AgentTaskRunner
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
@@ -186,7 +185,6 @@ class AssistantViewModel(
     }
 
     private suspend fun tryRunNormalChatDeviceTool(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage, selectedModel: ChatModel): Boolean {
-        if (AgentRuntimeController.isEnabled()) return false
         if (requestMessages.any { it.hasImageAttachments }) return false
         val goal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty().take(240)
         if (goal.isBlank()) return false
