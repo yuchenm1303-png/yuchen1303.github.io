@@ -181,7 +181,14 @@ class AssistantViewModel(
 
     private suspend fun buildAgentTaskMessage(id: String, goal: String, executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent): ChatMessage {
         val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(goal = goal, modelPreference = uiState.selectedModel, maxSteps = 8, executionMode = executionMode)
+        if (executionMode != AgentExecutionMode.NormalChatDeviceTool && shouldOpenAccessibilityGuide(result)) return buildAgentGuideMessage(id)
         return buildAgentRunMessage(id, goal, result)
+    }
+
+    private fun shouldOpenAccessibilityGuide(result: AgentTaskRunResult): Boolean {
+        if (result.completed) return false
+        val text = result.message.lowercase()
+        return text.contains("无障碍服务未开启") || text.contains("无障碍服务未连接") || text.contains("需要视觉/无障碍") || text.contains("无障碍执行")
     }
 
     private suspend fun tryRunNormalChatDeviceTool(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage, selectedModel: ChatModel): Boolean {
@@ -280,82 +287,17 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
     }
 
-    fun updateNavigationAddress(slot: String, address: String) {
-        val cleanAddress = address.trim().take(80)
-        uiState = when (slot) {
-            "home" -> uiState.copy(navigationHomeAddress = cleanAddress)
-            "school" -> uiState.copy(navigationSchoolAddress = cleanAddress)
-            "company" -> uiState.copy(navigationCompanyAddress = cleanAddress)
-            "dorm" -> uiState.copy(navigationDormAddress = cleanAddress)
-            else -> uiState
-        }
-        viewModelScope.launch { preferencesStore.setNavigationAddress(slot, cleanAddress) }
-    }
-
-    fun saveNavigationAddress(userText: String, slot: String, address: String, label: String) {
-        val cleanText = userText.trim()
-        val cleanAddress = address.trim().take(80)
-        if (cleanText.isBlank() || cleanAddress.isBlank() || uiState.isSending) return
-        val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User)
-        val assistantMessage = ChatMessage(id = nextLocalId("assistant"), text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "导航偏好")
-        uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false)
-        updateNavigationAddress(slot, cleanAddress)
-    }
-
+    fun updateNavigationAddress(slot: String, address: String) { val cleanAddress = address.trim().take(80); uiState = when (slot) { "home" -> uiState.copy(navigationHomeAddress = cleanAddress); "school" -> uiState.copy(navigationSchoolAddress = cleanAddress); "company" -> uiState.copy(navigationCompanyAddress = cleanAddress); "dorm" -> uiState.copy(navigationDormAddress = cleanAddress); else -> uiState }; viewModelScope.launch { preferencesStore.setNavigationAddress(slot, cleanAddress) } }
+    fun saveNavigationAddress(userText: String, slot: String, address: String, label: String) { val cleanText = userText.trim(); val cleanAddress = address.trim().take(80); if (cleanText.isBlank() || cleanAddress.isBlank() || uiState.isSending) return; val userMessage = ChatMessage(id = nextLocalId("user"), text = cleanText, role = MessageRole.User); val assistantMessage = ChatMessage(id = nextLocalId("assistant"), text = "已保存导航偏好。\n\n动作：保存常用地址\n详情：$label · $cleanAddress", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "导航偏好"); uiState = uiState.copy(messages = uiState.messages + userMessage + assistantMessage, composerText = "", isSending = false); updateNavigationAddress(slot, cleanAddress) }
     private fun buildMobileCommandPreviewMessage(id: String, command: MobileCommand): ChatMessage = ChatMessage(id = id, text = commandReplyPrefix(command) + "\n\n动作：${command.title}\n详情：${command.summary}\n\n回复“确认”执行，或回复“取消”。", role = MessageRole.Assistant, source = "local_mobile", modelLabel = "待确认")
-
-    private fun commandReplyPrefix(command: MobileCommand): String = when (command) {
-        is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"
-        is MobileCommand.OpenApp -> "我理解为要打开“${command.appName}”。"
-        is MobileCommand.Navigate -> "我理解为要导航到“${command.destination}”。"
-    }
-
-    private fun CloudMobileAction.toMobileCommand(): MobileCommand? = when (type) {
-        "set_alarm" -> {
-            val safeHour = hour?.takeIf { it in 0..23 } ?: return null
-            val safeMinute = minute?.takeIf { it in 0..59 } ?: 0
-            MobileCommand.SetAlarm(hour = safeHour, minute = safeMinute, label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒", dateLabel = "今天")
-        }
-        "open_app" -> {
-            val name = appName?.takeIf { it.isNotBlank() } ?: title?.takeIf { it.isNotBlank() } ?: return null
-            MobileCommand.OpenApp(appName = name, packageName = packageName)
-        }
-        "navigate" -> {
-            val target = destination?.takeIf { it.isNotBlank() } ?: return null
-            MobileCommand.Navigate(destination = target, mode = "driving")
-        }
-        else -> null
-    }
-
-    private fun CloudAgentAction.isRunAgentTask(): Boolean {
-        val text = listOf(capability, title.orEmpty(), reason.orEmpty(), goal.orEmpty()).joinToString(" ").lowercase()
-        return capability == "run_agent_task" || text.contains("run_agent") || text.contains("执行") || text.contains("任务") || text.contains("操作")
-    }
-
+    private fun commandReplyPrefix(command: MobileCommand): String = when (command) { is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"; is MobileCommand.OpenApp -> "我理解为要打开“${command.appName}”。"; is MobileCommand.Navigate -> "我理解为要导航到“${command.destination}”。" }
+    private fun CloudMobileAction.toMobileCommand(): MobileCommand? = when (type) { "set_alarm" -> { val safeHour = hour?.takeIf { it in 0..23 } ?: return null; val safeMinute = minute?.takeIf { it in 0..59 } ?: 0; MobileCommand.SetAlarm(hour = safeHour, minute = safeMinute, label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒", dateLabel = "今天") }; "open_app" -> { val name = appName?.takeIf { it.isNotBlank() } ?: title?.takeIf { it.isNotBlank() } ?: return null; MobileCommand.OpenApp(appName = name, packageName = packageName) }; "navigate" -> { val target = destination?.takeIf { it.isNotBlank() } ?: return null; MobileCommand.Navigate(destination = target, mode = "driving") }; else -> null }
+    private fun CloudAgentAction.isRunAgentTask(): Boolean { val text = listOf(capability, title.orEmpty(), reason.orEmpty(), goal.orEmpty()).joinToString(" ").lowercase(); return capability == "run_agent_task" || text.contains("run_agent") || text.contains("执行") || text.contains("任务") || text.contains("操作") }
     private fun CloudAgentAction.isObserveScreen(): Boolean = capability == "observe_screen" && !isRunAgentTask()
     private fun CloudAgentAction.resolvedGoal(fallback: String): String = goal?.takeIf { it.isNotBlank() } ?: fallback
     private fun applyCloudPreferenceUpdate(update: CloudPreferenceUpdate) { if (update.type == "navigation_address") updateNavigationAddress(update.slot, update.value) }
-
-    fun retryMessage(messageId: String) {
-        if (uiState.isSending) return
-        val assistantIndex = uiState.messages.indexOfFirst { it.id == messageId && it.role == MessageRole.Assistant }
-        if (assistantIndex <= 0) return
-        val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && (it.text.isNotBlank() || it.hasImageAttachments) } ?: return
-        val requestMessages = uiState.messages.take(assistantIndex)
-        val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label)
-        uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true)
-        sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage)
-    }
-
-    fun stopGenerating() {
-        if (!uiState.isSending) return
-        val pendingId = activePendingMessageId
-        activeSendJob?.cancel(CancellationException("user stopped generation"))
-        if (pendingId != null) markMessageStopped(pendingId)
-        activeSendJob = null
-        activePendingMessageId = null
-        uiState = uiState.copy(isSending = false)
-    }
+    fun retryMessage(messageId: String) { if (uiState.isSending) return; val assistantIndex = uiState.messages.indexOfFirst { it.id == messageId && it.role == MessageRole.Assistant }; if (assistantIndex <= 0) return; val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && (it.text.isNotBlank() || it.hasImageAttachments) } ?: return; val requestMessages = uiState.messages.take(assistantIndex); val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label); uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true); sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage) }
+    fun stopGenerating() { if (!uiState.isSending) return; val pendingId = activePendingMessageId; activeSendJob?.cancel(CancellationException("user stopped generation")); if (pendingId != null) markMessageStopped(pendingId); activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) }
 
     private fun sendPendingRequest(requestMessages: List<ChatMessage>, pendingMessage: ChatMessage) {
         activeSendJob?.cancel()
@@ -363,85 +305,28 @@ class AssistantViewModel(
         val onlineEnabled = uiState.onlineEnabled || shouldAutoEnableOnline(requestMessages)
         activePendingMessageId = pendingMessage.id
         activeSendJob = viewModelScope.launch {
-            if (tryRunNormalChatDeviceTool(requestMessages, pendingMessage, selectedModel)) {
-                if (activePendingMessageId == pendingMessage.id) {
-                    activeSendJob = null
-                    activePendingMessageId = null
-                    uiState = uiState.copy(isSending = false)
-                }
-                return@launch
-            }
-
+            if (tryRunNormalChatDeviceTool(requestMessages, pendingMessage, selectedModel)) { if (activePendingMessageId == pendingMessage.id) { activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) }; return@launch }
             val deltaChannel = Channel<String>(Channel.UNLIMITED)
             val streamBuffer = StringBuilder()
             var lastFlushedText = ""
             var lastFlushAt = System.currentTimeMillis()
             var streamClosed = false
             fun isStreamingBreakChar(char: Char): Boolean = char == '。' || char == '！' || char == '？' || char == '；' || char == '，' || char == ',' || char == '.' || char == '!' || char == '?' || char == ';' || char == ':' || char == '：' || char == '\n' || char == '）' || char == ')' || char == '】' || char == ']'
-            fun nextStreamingFlushEnd(fullText: String, displayed: Int, force: Boolean, now: Long): Int {
-                if (force) return fullText.length
-                val available = fullText.length - displayed
-                if (available <= 0) return displayed
-                val elapsed = now - lastFlushAt
-                val total = fullText.length
-                val firstFlush = displayed == 0
-                if (firstFlush) {
-                    if (available < 4 && elapsed < 180L) return displayed
-                    val firstMax = when { total >= 96 -> 12; total >= 48 -> 10; else -> 8 }
-                    val softEnd = minOf(fullText.length, displayed + firstMax)
-                    for (index in displayed + 5 until softEnd) if (isStreamingBreakChar(fullText[index])) return index + 1
-                    return softEnd
-                }
-                val minChunk = when { total >= 1600 -> 28; total >= 900 -> 24; total >= 420 -> 18; else -> 10 }
-                val idealChunk = when { total >= 1600 -> 56; total >= 900 -> 46; total >= 420 -> 36; else -> 24 }
-                val relaxedMin = maxOf(8, minChunk / 2)
-                if (available < minChunk && elapsed < 140L) return displayed
-                if (available < relaxedMin && elapsed < 260L) return displayed
-                val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk))
-                val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk))
-                for (index in minEnd - 1 until maxEnd) if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
-                if (available >= idealChunk || elapsed >= 190L) return maxEnd
-                return displayed
-            }
-            fun flushStreamingText(force: Boolean = false) {
-                if (streamBuffer.isEmpty()) return
-                val fullText = streamBuffer.toString()
-                val now = System.currentTimeMillis()
-                val nextEnd = nextStreamingFlushEnd(fullText, lastFlushedText.length, force, now)
-                if (nextEnd <= lastFlushedText.length) return
-                val nextText = fullText.take(nextEnd)
-                if (nextText.isBlank() || nextText == lastFlushedText) return
-                lastFlushedText = nextText
-                lastFlushAt = now
-                if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, pendingMessage.copy(text = nextText, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = selectedModel.label, errorText = null))
-            }
+            fun nextStreamingFlushEnd(fullText: String, displayed: Int, force: Boolean, now: Long): Int { if (force) return fullText.length; val available = fullText.length - displayed; if (available <= 0) return displayed; val elapsed = now - lastFlushAt; val total = fullText.length; val firstFlush = displayed == 0; if (firstFlush) { if (available < 4 && elapsed < 180L) return displayed; val firstMax = when { total >= 96 -> 12; total >= 48 -> 10; else -> 8 }; val softEnd = minOf(fullText.length, displayed + firstMax); for (index in displayed + 5 until softEnd) if (isStreamingBreakChar(fullText[index])) return index + 1; return softEnd }; val minChunk = when { total >= 1600 -> 28; total >= 900 -> 24; total >= 420 -> 18; else -> 10 }; val idealChunk = when { total >= 1600 -> 56; total >= 900 -> 46; total >= 420 -> 36; else -> 24 }; val relaxedMin = maxOf(8, minChunk / 2); if (available < minChunk && elapsed < 140L) return displayed; if (available < relaxedMin && elapsed < 260L) return displayed; val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk)); val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk)); for (index in minEnd - 1 until maxEnd) if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1; if (available >= idealChunk || elapsed >= 190L) return maxEnd; return displayed }
+            fun flushStreamingText(force: Boolean = false) { if (streamBuffer.isEmpty()) return; val fullText = streamBuffer.toString(); val now = System.currentTimeMillis(); val nextEnd = nextStreamingFlushEnd(fullText, lastFlushedText.length, force, now); if (nextEnd <= lastFlushedText.length) return; val nextText = fullText.take(nextEnd); if (nextText.isBlank() || nextText == lastFlushedText) return; lastFlushedText = nextText; lastFlushAt = now; if (activePendingMessageId == pendingMessage.id) replaceMessage(pendingMessage.id, pendingMessage.copy(text = nextText, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = selectedModel.label, errorText = null)) }
             val streamCollectorJob = launch { try { for (delta in deltaChannel) { if (delta.isNotBlank()) { streamBuffer.append(delta); flushStreamingText(false) } } } finally { flushStreamingText(true) } }
             val streamSmootherJob = launch { while (!streamClosed) { delay(72L); flushStreamingText(false) } }
             try {
-                val response = withContext(Dispatchers.IO) {
-                    try { aiWorkerClient.streamChat(requestMessages, selectedModel, onlineEnabled) { delta -> if (delta.isNotBlank()) deltaChannel.trySend(delta) } } finally { deltaChannel.close() }
-                }
-                streamClosed = true
-                streamCollectorJob.join(); streamSmootherJob.cancel(); flushStreamingText(true)
+                val response = withContext(Dispatchers.IO) { try { aiWorkerClient.streamChat(requestMessages, selectedModel, onlineEnabled) { delta -> if (delta.isNotBlank()) deltaChannel.trySend(delta) } } finally { deltaChannel.close() } }
+                streamClosed = true; streamCollectorJob.join(); streamSmootherJob.cancel(); flushStreamingText(true)
                 if (activePendingMessageId == pendingMessage.id) {
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     val latestGoal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
-                    when {
-                        cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal), AgentExecutionMode.ExplicitAgent))
-                        cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id))
-                        cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand))
-                        else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider))
-                    }
+                    when { cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal), AgentExecutionMode.ExplicitAgent)); cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id)); cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand)); else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider)) }
                 }
-            } catch (error: CancellationException) {
-                streamClosed = true; deltaChannel.close(); streamCollectorJob.cancel(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id)
-            } catch (error: Throwable) {
-                streamClosed = true; deltaChannel.close(); streamCollectorJob.join(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"; replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly)) }
-            } finally {
-                streamClosed = true; streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) }
-            }
+            } catch (error: CancellationException) { streamClosed = true; deltaChannel.close(); streamCollectorJob.cancel(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id) } catch (error: Throwable) { streamClosed = true; deltaChannel.close(); streamCollectorJob.join(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"; replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly)) } } finally { streamClosed = true; streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) } }
         }
     }
 
