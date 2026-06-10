@@ -274,6 +274,10 @@ class DeviceShellBridge(
         private val controlledTools = listOf(
             DeviceShellToolSpec("shell.identity", "读取 Shell 身份", DeviceShellPrivilege.AppSandbox, DeviceControlRiskLevel.Low, true, false, "执行 id / getprop 等只读命令，用于判断当前内部控制权限。"),
             DeviceShellToolSpec("shell.safe_diagnostic", "只读系统诊断", DeviceShellPrivilege.AppSandbox, DeviceControlRiskLevel.Low, true, false, "执行 allowlist 里的 dumpsys/getprop/settings get 诊断命令。"),
+            DeviceShellToolSpec("network.wifi_toggle", "Wi‑Fi 开关", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Medium, false, false, "固定模板执行 svc wifi enable/disable，并通过 global wifi_on 读回验证。"),
+            DeviceShellToolSpec("network.bluetooth_toggle", "蓝牙开关", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Medium, false, false, "固定模板执行蓝牙管理命令，并通过 global bluetooth_on 读回验证。"),
+            DeviceShellToolSpec("network.mobile_data_toggle", "移动数据开关", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Medium, false, false, "固定模板执行 svc data enable/disable，并通过 global mobile_data 读回验证。"),
+            DeviceShellToolSpec("system.dark_mode", "深色模式", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Medium, false, false, "固定模板执行 cmd uimode night yes/no/auto，并执行后读回验证。"),
             DeviceShellToolSpec("system.global_settings_write", "写入 global settings", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.High, false, true, "仅允许固定模板写入动画缩放等 global settings，并执行后读取验证。"),
             DeviceShellToolSpec("app.force_stop", "强停应用", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.High, false, true, "固定模板执行 am force-stop，并在执行后尝试用 pidof 验证。"),
             DeviceShellToolSpec("app.package_admin", "应用数据/启停管理", DeviceShellPrivilege.ShellOrShizuku, DeviceControlRiskLevel.Critical, false, true, "固定模板执行 pm clear / uninstall / disable / enable，并通过 package 状态读取验证。"),
@@ -283,6 +287,8 @@ class DeviceShellBridge(
             "identity" to SafeShellDiagnostic("Shell 身份", "id"),
             "system_properties" to SafeShellDiagnostic("系统属性", "getprop ro.product.manufacturer; getprop ro.product.model; getprop ro.build.version.release; getprop ro.build.version.sdk"),
             "animation_scales" to SafeShellDiagnostic("动画缩放状态", "settings get global window_animation_scale; settings get global transition_animation_scale; settings get global animator_duration_scale"),
+            "network_switches" to SafeShellDiagnostic("网络开关状态", "settings get global wifi_on; settings get global bluetooth_on; settings get global mobile_data"),
+            "ui_mode" to SafeShellDiagnostic("深色模式状态", "cmd uimode night"),
             "battery_dump" to SafeShellDiagnostic("电池 dumpsys 摘要", "dumpsys battery | sed -n '1,16p'", 1200L),
         )
     }
