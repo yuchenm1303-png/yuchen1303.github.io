@@ -15,59 +15,164 @@ enum class ComposeGlassPreset {
 data class ComposeGlassStyle(
     val preset: ComposeGlassPreset,
     val backdrop: Float,
-    val density: Float,
-    val edge: Float
+    val frost: Float,
+    val tint: Float,
+    val quiet: Float,
+    val topLight: Float,
+    val topWidthDp: Float,
+    val topVariation: Float,
+    val bottomLight: Float,
+    val bottomWidthDp: Float,
+    val edgeDepthDp: Float,
+    val innerBevel: Float,
+    val outerRim: Float,
+    val bottomMass: Float,
+    val sideBevel: Float,
+    val sideLight: Float,
+    val radius: Float,
+    val shadow: Float,
+    val ribbon: Float
 ) {
-    val backdropAlpha: Float get() = (backdrop * preset.profile.backdropScale).coerceIn(0.32f, 1.55f)
-    val blurScale: Float get() = (preset.profile.blurScale * (0.78f + density * 0.20f)).coerceIn(0.42f, 1.90f)
-    val frostAlpha: Float get() = (preset.profile.frostScale * density).coerceIn(0.02f, 2.80f)
-    val rimAlpha: Float get() = (preset.profile.rimScale * edge).coerceIn(0.02f, 3.20f)
-    val innerRimAlpha: Float get() = (preset.profile.innerRimScale * edge * (0.72f + density * 0.12f)).coerceIn(0f, 2.80f)
-    val topHighlight: Float get() = (preset.profile.highlightScale * edge).coerceIn(0.02f, 3.40f)
-    val bottomShadow: Float get() = (preset.profile.depthScale * (0.84f + density * 0.10f)).coerceIn(0.02f, 3.00f)
-    val cornerGlint: Float get() = (preset.profile.glintScale * edge).coerceIn(0f, 3.00f)
-    val strokeWidth: Float get() = (preset.profile.strokeScale * (0.72f + edge * 0.24f + density * 0.08f)).coerceIn(0.10f, 2.30f)
-    val shadowAlpha: Float get() = (preset.profile.shadowScale * (0.88f + density * 0.08f)).coerceIn(0f, 2.60f)
-    val radiusScale: Float get() = preset.profile.radiusScale
+    val density: Float get() = frost
+    val edge: Float get() = topLight
+    val backdropAlpha: Float get() = backdrop.coerceIn(0.32f, 1.55f)
+    val blurScale: Float get() = (0.78f + frost * 0.20f).coerceIn(0.42f, 1.90f)
+    val frostAlpha: Float get() = frost.coerceIn(0.02f, 2.80f)
+    val rimAlpha: Float get() = outerRim.coerceIn(0.02f, 3.20f)
+    val innerRimAlpha: Float get() = innerBevel.coerceIn(0f, 2.80f)
+    val topHighlight: Float get() = topLight.coerceIn(0.02f, 3.40f)
+    val bottomShadow: Float get() = bottomMass.coerceIn(0.02f, 3.00f)
+    val cornerGlint: Float get() = topVariation.coerceIn(0f, 3.00f)
+    val strokeWidth: Float get() = (0.42f + outerRim * 0.24f).coerceIn(0.10f, 2.30f)
+    val shadowAlpha: Float get() = shadow.coerceIn(0f, 2.60f)
+    val radiusScale: Float get() = (radius / 46f).coerceIn(0.38f, 1.86f)
 }
 
 object ComposeGlassLabState {
     var style by mutableStateOf(defaultComposeGlassStyle())
         private set
 
-    fun update(next: ComposeGlassStyle) { style = next }
-    fun usePreset(preset: ComposeGlassPreset) { style = defaultComposeGlassStyle(preset) }
-    fun reset() { style = defaultComposeGlassStyle(style.preset) }
-    fun resetAll() { style = defaultComposeGlassStyle() }
-}
-
-private data class ComposeGlassPresetProfile(
-    val backdropScale: Float,
-    val blurScale: Float,
-    val frostScale: Float,
-    val rimScale: Float,
-    val innerRimScale: Float,
-    val highlightScale: Float,
-    val depthScale: Float,
-    val glintScale: Float,
-    val strokeScale: Float,
-    val shadowScale: Float,
-    val radiusScale: Float
-)
-
-private val ComposeGlassPreset.profile: ComposeGlassPresetProfile
-    get() = when (this) {
-        ComposeGlassPreset.Clear -> ComposeGlassPresetProfile(1.08f, 0.82f, 0.62f, 0.86f, 0.38f, 1.06f, 0.64f, 0.74f, 0.82f, 0.58f, 1.04f)
-        ComposeGlassPreset.Frost -> ComposeGlassPresetProfile(0.96f, 0.86f, 1.00f, 0.40f, 0.00f, 1.14f, 0.165f, 0.46f, 0.42f, 0.31f, 0.804f)
-        ComposeGlassPreset.Crystal -> ComposeGlassPresetProfile(1.03f, 0.98f, 0.78f, 1.44f, 1.08f, 1.68f, 0.92f, 1.42f, 1.10f, 0.84f, 1.05f)
-        ComposeGlassPreset.Dense -> ComposeGlassPresetProfile(0.78f, 1.26f, 1.58f, 1.02f, 0.70f, 0.98f, 1.58f, 0.58f, 1.08f, 1.42f, 0.96f)
-        ComposeGlassPreset.Aurora -> ComposeGlassPresetProfile(0.98f, 1.05f, 1.02f, 1.34f, 0.92f, 1.42f, 1.12f, 1.62f, 1.06f, 1.05f, 1.08f)
+    fun update(next: ComposeGlassStyle) {
+        style = next
     }
 
+    fun usePreset(preset: ComposeGlassPreset) {
+        style = defaultComposeGlassStyle(preset)
+    }
+
+    fun reset() {
+        style = defaultComposeGlassStyle(style.preset)
+    }
+
+    fun resetAll() {
+        style = defaultComposeGlassStyle()
+    }
+}
+
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
-    ComposeGlassPreset.Clear -> ComposeGlassStyle(preset, 1.12f, 0.74f, 1.08f)
-    ComposeGlassPreset.Frost -> ComposeGlassStyle(preset, 0.96f, 0.15f, 1.00f)
-    ComposeGlassPreset.Crystal -> ComposeGlassStyle(preset, 1.06f, 0.82f, 1.34f)
-    ComposeGlassPreset.Dense -> ComposeGlassStyle(preset, 0.86f, 1.30f, 0.98f)
-    ComposeGlassPreset.Aurora -> ComposeGlassStyle(preset, 0.98f, 1.00f, 1.24f)
+    ComposeGlassPreset.Clear -> ComposeGlassStyle(
+        preset = preset,
+        backdrop = 1.12f,
+        frost = 0.48f,
+        tint = 0.30f,
+        quiet = 0.80f,
+        topLight = 1.18f,
+        topWidthDp = 2.60f,
+        topVariation = 0.70f,
+        bottomLight = 0.45f,
+        bottomWidthDp = 2.40f,
+        edgeDepthDp = 2.40f,
+        innerBevel = 0.55f,
+        outerRim = 0.62f,
+        bottomMass = 0.75f,
+        sideBevel = 0.35f,
+        sideLight = 0.14f,
+        radius = 48f,
+        shadow = 0.55f,
+        ribbon = 0.35f
+    )
+    ComposeGlassPreset.Frost -> ComposeGlassStyle(
+        preset = preset,
+        backdrop = 0.96f,
+        frost = ComposeGlassRuntimeDefaults.frost,
+        tint = ComposeGlassRuntimeDefaults.tint,
+        quiet = ComposeGlassRuntimeDefaults.quiet,
+        topLight = ComposeGlassRuntimeDefaults.topLight,
+        topWidthDp = ComposeGlassRuntimeDefaults.topWidthDp,
+        topVariation = ComposeGlassRuntimeDefaults.topVariation,
+        bottomLight = ComposeGlassRuntimeDefaults.bottomLight,
+        bottomWidthDp = ComposeGlassRuntimeDefaults.bottomWidthDp,
+        edgeDepthDp = ComposeGlassRuntimeDefaults.edgeDepthDp,
+        innerBevel = ComposeGlassRuntimeDefaults.innerBevel,
+        outerRim = ComposeGlassRuntimeDefaults.outerRim,
+        bottomMass = ComposeGlassRuntimeDefaults.bottomMass,
+        sideBevel = ComposeGlassRuntimeDefaults.sideBevel,
+        sideLight = ComposeGlassRuntimeDefaults.sideLight,
+        radius = ComposeGlassRuntimeDefaults.radius,
+        shadow = ComposeGlassRuntimeDefaults.shadow,
+        ribbon = ComposeGlassRuntimeDefaults.ribbon
+    )
+    ComposeGlassPreset.Crystal -> ComposeGlassStyle(
+        preset = preset,
+        backdrop = 1.06f,
+        frost = 0.68f,
+        tint = 0.40f,
+        quiet = 0.86f,
+        topLight = 1.86f,
+        topWidthDp = 2.30f,
+        topVariation = 1.05f,
+        bottomLight = 0.68f,
+        bottomWidthDp = 2.10f,
+        edgeDepthDp = 2.20f,
+        innerBevel = 0.48f,
+        outerRim = 1.06f,
+        bottomMass = 0.78f,
+        sideBevel = 0.28f,
+        sideLight = 0.12f,
+        radius = 48f,
+        shadow = 0.70f,
+        ribbon = 0.26f
+    )
+    ComposeGlassPreset.Dense -> ComposeGlassStyle(
+        preset = preset,
+        backdrop = 0.86f,
+        frost = 1.38f,
+        tint = 0.94f,
+        quiet = 1.13f,
+        topLight = 1.08f,
+        topWidthDp = 4.00f,
+        topVariation = 0.52f,
+        bottomLight = 0.38f,
+        bottomWidthDp = 3.70f,
+        edgeDepthDp = 4.80f,
+        innerBevel = 1.18f,
+        outerRim = 0.54f,
+        bottomMass = 1.45f,
+        sideBevel = 0.70f,
+        sideLight = 0.10f,
+        radius = 42f,
+        shadow = 0.95f,
+        ribbon = 0.20f
+    )
+    ComposeGlassPreset.Aurora -> ComposeGlassStyle(
+        preset = preset,
+        backdrop = 0.98f,
+        frost = 0.82f,
+        tint = 0.82f,
+        quiet = 1.22f,
+        topLight = 1.30f,
+        topWidthDp = 2.15f,
+        topVariation = 1.05f,
+        bottomLight = 0.48f,
+        bottomWidthDp = 2.00f,
+        edgeDepthDp = 3.80f,
+        innerBevel = 1.05f,
+        outerRim = 0.46f,
+        bottomMass = 1.32f,
+        sideBevel = 0.48f,
+        sideLight = 0.07f,
+        radius = 44f,
+        shadow = 0.62f,
+        ribbon = 0.10f
+    )
 }
