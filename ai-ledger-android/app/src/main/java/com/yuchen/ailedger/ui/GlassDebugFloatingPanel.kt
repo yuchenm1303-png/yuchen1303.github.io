@@ -41,7 +41,7 @@ import kotlin.math.roundToInt
 private const val GlassDebugLazyPatchCompatibility = """
 title = "OpenGL",
             subtitle = "Shell 大玻璃 / OpenGL 折射 / 参数调试",
-            initiallyExpanded = true
+            initiallyExpanded = false
 title = "轻量玻璃",
             subtitle = "材质预设 / 三项核心参数 / 普通控件实时生效",
             initiallyExpanded = false,
@@ -80,7 +80,7 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout(
             title = "OpenGL",
             subtitle = "Shell 大玻璃 / OpenGL 折射 / 水滴采样 / 调试参数",
-            initiallyExpanded = true,
+            initiallyExpanded = false,
             state = state
         ) {
             OpenGlGlassLab(state = state, style = border, onBorderChange = onBorderChange)
@@ -142,11 +142,104 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
+private fun OpenGlGlassPreview(state: AssistantUiState, style: GlassBorderStyle) {
+    val visible = (style.openGlVisibility / 20f).coerceIn(0f, 1f)
+    val alpha = style.openGlMaxAlpha.coerceIn(0f, 1f)
+    val edge = (style.edgeBrightness / 2.4f).coerceIn(0f, 1f)
+    val dark = (style.openGlDarkScale.coerceIn(-4f, 4f) + 4f) / 8f
+    val pull = ((style.openGlPullScale + 120f) / 300f).coerceIn(0f, 1f)
+    val sample = (style.openGlSampleRadiusScale / 48f).coerceIn(0f, 1f)
+    val rimWidth = (style.ringWidthDp / 96f).coerceIn(0f, 1f)
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.70f,
+        motionIntensity = state.motionIntensity,
+        radius = 26,
+        modifier = Modifier.fillMaxWidth().height(136.dp),
+        role = GlassRole.Card,
+        onClick = {}
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("OpenGL 参数样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("轻量对照样本；真实 OpenGL 只作用于 Shell 大玻璃", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("Shell", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.035f + visible * alpha * 0.110f + edge * 0.020f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    OpenGlPreviewBar("折射", pull, Modifier.weight(1f))
+                    OpenGlPreviewBar("边缘", rimWidth, Modifier.weight(1f))
+                    OpenGlPreviewBar("采样", sample, Modifier.weight(1f))
+                    OpenGlPreviewBar("暗部", dark, Modifier.weight(1f))
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OpenGlPreviewMetric("可见", visible * 20f, Modifier.weight(1f))
+                OpenGlPreviewMetric("透明", alpha, Modifier.weight(1f))
+                OpenGlPreviewMetric("亮度", style.edgeBrightness, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenGlPreviewBar(label: String, value: Float, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.48f), fontSize = 8.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.055f))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(value.coerceIn(0.03f, 1f))
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.22f + value.coerceIn(0f, 1f) * 0.35f))
+            )
+        }
+    }
+}
+
+@Composable
+private fun OpenGlPreviewMetric(label: String, value: Float, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.052f))
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Spacer(Modifier.weight(1f))
+        Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.78f), fontSize = 10.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+@Composable
 private fun OpenGlGlassLab(
     state: AssistantUiState,
     style: GlassBorderStyle,
     onBorderChange: (GlassBorderStyle) -> Unit
 ) {
+    OpenGlGlassPreview(state, style)
+
     GlassControlGroup("可见与明暗", "整体透明、亮度与边缘暗部", state, true) {
         LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) {
             onBorderChange(style.copy(openGlVisibility = it))
@@ -189,10 +282,10 @@ private fun OpenGlGlassLab(
         }
     }
 
-    GlassControlGroup("无效参数清理", "不参与当前 OpenGL shader 的历史字段不再暴露", state, false) {
-        LabStaticInfo("已隐藏", "openGlEdgeWidthScale / openGlSpecularScale / openGlChromaticScale")
-        LabStaticInfo("已断开", "GlassBorderStyle.bodyAlpha 不再进入 OpenGL uniform")
-        LabStaticInfo("保留原因", "先保留模型字段兼容旧 copy 调用，后续确认全仓无引用再删字段")
+    GlassControlGroup("无效参数清理", "已从模型层移除的历史字段", state, false) {
+        LabStaticInfo("已删除", "openGlEdgeWidthScale / openGlSpecularScale / openGlChromaticScale")
+        LabStaticInfo("已删除", "GlassBorderStyle.bodyAlpha")
+        LabStaticInfo("保留", "ModelCardGlassStyle.bodyAlpha 属于模型卡片，不受影响")
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
