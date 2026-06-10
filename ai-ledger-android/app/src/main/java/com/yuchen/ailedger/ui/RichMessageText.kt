@@ -50,7 +50,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import ru.noties.jlatexmath.JLatexMathDrawable
 
 private val richMessageTokenRegex = Regex(
-    pattern = """(\*\*.+?\*\*)|(\\\(.+?\\\))|(\\\[.+?\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
+    pattern = """(\*\*.+?\*\*)|(\\\(.+?\\\))|(\\\[.+?\\\])|(\$\$.+?\$\$)|((?<!\\)\$(?!\$|\s)[^\n$]+?(?<!\\)\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
     options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
 )
 
@@ -62,6 +62,7 @@ private val tableRowRegex = Regex("""^\s*\|(.+)\|\s*$""")
 private val tableDividerRegex = Regex("""^\s*\|?\s*[:\-]+(?:\s*\|\s*[:\-]+)+\s*\|?\s*$""")
 private val displayBracketFormulaRegex = Regex("""(?s)\\\[(.+?)\\\]""")
 private val displayDollarFormulaRegex = Regex("""(?s)\$\$(.+?)\$\$""")
+private val inlineDollarFormulaRegex = Regex("""(?<!\\)\$(?!\$|\s)([^\n$]+?)(?<!\\)\$""")
 private val inlineFormulaRegex = Regex("""(?s)\\\((.+?)\\\)""")
 private val boldRegex = Regex("""\*\*(.+?)\*\*""")
 private val codeRegex = Regex("""`([^`]+)`""")
@@ -501,6 +502,11 @@ private fun extractFormulaTokens(source: String): Pair<String, Map<String, Formu
         tokens[key] = FormulaToken(key, match.groupValues[1].trim(), true)
         "\n$key\n"
     }
+    working = inlineDollarFormulaRegex.replace(working) { match ->
+        val key = nextKey()
+        tokens[key] = FormulaToken(key, match.groupValues[1].trim(), false)
+        key
+    }
     working = inlineFormulaRegex.replace(working) { match ->
         val key = nextKey()
         tokens[key] = FormulaToken(key, match.groupValues[1].trim(), false)
@@ -581,7 +587,7 @@ private fun appendFormula(
     textColor: Int,
     textSizePx: Float
 ) {
-    val cleanLatex = latex.replace('\n', ' ').trim()
+    val cleanLatex = normalizeLatexForRenderer(latex.replace('\n', ' ').trim())
     if (cleanLatex.isBlank()) return
     try {
         val drawable = JLatexMathDrawable.builder(cleanLatex)
@@ -597,6 +603,12 @@ private fun appendFormula(
     } catch (_: Throwable) {
         builder.append(cleanLatex)
     }
+}
+
+private fun normalizeLatexForRenderer(latex: String): String {
+    return latex
+        .replace(Regex("""(?<!\\)text\{"""), "\\operatorname{")
+        .replace(Regex("""(?<!\\)operatorname\{"""), "\\operatorname{")
 }
 
 private fun appendStyled(
