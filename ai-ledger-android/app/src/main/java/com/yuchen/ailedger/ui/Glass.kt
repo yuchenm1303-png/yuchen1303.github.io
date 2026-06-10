@@ -725,7 +725,6 @@ fun Modifier.glassSkin(
     val shape = RoundedCornerShape(radius.dp)
     val material = glassMaterial(glassIntensity, role)
     val pulse = 0.94f + breathe * 0.030f
-    val safeShimmer = shimmer - shimmer.toInt()
     val base = if (includeShadow) this.glassOuterFrame(radius, glassIntensity, role) else this.clip(shape)
     return base.drawWithCache {
         val w = size.width.coerceAtLeast(1f)
@@ -744,15 +743,6 @@ fun Modifier.glassSkin(
                 Color.White.copy(alpha = material.frost * 0.13f),
                 Color.Transparent,
                 Color.Black.copy(alpha = material.depthShadow * 0.09f)
-            ),
-            0f,
-            h
-        )
-        val coolGlassTint = Brush.verticalGradient(
-            listOf(
-                Color(0xFF8FC2FF).copy(alpha = material.coolTint * 0.42f),
-                Color(0xFF587DFF).copy(alpha = material.coolTint * 0.16f),
-                Color.Transparent
             ),
             0f,
             h
@@ -801,14 +791,8 @@ fun Modifier.glassSkin(
             Offset(w * 0.12f, h * 0.06f),
             maxOf(w, h) * 0.30f
         )
-        val motionGlint = Brush.linearGradient(
-            listOf(Color.Transparent, Color.White.copy(alpha = material.motionGlint), Color.Transparent),
-            Offset(w * (safeShimmer - 0.30f), 0f),
-            Offset(w * (safeShimmer + 0.18f), h * 0.22f)
-        )
         onDrawWithContent {
             drawRect(frostedNeutralVeil, blendMode = BlendMode.Screen)
-            drawRect(coolGlassTint, blendMode = BlendMode.Screen)
             drawRect(topLens, blendMode = BlendMode.Screen)
             drawRect(lowerShade, blendMode = BlendMode.Multiply)
             drawContent()
@@ -819,21 +803,16 @@ fun Modifier.glassSkin(
             if (material.cornerGlint > 0.001f) {
                 drawRect(cornerCatchlight, blendMode = BlendMode.Screen)
             }
-            if (quality.enableMotion && material.motionGlint > 0.001f) {
-                drawRoundRect(brush = motionGlint, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(0.08.dp.toPx()), blendMode = BlendMode.Plus)
-            }
         }
     }
 }
 
 private data class GlassMaterial(
     val frost: Float,
-    val coolTint: Float,
     val rim: Float,
     val innerRim: Float,
     val topHighlight: Float,
     val cornerGlint: Float,
-    val motionGlint: Float,
     val depthShadow: Float,
     val shadowAmbient: Float,
     val shadowSpot: Float,
@@ -845,23 +824,19 @@ private fun glassMaterial(intensity: Float, role: GlassRole): GlassMaterial {
     val style = ComposeGlassLabState.style
     val ordinary = role != GlassRole.Shell
     val frostScale = if (ordinary) style.frostAlpha else 1f
-    val coolTintScale = if (ordinary) style.coolTint else 1f
     val rimScale = if (ordinary) style.rimAlpha else 1f
     val innerRimScale = if (ordinary) style.innerRimAlpha else 0.30f
     val topScale = if (ordinary) style.topHighlight else 1f
     val cornerScale = if (ordinary) style.cornerGlint else 0.46f
-    val motionScale = if (ordinary) style.motionGlint else 1f
     val shadowScale = if (ordinary) style.shadowAlpha else 1f
     val bottomScale = if (ordinary) style.bottomShadow else 1f
-    val base = GlassMaterial(0.044f, 0.012f, 0.104f, 0.030f, 0.036f, 0.020f, 0.0028f, 0.015f, 0.028f, 0.0035f, 1f)
+    val base = GlassMaterial(0.044f, 0.104f, 0.030f, 0.036f, 0.020f, 0.015f, 0.028f, 0.0035f, 1f)
     return GlassMaterial(
         frost = (base.frost * safeIntensity * frostScale).coerceIn(0.004f, 0.090f),
-        coolTint = (base.coolTint * safeIntensity * coolTintScale).coerceIn(0f, 0.034f),
         rim = (base.rim * safeIntensity * rimScale).coerceIn(0.010f, 0.240f),
         innerRim = (base.innerRim * safeIntensity * innerRimScale).coerceIn(0f, 0.120f),
         topHighlight = (base.topHighlight * safeIntensity * topScale).coerceIn(0.002f, 0.100f),
         cornerGlint = (base.cornerGlint * safeIntensity * cornerScale).coerceIn(0f, 0.080f),
-        motionGlint = (base.motionGlint * safeIntensity * motionScale).coerceIn(0f, 0.010f),
         depthShadow = (base.depthShadow * safeIntensity * bottomScale).coerceIn(0.002f, 0.055f),
         shadowAmbient = (base.shadowAmbient * safeIntensity * shadowScale).coerceIn(0.004f, 0.080f),
         shadowSpot = (base.shadowSpot * safeIntensity * shadowScale).coerceIn(0.001f, 0.014f),
