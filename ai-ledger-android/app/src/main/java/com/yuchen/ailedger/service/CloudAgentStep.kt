@@ -178,6 +178,12 @@ data class CloudAgentStep(
             "open_app_settings" -> "打开应用设置"
             "set_brightness" -> "调节亮度"
             "set_screen_timeout" -> "设置息屏时间"
+            "set_auto_rotate" -> "设置自动旋转"
+            "set_media_volume" -> "设置媒体音量"
+            "set_wifi_enabled" -> "设置 Wi‑Fi"
+            "set_bluetooth_enabled" -> "设置蓝牙"
+            "set_mobile_data_enabled" -> "设置移动数据"
+            "set_dark_mode" -> "设置深色模式"
             "device_status" -> "设备状态"
             "shizuku_status" -> "Shizuku 状态"
             "request_shizuku_permission" -> "请求 Shizuku 授权"
@@ -241,6 +247,12 @@ data class CloudAgentStep(
             "open_app_settings",
             "set_brightness",
             "set_screen_timeout",
+            "set_auto_rotate",
+            "set_media_volume",
+            "set_wifi_enabled",
+            "set_bluetooth_enabled",
+            "set_mobile_data_enabled",
+            "set_dark_mode",
             "device_status",
             "shizuku_status",
             "request_shizuku_permission",
@@ -376,6 +388,12 @@ data class CloudAgentStep(
                 "app_settings", "app_info", "open_app_detail" -> "open_app_settings"
                 "brightness", "screen_brightness" -> "set_brightness"
                 "screen_timeout", "sleep_timeout" -> "set_screen_timeout"
+                "auto_rotate", "rotation", "accelerometer_rotation" -> "set_auto_rotate"
+                "media_volume", "volume", "set_volume", "music_volume" -> "set_media_volume"
+                "wifi", "wi_fi", "set_wifi", "wifi_enabled" -> "set_wifi_enabled"
+                "bluetooth", "set_bluetooth", "bluetooth_enabled" -> "set_bluetooth_enabled"
+                "mobile_data", "cellular_data", "data_enabled", "set_data" -> "set_mobile_data_enabled"
+                "dark_mode", "night_mode", "ui_mode" -> "set_dark_mode"
                 "health", "device_health" -> "device_status"
                 "shell_status", "enhanced_status", "shizuku" -> "shizuku_status"
                 "shizuku_permission", "request_shizuku" -> "request_shizuku_permission"
@@ -427,7 +445,8 @@ private fun JSONObject.mergedToolArgs(): JSONObject {
     val merged = runCatching { JSONObject(source.toString()) }.getOrDefault(JSONObject())
     val keys = listOf(
         "appName", "app", "application", "packageName", "package", "pkg", "targetText", "target", "label", "title",
-        "page", "kind", "percent", "brightness", "value", "seconds", "minutes", "timeoutMs", "durationMs", "scale",
+        "page", "kind", "percent", "brightness", "volume", "value", "seconds", "minutes", "timeoutMs", "durationMs", "scale",
+        "enabled", "enable", "on", "state", "mode", "operation", "delta", "deltaPercent", "changePercent", "adjustBy",
         "text", "query", "reason", "risk", "riskLevel", "direction", "inputMode",
     )
     for (key in keys) {
@@ -481,8 +500,8 @@ private fun JSONObject.optFlexibleBoolean(name: String): Boolean? {
         is Boolean -> raw
         is Number -> raw.toInt() != 0
         is String -> when (raw.lowercase().trim()) {
-            "true", "yes", "1", "expected", "complete", "completed", "progress", "success", "wrong" -> true
-            "false", "no", "0", "uncertain", "unknown", "" -> false
+            "true", "yes", "1", "expected", "complete", "completed", "progress", "success", "wrong", "on", "enable", "enabled" -> true
+            "false", "no", "0", "uncertain", "unknown", "", "off", "disable", "disabled" -> false
             else -> null
         }
         else -> null
