@@ -1,9 +1,11 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,312 +14,121 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
-import com.yuchen.ailedger.model.GlassBorderStyle
-import kotlin.math.max
-import kotlin.math.min
+import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabLayer
+import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabOptics
 import kotlin.math.roundToInt
-
-private data class HazeEnv(
-    val backdropAlpha: Float,
-    val centerClarity: Float,
-    val frost: Float,
-    val edge: Float,
-    val readability: Float,
-    val slotDepth: Float,
-    val elevationShadow: Float,
-    val contactShadow: Float
-)
 
 @Composable
 fun LiquidComposeGlassLab(state: AssistantUiState) {
-    var backdropAlpha by rememberSaveable { mutableStateOf(0.96f) }
-    var centerClarity by rememberSaveable { mutableStateOf(1.35f) }
-    var frost by rememberSaveable { mutableStateOf(0.54f) }
-    var edge by rememberSaveable { mutableStateOf(1.35f) }
-    var readability by rememberSaveable { mutableStateOf(0.54f) }
-    var slotDepth by rememberSaveable { mutableStateOf(0.58f) }
-    var elevationShadow by rememberSaveable { mutableStateOf(1.28f) }
-    var contactShadow by rememberSaveable { mutableStateOf(1.05f) }
-    var radiusScale by rememberSaveable { mutableStateOf(1.10f) }
+    var potentialDepth by rememberSaveable { mutableStateOf(1.06f) }
+    var refractionScale by rememberSaveable { mutableStateOf(92f) }
+    var centerLens by rememberSaveable { mutableStateOf(18f) }
+    var edgeFocus by rememberSaveable { mutableStateOf(1.02f) }
+    var flowSmear by rememberSaveable { mutableStateOf(0.82f) }
+    var lensBlend by rememberSaveable { mutableStateOf(0.76f) }
+    var brightness by rememberSaveable { mutableStateOf(1.04f) }
+    var darkEdge by rememberSaveable { mutableStateOf(0.62f) }
 
     fun resetValues() {
-        backdropAlpha = 0.96f
-        centerClarity = 1.35f
-        frost = 0.54f
-        edge = 1.35f
-        readability = 0.54f
-        slotDepth = 0.58f
-        elevationShadow = 1.28f
-        contactShadow = 1.05f
-        radiusScale = 1.10f
+        potentialDepth = 1.06f
+        refractionScale = 92f
+        centerLens = 18f
+        edgeFocus = 1.02f
+        flowSmear = 0.82f
+        lensBlend = 0.76f
+        brightness = 1.04f
+        darkEdge = 0.62f
     }
 
-    val env = HazeEnv(backdropAlpha, centerClarity, frost, edge, readability, slotDepth, elevationShadow, contactShadow)
+    val optics = OpenGLLiquidPotentialLabOptics(
+        potentialDepth = potentialDepth,
+        refractionScalePx = refractionScale,
+        centerLensPx = centerLens,
+        edgeFocus = edgeFocus,
+        flowSmear = flowSmear,
+        lensBlend = lensBlend,
+        brightness = brightness,
+        darkEdge = darkEdge
+    )
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("悬浮 Haze 玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Text("单层连续阴影 + 外侧接触暗边 + 大范围测试参数", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("连续势能 OpenGL", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Text("只作用实验室样本；主界面 OpenGL 玻璃不接入这版 shader", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text("Floating", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text("Lab", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
         }
 
-        HazeGlassSurface(state, Modifier.fillMaxWidth().height(246.dp), env, radiusScale) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Liquid Compose", color = Color.White.copy(alpha = 0.95f), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("floating haze glass material", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                }
-                HazeSegmentedPill(listOf("Backdrop", "Haze", "Stable"), env, Modifier.fillMaxWidth().height(42.dp))
-                Text("目标：像一块玻璃悬浮在壁纸上，而不是一张模糊贴纸贴在屏幕上。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        LiquidComposeSlider("悬浮阴影", "单层连续扩散阴影，用来拉开玻璃和壁纸距离", elevationShadow, 0f..4f) { elevationShadow = it }
-        LiquidComposeSlider("接触暗边", "外轮廓附近的环境遮蔽，只在玻璃外侧生效", contactShadow, 0f..4f) { contactShadow = it }
-        LiquidComposeSlider("背景透出", "直接控制模糊背景图的可见度", backdropAlpha, 0.1f..1.2f) { backdropAlpha = it }
-        LiquidComposeSlider("中心清透", "大范围测试：数值越高，中间越少白雾", centerClarity, 0f..4f) { centerClarity = it }
-        LiquidComposeSlider("玻璃雾度", "磨砂玻璃本体的白雾厚度", frost, 0f..4f) { frost = it }
-        LiquidComposeSlider("边缘厚度", "大范围测试：轮廓亮边、底部重量和厚度感", edge, 0f..4f) { edge = it }
-        LiquidComposeSlider("可读暗场", "保护文字区域，不画内部黑框", readability, 0f..4f) { readability = it }
-        LiquidComposeSlider("槽体压入", "分段槽体的轻微内凹感", slotDepth, 0f..4f) { slotDepth = it }
-        LiquidComposeSlider("圆角倍率", "控制高级 Haze 外壳圆角", radiusScale, 0.45f..2.2f) { radiusScale = it }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-            LiquidComposeActionButton("重置悬浮", "恢复悬浮玻璃值", state, Modifier.weight(1f)) { resetValues() }
-            LiquidComposeActionButton("稳定小卡", "滚动组件方向", state, Modifier.weight(1f)) { }
-        }
-    }
-}
-
-@Composable
-private fun HazeGlassSurface(
-    state: AssistantUiState,
-    modifier: Modifier,
-    env: HazeEnv,
-    radiusScale: Float,
-    content: @Composable () -> Unit
-) {
-    val coordinateSource = remember { GlassCoordinateSource() }
-    val radiusDp = (34f * radiusScale.coerceIn(0.45f, 2.2f)).roundToInt().coerceAtLeast(14)
-    val shape = RoundedCornerShape(radiusDp.dp)
-    val edge = env.edge.coerceIn(0f, 4f)
-    val border = remember(edge) {
-        GlassBorderStyle(
-            outerStrokeAlpha = 0.018f + min(edge, 4f) * 0.042f,
-            innerStrokeAlpha = 0f,
-            topHighlightAlpha = 0.10f + min(edge, 4f) * 0.15f,
-            bottomShadowAlpha = 0.025f + min(edge, 4f) * 0.030f,
-            ringWidthDp = 2.8f + min(edge, 4f) * 2.4f,
-            bodyAlpha = 0f
-        )
-    }
-    val spec = remember(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border) {
-        GlassBackdropSpec(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border)
-    }
-
-    Box(
-        modifier = modifier.floatingHazeShadow(env, radiusDp),
-        contentAlignment = Alignment.Center
-    ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 8.dp, top = 7.dp, end = 8.dp, bottom = 24.dp)
-                .onPlaced { coordinateSource.coordinates = it }
-                .clip(shape),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .height(214.dp)
+                .clip(RoundedCornerShape(34.dp))
+                .background(Color(0xFF071225).copy(alpha = 0.34f))
         ) {
-            CompositionLocalProvider(LocalGlassBackdrop provides spec) {
-                SampledWeatherGlassBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    radius = radiusDp,
-                    coordinateSource = coordinateSource,
-                    quality = state.quality,
-                    motionIntensity = state.motionIntensity,
-                    theme = state.backgroundTheme,
-                    liftAlpha = env.backdropAlpha.coerceIn(0.10f, 1.2f)
-                )
+            OpenGLLiquidPotentialLabLayer(
+                optics = optics,
+                radiusDp = 34,
+                modifier = Modifier.matchParentSize()
+            )
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 15.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Liquid Potential", color = Color.White.copy(alpha = 0.96f), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("single continuous optical field · no hard rim/body split", color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+                PotentialLabSegmentedPill(listOf("Potential", "Slope", "Lens"), Modifier.fillMaxWidth().height(42.dp))
+                Text("目标：用一个连续厚度势能场驱动折射，让边缘、交界和中心自然衔接。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
             }
-            Box(Modifier.matchParentSize().hazeSkin(env, radiusDp), contentAlignment = Alignment.Center) { content() }
+        }
+
+        LiquidComposeSlider("势能深度", "连续厚度场整体强度；越高整块玻璃越像厚透镜", potentialDepth, 0.20f..2.20f) { potentialDepth = it }
+        LiquidComposeSlider("坡面折射", "由势能梯度产生的折射位移；决定背景扭曲强度", refractionScale, 0f..180f) { refractionScale = it }
+        LiquidComposeSlider("中心透镜", "中心区域的大尺度柔和透镜，不再让中心完全静止", centerLens, 0f..72f) { centerLens = it }
+        LiquidComposeSlider("边缘聚焦", "连续场靠近边缘处的斜率集中程度", edgeFocus, 0.35f..2.20f) { edgeFocus = it }
+        LiquidComposeSlider("流动拖色", "沿势能坡面切线拖拽背景颜色", flowSmear, 0f..1.60f) { flowSmear = it }
+        LiquidComposeSlider("透镜混合", "高斜率区域混合 lens 纹理的强度", lensBlend, 0f..1.50f) { lensBlend = it }
+        LiquidComposeSlider("整体亮度", "实验样本的折射结果亮度", brightness, 0.55f..1.80f) { brightness = it }
+        LiquidComposeSlider("暗部厚度", "高斜率边缘和交界处的暗角厚度", darkEdge, 0f..1.60f) { darkEdge = it }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            LiquidComposeActionButton("重置势能场", "恢复连续折射默认值", state, Modifier.weight(1f)) { resetValues() }
+            LiquidComposeActionButton("仅实验室", "不影响首页 OpenGL", state, Modifier.weight(1f)) { }
         }
     }
 }
 
-private fun Modifier.floatingHazeShadow(env: HazeEnv, radiusDp: Int): Modifier = drawWithCache {
-    val w = size.width.coerceAtLeast(1f)
-    val h = size.height.coerceAtLeast(1f)
-    val side = 8.dp.toPx()
-    val top = 7.dp.toPx()
-    val bottom = 24.dp.toPx()
-    val cardLeft = side
-    val cardTop = top
-    val cardSize = Size(max(1f, w - side * 2f), max(1f, h - top - bottom))
-    val cornerRadius = radiusDp.dp.toPx()
-    val elevation = env.elevationShadow.coerceIn(0f, 4f)
-    val contact = env.contactShadow.coerceIn(0f, 4f)
-    val singleShadow = Brush.radialGradient(
-        listOf(
-            Color.Black.copy(alpha = 0.070f * elevation),
-            Color.Black.copy(alpha = 0.038f * elevation),
-            Color.Black.copy(alpha = 0.012f * elevation),
-            Color.Transparent
-        ),
-        center = Offset(w * 0.52f, cardTop + cardSize.height + bottom * 0.34f),
-        radius = w * (0.46f + elevation * 0.070f)
-    )
-    val contactBrush = Brush.verticalGradient(
-        listOf(
-            Color.Transparent,
-            Color.Black.copy(alpha = 0.020f * contact),
-            Color.Black.copy(alpha = 0.070f * contact),
-            Color.Black.copy(alpha = 0.018f * contact),
-            Color.Transparent
-        ),
-        startY = cardTop + cardSize.height * 0.58f,
-        endY = cardTop + cardSize.height + bottom
-    )
-    onDrawWithContent {
-        drawOval(
-            brush = singleShadow,
-            topLeft = Offset(w * -0.12f, cardTop + cardSize.height * 0.58f),
-            size = Size(w * 1.24f, bottom * 2.72f + 34.dp.toPx()),
-            blendMode = BlendMode.Multiply
-        )
-        drawRoundRect(
-            brush = contactBrush,
-            topLeft = Offset(cardLeft - 3.dp.toPx(), cardTop + 2.dp.toPx()),
-            size = Size(cardSize.width + 6.dp.toPx(), cardSize.height + bottom * 0.55f),
-            cornerRadius = CornerRadius(cornerRadius + 2.dp.toPx(), cornerRadius + 2.dp.toPx()),
-            style = Stroke(width = max(1f, 9.dp.toPx() + contact * 4.dp.toPx())),
-            blendMode = BlendMode.Multiply
-        )
-        drawContent()
-    }
-}
-
-private fun Modifier.hazeSkin(env: HazeEnv, radiusDp: Int): Modifier = drawWithCache {
-    val w = size.width.coerceAtLeast(1f)
-    val h = size.height.coerceAtLeast(1f)
-    val cornerRadius = radiusDp.dp.toPx()
-    val corner = CornerRadius(cornerRadius, cornerRadius)
-    val frost = env.frost.coerceIn(0f, 4f)
-    val clear = env.centerClarity.coerceIn(0f, 4f)
-    val edge = env.edge.coerceIn(0f, 4f)
-    val readability = env.readability.coerceIn(0f, 4f)
-    val centerFogFactor = (1f - min(clear / 3.2f, 0.88f)).coerceIn(0.06f, 1f)
-    val rimWidth = max(1f, density * (0.34f + edge * 0.34f))
-    val frostVeil = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.010f * frost * centerFogFactor + 0.004f * edge),
-            Color.White.copy(alpha = 0.006f * frost * centerFogFactor),
-            Color(0xFF10203C).copy(alpha = 0.004f * frost)
-        )
-    )
-    val centerClearField = Brush.radialGradient(
-        listOf(
-            Color.Transparent,
-            Color.White.copy(alpha = 0.004f * frost * centerFogFactor),
-            Color.White.copy(alpha = 0.028f * frost)
-        ),
-        center = Offset(w * 0.50f, h * 0.50f),
-        radius = max(w, h) * 0.82f
-    )
-    val readableShade = Brush.verticalGradient(
-        listOf(
-            Color(0xFF020820).copy(alpha = 0.020f * readability),
-            Color.Transparent,
-            Color(0xFF020820).copy(alpha = 0.036f * readability)
-        )
-    )
-    val topGlance = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.030f + 0.050f * edge), Color.White.copy(alpha = 0.014f + 0.018f * edge), Color.Transparent),
-        Offset(-w * 0.04f, -h * 0.06f),
-        Offset(w * 0.84f, h * 0.20f)
-    )
-    val sideGlance = Brush.horizontalGradient(
-        listOf(Color.White.copy(alpha = 0.032f * edge), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.020f * edge)),
-        startX = 0f,
-        endX = w
-    )
-    val outerLine = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.030f + 0.036f * edge), Color(0xFFC7F3FF).copy(alpha = 0.010f + 0.010f * edge), Color.White.copy(alpha = 0.012f + 0.014f * edge)),
-        Offset(-w * 0.05f, h * 0.03f),
-        Offset(w * 1.04f, h * 0.95f)
-    )
-    val bottomWeight = Brush.verticalGradient(
-        listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.018f * edge)),
-        startY = h * 0.42f,
-        endY = h
-    )
-    onDrawWithContent {
-        drawRoundRect(brush = frostVeil, size = size, cornerRadius = corner)
-        drawRoundRect(brush = centerClearField, size = size, cornerRadius = corner)
-        drawRoundRect(brush = readableShade, size = size, cornerRadius = corner)
-        drawContent()
-        drawRoundRect(brush = topGlance, size = size, cornerRadius = corner)
-        drawRoundRect(brush = sideGlance, size = size, cornerRadius = corner, style = Stroke(width = max(1f, rimWidth * 2.4f)), blendMode = BlendMode.Screen)
-        drawRoundRect(brush = bottomWeight, size = size, cornerRadius = corner, style = Stroke(width = max(1f, rimWidth * 2.6f)), blendMode = BlendMode.Multiply)
-        drawRoundRect(brush = outerLine, size = size, cornerRadius = corner, style = Stroke(width = rimWidth))
-    }
-}
-
 @Composable
-private fun HazeSegmentedPill(labels: List<String>, env: HazeEnv, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(999.dp)
+private fun PotentialLabSegmentedPill(labels: List<String>, modifier: Modifier = Modifier) {
     Box(
-        modifier.clip(shape).drawWithCache {
-            val w = size.width.coerceAtLeast(1f)
-            val h = size.height.coerceAtLeast(1f)
-            val corner = CornerRadius(h / 2f, h / 2f)
-            val edge = env.edge.coerceIn(0f, 4f)
-            val slot = env.slotDepth.coerceIn(0f, 4f)
-            val frost = env.frost.coerceIn(0f, 4f)
-            val material = Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.014f + 0.006f * frost),
-                    Color(0xFF061032).copy(alpha = 0.020f + 0.020f * slot),
-                    Color.White.copy(alpha = 0.006f * edge)
-                )
-            )
-            onDrawWithContent {
-                drawRoundRect(brush = material, size = size, cornerRadius = corner)
-                drawContent()
-                drawRoundRect(color = Color.White.copy(alpha = 0.020f + 0.014f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * (0.42f + 0.12f * edge))))
-                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
-                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
-            }
-        }.padding(horizontal = 2.dp),
+        modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.065f))
+            .padding(horizontal = 2.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            labels.forEach { label ->
+            labels.forEachIndexed { index, label ->
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text(label, color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text(label, color = Color.White.copy(alpha = if (index == 1) 0.86f else 0.62f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
             }
         }
