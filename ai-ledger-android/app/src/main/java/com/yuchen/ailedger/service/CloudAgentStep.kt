@@ -236,6 +236,7 @@ data class CloudAgentStep(
         )
 
         val deviceToolTypes = setOf(
+            "open_app",
             "open_system_settings",
             "open_app_settings",
             "set_brightness",
@@ -252,7 +253,6 @@ data class CloudAgentStep(
         )
 
         val supportedTypes = setOf(
-            "open_app",
             "tap_node",
             "tap_xy",
             "input_text",
