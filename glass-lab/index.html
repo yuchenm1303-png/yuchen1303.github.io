@@ -5,450 +5,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Compose Glass Optical Field Lab</title>
   <style>
-    :root {
-      --bg0: #071642;
-      --bg1: #0d2f8d;
-      --bg2: #5a35be;
-      --panel: rgba(8, 14, 36, .72);
-      --line: rgba(255,255,255,.12);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.56);
-      --soft: rgba(255,255,255,.08);
-      color-scheme: dark;
-      font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", sans-serif;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: #06102b; color: var(--text); }
-    body {
-      overflow-x: hidden;
-      background:
-        radial-gradient(circle at 12% 6%, rgba(255,255,255,.12), transparent 7%),
-        radial-gradient(circle at 86% 13%, rgba(144,198,255,.26), transparent 12%),
-        radial-gradient(circle at 55% 85%, rgba(176,78,255,.24), transparent 22%),
-        linear-gradient(145deg, var(--bg0), var(--bg1) 54%, var(--bg2));
-    }
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: .32;
-      background-image:
-        linear-gradient(110deg, transparent 0 43%, rgba(255,255,255,.18) 44%, transparent 46% 100%),
-        linear-gradient(160deg, transparent 0 61%, rgba(110,205,255,.18) 62%, transparent 64% 100%),
-        radial-gradient(circle at 24% 72%, rgba(50,166,255,.36), transparent 21%);
-      filter: blur(.2px);
-    }
-    .app { width: min(1480px, 100%); margin: 0 auto; padding: 22px; position: relative; z-index: 1; }
-    header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-    h1 { margin: 0; font-size: clamp(28px, 4vw, 54px); letter-spacing: -.05em; line-height: .95; }
-    .sub { margin-top: 10px; font-size: 15px; color: var(--muted); font-weight: 800; }
-    .badge { padding: 10px 14px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.72); font-weight: 900; white-space: nowrap; }
-    .layout { display: grid; grid-template-columns: minmax(360px, 1fr) 420px; gap: 18px; align-items: start; }
-    .stage-card, .controls, .export-card {
-      border: 1px solid rgba(255,255,255,.16);
-      border-radius: 30px;
-      background: rgba(3, 9, 30, .48);
-      box-shadow: 0 22px 70px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.08);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-    }
-    .stage-card { padding: 16px; min-height: 760px; }
-    .stage-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 4px 14px; }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-    button {
-      appearance: none;
-      border: 1px solid rgba(255,255,255,.16);
-      background: rgba(255,255,255,.075);
-      color: rgba(255,255,255,.78);
-      border-radius: 999px;
-      padding: 10px 14px;
-      font-weight: 950;
-      cursor: pointer;
-      transition: transform .16s ease, background .16s ease, color .16s ease;
-    }
-    button:hover { transform: translateY(-1px); background: rgba(255,255,255,.13); color: white; }
-    button.active { background: rgba(255,255,255,.22); color: white; }
-    #preview { width: 100%; height: auto; display: block; border-radius: 22px; background: rgba(0,0,0,.18); }
-    .hint { color: rgba(255,255,255,.55); font-weight: 760; line-height: 1.7; padding: 12px 6px 0; font-size: 13px; }
-    .controls { padding: 16px; position: sticky; top: 14px; }
-    .control-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .control-title strong { font-size: 20px; letter-spacing: -.03em; }
-    .group { padding: 13px 12px; border: 1px solid rgba(255,255,255,.11); border-radius: 22px; background: rgba(255,255,255,.045); margin-bottom: 12px; }
-    .group h2 { margin: 0 0 10px; font-size: 14px; color: rgba(255,255,255,.84); letter-spacing: .02em; }
-    .row { display: grid; grid-template-columns: 108px 1fr 56px; align-items: center; gap: 10px; margin: 9px 0; }
-    label { font-size: 12px; color: rgba(255,255,255,.66); font-weight: 850; }
-    .value { text-align: right; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.72); font-size: 12px; font-weight: 900; }
-    input[type="range"] { width: 100%; accent-color: #dfefff; }
-    .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .export-card { margin-top: 18px; padding: 14px; }
-    textarea {
-      width: 100%; min-height: 180px; resize: vertical; border: 1px solid rgba(255,255,255,.14);
-      border-radius: 18px; padding: 12px; color: rgba(255,255,255,.86); background: rgba(0,0,0,.28);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55;
-    }
-    .small-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-    .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
-    .mini { min-height: 72px; border-radius: 24px; display: grid; place-items: center; font-weight: 950; color: rgba(255,255,255,.75); border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); }
-    @media (max-width: 980px) {
-      .app { padding: 14px; }
-      header { align-items: flex-start; flex-direction: column; }
-      .layout { grid-template-columns: 1fr; }
-      .controls { position: relative; top: auto; }
-      .stage-card { min-height: auto; }
-    }
+    :root{color-scheme:dark;font-family:ui-rounded,-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Segoe UI",sans-serif;--line:rgba(255,255,255,.14);--text:rgba(255,255,255,.92);--muted:rgba(255,255,255,.58)}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#06102b;color:var(--text)}
+    body{background:radial-gradient(circle at 12% 6%,rgba(255,255,255,.10),transparent 8%),radial-gradient(circle at 85% 15%,rgba(114,168,255,.22),transparent 13%),radial-gradient(circle at 60% 88%,rgba(164,82,255,.30),transparent 24%),linear-gradient(145deg,#071744,#10369a 54%,#6238c7);overflow-x:hidden}
+    .app{width:min(1480px,100%);margin:0 auto;padding:22px;position:relative;z-index:1}header{display:flex;justify-content:space-between;gap:18px;align-items:flex-end;margin-bottom:18px}h1{margin:0;font-size:clamp(30px,4vw,56px);letter-spacing:-.055em;line-height:.95}.sub{margin-top:10px;color:var(--muted);font-weight:850}.badge{padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.07);color:rgba(255,255,255,.72);font-weight:950;white-space:nowrap}.layout{display:grid;grid-template-columns:minmax(360px,1fr) 420px;gap:18px;align-items:start}.card,.controls,.export{border:1px solid rgba(255,255,255,.16);border-radius:30px;background:rgba(3,9,30,.48);box-shadow:0 22px 70px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.08);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.card{padding:16px}.bar{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:4px 4px 14px}.tabs{display:flex;gap:8px;flex-wrap:wrap}button{appearance:none;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.075);color:rgba(255,255,255,.78);border-radius:999px;padding:10px 14px;font-weight:950;cursor:pointer}button:hover{background:rgba(255,255,255,.13);color:white}button.active{background:rgba(255,255,255,.22);color:white}#preview{width:100%;height:auto;display:block;border-radius:22px;background:rgba(0,0,0,.18)}.hint{color:rgba(255,255,255,.56);font-weight:760;line-height:1.7;padding:12px 6px 0;font-size:13px}.controls{padding:16px;position:sticky;top:14px}.title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.title strong{font-size:20px;letter-spacing:-.03em}.group{padding:13px 12px;border:1px solid rgba(255,255,255,.11);border-radius:22px;background:rgba(255,255,255,.045);margin-bottom:12px}.group h2{margin:0 0 10px;font-size:14px;color:rgba(255,255,255,.84);letter-spacing:.02em}.row{display:grid;grid-template-columns:104px 1fr 56px;align-items:center;gap:10px;margin:9px 0}label{font-size:12px;color:rgba(255,255,255,.66);font-weight:850}.value{text-align:right;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.72);font-size:12px;font-weight:900}input[type=range]{width:100%;accent-color:#dfefff}.preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.export{margin-top:18px;padding:14px}textarea{width:100%;min-height:170px;resize:vertical;border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:12px;color:rgba(255,255,255,.86);background:rgba(0,0,0,.28);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55}.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}@media(max-width:980px){.app{padding:14px}header{align-items:flex-start;flex-direction:column}.layout{grid-template-columns:1fr}.controls{position:relative;top:auto}}
   </style>
 </head>
 <body>
-  <main class="app">
-    <header>
-      <div>
-        <h1>Compose Glass<br/>Optical Field Lab</h1>
-        <div class="sub">用于调试普通 Compose 玻璃：连续光学场、窄边缘折光、安静中心、底部暗厚度。</div>
+<main class="app">
+  <header>
+    <div><h1>Compose Glass<br/>Optical Field Lab</h1><div class="sub">上下双边主导：顶部主高光、底部弱回光、左右边缘只做极淡轮廓。</div></div>
+    <div class="badge">网页实时调参 · 再回填 Kotlin</div>
+  </header>
+  <section class="layout">
+    <div class="card">
+      <div class="bar"><div class="tabs"><button data-scene="panel" class="active">大面板</button><button data-scene="chips">控件组</button><button data-scene="menu">模型菜单</button></div><div class="tabs"><button data-bg="blue" class="active">蓝紫背景</button><button data-bg="dark">暗色背景</button><button data-bg="busy">复杂背景</button></div></div>
+      <canvas id="preview" width="1100" height="860"></canvas>
+      <div class="hint">这版不再让斜向光场穿过整块玻璃。高光会向上下边汇聚：顶部细亮，底部弱回光加暗厚度，左右只保留非常弱的边缘存在感。</div>
+    </div>
+    <aside>
+      <div class="controls">
+        <div class="title"><strong>参数滑块</strong><button id="resetBtn">重置</button></div>
+        <div class="group"><h2>材质预设</h2><div class="preset-grid"><button data-preset="clear">Clear</button><button data-preset="frost" class="active">Frost</button><button data-preset="crystal">Crystal</button><button data-preset="dense">Dense</button><button data-preset="ios">iOS Menu</button></div></div>
+        <div class="group"><h2>主体材质</h2><div class="row"><label>雾面密度</label><input id="frost" type="range" min="0.15" max="1.90" step="0.01"><span class="value" data-for="frost"></span></div><div class="row"><label>暗色覆膜</label><input id="tint" type="range" min="0.00" max="1.60" step="0.01"><span class="value" data-for="tint"></span></div><div class="row"><label>中心安静</label><input id="quiet" type="range" min="0.00" max="1.40" step="0.01"><span class="value" data-for="quiet"></span></div></div>
+        <div class="group"><h2>上下边缘光场</h2><div class="row"><label>顶部高光</label><input id="topLight" type="range" min="0.00" max="2.60" step="0.01"><span class="value" data-for="topLight"></span></div><div class="row"><label>顶部宽度</label><input id="topWidth" type="range" min="1.00" max="10.00" step="0.05"><span class="value" data-for="topWidth"></span></div><div class="row"><label>顶部不均匀</label><input id="topVariation" type="range" min="0.00" max="1.50" step="0.01"><span class="value" data-for="topVariation"></span></div><div class="row"><label>底部回光</label><input id="bottomLight" type="range" min="0.00" max="1.80" step="0.01"><span class="value" data-for="bottomLight"></span></div><div class="row"><label>底部宽度</label><input id="bottomWidth" type="range" min="1.00" max="9.00" step="0.05"><span class="value" data-for="bottomWidth"></span></div></div>
+        <div class="group"><h2>侧边与厚度</h2><div class="row"><label>左右弱边</label><input id="sideLight" type="range" min="0.00" max="0.90" step="0.01"><span class="value" data-for="sideLight"></span></div><div class="row"><label>底部暗度</label><input id="bottomDensity" type="range" min="0.00" max="1.90" step="0.01"><span class="value" data-for="bottomDensity"></span></div><div class="row"><label>轮廓细线</label><input id="hairline" type="range" min="0.00" max="1.80" step="0.01"><span class="value" data-for="hairline"></span></div><div class="row"><label>圆角半径</label><input id="radius" type="range" min="18" max="84" step="1"><span class="value" data-for="radius"></span></div><div class="row"><label>投影</label><input id="shadow" type="range" min="0.00" max="1.60" step="0.01"><span class="value" data-for="shadow"></span></div></div>
       </div>
-      <div class="badge">不跑 APK · 直接拖滑块 · 导出 Kotlin 参数</div>
-    </header>
-
-    <section class="layout">
-      <div class="stage-card">
-        <div class="stage-top">
-          <div class="tabs">
-            <button data-scene="panel" class="active">大面板</button>
-            <button data-scene="chips">控件组</button>
-            <button data-scene="menu">模型菜单</button>
-          </div>
-          <div class="tabs">
-            <button id="bgBlue" class="active">蓝紫背景</button>
-            <button id="bgDark">暗色背景</button>
-            <button id="bgBusy">复杂背景</button>
-          </div>
-        </div>
-        <canvas id="preview" width="1100" height="860"></canvas>
-        <div class="hint">调参目标：高光必须像“连续光学场”自然落在边缘，而不是四条白线或圆形光斑。中心尽量安静；边缘越窄、越非均匀，越接近真实玻璃。</div>
-        <div class="compare">
-          <div class="mini">Card</div>
-          <div class="mini">Chip</div>
-          <div class="mini">Flex</div>
-        </div>
-      </div>
-
-      <aside>
-        <div class="controls">
-          <div class="control-title">
-            <strong>参数滑块</strong>
-            <button id="resetBtn">重置</button>
-          </div>
-
-          <div class="group">
-            <h2>材质预设</h2>
-            <div class="preset-grid">
-              <button data-preset="clear">Clear</button>
-              <button data-preset="frost" class="active">Frost</button>
-              <button data-preset="crystal">Crystal</button>
-              <button data-preset="dense">Dense</button>
-              <button data-preset="aurora">Aurora</button>
-            </div>
-          </div>
-
-          <div class="group">
-            <h2>核心材质</h2>
-            <div class="row"><label>背景采样</label><input id="backdrop" type="range" min="0.35" max="1.60" step="0.01"><span class="value" data-for="backdrop"></span></div>
-            <div class="row"><label>雾面密度</label><input id="frost" type="range" min="0.20" max="1.85" step="0.01"><span class="value" data-for="frost"></span></div>
-            <div class="row"><label>暗色覆膜</label><input id="tint" type="range" min="0.00" max="1.40" step="0.01"><span class="value" data-for="tint"></span></div>
-          </div>
-
-          <div class="group">
-            <h2>连续光学场</h2>
-            <div class="row"><label>边缘亮度</label><input id="edge" type="range" min="0.00" max="2.20" step="0.01"><span class="value" data-for="edge"></span></div>
-            <div class="row"><label>外场宽度</label><input id="edgeWidth" type="range" min="1.20" max="8.00" step="0.05"><span class="value" data-for="edgeWidth"></span></div>
-            <div class="row"><label>内场宽度</label><input id="innerWidth" type="range" min="0.50" max="5.00" step="0.05"><span class="value" data-for="innerWidth"></span></div>
-            <div class="row"><label>顶部权重</label><input id="topBias" type="range" min="0.20" max="2.40" step="0.01"><span class="value" data-for="topBias"></span></div>
-            <div class="row"><label>斜向方向</label><input id="diagonal" type="range" min="-1.50" max="1.50" step="0.01"><span class="value" data-for="diagonal"></span></div>
-          </div>
-
-          <div class="group">
-            <h2>厚度与轮廓</h2>
-            <div class="row"><label>底部暗度</label><input id="bottomDensity" type="range" min="0.00" max="1.80" step="0.01"><span class="value" data-for="bottomDensity"></span></div>
-            <div class="row"><label>轮廓细线</label><input id="hairline" type="range" min="0.00" max="1.80" step="0.01"><span class="value" data-for="hairline"></span></div>
-            <div class="row"><label>圆角半径</label><input id="radius" type="range" min="18" max="80" step="1"><span class="value" data-for="radius"></span></div>
-            <div class="row"><label>投影</label><input id="shadow" type="range" min="0.00" max="1.60" step="0.01"><span class="value" data-for="shadow"></span></div>
-          </div>
-        </div>
-
-        <div class="export-card">
-          <div class="control-title"><strong>Kotlin 参数建议</strong><button id="copyBtn">复制</button></div>
-          <textarea id="exportText" spellcheck="false"></textarea>
-          <div class="small-actions"><button id="savePng">保存预览 PNG</button></div>
-        </div>
-      </aside>
-    </section>
-  </main>
-
-  <script>
-    const canvas = document.getElementById('preview');
-    const ctx = canvas.getContext('2d');
-    let scene = 'panel';
-    let bgMode = 'blue';
-
-    const presets = {
-      clear: { backdrop: 1.18, frost: .55, tint: .35, edge: 1.05, edgeWidth: 2.8, innerWidth: 1.1, topBias: 1.35, diagonal: .25, bottomDensity: .75, hairline: .68, radius: 48, shadow: .55 },
-      frost: { backdrop: .96, frost: 1.05, tint: .62, edge: 1.24, edgeWidth: 3.5, innerWidth: 1.45, topBias: 1.45, diagonal: .18, bottomDensity: .95, hairline: .78, radius: 46, shadow: .72 },
-      crystal: { backdrop: 1.08, frost: .72, tint: .46, edge: 1.58, edgeWidth: 2.7, innerWidth: 1.0, topBias: 1.75, diagonal: .36, bottomDensity: .72, hairline: 1.05, radius: 48, shadow: .70 },
-      dense: { backdrop: .82, frost: 1.42, tint: .88, edge: .96, edgeWidth: 4.1, innerWidth: 1.8, topBias: 1.15, diagonal: .05, bottomDensity: 1.20, hairline: .62, radius: 42, shadow: .95 },
-      aurora: { backdrop: 1.02, frost: .96, tint: .54, edge: 1.42, edgeWidth: 3.2, innerWidth: 1.35, topBias: 1.62, diagonal: .62, bottomDensity: .90, hairline: .92, radius: 50, shadow: .78 }
-    };
-
-    const state = { ...presets.frost };
-    const ids = Object.keys(state);
-    const $ = id => document.getElementById(id);
-
-    function setState(next) {
-      Object.assign(state, next);
-      ids.forEach(id => { if ($(id)) $(id).value = state[id]; });
-      updateValues();
-      draw();
-      exportParams();
-    }
-
-    function updateValues() {
-      ids.forEach(id => {
-        const el = document.querySelector(`[data-for="${id}"]`);
-        if (!el) return;
-        const v = Number(state[id]);
-        el.textContent = id === 'radius' ? Math.round(v) : v.toFixed(2);
-      });
-    }
-
-    ids.forEach(id => {
-      $(id).addEventListener('input', e => {
-        state[id] = Number(e.target.value);
-        updateValues(); draw(); exportParams();
-      });
-    });
-
-    document.querySelectorAll('[data-preset]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        setState(presets[btn.dataset.preset]);
-      });
-    });
-
-    document.querySelectorAll('[data-scene]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-scene]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        scene = btn.dataset.scene; draw();
-      });
-    });
-
-    $('resetBtn').onclick = () => setState(presets.frost);
-    $('bgBlue').onclick = () => setBg('blue', 'bgBlue');
-    $('bgDark').onclick = () => setBg('dark', 'bgDark');
-    $('bgBusy').onclick = () => setBg('busy', 'bgBusy');
-    function setBg(mode, id) {
-      bgMode = mode;
-      ['bgBlue','bgDark','bgBusy'].forEach(x => $(x).classList.toggle('active', x === id));
-      draw();
-    }
-
-    function roundedRectPath(c, x, y, w, h, r) {
-      const rr = Math.min(r, w / 2, h / 2);
-      c.beginPath();
-      c.moveTo(x + rr, y);
-      c.arcTo(x + w, y, x + w, y + h, rr);
-      c.arcTo(x + w, y + h, x, y + h, rr);
-      c.arcTo(x, y + h, x, y, rr);
-      c.arcTo(x, y, x + w, y, rr);
-      c.closePath();
-    }
-
-    function fillBg() {
-      const w = canvas.width, h = canvas.height;
-      ctx.clearRect(0,0,w,h);
-      let g = ctx.createLinearGradient(0,0,w,h);
-      if (bgMode === 'dark') {
-        g.addColorStop(0, '#030306'); g.addColorStop(.55, '#121318'); g.addColorStop(1, '#000000');
-      } else if (bgMode === 'busy') {
-        g.addColorStop(0, '#06103a'); g.addColorStop(.35, '#0a2d8a'); g.addColorStop(.7, '#6528b9'); g.addColorStop(1, '#0c0d1b');
-      } else {
-        g.addColorStop(0, '#07184b'); g.addColorStop(.48, '#10349a'); g.addColorStop(1, '#6235c4');
-      }
-      ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
-      for (let i=0;i<42;i++) {
-        const x = (Math.sin(i*12.989)*43758.5453 % 1 + 1) % 1 * w;
-        const y = (Math.sin(i*78.23)*12345.123 % 1 + 1) % 1 * h;
-        ctx.fillStyle = `rgba(255,255,255,${i%7===0?.25:.07})`;
-        ctx.beginPath(); ctx.arc(x,y,i%7===0?2.0:1.1,0,Math.PI*2); ctx.fill();
-      }
-      if (bgMode !== 'dark') {
-        strokeLightRibbon(0.0, h*.72, w*.85, h*.34, 'rgba(95,190,255,.36)', 6);
-        strokeLightRibbon(w*.18, h*.84, w*.94, h*.14, 'rgba(255,225,190,.34)', 8);
-      } else {
-        for (let i=0;i<10;i++) {
-          ctx.fillStyle = `rgba(255,255,255,${0.04 + i*0.006})`;
-          ctx.filter = 'blur(10px)';
-          ctx.fillRect(80 + i*40, 110 + i*38, 280, 18);
-          ctx.filter = 'none';
-        }
-      }
-    }
-
-    function strokeLightRibbon(x0,y0,x1,y1,color,width) {
-      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.shadowBlur = 22; ctx.shadowColor = color;
-      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.bezierCurveTo((x0+x1)*.35, y0-140, (x0+x1)*.62, y1+120, x1,y1); ctx.stroke(); ctx.restore();
-    }
-
-    function drawGlass(x, y, w, h, label, sub, opts={}) {
-      const r = opts.radius ?? state.radius;
-      ctx.save();
-      ctx.shadowColor = `rgba(0,0,0,${0.28 * state.shadow})`;
-      ctx.shadowBlur = 34 * state.shadow;
-      ctx.shadowOffsetY = 14 * state.shadow;
-      roundedRectPath(ctx, x, y, w, h, r);
-      ctx.fillStyle = `rgba(20,28,62,${0.22 + state.tint*.16})`;
-      ctx.fill();
-      ctx.restore();
-
-      ctx.save();
-      roundedRectPath(ctx, x, y, w, h, r); ctx.clip();
-
-      let base = ctx.createLinearGradient(x, y, x+w, y+h);
-      base.addColorStop(0, `rgba(255,255,255,${0.028 * state.frost})`);
-      base.addColorStop(.45, `rgba(255,255,255,${0.010 * state.frost})`);
-      base.addColorStop(1, `rgba(0,0,0,${0.10 * state.tint})`);
-      ctx.fillStyle = base; ctx.fillRect(x, y, w, h);
-
-      ctx.globalCompositeOperation = 'screen';
-      const strength = state.edge * .16;
-      const feather = state.edgeWidth;
-      const inner = state.innerWidth;
-      // continuous optical field: one directional field constrained by rounded geometry strokes
-      let edge = ctx.createLinearGradient(x + w*.02, y - h*.04, x + w*(.86 + state.diagonal*.06), y + h*1.03);
-      edge.addColorStop(0.00, `rgba(255,255,255,${strength * .70 * state.topBias})`);
-      edge.addColorStop(0.10, `rgba(236,250,255,${strength * .28 * state.topBias})`);
-      edge.addColorStop(0.24, `rgba(160,216,255,${strength * .08})`);
-      edge.addColorStop(0.46, `rgba(255,255,255,0)`);
-      edge.addColorStop(0.78, `rgba(0,0,0,0)`);
-      edge.addColorStop(1.00, `rgba(255,255,255,${strength * .050})`);
-      ctx.strokeStyle = edge; ctx.lineWidth = feather;
-      roundedRectPath(ctx, x + feather*.48, y + feather*.48, w - feather*.96, h - feather*.96, r - feather*.20);
-      ctx.stroke();
-
-      let innerField = ctx.createLinearGradient(x + w*.08, y, x + w*.96, y + h);
-      innerField.addColorStop(0, `rgba(255,255,255,${strength * .18})`);
-      innerField.addColorStop(.22, `rgba(232,250,255,${strength * .070})`);
-      innerField.addColorStop(.52, 'rgba(255,255,255,0)');
-      innerField.addColorStop(1, `rgba(0,0,0,${.035 * state.bottomDensity})`);
-      ctx.strokeStyle = innerField; ctx.lineWidth = inner;
-      roundedRectPath(ctx, x + feather + inner, y + feather + inner, w - 2*(feather + inner), h - 2*(feather + inner), Math.max(0, r - feather - inner));
-      ctx.stroke();
-
-      let curve = ctx.createLinearGradient(x, y, x + w*.5, y + h*.48);
-      curve.addColorStop(0, `rgba(255,255,255,${strength*.18})`);
-      curve.addColorStop(.22, `rgba(235,250,255,${strength*.06})`);
-      curve.addColorStop(.7, 'rgba(255,255,255,0)');
-      ctx.strokeStyle = curve; ctx.lineWidth = .7 * state.hairline;
-      roundedRectPath(ctx, x + 1.2, y + 1.2, w - 2.4, h - 2.4, r);
-      ctx.stroke();
-      ctx.globalCompositeOperation = 'source-over';
-
-      let lens = ctx.createLinearGradient(x, y, x, y + Math.min(32, h*.14));
-      lens.addColorStop(0, `rgba(255,255,255,${0.035 * state.topBias})`);
-      lens.addColorStop(.6, `rgba(245,252,255,${0.012 * state.topBias})`);
-      lens.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = lens; ctx.fillRect(x, y, w, Math.min(34, h*.15));
-
-      let bottom = ctx.createLinearGradient(x, y+h*.64, x, y+h);
-      bottom.addColorStop(0, 'rgba(0,0,0,0)');
-      bottom.addColorStop(.62, `rgba(4,12,32,${0.12 * state.bottomDensity})`);
-      bottom.addColorStop(1, `rgba(0,2,10,${0.24 * state.bottomDensity})`);
-      ctx.fillStyle = bottom; ctx.fillRect(x, y+h*.55, w, h*.45);
-      ctx.restore();
-
-      ctx.save();
-      let rim = ctx.createLinearGradient(x, y, x+w, y+h);
-      rim.addColorStop(0, `rgba(255,255,255,${0.18 * state.hairline})`);
-      rim.addColorStop(.22, `rgba(255,255,255,${0.035 * state.hairline})`);
-      rim.addColorStop(.55, 'rgba(255,255,255,0)');
-      rim.addColorStop(.82, `rgba(0,0,0,${0.09 * state.bottomDensity})`);
-      rim.addColorStop(1, `rgba(255,255,255,${0.018 * state.hairline})`);
-      ctx.strokeStyle = rim; ctx.lineWidth = Math.max(.55, .72 * state.hairline);
-      roundedRectPath(ctx, x + 1, y + 1, w - 2, h - 2, r);
-      ctx.stroke();
-      ctx.restore();
-
-      if (label) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,.93)';
-        ctx.font = `900 ${opts.titleSize ?? 50}px ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif`;
-        ctx.fillText(label, x + (opts.pad ?? 42), y + (opts.titleY ?? 72));
-        if (sub) {
-          ctx.fillStyle = 'rgba(255,255,255,.50)';
-          ctx.font = `800 ${opts.subSize ?? 25}px ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif`;
-          ctx.fillText(sub, x + (opts.pad ?? 42), y + (opts.subY ?? 116));
-        }
-        ctx.restore();
-      }
-    }
-
-    function drawPanel() {
-      drawGlass(78, 56, 944, 560, 'Compose 材质玻璃', 'Frost · 连续光学场 · 普通控件实时生效', { radius: state.radius, titleSize: 54, subSize: 27 });
-      drawGlass(112, 260, 290, 102, '采样', '', { radius: 26, titleSize: 24, titleY: 49, pad: 28 });
-      drawGlass(425, 260, 290, 102, '密度', '', { radius: 26, titleSize: 24, titleY: 49, pad: 28 });
-      drawGlass(738, 260, 290, 102, '边缘', '', { radius: 26, titleSize: 24, titleY: 49, pad: 28 });
-      drawGlass(112, 438, 290, 88, 'Card', '', { radius: 999, titleSize: 30, titleY: 55, pad: 112 });
-      drawGlass(425, 438, 290, 88, 'Chip', '', { radius: 999, titleSize: 30, titleY: 55, pad: 112 });
-      drawGlass(738, 438, 290, 88, 'Flex', '', { radius: 999, titleSize: 30, titleY: 55, pad: 112 });
-      drawGlass(868, 96, 112, 112, 'M', '', { radius: 30, titleSize: 44, titleY: 72, pad: 39 });
-    }
-
-    function drawChips() {
-      const labels = ['飞行模式','无线网络','屏幕镜像','专注模式','相机','手电筒','翻译','计算器','录屏','电池'];
-      labels.forEach((t,i)=>{
-        const col = i%3, row = Math.floor(i/3);
-        const x = 92 + col*315, y = 82 + row*150;
-        const w = i===3 ? 270 : 210, h = i===3 ? 84 : 118;
-        drawGlass(x, y, w, h, t, '', { radius: i===3 ? 42 : 44, titleSize: i===3 ? 25 : 23, titleY: i===3 ? 53 : 68, pad: 28 });
-      });
-    }
-
-    function drawMenu() {
-      drawGlass(245, 84, 610, 500, 'Instant', '✓    Thinking', { radius: 42, titleSize: 32, subSize: 34, titleY: 126, subY: 230, pad: 54 });
-      ctx.save(); ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(300,330); ctx.lineTo(800,330); ctx.stroke(); ctx.restore();
-      ctx.save(); ctx.fillStyle='rgba(255,255,255,.78)'; ctx.font='800 30px ui-rounded, -apple-system, BlinkMacSystemFont, sans-serif'; ctx.fillText('最新 · 5.5', 300, 152); ctx.fillText('配置', 395, 430); ctx.restore();
-    }
-
-    function draw() {
-      fillBg();
-      if (scene === 'panel') drawPanel();
-      if (scene === 'chips') drawChips();
-      if (scene === 'menu') drawMenu();
-    }
-
-    function exportParams() {
-      const text = `// Compose Glass Optical Field Lab 参数\n` +
-`// 可先人工观察，再把相近值折算进 Glass.kt / ComposeGlassLabState\n\n` +
-`backdrop = ${state.backdrop.toFixed(2)}f\n` +
-`density = ${state.frost.toFixed(2)}f\n` +
-`edge = ${state.edge.toFixed(2)}f\n\n` +
-`// glassSkin 光学场建议\n` +
-`opticalStrengthScale = ${(state.edge * 1.52).toFixed(2)}f\n` +
-`edgeFeatherDp = ${state.edgeWidth.toFixed(2)}f\n` +
-`innerFeatherDp = ${state.innerWidth.toFixed(2)}f\n` +
-`topBias = ${state.topBias.toFixed(2)}f\n` +
-`diagonalBias = ${state.diagonal.toFixed(2)}f\n` +
-`bottomDensity = ${state.bottomDensity.toFixed(2)}f\n` +
-`hairline = ${state.hairline.toFixed(2)}f\n` +
-`radius = ${Math.round(state.radius)}\n` +
-`shadow = ${state.shadow.toFixed(2)}f\n`;
-      $('exportText').value = text;
-    }
-
-    $('copyBtn').onclick = async () => { await navigator.clipboard.writeText($('exportText').value); $('copyBtn').textContent='已复制'; setTimeout(()=>$('copyBtn').textContent='复制',900); };
-    $('savePng').onclick = () => { const a=document.createElement('a'); a.download='compose-glass-lab.png'; a.href=canvas.toDataURL('image/png'); a.click(); };
-
-    setState(presets.frost);
-  </script>
+      <div class="export"><div class="title"><strong>Kotlin 参数建议</strong><button id="copyBtn">复制</button></div><textarea id="exportText" spellcheck="false"></textarea><div class="actions"><button id="savePng">保存预览 PNG</button></div></div>
+    </aside>
+  </section>
+</main>
+<script>
+const canvas=document.getElementById('preview'),ctx=canvas.getContext('2d');let scene='panel',bgMode='blue';
+const presets={clear:{frost:.48,tint:.30,quiet:.80,topLight:1.25,topWidth:3.0,topVariation:.70,bottomLight:.45,bottomWidth:2.6,sideLight:.18,bottomDensity:.70,hairline:.65,radius:48,shadow:.55},frost:{frost:1.00,tint:.62,quiet:1.00,topLight:1.58,topWidth:3.6,topVariation:.90,bottomLight:.62,bottomWidth:3.2,sideLight:.22,bottomDensity:.98,hairline:.78,radius:46,shadow:.72},crystal:{frost:.68,tint:.40,quiet:.85,topLight:2.00,topWidth:2.5,topVariation:1.08,bottomLight:.72,bottomWidth:2.3,sideLight:.16,bottomDensity:.74,hairline:1.02,radius:48,shadow:.70},dense:{frost:1.40,tint:.92,quiet:1.14,topLight:1.20,topWidth:4.2,topVariation:.55,bottomLight:.42,bottomWidth:3.8,sideLight:.12,bottomDensity:1.25,hairline:.60,radius:42,shadow:.95},ios:{frost:.82,tint:.82,quiet:1.22,topLight:1.62,topWidth:2.4,topVariation:1.10,bottomLight:.52,bottomWidth:2.2,sideLight:.08,bottomDensity:1.05,hairline:.58,radius:44,shadow:.62}};
+const state={...presets.frost};const ids=Object.keys(state);const $=id=>document.getElementById(id);
+function setState(o){Object.assign(state,o);ids.forEach(id=>$(id).value=state[id]);values();draw();exportParams()}function values(){ids.forEach(id=>{const e=document.querySelector(`[data-for="${id}"]`);if(e)e.textContent=id==='radius'?Math.round(state[id]):Number(state[id]).toFixed(2)})}
+ids.forEach(id=>$(id).addEventListener('input',e=>{state[id]=Number(e.target.value);values();draw();exportParams()}));
+document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-preset]').forEach(x=>x.classList.remove('active'));b.classList.add('active');setState(presets[b.dataset.preset])});
+document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-scene]').forEach(x=>x.classList.remove('active'));b.classList.add('active');scene=b.dataset.scene;draw()});
+document.querySelectorAll('[data-bg]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-bg]').forEach(x=>x.classList.remove('active'));b.classList.add('active');bgMode=b.dataset.bg;draw()});
+$('resetBtn').onclick=()=>setState(presets.frost);$('copyBtn').onclick=async()=>{await navigator.clipboard.writeText($('exportText').value);$('copyBtn').textContent='已复制';setTimeout(()=>$('copyBtn').textContent='复制',900)};$('savePng').onclick=()=>{const a=document.createElement('a');a.download='compose-glass-lab.png';a.href=canvas.toDataURL('image/png');a.click()};
+function rr(c,x,y,w,h,r){const q=Math.min(r,w/2,h/2);c.beginPath();c.moveTo(x+q,y);c.arcTo(x+w,y,x+w,y+h,q);c.arcTo(x+w,y+h,x,y+h,q);c.arcTo(x,y+h,x,y,q);c.arcTo(x,y,x+w,y,q);c.closePath()}
+function bg(){const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);let g=ctx.createLinearGradient(0,0,w,h);if(bgMode==='dark'){g.addColorStop(0,'#020204');g.addColorStop(.55,'#15161a');g.addColorStop(1,'#000')}else if(bgMode==='busy'){g.addColorStop(0,'#06103a');g.addColorStop(.35,'#0a2d8a');g.addColorStop(.7,'#6528b9');g.addColorStop(1,'#0c0d1b')}else{g.addColorStop(0,'#07184b');g.addColorStop(.48,'#10349a');g.addColorStop(1,'#6235c4')}ctx.fillStyle=g;ctx.fillRect(0,0,w,h);for(let i=0;i<42;i++){const x=((Math.sin(i*12.989)*43758.5453)%1+1)%1*w,y=((Math.sin(i*78.23)*12345.123)%1+1)%1*h;ctx.fillStyle=`rgba(255,255,255,${i%7===0?.22:.055})`;ctx.beginPath();ctx.arc(x,y,i%7===0?2:1,0,Math.PI*2);ctx.fill()}if(bgMode!=='dark'){ribbon(0,h*.72,w*.82,h*.36,'rgba(95,190,255,.22)',6);ribbon(w*.28,h*.92,w*.98,h*.18,'rgba(255,230,200,.16)',8)}else{ctx.filter='blur(10px)';for(let i=0;i<10;i++){ctx.fillStyle=`rgba(255,255,255,${0.035+i*.004})`;ctx.fillRect(80+i*40,110+i*38,280,16)}ctx.filter='none'}}
+function ribbon(x0,y0,x1,y1,color,width){ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.shadowBlur=20;ctx.shadowColor=color;ctx.beginPath();ctx.moveTo(x0,y0);ctx.bezierCurveTo((x0+x1)*.35,y0-120,(x0+x1)*.62,y1+100,x1,y1);ctx.stroke();ctx.restore()}
+function glass(x,y,w,h,label,sub,o={}){const r=o.radius??state.radius;ctx.save();ctx.shadowColor=`rgba(0,0,0,${.30*state.shadow})`;ctx.shadowBlur=34*state.shadow;ctx.shadowOffsetY=14*state.shadow;rr(ctx,x,y,w,h,r);ctx.fillStyle=`rgba(18,24,54,${.26+state.tint*.16})`;ctx.fill();ctx.restore();ctx.save();rr(ctx,x,y,w,h,r);ctx.clip();let base=ctx.createLinearGradient(x,y,x+w,y+h);base.addColorStop(0,`rgba(255,255,255,${.026*state.frost})`);base.addColorStop(.45,`rgba(255,255,255,${.008*state.frost})`);base.addColorStop(1,`rgba(0,0,0,${.11*state.tint})`);ctx.fillStyle=base;ctx.fillRect(x,y,w,h);let quiet=ctx.createRadialGradient(x+w*.50,y+h*.46,0,x+w*.50,y+h*.46,Math.max(w,h)*.72);quiet.addColorStop(0,`rgba(255,255,255,${.010/state.quiet})`);quiet.addColorStop(.55,'rgba(255,255,255,0)');quiet.addColorStop(1,`rgba(0,0,0,${.045*state.quiet})`);ctx.fillStyle=quiet;ctx.fillRect(x,y,w,h);ctx.globalCompositeOperation='screen';const tw=state.topWidth,bw=state.bottomWidth,topA=.15*state.topLight,botA=.11*state.bottomLight;let top=ctx.createLinearGradient(x,y,x,y+tw*7);top.addColorStop(0,`rgba(255,255,255,${topA})`);top.addColorStop(.18,`rgba(238,250,255,${topA*.42})`);top.addColorStop(.52,`rgba(170,215,255,${topA*.10})`);top.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=top;ctx.fillRect(x,y,w,tw*8);let topField=ctx.createLinearGradient(x,y,x+w,y);topField.addColorStop(0,`rgba(255,255,255,${topA*.45*state.topVariation})`);topField.addColorStop(.20,`rgba(255,255,255,${topA*.16})`);topField.addColorStop(.55,`rgba(255,255,255,${topA*.04})`);topField.addColorStop(.82,`rgba(255,255,255,${topA*.20*state.topVariation})`);topField.addColorStop(1,`rgba(255,255,255,${topA*.10})`);ctx.strokeStyle=topField;ctx.lineWidth=tw;rr(ctx,x+tw*.45,y+tw*.45,w-tw*.9,h-tw*.9,Math.max(0,r-tw*.15));ctx.stroke();let bottom=ctx.createLinearGradient(x,y+h-bw*8,x,y+h);bottom.addColorStop(0,'rgba(255,255,255,0)');bottom.addColorStop(.48,`rgba(220,240,255,${botA*.12})`);bottom.addColorStop(.84,`rgba(255,255,255,${botA*.36})`);bottom.addColorStop(1,`rgba(255,255,255,${botA*.22})`);ctx.fillStyle=bottom;ctx.fillRect(x,y+h-bw*8,w,bw*8);let bottomStroke=ctx.createLinearGradient(x,y+h,x+w,y+h);bottomStroke.addColorStop(0,'rgba(255,255,255,0)');bottomStroke.addColorStop(.28,`rgba(255,255,255,${botA*.24})`);bottomStroke.addColorStop(.58,`rgba(255,255,255,${botA*.40})`);bottomStroke.addColorStop(1,'rgba(255,255,255,0)');ctx.strokeStyle=bottomStroke;ctx.lineWidth=bw;rr(ctx,x+bw*.5,y+bw*.5,w-bw,h-bw,Math.max(0,r-bw*.2));ctx.stroke();let side=ctx.createLinearGradient(x,y,x+w,y);side.addColorStop(0,`rgba(255,255,255,${.030*state.sideLight})`);side.addColorStop(.08,'rgba(255,255,255,0)');side.addColorStop(.92,'rgba(255,255,255,0)');side.addColorStop(1,`rgba(255,255,255,${.024*state.sideLight})`);ctx.strokeStyle=side;ctx.lineWidth=2.2;rr(ctx,x+1.4,y+1.4,w-2.8,h-2.8,r);ctx.stroke();ctx.globalCompositeOperation='source-over';let dark=ctx.createLinearGradient(x,y+h*.62,x,y+h);dark.addColorStop(0,'rgba(0,0,0,0)');dark.addColorStop(.62,`rgba(4,12,32,${.12*state.bottomDensity})`);dark.addColorStop(1,`rgba(0,2,10,${.26*state.bottomDensity})`);ctx.fillStyle=dark;ctx.fillRect(x,y+h*.55,w,h*.45);ctx.restore();ctx.save();let rim=ctx.createLinearGradient(x,y,x+w,y+h);rim.addColorStop(0,`rgba(255,255,255,${.13*state.hairline})`);rim.addColorStop(.18,`rgba(255,255,255,${.026*state.hairline})`);rim.addColorStop(.55,'rgba(255,255,255,0)');rim.addColorStop(.82,`rgba(0,0,0,${.10*state.bottomDensity})`);rim.addColorStop(1,`rgba(255,255,255,${.016*state.hairline})`);ctx.strokeStyle=rim;ctx.lineWidth=Math.max(.55,.72*state.hairline);rr(ctx,x+1,y+1,w-2,h-2,r);ctx.stroke();ctx.restore();if(label){ctx.save();ctx.fillStyle='rgba(255,255,255,.93)';ctx.font=`900 ${o.titleSize??50}px ui-rounded,-apple-system,BlinkMacSystemFont,sans-serif`;ctx.fillText(label,x+(o.pad??42),y+(o.titleY??72));if(sub){ctx.fillStyle='rgba(255,255,255,.50)';ctx.font=`800 ${o.subSize??25}px ui-rounded,-apple-system,BlinkMacSystemFont,sans-serif`;ctx.fillText(sub,x+(o.pad??42),y+(o.subY??116))}ctx.restore()}}
+function drawPanel(){glass(78,56,944,560,'Compose 材质玻璃','Frost · 上下双边光场 · 普通控件实时生效',{radius:state.radius,titleSize:54,subSize:27});glass(112,260,290,102,'采样','',{radius:26,titleSize:24,titleY:49,pad:28});glass(425,260,290,102,'密度','',{radius:26,titleSize:24,titleY:49,pad:28});glass(738,260,290,102,'边缘','',{radius:26,titleSize:24,titleY:49,pad:28});glass(112,438,290,88,'Card','',{radius:999,titleSize:30,titleY:55,pad:112});glass(425,438,290,88,'Chip','',{radius:999,titleSize:30,titleY:55,pad:112});glass(738,438,290,88,'Flex','',{radius:999,titleSize:30,titleY:55,pad:112});glass(868,96,112,112,'M','',{radius:30,titleSize:44,titleY:72,pad:39})}
+function drawChips(){['飞行模式','无线网络','屏幕镜像','专注模式','相机','手电筒','翻译','计算器','录屏','电池'].forEach((t,i)=>{const c=i%3,r=Math.floor(i/3),x=92+c*315,y=82+r*150,w=i===3?270:210,h=i===3?84:118;glass(x,y,w,h,t,'',{radius:i===3?42:44,titleSize:i===3?25:23,titleY:i===3?53:68,pad:28})})}
+function drawMenu(){glass(245,84,610,500,'Instant','✓    Thinking',{radius:42,titleSize:32,subSize:34,titleY:126,subY:230,pad:54});ctx.save();ctx.strokeStyle='rgba(255,255,255,.10)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(300,330);ctx.lineTo(800,330);ctx.stroke();ctx.fillStyle='rgba(255,255,255,.78)';ctx.font='800 30px ui-rounded,-apple-system,BlinkMacSystemFont,sans-serif';ctx.fillText('最新 · 5.5',300,152);ctx.fillText('配置',395,430);ctx.restore()}
+function draw(){bg();if(scene==='panel')drawPanel();if(scene==='chips')drawChips();if(scene==='menu')drawMenu()}function exportParams(){$('exportText').value=`// 上下双边玻璃光场参数\nfrost = ${state.frost.toFixed(2)}f\ntint = ${state.tint.toFixed(2)}f\nquiet = ${state.quiet.toFixed(2)}f\n\ntopLight = ${state.topLight.toFixed(2)}f\ntopWidthDp = ${state.topWidth.toFixed(2)}f\ntopVariation = ${state.topVariation.toFixed(2)}f\nbottomLight = ${state.bottomLight.toFixed(2)}f\nbottomWidthDp = ${state.bottomWidth.toFixed(2)}f\nsideLight = ${state.sideLight.toFixed(2)}f\nbottomDensity = ${state.bottomDensity.toFixed(2)}f\nhairline = ${state.hairline.toFixed(2)}f\nradius = ${Math.round(state.radius)}\nshadow = ${state.shadow.toFixed(2)}f\n`}
+setState(presets.frost);
+</script>
 </body>
 </html>
