@@ -733,19 +733,19 @@ fun Modifier.glassSkin(
         val pulse = 0.94f + breathe * 0.030f
 
         val glass = ComposeGlassLabState.style
-        val frost = glass.frost * intensityScale
-        val tint = glass.tint
+        val frost = ComposeGlassRuntimeDefaults.frost * intensityScale
+        val tint = ComposeGlassRuntimeDefaults.tint
         val quiet = glass.quiet
         val topLight = glass.topLight * intensityScale
         val topWidth = glass.topWidthDp.dp.toPx()
         val topVariation = glass.topVariation
         val bottomLight = glass.bottomLight * intensityScale
         val bottomWidth = glass.bottomWidthDp.dp.toPx()
-        val edgeDepth = glass.edgeDepthDp.dp.toPx()
-        val innerBevel = glass.innerBevel
+        val edgeDepth = ComposeGlassRuntimeDefaults.edgeDepthDp.dp.toPx()
+        val innerBevel = ComposeGlassRuntimeDefaults.innerBevel
         val outerRim = glass.outerRim * intensityScale
         val bottomMass = glass.bottomMass * intensityScale
-        val sideBevel = glass.sideBevel
+        val sideBevel = ComposeGlassRuntimeDefaults.sideBevel
         val sideLight = glass.sideLight * intensityScale
 
         val baseField = Brush.linearGradient(
@@ -976,14 +976,14 @@ private fun glassMaterial(intensity: Float, role: GlassRole): GlassMaterial {
     if (ordinary) {
         val glass = ComposeGlassLabState.style
         return GlassMaterial(
-            frost = (0.044f * glass.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+            frost = (0.044f * ComposeGlassRuntimeDefaults.frost * safeIntensity).coerceIn(0.004f, 0.090f),
             rim = (0.104f * glass.outerRim * safeIntensity).coerceIn(0.010f, 0.240f),
-            innerRim = (0.030f * glass.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
+            innerRim = (0.030f * ComposeGlassRuntimeDefaults.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
             topHighlight = (0.036f * glass.topLight * safeIntensity).coerceIn(0.002f, 0.100f),
             cornerGlint = (0.020f * glass.topVariation * safeIntensity).coerceIn(0f, 0.080f),
             depthShadow = (0.015f * glass.bottomMass * safeIntensity).coerceIn(0.002f, 0.055f),
-            shadowAmbient = (0.028f * glass.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
-            shadowSpot = (0.0035f * glass.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
+            shadowAmbient = (0.028f * ComposeGlassRuntimeDefaults.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
+            shadowSpot = (0.0035f * ComposeGlassRuntimeDefaults.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
             strokeWidth = (0.42f + glass.outerRim * 0.24f).coerceIn(0.40f, 2.20f)
         )
     }
