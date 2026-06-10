@@ -32,7 +32,7 @@ import kotlin.math.roundToInt
 
 private const val GlassDebugLazyPatchCompatibility = """
 title = "轻量玻璃",
-            subtitle = "中性基底 + 棱彩边缘 + 棱彩按压扫光",
+            subtitle = "采样背景 + 轻雾面 + 单层边框",
             initiallyExpanded = false,
 title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
@@ -64,11 +64,10 @@ fun GlassDebugFloatingPanel(
     modifier: Modifier = Modifier
 ) {
     val params = state.backdropParams
-    val border = state.glassBorderStyle
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout(
             title = "玻璃调试",
-            subtitle = "背景 / 边缘 / 高光折射",
+            subtitle = "普通玻璃已收敛为背景 / 雾面 / 单层边框",
             initiallyExpanded = false,
             state = state
         ) {
@@ -76,10 +75,13 @@ fun GlassDebugFloatingPanel(
             LabSlider("云雾柔化", "云层边缘柔和程度", params.cloudSoftness, 0f..3f) { onBackdropChange(params.copy(cloudSoftness = it)) }
             LabSlider("背景亮度", "背景整体明暗", params.brightness, 0.5f..1.8f) { onBackdropChange(params.copy(brightness = it)) }
             LabSlider("背景对比", "背景明暗反差", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
-            LabSlider("边缘宽度", "玻璃外缘可见宽度", border.ringWidthDp, 0f..24f) { onBorderChange(border.copy(ringWidthDp = it)) }
-            LabSlider("外描边", "外侧细边透明度", border.outerStrokeAlpha, 0f..1.5f) { onBorderChange(border.copy(outerStrokeAlpha = it)) }
-            LabSlider("顶部高光", "上沿高光强度", border.topHighlightAlpha, 0f..2f) { onBorderChange(border.copy(topHighlightAlpha = it)) }
-            LabSlider("底部阴影", "下沿暗部压边", border.bottomShadowAlpha, 0f..1.2f) { onBorderChange(border.copy(bottomShadowAlpha = it)) }
+            Text(
+                "普通 Card / Chip / Nav / Floating / Flex 已移除独立边缘折射层，外描边、边缘宽度、顶部高光、底部阴影不再作为普通玻璃调试项暴露。Shell 大玻璃仍保留自己的 OpenGL / 边缘系统。",
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.50f),
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                 LabActionButton("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
                 LabActionButton("背景图片", "上传", state, Modifier.weight(1f), onUploadBackgroundClick)
@@ -88,12 +90,12 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "基础轻量玻璃说明与占位",
+            subtitle = "采样背景 + 轻雾面 + 单层边框",
             initiallyExpanded = false,
             state = state
         ) {
             Text(
-                "轻量玻璃仍保持 Compose/Canvas 路线，不接入 OpenGL。模型卡片的实参调试已拆到下方独立面板，避免和通用玻璃参数混在一起。",
+                "普通 Compose 玻璃现在只保留稳定的三段材质：背景采样、轻雾面、单层边框与底部暗部。按压动画仍沿用原来的弹性与棱彩光效，但底层材质不再重复叠边缘折射 Canvas。",
                 color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.50f),
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
