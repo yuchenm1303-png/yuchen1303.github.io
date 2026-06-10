@@ -5,13 +5,19 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,7 +39,7 @@ import kotlin.math.roundToInt
 
 private const val GlassDebugLazyPatchCompatibility = """
 title = "轻量玻璃",
-            subtitle = "采样背景 + 轻雾面 + 单层边框",
+            subtitle = "Compose 玻璃预览 / 材质参数 / 实时调试",
             initiallyExpanded = false,
 title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
@@ -67,7 +74,7 @@ fun GlassDebugFloatingPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout(
             title = "玻璃调试",
-            subtitle = "普通玻璃已收敛为背景 / 雾面 / 单层边框",
+            subtitle = "背景采样与全局背景参数",
             initiallyExpanded = false,
             state = state
         ) {
@@ -75,13 +82,6 @@ fun GlassDebugFloatingPanel(
             LabSlider("云雾柔化", "云层边缘柔和程度", params.cloudSoftness, 0f..3f) { onBackdropChange(params.copy(cloudSoftness = it)) }
             LabSlider("背景亮度", "背景整体明暗", params.brightness, 0.5f..1.8f) { onBackdropChange(params.copy(brightness = it)) }
             LabSlider("背景对比", "背景明暗反差", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
-            Text(
-                "普通 Card / Chip / Nav / Floating / Flex 已移除独立边缘折射层，外描边、边缘宽度、顶部高光、底部阴影不再作为普通玻璃调试项暴露。Shell 大玻璃仍保留自己的 OpenGL / 边缘系统。",
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.50f),
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                 LabActionButton("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
                 LabActionButton("背景图片", "上传", state, Modifier.weight(1f), onUploadBackgroundClick)
@@ -90,17 +90,11 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "采样背景 + 轻雾面 + 单层边框",
+            subtitle = "Compose 玻璃预览 / 材质参数 / 实时调试",
             initiallyExpanded = false,
             state = state
         ) {
-            Text(
-                "普通 Compose 玻璃现在只保留稳定的三段材质：背景采样、轻雾面、单层边框与底部暗部。按压动画仍沿用原来的弹性与棱彩光效，但底层材质不再重复叠边缘折射 Canvas。",
-                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.50f),
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
+            ComposeGlassLab(state)
         }
 
         GlassLabFoldout(
@@ -170,6 +164,146 @@ private fun GlassLabFoldout(
             exit = fadeOut() + shrinkVertically()
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+        }
+    }
+}
+
+@Composable
+private fun ComposeGlassLab(state: AssistantUiState) {
+    val style = ComposeGlassLabState.style
+    ComposeGlassPreview(state)
+    GlassControlGroup("背景与形体", "采样、模糊、圆角、阴影", state, true) {
+        LabSlider("背景采样", "普通玻璃透出背景的强度", style.backdropAlpha, 0.45f..1.45f) { ComposeGlassLabState.update(style.copy(backdropAlpha = it)) }
+        LabSlider("背景模糊", "普通玻璃采样背景的模糊倍率", style.blurScale, 0.55f..1.70f) { ComposeGlassLabState.update(style.copy(blurScale = it)) }
+        LabSlider("圆角倍率", "普通 Compose 玻璃圆角倍率", style.radiusScale, 0.55f..1.65f) { ComposeGlassLabState.update(style.copy(radiusScale = it)) }
+        LabSlider("阴影厚度", "外侧阴影与浮起厚度", style.shadowAlpha, 0f..2.20f) { ComposeGlassLabState.update(style.copy(shadowAlpha = it)) }
+    }
+    GlassControlGroup("主体材质", "雾面、冷色覆膜和底部厚度", state, true) {
+        LabSlider("雾面强度", "玻璃内部乳白雾面", style.frostAlpha, 0f..2.40f) { ComposeGlassLabState.update(style.copy(frostAlpha = it)) }
+        LabSlider("冷色覆膜", "蓝紫色玻璃底色倾向", style.coolTint, 0f..2.40f) { ComposeGlassLabState.update(style.copy(coolTint = it)) }
+        LabSlider("底部暗边", "下沿压暗和厚度感", style.bottomShadow, 0f..2.60f) { ComposeGlassLabState.update(style.copy(bottomShadow = it)) }
+    }
+    GlassControlGroup("边缘折光", "边框、内边、上沿和角落", state, true) {
+        LabSlider("主边框", "外侧单层玻璃轮廓", style.rimAlpha, 0f..2.80f) { ComposeGlassLabState.update(style.copy(rimAlpha = it)) }
+        LabSlider("内层细边", "内部柔和二级折边", style.innerRimAlpha, 0f..2.20f) { ComposeGlassLabState.update(style.copy(innerRimAlpha = it)) }
+        LabSlider("顶部折光", "上沿透亮高光", style.topHighlight, 0f..2.80f) { ComposeGlassLabState.update(style.copy(topHighlight = it)) }
+        LabSlider("角落高光", "左上角玻璃捕光", style.cornerGlint, 0f..2.60f) { ComposeGlassLabState.update(style.copy(cornerGlint = it)) }
+        LabSlider("边框宽度", "主边框和内边粗细", style.strokeWidth, 0.40f..2.20f) { ComposeGlassLabState.update(style.copy(strokeWidth = it)) }
+    }
+    GlassControlGroup("动态细节", "轻微扫光，不改变按压动画", state, false) {
+        LabSlider("动态扫光", "运动开启时的细微流动高光", style.motionGlint, 0f..2.20f) { ComposeGlassLabState.update(style.copy(motionGlint = it)) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+        LabActionButton("重置 Compose 玻璃", "恢复新基准", state, Modifier.weight(1f)) { ComposeGlassLabState.reset() }
+        LabActionButton("应用范围", "普通控件实时生效", state, Modifier.weight(1f)) { }
+    }
+}
+
+@Composable
+private fun ComposeGlassPreview(state: AssistantUiState) {
+    val style = ComposeGlassLabState.style
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier.fillMaxWidth().height(178.dp),
+        role = GlassRole.Card,
+        onClick = {}
+    ) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Compose 玻璃样本", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.94f), fontSize = 19.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("背景采样 · 轻雾面 · 单层边框 · 可调折光", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.50f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f + style.cornerGlint.coerceIn(0f, 2f) * 0.018f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("GL", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ComposeGlassPreviewMetric("雾面", style.frostAlpha, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("边缘", style.rimAlpha, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("采样", style.backdropAlpha, Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                ComposeGlassMiniChip("Card", state, Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                ComposeGlassMiniChip("Chip", state, Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                ComposeGlassMiniChip("Flex", state, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComposeGlassPreviewMetric(label: String, value: Float, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.060f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(value.formatLabValue(), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+@Composable
+private fun ComposeGlassMiniChip(label: String, state: AssistantUiState, modifier: Modifier = Modifier) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.82f,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.height(36.dp),
+        role = GlassRole.Chip,
+        onClick = {}
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(label, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.76f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun GlassControlGroup(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    initiallyExpanded: Boolean,
+    content: @Composable () -> Unit
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * 0.58f,
+            motionIntensity = state.motionIntensity,
+            radius = 20,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            role = GlassRole.Chip,
+            onClick = { expanded = !expanded }
+        ) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(title, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(subtitle, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(if (expanded) "收起" else "展开", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
         }
     }
 }
