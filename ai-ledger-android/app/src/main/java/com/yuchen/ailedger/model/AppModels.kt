@@ -93,6 +93,7 @@ data class GlassBorderStyle(
     val edgeContrast: Float = 1.00f,
     val edgeSaturation: Float = 1.00f,
     val edgeBrightness: Float = 1.03f,
+    val bodyAlpha: Float = 0f,
     val openGlDebugLineAlpha: Float = 0f,
     val openGlVisibility: Float = 20f,
     val openGlMaxAlpha: Float = 1.00f,
