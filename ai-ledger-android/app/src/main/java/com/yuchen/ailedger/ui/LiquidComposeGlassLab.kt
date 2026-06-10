@@ -39,14 +39,14 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private data class OpenGLLiquidEnvironment(
+private data class ContinuousLiquidEnvironment(
     val visibility: Float,
-    val refraction: Float,
-    val edgePull: Float,
-    val lensMix: Float,
-    val sampleRadius: Float,
-    val edgeWidth: Float,
-    val darkScale: Float,
+    val bodyRefraction: Float,
+    val surfaceDome: Float,
+    val edgeBoost: Float,
+    val lensClarity: Float,
+    val sampleSoftness: Float,
+    val edgeSettle: Float,
     val frameMist: Float,
     val frameEdge: Float,
     val slotDepth: Float
@@ -54,40 +54,40 @@ private data class OpenGLLiquidEnvironment(
 
 @Composable
 fun LiquidComposeGlassLab(state: AssistantUiState) {
-    var visibility by rememberSaveable { mutableStateOf(0.92f) }
-    var refraction by rememberSaveable { mutableStateOf(0.72f) }
-    var edgePull by rememberSaveable { mutableStateOf(0.78f) }
-    var lensMix by rememberSaveable { mutableStateOf(0.42f) }
-    var sampleRadius by rememberSaveable { mutableStateOf(0.52f) }
-    var edgeWidth by rememberSaveable { mutableStateOf(0.60f) }
-    var darkScale by rememberSaveable { mutableStateOf(0.34f) }
-    var frameMist by rememberSaveable { mutableStateOf(0.32f) }
-    var frameEdge by rememberSaveable { mutableStateOf(0.82f) }
-    var slotDepth by rememberSaveable { mutableStateOf(0.34f) }
+    var visibility by rememberSaveable { mutableStateOf(0.78f) }
+    var bodyRefraction by rememberSaveable { mutableStateOf(0.92f) }
+    var surfaceDome by rememberSaveable { mutableStateOf(0.66f) }
+    var edgeBoost by rememberSaveable { mutableStateOf(0.18f) }
+    var lensClarity by rememberSaveable { mutableStateOf(0.30f) }
+    var sampleSoftness by rememberSaveable { mutableStateOf(0.74f) }
+    var edgeSettle by rememberSaveable { mutableStateOf(0.18f) }
+    var frameMist by rememberSaveable { mutableStateOf(0.22f) }
+    var frameEdge by rememberSaveable { mutableStateOf(0.34f) }
+    var slotDepth by rememberSaveable { mutableStateOf(0.24f) }
     var radiusScale by rememberSaveable { mutableStateOf(1.10f) }
 
     fun resetValues() {
-        visibility = 0.92f
-        refraction = 0.72f
-        edgePull = 0.78f
-        lensMix = 0.42f
-        sampleRadius = 0.52f
-        edgeWidth = 0.60f
-        darkScale = 0.34f
-        frameMist = 0.32f
-        frameEdge = 0.82f
-        slotDepth = 0.34f
+        visibility = 0.78f
+        bodyRefraction = 0.92f
+        surfaceDome = 0.66f
+        edgeBoost = 0.18f
+        lensClarity = 0.30f
+        sampleSoftness = 0.74f
+        edgeSettle = 0.18f
+        frameMist = 0.22f
+        frameEdge = 0.34f
+        slotDepth = 0.24f
         radiusScale = 1.10f
     }
 
-    val environment = OpenGLLiquidEnvironment(
+    val environment = ContinuousLiquidEnvironment(
         visibility = visibility,
-        refraction = refraction,
-        edgePull = edgePull,
-        lensMix = lensMix,
-        sampleRadius = sampleRadius,
-        edgeWidth = edgeWidth,
-        darkScale = darkScale,
+        bodyRefraction = bodyRefraction,
+        surfaceDome = surfaceDome,
+        edgeBoost = edgeBoost,
+        lensClarity = lensClarity,
+        sampleSoftness = sampleSoftness,
+        edgeSettle = edgeSettle,
         frameMist = frameMist,
         frameEdge = frameEdge,
         slotDepth = slotDepth
@@ -96,13 +96,13 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("OpenGL 折射背景预览", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Text("去掉 Compose 采样背景层，只保留 OpenGL 背景折射 + Compose 框架", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("连续整体 OpenGL 玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Text("一整块 OpenGL 折射体：主体轻折射，边缘只做自然增强", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text("Hybrid", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text("One piece", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
         }
 
-        OpenGLLiquidBackdropSurface(
+        ContinuousOpenGLLiquidSurface(
             state = state,
             modifier = Modifier.fillMaxWidth().height(224.dp),
             environment = environment,
@@ -111,41 +111,41 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
             Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Liquid Compose", color = Color.White.copy(alpha = 0.95f), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("opengl refracted backdrop", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                    Text("continuous opengl glass body", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
-                OpenGLLiquidSegmentedPill(
-                    labels = listOf("Compose", "OpenGL", "混合"),
+                ContinuousLiquidSegmentedPill(
+                    labels = listOf("Compose", "OpenGL", "一体"),
                     environment = environment,
                     modifier = Modifier.fillMaxWidth().height(42.dp)
                 )
-                Text("目标：OpenGL 只负责背景折射，Compose 只负责外壳、槽体和文字保护。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
+                Text("目标：整块玻璃连续折射，槽体和外壳属于同一材质，不再做拼接厚边。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold)
             }
         }
 
-        LiquidComposeSlider("OpenGL 显示", "控制折射背景层整体透明度", visibility, 0f..1.35f) { visibility = it }
-        LiquidComposeSlider("折射强度", "主体区域背景 UV 扭曲强度", refraction, 0f..1.6f) { refraction = it }
-        LiquidComposeSlider("边缘拉伸", "边缘把背景向内拖拽的幅度", edgePull, 0f..1.6f) { edgePull = it }
-        LiquidComposeSlider("透镜混合", "在折射区域混入更清晰的 lens 纹理", lensMix, 0f..1.6f) { lensMix = it }
-        LiquidComposeSlider("采样半径", "OpenGL 内部多点采样柔化半径", sampleRadius, 0f..1.6f) { sampleRadius = it }
-        LiquidComposeSlider("折边宽度", "控制 OpenGL 边缘折射带宽", edgeWidth, 0f..1.6f) { edgeWidth = it }
-        LiquidComposeSlider("暗部收敛", "压住边缘暗场，避免玻璃发灰发脏", darkScale, 0f..1.6f) { darkScale = it }
-        LiquidComposeSlider("框架雾面", "Compose 外壳薄雾，不再画背景模糊", frameMist, 0f..1.6f) { frameMist = it }
-        LiquidComposeSlider("框架细边", "Compose 极简轮廓线和顶部高光", frameEdge, 0f..1.6f) { frameEdge = it }
-        LiquidComposeSlider("槽体嵌入", "分段胶囊槽压入玻璃的程度", slotDepth, 0f..1.6f) { slotDepth = it }
+        LiquidComposeSlider("整体显示", "整块 OpenGL 玻璃体的透明度", visibility, 0f..1.35f) { visibility = it }
+        LiquidComposeSlider("主体折射", "中间区域也参与的基础背景扭曲", bodyRefraction, 0f..1.6f) { bodyRefraction = it }
+        LiquidComposeSlider("主体透镜", "整块表面的轻微凸透镜感", surfaceDome, 0f..1.6f) { surfaceDome = it }
+        LiquidComposeSlider("边缘增强", "边缘只在连续场上轻微加强，不再单独成边", edgeBoost, 0f..1.6f) { edgeBoost = it }
+        LiquidComposeSlider("透镜清晰", "混入较清晰背景纹理的比例", lensClarity, 0f..1.6f) { lensClarity = it }
+        LiquidComposeSlider("采样柔化", "OpenGL 内部多点采样柔和度", sampleSoftness, 0f..1.6f) { sampleSoftness = it }
+        LiquidComposeSlider("边缘收敛", "压住厚蓝边和脏暗边", edgeSettle, 0f..1.6f) { edgeSettle = it }
+        LiquidComposeSlider("框架雾面", "Compose 只叠表面薄雾，不画背景", frameMist, 0f..1.6f) { frameMist = it }
+        LiquidComposeSlider("框架细边", "Compose 极细轮廓线，不参与折射", frameEdge, 0f..1.6f) { frameEdge = it }
+        LiquidComposeSlider("槽体压入", "分段槽体从同一块玻璃里轻微压入", slotDepth, 0f..1.6f) { slotDepth = it }
         LiquidComposeSlider("圆角倍率", "控制一体玻璃外壳圆角", radiusScale, 0.65f..1.55f) { radiusScale = it }
 
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-            LiquidComposeActionButton("重置 OpenGL", "恢复折射预览值", state, Modifier.weight(1f)) { resetValues() }
+            LiquidComposeActionButton("重置一体", "恢复连续玻璃建议值", state, Modifier.weight(1f)) { resetValues() }
             LiquidComposeActionButton("框架验证", "Compose 仅画外壳", state, Modifier.weight(1f)) { }
         }
     }
 }
 
 @Composable
-private fun OpenGLLiquidBackdropSurface(
+private fun ContinuousOpenGLLiquidSurface(
     state: AssistantUiState,
     modifier: Modifier = Modifier,
-    environment: OpenGLLiquidEnvironment,
+    environment: ContinuousLiquidEnvironment,
     radiusScale: Float,
     content: @Composable () -> Unit
 ) {
@@ -153,23 +153,29 @@ private fun OpenGLLiquidBackdropSurface(
     val radiusDp = (34f * radiusScale.coerceIn(0.65f, 1.55f)).roundToInt().coerceAtLeast(18)
     val shape = RoundedCornerShape(radiusDp.dp)
     val openGlStyle = remember(environment) {
+        val edge = environment.edgeBoost.coerceIn(0f, 1.6f)
+        val body = environment.bodyRefraction.coerceIn(0f, 1.6f)
+        val dome = environment.surfaceDome.coerceIn(0f, 1.6f)
+        val clarity = environment.lensClarity.coerceIn(0f, 1.6f)
+        val softness = environment.sampleSoftness.coerceIn(0f, 1.6f)
+        val settle = environment.edgeSettle.coerceIn(0f, 1.6f)
         GlassBorderStyle(
             outerStrokeAlpha = 0f,
             innerStrokeAlpha = 0f,
             topHighlightAlpha = 0f,
             bottomShadowAlpha = 0f,
-            ringWidthDp = 6f + environment.edgeWidth.coerceIn(0f, 1.6f) * 16f,
-            edgePullDp = -(46f + environment.edgePull.coerceIn(0f, 1.6f) * 250f),
-            edgeBrightness = 1.0f + environment.frameEdge.coerceIn(0f, 1.6f) * 0.10f,
+            ringWidthDp = 3.0f + edge * 5.0f,
+            edgePullDp = -(4.0f + edge * 32.0f),
+            edgeBrightness = 1.00f + environment.frameEdge.coerceIn(0f, 1.6f) * 0.06f,
             bodyAlpha = 0f,
             openGlDebugLineAlpha = 0f,
             openGlVisibility = environment.visibility.coerceIn(0f, 1.35f) * 20f,
             openGlMaxAlpha = environment.visibility.coerceIn(0f, 1f),
-            openGlPullScale = 26f + environment.refraction.coerceIn(0f, 1.6f) * 145f,
-            openGlCompressionScale = environment.lensMix.coerceIn(0f, 1.6f) * 2.4f,
-            openGlCornerScale = 8f + environment.edgeWidth.coerceIn(0f, 1.6f) * 24f,
-            openGlDarkScale = -environment.darkScale.coerceIn(0f, 1.6f) * 2.2f,
-            openGlSampleRadiusScale = environment.sampleRadius.coerceIn(0f, 1.6f) * 18f
+            openGlPullScale = 54f + body * 126f,
+            openGlCompressionScale = 0.35f + clarity * 1.25f + dome * 0.30f,
+            openGlCornerScale = 2.0f + dome * 12.0f,
+            openGlDarkScale = settle * 0.60f,
+            openGlSampleRadiusScale = 5.0f + softness * 20.0f
         )
     }
     val openGlBackdropSpec = remember(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, openGlStyle) {
@@ -199,7 +205,7 @@ private fun OpenGLLiquidBackdropSurface(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .openGLLiquidFrameSkin(environment, radiusDp),
+                .continuousLiquidFrameSkin(environment, radiusDp),
             contentAlignment = Alignment.Center
         ) {
             content()
@@ -207,8 +213,8 @@ private fun OpenGLLiquidBackdropSurface(
     }
 }
 
-private fun Modifier.openGLLiquidFrameSkin(
-    environment: OpenGLLiquidEnvironment,
+private fun Modifier.continuousLiquidFrameSkin(
+    environment: ContinuousLiquidEnvironment,
     radiusDp: Int
 ): Modifier = drawWithCache {
     val w = size.width.coerceAtLeast(1f)
@@ -217,29 +223,29 @@ private fun Modifier.openGLLiquidFrameSkin(
     val corner = CornerRadius(cornerRadius, cornerRadius)
     val mist = environment.frameMist.coerceIn(0f, 1.6f)
     val edge = environment.frameEdge.coerceIn(0f, 1.6f)
-    val dark = environment.darkScale.coerceIn(0f, 1.6f)
-    val rimWidth = max(1f, density * (0.64f + edge * 0.46f))
-    val innerInset = rimWidth * (2.10f + dark * 0.34f)
+    val settle = environment.edgeSettle.coerceIn(0f, 1.6f)
+    val rimWidth = max(1f, density * (0.46f + edge * 0.32f))
+    val innerInset = rimWidth * (1.70f + settle * 0.20f)
     val innerSize = Size(max(1f, w - innerInset * 2f), max(1f, h - innerInset * 2f))
     val innerCorner = CornerRadius(max(1f, cornerRadius - innerInset), max(1f, cornerRadius - innerInset))
     val mistVeil = Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = 0.016f * mist),
-            Color(0xFFC7D7FF).copy(alpha = 0.010f * mist),
-            Color(0xFF020820).copy(alpha = 0.018f * dark)
+            Color.White.copy(alpha = 0.010f * mist),
+            Color(0xFFC7D7FF).copy(alpha = 0.007f * mist),
+            Color(0xFF020820).copy(alpha = 0.010f * settle)
         )
     )
     val readabilityField = Brush.verticalGradient(
         listOf(
-            Color(0xFF020820).copy(alpha = 0.050f * dark),
+            Color(0xFF020820).copy(alpha = 0.034f * settle),
             Color.Transparent,
-            Color(0xFF020820).copy(alpha = 0.060f * dark)
+            Color(0xFF020820).copy(alpha = 0.044f * settle)
         )
     )
     val topGlance = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = 0.046f * edge),
-            Color.White.copy(alpha = 0.016f * edge),
+            Color.White.copy(alpha = 0.034f * edge),
+            Color.White.copy(alpha = 0.012f * edge),
             Color.Transparent
         ),
         start = Offset(-w * 0.02f, -h * 0.10f),
@@ -247,9 +253,9 @@ private fun Modifier.openGLLiquidFrameSkin(
     )
     val outerLine = Brush.linearGradient(
         listOf(
-            Color.White.copy(alpha = 0.052f * edge),
-            Color(0xFFA7D8FF).copy(alpha = 0.020f * edge),
-            Color.White.copy(alpha = 0.028f * edge)
+            Color.White.copy(alpha = 0.038f * edge),
+            Color(0xFFA7D8FF).copy(alpha = 0.014f * edge),
+            Color.White.copy(alpha = 0.020f * edge)
         ),
         start = Offset(-w * 0.02f, h * 0.04f),
         end = Offset(w * 1.04f, h * 0.92f)
@@ -261,15 +267,15 @@ private fun Modifier.openGLLiquidFrameSkin(
         drawContent()
         drawRoundRect(brush = topGlance, size = size, cornerRadius = corner)
         drawRoundRect(brush = outerLine, size = size, cornerRadius = corner, style = Stroke(width = rimWidth))
-        drawRoundRect(color = Color(0xFF02071D).copy(alpha = 0.032f * dark), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.42f)))
-        drawRoundRect(color = Color.White.copy(alpha = 0.018f * edge), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.24f)))
+        drawRoundRect(color = Color(0xFF02071D).copy(alpha = 0.018f * settle), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.30f)))
+        drawRoundRect(color = Color.White.copy(alpha = 0.014f * edge), topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = innerCorner, style = Stroke(width = max(1f, rimWidth * 0.20f)))
     }
 }
 
 @Composable
-private fun OpenGLLiquidSegmentedPill(
+private fun ContinuousLiquidSegmentedPill(
     labels: List<String>,
-    environment: OpenGLLiquidEnvironment,
+    environment: ContinuousLiquidEnvironment,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(999.dp)
@@ -282,20 +288,20 @@ private fun OpenGLLiquidSegmentedPill(
                 val corner = CornerRadius(h / 2f, h / 2f)
                 val edge = environment.frameEdge.coerceIn(0f, 1.6f)
                 val slot = environment.slotDepth.coerceIn(0f, 1.6f)
-                val dark = environment.darkScale.coerceIn(0f, 1.6f)
+                val settle = environment.edgeSettle.coerceIn(0f, 1.6f)
                 val material = Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.030f + 0.010f * slot),
-                        Color(0xFF061032).copy(alpha = 0.046f + 0.028f * slot + 0.014f * dark),
-                        Color.White.copy(alpha = 0.010f * edge)
+                        Color.White.copy(alpha = 0.020f + 0.006f * slot),
+                        Color(0xFF061032).copy(alpha = 0.034f + 0.020f * slot + 0.006f * settle),
+                        Color.White.copy(alpha = 0.006f * edge)
                     )
                 )
                 onDrawWithContent {
                     drawRoundRect(brush = material, size = size, cornerRadius = corner)
                     drawContent()
-                    drawRoundRect(color = Color.White.copy(alpha = 0.030f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * 0.70f)))
-                    drawLine(color = Color.White.copy(alpha = 0.018f * slot), start = Offset(w / 3f, h * 0.28f), end = Offset(w / 3f, h * 0.72f), strokeWidth = max(1f, density * 0.50f))
-                    drawLine(color = Color.White.copy(alpha = 0.018f * slot), start = Offset(w * 2f / 3f, h * 0.28f), end = Offset(w * 2f / 3f, h * 0.72f), strokeWidth = max(1f, density * 0.50f))
+                    drawRoundRect(color = Color.White.copy(alpha = 0.022f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * 0.58f)))
+                    drawLine(color = Color.White.copy(alpha = 0.012f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.42f))
+                    drawLine(color = Color.White.copy(alpha = 0.012f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.42f))
                 }
             }
             .padding(horizontal = 2.dp),
