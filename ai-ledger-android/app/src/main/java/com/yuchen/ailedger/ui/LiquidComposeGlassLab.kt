@@ -81,7 +81,7 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("悬浮 Haze 玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Text("连续软阴影 + 外侧接触暗边 + 大范围测试参数", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("单层连续阴影 + 外侧接触暗边 + 大范围测试参数", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text("Floating", color = Color(0xFF8DF9EA).copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Black)
         }
@@ -97,7 +97,7 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
             }
         }
 
-        LiquidComposeSlider("悬浮阴影", "连续扩散的外部软阴影，用来拉开玻璃和壁纸距离", elevationShadow, 0f..4f) { elevationShadow = it }
+        LiquidComposeSlider("悬浮阴影", "单层连续扩散阴影，用来拉开玻璃和壁纸距离", elevationShadow, 0f..4f) { elevationShadow = it }
         LiquidComposeSlider("接触暗边", "外轮廓附近的环境遮蔽，只在玻璃外侧生效", contactShadow, 0f..4f) { contactShadow = it }
         LiquidComposeSlider("背景透出", "直接控制模糊背景图的可见度", backdropAlpha, 0.1f..1.2f) { backdropAlpha = it }
         LiquidComposeSlider("中心清透", "大范围测试：数值越高，中间越少白雾", centerClarity, 0f..4f) { centerClarity = it }
@@ -180,52 +180,40 @@ private fun Modifier.floatingHazeShadow(env: HazeEnv, radiusDp: Int): Modifier =
     val cornerRadius = radiusDp.dp.toPx()
     val elevation = env.elevationShadow.coerceIn(0f, 4f)
     val contact = env.contactShadow.coerceIn(0f, 4f)
-    val ambientShadow = Brush.radialGradient(
+    val singleShadow = Brush.radialGradient(
         listOf(
-            Color.Black.copy(alpha = 0.050f * elevation),
-            Color.Black.copy(alpha = 0.020f * elevation),
+            Color.Black.copy(alpha = 0.070f * elevation),
+            Color.Black.copy(alpha = 0.038f * elevation),
+            Color.Black.copy(alpha = 0.012f * elevation),
             Color.Transparent
         ),
-        center = Offset(w * 0.54f, cardTop + cardSize.height + bottom * 0.48f),
-        radius = w * (0.54f + elevation * 0.035f)
+        center = Offset(w * 0.52f, cardTop + cardSize.height + bottom * 0.34f),
+        radius = w * (0.46f + elevation * 0.070f)
     )
     val contactBrush = Brush.verticalGradient(
         listOf(
             Color.Transparent,
-            Color.Black.copy(alpha = 0.012f * contact),
-            Color.Black.copy(alpha = 0.060f * contact),
+            Color.Black.copy(alpha = 0.020f * contact),
+            Color.Black.copy(alpha = 0.070f * contact),
             Color.Black.copy(alpha = 0.018f * contact),
             Color.Transparent
         ),
-        startY = cardTop + cardSize.height * 0.60f,
+        startY = cardTop + cardSize.height * 0.58f,
         endY = cardTop + cardSize.height + bottom
     )
     onDrawWithContent {
         drawOval(
-            brush = ambientShadow,
-            topLeft = Offset(w * -0.05f, cardTop + cardSize.height * 0.68f),
-            size = Size(w * 1.12f, bottom * 2.10f + 28.dp.toPx()),
+            brush = singleShadow,
+            topLeft = Offset(w * -0.12f, cardTop + cardSize.height * 0.58f),
+            size = Size(w * 1.24f, bottom * 2.72f + 34.dp.toPx()),
             blendMode = BlendMode.Multiply
         )
-        for (i in 10 downTo 1) {
-            val p = i / 10f
-            val spread = (1f - p) * 20.dp.toPx()
-            val yOffset = (1f - p) * 13.dp.toPx() + 6.dp.toPx()
-            val alpha = 0.0065f * elevation * p * p
-            drawRoundRect(
-                color = Color.Black.copy(alpha = alpha),
-                topLeft = Offset(cardLeft - spread * 0.45f, cardTop + yOffset - spread * 0.20f),
-                size = Size(cardSize.width + spread * 0.90f, cardSize.height + spread * 0.46f),
-                cornerRadius = CornerRadius(cornerRadius + spread * 0.40f, cornerRadius + spread * 0.40f),
-                blendMode = BlendMode.Multiply
-            )
-        }
         drawRoundRect(
             brush = contactBrush,
             topLeft = Offset(cardLeft - 3.dp.toPx(), cardTop + 2.dp.toPx()),
             size = Size(cardSize.width + 6.dp.toPx(), cardSize.height + bottom * 0.55f),
             cornerRadius = CornerRadius(cornerRadius + 2.dp.toPx(), cornerRadius + 2.dp.toPx()),
-            style = Stroke(width = max(1f, 10.dp.toPx() + contact * 5.dp.toPx())),
+            style = Stroke(width = max(1f, 9.dp.toPx() + contact * 4.dp.toPx())),
             blendMode = BlendMode.Multiply
         )
         drawContent()
