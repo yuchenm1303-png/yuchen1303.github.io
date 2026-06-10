@@ -158,9 +158,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     }
 
     fun setStableSurfaceAnchor(anchorY: Float): Boolean {
-        val nextAnchor = anchorY.coerceIn(0f, 1f)
-        val dirty = abs(nextAnchor - stableSurfaceAnchorY) > 0.001f
-        if (dirty) stableSurfaceAnchorY = nextAnchor
+        stableSurfaceAnchorY = anchorY.coerceIn(0f, 1f)
         return false
     }
 
@@ -757,8 +755,10 @@ private class OpenGLGlassCardRenderer {
     fun onRelease() {
         val textures = intArrayOf(blurTextureId, lensTextureId)
         if (blurTextureId != 0 || lensTextureId != 0) GLES20.glDeleteTextures(2, textures, 0)
+        if (program != 0) GLES20.glDeleteProgram(program)
         blurTextureId = 0
         lensTextureId = 0
+        program = 0
         activeBlurBitmap = null
         activeLensBitmap = null
         texturesReady = false
@@ -893,8 +893,12 @@ private class OpenGLGlassCardRenderer {
             }
 
             vec3 blurBackdrop(vec2 uv, float edgeWeight) {
+                float sampleRadius = max(uOptics.x, 0.0);
+                if (sampleRadius <= 0.50) {
+                    return sourceBlurBackdrop(uv);
+                }
                 float blurBoost = 1.0 + edgeWeight * 0.38;
-                vec2 px = vec2(max(uOptics.x, 0.0) * blurBoost) / max(uRootResolution, vec2(1.0));
+                vec2 px = vec2(sampleRadius * blurBoost) / max(uRootResolution, vec2(1.0));
                 vec3 c = sourceBlurBackdrop(uv) * 0.200;
                 c += sourceBlurBackdrop(uv + vec2(px.x, 0.0)) * 0.110;
                 c += sourceBlurBackdrop(uv - vec2(px.x, 0.0)) * 0.110;
@@ -1056,9 +1060,12 @@ private class OpenGLGlassCardRenderer {
                 float lensMix = sat(rimCore * max(uRefraction.z, 0.0) * 0.42 + pressField * 0.220 + pressWide * 0.075);
                 color = mix(color, lensColor, lensMix);
 
-                vec3 dragColor = edgeColorDrag(visualCoord + inwardPx * 0.72, rectSize, radius, dragBand + press * rimWide * 0.32 + pressField * 0.18, rimCore);
-                float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
-                color = mix(color, dragColor, dragMix);
+                float dragAmount = dragBand + press * rimWide * 0.32 + pressField * 0.18;
+                if (dragAmount > 0.002) {
+                    vec3 dragColor = edgeColorDrag(visualCoord + inwardPx * 0.72, rectSize, radius, dragAmount, rimCore);
+                    float dragMix = sat(max(max(dragColor.r, dragColor.g), dragColor.b));
+                    color = mix(color, dragColor, dragMix);
+                }
 
                 float rimOpticalBoost = rimCore * 0.16 + gradEnergy * 0.045 + press * rimCore * 0.080 + pressField * 0.040;
                 color *= uMaterial.z * (1.0 + rimOpticalBoost);
