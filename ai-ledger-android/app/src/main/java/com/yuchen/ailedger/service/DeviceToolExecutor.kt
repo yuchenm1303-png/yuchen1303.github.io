@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -41,6 +42,12 @@ class DeviceToolExecutor(
                 "open_app_settings" -> executeOpenAppSettings(step)
                 "set_brightness" -> executeSetBrightness(step)
                 "set_screen_timeout" -> executeSetScreenTimeout(step)
+                "set_auto_rotate" -> executeSetAutoRotate(step)
+                "set_media_volume" -> executeSetMediaVolume(step)
+                "set_wifi_enabled" -> executeSetWifiEnabled(step)
+                "set_bluetooth_enabled" -> executeSetBluetoothEnabled(step)
+                "set_mobile_data_enabled" -> executeSetMobileDataEnabled(step)
+                "set_dark_mode" -> executeSetDarkMode(step)
                 "device_status" -> deviceStatus()
                 "shizuku_status" -> shellStatus()
                 "request_shizuku_permission" -> requestShizukuPermission()
@@ -156,11 +163,110 @@ class DeviceToolExecutor(
         return AgentExecutionResult(ok, if (ok) "已把自动息屏时间设置为 ${formatTimeout(timeoutMs)}。" else "设置息屏时间失败，当前系统可能限制第三方应用修改该设置。", shouldContinue = false)
     }
 
+    private fun executeSetAutoRotate(step: CloudAgentStep): AgentExecutionResult {
+        val enabled = desiredEnabledState(step)
+            ?: return AgentExecutionResult(false, "设置自动旋转失败：缺少 enabled/on/state 参数。", false)
+        if (!canWriteSystemSettings()) {
+            openWriteSettingsPermission()
+            return AgentExecutionResult(false, "需要先授权“修改系统设置”。我已打开授权页，开启后可再次执行自动旋转设置。", false)
+        }
+        val ok = runCatching {
+            Settings.System.putInt(appContext.contentResolver, Settings.System.ACCELEROMETER_ROTATION, if (enabled) 1 else 0)
+        }.getOrDefault(false)
+        return AgentExecutionResult(ok, if (ok) "已${if (enabled) "开启" else "关闭"}自动旋转。" else "设置自动旋转失败。", shouldContinue = false)
+    }
+
+    private fun executeSetMediaVolume(step: CloudAgentStep): AgentExecutionResult {
+        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            ?: return AgentExecutionResult(false, "设置媒体音量失败：无法访问 AudioManager。", false)
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val min = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) audio.getStreamMinVolume(AudioManager.STREAM_MUSIC) else 0
+        val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(min, max)
+        val currentPercent = current * 100f / max
+        val absolutePercent = step.argFloat("percent", "volume", "value")
+        val deltaPercent = step.argFloat("deltaPercent", "delta", "changePercent", "adjustBy")
+        val operationPercent = volumeOperationDelta(step)
+        val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
+        val targetPercent = when {
+            absolutePercent != null -> absolutePercent
+            deltaPercent != null -> currentPercent + deltaPercent
+            operationPercent != null -> currentPercent + operationPercent
+            textPercent != null -> textPercent
+            else -> return AgentExecutionResult(false, "设置媒体音量失败：缺少 percent 或 deltaPercent。", false)
+        }.coerceIn(0f, 100f)
+        val targetIndex = (targetPercent * max / 100f).roundToInt().coerceIn(min, max)
+        val ok = runCatching {
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, 0)
+            true
+        }.getOrDefault(false)
+        return AgentExecutionResult(ok, if (ok) "已把媒体音量从约 ${currentPercent.roundToInt()}% 调到约 ${targetPercent.roundToInt()}%。" else "设置媒体音量失败。", shouldContinue = false)
+    }
+
+    private fun executeSetWifiEnabled(step: CloudAgentStep): AgentExecutionResult {
+        val enabled = desiredEnabledState(step)
+            ?: return AgentExecutionResult(false, "设置 Wi‑Fi 失败：缺少 enabled/on/state 参数。", false)
+        return executeEnhancedCommandOrOpenSettingsFallback(
+            title = "设置 Wi‑Fi",
+            command = "svc wifi ${if (enabled) "enable" else "disable"}",
+            timeoutMs = 2_500L,
+            successMessage = "已请求${if (enabled) "开启" else "关闭"} Wi‑Fi。",
+            fallbackAction = ACTION_WIFI_SETTINGS_COMPAT,
+            fallbackTitle = "Wi‑Fi 设置",
+        )
+    }
+
+    private fun executeSetBluetoothEnabled(step: CloudAgentStep): AgentExecutionResult {
+        val enabled = desiredEnabledState(step)
+            ?: return AgentExecutionResult(false, "设置蓝牙失败：缺少 enabled/on/state 参数。", false)
+        val verb = if (enabled) "enable" else "disable"
+        return executeEnhancedCommandOrOpenSettingsFallback(
+            title = "设置蓝牙",
+            command = "cmd bluetooth_manager $verb || svc bluetooth $verb",
+            timeoutMs = 2_500L,
+            successMessage = "已请求${if (enabled) "开启" else "关闭"}蓝牙。",
+            fallbackAction = ACTION_BLUETOOTH_SETTINGS_COMPAT,
+            fallbackTitle = "蓝牙设置",
+        )
+    }
+
+    private fun executeSetMobileDataEnabled(step: CloudAgentStep): AgentExecutionResult {
+        val enabled = desiredEnabledState(step)
+            ?: return AgentExecutionResult(false, "设置移动数据失败：缺少 enabled/on/state 参数。", false)
+        return executeEnhancedCommandOrOpenSettingsFallback(
+            title = "设置移动数据",
+            command = "svc data ${if (enabled) "enable" else "disable"}",
+            timeoutMs = 2_500L,
+            successMessage = "已请求${if (enabled) "开启" else "关闭"}移动数据。",
+            fallbackAction = ACTION_DATA_USAGE_SETTINGS_COMPAT,
+            fallbackTitle = "流量设置",
+        )
+    }
+
+    private fun executeSetDarkMode(step: CloudAgentStep): AgentExecutionResult {
+        val mode = darkModeCommandValue(step)
+            ?: return AgentExecutionResult(false, "设置深色模式失败：缺少 mode/enabled/on/state 参数。", false)
+        val titleText = when (mode) {
+            "yes" -> "开启深色模式"
+            "no" -> "关闭深色模式"
+            else -> "设置深色模式为自动"
+        }
+        return executeEnhancedCommandOrOpenSettingsFallback(
+            title = "设置深色模式",
+            command = "cmd uimode night $mode",
+            timeoutMs = 2_000L,
+            successMessage = "已请求$titleText。",
+            fallbackAction = ACTION_DISPLAY_SETTINGS_COMPAT,
+            fallbackTitle = "显示设置",
+        )
+    }
+
     private fun deviceStatus(): AgentExecutionResult {
         val memory = runCatching { memoryStatus() }.getOrDefault("未知")
         val storage = runCatching { storageStatus() }.getOrDefault("未知")
         val battery = runCatching { batteryStatus() }.getOrDefault("未知")
         val network = runCatching { networkStatus() }.getOrDefault("未知")
+        val volume = runCatching { mediaVolumeStatus() }.getOrDefault("未知")
+        val autoRotate = runCatching { autoRotateStatus() }.getOrDefault("未知")
         val appCount = runCatching { installedAppIndex.getLaunchableApps(forceReload = false).size }.getOrDefault(0)
         val shell = runCatching { shellBridge.probe() }.getOrNull()
         val shellText = shell?.let {
@@ -176,6 +282,8 @@ class DeviceToolExecutor(
             append("内存：").append(memory).append('\n')
             append("存储：").append(storage).append('\n')
             append("网络：").append(network).append('\n')
+            append("媒体音量：").append(volume).append('\n')
+            append("自动旋转：").append(autoRotate).append('\n')
             append("可启动应用：").append(appCount).append(" 个\n")
             append("Shell：").append(shellText)
         }
@@ -242,6 +350,35 @@ class DeviceToolExecutor(
         successMessage: String,
     ): AgentExecutionResult {
         if (!confirmedHighRisk) return AgentExecutionResult(false, pendingMessage, shouldContinue = false)
+        return executeEnhancedCommand(title, command, timeoutMs, successMessage)
+    }
+
+    private fun executeEnhancedCommandOrOpenSettingsFallback(
+        title: String,
+        command: String,
+        timeoutMs: Long,
+        successMessage: String,
+        fallbackAction: String,
+        fallbackTitle: String,
+    ): AgentExecutionResult {
+        val result = executeEnhancedCommand(title, command, timeoutMs, successMessage)
+        if (result.ok) return result
+        val opened = launchActivity(Intent(fallbackAction))
+        val message = buildString {
+            append(result.message)
+            append("\n\n")
+            append("当前系统不允许普通 App 直接执行该开关；")
+            append(if (opened) "已打开$fallbackTitle，可手动处理，或授权 Shizuku/ADB 后让我直接执行。" else "也无法打开$fallbackTitle。")
+        }
+        return AgentExecutionResult(false, message, shouldContinue = false)
+    }
+
+    private fun executeEnhancedCommand(
+        title: String,
+        command: String,
+        timeoutMs: Long,
+        successMessage: String,
+    ): AgentExecutionResult {
         val result = shellBridge.runEnhancedCommand(title = title, command = command, timeoutMs = timeoutMs)
         val message = buildString {
             append(if (result.ok) successMessage else "$title 执行失败。")
@@ -338,7 +475,10 @@ class DeviceToolExecutor(
         return (raw.coerceIn(0, 255) * 100f / 255f).coerceIn(0f, 100f)
     }
 
-    private fun brightnessOperationDelta(step: CloudAgentStep): Float? {
+    private fun brightnessOperationDelta(step: CloudAgentStep): Float? = percentOperationDelta(step, DEFAULT_BRIGHTNESS_DELTA)
+    private fun volumeOperationDelta(step: CloudAgentStep): Float? = percentOperationDelta(step, DEFAULT_VOLUME_DELTA)
+
+    private fun percentOperationDelta(step: CloudAgentStep, amount: Float): Float? {
         val operation = step.argString("operation", "mode", "adjustment", "relative", "direction")
             ?.lowercase()
             ?.replace('_', ' ')
@@ -346,10 +486,36 @@ class DeviceToolExecutor(
             ?.trim()
             ?: return null
         return when (operation) {
-            "decrease", "reduce", "lower", "down", "dim", "darker", "less", "调低", "降低", "变暗" -> -DEFAULT_BRIGHTNESS_DELTA
-            "increase", "raise", "higher", "up", "brighten", "brighter", "more", "调高", "提高", "变亮" -> DEFAULT_BRIGHTNESS_DELTA
+            "decrease", "reduce", "lower", "down", "dim", "darker", "less", "mute", "调低", "降低", "变暗", "小一点", "减小" -> -amount
+            "increase", "raise", "higher", "up", "brighten", "brighter", "more", "调高", "提高", "变亮", "大一点", "增大" -> amount
             else -> null
         }
+    }
+
+    private fun desiredEnabledState(step: CloudAgentStep): Boolean? {
+        val raw = step.argString("enabled", "enable", "on", "state", "value", "mode")
+            ?: step.text
+            ?: step.targetText
+            ?: step.reason
+            ?: return null
+        val normalized = raw.lowercase().trim().replace('_', ' ').replace('-', ' ')
+        return when {
+            listOf("true", "1", "yes", "on", "enable", "enabled", "open", "开启", "打开", "启用", "开").any { normalized.contains(it) } -> true
+            listOf("false", "0", "no", "off", "disable", "disabled", "close", "关闭", "关掉", "禁用", "关").any { normalized.contains(it) } -> false
+            else -> null
+        }
+    }
+
+    private fun darkModeCommandValue(step: CloudAgentStep): String? {
+        val raw = step.argString("mode", "state", "value", "enabled", "on")
+            ?: step.text
+            ?: step.targetText
+            ?: step.reason
+            ?: return null
+        val normalized = raw.lowercase().trim().replace('_', ' ').replace('-', ' ')
+        if (listOf("auto", "automatic", "follow", "system", "自动", "跟随系统").any { normalized.contains(it) }) return "auto"
+        desiredEnabledState(step)?.let { return if (it) "yes" else "no" }
+        return null
     }
 
     private fun memoryStatus(): String {
@@ -398,6 +564,20 @@ class DeviceToolExecutor(
             val info = manager.activeNetworkInfo
             if (info?.isConnected == true) info.typeName ?: "网络已连接" else "未连接"
         }
+    }
+
+    private fun mediaVolumeStatus(): String {
+        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "未知"
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return "约 ${(current * 100f / max).roundToInt()}%"
+    }
+
+    private fun autoRotateStatus(): String {
+        val enabled = runCatching {
+            Settings.System.getInt(appContext.contentResolver, Settings.System.ACCELEROMETER_ROTATION)
+        }.getOrDefault(0) == 1
+        return if (enabled) "已开启" else "已关闭"
     }
 
     private fun firstNumber(value: String): Int? {
@@ -456,12 +636,14 @@ class DeviceToolExecutor(
     private companion object {
         private const val DEFAULT_BRIGHTNESS_PERCENT = 50f
         private const val DEFAULT_BRIGHTNESS_DELTA = 15f
-        private val executableDeviceToolTypes = CloudAgentStep.deviceToolTypes + setOf("open_app")
+        private const val DEFAULT_VOLUME_DELTA = 15f
+        private val executableDeviceToolTypes = CloudAgentStep.deviceToolTypes
 
         private const val ACTION_SETTINGS_COMPAT = "android.settings.SETTINGS"
         private const val ACTION_WIFI_SETTINGS_COMPAT = "android.settings.WIFI_SETTINGS"
         private const val ACTION_BLUETOOTH_SETTINGS_COMPAT = "android.settings.BLUETOOTH_SETTINGS"
         private const val ACTION_NOTIFICATION_SETTINGS_COMPAT = "android.settings.NOTIFICATION_SETTINGS"
+        private const val ACTION_ZEN_MODE_SETTINGS_COMPAT = "android.settings.ZEN_MODE_SETTINGS"
         private const val ACTION_APP_NOTIFICATION_SETTINGS_COMPAT = "android.settings.APP_NOTIFICATION_SETTINGS"
         private const val ACTION_BATTERY_SETTINGS_COMPAT = "android.settings.BATTERY_SETTINGS"
         private const val ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT = "android.settings.INTERNAL_STORAGE_SETTINGS"
@@ -481,11 +663,12 @@ class DeviceToolExecutor(
             SystemSettingTarget("Wi‑Fi 设置", ACTION_WIFI_SETTINGS_COMPAT, listOf("wifi", "wi fi", "无线", "无线网")),
             SystemSettingTarget("蓝牙设置", ACTION_BLUETOOTH_SETTINGS_COMPAT, listOf("bluetooth", "蓝牙")),
             SystemSettingTarget("系统通知设置", ACTION_NOTIFICATION_SETTINGS_COMPAT, listOf("notification", "通知")),
+            SystemSettingTarget("勿扰模式设置", ACTION_ZEN_MODE_SETTINGS_COMPAT, listOf("dnd", "do not disturb", "zen", "勿扰", "免打扰")),
             SystemSettingTarget("电池设置", ACTION_BATTERY_SETTINGS_COMPAT, listOf("battery", "电池", "省电")),
             SystemSettingTarget("存储设置", ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT, listOf("storage", "存储", "储存", "空间")),
             SystemSettingTarget("应用管理", ACTION_APPLICATION_SETTINGS_COMPAT, listOf("apps", "applications", "应用管理", "应用列表")),
             SystemSettingTarget("无障碍设置", ACTION_ACCESSIBILITY_SETTINGS_COMPAT, listOf("accessibility", "无障碍", "辅助功能")),
-            SystemSettingTarget("显示设置", ACTION_DISPLAY_SETTINGS_COMPAT, listOf("display", "screen", "显示", "屏幕")),
+            SystemSettingTarget("显示设置", ACTION_DISPLAY_SETTINGS_COMPAT, listOf("display", "screen", "显示", "屏幕", "dark", "深色", "夜间")),
             SystemSettingTarget("声音设置", ACTION_SOUND_SETTINGS_COMPAT, listOf("sound", "volume", "声音", "音量")),
             SystemSettingTarget("定位设置", ACTION_LOCATION_SOURCE_SETTINGS_COMPAT, listOf("location", "gps", "定位", "位置")),
             SystemSettingTarget("流量设置", ACTION_DATA_USAGE_SETTINGS_COMPAT, listOf("data", "traffic", "流量", "移动数据")),
