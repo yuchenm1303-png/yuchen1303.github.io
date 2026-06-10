@@ -116,18 +116,14 @@ object AgentRuntimeController {
             overlayCaptureDepth += 1
             overlayCaptureGeneration += 1L
             generation = overlayCaptureGeneration
-            if (!mutableOverlayHiddenForCapture.value) {
-                mutableOverlayHiddenForCapture.value = true
-            }
+            if (!mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = true
         }
         overlayCaptureRestoreHandler.postDelayed({
             synchronized(overlayCaptureLock) {
                 if (overlayCaptureDepth > 0 && overlayCaptureGeneration == generation) {
                     overlayCaptureDepth = 0
                     overlayCaptureGeneration += 1L
-                    if (mutableOverlayHiddenForCapture.value) {
-                        mutableOverlayHiddenForCapture.value = false
-                    }
+                    if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
                 }
             }
         }, OVERLAY_CAPTURE_WATCHDOG_MS)
@@ -138,9 +134,7 @@ object AgentRuntimeController {
             overlayCaptureDepth = (overlayCaptureDepth - 1).coerceAtLeast(0)
             if (overlayCaptureDepth == 0) {
                 overlayCaptureGeneration += 1L
-                if (mutableOverlayHiddenForCapture.value) {
-                    mutableOverlayHiddenForCapture.value = false
-                }
+                if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
             }
         }
     }
@@ -149,9 +143,7 @@ object AgentRuntimeController {
         synchronized(overlayCaptureLock) {
             overlayCaptureDepth = 0
             overlayCaptureGeneration += 1L
-            if (mutableOverlayHiddenForCapture.value) {
-                mutableOverlayHiddenForCapture.value = false
-            }
+            if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
         }
     }
 
@@ -169,8 +161,6 @@ object AgentRuntimeController {
         completePendingUserInput(null)
         userTakeoverPaused = false
         resetCleanVisualCapture()
-        // 不再在整个任务生命周期内常驻 Working 无障碍模式。
-        // 截图、节点读取、点击、输入会由 AiAgentAccessibilityService.withWorkingAccessibilityMode() 临时切换，结束立刻回 Idle。
         val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
         publishProgress(
             AgentOverlayProgress(
@@ -315,7 +305,9 @@ object AgentRuntimeController {
         val resultText = result.message.take(64)
         publishProgress(
             current.copy(
-                running = if (result.ok) result.shouldContinue else true,
+                // noteResult 只记录中间结果，不提前关闭 running。
+                // 真正结束必须由 AgentTaskRunner.finishTask/failTask 统一收口，避免一次性内部工具被误判成“任务已暂停”。
+                running = current.running,
                 status = when {
                     result.ok && result.shouldContinue -> "执行中"
                     result.ok -> "已完成"
