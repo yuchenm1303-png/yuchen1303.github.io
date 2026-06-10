@@ -36,8 +36,6 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
-import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabLayer
-import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabOptics
 import kotlin.math.roundToInt
 
 @Composable
@@ -54,7 +52,7 @@ fun GlassDebugFloatingPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout(
             title = "OpenGL",
-            subtitle = "连续势能折射样本 / Shell 参数 / 仅实验室调试",
+            subtitle = "Shell 大玻璃 / OpenGL 折射 / 水滴采样 / 调试参数",
             initiallyExpanded = false,
             state = state
         ) {
@@ -79,7 +77,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "轻量玻璃",
-            subtitle = "采样背景 + 轻雾面 + 单层边框",
+            subtitle = "网页同款详细参数 / 普通 Compose 玻璃实时生效",
             initiallyExpanded = false,
             state = state
         ) {
@@ -88,7 +86,7 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "模型卡片",
-            subtitle = "首页模型栏边缘 / 高光 / 彩虹 / 圆点参数",
+            subtitle = "首页模型栏单独材质，暂不和普通 Compose 玻璃共用参数",
             initiallyExpanded = false,
             state = state
         ) {
@@ -117,152 +115,49 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
-private fun OpenGlLiquidPotentialPreview(
-    state: AssistantUiState,
-    optics: OpenGLLiquidPotentialLabOptics
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(168.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFF071225).copy(alpha = 0.36f))
-    ) {
-        OpenGLLiquidPotentialLabLayer(
-            optics = optics,
-            radiusDp = 28,
-            modifier = Modifier.matchParentSize()
-        )
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("连续势能 OpenGL 样本", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("只替换实验室样本；主界面 OpenGLGlassCardLayer 不受影响", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text("Lab", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Black)
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.070f))
-                    .padding(horizontal = 2.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    listOf("Potential", "Slope", "Lens").forEachIndexed { index, label ->
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            Text(label, color = Color.White.copy(alpha = if (index == 1) 0.88f else 0.62f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                        }
-                    }
-                }
-            }
-            Text("用一个连续厚度势能场驱动折射，让边缘、交界和中心自然衔接。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
-        }
-    }
-}
-
-@Composable
 private fun OpenGlGlassLab(
     state: AssistantUiState,
     style: GlassBorderStyle,
     onBorderChange: (GlassBorderStyle) -> Unit
 ) {
-    var potentialDepth by rememberSaveable { mutableStateOf(1.06f) }
-    var refractionScale by rememberSaveable { mutableStateOf(92f) }
-    var centerLens by rememberSaveable { mutableStateOf(18f) }
-    var edgeFocus by rememberSaveable { mutableStateOf(1.02f) }
-    var flowSmear by rememberSaveable { mutableStateOf(0.82f) }
-    var lensBlend by rememberSaveable { mutableStateOf(0.76f) }
-    var potentialBrightness by rememberSaveable { mutableStateOf(1.04f) }
-    var potentialDarkEdge by rememberSaveable { mutableStateOf(0.62f) }
-
-    fun resetPotential() {
-        potentialDepth = 1.06f
-        refractionScale = 92f
-        centerLens = 18f
-        edgeFocus = 1.02f
-        flowSmear = 0.82f
-        lensBlend = 0.76f
-        potentialBrightness = 1.04f
-        potentialDarkEdge = 0.62f
-    }
-
-    val optics = OpenGLLiquidPotentialLabOptics(
-        potentialDepth = potentialDepth,
-        refractionScalePx = refractionScale,
-        centerLensPx = centerLens,
-        edgeFocus = edgeFocus,
-        flowSmear = flowSmear,
-        lensBlend = lensBlend,
-        brightness = potentialBrightness,
-        darkEdge = potentialDarkEdge
-    )
-
-    OpenGlLiquidPotentialPreview(state, optics)
-
-    GlassControlGroup("连续势能折射", "实验室新样本专用参数，不写入主界面 OpenGL", state, true) {
-        LabSlider("势能深度", "连续厚度场整体强度", potentialDepth, 0.20f..2.20f) { potentialDepth = it }
-        LabSlider("坡面折射", "由势能梯度产生的背景扭曲", refractionScale, 0f..180f) { refractionScale = it }
-        LabSlider("中心透镜", "中心区域柔和透镜，避免中间静止", centerLens, 0f..72f) { centerLens = it }
-        LabSlider("边缘聚焦", "连续场靠近边缘处的斜率集中程度", edgeFocus, 0.35f..2.20f) { edgeFocus = it }
-        LabSlider("流动拖色", "沿势能坡面切线拖拽背景颜色", flowSmear, 0f..1.60f) { flowSmear = it }
-        LabSlider("透镜混合", "高斜率区域混合 lens 纹理", lensBlend, 0f..1.50f) { lensBlend = it }
-        LabSlider("样本亮度", "连续势能样本折射结果亮度", potentialBrightness, 0.55f..1.80f) { potentialBrightness = it }
-        LabSlider("暗部厚度", "高斜率边缘和交界处暗角", potentialDarkEdge, 0f..1.60f) { potentialDarkEdge = it }
-    }
-
-    GlassControlGroup("主界面 OpenGL 参数", "保留原 Shell 玻璃参数，方便对照，不影响上方新样本", state, false) {
-        LabSlider("可见强度", "主界面 OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) {
-            onBorderChange(style.copy(openGlVisibility = it))
-        }
-        LabSlider("最大透明", "主界面 OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) {
-            onBorderChange(style.copy(openGlMaxAlpha = it))
-        }
-        LabSlider("边缘亮度", "主界面折射结果整体明亮度", style.edgeBrightness, 0.20f..2.40f) {
-            onBorderChange(style.copy(edgeBrightness = it))
-        }
-        LabSlider("边缘暗部", "主界面边缘暗角与厚度阴影", style.openGlDarkScale, -4f..4f) {
-            onBorderChange(style.copy(openGlDarkScale = it))
-        }
-        LabSlider("主体折射", "主界面玻璃主体对背景的拉动强度", style.openGlPullScale, -120f..180f) {
-            onBorderChange(style.copy(openGlPullScale = it))
-        }
-        LabSlider("边缘拉力", "主界面靠边区域的折射拖拽", style.edgePullDp, -600f..220f) {
-            onBorderChange(style.copy(edgePullDp = it))
-        }
-        LabSlider("透镜压缩", "主界面边缘核心与按压 lens 混合", style.openGlCompressionScale, -10f..10f) {
-            onBorderChange(style.copy(openGlCompressionScale = it))
-        }
-        LabSlider("角部厚度", "主界面圆角厚度梯度放大系数", style.openGlCornerScale, 0f..200f) {
-            onBorderChange(style.copy(openGlCornerScale = it))
-        }
-        LabSlider("边缘宽度", "主界面 rim 宽度", style.ringWidthDp, 0f..96f) {
-            onBorderChange(style.copy(ringWidthDp = it))
-        }
-        LabSlider("采样半径", "主界面额外多点采样；0 为最快默认路径", style.openGlSampleRadiusScale, 0f..48f) {
-            onBorderChange(style.copy(openGlSampleRadiusScale = it))
-        }
-        LabSlider("调试线", "主界面橙色边界线", style.openGlDebugLineAlpha, 0f..1f) {
-            onBorderChange(style.copy(openGlDebugLineAlpha = it))
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.70f,
+        motionIntensity = state.motionIntensity,
+        radius = 26,
+        modifier = Modifier.fillMaxWidth().height(120.dp),
+        role = GlassRole.Shell,
+        onClick = {}
+    ) {
+        Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text("OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ComposeGlassPreviewMetric("可见", style.openGlVisibility, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("透明", style.openGlMaxAlpha, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("亮度", style.edgeBrightness, Modifier.weight(1f))
+            }
         }
     }
-
-    GlassControlGroup("无效参数清理", "OpenGL 无效字段已隐藏，兼容字段不暴露", state, false) {
-        LabStaticInfo("已删除", "openGlEdgeWidthScale / openGlSpecularScale / openGlChromaticScale")
-        LabStaticInfo("兼容保留", "GlassBorderStyle.bodyAlpha 供旧统一背景层读取")
-        LabStaticInfo("不暴露", "OpenGL 调参栏不提供 bodyAlpha 滑块")
+    GlassControlGroup("可见与明暗", "整体透明、亮度与边缘暗部", state, true) {
+        LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
+        LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
+        LabSlider("边缘亮度", "折射结果的整体明亮度", style.edgeBrightness, 0.20f..2.40f) { onBorderChange(style.copy(edgeBrightness = it)) }
+        LabSlider("边缘暗部", "边缘暗角与厚度阴影", style.openGlDarkScale, -4f..4f) { onBorderChange(style.copy(openGlDarkScale = it)) }
     }
-
+    GlassControlGroup("折射结构", "主体拉力、边缘拉力、透镜压缩与角部厚度", state, true) {
+        LabSlider("主体折射", "玻璃主体对背景的拉动强度", style.openGlPullScale, -120f..180f) { onBorderChange(style.copy(openGlPullScale = it)) }
+        LabSlider("边缘拉力", "靠边区域的折射拖拽方向与力度", style.edgePullDp, -600f..220f) { onBorderChange(style.copy(edgePullDp = it)) }
+        LabSlider("透镜压缩", "边缘核心与按压时的 lens 混合", style.openGlCompressionScale, -10f..10f) { onBorderChange(style.copy(openGlCompressionScale = it)) }
+        LabSlider("角部厚度", "圆角厚度梯度放大系数", style.openGlCornerScale, 0f..200f) { onBorderChange(style.copy(openGlCornerScale = it)) }
+    }
+    GlassControlGroup("边缘与采样", "边缘宽度、额外采样半径和调试线", state, true) {
+        LabSlider("边缘宽度", "rim 宽度，同时影响拖色区域", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
+        LabSlider("采样半径", "额外多点采样；0 为最快默认路径", style.openGlSampleRadiusScale, 0f..48f) { onBorderChange(style.copy(openGlSampleRadiusScale = it)) }
+        LabSlider("调试线", "橙色边界线，仅调试时打开", style.openGlDebugLineAlpha, 0f..1f) { onBorderChange(style.copy(openGlDebugLineAlpha = it)) }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        LabActionButton("重置势能场", "恢复实验室新样本", state, Modifier.weight(1f)) { resetPotential() }
-        LabActionButton("重置主 OpenGL", "恢复主 Shell 默认", state, Modifier.weight(1f)) { onBorderChange(GlassBorderStyle()) }
+        LabActionButton("重置 OpenGL", "恢复 Shell 默认", state, Modifier.weight(1f)) { onBorderChange(GlassBorderStyle()) }
+        LabActionButton("最快路径", "关闭额外采样", state, Modifier.weight(1f)) { onBorderChange(style.copy(openGlSampleRadiusScale = 0f, openGlDebugLineAlpha = 0f)) }
     }
 }
 
@@ -297,11 +192,7 @@ private fun GlassLabFoldout(
                 Text(if (expanded) "收起 ︿" else "展开 ﹀", color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
+        AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
         }
     }
@@ -312,12 +203,38 @@ private fun ComposeGlassLab(state: AssistantUiState) {
     val style = ComposeGlassLabState.style
     ComposeGlassPreview(state)
     ComposeGlassPresetGrid(state, style.preset)
-    GlassControlGroup("核心材质", "只保留肉眼反馈明确的三项", state, true) {
-        LabSlider("背景采样", "背景透出强度，越高越清透", style.backdrop, 0.40f..1.45f) { ComposeGlassLabState.update(style.copy(backdrop = it)) }
-        LabSlider("雾面密度", "磨砂密度与背景模糊派生", style.density, 0.35f..1.75f) { ComposeGlassLabState.update(style.copy(density = it)) }
-        LabSlider("边缘亮度", "主边框、内边与顶部折光", style.edge, 0.35f..1.90f) { ComposeGlassLabState.update(style.copy(edge = it)) }
+
+    GlassControlGroup("主体材质", "雾面、暗色覆膜、中心安静、背景采样", state, true) {
+        LabSlider("背景采样", "背景透出强度，越高越清透", style.backdrop, 0.32f..1.55f) { ComposeGlassLabState.update(style.copy(backdrop = it)) }
+        LabSlider("雾面密度", "网页 frost；只控制普通 Compose 玻璃雾面", style.frost, 0.15f..1.90f) { ComposeGlassLabState.update(style.copy(frost = it)) }
+        LabSlider("暗色覆膜", "网页 tint；控制玻璃底色压暗", style.tint, 0f..1.60f) { ComposeGlassLabState.update(style.copy(tint = it)) }
+        LabSlider("中心安静", "网页 quiet；压住中心大面积发光", style.quiet, 0f..1.40f) { ComposeGlassLabState.update(style.copy(quiet = it)) }
     }
-    GlassControlGroup("派生结果", "其余视觉由 preset 自动派生，不再单独暴露", state, false) {
+
+    GlassControlGroup("上下边缘光场", "顶部主高光、底部弱回光", state, true) {
+        LabSlider("顶部高光", "网页 topLight；上边主高光强度", style.topLight, 0f..2.60f) { ComposeGlassLabState.update(style.copy(topLight = it)) }
+        LabSlider("顶部宽度", "网页 topWidth；顶部高光带宽度 dp", style.topWidthDp, 1f..10f) { ComposeGlassLabState.update(style.copy(topWidthDp = it)) }
+        LabSlider("顶部不均匀", "网页 topVariation；顶部左右强弱变化", style.topVariation, 0f..1.50f) { ComposeGlassLabState.update(style.copy(topVariation = it)) }
+        LabSlider("底部回光", "网页 bottomLight；底边轻反射强度", style.bottomLight, 0f..1.80f) { ComposeGlassLabState.update(style.copy(bottomLight = it)) }
+        LabSlider("底部宽度", "网页 bottomWidth；底边回光宽度 dp", style.bottomWidthDp, 1f..9f) { ComposeGlassLabState.update(style.copy(bottomWidthDp = it)) }
+    }
+
+    GlassControlGroup("厚边截面", "边缘厚度、内暗槽、外缘细亮、底部重量", state, true) {
+        LabSlider("截面宽度", "网页 edgeDepth；边缘厚度宽度 dp", style.edgeDepthDp, 0f..9f) { ComposeGlassLabState.update(style.copy(edgeDepthDp = it)) }
+        LabSlider("内侧暗槽", "网页 innerBevel；边缘内侧暗槽", style.innerBevel, 0f..1.80f) { ComposeGlassLabState.update(style.copy(innerBevel = it)) }
+        LabSlider("外缘细亮", "网页 outerRim；最外细 rim", style.outerRim, 0f..1.80f) { ComposeGlassLabState.update(style.copy(outerRim = it)) }
+        LabSlider("底部重量", "网页 bottomMass；底边压暗厚度", style.bottomMass, 0f..2.20f) { ComposeGlassLabState.update(style.copy(bottomMass = it)) }
+        LabSlider("侧边折暗", "网页 sideBevel；左右边折暗", style.sideBevel, 0f..1.40f) { ComposeGlassLabState.update(style.copy(sideBevel = it)) }
+    }
+
+    GlassControlGroup("形体", "左右弱边、圆角、投影、背景光带记录", state, true) {
+        LabSlider("左右弱边", "网页 sideLight；左右高光辅助", style.sideLight, 0f..0.90f) { ComposeGlassLabState.update(style.copy(sideLight = it)) }
+        LabSlider("圆角半径", "网页 radius；同时派生普通控件圆角倍率", style.radius, 18f..84f) { ComposeGlassLabState.update(style.copy(radius = it)) }
+        LabSlider("投影", "网页 shadow；普通玻璃投影强度", style.shadow, 0f..1.60f) { ComposeGlassLabState.update(style.copy(shadow = it)) }
+        LabSlider("背景光带", "网页 ribbon；App 不直接绘制，仅用于记录网页参数", style.ribbon, 0f..1f) { ComposeGlassLabState.update(style.copy(ribbon = it)) }
+    }
+
+    GlassControlGroup("派生结果", "给旧链路兼容用的派生量", state, false) {
         SettingDerivedInfo("背景模糊", style.blurScale)
         SettingDerivedInfo("主边框", style.rimAlpha)
         SettingDerivedInfo("内部细边", style.innerRimAlpha)
@@ -325,9 +242,10 @@ private fun ComposeGlassLab(state: AssistantUiState) {
         SettingDerivedInfo("底部厚度", style.bottomShadow)
         SettingDerivedInfo("圆角倍率", style.radiusScale)
     }
+
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         LabActionButton("重置当前材质", "恢复 preset 默认", state, Modifier.weight(1f)) { ComposeGlassLabState.reset() }
-        LabActionButton("重置 Frost", "回到标准磨砂", state, Modifier.weight(1f)) { ComposeGlassLabState.resetAll() }
+        LabActionButton("重置 Frost", "回到网页默认", state, Modifier.weight(1f)) { ComposeGlassLabState.resetAll() }
     }
 }
 
@@ -368,7 +286,7 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 30,
-        modifier = Modifier.fillMaxWidth().height(182.dp),
+        modifier = Modifier.fillMaxWidth().height(206.dp),
         role = GlassRole.Card,
         onClick = {}
     ) {
@@ -376,16 +294,27 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("Compose 材质玻璃", color = Color.White.copy(alpha = 0.94f), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("${composeGlassPresetLabel(style.preset)} · 三核心参数 · 普通控件实时生效", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${composeGlassPresetLabel(style.preset)} · 详细滑块 · 普通控件实时生效", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Box(Modifier.size(42.dp).clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = 0.075f + style.edge.coerceIn(0f, 2f) * 0.020f)), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(Color.White.copy(alpha = 0.070f + style.outerRim.coerceIn(0f, 2f) * 0.024f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text("M", color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, fontWeight = FontWeight.Black)
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ComposeGlassPreviewMetric("采样", style.backdrop, Modifier.weight(1f))
-                ComposeGlassPreviewMetric("密度", style.density, Modifier.weight(1f))
-                ComposeGlassPreviewMetric("边缘", style.edge, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("雾面", style.frost, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("顶部", style.topLight, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("底部", style.bottomLight, Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ComposeGlassPreviewMetric("外缘", style.outerRim, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("重量", style.bottomMass, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("圆角", style.radius, Modifier.weight(1f))
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ComposeGlassMiniChip("Card", state, Modifier.weight(1f))
@@ -400,7 +329,14 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
 
 @Composable
 private fun ComposeGlassPreviewMetric(label: String, value: Float, modifier: Modifier = Modifier) {
-    Column(modifier.height(42.dp).clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = 0.060f)).padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.SpaceBetween) {
+    Column(
+        modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
         Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
     }
@@ -408,7 +344,15 @@ private fun ComposeGlassPreviewMetric(label: String, value: Float, modifier: Mod
 
 @Composable
 private fun ComposeGlassMiniChip(label: String, state: AssistantUiState, modifier: Modifier = Modifier) {
-    PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.82f, motionIntensity = state.motionIntensity, radius = 999, modifier = modifier.height(36.dp), role = GlassRole.Chip, onClick = {}) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.82f,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.height(36.dp),
+        role = GlassRole.Chip,
+        onClick = {}
+    ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(label, color = Color.White.copy(alpha = 0.76f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
@@ -417,7 +361,15 @@ private fun ComposeGlassMiniChip(label: String, state: AssistantUiState, modifie
 
 @Composable
 private fun SettingDerivedInfo(title: String, value: Float) {
-    Row(Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = 0.052f)).padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.052f))
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(title, color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Spacer(Modifier.weight(1f))
         Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
@@ -426,7 +378,15 @@ private fun SettingDerivedInfo(title: String, value: Float) {
 
 @Composable
 private fun LabStaticInfo(title: String, value: String) {
-    Row(Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(15.dp)).background(Color.White.copy(alpha = 0.052f)).padding(horizontal = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.052f))
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(title, color = Color.White.copy(alpha = 0.70f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Spacer(Modifier.weight(1f))
         Text(value, color = Color.White.copy(alpha = 0.52f), fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -434,10 +394,24 @@ private fun LabStaticInfo(title: String, value: String) {
 }
 
 @Composable
-private fun GlassControlGroup(title: String, subtitle: String, state: AssistantUiState, initiallyExpanded: Boolean, content: @Composable () -> Unit) {
+private fun GlassControlGroup(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    initiallyExpanded: Boolean,
+    content: @Composable () -> Unit
+) {
     var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.58f, motionIntensity = state.motionIntensity, radius = 20, modifier = Modifier.fillMaxWidth().height(48.dp), role = GlassRole.Chip, onClick = { expanded = !expanded }) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * 0.58f,
+            motionIntensity = state.motionIntensity,
+            radius = 20,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            role = GlassRole.Chip,
+            onClick = { expanded = !expanded }
+        ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -454,67 +428,10 @@ private fun GlassControlGroup(title: String, subtitle: String, state: AssistantU
 
 @Composable
 private fun ModelCardGlassLab(state: AssistantUiState) {
-    val style = ModelCardGlassLabState.style
-    PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.72f, motionIntensity = state.motionIntensity, radius = 28, modifier = Modifier.fillMaxWidth().height(242.dp), role = GlassRole.Flex, onClick = {}) {
-        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("实时样本", color = Color.White.copy(alpha = 0.92f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-                    Text("点击样本卡片可预览选中光效，拖动下方滑块会立即变化", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text("Clickable", color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
-            }
-            ModelCardGlassLabPreview(state = state, modifier = Modifier.fillMaxWidth().height(188.dp))
-        }
-    }
-    ModelCardControlGroup("主体与轮廓", "透明底、雾面、圆角、未选中能量", state, true) {
-        LabSlider("主体雾面", "卡片内部基础雾面强度", style.bodyAlpha, 0f..6f) { ModelCardGlassLabState.update(style.copy(bodyAlpha = it)) }
-        LabSlider("内部雾面", "玻璃内部柔雾提亮，不影响边缘线", style.innerMist, 0f..6f) { ModelCardGlassLabState.update(style.copy(innerMist = it)) }
-        LabSlider("圆角倍率", "模型卡圆角半径倍率", style.radiusScale, 0.2f..3f) { ModelCardGlassLabState.update(style.copy(radiusScale = it)) }
-        LabSlider("未选中强度", "非当前模型卡片整体可见度", style.unselectedEnergy, 0f..5f) { ModelCardGlassLabState.update(style.copy(unselectedEnergy = it)) }
-    }
-    ModelCardControlGroup("边缘结构", "外边 / 顶边 / 内边 / 暗边", state, true) {
-        LabSlider("外边框", "外侧玻璃轮廓强度", style.outerRim, 0f..8f) { ModelCardGlassLabState.update(style.copy(outerRim = it)) }
-        LabSlider("顶部高光", "上沿白色硬高光", style.topHairline, 0f..8f) { ModelCardGlassLabState.update(style.copy(topHairline = it)) }
-        LabSlider("内侧折边", "内层玻璃细边与右下暗线", style.innerDepth, 0f..8f) { ModelCardGlassLabState.update(style.copy(innerDepth = it)) }
-        LabSlider("底部暗边", "底部压暗与厚度感", style.bottomShadow, 0f..8f) { ModelCardGlassLabState.update(style.copy(bottomShadow = it)) }
-    }
-    ModelCardControlGroup("选中彩虹", "当前模型卡片彩虹镀膜", state, true) {
-        LabSlider("彩虹边框", "选中卡主彩虹边缘", style.selectedRainbowRim, 0f..8f) { ModelCardGlassLabState.update(style.copy(selectedRainbowRim = it)) }
-        LabSlider("外圈光晕", "选中卡外侧淡彩虹 Halo", style.selectedOuterHalo, 0f..8f) { ModelCardGlassLabState.update(style.copy(selectedOuterHalo = it)) }
-        LabSlider("选中底光", "选中卡背后的彩虹 aura", style.selectedAura, 0f..8f) { ModelCardGlassLabState.update(style.copy(selectedAura = it)) }
-    }
-    ModelCardControlGroup("左上角边缘碎光", "贴边碎光，不再画内部圆弧", state, true) {
-        LabSlider("碎光强度", "左上角边缘高光亮度", style.edgeGlint, 0f..10f) { ModelCardGlassLabState.update(style.copy(edgeGlint = it)) }
-        LabSlider("碎光半径", "边缘碎光扩散范围", style.edgeGlintRadius, 0.05f..5f) { ModelCardGlassLabState.update(style.copy(edgeGlintRadius = it)) }
-        LabSlider("碎光横向", "左上碎光中心 X 倍率", style.edgeGlintCenterX, -3f..5f) { ModelCardGlassLabState.update(style.copy(edgeGlintCenterX = it)) }
-        LabSlider("碎光纵向", "左上碎光中心 Y 倍率", style.edgeGlintCenterY, -3f..5f) { ModelCardGlassLabState.update(style.copy(edgeGlintCenterY = it)) }
-    }
-    ModelCardControlGroup("圆点", "模型状态点光晕", state, false) {
-        LabSlider("圆点光晕", "选中/未选中状态点光晕强度", style.dotGlow, 0f..6f) { ModelCardGlassLabState.update(style.copy(dotGlow = it)) }
-    }
+    LabStaticInfo("模型卡片", "该栏暂保留原运行样式；本次只调普通 Compose 玻璃")
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        LabActionButton("重置模型卡", "恢复默认参数", state, Modifier.weight(1f)) { ModelCardGlassLabState.reset() }
-        LabActionButton("实时调试", "点击上方样本预览", state, Modifier.weight(1f)) { }
-    }
-}
-
-@Composable
-private fun ModelCardControlGroup(title: String, subtitle: String, state: AssistantUiState, initiallyExpanded: Boolean, content: @Composable () -> Unit) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.58f, motionIntensity = state.motionIntensity, radius = 20, modifier = Modifier.fillMaxWidth().height(48.dp), role = GlassRole.Chip, onClick = { expanded = !expanded }) {
-            Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
-        }
+        LabActionButton("普通玻璃优先", "上方轻量玻璃实时生效", state, Modifier.weight(1f)) {}
+        LabActionButton("模型卡不联动", "避免影响首页模型栏", state, Modifier.weight(1f)) {}
     }
 }
 
@@ -535,7 +452,15 @@ private fun LabSlider(title: String, subtitle: String, value: Float, range: Clos
 
 @Composable
 private fun LabActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.78f, motionIntensity = state.motionIntensity, radius = 22, modifier = modifier.height(56.dp), role = GlassRole.Chip, onClick = onClick) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * 0.78f,
+        motionIntensity = state.motionIntensity,
+        radius = 22,
+        modifier = modifier.height(56.dp),
+        role = GlassRole.Chip,
+        onClick = onClick
+    ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
