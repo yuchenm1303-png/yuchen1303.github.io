@@ -35,21 +35,10 @@ object ComposeGlassLabState {
     var style by mutableStateOf(defaultComposeGlassStyle())
         private set
 
-    fun update(next: ComposeGlassStyle) {
-        style = next
-    }
-
-    fun usePreset(preset: ComposeGlassPreset) {
-        style = defaultComposeGlassStyle(preset)
-    }
-
-    fun reset() {
-        style = defaultComposeGlassStyle(style.preset)
-    }
-
-    fun resetAll() {
-        style = defaultComposeGlassStyle()
-    }
+    fun update(next: ComposeGlassStyle) { style = next }
+    fun usePreset(preset: ComposeGlassPreset) { style = defaultComposeGlassStyle(preset) }
+    fun reset() { style = defaultComposeGlassStyle(style.preset) }
+    fun resetAll() { style = defaultComposeGlassStyle() }
 }
 
 private data class ComposeGlassPresetProfile(
@@ -68,102 +57,17 @@ private data class ComposeGlassPresetProfile(
 
 private val ComposeGlassPreset.profile: ComposeGlassPresetProfile
     get() = when (this) {
-        ComposeGlassPreset.Clear -> ComposeGlassPresetProfile(
-            backdropScale = 1.08f,
-            blurScale = 0.82f,
-            frostScale = 0.62f,
-            rimScale = 0.86f,
-            innerRimScale = 0.38f,
-            highlightScale = 1.06f,
-            depthScale = 0.64f,
-            glintScale = 0.74f,
-            strokeScale = 0.82f,
-            shadowScale = 0.58f,
-            radiusScale = 1.04f
-        )
-        ComposeGlassPreset.Frost -> ComposeGlassPresetProfile(
-            backdropScale = 0.96f,
-            blurScale = 0.86f,
-            frostScale = 1.00f,
-            rimScale = 0.40f,
-            innerRimScale = 0.00f,
-            highlightScale = 1.14f,
-            depthScale = 0.165f,
-            glintScale = 0.46f,
-            strokeScale = 0.42f,
-            shadowScale = 0.31f,
-            radiusScale = 0.92f
-        )
-        ComposeGlassPreset.Crystal -> ComposeGlassPresetProfile(
-            backdropScale = 1.03f,
-            blurScale = 0.98f,
-            frostScale = 0.78f,
-            rimScale = 1.44f,
-            innerRimScale = 1.08f,
-            highlightScale = 1.68f,
-            depthScale = 0.92f,
-            glintScale = 1.42f,
-            strokeScale = 1.10f,
-            shadowScale = 0.84f,
-            radiusScale = 1.05f
-        )
-        ComposeGlassPreset.Dense -> ComposeGlassPresetProfile(
-            backdropScale = 0.78f,
-            blurScale = 1.26f,
-            frostScale = 1.58f,
-            rimScale = 1.02f,
-            innerRimScale = 0.70f,
-            highlightScale = 0.98f,
-            depthScale = 1.58f,
-            glintScale = 0.58f,
-            strokeScale = 1.08f,
-            shadowScale = 1.42f,
-            radiusScale = 0.96f
-        )
-        ComposeGlassPreset.Aurora -> ComposeGlassPresetProfile(
-            backdropScale = 0.98f,
-            blurScale = 1.05f,
-            frostScale = 1.02f,
-            rimScale = 1.34f,
-            innerRimScale = 0.92f,
-            highlightScale = 1.42f,
-            depthScale = 1.12f,
-            glintScale = 1.62f,
-            strokeScale = 1.06f,
-            shadowScale = 1.05f,
-            radiusScale = 1.08f
-        )
+        ComposeGlassPreset.Clear -> ComposeGlassPresetProfile(1.08f, 0.82f, 0.62f, 0.86f, 0.38f, 1.06f, 0.64f, 0.74f, 0.82f, 0.58f, 1.04f)
+        ComposeGlassPreset.Frost -> ComposeGlassPresetProfile(0.96f, 0.86f, 1.00f, 0.40f, 0.00f, 1.14f, 0.165f, 0.46f, 0.42f, 0.31f, 0.804f)
+        ComposeGlassPreset.Crystal -> ComposeGlassPresetProfile(1.03f, 0.98f, 0.78f, 1.44f, 1.08f, 1.68f, 0.92f, 1.42f, 1.10f, 0.84f, 1.05f)
+        ComposeGlassPreset.Dense -> ComposeGlassPresetProfile(0.78f, 1.26f, 1.58f, 1.02f, 0.70f, 0.98f, 1.58f, 0.58f, 1.08f, 1.42f, 0.96f)
+        ComposeGlassPreset.Aurora -> ComposeGlassPresetProfile(0.98f, 1.05f, 1.02f, 1.34f, 0.92f, 1.42f, 1.12f, 1.62f, 1.06f, 1.05f, 1.08f)
     }
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
-    ComposeGlassPreset.Clear -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 1.12f,
-        density = 0.74f,
-        edge = 1.08f
-    )
-    ComposeGlassPreset.Frost -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 0.96f,
-        density = 0.15f,
-        edge = 1.00f
-    )
-    ComposeGlassPreset.Crystal -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 1.06f,
-        density = 0.82f,
-        edge = 1.34f
-    )
-    ComposeGlassPreset.Dense -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 0.86f,
-        density = 1.30f,
-        edge = 0.98f
-    )
-    ComposeGlassPreset.Aurora -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 0.98f,
-        density = 1.00f,
-        edge = 1.24f
-    )
+    ComposeGlassPreset.Clear -> ComposeGlassStyle(preset, 1.12f, 0.74f, 1.08f)
+    ComposeGlassPreset.Frost -> ComposeGlassStyle(preset, 0.96f, 0.15f, 1.00f)
+    ComposeGlassPreset.Crystal -> ComposeGlassStyle(preset, 1.06f, 0.82f, 1.34f)
+    ComposeGlassPreset.Dense -> ComposeGlassStyle(preset, 0.86f, 1.30f, 0.98f)
+    ComposeGlassPreset.Aurora -> ComposeGlassStyle(preset, 0.98f, 1.00f, 1.24f)
 }
