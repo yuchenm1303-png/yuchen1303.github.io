@@ -16,6 +16,7 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -73,8 +74,8 @@ fun OpenGLGlassCardLayer(
     val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
 
-    val blurBitmap = backdrop.image.asAndroidBitmap()
-    val lensBitmap = backdrop.lensImage.asAndroidBitmap()
+    val blurBitmap = remember(backdrop.image) { backdrop.image.asAndroidBitmap() }
+    val lensBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     val intensity = glassIntensity.coerceIn(0.35f, 1.35f)
     val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
@@ -93,7 +94,7 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardHostView(context) },
             update = { view ->
-                val anchorDirty = view.setStableSurfaceAnchor(surfaceAnchor)
+                view.setStableSurfaceAnchor(surfaceAnchor)
                 val surfaceDirty = view.setStableSurfaceSize(
                     width = widthPx.roundToInt(),
                     height = heightPx.roundToInt(),
@@ -116,7 +117,7 @@ fun OpenGLGlassCardLayer(
                 val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (anchorDirty || surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || styleDirty) {
+                if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
             }
@@ -322,6 +323,7 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     private var latestPressCenterX = 0.5f
     private var latestPressCenterY = 0.5f
     private var latestStyle = GlassBorderStyle()
+    private var latestStyleSignature = latestStyle.openGlSignature()
 
     init {
         isOpaque = false
@@ -388,8 +390,10 @@ private class OpenGLGlassCardTextureView(context: Context) : TextureView(context
     }
 
     fun setGlassStyle(style: GlassBorderStyle): Boolean {
-        val dirty = style != latestStyle
+        val nextSignature = style.openGlSignature()
+        val dirty = nextSignature != latestStyleSignature
         latestStyle = style
+        latestStyleSignature = nextSignature
         if (dirty) renderThread?.setGlassStyle(style)
         return dirty
     }
@@ -556,6 +560,35 @@ private data class CardGlassDrawSpec(
     val style: GlassBorderStyle
 )
 
+private data class OpenGLGlassStyleSignature(
+    val visibility: Float,
+    val maxAlpha: Float,
+    val edgeBrightness: Float,
+    val pullScale: Float,
+    val edgePullDp: Float,
+    val compressionScale: Float,
+    val cornerScale: Float,
+    val sampleRadiusScale: Float,
+    val ringWidthDp: Float,
+    val debugLineAlpha: Float,
+    val darkScale: Float
+)
+
+private fun GlassBorderStyle.openGlSignature(): OpenGLGlassStyleSignature =
+    OpenGLGlassStyleSignature(
+        visibility = openGlVisibility.coerceIn(0f, 20f),
+        maxAlpha = openGlMaxAlpha.coerceIn(0f, 1f),
+        edgeBrightness = edgeBrightness.coerceIn(-5f, 5f),
+        pullScale = openGlPullScale.coerceIn(-300f, 300f),
+        edgePullDp = edgePullDp.coerceIn(-600f, 600f),
+        compressionScale = openGlCompressionScale.coerceIn(-10f, 10f),
+        cornerScale = openGlCornerScale.coerceIn(0f, 200f),
+        sampleRadiusScale = openGlSampleRadiusScale.coerceIn(0f, 200f),
+        ringWidthDp = ringWidthDp.coerceIn(0f, 300f),
+        debugLineAlpha = openGlDebugLineAlpha.coerceIn(0f, 1f),
+        darkScale = openGlDarkScale.coerceIn(-10f, 10f)
+    )
+
 private class OpenGLGlassCardRenderer {
     private val quadVertices: FloatBuffer = ByteBuffer
         .allocateDirect(FULLSCREEN_QUAD.size * Float.SIZE_BYTES)
@@ -721,7 +754,7 @@ private class OpenGLGlassCardRenderer {
             style.openGlVisibility.coerceIn(0f, 20f),
             style.openGlMaxAlpha.coerceIn(0f, 1f),
             style.edgeBrightness.coerceIn(-5f, 5f),
-            style.bodyAlpha.coerceIn(-5f, 5f)
+            0f
         )
         GLES20.glUniform4f(
             refractionHandle,
