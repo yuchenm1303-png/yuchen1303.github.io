@@ -2,7 +2,9 @@ package com.yuchen.ailedger.ui
 
 /**
  * Runtime constants mirrored from glass-lab/index.html Frost default.
- * Keep this object in sync with the web lab so App and browser share the same material model.
+ *
+ * Only the useful knobs are exposed in the App lab. Removed lab knobs stay fixed here:
+ * frost, tint, edgeDepth, innerBevel, sideBevel, shadow.
  */
 object ComposeGlassRuntimeDefaults {
     const val frost = 0.15f
