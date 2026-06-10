@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -244,11 +245,7 @@ private fun ComposeGlassLab(state: AssistantUiState) {
         radiusScale = radiusScale
     )
 
-    MatureComposeGlassSurface(
-        state = state,
-        style = style,
-        modifier = Modifier.fillMaxWidth().height(246.dp)
-    ) {
+    MatureComposeGlassSurface(state = state, style = style, modifier = Modifier.fillMaxWidth().height(246.dp)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Compose Glass", color = Color.White.copy(alpha = 0.95f), fontSize = 25.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -285,65 +282,24 @@ private fun ComposeGlassLab(state: AssistantUiState) {
 }
 
 @Composable
-private fun MatureComposeGlassSurface(
-    state: AssistantUiState,
-    style: ComposeGlassStyle,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    val coordinateSource = rememberSaveable { GlassCoordinateSource() }
+private fun MatureComposeGlassSurface(state: AssistantUiState, style: ComposeGlassStyle, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val coordinateSource = remember { GlassCoordinateSource() }
     val radiusDp = (34f * style.radiusScale.coerceIn(0.45f, 2.2f)).roundToInt().coerceAtLeast(14)
     val shape = RoundedCornerShape(radiusDp.dp)
-    val border = rememberSaveable(style.edgeOptics) {
+    val border = remember(style.edgeOptics) {
         val edge = style.edgeOptics.coerceIn(0f, 4f)
-        GlassBorderStyle(
-            outerStrokeAlpha = 0.014f + edge * 0.040f,
-            innerStrokeAlpha = 0f,
-            topHighlightAlpha = 0.10f + edge * 0.14f,
-            bottomShadowAlpha = 0.020f + edge * 0.030f,
-            ringWidthDp = 2.6f + edge * 2.2f,
-            bodyAlpha = 0f
-        )
+        GlassBorderStyle(outerStrokeAlpha = 0.014f + edge * 0.040f, innerStrokeAlpha = 0f, topHighlightAlpha = 0.10f + edge * 0.14f, bottomShadowAlpha = 0.020f + edge * 0.030f, ringWidthDp = 2.6f + edge * 2.2f, bodyAlpha = 0f)
     }
-    val spec = rememberSaveable(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border) {
-        GlassBackdropSpec(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border)
-    }
-
+    val spec = remember(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border) { GlassBackdropSpec(state.quality, state.motionIntensity, state.backgroundTheme, state.backdropParams, border) }
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        ShapeShadowPlate(
-            modifier = Modifier.matchParentSize().padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 26.dp),
-            shape = shape,
-            elevationDp = style.ambientElevation,
-            alpha = style.ambientAlpha,
-            offsetYDp = style.ambientOffsetY,
-            alphaScale = 0.26f
-        )
-        ShapeShadowPlate(
-            modifier = Modifier.matchParentSize().padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp),
-            shape = shape,
-            elevationDp = style.contactElevation,
-            alpha = style.contactAlpha,
-            offsetYDp = style.contactOffsetY,
-            alphaScale = 0.32f
-        )
+        ShapeShadowPlate(Modifier.matchParentSize().padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 26.dp), shape, style.ambientElevation, style.ambientAlpha, style.ambientOffsetY, 0.26f)
+        ShapeShadowPlate(Modifier.matchParentSize().padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp), shape, style.contactElevation, style.contactAlpha, style.contactOffsetY, 0.32f)
         Box(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(start = 8.dp, top = 7.dp, end = 8.dp, bottom = 24.dp)
-                .onPlaced { coordinateSource.coordinates = it }
-                .clip(shape),
+            modifier = Modifier.matchParentSize().padding(start = 8.dp, top = 7.dp, end = 8.dp, bottom = 24.dp).onPlaced { coordinateSource.coordinates = it }.clip(shape),
             contentAlignment = Alignment.Center
         ) {
             CompositionLocalProvider(LocalGlassBackdrop provides spec) {
-                SampledWeatherGlassBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    radius = radiusDp,
-                    coordinateSource = coordinateSource,
-                    quality = state.quality,
-                    motionIntensity = state.motionIntensity,
-                    theme = state.backgroundTheme,
-                    liftAlpha = style.backdropAlpha.coerceIn(0.10f, 1.2f)
-                )
+                SampledWeatherGlassBackdrop(Modifier.matchParentSize(), radiusDp, coordinateSource, state.quality, state.motionIntensity, state.backgroundTheme, liftAlpha = style.backdropAlpha.coerceIn(0.10f, 1.2f))
             }
             Box(Modifier.matchParentSize().composeGlassSkin(style, radiusDp), contentAlignment = Alignment.Center) { content() }
         }
@@ -351,25 +307,12 @@ private fun MatureComposeGlassSurface(
 }
 
 @Composable
-private fun ShapeShadowPlate(
-    modifier: Modifier,
-    shape: RoundedCornerShape,
-    elevationDp: Float,
-    alpha: Float,
-    offsetYDp: Float,
-    alphaScale: Float
-) {
+private fun ShapeShadowPlate(modifier: Modifier, shape: RoundedCornerShape, elevationDp: Float, alpha: Float, offsetYDp: Float, alphaScale: Float) {
     val safeAlpha = (alpha.coerceIn(0f, 1.6f) * alphaScale).coerceIn(0f, 0.55f)
     Box(
         modifier = modifier
             .offset(y = offsetYDp.coerceIn(0f, 96f).dp)
-            .shadow(
-                elevation = elevationDp.coerceIn(0f, 128f).dp,
-                shape = shape,
-                clip = false,
-                ambientColor = Color.Black.copy(alpha = safeAlpha * 0.74f),
-                spotColor = Color.Black.copy(alpha = safeAlpha)
-            )
+            .shadow(elevation = elevationDp.coerceIn(0f, 128f).dp, shape = shape, clip = false, ambientColor = Color.Black.copy(alpha = safeAlpha * 0.74f), spotColor = Color.Black.copy(alpha = safeAlpha))
             .background(Color.Black.copy(alpha = 0.001f), shape)
     )
 }
@@ -377,57 +320,20 @@ private fun ShapeShadowPlate(
 private fun Modifier.composeGlassSkin(style: ComposeGlassStyle, radiusDp: Int): Modifier = drawWithCache {
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
-    val cornerRadius = radiusDp.dp.toPx()
-    val corner = CornerRadius(cornerRadius, cornerRadius)
+    val corner = CornerRadius(radiusDp.dp.toPx(), radiusDp.dp.toPx())
     val frost = style.frost.coerceIn(0f, 4f)
     val clear = style.centerClarity.coerceIn(0f, 4f)
     val edge = style.edgeOptics.coerceIn(0f, 4f)
     val readability = style.readability.coerceIn(0f, 4f)
     val centerFogFactor = (1f - min(clear / 3.2f, 0.88f)).coerceIn(0.06f, 1f)
     val rimWidth = max(1f, density * (0.34f + edge * 0.30f))
-    val frostVeil = Brush.verticalGradient(
-        listOf(
-            Color.White.copy(alpha = 0.010f * frost * centerFogFactor + 0.004f * edge),
-            Color.White.copy(alpha = 0.006f * frost * centerFogFactor),
-            Color(0xFF10203C).copy(alpha = 0.004f * frost)
-        )
-    )
-    val centerClearField = Brush.radialGradient(
-        listOf(
-            Color.Transparent,
-            Color.White.copy(alpha = 0.003f * frost * centerFogFactor),
-            Color.White.copy(alpha = 0.026f * frost)
-        ),
-        center = Offset(w * 0.50f, h * 0.50f),
-        radius = max(w, h) * 0.82f
-    )
-    val readableShade = Brush.verticalGradient(
-        listOf(
-            Color(0xFF020820).copy(alpha = 0.020f * readability),
-            Color.Transparent,
-            Color(0xFF020820).copy(alpha = 0.034f * readability)
-        )
-    )
-    val topGlance = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.028f + 0.048f * edge), Color.White.copy(alpha = 0.012f + 0.016f * edge), Color.Transparent),
-        Offset(-w * 0.04f, -h * 0.06f),
-        Offset(w * 0.84f, h * 0.20f)
-    )
-    val sideGlance = Brush.horizontalGradient(
-        listOf(Color.White.copy(alpha = 0.026f * edge), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.018f * edge)),
-        startX = 0f,
-        endX = w
-    )
-    val outerLine = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = 0.030f + 0.034f * edge), Color(0xFFC7F3FF).copy(alpha = 0.010f + 0.008f * edge), Color.White.copy(alpha = 0.012f + 0.012f * edge)),
-        Offset(-w * 0.05f, h * 0.03f),
-        Offset(w * 1.04f, h * 0.95f)
-    )
-    val bottomWeight = Brush.verticalGradient(
-        listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.016f * edge)),
-        startY = h * 0.42f,
-        endY = h
-    )
+    val frostVeil = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.010f * frost * centerFogFactor + 0.004f * edge), Color.White.copy(alpha = 0.006f * frost * centerFogFactor), Color(0xFF10203C).copy(alpha = 0.004f * frost)))
+    val centerClearField = Brush.radialGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.003f * frost * centerFogFactor), Color.White.copy(alpha = 0.026f * frost)), center = Offset(w * 0.50f, h * 0.50f), radius = max(w, h) * 0.82f)
+    val readableShade = Brush.verticalGradient(listOf(Color(0xFF020820).copy(alpha = 0.020f * readability), Color.Transparent, Color(0xFF020820).copy(alpha = 0.034f * readability)))
+    val topGlance = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.028f + 0.048f * edge), Color.White.copy(alpha = 0.012f + 0.016f * edge), Color.Transparent), Offset(-w * 0.04f, -h * 0.06f), Offset(w * 0.84f, h * 0.20f))
+    val sideGlance = Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.026f * edge), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.018f * edge)), startX = 0f, endX = w)
+    val outerLine = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.030f + 0.034f * edge), Color(0xFFC7F3FF).copy(alpha = 0.010f + 0.008f * edge), Color.White.copy(alpha = 0.012f + 0.012f * edge)), Offset(-w * 0.05f, h * 0.03f), Offset(w * 1.04f, h * 0.95f))
+    val bottomWeight = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.016f * edge)), startY = h * 0.42f, endY = h)
     onDrawWithContent {
         drawRoundRect(brush = frostVeil, size = size, cornerRadius = corner)
         drawRoundRect(brush = centerClearField, size = size, cornerRadius = corner)
@@ -443,31 +349,22 @@ private fun Modifier.composeGlassSkin(style: ComposeGlassStyle, radiusDp: Int): 
 @Composable
 private fun ComposeGlassSegmentedPill(labels: List<String>, style: ComposeGlassStyle, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(999.dp)
-    Box(
-        modifier.clip(shape).drawWithCache {
-            val w = size.width.coerceAtLeast(1f)
-            val h = size.height.coerceAtLeast(1f)
-            val corner = CornerRadius(h / 2f, h / 2f)
-            val edge = style.edgeOptics.coerceIn(0f, 4f)
-            val slot = style.slotDepth.coerceIn(0f, 4f)
-            val frost = style.frost.coerceIn(0f, 4f)
-            val material = Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = 0.014f + 0.006f * frost),
-                    Color(0xFF061032).copy(alpha = 0.018f + 0.020f * slot),
-                    Color.White.copy(alpha = 0.006f * edge)
-                )
-            )
-            onDrawWithContent {
-                drawRoundRect(brush = material, size = size, cornerRadius = corner)
-                drawContent()
-                drawRoundRect(color = Color.White.copy(alpha = 0.018f + 0.012f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * (0.42f + 0.10f * edge))))
-                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
-                drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
-            }
-        }.padding(horizontal = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier.clip(shape).drawWithCache {
+        val w = size.width.coerceAtLeast(1f)
+        val h = size.height.coerceAtLeast(1f)
+        val corner = CornerRadius(h / 2f, h / 2f)
+        val edge = style.edgeOptics.coerceIn(0f, 4f)
+        val slot = style.slotDepth.coerceIn(0f, 4f)
+        val frost = style.frost.coerceIn(0f, 4f)
+        val material = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.014f + 0.006f * frost), Color(0xFF061032).copy(alpha = 0.018f + 0.020f * slot), Color.White.copy(alpha = 0.006f * edge)))
+        onDrawWithContent {
+            drawRoundRect(brush = material, size = size, cornerRadius = corner)
+            drawContent()
+            drawRoundRect(color = Color.White.copy(alpha = 0.018f + 0.012f * edge), size = size, cornerRadius = corner, style = Stroke(width = max(1f, density * (0.42f + 0.10f * edge))))
+            drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w / 3f, h * 0.30f), end = Offset(w / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
+            drawLine(color = Color.White.copy(alpha = 0.008f * slot), start = Offset(w * 2f / 3f, h * 0.30f), end = Offset(w * 2f / 3f, h * 0.70f), strokeWidth = max(1f, density * 0.38f))
+        }
+    }.padding(horizontal = 2.dp), contentAlignment = Alignment.Center) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             labels.forEach { label ->
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -479,50 +376,9 @@ private fun ComposeGlassSegmentedPill(labels: List<String>, style: ComposeGlassS
 }
 
 @Composable
-private fun GlassControlGroup(
-    title: String,
-    subtitle: String,
-    state: AssistantUiState,
-    initiallyExpanded: Boolean,
-    content: @Composable () -> Unit
-) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * 0.58f,
-            motionIntensity = state.motionIntensity,
-            radius = 20,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            role = GlassRole.Chip,
-            onClick = { expanded = !expanded }
-        ) {
-            Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(if (expanded) "收起" else "展开", color = Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
-        }
-    }
-}
-
-@Composable
 private fun ModelCardGlassLab(state: AssistantUiState) {
     val style = ModelCardGlassLabState.style
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.72f,
-        motionIntensity = state.motionIntensity,
-        radius = 28,
-        modifier = Modifier.fillMaxWidth().height(242.dp),
-        role = GlassRole.Flex,
-        onClick = {}
-    ) {
+    PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.72f, motionIntensity = state.motionIntensity, radius = 28, modifier = Modifier.fillMaxWidth().height(242.dp), role = GlassRole.Flex, onClick = {}) {
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -567,24 +423,10 @@ private fun ModelCardGlassLab(state: AssistantUiState) {
 }
 
 @Composable
-private fun ModelCardControlGroup(
-    title: String,
-    subtitle: String,
-    state: AssistantUiState,
-    initiallyExpanded: Boolean,
-    content: @Composable () -> Unit
-) {
+private fun ModelCardControlGroup(title: String, subtitle: String, state: AssistantUiState, initiallyExpanded: Boolean, content: @Composable () -> Unit) {
     var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * 0.58f,
-            motionIntensity = state.motionIntensity,
-            radius = 20,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            role = GlassRole.Chip,
-            onClick = { expanded = !expanded }
-        ) {
+        PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.58f, motionIntensity = state.motionIntensity, radius = 20, modifier = Modifier.fillMaxWidth().height(48.dp), role = GlassRole.Chip, onClick = { expanded = !expanded }) {
             Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
@@ -616,15 +458,7 @@ private fun LabSlider(title: String, subtitle: String, value: Float, range: Clos
 
 @Composable
 private fun LabActionButton(title: String, subtitle: String, state: AssistantUiState, modifier: Modifier, onClick: () -> Unit) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.78f,
-        motionIntensity = state.motionIntensity,
-        radius = 22,
-        modifier = modifier.height(56.dp),
-        role = GlassRole.Chip,
-        onClick = onClick
-    ) {
+    PressableGlass(quality = state.quality, glassIntensity = state.glassIntensity * 0.78f, motionIntensity = state.motionIntensity, radius = 22, modifier = modifier.height(56.dp), role = GlassRole.Chip, onClick = onClick) {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
