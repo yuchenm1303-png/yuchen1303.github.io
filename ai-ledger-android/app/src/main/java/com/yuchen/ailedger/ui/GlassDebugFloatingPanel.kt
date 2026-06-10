@@ -156,7 +156,7 @@ private fun OpenGlGlassPreview(state: AssistantUiState, style: GlassBorderStyle)
         motionIntensity = state.motionIntensity,
         radius = 26,
         modifier = Modifier.fillMaxWidth().height(136.dp),
-        role = GlassRole.Card,
+        role = GlassRole.Shell,
         onClick = {}
     ) {
         Column(
@@ -165,8 +165,8 @@ private fun OpenGlGlassPreview(state: AssistantUiState, style: GlassBorderStyle)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("OpenGL 参数样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("轻量对照样本；真实 OpenGL 只作用于 Shell 大玻璃", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("真实 Shell 预览样本；仅在展开 OpenGL 栏时启用", color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("Shell", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
             }
