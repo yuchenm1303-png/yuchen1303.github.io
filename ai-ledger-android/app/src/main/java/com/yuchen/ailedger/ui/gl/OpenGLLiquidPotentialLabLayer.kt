@@ -322,8 +322,8 @@ private class LabRenderer {
         uploadPendingTexturesIfNeeded()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
-        val localRadius: Float
-        val localOptics: OpenGLLiquidPotentialLabOptics
+        var localRadius = radius
+        var localOptics = optics
         synchronized(specLock) {
             localRadius = radius
             localOptics = optics
@@ -372,8 +372,8 @@ private class LabRenderer {
     }
 
     private fun uploadPendingTexturesIfNeeded() {
-        val blur: Bitmap?
-        val lens: Bitmap?
+        var blur: Bitmap? = null
+        var lens: Bitmap? = null
         synchronized(textureLock) {
             blur = pendingBlurBitmap
             lens = pendingLensBitmap
