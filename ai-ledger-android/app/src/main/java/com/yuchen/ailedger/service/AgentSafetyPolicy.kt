@@ -35,8 +35,21 @@ object AgentSafetyPolicy {
         "input_text",
     )
 
+    private val localHighRiskDeviceTools = setOf(
+        "set_animation_scale",
+        "force_stop_app",
+    )
+
+    private val localCriticalDeviceTools = setOf(
+        "clear_app_data",
+        "uninstall_app",
+        "disable_app",
+        "enable_app",
+    )
+
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
         if (requiresUserProvidedInput(goal, step)) return false
+        if (step.type in localHighRiskDeviceTools || step.type in localCriticalDeviceTools) return true
         val level = step.riskLevel.normalizedPolicyLevel()
         val highRisk = level == "high" || level == "critical"
         if (step.requiresConfirmation || highRisk) return true
