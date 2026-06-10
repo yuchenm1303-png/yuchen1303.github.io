@@ -38,8 +38,8 @@ title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
             initiallyExpanded = false,
 title = "液态compose",
-            subtitle = "纯 Compose 厚边 / 内折射 / 液态高光样本与参数",
-            initiallyExpanded = true,
+            subtitle = "连续 OpenGL 折射 / Compose 框架 / 液态参数",
+            initiallyExpanded = false,
 title = "状态预览",
         subtitle = "按住样本可看棱彩局部高光、边缘增强和释放扫光",
         state = state,
@@ -104,7 +104,7 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout(
             title = "模型卡片",
             subtitle = "首页模型栏边缘 / 高光 / 彩虹 / 圆点参数",
-            initiallyExpanded = true,
+            initiallyExpanded = false,
             state = state
         ) {
             ModelCardGlassLab(state)
@@ -113,7 +113,7 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout(
             title = "玻璃面板",
             subtitle = "雾面 / 凹槽 / OpenGL 水滴样本与参数",
-            initiallyExpanded = true,
+            initiallyExpanded = false,
             state = state
         ) {
             AnimatedFrostInfoGlassPreview(state, Modifier.fillMaxWidth())
@@ -122,8 +122,8 @@ fun GlassDebugFloatingPanel(
 
         GlassLabFoldout(
             title = "液态compose",
-            subtitle = "纯 Compose 厚边 / 内折射 / 液态高光样本与参数",
-            initiallyExpanded = true,
+            subtitle = "连续 OpenGL 折射 / Compose 框架 / 液态参数",
+            initiallyExpanded = false,
             state = state
         ) {
             LiquidComposeGlassLab(state)
