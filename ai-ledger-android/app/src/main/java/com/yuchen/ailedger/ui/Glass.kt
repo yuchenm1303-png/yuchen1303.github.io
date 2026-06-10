@@ -713,6 +713,27 @@ private fun Modifier.shellPressSurfaceOptics(
     drawRoundRect(brush = rightEdgeHalo, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(localEdgeStroke), blendMode = BlendMode.Screen)
 }
 
+private object WebGlassFrostModel {
+    const val frost = 0.15f
+    const val tint = 0.00f
+    const val quiet = 1.40f
+
+    const val topLight = 1.14f
+    const val topWidthDp = 1.45f
+    const val topVariation = 0.46f
+    const val bottomLight = 1.10f
+    const val bottomWidthDp = 2.25f
+
+    const val edgeDepthDp = 0.00f
+    const val innerBevel = 0.00f
+    const val outerRim = 0.40f
+    const val bottomMass = 0.14f
+    const val sideBevel = 0.13f
+    const val sideLight = 0.00f
+
+    const val shadow = 0.27f
+}
+
 fun Modifier.glassSkin(
     quality: RenderQuality,
     radius: Int,
@@ -723,175 +744,236 @@ fun Modifier.glassSkin(
     includeShadow: Boolean = true
 ): Modifier {
     val shape = RoundedCornerShape(radius.dp)
-    val material = glassMaterial(glassIntensity, role)
-    val pulse = 0.94f + breathe * 0.030f
     val base = if (includeShadow) this.glassOuterFrame(radius, glassIntensity, role) else this.clip(shape)
     return base.drawWithCache {
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
         val radiusPx = radius.dp.toPx()
         val cornerRadius = CornerRadius(radiusPx, radiusPx)
-        val maxSide = maxOf(w, h)
-        val rimInset = 0.62.dp.toPx()
-        val innerInset = 1.72.dp.toPx()
-        val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-        val innerSize = Size((w - innerInset * 2f).coerceAtLeast(1f), (h - innerInset * 2f).coerceAtLeast(1f))
-        val isShell = role == GlassRole.Shell
-        val strokeWidth = (if (isShell) 0.34f else 0.30f * material.strokeWidth).dp.toPx()
-        val innerStroke = (if (isShell) 0.18f else 0.22f * material.strokeWidth).dp.toPx()
+        val intensityScale = glassIntensity.coerceIn(0.25f, 1.45f)
+        val pulse = 0.94f + breathe * 0.030f
 
-        val opticalStrength = (material.rim * 1.52f + material.topHighlight * 1.05f + material.cornerGlint * 0.42f).coerceIn(0f, 0.46f)
-        val edgeFeather = (3.2.dp.toPx() + 1.2.dp.toPx() * material.strokeWidth).coerceAtMost(maxSide * 0.030f)
-        val innerFeather = (1.65.dp.toPx() + 0.75.dp.toPx() * material.strokeWidth).coerceAtMost(maxSide * 0.018f)
-        val hairline = (0.38.dp.toPx() + 0.10.dp.toPx() * material.strokeWidth).coerceAtMost(0.72.dp.toPx())
+        val frost = WebGlassFrostModel.frost * intensityScale
+        val tint = WebGlassFrostModel.tint
+        val quiet = WebGlassFrostModel.quiet
+        val topLight = WebGlassFrostModel.topLight * intensityScale
+        val topWidth = WebGlassFrostModel.topWidthDp.dp.toPx()
+        val topVariation = WebGlassFrostModel.topVariation
+        val bottomLight = WebGlassFrostModel.bottomLight * intensityScale
+        val bottomWidth = WebGlassFrostModel.bottomWidthDp.dp.toPx()
+        val edgeDepth = WebGlassFrostModel.edgeDepthDp.dp.toPx()
+        val innerBevel = WebGlassFrostModel.innerBevel
+        val outerRim = WebGlassFrostModel.outerRim * intensityScale
+        val bottomMass = WebGlassFrostModel.bottomMass * intensityScale
+        val sideBevel = WebGlassFrostModel.sideBevel
+        val sideLight = WebGlassFrostModel.sideLight * intensityScale
 
-        val frostedNeutralField = Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = material.frost * 0.20f * pulse),
-                Color.White.copy(alpha = material.frost * 0.074f),
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.072f)
+        val baseField = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.026f * frost * pulse),
+                Color.White.copy(alpha = 0.0f),
+                Color(0xFF000000).copy(alpha = 0.080f * quiet)
             ),
-            0f,
-            h
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
         )
 
-        val quietSurfaceField = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = material.frost * 0.035f),
+        val quietField = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.010f / quiet.coerceAtLeast(0.25f)),
                 Color.Transparent,
-                Color(0xFF020A1E).copy(alpha = material.depthShadow * 0.060f)
+                Color(0xFF000000).copy(alpha = 0.045f * quiet)
             ),
-            Offset(w * 0.05f, 0f),
-            Offset(w * 0.94f, h)
+            center = Offset(w * 0.50f, h * 0.46f),
+            radius = maxOf(w, h) * 0.72f
         )
 
-        val edgeOpticalField = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = opticalStrength * 0.62f),
-                Color(0xFFEAFDFF).copy(alpha = opticalStrength * 0.25f),
-                Color(0xFF9CD8FF).copy(alpha = opticalStrength * 0.070f),
-                Color.Transparent,
-                Color(0xFF030A1A).copy(alpha = material.depthShadow * 0.060f),
-                Color.White.copy(alpha = opticalStrength * 0.035f)
-            ),
-            Offset(w * 0.02f, h * -0.05f),
-            Offset(w * 0.92f, h * 1.04f)
-        )
+        val topAlpha = 0.150f * topLight
+        val bottomAlpha = 0.110f * bottomLight
 
-        val innerOpticalField = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = opticalStrength * 0.18f),
-                Color(0xFFEAFDFF).copy(alpha = opticalStrength * 0.070f),
-                Color.Transparent,
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.048f)
-            ),
-            Offset(w * 0.08f, 0f),
-            Offset(w * 0.96f, h)
-        )
-
-        val curvatureField = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = opticalStrength * 0.18f),
-                Color(0xFFEAFDFF).copy(alpha = opticalStrength * 0.060f),
-                Color.Transparent,
+        val topFill = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color(0xFFE6F8FF).copy(alpha = topAlpha * 0.42f),
+                Color(0xFFAAD7FF).copy(alpha = topAlpha * 0.10f),
                 Color.Transparent
             ),
-            Offset(0f, 0f),
-            Offset(w * 0.50f, h * 0.48f)
+            startY = 0f,
+            endY = topWidth * 8f
         )
 
-        val bottomDensityField = Brush.verticalGradient(
-            listOf(
-                Color.Transparent,
-                Color(0xFF06112C).copy(alpha = material.depthShadow * 0.30f),
-                Color(0xFF00030B).copy(alpha = material.depthShadow * 0.62f)
+        val topStroke = Brush.horizontalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha * 0.45f * topVariation),
+                Color.White.copy(alpha = topAlpha * 0.16f),
+                Color.White.copy(alpha = topAlpha * 0.035f),
+                Color.White.copy(alpha = topAlpha * 0.20f * topVariation),
+                Color.White.copy(alpha = topAlpha * 0.10f)
             ),
-            h * 0.66f,
-            h
+            startX = 0f,
+            endX = w
         )
 
-        val bottomOpticalReturn = Brush.linearGradient(
-            listOf(
+        val bottomFill = Brush.verticalGradient(
+            colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = opticalStrength * 0.026f),
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.050f)
+                Color(0xFFDCF0FF).copy(alpha = bottomAlpha * 0.12f),
+                Color.White.copy(alpha = bottomAlpha * 0.36f),
+                Color.White.copy(alpha = bottomAlpha * 0.22f)
             ),
-            Offset(w * 0.18f, h),
-            Offset(w * 0.86f, h * 0.82f)
+            startY = h - bottomWidth * 8f,
+            endY = h
         )
 
-        val topLensField = Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = material.topHighlight * 0.18f * pulse),
-                Color(0xFFE7FBFF).copy(alpha = material.topHighlight * 0.040f),
+        val bottomStroke = Brush.horizontalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = bottomAlpha * 0.20f),
+                Color.White.copy(alpha = bottomAlpha * 0.40f),
                 Color.Transparent
             ),
-            0f,
-            (radiusPx * 0.38f).coerceIn(4.dp.toPx(), h * 0.12f)
+            startX = 0f,
+            endX = w
         )
 
-        val mainRim = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = material.rim * 0.38f),
-                Color(0xFFE5FAFF).copy(alpha = material.rim * 0.070f),
+        val sideLightField = Brush.horizontalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.030f * sideLight),
                 Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.12f),
-                Color.White.copy(alpha = material.rim * 0.022f)
+                Color.Transparent,
+                Color.White.copy(alpha = 0.024f * sideLight)
             ),
-            Offset.Zero,
-            Offset(w, h)
+            startX = 0f,
+            endX = w
         )
 
-        val innerRim = Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = material.innerRim * 0.18f),
-                Color.Transparent,
-                Color.Black.copy(alpha = material.depthShadow * 0.13f)
+        val bevelField = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.020f * outerRim),
+                Color.Black.copy(alpha = 0.055f * innerBevel),
+                Color.Black.copy(alpha = 0.020f * innerBevel),
+                Color.Black.copy(alpha = 0.090f * bottomMass)
             ),
-            Offset(0f, 0f),
-            Offset(w, h)
+            startY = 0f,
+            endY = h
+        )
+
+        val sideDarkField = Brush.horizontalGradient(
+            colors = listOf(
+                Color.Black.copy(alpha = 0.075f * sideBevel),
+                Color.Transparent,
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.055f * sideBevel)
+            ),
+            startX = 0f,
+            endX = w
+        )
+
+        val bottomMassField = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFF050D22).copy(alpha = 0.120f * bottomMass),
+                Color(0xFF030714).copy(alpha = 0.190f * bottomMass),
+                Color(0xFF00020A).copy(alpha = 0.310f * bottomMass)
+            ),
+            startY = h * 0.52f,
+            endY = h
+        )
+
+        val rimField = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.150f * outerRim),
+                Color.White.copy(alpha = 0.030f * outerRim),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.100f * bottomMass),
+                Color.White.copy(alpha = 0.018f * outerRim)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
         )
 
         onDrawWithContent {
-            drawRect(frostedNeutralField, blendMode = BlendMode.Screen)
-            drawRect(quietSurfaceField, blendMode = BlendMode.Screen)
-            if (opticalStrength > 0.001f) {
+            drawRect(baseField)
+            drawRect(quietField)
+
+            drawRect(
+                brush = topFill,
+                topLeft = Offset.Zero,
+                size = Size(w, (topWidth * 8f).coerceAtMost(h)),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = topStroke,
+                topLeft = Offset(topWidth * 0.45f, topWidth * 0.45f),
+                size = Size((w - topWidth * 0.90f).coerceAtLeast(1f), (h - topWidth * 0.90f).coerceAtLeast(1f)),
+                cornerRadius = CornerRadius((radiusPx - topWidth * 0.15f).coerceAtLeast(0f), (radiusPx - topWidth * 0.15f).coerceAtLeast(0f)),
+                style = Stroke(topWidth),
+                blendMode = BlendMode.Screen
+            )
+
+            drawRect(
+                brush = bottomFill,
+                topLeft = Offset(0f, (h - bottomWidth * 8f).coerceAtLeast(0f)),
+                size = Size(w, (bottomWidth * 8f).coerceAtMost(h)),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = bottomStroke,
+                topLeft = Offset(bottomWidth * 0.50f, bottomWidth * 0.50f),
+                size = Size((w - bottomWidth).coerceAtLeast(1f), (h - bottomWidth).coerceAtLeast(1f)),
+                cornerRadius = CornerRadius((radiusPx - bottomWidth * 0.20f).coerceAtLeast(0f), (radiusPx - bottomWidth * 0.20f).coerceAtLeast(0f)),
+                style = Stroke(bottomWidth),
+                blendMode = BlendMode.Screen
+            )
+
+            if (sideLight > 0.001f) {
                 drawRoundRect(
-                    brush = edgeOpticalField,
-                    topLeft = Offset(edgeFeather * 0.50f, edgeFeather * 0.50f),
-                    size = Size((w - edgeFeather).coerceAtLeast(1f), (h - edgeFeather).coerceAtLeast(1f)),
+                    brush = sideLightField,
+                    topLeft = Offset(1.4.dp.toPx(), 1.4.dp.toPx()),
+                    size = Size((w - 2.8.dp.toPx()).coerceAtLeast(1f), (h - 2.8.dp.toPx()).coerceAtLeast(1f)),
                     cornerRadius = cornerRadius,
-                    style = Stroke(edgeFeather),
+                    style = Stroke(2.2.dp.toPx()),
                     blendMode = BlendMode.Screen
                 )
-                drawRoundRect(
-                    brush = innerOpticalField,
-                    topLeft = Offset(edgeFeather + innerFeather * 0.50f, edgeFeather + innerFeather * 0.50f),
-                    size = Size((w - edgeFeather * 2f - innerFeather).coerceAtLeast(1f), (h - edgeFeather * 2f - innerFeather).coerceAtLeast(1f)),
-                    cornerRadius = CornerRadius((radiusPx - edgeFeather).coerceAtLeast(0f), (radiusPx - edgeFeather).coerceAtLeast(0f)),
-                    style = Stroke(innerFeather),
-                    blendMode = BlendMode.Screen
-                )
-                drawRoundRect(
-                    brush = curvatureField,
-                    topLeft = Offset(rimInset, rimInset),
-                    size = rimSize,
-                    cornerRadius = cornerRadius,
-                    style = Stroke(hairline),
-                    blendMode = BlendMode.Screen
-                )
-                drawRect(bottomOpticalReturn, blendMode = BlendMode.Screen)
             }
-            drawRect(topLensField, blendMode = BlendMode.Screen)
-            drawRect(bottomDensityField, blendMode = BlendMode.Multiply)
+
+            if (edgeDepth > 0.001f) {
+                drawRoundRect(
+                    brush = bevelField,
+                    topLeft = Offset(edgeDepth * 0.70f, edgeDepth * 0.70f),
+                    size = Size((w - edgeDepth * 1.40f).coerceAtLeast(1f), (h - edgeDepth * 1.40f).coerceAtLeast(1f)),
+                    cornerRadius = CornerRadius((radiusPx - edgeDepth * 0.40f).coerceAtLeast(0f), (radiusPx - edgeDepth * 0.40f).coerceAtLeast(0f)),
+                    style = Stroke(edgeDepth)
+                )
+            }
+
+            if (sideBevel > 0.001f) {
+                val sideDarkWidth = maxOf(1.2.dp.toPx(), edgeDepth * 0.45f)
+                drawRoundRect(
+                    brush = sideDarkField,
+                    topLeft = Offset(edgeDepth, edgeDepth),
+                    size = Size((w - edgeDepth * 2f).coerceAtLeast(1f), (h - edgeDepth * 2f).coerceAtLeast(1f)),
+                    cornerRadius = CornerRadius((radiusPx - edgeDepth * 0.55f).coerceAtLeast(0f), (radiusPx - edgeDepth * 0.55f).coerceAtLeast(0f)),
+                    style = Stroke(sideDarkWidth)
+                )
+            }
+
+            drawRect(
+                brush = bottomMassField,
+                topLeft = Offset(0f, h * 0.48f),
+                size = Size(w, h * 0.52f)
+            )
+
             drawContent()
-            drawRoundRect(brush = mainRim, topLeft = Offset(rimInset, rimInset), size = rimSize, cornerRadius = cornerRadius, style = Stroke(strokeWidth), blendMode = BlendMode.Screen)
-            if (material.innerRim > 0.001f) {
-                drawRoundRect(brush = innerRim, topLeft = Offset(innerInset, innerInset), size = innerSize, cornerRadius = cornerRadius, style = Stroke(innerStroke), blendMode = BlendMode.Screen)
-            }
+
+            drawRoundRect(
+                brush = rimField,
+                topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
+                size = Size((w - 2.dp.toPx()).coerceAtLeast(1f), (h - 2.dp.toPx()).coerceAtLeast(1f)),
+                cornerRadius = cornerRadius,
+                style = Stroke(maxOf(0.55.dp.toPx(), 0.72.dp.toPx() * outerRim)),
+                blendMode = BlendMode.Screen
+            )
         }
     }
 }
@@ -910,25 +992,31 @@ private data class GlassMaterial(
 
 private fun glassMaterial(intensity: Float, role: GlassRole): GlassMaterial {
     val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
-    val style = ComposeGlassLabState.style
     val ordinary = role != GlassRole.Shell
-    val frostScale = if (ordinary) style.frostAlpha else 1f
-    val rimScale = if (ordinary) style.rimAlpha else 1f
-    val innerRimScale = if (ordinary) style.innerRimAlpha else 0.30f
-    val topScale = if (ordinary) style.topHighlight else 1f
-    val cornerScale = if (ordinary) style.cornerGlint else 0.46f
-    val shadowScale = if (ordinary) style.shadowAlpha else 1f
-    val bottomScale = if (ordinary) style.bottomShadow else 1f
+    if (ordinary) {
+        return GlassMaterial(
+            frost = (0.044f * WebGlassFrostModel.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+            rim = (0.104f * WebGlassFrostModel.outerRim * safeIntensity).coerceIn(0.010f, 0.240f),
+            innerRim = (0.030f * WebGlassFrostModel.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
+            topHighlight = (0.036f * WebGlassFrostModel.topLight * safeIntensity).coerceIn(0.002f, 0.100f),
+            cornerGlint = (0.020f * WebGlassFrostModel.topVariation * safeIntensity).coerceIn(0f, 0.080f),
+            depthShadow = (0.015f * WebGlassFrostModel.bottomMass * safeIntensity).coerceIn(0.002f, 0.055f),
+            shadowAmbient = (0.028f * WebGlassFrostModel.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
+            shadowSpot = (0.0035f * WebGlassFrostModel.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
+            strokeWidth = (0.42f + WebGlassFrostModel.outerRim * 0.24f).coerceIn(0.40f, 2.20f)
+        )
+    }
+
     val base = GlassMaterial(0.044f, 0.104f, 0.030f, 0.036f, 0.020f, 0.015f, 0.028f, 0.0035f, 1f)
     return GlassMaterial(
-        frost = (base.frost * safeIntensity * frostScale).coerceIn(0.004f, 0.090f),
-        rim = (base.rim * safeIntensity * rimScale).coerceIn(0.010f, 0.240f),
-        innerRim = (base.innerRim * safeIntensity * innerRimScale).coerceIn(0f, 0.120f),
-        topHighlight = (base.topHighlight * safeIntensity * topScale).coerceIn(0.002f, 0.100f),
-        cornerGlint = (base.cornerGlint * safeIntensity * cornerScale).coerceIn(0f, 0.080f),
-        depthShadow = (base.depthShadow * safeIntensity * bottomScale).coerceIn(0.002f, 0.055f),
-        shadowAmbient = (base.shadowAmbient * safeIntensity * shadowScale).coerceIn(0.004f, 0.080f),
-        shadowSpot = (base.shadowSpot * safeIntensity * shadowScale).coerceIn(0.001f, 0.014f),
-        strokeWidth = (style.strokeWidth.takeIf { ordinary } ?: 1f).coerceIn(0.40f, 2.20f)
+        frost = (base.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+        rim = (base.rim * safeIntensity).coerceIn(0.010f, 0.240f),
+        innerRim = (base.innerRim * safeIntensity * 0.30f).coerceIn(0f, 0.120f),
+        topHighlight = (base.topHighlight * safeIntensity).coerceIn(0.002f, 0.100f),
+        cornerGlint = (base.cornerGlint * safeIntensity * 0.46f).coerceIn(0f, 0.080f),
+        depthShadow = (base.depthShadow * safeIntensity).coerceIn(0.002f, 0.055f),
+        shadowAmbient = (base.shadowAmbient * safeIntensity).coerceIn(0.004f, 0.080f),
+        shadowSpot = (base.shadowSpot * safeIntensity).coerceIn(0.001f, 0.014f),
+        strokeWidth = 1f
     )
 }
