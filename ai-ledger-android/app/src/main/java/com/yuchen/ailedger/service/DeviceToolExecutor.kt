@@ -34,22 +34,30 @@ class DeviceToolExecutor(
     }
 
     fun execute(step: CloudAgentStep, confirmedHighRisk: Boolean = false): AgentExecutionResult {
-        return when (step.type) {
-            "open_app" -> executeOpenApp(step)
-            "open_system_settings" -> executeOpenSystemSettings(step)
-            "open_app_settings" -> executeOpenAppSettings(step)
-            "set_brightness" -> executeSetBrightness(step)
-            "set_screen_timeout" -> executeSetScreenTimeout(step)
-            "device_status" -> deviceStatus()
-            "shizuku_status" -> shellStatus()
-            "request_shizuku_permission" -> requestShizukuPermission()
-            "set_animation_scale" -> executeAnimationScale(step, confirmedHighRisk)
-            "force_stop_app" -> executePrivilegedAppTool(step, PrivilegedTool.ForceStop, confirmedHighRisk)
-            "clear_app_data" -> executePrivilegedAppTool(step, PrivilegedTool.ClearData, confirmedHighRisk)
-            "uninstall_app" -> executePrivilegedAppTool(step, PrivilegedTool.UninstallForUser, confirmedHighRisk)
-            "disable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Disable, confirmedHighRisk)
-            "enable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Enable, confirmedHighRisk)
-            else -> AgentExecutionResult(false, "不支持的内部设备工具：${step.type}", false)
+        return runCatching {
+            when (step.type) {
+                "open_app" -> executeOpenApp(step)
+                "open_system_settings" -> executeOpenSystemSettings(step)
+                "open_app_settings" -> executeOpenAppSettings(step)
+                "set_brightness" -> executeSetBrightness(step)
+                "set_screen_timeout" -> executeSetScreenTimeout(step)
+                "device_status" -> deviceStatus()
+                "shizuku_status" -> shellStatus()
+                "request_shizuku_permission" -> requestShizukuPermission()
+                "set_animation_scale" -> executeAnimationScale(step, confirmedHighRisk)
+                "force_stop_app" -> executePrivilegedAppTool(step, PrivilegedTool.ForceStop, confirmedHighRisk)
+                "clear_app_data" -> executePrivilegedAppTool(step, PrivilegedTool.ClearData, confirmedHighRisk)
+                "uninstall_app" -> executePrivilegedAppTool(step, PrivilegedTool.UninstallForUser, confirmedHighRisk)
+                "disable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Disable, confirmedHighRisk)
+                "enable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Enable, confirmedHighRisk)
+                else -> AgentExecutionResult(false, "不支持的内部设备工具：${step.type}", false)
+            }
+        }.getOrElse { error ->
+            AgentExecutionResult(
+                ok = false,
+                message = "内部设备工具运行异常：${error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName}",
+                shouldContinue = false,
+            )
         }
     }
 
@@ -131,12 +139,19 @@ class DeviceToolExecutor(
     }
 
     private fun deviceStatus(): AgentExecutionResult {
-        val memory = memoryStatus()
-        val storage = storageStatus()
-        val battery = batteryStatus()
-        val network = networkStatus()
+        val memory = runCatching { memoryStatus() }.getOrDefault("未知")
+        val storage = runCatching { storageStatus() }.getOrDefault("未知")
+        val battery = runCatching { batteryStatus() }.getOrDefault("未知")
+        val network = runCatching { networkStatus() }.getOrDefault("未知")
         val appCount = runCatching { installedAppIndex.getLaunchableApps(forceReload = false).size }.getOrDefault(0)
-        val shell = shellBridge.probe()
+        val shell = runCatching { shellBridge.probe() }.getOrNull()
+        val shellText = shell?.let {
+            buildString {
+                append(if (it.available) "基础可用" else "不可用")
+                append(" · ").append(if (it.isAdbShellLike) "增强级" else "App 沙箱级")
+                append(" · Shizuku ").append(if (it.shizukuGranted) "已授权" else if (it.shizukuAvailable) "待授权" else "未运行")
+            }
+        } ?: "状态读取失败"
         val message = buildString {
             append("手机内部状态\n\n")
             append("电量：").append(battery).append('\n')
@@ -144,15 +159,17 @@ class DeviceToolExecutor(
             append("存储：").append(storage).append('\n')
             append("网络：").append(network).append('\n')
             append("可启动应用：").append(appCount).append(" 个\n")
-            append("Shell：").append(if (shell.available) "基础可用" else "不可用")
-            append(" · ").append(if (shell.isAdbShellLike) "增强级" else "App 沙箱级")
-            append(" · Shizuku ").append(if (shell.shizukuGranted) "已授权" else if (shell.shizukuAvailable) "待授权" else "未运行")
+            append("Shell：").append(shellText)
         }
         return AgentExecutionResult(true, message, shouldContinue = false)
     }
 
     private fun shellStatus(): AgentExecutionResult {
-        return AgentExecutionResult(true, shellBridge.enhancedModeGuide(), shouldContinue = false)
+        return runCatching {
+            AgentExecutionResult(true, shellBridge.enhancedModeGuide(), shouldContinue = false)
+        }.getOrElse { error ->
+            AgentExecutionResult(false, "读取 Shizuku/Shell 状态失败：${error.message ?: error::class.java.simpleName}", shouldContinue = false)
+        }
     }
 
     private fun requestShizukuPermission(): AgentExecutionResult {
