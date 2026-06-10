@@ -204,34 +204,37 @@ private fun ComposeGlassLab(state: AssistantUiState) {
     ComposeGlassPreview(state)
     ComposeGlassPresetGrid(state, style.preset)
 
-    GlassControlGroup("主体材质", "雾面、暗色覆膜、中心安静、背景采样", state, true) {
-        LabSlider("背景采样", "背景透出强度，越高越清透", style.backdrop, 0.32f..1.55f) { ComposeGlassLabState.update(style.copy(backdrop = it)) }
-        LabSlider("雾面密度", "网页 frost；只控制普通 Compose 玻璃雾面", style.frost, 0.15f..1.90f) { ComposeGlassLabState.update(style.copy(frost = it)) }
-        LabSlider("暗色覆膜", "网页 tint；控制玻璃底色压暗", style.tint, 0f..1.60f) { ComposeGlassLabState.update(style.copy(tint = it)) }
+    GlassControlGroup("主体材质", "背景采样与中心安静；雾面和暗色已固定", state, true) {
+        LabSlider("背景采样", "网页 backdrop；背景采样透出强度", style.backdrop, 0.32f..1.55f) { ComposeGlassLabState.update(style.copy(backdrop = it)) }
         LabSlider("中心安静", "网页 quiet；压住中心大面积发光", style.quiet, 0f..1.40f) { ComposeGlassLabState.update(style.copy(quiet = it)) }
     }
 
-    GlassControlGroup("上下边缘光场", "顶部主高光、底部弱回光", state, true) {
+    GlassControlGroup("上下边缘光场", "顶部主高光、底部弱回光；宽度最小值已压低", state, true) {
         LabSlider("顶部高光", "网页 topLight；上边主高光强度", style.topLight, 0f..2.60f) { ComposeGlassLabState.update(style.copy(topLight = it)) }
-        LabSlider("顶部宽度", "网页 topWidth；顶部高光带宽度 dp", style.topWidthDp, 1f..10f) { ComposeGlassLabState.update(style.copy(topWidthDp = it)) }
+        LabSlider("顶部宽度", "网页 topWidth；顶部高光带宽度 dp", style.topWidthDp, 0.10f..6f) { ComposeGlassLabState.update(style.copy(topWidthDp = it)) }
         LabSlider("顶部不均匀", "网页 topVariation；顶部左右强弱变化", style.topVariation, 0f..1.50f) { ComposeGlassLabState.update(style.copy(topVariation = it)) }
         LabSlider("底部回光", "网页 bottomLight；底边轻反射强度", style.bottomLight, 0f..1.80f) { ComposeGlassLabState.update(style.copy(bottomLight = it)) }
-        LabSlider("底部宽度", "网页 bottomWidth；底边回光宽度 dp", style.bottomWidthDp, 1f..9f) { ComposeGlassLabState.update(style.copy(bottomWidthDp = it)) }
+        LabSlider("底部宽度", "网页 bottomWidth；底边回光宽度 dp", style.bottomWidthDp, 0.10f..6f) { ComposeGlassLabState.update(style.copy(bottomWidthDp = it)) }
     }
 
-    GlassControlGroup("厚边截面", "边缘厚度、内暗槽、外缘细亮、底部重量", state, true) {
-        LabSlider("截面宽度", "网页 edgeDepth；边缘厚度宽度 dp", style.edgeDepthDp, 0f..9f) { ComposeGlassLabState.update(style.copy(edgeDepthDp = it)) }
-        LabSlider("内侧暗槽", "网页 innerBevel；边缘内侧暗槽", style.innerBevel, 0f..1.80f) { ComposeGlassLabState.update(style.copy(innerBevel = it)) }
+    GlassControlGroup("边缘与底部", "外缘细亮、底部重量；截面/内暗槽/侧边折暗已固定", state, true) {
         LabSlider("外缘细亮", "网页 outerRim；最外细 rim", style.outerRim, 0f..1.80f) { ComposeGlassLabState.update(style.copy(outerRim = it)) }
         LabSlider("底部重量", "网页 bottomMass；底边压暗厚度", style.bottomMass, 0f..2.20f) { ComposeGlassLabState.update(style.copy(bottomMass = it)) }
-        LabSlider("侧边折暗", "网页 sideBevel；左右边折暗", style.sideBevel, 0f..1.40f) { ComposeGlassLabState.update(style.copy(sideBevel = it)) }
     }
 
-    GlassControlGroup("形体", "左右弱边、圆角、投影、背景光带记录", state, true) {
+    GlassControlGroup("形体", "左右弱边、圆角、背景光带记录；投影已固定", state, true) {
         LabSlider("左右弱边", "网页 sideLight；左右高光辅助", style.sideLight, 0f..0.90f) { ComposeGlassLabState.update(style.copy(sideLight = it)) }
         LabSlider("圆角半径", "网页 radius；同时派生普通控件圆角倍率", style.radius, 18f..84f) { ComposeGlassLabState.update(style.copy(radius = it)) }
-        LabSlider("投影", "网页 shadow；普通玻璃投影强度", style.shadow, 0f..1.60f) { ComposeGlassLabState.update(style.copy(shadow = it)) }
         LabSlider("背景光带", "网页 ribbon；App 不直接绘制，仅用于记录网页参数", style.ribbon, 0f..1f) { ComposeGlassLabState.update(style.copy(ribbon = it)) }
+    }
+
+    GlassControlGroup("固定参数", "已从实验室移除，按当前默认值固定", state, false) {
+        LabStaticInfo("雾面密度", ComposeGlassRuntimeDefaults.frost.formatLabValue())
+        LabStaticInfo("暗色覆膜", ComposeGlassRuntimeDefaults.tint.formatLabValue())
+        LabStaticInfo("截面宽度", ComposeGlassRuntimeDefaults.edgeDepthDp.formatLabValue())
+        LabStaticInfo("内侧暗槽", ComposeGlassRuntimeDefaults.innerBevel.formatLabValue())
+        LabStaticInfo("侧边折暗", ComposeGlassRuntimeDefaults.sideBevel.formatLabValue())
+        LabStaticInfo("投影", ComposeGlassRuntimeDefaults.shadow.formatLabValue())
     }
 
     GlassControlGroup("派生结果", "给旧链路兼容用的派生量", state, false) {
@@ -307,7 +310,7 @@ private fun ComposeGlassPreview(state: AssistantUiState) {
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ComposeGlassPreviewMetric("雾面", style.frost, Modifier.weight(1f))
+                ComposeGlassPreviewMetric("中心", style.quiet, Modifier.weight(1f))
                 ComposeGlassPreviewMetric("顶部", style.topLight, Modifier.weight(1f))
                 ComposeGlassPreviewMetric("底部", style.bottomLight, Modifier.weight(1f))
             }
