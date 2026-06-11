@@ -9,7 +9,7 @@
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v12 · clean body field + body band controls</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v12 参数清理：主体 / 主体折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v13 · stronger side body refraction</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v13 左右侧主体折射增强</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
 const groups=[
 {title:'主体折射 Body Field',items:[
@@ -78,14 +78,20 @@ void main(){
   float fade=borderFade(u);
   float bodyPresence=sat(pow(sat(1.-rho), .42) * (0.48 + A.x*0.62));
   float shellPresence=gauss(rho, B.x, B.y) + gauss(rho, B.x-.028, B.y*1.9)*.55;
+  float sideX=smoothstep(.45,.92,abs(u.x*2.0-1.0));
+  float sideY=1.0-smoothstep(.62,.98,abs(u.y*2.0-1.0));
+  float sideWall=sideX*sideY*sat(.35+bodyPresence*.45+shellPresence*.55);
   float energy=pow(sat((slope*11.0 + hC*.22) * B.z), max(.32, B.z*.55));
   float bodyPx = A.z * bodyPresence * (0.35 + hC*.55 + energy*.35);
   float shellPx = B.z * shellPresence * (0.36 + energy*.70 + slope*2.4);
   vec2 flow = grad * (bodyPx + shellPx);
+  flow.x *= mix(1.0, 2.65, sideWall);
   vec2 inwardDir = (vec2(.5)-u); inwardDir.y*=.72;
   flow += inwardDir * (bodyPresence * A.z * .08);
+  flow += vec2(sign(.5-u.x),0.0) * sideWall * (A.z*.16 + B.z*.075) * (0.55 + hC*.35);
+  flow.y += (0.5-u.y) * sideWall * (A.z*.035 + B.z*.018);
   float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);
-  flow = softLimit(flow, min(420., lim + bodyPresence*140. + shellPresence*160.)) * fade;
+  flow = softLimit(flow, min(560., lim + bodyPresence*150. + shellPresence*170. + sideWall*260.)) * fade;
   vec2 ru=u+flow/max(z,vec2(1.));
   vec3 clear=src(ru);
   vec3 medium=blur(ru);
