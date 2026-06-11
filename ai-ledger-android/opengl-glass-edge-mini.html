@@ -9,7 +9,7 @@
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v13 · stronger side body refraction</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v13 左右侧主体折射增强</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v14 · dedicated side body band</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v14 独立左右主体折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
 const groups=[
 {title:'主体折射 Body Field',items:[
@@ -78,35 +78,39 @@ void main(){
   float fade=borderFade(u);
   float bodyPresence=sat(pow(sat(1.-rho), .42) * (0.48 + A.x*0.62));
   float shellPresence=gauss(rho, B.x, B.y) + gauss(rho, B.x-.028, B.y*1.9)*.55;
-  float sideX=smoothstep(.45,.92,abs(u.x*2.0-1.0));
-  float sideY=1.0-smoothstep(.62,.98,abs(u.y*2.0-1.0));
-  float sideWall=sideX*sideY*sat(.35+bodyPresence*.45+shellPresence*.55);
+  float sideRho=abs(u.x*2.0-1.0);
+  float sideVertical=smoothstep(.055,.30,u.y)*smoothstep(.055,.30,1.0-u.y);
+  float sideCore=gauss(sideRho, B.x, max(B.y*.72,.014));
+  float sideShoulder=gauss(sideRho, B.x-.060, max(B.y*1.65,.026))*.52;
+  float sideBodyBand=(sideCore+sideShoulder)*sideVertical*sat(.42+bodyPresence*.38+shellPresence*.40);
+  float sidePresence=max(shellPresence, sideBodyBand*.96);
   float energy=pow(sat((slope*11.0 + hC*.22) * B.z), max(.32, B.z*.55));
   float bodyPx = A.z * bodyPresence * (0.35 + hC*.55 + energy*.35);
   float shellPx = B.z * shellPresence * (0.36 + energy*.70 + slope*2.4);
   vec2 flow = grad * (bodyPx + shellPx);
-  flow.x *= mix(1.0, 2.65, sideWall);
+  flow.x *= mix(1.0, 1.72, sideBodyBand);
   vec2 inwardDir = (vec2(.5)-u); inwardDir.y*=.72;
   flow += inwardDir * (bodyPresence * A.z * .08);
-  flow += vec2(sign(.5-u.x),0.0) * sideWall * (A.z*.16 + B.z*.075) * (0.55 + hC*.35);
-  flow.y += (0.5-u.y) * sideWall * (A.z*.035 + B.z*.018);
+  float sidePull=(B.z*.185 + A.z*.105) * sideBodyBand * (0.72 + hC*.42 + bodyPresence*.25);
+  flow += vec2(sign(.5-u.x),0.0) * sidePull;
+  flow.y += (0.5-u.y) * sideBodyBand * (B.z*.030 + A.z*.022) * (0.45 + hC*.35);
   float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);
-  flow = softLimit(flow, min(560., lim + bodyPresence*150. + shellPresence*170. + sideWall*260.)) * fade;
+  flow = softLimit(flow, min(720., lim + bodyPresence*150. + shellPresence*175. + sideBodyBand*420.)) * fade;
   vec2 ru=u+flow/max(z,vec2(1.));
   vec3 clear=src(ru);
   vec3 medium=blur(ru);
-  float clarity=sat(C.x*(0.18 + shellPresence*.82 + slope*.30));
+  float clarity=sat(C.x*(0.18 + sidePresence*.82 + slope*.30));
   vec3 col=mix(medium, clear, clarity);
-  float smear=sat(C.y*shellPresence*(.18+slope*3.2));
+  float smear=sat(C.y*sidePresence*(.18+slope*3.2));
   if(smear>.001){
     vec2 tp=t*(5.0+28.0*smear)/max(z,vec2(1.));
     vec3 drag=src(ru+tp)*.38 + src(ru-tp)*.38 + medium*.24;
     col=mix(col, drag, smear*.34);
   }
-  float rim = shellPresence * sat(0.35 + slope*3.5);
+  float rim = sidePresence * sat(0.35 + slope*3.5 + sideBodyBand*.45);
   float fres = pow(1.0 - sat(me(u)*3.0), 1.35);
   col += vec3(.03,.07,.10) * rim * .20;
-  col *= (1.0 + rim*.06 + fres*.035);
+  col *= (1.0 + rim*.06 + fres*.035 + sideBodyBand*.028);
   col *= C.z;
   col=clamp(col,0.,1.);
   gl_FragColor=vec4(col,.90*mask);
