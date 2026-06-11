@@ -9,7 +9,7 @@
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v14 · dedicated side body band</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v14 独立左右主体折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v15 · dedicated edge rim refraction</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v15 独立边缘高光折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
 const groups=[
 {title:'主体折射 Body Field',items:[
@@ -21,12 +21,19 @@ const groups=[
 ['bodyBandPos','主体折射带位置',.55,.98,.01],
 ['bodyBandWidth','主体折射带宽度',.015,.24,.005],
 ['bodyBandGain','主体折射带强度',0,1500,1]
+]},
+{title:'边缘高光折射带 Edge Rim',items:[
+['edgeRimWidthPx','边缘带厚度 px',6,40,1],
+['edgeRimGain','边缘拖拽强度',0,240,1],
+['edgeRimSharpness','边缘陡度',.40,2.80,.01],
+['edgeRimSmear','边缘切向拖色',0,120,1],
+['edgeRimBrightness','边缘采样亮度',.90,1.25,.01]
 ]}
 ];
 const presets={
-soft:{bodyWidth:.72,bodyCurve:.80,bodyGain:260,bodyBandPos:.84,bodyBandWidth:.10,bodyBandGain:260},
-strong:{bodyWidth:1.10,bodyCurve:.58,bodyGain:640,bodyBandPos:.83,bodyBandWidth:.08,bodyBandGain:840},
-apple:{bodyWidth:1.31,bodyCurve:2.23,bodyGain:509,bodyBandPos:.77,bodyBandWidth:.24,bodyBandGain:0}
+soft:{bodyWidth:.72,bodyCurve:.80,bodyGain:260,bodyBandPos:.84,bodyBandWidth:.10,bodyBandGain:260,edgeRimWidthPx:14,edgeRimGain:72,edgeRimSharpness:1.10,edgeRimSmear:18,edgeRimBrightness:1.03},
+strong:{bodyWidth:1.10,bodyCurve:.58,bodyGain:640,bodyBandPos:.83,bodyBandWidth:.08,bodyBandGain:840,edgeRimWidthPx:22,edgeRimGain:160,edgeRimSharpness:1.45,edgeRimSmear:42,edgeRimBrightness:1.10},
+apple:{bodyWidth:1.31,bodyCurve:2.23,bodyGain:509,bodyBandPos:.77,bodyBandWidth:.24,bodyBandGain:0,edgeRimWidthPx:18,edgeRimGain:110,edgeRimSharpness:1.25,edgeRimSmear:26,edgeRimBrightness:1.06}
 };
 const optics={clarity:1.00,tangentSmear:.18,brightness:1.00};
 let p={...presets.apple};
@@ -34,7 +41,7 @@ const stage=document.getElementById('stage'),scroll=document.getElementById('scr
 const g=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const fs=`precision highp float;
-uniform vec2 r; uniform vec4 A,B,C,R; uniform sampler2D T;
+uniform vec2 r; uniform vec4 A,B,C,D,R; uniform sampler2D T;
 float sat(float x){return clamp(x,0.,1.);} 
 float me(vec2 u){return min(min(u.x,1.-u.x),min(u.y,1.-u.y));}
 float borderFade(vec2 u){return smoothstep(.010,.085,me(u));}
@@ -84,7 +91,25 @@ void main(){
   float sideShoulder=gauss(sideRho, B.x-.060, max(B.y*1.65,.026))*.52;
   float sideBodyBand=(sideCore+sideShoulder)*sideVertical*sat(.42+bodyPresence*.38+shellPresence*.40);
   float sidePresence=max(shellPresence, sideBodyBand*.96);
-  float energy=pow(sat((slope*11.0 + hC*.22) * B.z), max(.32, B.z*.55));
+
+  float edgeInset=max(-sd,0.0);
+  float edgeWidth=max(D.x,1.0);
+  float edgeCore=pow(sat(1.0-edgeInset/edgeWidth), max(.55,D.z));
+  float edgeShoulder=pow(sat(1.0-edgeInset/max(edgeWidth*1.9,1.0)), max(1.0,D.z*1.18));
+  float edgeRim=sat(edgeCore*.98 + edgeShoulder*.55);
+  float edgeFade=smoothstep(.0, edgeWidth*2.1, edgeInset);
+  edgeRim*=edgeFade;
+  float sdL=box(c-vec2(stepPx,0.),z,ra);
+  float sdR=box(c+vec2(stepPx,0.),z,ra);
+  float sdU=box(c-vec2(0.,stepPx),z,ra);
+  float sdD=box(c+vec2(0.,stepPx),z,ra);
+  vec2 sdGrad=vec2(sdR-sdL,sdD-sdU)*.5;
+  float sdSlope=length(sdGrad);
+  vec2 edgeN=sdGrad/max(sdSlope,.0001);
+  vec2 edgeT=vec2(-edgeN.y,edgeN.x);
+  float edgePresence=max(sidePresence, edgeRim);
+
+  float energy=pow(sat((slope*11.0 + hC*.22) * max(B.z,1.0)), max(.32, max(B.z,1.0)*.55));
   float bodyPx = A.z * bodyPresence * (0.35 + hC*.55 + energy*.35);
   float shellPx = B.z * shellPresence * (0.36 + energy*.70 + slope*2.4);
   vec2 flow = grad * (bodyPx + shellPx);
@@ -94,40 +119,56 @@ void main(){
   float sidePull=(B.z*.185 + A.z*.105) * sideBodyBand * (0.72 + hC*.42 + bodyPresence*.25);
   flow += vec2(sign(.5-u.x),0.0) * sidePull;
   flow.y += (0.5-u.y) * sideBodyBand * (B.z*.030 + A.z*.022) * (0.45 + hC*.35);
+
+  float edgePull = D.y * edgeRim * (0.42 + edgeCore*.58 + slope*.24);
+  flow += edgeN * edgePull;
+
   float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);
-  flow = softLimit(flow, min(720., lim + bodyPresence*150. + shellPresence*175. + sideBodyBand*420.)) * fade;
+  flow = softLimit(flow, min(820., lim + bodyPresence*150. + shellPresence*175. + sideBodyBand*420. + edgeRim*260.)) * fade;
   vec2 ru=u+flow/max(z,vec2(1.));
   vec3 clear=src(ru);
   vec3 medium=blur(ru);
-  float clarity=sat(C.x*(0.18 + sidePresence*.82 + slope*.30));
+  float clarity=sat(C.x*(0.18 + edgePresence*.82 + slope*.30) + edgeRim*.24);
   vec3 col=mix(medium, clear, clarity);
-  float smear=sat(C.y*sidePresence*(.18+slope*3.2));
+
+  float smear=sat(C.y*edgePresence*(.18+slope*3.2));
   if(smear>.001){
     vec2 tp=t*(5.0+28.0*smear)/max(z,vec2(1.));
     vec3 drag=src(ru+tp)*.38 + src(ru-tp)*.38 + medium*.24;
     col=mix(col, drag, smear*.34);
   }
+
+  float edgeSmear=sat((D.w/120.0) * edgeRim * (0.32 + edgeCore*.68 + sdSlope*1.8));
+  if(edgeSmear>.001){
+    float tangentBias=sign(dot(flow,edgeT) + (u.x-.5)*.03 + (u.y-.5)*.01 + .0001);
+    vec2 ep=edgeT*tangentBias*(5.0 + D.w*.18 + edgeCore*9.0)/max(z,vec2(1.));
+    vec3 edgeDrag=src(ru+ep)*.44 + src(ru-ep)*.44 + clear*.12;
+    col=mix(col, edgeDrag, edgeSmear*.46);
+  }
+
   float rim = sidePresence * sat(0.35 + slope*3.5 + sideBodyBand*.45);
+  float edgeLight = edgeRim * sat(0.58 + edgeCore*.52 + sdSlope*1.7);
   float fres = pow(1.0 - sat(me(u)*3.0), 1.35);
   col += vec3(.03,.07,.10) * rim * .20;
-  col *= (1.0 + rim*.06 + fres*.035 + sideBodyBand*.028);
+  col += vec3(.014,.018,.020) * edgeLight * C.w * .90;
+  col *= (1.0 + rim*.06 + fres*.035 + sideBodyBand*.028 + edgeLight*.075*C.w);
   col *= C.z;
   col=clamp(col,0.,1.);
   gl_FragColor=vec4(col,.90*mask);
 }`;
 function sh(t,s){let x=g.createShader(t);g.shaderSource(x,s);g.compileShader(x);if(!g.getShaderParameter(x,g.COMPILE_STATUS))throw g.getShaderInfoLog(x);return x}
 let pr=g.createProgram();g.attachShader(pr,sh(g.VERTEX_SHADER,vs));g.attachShader(pr,sh(g.FRAGMENT_SHADER,fs));g.linkProgram(pr);
-let L={a:g.getAttribLocation(pr,'a'),r:g.getUniformLocation(pr,'r'),A:g.getUniformLocation(pr,'A'),B:g.getUniformLocation(pr,'B'),C:g.getUniformLocation(pr,'C'),R:g.getUniformLocation(pr,'R'),T:g.getUniformLocation(pr,'T')};
+let L={a:g.getAttribLocation(pr,'a'),r:g.getUniformLocation(pr,'r'),A:g.getUniformLocation(pr,'A'),B:g.getUniformLocation(pr,'B'),C:g.getUniformLocation(pr,'C'),D:g.getUniformLocation(pr,'D'),R:g.getUniformLocation(pr,'R'),T:g.getUniformLocation(pr,'T')};
 let buf=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,buf);g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),g.STATIC_DRAW);
 let tex=g.createTexture();g.bindTexture(g.TEXTURE_2D,tex);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);
 function drawBg(){let d=Math.min(devicePixelRatio||1,2),sr=stage.getBoundingClientRect(),w=Math.round(sr.width*d),h=Math.round(sr.height*d);bg.width=w;bg.height=h;let x=bg.getContext('2d'),gr=x.createLinearGradient(0,0,w,h);gr.addColorStop(0,'#0a3a80');gr.addColorStop(.42,'#4fd5ff');gr.addColorStop(.72,'#173066');gr.addColorStop(1,'#d06c9e');x.fillStyle=gr;x.fillRect(0,0,w,h);x.globalAlpha=.55;for(let i=0;i<11;i++){x.strokeStyle=i%2?'#fff':'#68e7ff';x.lineWidth=(3+i*.45)*d;x.beginPath();x.moveTo(-80*d,(130+i*60)*d);x.bezierCurveTo(260*d,(20+i*10)*d,520*d,(330-i*20)*d,1280*d,(130+i*30)*d);x.stroke()}x.globalAlpha=.25;for(let y=70*d;y<h;y+=160*d)for(let xx=70*d;xx<w;xx+=140*d){x.fillStyle='#fff';x.fillRect(xx,y,80*d,14*d)}g.bindTexture(g.TEXTURE_2D,tex);g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL,false);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,bg)}
 function rect(){let a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return[(b.left-a.left)/a.width,(b.top-a.top)/a.height,b.width/a.width,b.height/a.height]}
 function resize(){let d=Math.min(devicePixelRatio||1,2),r=glassEl.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));g.viewport(0,0,cv.width,cv.height);drawBg();render()}
-function render(){g.clearColor(0,0,0,0);g.clear(g.COLOR_BUFFER_BIT);g.useProgram(pr);g.bindBuffer(g.ARRAY_BUFFER,buf);g.enableVertexAttribArray(L.a);g.vertexAttribPointer(L.a,2,g.FLOAT,false,0,0);g.uniform2f(L.r,cv.width,cv.height);g.uniform4f(L.A,p.bodyWidth,p.bodyCurve,p.bodyGain,0);g.uniform4f(L.B,p.bodyBandPos,p.bodyBandWidth,p.bodyBandGain,0);g.uniform4f(L.C,optics.clarity,optics.tangentSmear,optics.brightness,0);let R=rect();g.uniform4f(L.R,R[0],R[1],R[2],R[3]);g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tex);g.uniform1i(L.T,0);g.drawArrays(g.TRIANGLE_STRIP,0,4)}
+function render(){g.clearColor(0,0,0,0);g.clear(g.COLOR_BUFFER_BIT);g.useProgram(pr);g.bindBuffer(g.ARRAY_BUFFER,buf);g.enableVertexAttribArray(L.a);g.vertexAttribPointer(L.a,2,g.FLOAT,false,0,0);g.uniform2f(L.r,cv.width,cv.height);g.uniform4f(L.A,p.bodyWidth,p.bodyCurve,p.bodyGain,0);g.uniform4f(L.B,p.bodyBandPos,p.bodyBandWidth,p.bodyBandGain,0);g.uniform4f(L.C,optics.clarity,optics.tangentSmear,optics.brightness,p.edgeRimBrightness);g.uniform4f(L.D,p.edgeRimWidthPx,p.edgeRimGain,p.edgeRimSharpness,p.edgeRimSmear);let R=rect();g.uniform4f(L.R,R[0],R[1],R[2],R[3]);g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tex);g.uniform1i(L.T,0);g.drawArrays(g.TRIANGLE_STRIP,0,4)}
 function allItems(){return groups.flatMap(g=>g.items)}
 function build(){let root=document.getElementById('controls');root.innerHTML='';groups.forEach(group=>{let title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);group.items.forEach(([k,n,min,max,step])=>{let d=document.createElement('div');d.className='c';d.innerHTML=`<div class="h"><strong>${n}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="${step}" value="${p[k]}">`;root.appendChild(d);d.querySelector('input').oninput=e=>{p[k]=parseFloat(e.target.value);update();render()}})});update()}
-function paramsText(){return `CleanRefractionParams(\n    bodyWidth = ${p.bodyWidth.toFixed(2)},\n    bodyCurve = ${p.bodyCurve.toFixed(2)},\n    bodyGain = ${p.bodyGain.toFixed(0)},\n    bodyBandPos = ${p.bodyBandPos.toFixed(2)},\n    bodyBandWidth = ${p.bodyBandWidth.toFixed(3)},\n    bodyBandGain = ${p.bodyBandGain.toFixed(0)}\n)`}
-function cleanJson(){return {body:{width:p.bodyWidth,curve:p.bodyCurve,gain:p.bodyGain},bodyBand:{position:p.bodyBandPos,width:p.bodyBandWidth,gain:p.bodyBandGain},fixedOptics:optics}}
+function paramsText(){return `LiquidGlassParams(\n    bodyWidth = ${p.bodyWidth.toFixed(2)},\n    bodyCurve = ${p.bodyCurve.toFixed(2)},\n    bodyGain = ${p.bodyGain.toFixed(0)},\n    bodyBandPos = ${p.bodyBandPos.toFixed(2)},\n    bodyBandWidth = ${p.bodyBandWidth.toFixed(3)},\n    bodyBandGain = ${p.bodyBandGain.toFixed(0)},\n    edgeRimWidthPx = ${p.edgeRimWidthPx.toFixed(0)},\n    edgeRimGain = ${p.edgeRimGain.toFixed(0)},\n    edgeRimSharpness = ${p.edgeRimSharpness.toFixed(2)},\n    edgeRimSmear = ${p.edgeRimSmear.toFixed(0)},\n    edgeRimBrightness = ${p.edgeRimBrightness.toFixed(2)}\n)`}
+function cleanJson(){return {body:{width:p.bodyWidth,curve:p.bodyCurve,gain:p.bodyGain},bodyBand:{position:p.bodyBandPos,width:p.bodyBandWidth,gain:p.bodyBandGain},edgeRim:{widthPx:p.edgeRimWidthPx,gain:p.edgeRimGain,sharpness:p.edgeRimSharpness,smear:p.edgeRimSmear,brightness:p.edgeRimBrightness},fixedOptics:optics}}
 function update(){allItems().forEach(([k])=>{let v=document.getElementById('v-'+k),i=document.getElementById('i-'+k);if(v)v.textContent=Math.round(p[k]*1000)/1000;if(i&&parseFloat(i.value)!==p[k])i.value=p[k]});out.textContent=JSON.stringify(cleanJson(),null,2)+'\n\n'+paramsText()}
 function preset(n){p={...presets[n]};update();render()}
 window.onresize=resize;scroll.onscroll=render;build();setTimeout(()=>{resize();scroll.scrollTop=500;render()},0);
