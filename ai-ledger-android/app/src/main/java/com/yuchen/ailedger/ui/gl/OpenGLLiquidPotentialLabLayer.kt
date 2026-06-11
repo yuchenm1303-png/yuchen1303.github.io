@@ -14,10 +14,16 @@ import android.view.Surface
 import android.view.TextureView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
@@ -37,6 +43,14 @@ data class OpenGLLiquidPotentialLabOptics(
     val darkEdge: Float = 0.62f
 )
 
+@Immutable
+private data class OpenGLLabBackdropRect(
+    val left: Float = 0f,
+    val top: Float = 0f,
+    val width: Float = 1f,
+    val height: Float = 1f
+)
+
 @Composable
 fun OpenGLLiquidPotentialLabLayer(
     optics: OpenGLLiquidPotentialLabOptics,
@@ -45,17 +59,31 @@ fun OpenGLLiquidPotentialLabLayer(
 ) {
     val backdrop = LocalBlurredBackdrop.current
     val density = LocalDensity.current
+    val rootView = LocalView.current
+    var backdropRect by remember { mutableStateOf(OpenGLLabBackdropRect()) }
     val radiusPx = with(density) { radiusDp.dp.toPx() }.roundToInt().toFloat()
     val blurBitmap = remember(backdrop?.image) { backdrop?.image?.asAndroidBitmap() }
     val lensBitmap = remember(backdrop?.lensImage) { backdrop?.lensImage?.asAndroidBitmap() }
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.onGloballyPositioned { coordinates ->
+            val position = coordinates.positionInWindow()
+            val rootWidth = rootView.width.toFloat().coerceAtLeast(1f)
+            val rootHeight = rootView.height.toFloat().coerceAtLeast(1f)
+            val next = OpenGLLabBackdropRect(
+                left = (position.x / rootWidth).coerceIn(0f, 1f),
+                top = (position.y / rootHeight).coerceIn(0f, 1f),
+                width = (coordinates.size.width.toFloat() / rootWidth).coerceIn(0.001f, 1f),
+                height = (coordinates.size.height.toFloat() / rootHeight).coerceIn(0.001f, 1f)
+            )
+            if (next != backdropRect) backdropRect = next
+        },
         factory = { context -> OpenGLLiquidPotentialLabView(context) },
         update = { view ->
             val radiusDirty = view.setRadius(radiusPx)
             val opticsDirty = view.setOptics(optics)
+            val rectDirty = view.setBackdropRect(backdropRect)
             val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
-            if (radiusDirty || opticsDirty || textureDirty) view.requestRender()
+            if (radiusDirty || opticsDirty || rectDirty || textureDirty) view.requestRender()
         }
     )
 }
@@ -66,6 +94,7 @@ private class OpenGLLiquidPotentialLabView(context: Context) : TextureView(conte
     private var latestLensBitmap: Bitmap? = null
     private var latestRadius = 32f
     private var latestOptics = OpenGLLiquidPotentialLabOptics()
+    private var latestBackdropRect = OpenGLLabBackdropRect()
 
     init {
         isOpaque = false
@@ -91,6 +120,13 @@ private class OpenGLLiquidPotentialLabView(context: Context) : TextureView(conte
         return dirty
     }
 
+    fun setBackdropRect(rect: OpenGLLabBackdropRect): Boolean {
+        val dirty = rect != latestBackdropRect
+        latestBackdropRect = rect
+        if (dirty) renderThread?.setBackdropRect(rect)
+        return dirty
+    }
+
     fun setBackdropTextures(blurBitmap: Bitmap?, lensBitmap: Bitmap?): Boolean {
         val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
         latestBlurBitmap = blurBitmap
@@ -108,6 +144,7 @@ private class OpenGLLiquidPotentialLabView(context: Context) : TextureView(conte
         renderThread = LabEglThread(Surface(surfaceTexture), width, height).also { thread ->
             thread.setRadius(latestRadius)
             thread.setOptics(latestOptics)
+            thread.setBackdropRect(latestBackdropRect)
             thread.setBackdropTextures(latestBlurBitmap, latestLensBitmap)
             thread.start()
         }
@@ -150,6 +187,10 @@ private class LabEglThread(
 
     fun setOptics(optics: OpenGLLiquidPotentialLabOptics) {
         renderer.setOptics(optics)
+    }
+
+    fun setBackdropRect(rect: OpenGLLabBackdropRect) {
+        renderer.setBackdropRect(rect)
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap?, lensBitmap: Bitmap?) {
@@ -262,6 +303,7 @@ private class LabRenderer {
     private var texturesReady = false
     private var radius = 32f
     private var optics = OpenGLLiquidPotentialLabOptics()
+    private var backdropRect = OpenGLLabBackdropRect()
 
     private var program = 0
     private var positionHandle = 0
@@ -272,6 +314,7 @@ private class LabRenderer {
     private var lensTextureHandle = 0
     private var opticsAHandle = 0
     private var opticsBHandle = 0
+    private var backdropRectHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -281,6 +324,10 @@ private class LabRenderer {
 
     fun setOptics(optics: OpenGLLiquidPotentialLabOptics) {
         synchronized(specLock) { this.optics = optics }
+    }
+
+    fun setBackdropRect(rect: OpenGLLabBackdropRect) {
+        synchronized(specLock) { this.backdropRect = rect }
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap?, lensBitmap: Bitmap?) {
@@ -300,6 +347,7 @@ private class LabRenderer {
         lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         opticsAHandle = GLES20.glGetUniformLocation(program, "uOpticsA")
         opticsBHandle = GLES20.glGetUniformLocation(program, "uOpticsB")
+        backdropRectHandle = GLES20.glGetUniformLocation(program, "uBackdropRect")
         val textures = IntArray(2)
         GLES20.glGenTextures(2, textures, 0)
         blurTextureId = textures[0]
@@ -323,14 +371,23 @@ private class LabRenderer {
         if (program == 0) return
         var localRadius = radius
         var localOptics = optics
+        var localRect = backdropRect
         synchronized(specLock) {
             localRadius = radius
             localOptics = optics
+            localRect = backdropRect
         }
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
         GLES20.glUniform1f(radiusHandle, localRadius)
         GLES20.glUniform1f(textureReadyHandle, if (texturesReady) 1f else 0f)
+        GLES20.glUniform4f(
+            backdropRectHandle,
+            localRect.left.coerceIn(0f, 1f),
+            localRect.top.coerceIn(0f, 1f),
+            localRect.width.coerceIn(0.001f, 1f),
+            localRect.height.coerceIn(0.001f, 1f)
+        )
         GLES20.glUniform4f(
             opticsAHandle,
             localOptics.potentialDepth.coerceIn(0f, 3f),
@@ -456,11 +513,13 @@ private class LabRenderer {
             uniform float uTextureReady;
             uniform vec4 uOpticsA;
             uniform vec4 uOpticsB;
+            uniform vec4 uBackdropRect;
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
             vec2 clampUv(vec2 uv) { return clamp(uv, vec2(0.0), vec2(1.0)); }
+            vec2 backdropUv(vec2 localUv) { return uBackdropRect.xy + localUv * uBackdropRect.zw; }
 
             float roundedBoxSdf(vec2 coord, vec2 rectSize, float radius) {
                 vec2 p = coord - rectSize * 0.5;
@@ -475,14 +534,14 @@ private class LabRenderer {
                 return mix(vec3(0.10, 0.20, 0.34), vec3(0.36, 0.68, 0.82), h * 0.72 + x * 0.18);
             }
 
-            vec3 sampleBlur(vec2 uv) {
-                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(uv));
-                return texture2D(uBlurTexture, clampUv(uv)).rgb;
+            vec3 sampleBlur(vec2 localUv) {
+                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(localUv));
+                return texture2D(uBlurTexture, clampUv(backdropUv(localUv))).rgb;
             }
 
-            vec3 sampleLens(vec2 uv) {
-                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(uv));
-                return texture2D(uLensTexture, clampUv(uv)).rgb;
+            vec3 sampleLens(vec2 localUv) {
+                if (uTextureReady < 0.5) return fallbackBackdrop(clampUv(localUv));
+                return texture2D(uLensTexture, clampUv(backdropUv(localUv))).rgb;
             }
 
             float liquidPotentialAt(vec2 coord, vec2 rectSize, float radius) {
