@@ -798,12 +798,12 @@ fun Modifier.glassSkin(
             for (layer in 0 until edgeLayers) {
                 val t = if (edgeLayers == 1) 0f else layer.toFloat() / (edgeLayers - 1).toFloat()
                 val falloff = (1f - t).coerceIn(0f, 1f)
-                val inset = (0.44.dp.toPx() + edgeFieldDepth * 0.38f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
+                val inset = (1.25.dp.toPx() + edgeFieldDepth * 0.42f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
                 val strokeWidth = (
-                    0.48.dp.toPx() +
-                        topWidth * (1.10f - 0.42f * t) +
-                        bottomWidth * (0.55f - 0.20f * t)
-                    ).coerceAtLeast(0.56.dp.toPx())
+                    0.22.dp.toPx() +
+                        topWidth * (0.88f - 0.34f * t) +
+                        bottomWidth * (0.36f - 0.14f * t)
+                    ).coerceAtLeast(0.38.dp.toPx())
 
                 val topAlpha = (0.070f + 0.045f * topVariation) * topLight * falloff * falloff
                 val shoulderAlpha = 0.014f * sideLight * falloff
@@ -847,7 +847,7 @@ fun Modifier.glassSkin(
                         topLeft = Offset(inset, inset),
                         size = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f)),
                         cornerRadius = insetCorner(inset),
-                        style = Stroke((strokeWidth * 0.52f).coerceAtLeast(0.45.dp.toPx())),
+                        style = Stroke((strokeWidth * 0.38f).coerceAtLeast(0.30.dp.toPx())),
                         blendMode = BlendMode.Screen
                     )
                 }
@@ -856,8 +856,8 @@ fun Modifier.glassSkin(
             for (layer in 0 until massLayers) {
                 val t = if (massLayers == 1) 0f else layer.toFloat() / (massLayers - 1).toFloat()
                 val falloff = (1f - t).coerceIn(0f, 1f)
-                val inset = (0.80.dp.toPx() + edgeFieldDepth * 0.42f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
-                val strokeWidth = (bottomWidth * (1.50f - 0.52f * t) + 0.55.dp.toPx()).coerceAtLeast(0.62.dp.toPx())
+                val inset = (1.45.dp.toPx() + edgeFieldDepth * 0.46f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
+                val strokeWidth = (bottomWidth * (1.08f - 0.40f * t) + 0.30.dp.toPx()).coerceAtLeast(0.42.dp.toPx())
                 val massBrush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
@@ -883,10 +883,10 @@ fun Modifier.glassSkin(
 
             drawRoundRect(
                 brush = rimField,
-                topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
-                size = Size((w - 2.dp.toPx()).coerceAtLeast(1f), (h - 2.dp.toPx()).coerceAtLeast(1f)),
+                topLeft = Offset(0.75.dp.toPx(), 0.75.dp.toPx()),
+                size = Size((w - 1.5.dp.toPx()).coerceAtLeast(1f), (h - 1.5.dp.toPx()).coerceAtLeast(1f)),
                 cornerRadius = cornerRadius,
-                style = Stroke(maxOf(0.46.dp.toPx(), 0.58.dp.toPx() * outerRim)),
+                style = Stroke(maxOf(0.34.dp.toPx(), 0.48.dp.toPx() * outerRim)),
                 blendMode = BlendMode.Screen
             )
         }
