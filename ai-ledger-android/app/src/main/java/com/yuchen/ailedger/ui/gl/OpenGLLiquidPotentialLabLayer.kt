@@ -33,14 +33,16 @@ import kotlin.math.roundToInt
 
 @Immutable
 data class OpenGLLiquidPotentialLabOptics(
-    val potentialDepth: Float = 1.06f,
-    val refractionScalePx: Float = 92f,
-    val centerLensPx: Float = 18f,
-    val edgeFocus: Float = 1.02f,
-    val flowSmear: Float = 0.82f,
-    val lensBlend: Float = 0.76f,
-    val brightness: Float = 1.04f,
-    val darkEdge: Float = 0.62f
+    val surfaceWidth: Float = 0.24f,
+    val surfaceSteepness: Float = 1.35f,
+    val refractionGainPx: Float = 150f,
+    val slopeResponse: Float = 0.62f,
+    val lensClarity: Float = 0.92f,
+    val tangentSmear: Float = 0.86f,
+    val centerLensPx: Float = 22f,
+    val edgeDarkness: Float = 0.62f,
+    val highlightStrength: Float = 0.58f,
+    val brightness: Float = 1.03f
 )
 
 @Immutable
@@ -314,6 +316,7 @@ private class LabRenderer {
     private var lensTextureHandle = 0
     private var opticsAHandle = 0
     private var opticsBHandle = 0
+    private var opticsCHandle = 0
     private var backdropRectHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
@@ -347,6 +350,7 @@ private class LabRenderer {
         lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         opticsAHandle = GLES20.glGetUniformLocation(program, "uOpticsA")
         opticsBHandle = GLES20.glGetUniformLocation(program, "uOpticsB")
+        opticsCHandle = GLES20.glGetUniformLocation(program, "uOpticsC")
         backdropRectHandle = GLES20.glGetUniformLocation(program, "uBackdropRect")
         val textures = IntArray(2)
         GLES20.glGenTextures(2, textures, 0)
@@ -390,17 +394,24 @@ private class LabRenderer {
         )
         GLES20.glUniform4f(
             opticsAHandle,
-            localOptics.potentialDepth.coerceIn(0f, 3f),
-            localOptics.refractionScalePx.coerceIn(0f, 240f),
-            localOptics.centerLensPx.coerceIn(0f, 120f),
-            localOptics.edgeFocus.coerceIn(0.15f, 3f)
+            localOptics.surfaceWidth.coerceIn(0.04f, 0.75f),
+            localOptics.surfaceSteepness.coerceIn(0.35f, 3.2f),
+            localOptics.refractionGainPx.coerceIn(0f, 300f),
+            localOptics.slopeResponse.coerceIn(0.25f, 1.6f)
         )
         GLES20.glUniform4f(
             opticsBHandle,
-            localOptics.flowSmear.coerceIn(0f, 2.5f),
-            localOptics.lensBlend.coerceIn(0f, 2f),
-            localOptics.darkEdge.coerceIn(0f, 2f),
-            localOptics.brightness.coerceIn(0.45f, 2.2f)
+            localOptics.lensClarity.coerceIn(0f, 2f),
+            localOptics.tangentSmear.coerceIn(0f, 2.4f),
+            localOptics.centerLensPx.coerceIn(0f, 120f),
+            localOptics.edgeDarkness.coerceIn(0f, 2f)
+        )
+        GLES20.glUniform4f(
+            opticsCHandle,
+            localOptics.highlightStrength.coerceIn(0f, 2f),
+            localOptics.brightness.coerceIn(0.45f, 2.2f),
+            0f,
+            0f
         )
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTextureId)
@@ -513,6 +524,7 @@ private class LabRenderer {
             uniform float uTextureReady;
             uniform vec4 uOpticsA;
             uniform vec4 uOpticsB;
+            uniform vec4 uOpticsC;
             uniform vec4 uBackdropRect;
             uniform sampler2D uBlurTexture;
             uniform sampler2D uLensTexture;
@@ -544,21 +556,29 @@ private class LabRenderer {
                 return texture2D(uLensTexture, clampUv(backdropUv(localUv))).rgb;
             }
 
-            float liquidPotentialAt(vec2 coord, vec2 rectSize, float radius) {
+            float edgeProfileAt(float inside, float fieldWidth, float steepness) {
+                float t = max(inside / max(fieldWidth, 1.0), 0.0);
+                float curve = pow(t, max(steepness, 0.35));
+                return exp(-curve * 1.18);
+            }
+
+            float surfaceHeightAt(vec2 coord, vec2 rectSize, float radius) {
                 float sd = roundedBoxSdf(coord, rectSize, radius);
                 float inside = max(-sd, 0.0);
                 float minSide = max(min(rectSize.x, rectSize.y), 1.0);
+                float fieldWidth = minSide * (0.08 + uOpticsA.x * 0.34);
+                float steepness = uOpticsA.y;
+                float edgeProfile = edgeProfileAt(inside, fieldWidth, steepness);
+
                 vec2 local = clampUv(coord / rectSize);
                 vec2 p = local * 2.0 - 1.0;
                 p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35) * 0.42;
                 float centerD = length(p);
-                float dome = pow(sat(1.0 - centerD * 0.72), 1.72);
-                float edgeWidth = minSide * (0.072 + uOpticsA.w * 0.054);
-                float edgeCurve = 1.0 / (1.0 + pow(max(inside / max(edgeWidth, 1.0), 0.0), 1.58 + uOpticsA.w * 0.22));
-                float bridge = pow(sat(dome * edgeCurve), 0.62);
-                float cornerEnergy = sat(length((local - vec2(0.5)) * vec2(rectSize.x / max(rectSize.y, 1.0), 1.0)) * 1.28 - 0.18);
-                float potential = dome * 0.26 + edgeCurve * 0.58 + bridge * 0.34 + cornerEnergy * edgeCurve * 0.18;
-                return potential * uOpticsA.x;
+                float dome = pow(sat(1.0 - centerD * 0.74), 1.82);
+                float bridge = pow(sat(edgeProfile * dome), 0.58);
+                float cornerFocus = sat(length((local - vec2(0.5)) * vec2(rectSize.x / max(rectSize.y, 1.0), 1.0)) * 1.30 - 0.16);
+                float height = edgeProfile * 0.76 + bridge * 0.30 + dome * 0.20 + cornerFocus * edgeProfile * 0.20;
+                return height;
             }
 
             vec2 softLimitPx(vec2 v, float limitPx) {
@@ -581,44 +601,52 @@ private class LabRenderer {
                 float centerD = length(centerDelta);
                 float body = pow(sat(1.0 - centerD * 0.78), 1.55);
 
+                float minSide = max(min(rectSize.x, rectSize.y), 1.0);
+                float fieldWidth = minSide * (0.08 + uOpticsA.x * 0.34);
+                float inside = max(-sd, 0.0);
+                float edgeProfile = edgeProfileAt(inside, fieldWidth, uOpticsA.y);
+
                 float stepPx = 2.0;
-                float pL = liquidPotentialAt(coord - vec2(stepPx, 0.0), rectSize, radius);
-                float pR = liquidPotentialAt(coord + vec2(stepPx, 0.0), rectSize, radius);
-                float pU = liquidPotentialAt(coord - vec2(0.0, stepPx), rectSize, radius);
-                float pD = liquidPotentialAt(coord + vec2(0.0, stepPx), rectSize, radius);
+                float pL = surfaceHeightAt(coord - vec2(stepPx, 0.0), rectSize, radius);
+                float pR = surfaceHeightAt(coord + vec2(stepPx, 0.0), rectSize, radius);
+                float pU = surfaceHeightAt(coord - vec2(0.0, stepPx), rectSize, radius);
+                float pD = surfaceHeightAt(coord + vec2(0.0, stepPx), rectSize, radius);
                 vec2 grad = vec2(pR - pL, pD - pU) * 0.5;
                 float slope = length(grad);
                 vec2 gradDir = grad / max(slope, 0.0001);
                 vec2 bodyDir = centerDelta / max(centerD, 0.0001);
 
-                float edgeEnergy = sat(slope * 7.6 + (1.0 - body) * 0.18);
-                vec2 slopeRefract = gradDir * slope * uOpticsA.y;
-                vec2 bodyLens = -bodyDir * body * uOpticsA.z * 0.32;
-                vec2 flow = softLimitPx(slopeRefract + bodyLens, mix(28.0, 76.0, edgeEnergy));
+                float slopeEnergy = pow(sat(slope * 13.5 + edgeProfile * 0.18), max(uOpticsA.w, 0.25));
+                float shoulderEnergy = sat(edgeProfile * 0.48 + slopeEnergy * 0.72);
+                vec2 slopeRefract = gradDir * slopeEnergy * uOpticsA.z * (0.36 + shoulderEnergy * 0.78);
+                vec2 bodyLens = -bodyDir * body * uOpticsB.z * (0.18 + 0.18 * shoulderEnergy);
+                vec2 flow = softLimitPx(slopeRefract + bodyLens, mix(42.0, 120.0, shoulderEnergy));
                 vec2 refractedUv = uv + flow / max(rectSize, vec2(1.0));
 
-                vec3 color = sampleBlur(refractedUv);
-                float lensMix = sat((slope * 5.8 + edgeEnergy * 0.24 + body * 0.045) * uOpticsB.y);
-                if (lensMix > 0.001) {
-                    color = mix(color, sampleLens(refractedUv), lensMix);
-                }
+                vec3 blurColor = sampleBlur(refractedUv);
+                vec3 lensColor = sampleLens(refractedUv);
+                float lensMix = sat((0.18 + shoulderEnergy * 0.78 + body * 0.08) * uOpticsB.x);
+                vec3 color = mix(blurColor, lensColor, lensMix);
 
-                float smear = sat(edgeEnergy * uOpticsB.x);
+                float smear = sat((slopeEnergy * 0.72 + edgeProfile * 0.42) * uOpticsB.y);
                 if (smear > 0.002) {
                     vec2 tangent = vec2(-gradDir.y, gradDir.x);
-                    vec2 px = tangent * (5.0 + 22.0 * smear) / max(rectSize, vec2(1.0));
-                    vec3 drag = sampleLens(refractedUv + px) * 0.30;
-                    drag += sampleLens(refractedUv - px) * 0.30;
-                    drag += sampleLens(refractedUv + px * 1.85) * 0.16;
-                    drag += sampleLens(refractedUv - px * 1.85) * 0.16;
-                    drag += sampleBlur(refractedUv) * 0.08;
-                    color = mix(color, drag, sat(smear * 0.34));
+                    vec2 tangentPx = tangent * (6.0 + 42.0 * smear) / max(rectSize, vec2(1.0));
+                    vec2 normalPx = gradDir * (3.0 + 14.0 * smear) / max(rectSize, vec2(1.0));
+                    vec3 drag = sampleLens(refractedUv + tangentPx) * 0.27;
+                    drag += sampleLens(refractedUv - tangentPx) * 0.27;
+                    drag += sampleLens(refractedUv + tangentPx * 1.80 + normalPx) * 0.16;
+                    drag += sampleLens(refractedUv - tangentPx * 1.80 - normalPx) * 0.16;
+                    drag += sampleBlur(refractedUv - normalPx) * 0.14;
+                    color = mix(color, drag, sat(smear * 0.44));
                 }
 
-                float highlight = sat(edgeEnergy * 0.34 + slope * 0.42 + body * 0.035);
-                color *= uOpticsB.w * (1.0 + highlight * 0.20);
-                color -= vec3(0.05, 0.07, 0.10) * uOpticsB.z * edgeEnergy;
-                color += vec3(0.02, 0.04, 0.052) * body * 0.10;
+                float lightFacing = sat(0.54 - gradDir.y * 0.46 + gradDir.x * 0.08);
+                float highlight = sat((slopeEnergy * 0.52 + edgeProfile * 0.18 + body * 0.025) * lightFacing * uOpticsC.x);
+                color *= uOpticsC.y * (1.0 + highlight * 0.34);
+                color += vec3(0.040, 0.065, 0.080) * highlight;
+                color -= vec3(0.055, 0.070, 0.088) * uOpticsB.w * shoulderEnergy;
+                color += vec3(0.018, 0.035, 0.045) * body * 0.08;
                 color = clamp(color, 0.0, 1.0);
                 gl_FragColor = vec4(color, 0.92 * mask);
             }
