@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>OpenGL Liquid Glass Lab Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #081226;
+      --panel: rgba(12, 21, 50, .72);
+      --panel2: rgba(255, 255, 255, .075);
+      --line: rgba(255, 255, 255, .14);
+      --text: rgba(255, 255, 255, .92);
+      --muted: rgba(255, 255, 255, .56);
+      --soft: rgba(255, 255, 255, .34);
+      --accent: #8df9ea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 18%, rgba(0, 122, 255, .40), transparent 34%),
+        radial-gradient(circle at 82% 82%, rgba(255, 114, 160, .34), transparent 30%),
+        linear-gradient(145deg, #050817, #101a3d 56%, #1c1634);
+      overflow-x: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(110deg, transparent 12%, rgba(64, 166, 255, .22) 15%, transparent 25%),
+        linear-gradient(142deg, transparent 42%, rgba(255, 206, 236, .18) 46%, transparent 54%),
+        linear-gradient(168deg, transparent 58%, rgba(128, 246, 255, .12) 62%, transparent 70%);
+      opacity: .95;
+      filter: blur(.4px);
+    }
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) 390px;
+      gap: 18px;
+      width: min(1380px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 22px 0 26px;
+    }
+    .hero, .controls, .output {
+      border: 1px solid rgba(255, 255, 255, .16);
+      background: linear-gradient(180deg, rgba(16, 29, 69, .74), rgba(8, 15, 38, .58));
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .13);
+      backdrop-filter: blur(18px);
+      border-radius: 28px;
+    }
+    .hero {
+      min-height: calc(100vh - 48px);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 4px 2px;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 38px);
+      letter-spacing: -.04em;
+      line-height: 1.05;
+    }
+    .title p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-weight: 750;
+      font-size: 14px;
+    }
+    .buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    button, label.fileButton {
+      border: 1px solid rgba(255, 255, 255, .16);
+      color: rgba(255, 255, 255, .88);
+      background: rgba(255, 255, 255, .08);
+      border-radius: 999px;
+      padding: 10px 13px;
+      font-weight: 850;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform .16s ease, background .16s ease;
+      user-select: none;
+    }
+    button:hover, label.fileButton:hover { background: rgba(255, 255, 255, .14); transform: translateY(-1px); }
+    input[type=file] { display: none; }
+    .stage {
+      position: relative;
+      flex: 1;
+      min-height: 560px;
+      border-radius: 30px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .14);
+      background: rgba(255, 255, 255, .04);
+    }
+    .background {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      transform: scale(1.015);
+      filter: saturate(1.08) contrast(1.03);
+    }
+    .stageShade {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 15%, rgba(255,255,255,.18), transparent 25%), linear-gradient(180deg, rgba(0,0,0,.02), rgba(0,0,0,.15));
+      pointer-events: none;
+    }
+    .glassWrap {
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 30%;
+      height: 255px;
+      border-radius: 48px;
+      overflow: hidden;
+      filter: drop-shadow(0 20px 30px rgba(0, 0, 0, .28));
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .glassOverlay {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      border: 1px solid rgba(255, 255, 255, .24);
+      box-shadow:
+        inset 0 1px 1px rgba(255, 255, 255, .35),
+        inset 0 -28px 45px rgba(255, 171, 210, .16),
+        inset 0 24px 38px rgba(124, 217, 255, .12);
+    }
+    .sampleUi {
+      position: absolute;
+      inset: 0;
+      padding: 26px 34px;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .sampleUi h2 {
+      margin: 0;
+      font-size: clamp(25px, 3.6vw, 46px);
+      letter-spacing: -.05em;
+      line-height: 1;
+      text-shadow: 0 1px 16px rgba(0,0,0,.28);
+    }
+    .sampleUi p {
+      margin: 8px 0 0;
+      color: rgba(255,255,255,.62);
+      font-size: 15px;
+      font-weight: 850;
+    }
+    .sampleBottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .track {
+      height: 8px;
+      flex: 1;
+      border-radius: 999px;
+      background: rgba(255,255,255,.75);
+      box-shadow: 0 0 18px rgba(255,255,255,.18);
+    }
+    .knob {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.18);
+      display: grid;
+      place-items: center;
+      font-weight: 950;
+      color: rgba(255,255,255,.82);
+    }
+    .side {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .controls, .output { padding: 16px; }
+    .sectionTitle {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .sectionTitle h3 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+    .sectionTitle span { color: var(--muted); font-size: 11px; font-weight: 800; }
+    .control {
+      padding: 11px 0;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .control:first-of-type { border-top: 0; }
+    .controlHead {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: space-between;
+      margin-bottom: 7px;
+    }
+    .control strong { font-size: 13px; }
+    .control small { color: var(--soft); font-weight: 800; }
+    input[type=range] {
+      width: 100%;
+      accent-color: #9b7cff;
+      cursor: pointer;
+    }
+    .presetRow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .presetRow button { padding: 8px 10px; }
+    textarea {
+      width: 100%;
+      min-height: 170px;
+      resize: vertical;
+      color: rgba(255,255,255,.86);
+      background: rgba(0,0,0,.26);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .hint {
+      margin-top: 10px;
+      color: rgba(255,255,255,.48);
+      font-size: 12px;
+      font-weight: 750;
+      line-height: 1.6;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%) translateY(18px);
+      opacity: 0;
+      background: rgba(0,0,0,.58);
+      border: 1px solid rgba(255,255,255,.18);
+      color: #fff;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 850;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; width: min(100vw - 18px, 760px); padding-top: 10px; }
+      .hero { min-height: 640px; }
+      .stage { min-height: 470px; }
+      .glassWrap { left: 4%; right: 4%; top: 31%; height: 230px; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+      .buttons { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="toolbar">
+        <div class="title">
+          <h1>OpenGL Liquid Glass Lab</h1>
+          <p>网页调参预览 · 用 WebGL 模拟 Android 实验室 OpenGL 样本</p>
+        </div>
+        <div class="buttons">
+          <label class="fileButton">上传背景<input id="file" type="file" accept="image/*"></label>
+          <button id="copyJson">复制 JSON</button>
+          <button id="copyKotlin">复制 Kotlin 默认值</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <div class="background" id="bg"></div>
+        <div class="stageShade"></div>
+        <div class="glassWrap" id="glassWrap">
+          <canvas id="gl"></canvas>
+          <div class="glassOverlay"></div>
+          <div class="sampleUi">
+            <div>
+              <h2>Display</h2>
+              <p>Liquid refractive material · WebGL preview</p>
+            </div>
+            <div class="sampleBottom">
+              <span style="font-weight:950;font-size:28px;color:rgba(255,255,255,.92)">☀︎</span>
+              <div class="track"></div>
+              <div class="knob">☼</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="controls">
+        <div class="sectionTitle"><h3>OpenGL 参数</h3><span>对应 Kotlin optics</span></div>
+        <div class="presetRow">
+          <button data-preset="safe">干净默认</button>
+          <button data-preset="strong">强折射</button>
+          <button data-preset="apple">参考图方向</button>
+          <button data-preset="reset">重置</button>
+        </div>
+        <div id="controls"></div>
+      </section>
+      <section class="output">
+        <div class="sectionTitle"><h3>当前参数</h3><span>可复制回 Android</span></div>
+        <textarea id="output" spellcheck="false"></textarea>
+        <div class="hint">提示：网页只负责快速调形态。最终仍要在真机里看 TextureView、LocalBlurredBackdrop、lensImage 和 GPU 精度差异。</div>
+      </section>
+    </aside>
+  </main>
+  <div class="toast" id="toast">已复制</div>
+
+<script>
+const DEFAULTS = {
+  surfaceWidth: 0.18,
+  surfaceSteepness: 1.20,
+  refractionGainPx: 118,
+  slopeResponse: 0.72,
+  lensClarity: 0.74,
+  tangentSmear: 0.32,
+  centerLensPx: 16,
+  edgeDarkness: 0.36,
+  highlightStrength: 0.40,
+  brightness: 1.00
+};
+const PRESETS = {
+  safe: { surfaceWidth: .18, surfaceSteepness: 1.20, refractionGainPx: 96, slopeResponse: .78, lensClarity: .64, tangentSmear: .28, centerLensPx: 14, edgeDarkness: .34, highlightStrength: .34, brightness: 1.00 },
+  strong: { surfaceWidth: .25, surfaceSteepness: 1.08, refractionGainPx: 165, slopeResponse: .58, lensClarity: .98, tangentSmear: .58, centerLensPx: 22, edgeDarkness: .46, highlightStrength: .48, brightness: 1.04 },
+  apple: { surfaceWidth: .22, surfaceSteepness: 1.10, refractionGainPx: 138, slopeResponse: .66, lensClarity: .88, tangentSmear: .40, centerLensPx: 18, edgeDarkness: .38, highlightStrength: .52, brightness: 1.03 },
+  reset: DEFAULTS
+};
+const META = [
+  ['surfaceWidth', '曲面宽度', .05, .65, .01],
+  ['surfaceSteepness', '曲面陡度', .45, 2.8, .01],
+  ['refractionGainPx', '折射增益', 0, 260, 1],
+  ['slopeResponse', '坡面响应', .30, 1.30, .01],
+  ['lensClarity', '清晰采样', 0, 1.60, .01],
+  ['tangentSmear', '切向拖色', 0, 1.80, .01],
+  ['centerLensPx', '中心透镜', 0, 90, 1],
+  ['edgeDarkness', '暗边厚度', 0, 1.80, .01],
+  ['highlightStrength', '高光/光场', 0, 1.60, .01],
+  ['brightness', '样本亮度', .55, 1.80, .01]
+];
+let params = {...DEFAULTS};
+
+const canvas = document.getElementById('gl');
+const stage = document.getElementById('stage');
+const wrap = document.getElementById('glassWrap');
+const bg = document.getElementById('bg');
+const output = document.getElementById('output');
+const toast = document.getElementById('toast');
+const gl = canvas.getContext('webgl', { premultipliedAlpha: false, alpha: true, antialias: true });
+if (!gl) alert('当前浏览器不支持 WebGL。');
+
+const vertexSource = `
+attribute vec2 aPosition;
+void main() { gl_Position = vec4(aPosition, 0.0, 1.0); }
+`;
+const fragmentSource = `
+precision highp float;
+uniform vec2 uResolution;
+uniform vec4 uOpticsA;
+uniform vec4 uOpticsB;
+uniform vec4 uOpticsC;
+uniform sampler2D uTexture;
+
+float sat(float x) { return clamp(x, 0.0, 1.0); }
+vec2 clampUv(vec2 uv) { return clamp(uv, vec2(0.0), vec2(1.0)); }
+vec2 safeGlassUv(vec2 uv) { return clamp(uv, vec2(0.018), vec2(0.982)); }
+
+float roundedBoxSdf(vec2 coord, vec2 rectSize, float radius) {
+  vec2 p = coord - rectSize * 0.5;
+  vec2 halfSize = rectSize * 0.5;
+  vec2 q = abs(p) - max(halfSize - vec2(radius), vec2(0.0));
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+vec3 sampleTex(vec2 uv) { return texture2D(uTexture, clampUv(uv)).rgb; }
+
+vec3 sampleBlurApprox(vec2 uv) {
+  vec2 px = vec2(1.0) / max(uResolution, vec2(1.0));
+  vec3 c = sampleTex(uv) * .38;
+  c += sampleTex(uv + vec2(px.x * 2.0, 0.0)) * .12;
+  c += sampleTex(uv - vec2(px.x * 2.0, 0.0)) * .12;
+  c += sampleTex(uv + vec2(0.0, px.y * 2.0)) * .12;
+  c += sampleTex(uv - vec2(0.0, px.y * 2.0)) * .12;
+  c += sampleTex(uv + vec2(px.x * 2.2, px.y * 2.2)) * .07;
+  c += sampleTex(uv - vec2(px.x * 2.2, px.y * 2.2)) * .07;
+  return c;
+}
+
+float edgeProfileAt(float sd, float fieldWidth, float steepness) {
+  float inside = max(-sd, 0.0);
+  float shape = 1.0 - smoothstep(0.0, 3.0, sd);
+  float t = inside / max(fieldWidth, 1.0);
+  float curve = pow(max(t, 0.0), max(steepness, 0.35));
+  return exp(-curve * 1.42) * shape;
+}
+
+float surfaceHeightAt(vec2 coord, vec2 rectSize, float radius) {
+  float sd = roundedBoxSdf(coord, rectSize, radius);
+  float minSide = max(min(rectSize.x, rectSize.y), 1.0);
+  float fieldWidth = minSide * (0.06 + uOpticsA.x * 0.28);
+  float edgeProfile = edgeProfileAt(sd, fieldWidth, uOpticsA.y);
+  float shape = 1.0 - smoothstep(0.0, 3.0, sd);
+  vec2 local = clampUv(coord / rectSize);
+  vec2 p = local * 2.0 - 1.0;
+  p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35) * 0.42;
+  float centerD = length(p);
+  float dome = pow(sat(1.0 - centerD * 0.74), 1.82);
+  float bridge = pow(sat(edgeProfile * dome), 0.62);
+  float cornerFocus = sat(length((local - vec2(0.5)) * vec2(rectSize.x / max(rectSize.y, 1.0), 1.0)) * 1.22 - 0.20);
+  float height = edgeProfile * 0.58 + bridge * 0.22 + dome * 0.14 + cornerFocus * edgeProfile * 0.11;
+  return height * shape;
+}
+
+vec3 materialFlowAt(vec2 uv, float shoulderEnergy, float body, float strength) {
+  float waveA = 0.34 + 0.070 * sin(uv.x * 5.3 + 0.40) + 0.026 * sin(uv.x * 13.1);
+  float waveB = 0.68 + 0.060 * sin(uv.x * 4.4 + 1.75) - 0.022 * cos(uv.x * 10.2);
+  float bandA = exp(-pow(abs(uv.y - waveA) * 8.4, 2.0));
+  float bandB = exp(-pow(abs(uv.y - waveB) * 8.8, 2.0));
+  float diagonal = exp(-pow(abs((uv.x * 0.70 + uv.y * 0.58) - 0.82) * 6.6, 2.0));
+  float softField = sat(0.18 + shoulderEnergy * 0.42 + body * 0.18);
+  vec3 blue = vec3(0.08, 0.48, 1.00) * bandA;
+  vec3 cyan = vec3(0.42, 0.92, 1.00) * diagonal;
+  vec3 warm = vec3(1.00, 0.55, 0.78) * bandB;
+  return (blue + cyan * 0.58 + warm * 0.48) * softField * strength;
+}
+
+vec2 softLimitPx(vec2 v, float limitPx) {
+  float len = length(v);
+  float softLen = len / (1.0 + len / max(limitPx, 1.0));
+  return v * (softLen / max(len, 0.0001));
+}
+
+void main() {
+  vec2 coord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+  vec2 rectSize = max(uResolution, vec2(1.0));
+  float radius = min(54.0, min(rectSize.x, rectSize.y) * 0.5);
+  float sd = roundedBoxSdf(coord, rectSize, radius);
+  float mask = 1.0 - smoothstep(0.0, 1.40, sd);
+  if (mask <= 0.001) discard;
+  vec2 uv = coord / rectSize;
+  vec2 centerDelta = uv - vec2(0.5);
+  centerDelta.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35);
+  float centerD = length(centerDelta);
+  float body = pow(sat(1.0 - centerD * 0.78), 1.60);
+  float minSide = max(min(rectSize.x, rectSize.y), 1.0);
+  float fieldWidth = minSide * (0.06 + uOpticsA.x * 0.28);
+  float inside = max(-sd, 0.0);
+  float edgeProfile = edgeProfileAt(sd, fieldWidth, uOpticsA.y);
+  float edgeSafe = smoothstep(1.5, 12.0, inside);
+  float stepPx = 2.0;
+  float pL = surfaceHeightAt(coord - vec2(stepPx, 0.0), rectSize, radius);
+  float pR = surfaceHeightAt(coord + vec2(stepPx, 0.0), rectSize, radius);
+  float pU = surfaceHeightAt(coord - vec2(0.0, stepPx), rectSize, radius);
+  float pD = surfaceHeightAt(coord + vec2(0.0, stepPx), rectSize, radius);
+  vec2 grad = vec2(pR - pL, pD - pU) * 0.5;
+  float slope = length(grad);
+  vec2 gradDir = grad / max(slope, 0.0001);
+  vec2 bodyDir = centerDelta / max(centerD, 0.0001);
+  float response = max(uOpticsA.w, 0.25);
+  float slopeEnergy = pow(sat(slope * 8.2 + edgeProfile * 0.055), response);
+  float shoulderEnergy = sat(edgeProfile * 0.22 + slopeEnergy * 0.70);
+  vec2 slopeRefract = gradDir * slopeEnergy * uOpticsA.z * 0.52 * (0.24 + shoulderEnergy * 0.62);
+  vec2 bodyLens = -bodyDir * body * uOpticsB.z * 0.18;
+  vec2 flow = softLimitPx(slopeRefract + bodyLens, mix(26.0, 72.0, shoulderEnergy));
+  vec2 refractedUv = safeGlassUv(uv + flow / max(rectSize, vec2(1.0)));
+  vec3 blurColor = sampleBlurApprox(refractedUv);
+  vec3 lensColor = sampleTex(refractedUv);
+  float lensMix = sat((0.12 + shoulderEnergy * 0.54 + body * 0.05) * uOpticsB.x * 0.78);
+  vec3 color = mix(blurColor, lensColor, lensMix);
+  float materialStrength = sat(uOpticsC.x * 0.62 + uOpticsB.x * 0.18);
+  vec3 materialFlow = materialFlowAt(safeGlassUv(refractedUv + gradDir * shoulderEnergy * 0.010), shoulderEnergy, body, materialStrength);
+  color = mix(color, max(color, materialFlow), sat(materialStrength * (0.14 + shoulderEnergy * 0.24 + body * 0.08)));
+  float smear = sat((slopeEnergy * 0.55 + edgeProfile * 0.20) * uOpticsB.y * 0.36 * edgeSafe);
+  if (smear > 0.002) {
+    vec2 tangent = vec2(-gradDir.y, gradDir.x);
+    vec2 tangentPx = tangent * (3.0 + 18.0 * smear) / max(rectSize, vec2(1.0));
+    vec2 normalPx = gradDir * (2.0 + 7.0 * smear) / max(rectSize, vec2(1.0));
+    vec3 drag = sampleTex(refractedUv + tangentPx) * 0.34;
+    drag += sampleTex(refractedUv - tangentPx) * 0.34;
+    drag += sampleBlurApprox(refractedUv + normalPx) * 0.16;
+    drag += sampleBlurApprox(refractedUv - normalPx) * 0.16;
+    color = mix(color, drag, sat(smear * 0.20));
+  }
+  float rimCore = (1.0 - smoothstep(0.0, 6.5, abs(sd))) * mask;
+  float rimInner = smoothstep(2.0, 11.0, inside) * (1.0 - smoothstep(11.0, 40.0, inside)) * mask;
+  float topBias = sat(1.0 - uv.y * 1.72);
+  float bottomBias = sat((uv.y - 0.30) * 1.72);
+  float rimAmount = sat(uOpticsC.x * 0.56 + uOpticsB.w * 0.32);
+  color += vec3(0.80, 0.96, 1.00) * (rimCore * 0.22 + rimInner * 0.13) * topBias * rimAmount;
+  color += vec3(1.00, 0.62, 0.82) * (rimCore * 0.15 + rimInner * 0.10) * bottomBias * rimAmount;
+  color += vec3(0.28, 0.68, 1.00) * rimInner * 0.09 * rimAmount;
+  color -= vec3(0.040, 0.052, 0.064) * rimInner * uOpticsB.w * 0.16;
+  float lightFacing = sat(0.54 - gradDir.y * 0.36 + gradDir.x * 0.05);
+  float highlight = sat((slopeEnergy * 0.30 + edgeProfile * 0.08 + body * 0.018) * lightFacing * uOpticsC.x);
+  color *= uOpticsC.y * (1.0 + highlight * 0.20);
+  color += vec3(0.028, 0.046, 0.058) * highlight;
+  color -= vec3(0.040, 0.052, 0.064) * uOpticsB.w * shoulderEnergy * 0.82;
+  color += vec3(0.014, 0.026, 0.034) * body * 0.055;
+  color = clamp(color, 0.0, 1.0);
+  gl_FragColor = vec4(color, 0.90 * mask);
+}
+`;
+
+function compile(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader));
+  return shader;
+}
+function createProgram() {
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vertexSource));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragmentSource));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+  return program;
+}
+const program = createProgram();
+const loc = {
+  aPosition: gl.getAttribLocation(program, 'aPosition'),
+  resolution: gl.getUniformLocation(program, 'uResolution'),
+  opticsA: gl.getUniformLocation(program, 'uOpticsA'),
+  opticsB: gl.getUniformLocation(program, 'uOpticsB'),
+  opticsC: gl.getUniformLocation(program, 'uOpticsC'),
+  texture: gl.getUniformLocation(program, 'uTexture')
+};
+const buffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const texture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, texture);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+let bgImage = new Image();
+function makeDefaultImage() {
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 760;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, c.width, c.height);
+  g.addColorStop(0, '#061f5a'); g.addColorStop(.42, '#58caff'); g.addColorStop(.70, '#17255d'); g.addColorStop(1, '#ff8aa1');
+  ctx.fillStyle = g; ctx.fillRect(0,0,c.width,c.height);
+  ctx.globalAlpha = .58;
+  for (let i = 0; i < 9; i++) {
+    ctx.strokeStyle = i % 2 ? '#ffffff' : '#78e9ff'; ctx.lineWidth = 5 + i * .7;
+    ctx.beginPath();
+    ctx.moveTo(-60, 120 + i * 54);
+    ctx.bezierCurveTo(260, 20 + i * 10, 520, 330 - i * 30, 1280, 140 + i * 20);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = .32;
+  for (let x = 80; x < 1160; x += 110) { ctx.fillStyle = '#ffffff'; ctx.fillRect(x, 84, 64, 13); }
+  return c.toDataURL('image/png');
+}
+function setImage(src) {
+  bg.style.backgroundImage = `url(${src})`;
+  bgImage = new Image();
+  bgImage.onload = () => { uploadTexture(bgImage); render(); };
+  bgImage.src = src;
+}
+function uploadTexture(img) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 1024;
+  const ctx = c.getContext('2d');
+  const ratio = Math.max(c.width / img.width, c.height / img.height);
+  const w = img.width * ratio, h = img.height * ratio;
+  ctx.drawImage(img, (c.width - w) / 2, (c.height - h) / 2, w, h);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+}
+function resize() {
+  const r = wrap.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.floor(r.width * dpr));
+  canvas.height = Math.max(1, Math.floor(r.height * dpr));
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  render();
+}
+function render() {
+  if (!gl) return;
+  gl.clearColor(0,0,0,0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(program);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.enableVertexAttribArray(loc.aPosition);
+  gl.vertexAttribPointer(loc.aPosition, 2, gl.FLOAT, false, 0, 0);
+  gl.uniform2f(loc.resolution, canvas.width, canvas.height);
+  gl.uniform4f(loc.opticsA, params.surfaceWidth, params.surfaceSteepness, params.refractionGainPx, params.slopeResponse);
+  gl.uniform4f(loc.opticsB, params.lensClarity, params.tangentSmear, params.centerLensPx, params.edgeDarkness);
+  gl.uniform4f(loc.opticsC, params.highlightStrength, params.brightness, 0, 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texture); gl.uniform1i(loc.texture, 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+function buildControls() {
+  const root = document.getElementById('controls');
+  root.innerHTML = '';
+  META.forEach(([key, label, min, max, step]) => {
+    const box = document.createElement('div'); box.className = 'control';
+    box.innerHTML = `<div class="controlHead"><strong>${label}</strong><small id="v-${key}"></small></div><input id="i-${key}" type="range" min="${min}" max="${max}" step="${step}" value="${params[key]}">`;
+    root.appendChild(box);
+    const input = box.querySelector('input');
+    input.addEventListener('input', () => { params[key] = parseFloat(input.value); updateOutput(); render(); });
+  });
+  updateOutput();
+}
+function kotlinText() {
+  return `OpenGLLiquidPotentialLabOptics(\n` +
+    `    surfaceWidth = ${params.surfaceWidth.toFixed(2)}f,\n` +
+    `    surfaceSteepness = ${params.surfaceSteepness.toFixed(2)}f,\n` +
+    `    refractionGainPx = ${params.refractionGainPx.toFixed(0)}f,\n` +
+    `    slopeResponse = ${params.slopeResponse.toFixed(2)}f,\n` +
+    `    lensClarity = ${params.lensClarity.toFixed(2)}f,\n` +
+    `    tangentSmear = ${params.tangentSmear.toFixed(2)}f,\n` +
+    `    centerLensPx = ${params.centerLensPx.toFixed(0)}f,\n` +
+    `    edgeDarkness = ${params.edgeDarkness.toFixed(2)}f,\n` +
+    `    highlightStrength = ${params.highlightStrength.toFixed(2)}f,\n` +
+    `    brightness = ${params.brightness.toFixed(2)}f\n` +
+    `)`;
+}
+function updateOutput() {
+  META.forEach(([key]) => {
+    const el = document.getElementById(`v-${key}`); if (el) el.textContent = String(Math.round(params[key] * 100) / 100);
+    const input = document.getElementById(`i-${key}`); if (input && parseFloat(input.value) !== params[key]) input.value = params[key];
+  });
+  output.value = JSON.stringify(params, null, 2) + '\n\n' + kotlinText();
+}
+function applyPreset(name) {
+  params = {...PRESETS[name]}; updateOutput(); render();
+}
+async function copy(text) {
+  await navigator.clipboard.writeText(text);
+  toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1100);
+}
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
+document.getElementById('copyJson').addEventListener('click', () => copy(JSON.stringify(params, null, 2)));
+document.getElementById('copyKotlin').addEventListener('click', () => copy(kotlinText()));
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  const reader = new FileReader(); reader.onload = () => setImage(reader.result); reader.readAsDataURL(f);
+});
+window.addEventListener('resize', resize);
+setImage(makeDefaultImage());
+buildControls();
+setTimeout(resize, 0);
+</script>
+</body>
+</html>
