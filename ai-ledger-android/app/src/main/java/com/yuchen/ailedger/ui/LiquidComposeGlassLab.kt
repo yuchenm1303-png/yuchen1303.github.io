@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,35 +32,41 @@ import kotlin.math.roundToInt
 
 @Composable
 fun LiquidComposeGlassLab(state: AssistantUiState) {
-    var potentialDepth by rememberSaveable { mutableStateOf(1.06f) }
-    var refractionScale by rememberSaveable { mutableStateOf(92f) }
-    var centerLens by rememberSaveable { mutableStateOf(18f) }
-    var edgeFocus by rememberSaveable { mutableStateOf(1.02f) }
-    var flowSmear by rememberSaveable { mutableStateOf(0.82f) }
-    var lensBlend by rememberSaveable { mutableStateOf(0.76f) }
-    var brightness by rememberSaveable { mutableStateOf(1.04f) }
-    var darkEdge by rememberSaveable { mutableStateOf(0.62f) }
+    var surfaceWidth by rememberSaveable { mutableStateOf(0.24f) }
+    var surfaceSteepness by rememberSaveable { mutableStateOf(1.35f) }
+    var refractionGain by rememberSaveable { mutableStateOf(150f) }
+    var slopeResponse by rememberSaveable { mutableStateOf(0.62f) }
+    var lensClarity by rememberSaveable { mutableStateOf(0.92f) }
+    var tangentSmear by rememberSaveable { mutableStateOf(0.86f) }
+    var centerLens by rememberSaveable { mutableStateOf(22f) }
+    var edgeDarkness by rememberSaveable { mutableStateOf(0.62f) }
+    var highlightStrength by rememberSaveable { mutableStateOf(0.58f) }
+    var brightness by rememberSaveable { mutableStateOf(1.03f) }
 
     fun resetValues() {
-        potentialDepth = 1.06f
-        refractionScale = 92f
-        centerLens = 18f
-        edgeFocus = 1.02f
-        flowSmear = 0.82f
-        lensBlend = 0.76f
-        brightness = 1.04f
-        darkEdge = 0.62f
+        surfaceWidth = 0.24f
+        surfaceSteepness = 1.35f
+        refractionGain = 150f
+        slopeResponse = 0.62f
+        lensClarity = 0.92f
+        tangentSmear = 0.86f
+        centerLens = 22f
+        edgeDarkness = 0.62f
+        highlightStrength = 0.58f
+        brightness = 1.03f
     }
 
     val optics = OpenGLLiquidPotentialLabOptics(
-        potentialDepth = potentialDepth,
-        refractionScalePx = refractionScale,
+        surfaceWidth = surfaceWidth,
+        surfaceSteepness = surfaceSteepness,
+        refractionGainPx = refractionGain,
+        slopeResponse = slopeResponse,
+        lensClarity = lensClarity,
+        tangentSmear = tangentSmear,
         centerLensPx = centerLens,
-        edgeFocus = edgeFocus,
-        flowSmear = flowSmear,
-        lensBlend = lensBlend,
-        brightness = brightness,
-        darkEdge = darkEdge
+        edgeDarkness = edgeDarkness,
+        highlightStrength = highlightStrength,
+        brightness = brightness
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -100,14 +105,16 @@ fun LiquidComposeGlassLab(state: AssistantUiState) {
             }
         }
 
-        LiquidComposeSlider("势能深度", "连续厚度场整体强度；越高整块玻璃越像厚透镜", potentialDepth, 0.20f..2.20f) { potentialDepth = it }
-        LiquidComposeSlider("坡面折射", "由势能梯度产生的折射位移；决定背景扭曲强度", refractionScale, 0f..180f) { refractionScale = it }
-        LiquidComposeSlider("中心透镜", "中心区域的大尺度柔和透镜，不再让中心完全静止", centerLens, 0f..72f) { centerLens = it }
-        LiquidComposeSlider("边缘聚焦", "连续场靠近边缘处的斜率集中程度", edgeFocus, 0.35f..2.20f) { edgeFocus = it }
-        LiquidComposeSlider("流动拖色", "沿势能坡面切线拖拽背景颜色", flowSmear, 0f..1.60f) { flowSmear = it }
-        LiquidComposeSlider("透镜混合", "高斜率区域混合 lens 纹理的强度", lensBlend, 0f..1.50f) { lensBlend = it }
+        LiquidComposeSlider("曲面宽度", "从边缘向内延伸的连续坡面宽度", surfaceWidth, 0.05f..0.65f) { surfaceWidth = it }
+        LiquidComposeSlider("曲面陡度", "边缘到内侧的高度衰减速度", surfaceSteepness, 0.45f..2.80f) { surfaceSteepness = it }
+        LiquidComposeSlider("折射增益", "高度场法线产生的背景位移强度", refractionGain, 0f..260f) { refractionGain = it }
+        LiquidComposeSlider("坡面响应", "小值会抬高中等坡度，让交界带更明显", slopeResponse, 0.30f..1.30f) { slopeResponse = it }
+        LiquidComposeSlider("清晰采样", "坡面区域 lens 纹理参与比例，避免 blur 吃掉折射", lensClarity, 0f..1.60f) { lensClarity = it }
+        LiquidComposeSlider("切向拖色", "沿圆角边缘方向拉开背景色块", tangentSmear, 0f..1.80f) { tangentSmear = it }
+        LiquidComposeSlider("中心透镜", "中心区域低频透镜，不让中间死平", centerLens, 0f..90f) { centerLens = it }
+        LiquidComposeSlider("暗边厚度", "坡面和边缘的厚玻璃暗部", edgeDarkness, 0f..1.80f) { edgeDarkness = it }
+        LiquidComposeSlider("高光强度", "跟随坡面法线生成的辅助高光", highlightStrength, 0f..1.60f) { highlightStrength = it }
         LiquidComposeSlider("整体亮度", "实验样本的折射结果亮度", brightness, 0.55f..1.80f) { brightness = it }
-        LiquidComposeSlider("暗部厚度", "高斜率边缘和交界处的暗角厚度", darkEdge, 0f..1.60f) { darkEdge = it }
 
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
             LiquidComposeActionButton("重置势能场", "恢复连续折射默认值", state, Modifier.weight(1f)) { resetValues() }
