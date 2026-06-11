@@ -7,10 +7,13 @@ package com.yuchen.ailedger.ui
  * frost, tint, edgeDepth, innerBevel, sideBevel, shadow.
  */
 object ComposeGlassRuntimeDefaults {
-    const val backdrop = 1.54f
+    const val backdrop = 1.22f
     const val frost = 0.15f
     const val tint = 0.00f
     const val quiet = 1.40f
+    const val bodyAbsorption = 0.46f
+    const val lowerBodyMass = 0.34f
+    const val innerTransition = 0.24f
 
     const val topLight = 1.21f
     const val topWidthDp = 0.05f
