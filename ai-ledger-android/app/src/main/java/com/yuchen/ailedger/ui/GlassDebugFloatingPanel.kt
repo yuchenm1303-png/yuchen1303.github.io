@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabLayer
+import com.yuchen.ailedger.ui.gl.OpenGLLiquidPotentialLabOptics
 import kotlin.math.roundToInt
 
 @Composable
@@ -52,7 +54,7 @@ fun GlassDebugFloatingPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout(
             title = "OpenGL",
-            subtitle = "Shell 大玻璃 / OpenGL 折射 / 水滴采样 / 调试参数",
+            subtitle = "连续势能折射样本 / Shell 参数 / 仅实验室调试",
             initiallyExpanded = false,
             state = state
         ) {
@@ -115,49 +117,127 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
+private fun OpenGlLiquidPotentialPreview(optics: OpenGLLiquidPotentialLabOptics) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(168.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF071225).copy(alpha = 0.36f))
+    ) {
+        OpenGLLiquidPotentialLabLayer(
+            optics = optics,
+            radiusDp = 28,
+            modifier = Modifier.matchParentSize()
+        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("连续势能 OpenGL 样本", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("只替换实验室样本；主界面 OpenGLGlassCardLayer 不受影响", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("Lab", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.070f))
+                    .padding(horizontal = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    listOf("Potential", "Slope", "Lens").forEachIndexed { index, label ->
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            Text(label, color = Color.White.copy(alpha = if (index == 1) 0.88f else 0.62f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            Text("用一个连续厚度势能场驱动折射，让边缘、交界和中心自然衔接。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+        }
+    }
+}
+
+@Composable
 private fun OpenGlGlassLab(
     state: AssistantUiState,
     style: GlassBorderStyle,
     onBorderChange: (GlassBorderStyle) -> Unit
 ) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.70f,
-        motionIntensity = state.motionIntensity,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth().height(120.dp),
-        role = GlassRole.Shell,
-        onClick = {}
-    ) {
-        Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text("OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ComposeGlassPreviewMetric("可见", style.openGlVisibility, Modifier.weight(1f))
-                ComposeGlassPreviewMetric("透明", style.openGlMaxAlpha, Modifier.weight(1f))
-                ComposeGlassPreviewMetric("亮度", style.edgeBrightness, Modifier.weight(1f))
-            }
-        }
+    var potentialDepth by rememberSaveable { mutableStateOf(1.06f) }
+    var refractionScale by rememberSaveable { mutableStateOf(92f) }
+    var centerLens by rememberSaveable { mutableStateOf(18f) }
+    var edgeFocus by rememberSaveable { mutableStateOf(1.02f) }
+    var flowSmear by rememberSaveable { mutableStateOf(0.82f) }
+    var lensBlend by rememberSaveable { mutableStateOf(0.76f) }
+    var potentialBrightness by rememberSaveable { mutableStateOf(1.04f) }
+    var potentialDarkEdge by rememberSaveable { mutableStateOf(0.62f) }
+
+    fun resetPotential() {
+        potentialDepth = 1.06f
+        refractionScale = 92f
+        centerLens = 18f
+        edgeFocus = 1.02f
+        flowSmear = 0.82f
+        lensBlend = 0.76f
+        potentialBrightness = 1.04f
+        potentialDarkEdge = 0.62f
     }
-    GlassControlGroup("可见与明暗", "整体透明、亮度与边缘暗部", state, true) {
-        LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
-        LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
-        LabSlider("边缘亮度", "折射结果的整体明亮度", style.edgeBrightness, 0.20f..2.40f) { onBorderChange(style.copy(edgeBrightness = it)) }
-        LabSlider("边缘暗部", "边缘暗角与厚度阴影", style.openGlDarkScale, -4f..4f) { onBorderChange(style.copy(openGlDarkScale = it)) }
+
+    val optics = OpenGLLiquidPotentialLabOptics(
+        potentialDepth = potentialDepth,
+        refractionScalePx = refractionScale,
+        centerLensPx = centerLens,
+        edgeFocus = edgeFocus,
+        flowSmear = flowSmear,
+        lensBlend = lensBlend,
+        brightness = potentialBrightness,
+        darkEdge = potentialDarkEdge
+    )
+
+    OpenGlLiquidPotentialPreview(optics)
+
+    GlassControlGroup("连续势能折射", "实验室新样本专用参数，不写入主界面 OpenGL", state, true) {
+        LabSlider("势能深度", "连续厚度场整体强度", potentialDepth, 0.20f..2.20f) { potentialDepth = it }
+        LabSlider("坡面折射", "由势能梯度产生的背景扭曲", refractionScale, 0f..180f) { refractionScale = it }
+        LabSlider("中心透镜", "中心区域柔和透镜，避免中间静止", centerLens, 0f..72f) { centerLens = it }
+        LabSlider("边缘聚焦", "连续场靠近边缘处的斜率集中程度", edgeFocus, 0.35f..2.20f) { edgeFocus = it }
+        LabSlider("流动拖色", "沿势能坡面切线拖拽背景颜色", flowSmear, 0f..1.60f) { flowSmear = it }
+        LabSlider("透镜混合", "高斜率区域混合 lens 纹理", lensBlend, 0f..1.50f) { lensBlend = it }
+        LabSlider("样本亮度", "连续势能样本折射结果亮度", potentialBrightness, 0.55f..1.80f) { potentialBrightness = it }
+        LabSlider("暗部厚度", "高斜率边缘和交界处暗角", potentialDarkEdge, 0f..1.60f) { potentialDarkEdge = it }
     }
-    GlassControlGroup("折射结构", "主体拉力、边缘拉力、透镜压缩与角部厚度", state, true) {
-        LabSlider("主体折射", "玻璃主体对背景的拉动强度", style.openGlPullScale, -120f..180f) { onBorderChange(style.copy(openGlPullScale = it)) }
-        LabSlider("边缘拉力", "靠边区域的折射拖拽方向与力度", style.edgePullDp, -600f..220f) { onBorderChange(style.copy(edgePullDp = it)) }
-        LabSlider("透镜压缩", "边缘核心与按压时的 lens 混合", style.openGlCompressionScale, -10f..10f) { onBorderChange(style.copy(openGlCompressionScale = it)) }
-        LabSlider("角部厚度", "圆角厚度梯度放大系数", style.openGlCornerScale, 0f..200f) { onBorderChange(style.copy(openGlCornerScale = it)) }
+
+    GlassControlGroup("主界面 OpenGL 参数", "保留原 Shell 玻璃参数，方便对照，不影响上方新样本", state, false) {
+        LabSlider("可见强度", "主界面 OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
+        LabSlider("最大透明", "主界面 OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
+        LabSlider("边缘亮度", "主界面折射结果整体明亮度", style.edgeBrightness, 0.20f..2.40f) { onBorderChange(style.copy(edgeBrightness = it)) }
+        LabSlider("边缘暗部", "主界面边缘暗角与厚度阴影", style.openGlDarkScale, -4f..4f) { onBorderChange(style.copy(openGlDarkScale = it)) }
+        LabSlider("主体折射", "主界面玻璃主体对背景的拉动强度", style.openGlPullScale, -120f..180f) { onBorderChange(style.copy(openGlPullScale = it)) }
+        LabSlider("边缘拉力", "主界面靠边区域的折射拖拽", style.edgePullDp, -600f..220f) { onBorderChange(style.copy(edgePullDp = it)) }
+        LabSlider("透镜压缩", "主界面边缘核心与按压 lens 混合", style.openGlCompressionScale, -10f..10f) { onBorderChange(style.copy(openGlCompressionScale = it)) }
+        LabSlider("角部厚度", "主界面圆角厚度梯度放大系数", style.openGlCornerScale, 0f..200f) { onBorderChange(style.copy(openGlCornerScale = it)) }
+        LabSlider("边缘宽度", "主界面 rim 宽度", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
+        LabSlider("采样半径", "主界面额外多点采样；0 为最快默认路径", style.openGlSampleRadiusScale, 0f..48f) { onBorderChange(style.copy(openGlSampleRadiusScale = it)) }
+        LabSlider("调试线", "主界面橙色边界线", style.openGlDebugLineAlpha, 0f..1f) { onBorderChange(style.copy(openGlDebugLineAlpha = it)) }
     }
-    GlassControlGroup("边缘与采样", "边缘宽度、额外采样半径和调试线", state, true) {
-        LabSlider("边缘宽度", "rim 宽度，同时影响拖色区域", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
-        LabSlider("采样半径", "额外多点采样；0 为最快默认路径", style.openGlSampleRadiusScale, 0f..48f) { onBorderChange(style.copy(openGlSampleRadiusScale = it)) }
-        LabSlider("调试线", "橙色边界线，仅调试时打开", style.openGlDebugLineAlpha, 0f..1f) { onBorderChange(style.copy(openGlDebugLineAlpha = it)) }
+
+    GlassControlGroup("无效参数清理", "OpenGL 无效字段已隐藏，兼容字段不暴露", state, false) {
+        LabStaticInfo("已删除", "openGlEdgeWidthScale / openGlSpecularScale / openGlChromaticScale")
+        LabStaticInfo("兼容保留", "GlassBorderStyle.bodyAlpha 供旧统一背景层读取")
+        LabStaticInfo("不暴露", "OpenGL 调参栏不提供 bodyAlpha 滑块")
     }
+
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        LabActionButton("重置 OpenGL", "恢复 Shell 默认", state, Modifier.weight(1f)) { onBorderChange(GlassBorderStyle()) }
-        LabActionButton("最快路径", "关闭额外采样", state, Modifier.weight(1f)) { onBorderChange(style.copy(openGlSampleRadiusScale = 0f, openGlDebugLineAlpha = 0f)) }
+        LabActionButton("重置势能场", "恢复实验室新样本", state, Modifier.weight(1f)) { resetPotential() }
+        LabActionButton("重置主 OpenGL", "恢复主 Shell 默认", state, Modifier.weight(1f)) { onBorderChange(GlassBorderStyle()) }
     }
 }
 
