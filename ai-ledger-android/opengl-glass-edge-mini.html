@@ -31,7 +31,7 @@ apple:{bodyWidth:.96,bodyCurve:.68,bodyGain:520,edgePos:.84,edgeWidth:.07,edgeGa
 let p={...presets.apple};
 const stage=document.getElementById('stage'),scroll=document.getElementById('scroll'),glassEl=document.getElementById('glass'),bg=document.getElementById('bg'),cv=document.getElementById('gl'),out=document.getElementById('out');
 const g=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
-const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.)}';
+const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const fs=`precision highp float;
 uniform vec2 r; uniform vec4 A,B,C,R; uniform sampler2D T;
 float sat(float x){return clamp(x,0.,1.);} 
