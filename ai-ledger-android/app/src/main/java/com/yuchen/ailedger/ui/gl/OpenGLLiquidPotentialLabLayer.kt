@@ -583,6 +583,19 @@ private class LabRenderer {
                 return height * shape;
             }
 
+            vec3 materialFlowAt(vec2 uv, float shoulderEnergy, float body, float strength) {
+                float waveA = 0.34 + 0.070 * sin(uv.x * 5.3 + 0.40) + 0.026 * sin(uv.x * 13.1);
+                float waveB = 0.68 + 0.060 * sin(uv.x * 4.4 + 1.75) - 0.022 * cos(uv.x * 10.2);
+                float bandA = exp(-pow(abs(uv.y - waveA) * 8.4, 2.0));
+                float bandB = exp(-pow(abs(uv.y - waveB) * 8.8, 2.0));
+                float diagonal = exp(-pow(abs((uv.x * 0.70 + uv.y * 0.58) - 0.82) * 6.6, 2.0));
+                float softField = sat(0.18 + shoulderEnergy * 0.42 + body * 0.18);
+                vec3 blue = vec3(0.08, 0.48, 1.00) * bandA;
+                vec3 cyan = vec3(0.42, 0.92, 1.00) * diagonal;
+                vec3 warm = vec3(1.00, 0.55, 0.78) * bandB;
+                return (blue + cyan * 0.58 + warm * 0.48) * softField * strength;
+            }
+
             vec2 softLimitPx(vec2 v, float limitPx) {
                 float len = length(v);
                 float softLen = len / (1.0 + len / max(limitPx, 1.0));
@@ -632,6 +645,10 @@ private class LabRenderer {
                 float lensMix = sat((0.12 + shoulderEnergy * 0.54 + body * 0.05) * uOpticsB.x * 0.78);
                 vec3 color = mix(blurColor, lensColor, lensMix);
 
+                float materialStrength = sat(uOpticsC.x * 0.62 + uOpticsB.x * 0.18);
+                vec3 materialFlow = materialFlowAt(safeGlassUv(refractedUv + gradDir * shoulderEnergy * 0.010), shoulderEnergy, body, materialStrength);
+                color = mix(color, max(color, materialFlow), sat(materialStrength * (0.14 + shoulderEnergy * 0.24 + body * 0.08)));
+
                 float smear = sat((slopeEnergy * 0.55 + edgeProfile * 0.20) * uOpticsB.y * 0.36 * edgeSafe);
                 if (smear > 0.002) {
                     vec2 tangent = vec2(-gradDir.y, gradDir.x);
@@ -641,14 +658,24 @@ private class LabRenderer {
                     drag += sampleLens(refractedUv - tangentPx) * 0.34;
                     drag += sampleBlur(refractedUv + normalPx) * 0.16;
                     drag += sampleBlur(refractedUv - normalPx) * 0.16;
-                    color = mix(color, drag, sat(smear * 0.24));
+                    color = mix(color, drag, sat(smear * 0.20));
                 }
 
+                float rimCore = (1.0 - smoothstep(0.0, 6.5, abs(sd))) * mask;
+                float rimInner = smoothstep(2.0, 11.0, inside) * (1.0 - smoothstep(11.0, 40.0, inside)) * mask;
+                float topBias = sat(1.0 - uv.y * 1.72);
+                float bottomBias = sat((uv.y - 0.30) * 1.72);
+                float rimAmount = sat(uOpticsC.x * 0.56 + uOpticsB.w * 0.32);
+                color += vec3(0.80, 0.96, 1.00) * (rimCore * 0.22 + rimInner * 0.13) * topBias * rimAmount;
+                color += vec3(1.00, 0.62, 0.82) * (rimCore * 0.15 + rimInner * 0.10) * bottomBias * rimAmount;
+                color += vec3(0.28, 0.68, 1.00) * rimInner * 0.09 * rimAmount;
+                color -= vec3(0.040, 0.052, 0.064) * rimInner * uOpticsB.w * 0.16;
+
                 float lightFacing = sat(0.54 - gradDir.y * 0.36 + gradDir.x * 0.05);
-                float highlight = sat((slopeEnergy * 0.36 + edgeProfile * 0.10 + body * 0.020) * lightFacing * uOpticsC.x);
-                color *= uOpticsC.y * (1.0 + highlight * 0.24);
-                color += vec3(0.030, 0.050, 0.064) * highlight;
-                color -= vec3(0.044, 0.056, 0.070) * uOpticsB.w * shoulderEnergy;
+                float highlight = sat((slopeEnergy * 0.30 + edgeProfile * 0.08 + body * 0.018) * lightFacing * uOpticsC.x);
+                color *= uOpticsC.y * (1.0 + highlight * 0.20);
+                color += vec3(0.028, 0.046, 0.058) * highlight;
+                color -= vec3(0.040, 0.052, 0.064) * uOpticsB.w * shoulderEnergy * 0.82;
                 color += vec3(0.014, 0.026, 0.034) * body * 0.055;
                 color = clamp(color, 0.0, 1.0);
                 gl_FragColor = vec4(color, 0.90 * mask);
