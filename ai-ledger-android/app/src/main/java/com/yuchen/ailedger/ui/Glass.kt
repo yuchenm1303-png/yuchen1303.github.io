@@ -29,10 +29,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -736,13 +739,13 @@ fun Modifier.glassSkin(
         val frost = ComposeGlassRuntimeDefaults.frost * intensityScale
         val quiet = glass.quiet
         val topLight = glass.topLight * intensityScale
-        val topWidth = glass.topWidthDp.dp.toPx().coerceAtLeast(0.05.dp.toPx())
-        val topVariation = glass.topVariation
+        val edgeWidth = glass.topWidthDp.dp.toPx().coerceAtLeast(0.05.dp.toPx())
+        val pathFlow = glass.topVariation
         val bottomLight = glass.bottomLight * intensityScale
         val bottomWidth = glass.bottomWidthDp.dp.toPx().coerceAtLeast(0.05.dp.toPx())
         val outerRim = glass.outerRim * intensityScale
         val bottomMass = glass.bottomMass * intensityScale
-        val sideLight = glass.sideLight * intensityScale
+        val sideCarry = glass.sideLight * intensityScale
 
         val baseField = Brush.linearGradient(
             colors = listOf(
@@ -764,119 +767,113 @@ fun Modifier.glassSkin(
             radius = maxOf(w, h) * 0.72f
         )
 
-        /*
-         * RoundedEdgeOpticalField:
-         * Every visible highlight is now derived from the real rounded-rect edge.
-         * No horizontal top/bottom fill rectangles are drawn here. Multiple inset
-         * strokes form a continuous distance field from the actual glass boundary.
-         */
-        val edgeFieldDepth = (radiusPx * 0.34f + maxOf(topWidth, bottomWidth) * 11.0f).coerceIn(5f, minOf(w, h) * 0.46f)
-        val edgeLayers = (4 + maxOf(topWidth, bottomWidth) * 1.55f).roundToInt().coerceIn(4, 12)
-        val massLayers = (3 + bottomWidth * 1.10f).roundToInt().coerceIn(3, 8)
+        // A single continuous rounded edge band: outer rounded rect minus inner rounded rect.
+        // This avoids the previous multi-stroke "tree rings" artifact completely.
+        val opticalBandWidth = (1.0.dp.toPx() + edgeWidth * 2.20f + bottomWidth * 0.72f).coerceIn(1.0.dp.toPx(), minOf(w, h) * 0.22f)
+        val innerLeft = opticalBandWidth
+        val innerTop = opticalBandWidth
+        val innerRight = (w - opticalBandWidth).coerceAtLeast(innerLeft + 1f)
+        val innerBottom = (h - opticalBandWidth).coerceAtLeast(innerTop + 1f)
+        val innerRadius = (radiusPx - opticalBandWidth).coerceAtLeast(0f)
+
+        val edgeBandPath = Path().apply {
+            fillType = PathFillType.EvenOdd
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+            addRoundRect(RoundRect(innerLeft, innerTop, innerRight, innerBottom, innerRadius, innerRadius))
+        }
+
+        val bottomMassWidth = (opticalBandWidth + bottomWidth * 2.10f).coerceIn(opticalBandWidth, minOf(w, h) * 0.28f)
+        val massInnerLeft = bottomMassWidth
+        val massInnerTop = bottomMassWidth
+        val massInnerRight = (w - bottomMassWidth).coerceAtLeast(massInnerLeft + 1f)
+        val massInnerBottom = (h - bottomMassWidth).coerceAtLeast(massInnerTop + 1f)
+        val massInnerRadius = (radiusPx - bottomMassWidth).coerceAtLeast(0f)
+        val bottomMassBandPath = Path().apply {
+            fillType = PathFillType.EvenOdd
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+            addRoundRect(RoundRect(massInnerLeft, massInnerTop, massInnerRight, massInnerBottom, massInnerRadius, massInnerRadius))
+        }
+
+        val topAlpha = (0.120f + 0.055f * pathFlow) * topLight
+        val sideAlpha = 0.028f * sideCarry
+        val bottomAlpha = 0.090f * bottomLight
+        val edgeBandBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color(0xFFEAF9FF).copy(alpha = topAlpha * 0.36f),
+                Color.White.copy(alpha = sideAlpha),
+                Color.Transparent,
+                Color.White.copy(alpha = bottomAlpha * 0.26f),
+                Color.White.copy(alpha = bottomAlpha)
+            ),
+            startY = 0f,
+            endY = h
+        )
+
+        val flowBrush = Brush.horizontalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha * 0.18f * pathFlow),
+                Color.White.copy(alpha = topAlpha * 0.04f),
+                Color.Transparent,
+                Color.White.copy(alpha = topAlpha * 0.08f * pathFlow),
+                Color.White.copy(alpha = topAlpha * 0.025f)
+            ),
+            startX = 0f,
+            endX = w
+        )
+
+        val bottomMassBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color(0xFF07132F).copy(alpha = 0.024f * bottomMass),
+                Color(0xFF030714).copy(alpha = 0.082f * bottomMass),
+                Color(0xFF00020A).copy(alpha = 0.180f * bottomMass)
+            ),
+            startY = 0f,
+            endY = h
+        )
 
         val rimField = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.135f * outerRim),
+                Color.White.copy(alpha = 0.120f * outerRim),
                 Color.White.copy(alpha = 0.018f * outerRim),
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.085f * bottomMass),
-                Color.White.copy(alpha = 0.015f * outerRim)
+                Color.Black.copy(alpha = 0.072f * bottomMass),
+                Color.White.copy(alpha = 0.014f * outerRim)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
 
-        fun insetCorner(inset: Float): CornerRadius {
-            val value = (radiusPx - inset).coerceAtLeast(0f)
-            return CornerRadius(value, value)
-        }
-
         onDrawWithContent {
             drawRect(baseField)
             drawRect(quietField)
 
-            for (layer in 0 until edgeLayers) {
-                val t = if (edgeLayers == 1) 0f else layer.toFloat() / (edgeLayers - 1).toFloat()
-                val falloff = (1f - t).coerceIn(0f, 1f)
-                val inset = (1.25.dp.toPx() + edgeFieldDepth * 0.42f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
-                val strokeWidth = (
-                    0.22.dp.toPx() +
-                        topWidth * (0.88f - 0.34f * t) +
-                        bottomWidth * (0.36f - 0.14f * t)
-                    ).coerceAtLeast(0.38.dp.toPx())
+            drawPath(
+                path = edgeBandPath,
+                brush = edgeBandBrush,
+                blendMode = BlendMode.Screen
+            )
 
-                val topAlpha = (0.070f + 0.045f * topVariation) * topLight * falloff * falloff
-                val shoulderAlpha = 0.014f * sideLight * falloff
-                val bottomAlpha = 0.060f * bottomLight * falloff * falloff
-                val edgeBrush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = topAlpha),
-                        Color(0xFFEAF9FF).copy(alpha = topAlpha * 0.44f),
-                        Color.White.copy(alpha = shoulderAlpha),
-                        Color.Transparent,
-                        Color.White.copy(alpha = bottomAlpha * 0.34f),
-                        Color.White.copy(alpha = bottomAlpha)
-                    ),
-                    startY = 0f,
-                    endY = h
-                )
-
-                drawRoundRect(
-                    brush = edgeBrush,
-                    topLeft = Offset(inset, inset),
-                    size = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f)),
-                    cornerRadius = insetCorner(inset),
-                    style = Stroke(strokeWidth),
-                    blendMode = BlendMode.Screen
-                )
-
-                if (topVariation > 0.001f && layer < 3) {
-                    val pathVariation = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = topAlpha * 0.42f * topVariation),
-                            Color.White.copy(alpha = topAlpha * 0.08f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = topAlpha * 0.16f * topVariation),
-                            Color.White.copy(alpha = topAlpha * 0.06f)
-                        ),
-                        startX = 0f,
-                        endX = w
-                    )
-                    drawRoundRect(
-                        brush = pathVariation,
-                        topLeft = Offset(inset, inset),
-                        size = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f)),
-                        cornerRadius = insetCorner(inset),
-                        style = Stroke((strokeWidth * 0.38f).coerceAtLeast(0.30.dp.toPx())),
+            if (pathFlow > 0.001f) {
+                clipRect(left = 0f, top = 0f, right = w, bottom = (h * 0.52f).coerceAtLeast(1f)) {
+                    drawPath(
+                        path = edgeBandPath,
+                        brush = flowBrush,
                         blendMode = BlendMode.Screen
                     )
                 }
             }
 
-            for (layer in 0 until massLayers) {
-                val t = if (massLayers == 1) 0f else layer.toFloat() / (massLayers - 1).toFloat()
-                val falloff = (1f - t).coerceIn(0f, 1f)
-                val inset = (1.45.dp.toPx() + edgeFieldDepth * 0.46f * t).coerceAtMost((minOf(w, h) * 0.50f) - 1f)
-                val strokeWidth = (bottomWidth * (1.08f - 0.40f * t) + 0.30.dp.toPx()).coerceAtLeast(0.42.dp.toPx())
-                val massBrush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color.Transparent,
-                        Color(0xFF07132F).copy(alpha = 0.020f * bottomMass * falloff),
-                        Color(0xFF030714).copy(alpha = 0.085f * bottomMass * falloff),
-                        Color(0xFF00020A).copy(alpha = 0.180f * bottomMass * falloff)
-                    ),
-                    startY = 0f,
-                    endY = h
-                )
-                drawRoundRect(
-                    brush = massBrush,
-                    topLeft = Offset(inset, inset),
-                    size = Size((w - inset * 2f).coerceAtLeast(1f), (h - inset * 2f).coerceAtLeast(1f)),
-                    cornerRadius = insetCorner(inset),
-                    style = Stroke(strokeWidth),
-                    blendMode = BlendMode.Multiply
-                )
+            if (bottomMass > 0.001f) {
+                clipRect(left = 0f, top = h * 0.45f, right = w, bottom = h) {
+                    drawPath(
+                        path = bottomMassBandPath,
+                        brush = bottomMassBrush,
+                        blendMode = BlendMode.Multiply
+                    )
+                }
             }
 
             drawContent()
