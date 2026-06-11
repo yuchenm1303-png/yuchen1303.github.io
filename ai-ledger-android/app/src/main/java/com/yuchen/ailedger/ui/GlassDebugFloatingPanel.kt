@@ -54,7 +54,7 @@ fun GlassDebugFloatingPanel(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout(
             title = "OpenGL",
-            subtitle = "连续势能折射样本 / Shell 参数 / 仅实验室调试",
+            subtitle = "连续截面折射 v2 / Shell 参数 / 仅实验室调试",
             initiallyExpanded = false,
             state = state
         ) {
@@ -138,8 +138,8 @@ private fun OpenGlLiquidPotentialPreview(optics: OpenGLLiquidPotentialLabOptics)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("连续势能 OpenGL 样本", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text("只替换实验室样本；主界面 OpenGLGlassCardLayer 不受影响", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("连续截面 OpenGL 样本 v2", color = Color.White.copy(alpha = 0.95f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("高度场法线 + 非线性坡面响应；主界面 OpenGLGlassCardLayer 不受影响", color = Color.White.copy(alpha = 0.48f), fontSize = 10.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("Lab", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
@@ -153,14 +153,14 @@ private fun OpenGlLiquidPotentialPreview(optics: OpenGLLiquidPotentialLabOptics)
                 contentAlignment = Alignment.Center
             ) {
                 Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    listOf("Potential", "Slope", "Lens").forEachIndexed { index, label ->
+                    listOf("Surface", "Response", "Lens").forEachIndexed { index, label ->
                         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                             Text(label, color = Color.White.copy(alpha = if (index == 1) 0.88f else 0.62f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                         }
                     }
                 }
             }
-            Text("用一个连续厚度势能场驱动折射，让边缘、交界和中心自然衔接。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+            Text("用连续截面高度场抬高中等坡度，让交界折射带和切向拖色更可见。", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
         }
     }
 }
@@ -171,48 +171,56 @@ private fun OpenGlGlassLab(
     style: GlassBorderStyle,
     onBorderChange: (GlassBorderStyle) -> Unit
 ) {
-    var potentialDepth by rememberSaveable { mutableStateOf(1.06f) }
-    var refractionScale by rememberSaveable { mutableStateOf(92f) }
-    var centerLens by rememberSaveable { mutableStateOf(18f) }
-    var edgeFocus by rememberSaveable { mutableStateOf(1.02f) }
-    var flowSmear by rememberSaveable { mutableStateOf(0.82f) }
-    var lensBlend by rememberSaveable { mutableStateOf(0.76f) }
-    var potentialBrightness by rememberSaveable { mutableStateOf(1.04f) }
-    var potentialDarkEdge by rememberSaveable { mutableStateOf(0.62f) }
+    var surfaceWidth by rememberSaveable { mutableStateOf(0.24f) }
+    var surfaceSteepness by rememberSaveable { mutableStateOf(1.35f) }
+    var refractionGain by rememberSaveable { mutableStateOf(150f) }
+    var slopeResponse by rememberSaveable { mutableStateOf(0.62f) }
+    var lensClarity by rememberSaveable { mutableStateOf(0.92f) }
+    var tangentSmear by rememberSaveable { mutableStateOf(0.86f) }
+    var centerLens by rememberSaveable { mutableStateOf(22f) }
+    var edgeDarkness by rememberSaveable { mutableStateOf(0.62f) }
+    var highlightStrength by rememberSaveable { mutableStateOf(0.58f) }
+    var sampleBrightness by rememberSaveable { mutableStateOf(1.03f) }
 
     fun resetPotential() {
-        potentialDepth = 1.06f
-        refractionScale = 92f
-        centerLens = 18f
-        edgeFocus = 1.02f
-        flowSmear = 0.82f
-        lensBlend = 0.76f
-        potentialBrightness = 1.04f
-        potentialDarkEdge = 0.62f
+        surfaceWidth = 0.24f
+        surfaceSteepness = 1.35f
+        refractionGain = 150f
+        slopeResponse = 0.62f
+        lensClarity = 0.92f
+        tangentSmear = 0.86f
+        centerLens = 22f
+        edgeDarkness = 0.62f
+        highlightStrength = 0.58f
+        sampleBrightness = 1.03f
     }
 
     val optics = OpenGLLiquidPotentialLabOptics(
-        potentialDepth = potentialDepth,
-        refractionScalePx = refractionScale,
+        surfaceWidth = surfaceWidth,
+        surfaceSteepness = surfaceSteepness,
+        refractionGainPx = refractionGain,
+        slopeResponse = slopeResponse,
+        lensClarity = lensClarity,
+        tangentSmear = tangentSmear,
         centerLensPx = centerLens,
-        edgeFocus = edgeFocus,
-        flowSmear = flowSmear,
-        lensBlend = lensBlend,
-        brightness = potentialBrightness,
-        darkEdge = potentialDarkEdge
+        edgeDarkness = edgeDarkness,
+        highlightStrength = highlightStrength,
+        brightness = sampleBrightness
     )
 
     OpenGlLiquidPotentialPreview(optics)
 
-    GlassControlGroup("连续势能折射", "实验室新样本专用参数，不写入主界面 OpenGL", state, true) {
-        LabSlider("势能深度", "连续厚度场整体强度", potentialDepth, 0.20f..2.20f) { potentialDepth = it }
-        LabSlider("坡面折射", "由势能梯度产生的背景扭曲", refractionScale, 0f..180f) { refractionScale = it }
-        LabSlider("中心透镜", "中心区域柔和透镜，避免中间静止", centerLens, 0f..72f) { centerLens = it }
-        LabSlider("边缘聚焦", "连续场靠近边缘处的斜率集中程度", edgeFocus, 0.35f..2.20f) { edgeFocus = it }
-        LabSlider("流动拖色", "沿势能坡面切线拖拽背景颜色", flowSmear, 0f..1.60f) { flowSmear = it }
-        LabSlider("透镜混合", "高斜率区域混合 lens 纹理", lensBlend, 0f..1.50f) { lensBlend = it }
-        LabSlider("样本亮度", "连续势能样本折射结果亮度", potentialBrightness, 0.55f..1.80f) { potentialBrightness = it }
-        LabSlider("暗部厚度", "高斜率边缘和交界处暗角", potentialDarkEdge, 0f..1.60f) { potentialDarkEdge = it }
+    GlassControlGroup("连续截面折射 v2", "实验室新样本专用参数，不写入主界面 OpenGL", state, true) {
+        LabSlider("曲面宽度", "从边缘向内延伸的连续坡面宽度", surfaceWidth, 0.05f..0.65f) { surfaceWidth = it }
+        LabSlider("曲面陡度", "边缘到内侧的高度衰减速度", surfaceSteepness, 0.45f..2.80f) { surfaceSteepness = it }
+        LabSlider("折射增益", "高度场法线产生的背景位移强度", refractionGain, 0f..260f) { refractionGain = it }
+        LabSlider("坡面响应", "小值会抬高中等坡度，让交界带更明显", slopeResponse, 0.30f..1.30f) { slopeResponse = it }
+        LabSlider("清晰采样", "坡面区域 lens 纹理参与比例，避免 blur 吃掉折射", lensClarity, 0f..1.60f) { lensClarity = it }
+        LabSlider("切向拖色", "沿圆角边缘方向拉开背景色块", tangentSmear, 0f..1.80f) { tangentSmear = it }
+        LabSlider("中心透镜", "中心区域低频透镜，不让中间死平", centerLens, 0f..90f) { centerLens = it }
+        LabSlider("暗边厚度", "坡面和边缘的厚玻璃暗部", edgeDarkness, 0f..1.80f) { edgeDarkness = it }
+        LabSlider("高光强度", "跟随坡面法线生成的辅助高光", highlightStrength, 0f..1.60f) { highlightStrength = it }
+        LabSlider("样本亮度", "实验样本最终亮度补偿", sampleBrightness, 0.55f..1.80f) { sampleBrightness = it }
     }
 
     GlassControlGroup("主界面 OpenGL 参数", "保留原 Shell 玻璃参数，方便对照，不影响上方新样本", state, false) {
@@ -236,7 +244,7 @@ private fun OpenGlGlassLab(
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        LabActionButton("重置势能场", "恢复实验室新样本", state, Modifier.weight(1f)) { resetPotential() }
+        LabActionButton("重置 v2 折射", "恢复实验室新样本", state, Modifier.weight(1f)) { resetPotential() }
         LabActionButton("重置主 OpenGL", "恢复主 Shell 默认", state, Modifier.weight(1f)) { onBorderChange(GlassBorderStyle()) }
     }
 }
