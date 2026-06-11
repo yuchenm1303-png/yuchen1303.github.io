@@ -9,17 +9,17 @@
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v16 · edge bead caustic rim</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v16 贴边硬玻璃珠折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v17 · refined bead caustic edge rim</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v17 边缘玻璃珠继续优化</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
 const groups=[
 {title:'主体折射 Body Field',items:[['bodyWidth','主体宽度',.18,1.5,.01],['bodyCurve','主体陡度',.20,3.2,.01],['bodyGain','主体强度',0,900,1]]},
 {title:'主体折射带 Body Band',items:[['bodyBandPos','主体折射带位置',.55,.98,.01],['bodyBandWidth','主体折射带宽度',.015,.24,.005],['bodyBandGain','主体折射带强度',0,1500,1]]},
-{title:'边缘玻璃珠 Edge Bead Rim',items:[['edgeBeadWidthPx','硬边珠厚度 px',1,10,.5],['edgeBeadGain','硬边珠折射强度',0,320,1],['edgeShoulderWidthPx','内侧柔肩宽度 px',4,36,1],['edgeCausticGain','焦散亮带强度',0,2,.01],['edgeDarkRidge','内侧暗脊强度',0,1.2,.01],['edgeTangentSmear','边缘切向拖色',0,120,1]]}
+{title:'边缘玻璃珠 Edge Bead Rim',items:[['edgeBeadWidthPx','硬边珠厚度 px',1,10,.5],['edgeBeadGain','硬边珠折射强度',0,360,1],['edgeShoulderWidthPx','内侧柔肩宽度 px',4,36,1],['edgeCausticGain','焦散亮带强度',0,2.5,.01],['edgeDarkRidge','内侧暗脊强度',0,1.4,.01],['edgeTangentSmear','边缘切向拖色',0,140,1]]}
 ];
 const presets={
-soft:{bodyWidth:.72,bodyCurve:.80,bodyGain:260,bodyBandPos:.84,bodyBandWidth:.10,bodyBandGain:260,edgeBeadWidthPx:3.5,edgeBeadGain:110,edgeShoulderWidthPx:16,edgeCausticGain:.45,edgeDarkRidge:.22,edgeTangentSmear:20},
-strong:{bodyWidth:1.10,bodyCurve:.58,bodyGain:640,bodyBandPos:.83,bodyBandWidth:.08,bodyBandGain:840,edgeBeadWidthPx:5,edgeBeadGain:260,edgeShoulderWidthPx:24,edgeCausticGain:1.25,edgeDarkRidge:.55,edgeTangentSmear:62},
-apple:{bodyWidth:1.31,bodyCurve:2.23,bodyGain:509,bodyBandPos:.77,bodyBandWidth:.24,bodyBandGain:0,edgeBeadWidthPx:4.5,edgeBeadGain:180,edgeShoulderWidthPx:18,edgeCausticGain:.78,edgeDarkRidge:.34,edgeTangentSmear:36}
+soft:{bodyWidth:.72,bodyCurve:.80,bodyGain:260,bodyBandPos:.84,bodyBandWidth:.10,bodyBandGain:260,edgeBeadWidthPx:3.5,edgeBeadGain:120,edgeShoulderWidthPx:14,edgeCausticGain:.55,edgeDarkRidge:.24,edgeTangentSmear:18},
+strong:{bodyWidth:1.10,bodyCurve:.58,bodyGain:640,bodyBandPos:.83,bodyBandWidth:.08,bodyBandGain:840,edgeBeadWidthPx:5.5,edgeBeadGain:290,edgeShoulderWidthPx:22,edgeCausticGain:1.45,edgeDarkRidge:.62,edgeTangentSmear:68},
+apple:{bodyWidth:1.31,bodyCurve:2.23,bodyGain:509,bodyBandPos:.77,bodyBandWidth:.24,bodyBandGain:0,edgeBeadWidthPx:5.0,edgeBeadGain:220,edgeShoulderWidthPx:15,edgeCausticGain:1.08,edgeDarkRidge:.42,edgeTangentSmear:44}
 };
 const optics={clarity:1.00,tangentSmear:.18,brightness:1.00};
 let p={...presets.apple};
@@ -47,28 +47,30 @@ void main(){
   float bodyPresence=sat(pow(sat(1.-rho),.42)*(.48+A.x*.62));float shellPresence=gauss(rho,B.x,B.y)+gauss(rho,B.x-.028,B.y*1.9)*.55;
   float sideRho=abs(u.x*2.0-1.0);float sideVertical=smoothstep(.055,.30,u.y)*smoothstep(.055,.30,1.0-u.y);float sideCore=gauss(sideRho,B.x,max(B.y*.72,.014));float sideShoulder=gauss(sideRho,B.x-.060,max(B.y*1.65,.026))*.52;float sideBodyBand=(sideCore+sideShoulder)*sideVertical*sat(.42+bodyPresence*.38+shellPresence*.40);float sidePresence=max(shellPresence,sideBodyBand*.96);
 
-  float edgeInset=max(-sd,0.0);float beadW=max(D.x,.75);float shoulderW=max(max(D.z,beadW+1.0),2.0);float beadCenter=beadW*.58;
-  float edgeBead=gauss(edgeInset,beadCenter,beadW*.72)*smoothstep(.0,.85,edgeInset)*smoothstep(shoulderW*.82,beadW*.10,edgeInset);
-  float edgeShoulder=pow(sat(1.0-edgeInset/shoulderW),1.65)*(1.0-edgeBead*.20);
-  float edgeLens=sat(edgeBead+edgeShoulder*.34);
+  float edgeInset=max(-sd,0.0);float beadW=max(D.x,.75);float shoulderW=max(max(D.z,beadW+1.0),2.0);float cornerBoost=.85+smoothstep(.78,.98,rho)*.35;
+  float edgeBead=gauss(edgeInset,beadW*.52,max(beadW*.46,.70))*smoothstep(.0,.55,edgeInset)*smoothstep(beadW*2.6,beadW*.18,edgeInset);
+  edgeBead*=cornerBoost;
+  float edgeShoulder=pow(sat(1.0-edgeInset/shoulderW),1.9)*(1.0-sat(edgeBead*.85));
+  float edgeInnerLip=gauss(edgeInset,beadW*1.35,max(beadW*.55,1.0))*sat(edgeShoulder+.20);
+  float edgeLens=sat(edgeBead+edgeShoulder*.30);
   float sdL=box(c-vec2(stepPx,0.),z,ra),sdR=box(c+vec2(stepPx,0.),z,ra),sdU=box(c-vec2(0.,stepPx),z,ra),sdD=box(c+vec2(0.,stepPx),z,ra);
-  vec2 sdGrad=vec2(sdR-sdL,sdD-sdU)*.5;float sdSlope=length(sdGrad);vec2 edgeN=sdGrad/max(sdSlope,.0001);vec2 edgeT=vec2(-edgeN.y,edgeN.x);
-  float edgePresence=max(sidePresence,edgeLens);
+  vec2 sdGrad=vec2(sdR-sdL,sdD-sdU)*.5;float sdSlope=length(sdGrad);vec2 edgeN=sdGrad/max(sdSlope,.0001);vec2 edgeT=vec2(-edgeN.y,edgeN.x);float edgePresence=max(sidePresence,edgeLens);
 
   float energy=pow(sat((slope*11.0+hC*.22)*max(B.z,1.0)),max(.32,max(B.z,1.0)*.55));float bodyPx=A.z*bodyPresence*(.35+hC*.55+energy*.35);float shellPx=B.z*shellPresence*(.36+energy*.70+slope*2.4);
   vec2 flow=grad*(bodyPx+shellPx);flow.x*=mix(1.0,1.72,sideBodyBand);vec2 inwardDir=(vec2(.5)-u);inwardDir.y*=.72;flow+=inwardDir*(bodyPresence*A.z*.08);float sidePull=(B.z*.185+A.z*.105)*sideBodyBand*(.72+hC*.42+bodyPresence*.25);flow+=vec2(sign(.5-u.x),0.0)*sidePull;flow.y+=(.5-u.y)*sideBodyBand*(B.z*.030+A.z*.022)*(.45+hC*.35);
 
-  float beadPull=D.y*edgeBead*(.82+slope*.22)+D.y*.18*edgeShoulder;flow+=edgeN*beadPull;
-  float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);flow=softLimit(flow,min(880.,lim+bodyPresence*150.+shellPresence*175.+sideBodyBand*420.+edgeLens*340.))*fade;
-  vec2 ru=u+flow/max(z,vec2(1.));vec3 clear=src(ru);vec3 medium=blur(ru);float clarity=sat(C.x*(.18+edgePresence*.82+slope*.30)+edgeBead*.36);vec3 col=mix(medium,clear,clarity);
+  float beadPull=D.y*(edgeBead*(1.05+slope*.24)+edgeShoulder*.22);flow+=edgeN*beadPull;
+  float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);flow=softLimit(flow,min(920.,lim+bodyPresence*150.+shellPresence*175.+sideBodyBand*420.+edgeLens*380.))*fade;
+  vec2 ru=u+flow/max(z,vec2(1.));vec3 clear=src(ru);vec3 medium=blur(ru);float clarity=sat(C.x*(.18+edgePresence*.82+slope*.30)+edgeBead*.42);vec3 col=mix(medium,clear,clarity);
 
-  float outerPull=D.y*(.92*edgeBead+.30*edgeShoulder);float innerPull=D.y*(.30*edgeBead+.09*edgeShoulder);vec2 edgePx=edgeN/max(z,vec2(1.));
-  vec3 outerS=src(ru+edgePx*outerPull);vec3 innerS=src(ru-edgePx*innerPull);vec3 caustic=mix(innerS,outerS,sat(.58+edgeBead*.32));float causticMix=sat(D.w*(edgeBead*.72+edgeShoulder*.18));col=mix(col,caustic,causticMix);
+  vec2 edgePx=edgeN/max(z,vec2(1.));float outerPull=D.y*(1.18*edgeBead+.42*edgeShoulder);float innerPull=D.y*(.38*edgeBead+.12*edgeShoulder);
+  vec3 outerS=src(ru+edgePx*outerPull);vec3 innerS=src(ru-edgePx*innerPull);vec3 caustic=mix(innerS,outerS,sat(.62+edgeBead*.30));float edgeContrast=length(outerS-innerS);float causticMix=sat(D.w*(edgeBead*.82+edgeShoulder*.22));col=mix(col,caustic,causticMix);
+  col=mix(col,outerS*.68+innerS*.32,edgeBead*.18+causticMix*.12);
 
-  float smear=sat(C.y*edgePresence*(.18+slope*3.2));if(smear>.001){vec2 tp=t*(5.0+28.0*smear)/max(z,vec2(1.));vec3 drag=src(ru+tp)*.38+src(ru-tp)*.38+medium*.24;col=mix(col,drag,smear*.34);}float edgeSmear=sat((E.y/120.0)*edgeLens*(.34+edgeBead*.76));if(edgeSmear>.001){float bias=sign(dot(flow,edgeT)+(u.x-.5)*.03+(u.y-.5)*.01+.0001);vec2 ep=edgeT*bias*(4.0+E.y*.22+edgeBead*9.0)/max(z,vec2(1.));vec3 eDrag=src(ru+ep)*.44+src(ru-ep)*.44+outerS*.12;col=mix(col,eDrag,edgeSmear*.48);} 
+  float smear=sat(C.y*edgePresence*(.18+slope*3.2));if(smear>.001){vec2 tp=t*(5.0+28.0*smear)/max(z,vec2(1.));vec3 drag=src(ru+tp)*.38+src(ru-tp)*.38+medium*.24;col=mix(col,drag,smear*.34);}float edgeSmear=sat((E.y/140.0)*(edgeBead*.90+edgeShoulder*.25));if(edgeSmear>.001){float bias=sign(dot(flow,edgeT)+(u.x-.5)*.03+(u.y-.5)*.01+.0001);vec2 ep=edgeT*bias*(4.0+E.y*.18+edgeBead*8.0)/max(z,vec2(1.));vec3 eDrag=src(ru+ep)*.44+src(ru-ep)*.44+outerS*.12;col=mix(col,eDrag,edgeSmear*.42);} 
 
-  float darkRidge=gauss(edgeInset,beadW*2.35,max(beadW*.85,1.0))*sat(edgeShoulder+edgeBead*.35);float rim=sidePresence*sat(.35+slope*3.5+sideBodyBand*.45);float edgeLight=edgeBead*sat(.70+sdSlope*1.6)+edgeShoulder*.20;float fres=pow(1.0-sat(me(u)*3.0),1.35);
-  col+=vec3(.03,.07,.10)*rim*.20;col+=vec3(.018,.021,.022)*edgeLight*D.w;col*=1.0-darkRidge*E.x*.16;col*=(1.0+rim*.06+fres*.035+sideBodyBand*.028+edgeLight*.12*D.w);col*=C.z;col=clamp(col,0.,1.);gl_FragColor=vec4(col,.90*mask);
+  float darkRidge=(gauss(edgeInset,beadW*1.85,max(beadW*.45,1.0))*.60 + edgeInnerLip*.90)*sat(edgeShoulder+.25);float rim=sidePresence*sat(.35+slope*3.5+sideBodyBand*.45);float edgeLight=edgeBead*sat(.78+sdSlope*1.6)+edgeShoulder*.16;float fres=pow(1.0-sat(me(u)*3.0),1.35);float causticLight=D.w*edgeBead*(.22+edgeContrast*.40);
+  col+=vec3(.03,.07,.10)*rim*.20;col+=vec3(.012,.016,.018)*(edgeLight*.65+causticLight);col*=1.0-darkRidge*E.x*.18;col*=(1.0+rim*.06+fres*.035+sideBodyBand*.028+edgeLight*.10+causticLight*.12);col*=C.z;col=clamp(col,0.,1.);gl_FragColor=vec4(col,.90*mask);
 }`;
 function sh(t,s){let x=g.createShader(t);g.shaderSource(x,s);g.compileShader(x);if(!g.getShaderParameter(x,g.COMPILE_STATUS))throw g.getShaderInfoLog(x);return x}
 let pr=g.createProgram();g.attachShader(pr,sh(g.VERTEX_SHADER,vs));g.attachShader(pr,sh(g.FRAGMENT_SHADER,fs));g.linkProgram(pr);
