@@ -3,125 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V10 Edge Normal Shell Glass</title>
+<title>OpenGL V11 Wide Transport Glass</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:white;font-family:system-ui}.app{display:grid;grid-template-columns:1fr 340px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32))}#gl{position:absolute;inset:0;width:100%;height:100%}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.22);box-shadow:inset 0 1px 1px rgba(255,255,255,.22),inset 0 -12px 22px rgba(255,255,255,.04);pointer-events:none}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76)}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:white;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.c:first-child{border-top:0}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input{width:100%;accent-color:#9b7cff}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v10 · wide body field + real edge-normal refraction shell</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v10 宽主体场 + 边缘法线折射</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v11 · wide body transport + soft edge-normal shell</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v11 宽主体拖拽 + 柔边缘壳层</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
-const meta=[
-['bodyWidth','主体宽度',.18,1.8,.01],
-['bodyCurve','主体陡度',.20,3.2,.01],
-['bodyGain','主体拖拽',0,1100,1],
-['edgeWidthPx','边缘壳层厚度px',2,140,1],
-['edgeGain','边缘法线折射强度',0,1800,1],
-['edgeSoftness','边缘增益柔和度',.35,4.5,.01],
-['compression','压缩响应',.20,2.8,.01],
-['clarity','清晰采样',0,2.2,.01],
-['tangentSmear','切向拖色',0,2.5,.01],
-['brightness','样本亮度',.55,2.2,.01]
-];
-const presets={
-soft:{bodyWidth:1.00,bodyCurve:.76,bodyGain:360,edgeWidthPx:34,edgeGain:260,edgeSoftness:1.40,compression:.82,clarity:.92,tangentSmear:.10,brightness:1.00},
-strong:{bodyWidth:1.45,bodyCurve:.50,bodyGain:780,edgeWidthPx:52,edgeGain:980,edgeSoftness:1.08,compression:1.12,clarity:1.02,tangentSmear:.20,brightness:1.02},
-apple:{bodyWidth:1.32,bodyCurve:.58,bodyGain:660,edgeWidthPx:42,edgeGain:760,edgeSoftness:1.16,compression:.98,clarity:1.00,tangentSmear:.13,brightness:1.00}
-};
+const meta=[['bodyWidth','主体宽度',.18,1.8,.01],['bodyCurve','主体陡度',.20,3.2,.01],['bodyGain','主体拖拽',0,1100,1],['edgeWidthPx','边缘壳层厚度px',2,140,1],['edgeGain','边缘法线折射强度',0,1800,1],['edgeSoftness','边缘增益柔和度',.35,4.5,.01],['compression','压缩响应',.20,2.8,.01],['clarity','清晰采样',0,2.2,.01],['tangentSmear','切向拖色',0,2.5,.01],['brightness','样本亮度',.55,2.2,.01]];
+const presets={soft:{bodyWidth:1.12,bodyCurve:.70,bodyGain:420,edgeWidthPx:36,edgeGain:160,edgeSoftness:1.55,compression:.82,clarity:.90,tangentSmear:.08,brightness:1.00},strong:{bodyWidth:1.62,bodyCurve:.44,bodyGain:900,edgeWidthPx:50,edgeGain:520,edgeSoftness:1.28,compression:1.12,clarity:1.00,tangentSmear:.16,brightness:1.02},apple:{bodyWidth:1.48,bodyCurve:.52,bodyGain:760,edgeWidthPx:42,edgeGain:360,edgeSoftness:1.36,compression:.98,clarity:.98,tangentSmear:.10,brightness:1.00}};
 let p={...presets.apple};
 const stage=document.getElementById('stage'),scroll=document.getElementById('scroll'),glassEl=document.getElementById('glass'),bg=document.getElementById('bg'),cv=document.getElementById('gl'),out=document.getElementById('out');
 const g=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const fs=`precision highp float;
 uniform vec2 r; uniform vec4 A,B,C,R; uniform sampler2D T;
-float sat(float x){return clamp(x,0.,1.);}
-float minEdge(vec2 u){return min(min(u.x,1.-u.x),min(u.y,1.-u.y));}
-float safeFade(vec2 u){return smoothstep(.010,.085,minEdge(u));}
-vec2 safeUv(vec2 u){vec2 q=clamp(u,vec2(.016),vec2(.984));return mix(u,q,sat(length(u-q)*12.));}
-vec2 bgUv(vec2 u){return R.xy+safeUv(u)*R.zw;}
-float roundedBox(vec2 c,vec2 z,float ra){vec2 p=c-z*.5;vec2 q=abs(p)-max(z*.5-vec2(ra),vec2(0));return length(max(q,0.))+min(max(q.x,q.y),0.)-ra;}
-vec3 sampleClear(vec2 u){return texture2D(T,clamp(bgUv(u),vec2(0),vec2(1))).rgb;}
-vec3 sampleBlur(vec2 u){vec2 px=vec2(1.)/max(r,vec2(1.));vec3 c=sampleClear(u)*.24;c+=sampleClear(u+vec2(px.x*3.5,0.))*.105;c+=sampleClear(u-vec2(px.x*3.5,0.))*.105;c+=sampleClear(u+vec2(0.,px.y*3.5))*.105;c+=sampleClear(u-vec2(0.,px.y*3.5))*.105;c+=sampleClear(u+vec2(px.x*8.,0.))*.08;c+=sampleClear(u-vec2(px.x*8.,0.))*.08;c+=sampleClear(u+vec2(0.,px.y*8.))*.08;c+=sampleClear(u-vec2(0.,px.y*8.))*.08;c+=sampleClear(u+vec2(px.x*7.,px.y*5.))*.07;c+=sampleClear(u-vec2(px.x*7.,px.y*5.))*.07;return c;}
-float rhoAt(vec2 c,vec2 z){vec2 uv=clamp(c/z,vec2(0),vec2(1));vec2 q=abs(uv*2.-1.);float n=5.8;return pow(pow(q.x,n)+pow(q.y,n),1./n);}
-float wideBodyPotential(vec2 c,vec2 z){
-  float rho=rhoAt(c,z);
-  float span=.55 + A.x*.48;
-  float t=sat(1.0-rho/span);
-  float broad=pow(sat(1.0-rho*.72),.58);
-  float core=pow(t,max(A.y,.20));
-  return mix(broad,core,.34) * (.82 + A.x*.22);
-}
-float heightAt(vec2 c,vec2 z,float ra){
-  float body=wideBodyPotential(c,z);
-  float uvx=c.x/z.x, uvy=c.y/z.y;
-  float wave=(sin(uvx*2.8+uvy*1.1)+sin((uvx+uvy)*2.15+1.7))*.006*body;
-  return body + wave;
-}
-float edgeBoostAt(vec2 c,vec2 z,float ra){
-  float sd=roundedBox(c,z,ra);
-  float inside=max(-sd,0.);
-  float w=max(B.x,1.);
-  float t=sat(1.0-inside/w);
-  float shell=pow(t,max(B.z,.35));
-  shell*=smoothstep(0.,3.0,inside);
-  return shell;
-}
-vec2 edgeNormalAt(vec2 c,vec2 z,float ra){
-  float e=2.0;
-  float dL=roundedBox(c-vec2(e,0.),z,ra);
-  float dR=roundedBox(c+vec2(e,0.),z,ra);
-  float dU=roundedBox(c-vec2(0.,e),z,ra);
-  float dD=roundedBox(c+vec2(0.,e),z,ra);
-  vec2 n=vec2(dR-dL,dD-dU);
-  return n/max(length(n),.0001);
-}
-vec2 softLimit(vec2 v,float l){float n=length(v);float m=n/(1.+n/max(l,1.));return v*(m/max(n,.0001));}
-void main(){
-  vec2 c=vec2(gl_FragCoord.x,r.y-gl_FragCoord.y);
-  vec2 z=max(r,vec2(1.));
-  float ra=min(54.,min(z.x,z.y)*.5);
-  float sd=roundedBox(c,z,ra);
-  float mask=1.-smoothstep(0.,1.4,sd);
-  if(mask<=.001)discard;
-  vec2 u=c/z;
-  float stepPx=2.0;
-  float hL=heightAt(c-vec2(stepPx,0.),z,ra);
-  float hR=heightAt(c+vec2(stepPx,0.),z,ra);
-  float hU=heightAt(c-vec2(0.,stepPx),z,ra);
-  float hD=heightAt(c+vec2(0.,stepPx),z,ra);
-  vec2 grad=vec2(hR-hL,hD-hU)*.5;
-  float slope=length(grad);
-  vec2 normal=grad/max(slope,.0001);
-  vec2 tangent=vec2(-normal.y,normal.x);
-  float body=wideBodyPotential(c,z);
-  float edge=edgeBoostAt(c,z,ra);
-  float energy=pow(sat((slope*9.0 + body*.10)*C.x),max(.28,A.w*.42));
-  float gain=A.z*(.86+energy*.94);
-  vec2 edgeNormal=edgeNormalAt(c,z,ra);
-  float edgeForce=edge*(B.y*(.18+energy*.28+slope*.18));
-  vec2 shellFlow=-edgeNormal*edgeForce;
-  vec2 flow=grad*gain + shellFlow;
-  vec2 inward=(vec2(.5)-u); inward.y*=.72;
-  flow+=inward*(body*A.z*.046);
-  float lim=max(minEdge(u)*max(min(z.x,z.y),1.)*.96,14.);
-  flow=softLimit(flow,min(520.,lim+body*180.+edge*160.))*safeFade(u);
-  vec2 ru=u+flow/max(z,vec2(1.));
-  vec3 clear=sampleClear(ru);
-  vec3 blur=sampleBlur(ru);
-  float clarity=sat(C.y*(.18+edge*.62+energy*.24));
-  vec3 col=mix(blur,clear,clarity);
-  float smear=sat(C.z*edge*(.08+slope*2.4));
-  if(smear>.001){
-    vec2 tp=tangent*(3.0+24.0*smear)/max(z,vec2(1.));
-    vec3 drag=sampleClear(ru+tp)*.38+sampleClear(ru-tp)*.38+blur*.24;
-    col=mix(col,drag,smear*.26);
-  }
-  col*=1.0+edge*slope*.40;
-  col+=vec3(.014,.034,.052)*edge*slope*.30;
-  col*=C.w;
-  col=clamp(col,0.,1.);
-  gl_FragColor=vec4(col,.90*mask);
-}`;
+float sat(float x){return clamp(x,0.,1.);}float minEdge(vec2 u){return min(min(u.x,1.-u.x),min(u.y,1.-u.y));}float safeFade(vec2 u){return smoothstep(.010,.085,minEdge(u));}vec2 safeUv(vec2 u){vec2 q=clamp(u,vec2(.016),vec2(.984));return mix(u,q,sat(length(u-q)*12.));}vec2 bgUv(vec2 u){return R.xy+safeUv(u)*R.zw;}float roundedBox(vec2 c,vec2 z,float ra){vec2 p=c-z*.5;vec2 q=abs(p)-max(z*.5-vec2(ra),vec2(0));return length(max(q,0.))+min(max(q.x,q.y),0.)-ra;}vec3 sampleClear(vec2 u){return texture2D(T,clamp(bgUv(u),vec2(0),vec2(1))).rgb;}vec3 sampleBlur(vec2 u){vec2 px=vec2(1.)/max(r,vec2(1.));vec3 c=sampleClear(u)*.24;c+=sampleClear(u+vec2(px.x*3.5,0.))*.105;c+=sampleClear(u-vec2(px.x*3.5,0.))*.105;c+=sampleClear(u+vec2(0.,px.y*3.5))*.105;c+=sampleClear(u-vec2(0.,px.y*3.5))*.105;c+=sampleClear(u+vec2(px.x*8.,0.))*.08;c+=sampleClear(u-vec2(px.x*8.,0.))*.08;c+=sampleClear(u+vec2(0.,px.y*8.))*.08;c+=sampleClear(u-vec2(0.,px.y*8.))*.08;c+=sampleClear(u+vec2(px.x*7.,px.y*5.))*.07;c+=sampleClear(u-vec2(px.x*7.,px.y*5.))*.07;return c;}float rhoAt(vec2 c,vec2 z){vec2 uv=clamp(c/z,vec2(0),vec2(1));vec2 q=abs(uv*2.-1.);float n=5.8;return pow(pow(q.x,n)+pow(q.y,n),1./n);}float wideBodyPotential(vec2 c,vec2 z){float rho=rhoAt(c,z);float span=.55 + A.x*.48;float t=sat(1.0-rho/span);float broad=pow(sat(1.0-rho*.72),.58);float core=pow(t,max(A.y,.20));return mix(broad,core,.34) * (.82 + A.x*.22);}float heightAt(vec2 c,vec2 z,float ra){float body=wideBodyPotential(c,z);float uvx=c.x/z.x, uvy=c.y/z.y;float wave=(sin(uvx*2.8+uvy*1.1)+sin((uvx+uvy)*2.15+1.7))*.006*body;return body + wave;}vec2 wideBodyTransport(vec2 c,vec2 z){vec2 uv=clamp(c/z,vec2(0),vec2(1));vec2 q=uv*2.-1.;q.x*=min(z.x/max(z.y,1.),2.35)*.42;float body=wideBodyPotential(c,z);float broad=pow(sat(body),.54);float sweep=sin(uv.x*3.14159*.92 + .35)*.5+.5;float vertical=(.46+.34*sweep-.16*q.y);float horizontal=(-.18*q.x+.055*sin(uv.y*3.14159));return vec2(horizontal, vertical)*broad;}float edgeBoostAt(vec2 c,vec2 z,float ra){float sd=roundedBox(c,z,ra);float inside=max(-sd,0.);float w=max(B.x,1.);float t=sat(1.0-inside/w);float shell=pow(t,max(B.z,.35));shell*=smoothstep(0.,3.0,inside);return shell;}vec2 edgeNormalAt(vec2 c,vec2 z,float ra){float e=2.0;float dL=roundedBox(c-vec2(e,0.),z,ra);float dR=roundedBox(c+vec2(e,0.),z,ra);float dU=roundedBox(c-vec2(0.,e),z,ra);float dD=roundedBox(c+vec2(0.,e),z,ra);vec2 n=vec2(dR-dL,dD-dU);return n/max(length(n),.0001);}vec2 softLimit(vec2 v,float l){float n=length(v);float m=n/(1.+n/max(l,1.));return v*(m/max(n,.0001));}
+void main(){vec2 c=vec2(gl_FragCoord.x,r.y-gl_FragCoord.y);vec2 z=max(r,vec2(1.));float ra=min(54.,min(z.x,z.y)*.5);float sd=roundedBox(c,z,ra);float mask=1.-smoothstep(0.,1.4,sd);if(mask<=.001)discard;vec2 u=c/z;float stepPx=2.0;float hL=heightAt(c-vec2(stepPx,0.),z,ra);float hR=heightAt(c+vec2(stepPx,0.),z,ra);float hU=heightAt(c-vec2(0.,stepPx),z,ra);float hD=heightAt(c+vec2(0.,stepPx),z,ra);vec2 grad=vec2(hR-hL,hD-hU)*.5;float slope=length(grad);vec2 normal=grad/max(slope,.0001);vec2 tangent=vec2(-normal.y,normal.x);float body=wideBodyPotential(c,z);float edge=edgeBoostAt(c,z,ra);float energy=pow(sat((slope*9.0 + body*.10)*C.x),max(.28,A.w*.42));float gain=A.z*(.42+energy*.56);vec2 edgeNormal=edgeNormalAt(c,z,ra);float edgeForce=edge*(B.y*(.10+energy*.16+slope*.10));vec2 shellFlow=-edgeNormal*edgeForce;vec2 transport=wideBodyTransport(c,z)*A.z*.30;vec2 flow=grad*gain + transport + shellFlow;vec2 inward=(vec2(.5)-u); inward.y*=.72;flow+=inward*(body*A.z*.026);float lim=max(minEdge(u)*max(min(z.x,z.y),1.)*.96,14.);flow=softLimit(flow,min(680.,lim+body*300.+edge*110.))*safeFade(u);vec2 ru=u+flow/max(z,vec2(1.));vec3 clear=sampleClear(ru);vec3 blur=sampleBlur(ru);float clarity=sat(C.y*(.18+edge*.62+energy*.24));vec3 col=mix(blur,clear,clarity);float smear=sat(C.z*edge*(.08+slope*2.4));if(smear>.001){vec2 tp=tangent*(3.0+24.0*smear)/max(z,vec2(1.));vec3 drag=sampleClear(ru+tp)*.38+sampleClear(ru-tp)*.38+blur*.24;col=mix(col,drag,smear*.26);}col*=1.0+edge*slope*.40;col+=vec3(.014,.034,.052)*edge*slope*.30;col*=C.w;col=clamp(col,0.,1.);gl_FragColor=vec4(col,.90*mask);}`;
 function sh(t,s){let x=g.createShader(t);g.shaderSource(x,s);g.compileShader(x);if(!g.getShaderParameter(x,g.COMPILE_STATUS))throw g.getShaderInfoLog(x);return x}
 let pr=g.createProgram();g.attachShader(pr,sh(g.VERTEX_SHADER,vs));g.attachShader(pr,sh(g.FRAGMENT_SHADER,fs));g.linkProgram(pr);
 let L={a:g.getAttribLocation(pr,'a'),r:g.getUniformLocation(pr,'r'),A:g.getUniformLocation(pr,'A'),B:g.getUniformLocation(pr,'B'),C:g.getUniformLocation(pr,'C'),R:g.getUniformLocation(pr,'R'),T:g.getUniformLocation(pr,'T')};
