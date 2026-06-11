@@ -81,7 +81,7 @@ private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPr
     )
     ComposeGlassPreset.Frost -> ComposeGlassStyle(
         preset = preset,
-        backdrop = 0.96f,
+        backdrop = ComposeGlassRuntimeDefaults.backdrop,
         quiet = ComposeGlassRuntimeDefaults.quiet,
         topLight = ComposeGlassRuntimeDefaults.topLight,
         topWidthDp = ComposeGlassRuntimeDefaults.topWidthDp,
