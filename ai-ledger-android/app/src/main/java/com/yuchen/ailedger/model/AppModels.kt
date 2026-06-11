@@ -101,7 +101,28 @@ data class GlassBorderStyle(
     val openGlCompressionScale: Float = -10f,
     val openGlCornerScale: Float = 0f,
     val openGlDarkScale: Float = -1.63f,
-    val openGlSampleRadiusScale: Float = 0f
+    val openGlSampleRadiusScale: Float = 0f,
+    val newOpenGlBodyWidth: Float = 1.31f,
+    val newOpenGlBodyCurve: Float = 2.23f,
+    val newOpenGlBodyGain: Float = 509f,
+    val newOpenGlBodyBandPos: Float = 0.77f,
+    val newOpenGlBodyBandWidth: Float = 0.24f,
+    val newOpenGlBodyBandGain: Float = 0f,
+    val newOpenGlOuterRimWidthPx: Float = 2.2f,
+    val newOpenGlOuterRimCompression: Float = 3.0f,
+    val newOpenGlOuterRimReachPx: Float = 32f,
+    val newOpenGlOuterRimGain: Float = 2.5f,
+    val newOpenGlInnerWallOffsetPx: Float = 5.4f,
+    val newOpenGlInnerWallWidthPx: Float = 34f,
+    val newOpenGlInnerWallGain: Float = 45f,
+    val newOpenGlInnerWallFalloff: Float = 2.38f,
+    val newOpenGlInnerWallReachPx: Float = 0f,
+    val newOpenGlDarkExtract: Float = 0.62f,
+    val newOpenGlEdgeShoulderWidthPx: Float = 18f,
+    val newOpenGlEdgeTangentSmear: Float = 42f,
+    val newOpenGlClarity: Float = 1.00f,
+    val newOpenGlTangentSmear: Float = 0.18f,
+    val newOpenGlBrightness: Float = 1.00f
 )
 
 @Immutable
