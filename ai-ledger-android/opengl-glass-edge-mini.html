@@ -3,25 +3,123 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL Superellipse Fog Glass Field</title>
+<title>OpenGL Continuous Shell Refraction Lab</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#07122b;color:white;font-family:system-ui}.app{display:grid;grid-template-columns:1fr 330px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32))}#gl{position:absolute;inset:0;width:100%;height:100%}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.30);box-shadow:inset 0 1px 1px rgba(255,255,255,.42),inset 0 -30px 46px rgba(255,170,210,.20),inset 0 24px 40px rgba(135,225,255,.15);pointer-events:none}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86);box-shadow:0 0 22px rgba(255,255,255,.22)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76)}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:white;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.c:first-child{border-top:0}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input{width:100%;accent-color:#9b7cff}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.ui h1{font-size:42px}}
+*{box-sizing:border-box}body{margin:0;background:#07122b;color:white;font-family:system-ui}.app{display:grid;grid-template-columns:1fr 340px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32))}#gl{position:absolute;inset:0;width:100%;height:100%}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.24);box-shadow:inset 0 1px 1px rgba(255,255,255,.24), inset 0 -14px 22px rgba(255,255,255,.05);pointer-events:none}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76)}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:white;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.c:first-child{border-top:0}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input{width:100%;accent-color:#9b7cff}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>center mist · thick shell · continuous refraction</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>超椭圆雾化玻璃</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强边缘</button><button onclick="preset('apple')">参考图</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>wide body drag · edge refraction shell · continuous field</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>连续主体场 + 边缘折射带</h2><button onclick="preset('soft')">柔和</button><button onclick="preset('strong')">强折射</button><button onclick="preset('apple')">参考方向</button><div id="controls"></div><pre id="out"></pre></aside></div>
 <script>
-const meta=[['surfaceWidth','曲面宽度',.05,1.2,.01],['surfaceSteepness','曲面陡度',.25,3,.01],['refractionGainPx','整体折射',0,900,1],['slopeResponse','坡度响应',.25,1.8,.01],['lensClarity','边缘清晰',0,2.2,.01],['tangentSmear','连续拖色',0,2.5,.01],['centerLensPx','中心雾化',0,220,1],['edgeDarkness','暗边厚度',0,2.6,.01],['highlightStrength','厚边高光',0,2.8,.01],['brightness','样本亮度',.55,2.2,.01]];
-const presets={soft:{surfaceWidth:.32,surfaceSteepness:1.06,refractionGainPx:300,slopeResponse:.68,lensClarity:.88,tangentSmear:.18,centerLensPx:64,edgeDarkness:.46,highlightStrength:.66,brightness:1.04},strong:{surfaceWidth:.58,surfaceSteepness:.72,refractionGainPx:700,slopeResponse:.48,lensClarity:1.42,tangentSmear:.54,centerLensPx:108,edgeDarkness:.88,highlightStrength:1.18,brightness:1.10},apple:{surfaceWidth:.46,surfaceSteepness:.86,refractionGainPx:520,slopeResponse:.54,lensClarity:1.14,tangentSmear:.34,centerLensPx:86,edgeDarkness:.68,highlightStrength:.94,brightness:1.07}};
+const meta=[
+['bodyWidth','主体宽度',.18,1.5,.01],
+['bodyCurve','主体陡度',.20,3.2,.01],
+['bodyGain','主体拖拽',0,900,1],
+['edgePos','边缘带位置',.55,.98,.01],
+['edgeWidth','边缘带宽度',.015,.24,.005],
+['edgeGain','边缘带强度',0,1500,1],
+['compression','压缩响应',.20,2.5,.01],
+['clarity','清晰采样',0,2.2,.01],
+['tangentSmear','切向拖色',0,2.5,.01],
+['brightness','样本亮度',.55,2.2,.01]
+];
+const presets={
+soft:{bodyWidth:.72,bodyCurve:.80,bodyGain:260,edgePos:.84,edgeWidth:.10,edgeGain:260,compression:.88,clarity:.92,tangentSmear:.18,brightness:1.00},
+strong:{bodyWidth:1.10,bodyCurve:.58,bodyGain:640,edgePos:.83,edgeWidth:.08,edgeGain:840,compression:1.22,clarity:1.06,tangentSmear:.28,brightness:1.02},
+apple:{bodyWidth:.96,bodyCurve:.68,bodyGain:520,edgePos:.84,edgeWidth:.07,edgeGain:620,compression:1.04,clarity:1.00,tangentSmear:.18,brightness:1.00}
+};
 let p={...presets.apple};
 const stage=document.getElementById('stage'),scroll=document.getElementById('scroll'),glassEl=document.getElementById('glass'),bg=document.getElementById('bg'),cv=document.getElementById('gl'),out=document.getElementById('out');
 const g=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
-const fs=`precision highp float;uniform vec2 r;uniform vec4 A,B,C,R;uniform sampler2D T;float sat(float x){return clamp(x,0.,1.);}float me(vec2 u){return min(min(u.x,1.-u.x),min(u.y,1.-u.y));}float bf(vec2 u){return smoothstep(.010,.085,me(u));}vec2 su(vec2 u){vec2 q=clamp(u,vec2(.016),vec2(.984));return mix(u,q,sat(length(u-q)*12.));}vec2 bu(vec2 u){return R.xy+su(u)*R.zw;}float box(vec2 c,vec2 z,float ra){vec2 p=c-z*.5;vec2 q=abs(p)-max(z*.5-vec2(ra),vec2(0));return length(max(q,0.))+min(max(q.x,q.y),0.)-ra;}vec3 tx(vec2 u){return texture2D(T,clamp(bu(u),vec2(0),vec2(1))).rgb;}vec3 bl(vec2 u){vec2 px=vec2(1)/max(r,vec2(1));return tx(u)*.28+(tx(u+vec2(px.x*2.4,0))+tx(u-vec2(px.x*2.4,0))+tx(u+vec2(0,px.y*2.4))+tx(u-vec2(0,px.y*2.4)))*.13+(tx(u+vec2(px.x*4.8,px.y*4.8))+tx(u-vec2(px.x*4.8,px.y*4.8)))*.10;}vec3 fb(vec2 u){vec2 px=vec2(1)/max(r,vec2(1));vec3 c=tx(u)*.18;c+=tx(u+vec2(px.x*8.,0))*.10;c+=tx(u-vec2(px.x*8.,0))*.10;c+=tx(u+vec2(0,px.y*8.))*.10;c+=tx(u-vec2(0,px.y*8.))*.10;c+=tx(u+vec2(px.x*12.,px.y*6.))*.08;c+=tx(u-vec2(px.x*12.,px.y*6.))*.08;c+=tx(u+vec2(px.x*5.,-px.y*12.))*.08;c+=tx(u-vec2(px.x*5.,-px.y*12.))*.08;return c;}float rhoAt(vec2 c,vec2 z){vec2 uv=clamp(c/z,vec2(0),vec2(1));vec2 q=abs(uv*2.-1.);float n=5.8;return pow(pow(q.x,n)+pow(q.y,n),1./n);}float heightAt(vec2 c,vec2 z,float ra){float sd=box(c,z,ra);float shape=1.-smoothstep(0.,4.,sd);float rho=rhoAt(c,z);float edgeDist=max(1.-rho,0.);float width=.10+A.x*.46;float t=edgeDist/max(width,.001);float shoulder=exp(-pow(t,max(A.y,.25))*1.05);float rim=exp(-pow((t-.15)*4.4,2.));float dome=pow(sat(1.-rho*rho*.84),1.62);float wave=(sin((c.x/z.x)*4.1+(c.y/z.y)*1.7)+sin((c.x/z.x+c.y/z.y)*3.2+1.8))*.018;float centerGain=.048+B.z*.0048;return (shoulder*.88+rim*.42+dome*centerGain+wave*dome)*shape;}vec2 lim(vec2 v,float l){float n=length(v);float m=n/(1.+n/max(l,1.));return v*(m/max(n,.0001));}vec3 flowLight(vec2 u,float h,float k,float edge){float a=sin(u.x*1.55+u.y*.55)*.5+.5;float b=sin((u.x+u.y)*2.05+1.4)*.5+.5;float w=smoothstep(.10,.94,mix(a,b,.32));return (vec3(.06,.38,.9)*pow(w,2.05)+vec3(.52,.93,1.)*pow(1.-abs(w-.52)*1.7,2.)*.34+vec3(1.,.55,.78)*pow(sat(u.y*.9+.08),2.)*pow(b,1.55)*.28)*(h*.45+edge*.55)*k;}void main(){vec2 c=vec2(gl_FragCoord.x,r.y-gl_FragCoord.y);vec2 z=max(r,vec2(1));float ra=min(54.,min(z.x,z.y)*.5);float sd=box(c,z,ra);float mask=1.-smoothstep(0.,1.4,sd);if(mask<=.001)discard;vec2 u=c/z;float rho=rhoAt(c,z);float edgeBand=smoothstep(.52,.98,rho);float centerBand=1.-smoothstep(.26,.88,rho);float stepPx=2.;float hL=heightAt(c-vec2(stepPx,0),z,ra);float hR=heightAt(c+vec2(stepPx,0),z,ra);float hU=heightAt(c-vec2(0,stepPx),z,ra);float hD=heightAt(c+vec2(0,stepPx),z,ra);float hC=heightAt(c,z,ra);vec2 grad=vec2(hR-hL,hD-hU)*.5;float slope=length(grad);float energy=pow(sat(slope*16.0+hC*.16),max(A.w,.25));float boundary=bf(u);float limit=max(me(u)*max(min(z.x,z.y),1.)*.84,8.);vec2 flow=lim(grad*A.z*(1.62+energy*2.00),min(mix(90.,300.,energy),limit))*boundary;vec2 ru=u+flow/max(z,vec2(1));vec3 heavy=fb(ru);vec3 medium=bl(ru);vec3 clear=tx(ru);float centerMist=sat(centerBand*(.10+B.z*.0046));vec3 fog=mix(heavy,medium,sat(edgeBand*.72+energy*.18));float clarity=sat((.06+edgeBand*.58+energy*.48+hC*.05)*B.x);vec3 col=mix(fog,clear,clarity);col=mix(col,vec3(.66,.90,1.0),centerMist*.22);float drag=sat(B.y*energy*.32*boundary*edgeBand);if(drag>.002){vec2 gd=grad/max(slope,.0001);vec2 t=vec2(-gd.y,gd.x);vec2 tp=t*(2.5+18.*drag)/max(z,vec2(1));vec3 d=tx(ru+tp)*.33+tx(ru-tp)*.33+bl(ru)*.34;col=mix(col,d,drag*.18);}float inside=max(-sd,0.);float outer=(1.-smoothstep(0.,9.,abs(sd)))*mask;float shell=smoothstep(1.,22.,inside)*(1.-smoothstep(22.,78.,inside))*mask;float shell2=exp(-pow((rho-.90)*8.0,2.))*mask;float top=sat(1.-u.y*1.85);float bot=sat((u.y-.28)*1.78);float side=sat(abs(u.x-.5)*2.0);float hlt=C.x;col=mix(col,max(col,flowLight(ru,hC,hlt,edgeBand)),sat(hlt*(.08+hC*.20+edgeBand*.16)));col+=vec3(.82,.98,1.)*(outer*.30+shell*.18+shell2*.10)*top*hlt;col+=vec3(1.,.64,.84)*(outer*.15+shell*.12)*bot*hlt;col+=vec3(.42,.86,1.)*shell*side*.10*hlt;col-=vec3(.045,.060,.080)*(shell+shell2*.7)*B.w*.20;col*=C.y;col=clamp(col,0.,1.);gl_FragColor=vec4(col,.90*mask);}`;
-function sh(t,s){let x=g.createShader(t);g.shaderSource(x,s);g.compileShader(x);if(!g.getShaderParameter(x,g.COMPILE_STATUS))throw g.getShaderInfoLog(x);return x}let pr=g.createProgram();g.attachShader(pr,sh(g.VERTEX_SHADER,vs));g.attachShader(pr,sh(g.FRAGMENT_SHADER,fs));g.linkProgram(pr);let L={a:g.getAttribLocation(pr,'a'),r:g.getUniformLocation(pr,'r'),A:g.getUniformLocation(pr,'A'),B:g.getUniformLocation(pr,'B'),C:g.getUniformLocation(pr,'C'),R:g.getUniformLocation(pr,'R'),T:g.getUniformLocation(pr,'T')};let buf=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,buf);g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),g.STATIC_DRAW);let tex=g.createTexture();g.bindTexture(g.TEXTURE_2D,tex);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);
+const fs=`precision highp float;
+uniform vec2 r; uniform vec4 A,B,C,R; uniform sampler2D T;
+float sat(float x){return clamp(x,0.,1.);} 
+float me(vec2 u){return min(min(u.x,1.-u.x),min(u.y,1.-u.y));}
+float borderFade(vec2 u){return smoothstep(.010,.085,me(u));}
+vec2 safeUv(vec2 u){vec2 q=clamp(u,vec2(.016),vec2(.984));return mix(u,q,sat(length(u-q)*12.));}
+vec2 bgUv(vec2 u){return R.xy+safeUv(u)*R.zw;}
+float box(vec2 c,vec2 z,float ra){vec2 p=c-z*.5; vec2 q=abs(p)-max(z*.5-vec2(ra),vec2(0)); return length(max(q,0.))+min(max(q.x,q.y),0.)-ra;}
+vec3 src(vec2 u){return texture2D(T,clamp(bgUv(u),vec2(0),vec2(1))).rgb;}
+vec3 blur(vec2 u){vec2 px=vec2(1.)/max(r,vec2(1.)); vec3 c=src(u)*.22; c+=src(u+vec2(px.x*4.,0.))*.10; c+=src(u-vec2(px.x*4.,0.))*.10; c+=src(u+vec2(0.,px.y*4.))*.10; c+=src(u-vec2(0.,px.y*4.))*.10; c+=src(u+vec2(px.x*10.,0.))*.08; c+=src(u-vec2(px.x*10.,0.))*.08; c+=src(u+vec2(0.,px.y*10.))*.08; c+=src(u-vec2(0.,px.y*10.))*.08; c+=src(u+vec2(px.x*8.,px.y*6.))*.07; c+=src(u-vec2(px.x*8.,px.y*6.))*.07; return c;}
+float rhoAt(vec2 c,vec2 z){vec2 uv=clamp(c/z,vec2(0),vec2(1)); vec2 q=abs(uv*2.-1.); float n=5.8; return pow(pow(q.x,n)+pow(q.y,n),1./n);} 
+float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001); return exp(-q*q);} 
+float heightAt(vec2 c,vec2 z,float ra){
+  float sd=box(c,z,ra);
+  float shape=1.-smoothstep(0.,4.,sd);
+  float rho=rhoAt(c,z);
+  float edgeDist=max(1.-rho,0.);
+  float t=edgeDist/max(.05+A.x*.34,.001);
+  float body=pow(sat(1.-rho), max(A.y,.20));
+  body=pow(body, max(.28, 2.0-A.y*.55));
+  body*=mix(1.0, 1.9, sat(A.x*.75));
+  float broad=pow(sat(body), .72);
+  float shell=gauss(rho, B.x, B.y);
+  float shellShoulder=gauss(rho, B.x-.025, B.y*1.8);
+  float asym=0.015*sin((c.x/z.x)*4.5+(c.y/z.y)*2.1)+0.012*sin((c.x/z.x+c.y/z.y)*2.7+1.4);
+  return (broad + shell*1.55 + shellShoulder*.85 + asym*sat(broad))*shape;
+}
+vec2 softLimit(vec2 v,float l){float n=length(v); float m=n/(1.+n/max(l,1.)); return v*(m/max(n,.0001));}
+void main(){
+  vec2 c=vec2(gl_FragCoord.x,r.y-gl_FragCoord.y);
+  vec2 z=max(r,vec2(1.));
+  float ra=min(54., min(z.x,z.y)*.5);
+  float sd=box(c,z,ra); float mask=1.-smoothstep(0.,1.4,sd); if(mask<=.001) discard;
+  vec2 u=c/z; float rho=rhoAt(c,z);
+  float stepPx=2.0;
+  float hL=heightAt(c-vec2(stepPx,0.),z,ra);
+  float hR=heightAt(c+vec2(stepPx,0.),z,ra);
+  float hU=heightAt(c-vec2(0.,stepPx),z,ra);
+  float hD=heightAt(c+vec2(0.,stepPx),z,ra);
+  float hC=heightAt(c,z,ra);
+  vec2 grad=vec2(hR-hL,hD-hU)*.5;
+  float slope=length(grad);
+  vec2 n=grad/max(slope,.0001);
+  vec2 t=vec2(-n.y,n.x);
+  float fade=borderFade(u);
+  float bodyPresence=sat(pow(sat(1.-rho), .42) * (0.48 + A.x*0.62));
+  float shellPresence=gauss(rho, B.x, B.y) + gauss(rho, B.x-.028, B.y*1.9)*.55;
+  float energy=pow(sat((slope*11.0 + hC*.22) * B.z), max(.32, B.z*.55));
+  float bodyPx = A.z * bodyPresence * (0.35 + hC*.55 + energy*.35);
+  float shellPx = B.z * shellPresence * (0.36 + energy*.70 + slope*2.4);
+  vec2 flow = grad * (bodyPx + shellPx);
+  vec2 inwardDir = (vec2(.5)-u); inwardDir.y*=.72;
+  flow += inwardDir * (bodyPresence * A.z * .08);
+  float lim=max(me(u)*max(min(z.x,z.y),1.)*.92,12.);
+  flow = softLimit(flow, min(420., lim + bodyPresence*140. + shellPresence*160.)) * fade;
+  vec2 ru=u+flow/max(z,vec2(1.));
+  vec3 clear=src(ru);
+  vec3 medium=blur(ru);
+  float clarity=sat(C.x*(0.18 + shellPresence*.82 + slope*.30));
+  vec3 col=mix(medium, clear, clarity);
+  float smear=sat(C.y*shellPresence*(.18+slope*3.2));
+  if(smear>.001){
+    vec2 tp=t*(5.0+28.0*smear)/max(z,vec2(1.));
+    vec3 drag=src(ru+tp)*.38 + src(ru-tp)*.38 + medium*.24;
+    col=mix(col, drag, smear*.34);
+  }
+  float rim = shellPresence * sat(0.35 + slope*3.5);
+  float fres = pow(1.0 - sat(me(u)*3.0), 1.35);
+  col += vec3(.03,.07,.10) * rim * .20;
+  col *= (1.0 + rim*.06 + fres*.035);
+  col *= C.z;
+  col=clamp(col,0.,1.);
+  gl_FragColor=vec4(col,.90*mask);
+}`;
+function sh(t,s){let x=g.createShader(t);g.shaderSource(x,s);g.compileShader(x);if(!g.getShaderParameter(x,g.COMPILE_STATUS))throw g.getShaderInfoLog(x);return x}
+let pr=g.createProgram();g.attachShader(pr,sh(g.VERTEX_SHADER,vs));g.attachShader(pr,sh(g.FRAGMENT_SHADER,fs));g.linkProgram(pr);
+let L={a:g.getAttribLocation(pr,'a'),r:g.getUniformLocation(pr,'r'),A:g.getUniformLocation(pr,'A'),B:g.getUniformLocation(pr,'B'),C:g.getUniformLocation(pr,'C'),R:g.getUniformLocation(pr,'R'),T:g.getUniformLocation(pr,'T')};
+let buf=g.createBuffer();g.bindBuffer(g.ARRAY_BUFFER,buf);g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),g.STATIC_DRAW);
+let tex=g.createTexture();g.bindTexture(g.TEXTURE_2D,tex);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MIN_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_MAG_FILTER,g.LINEAR);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE);g.texParameteri(g.TEXTURE_2D,g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE);
 function drawBg(){let d=Math.min(devicePixelRatio||1,2),sr=stage.getBoundingClientRect(),w=Math.round(sr.width*d),h=Math.round(sr.height*d);bg.width=w;bg.height=h;let x=bg.getContext('2d'),gr=x.createLinearGradient(0,0,w,h);gr.addColorStop(0,'#0a3a80');gr.addColorStop(.42,'#4fd5ff');gr.addColorStop(.72,'#173066');gr.addColorStop(1,'#d06c9e');x.fillStyle=gr;x.fillRect(0,0,w,h);x.globalAlpha=.55;for(let i=0;i<11;i++){x.strokeStyle=i%2?'#fff':'#68e7ff';x.lineWidth=(3+i*.45)*d;x.beginPath();x.moveTo(-80*d,(130+i*60)*d);x.bezierCurveTo(260*d,(20+i*10)*d,520*d,(330-i*20)*d,1280*d,(130+i*30)*d);x.stroke()}x.globalAlpha=.25;for(let y=70*d;y<h;y+=160*d)for(let xx=70*d;xx<w;xx+=140*d){x.fillStyle='#fff';x.fillRect(xx,y,80*d,14*d)}g.bindTexture(g.TEXTURE_2D,tex);g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL,false);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,bg)}
-function rect(){let a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return[(b.left-a.left)/a.width,(b.top-a.top)/a.height,b.width/a.width,b.height/a.height]}function resize(){let d=Math.min(devicePixelRatio||1,2),r=glassEl.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));g.viewport(0,0,cv.width,cv.height);drawBg();render()}function render(){g.clearColor(0,0,0,0);g.clear(g.COLOR_BUFFER_BIT);g.useProgram(pr);g.bindBuffer(g.ARRAY_BUFFER,buf);g.enableVertexAttribArray(L.a);g.vertexAttribPointer(L.a,2,g.FLOAT,false,0,0);g.uniform2f(L.r,cv.width,cv.height);g.uniform4f(L.A,p.surfaceWidth,p.surfaceSteepness,p.refractionGainPx,p.slopeResponse);g.uniform4f(L.B,p.lensClarity,p.tangentSmear,p.centerLensPx,p.edgeDarkness);g.uniform4f(L.C,p.highlightStrength,p.brightness,0,0);let R=rect();g.uniform4f(L.R,R[0],R[1],R[2],R[3]);g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tex);g.uniform1i(L.T,0);g.drawArrays(g.TRIANGLE_STRIP,0,4)}
-function build(){let root=document.getElementById('controls');root.innerHTML='';meta.forEach(([k,n,min,max,step])=>{let d=document.createElement('div');d.className='c';d.innerHTML=`<div class="h"><strong>${n}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="${step}" value="${p[k]}">`;root.appendChild(d);d.querySelector('input').oninput=e=>{p[k]=parseFloat(e.target.value);update();render()}});update()}function kotlin(){return `OpenGLLiquidPotentialLabOptics(\n    surfaceWidth = ${p.surfaceWidth.toFixed(2)}f,\n    surfaceSteepness = ${p.surfaceSteepness.toFixed(2)}f,\n    refractionGainPx = ${p.refractionGainPx.toFixed(0)}f,\n    slopeResponse = ${p.slopeResponse.toFixed(2)}f,\n    lensClarity = ${p.lensClarity.toFixed(2)}f,\n    tangentSmear = ${p.tangentSmear.toFixed(2)}f,\n    centerLensPx = ${p.centerLensPx.toFixed(0)}f,\n    edgeDarkness = ${p.edgeDarkness.toFixed(2)}f,\n    highlightStrength = ${p.highlightStrength.toFixed(2)}f,\n    brightness = ${p.brightness.toFixed(2)}f\n)`}function update(){meta.forEach(([k])=>{let v=document.getElementById('v-'+k),i=document.getElementById('i-'+k);if(v)v.textContent=Math.round(p[k]*100)/100;if(i&&parseFloat(i.value)!==p[k])i.value=p[k]});out.textContent=JSON.stringify(p,null,2)+'\n\n'+kotlin()}function preset(n){p={...presets[n]};update();render()}window.onresize=resize;scroll.onscroll=render;build();setTimeout(()=>{resize();scroll.scrollTop=500;render()},0);
+function rect(){let a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return[(b.left-a.left)/a.width,(b.top-a.top)/a.height,b.width/a.width,b.height/a.height]}
+function resize(){let d=Math.min(devicePixelRatio||1,2),r=glassEl.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));g.viewport(0,0,cv.width,cv.height);drawBg();render()}
+function render(){g.clearColor(0,0,0,0);g.clear(g.COLOR_BUFFER_BIT);g.useProgram(pr);g.bindBuffer(g.ARRAY_BUFFER,buf);g.enableVertexAttribArray(L.a);g.vertexAttribPointer(L.a,2,g.FLOAT,false,0,0);g.uniform2f(L.r,cv.width,cv.height);g.uniform4f(L.A,p.bodyWidth,p.bodyCurve,p.bodyGain,p.compression);g.uniform4f(L.B,p.edgePos,p.edgeWidth,p.edgeGain,0);g.uniform4f(L.C,p.clarity,p.tangentSmear,p.brightness,0);let R=rect();g.uniform4f(L.R,R[0],R[1],R[2],R[3]);g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tex);g.uniform1i(L.T,0);g.drawArrays(g.TRIANGLE_STRIP,0,4)}
+function build(){let root=document.getElementById('controls');root.innerHTML='';meta.forEach(([k,n,min,max,step])=>{let d=document.createElement('div');d.className='c';d.innerHTML=`<div class="h"><strong>${n}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="${step}" value="${p[k]}">`;root.appendChild(d);d.querySelector('input').oninput=e=>{p[k]=parseFloat(e.target.value);update();render()}});update()}
+function kotlin(){return `OpenGLLiquidPotentialLabOptics(\n    bodyWidth = ${p.bodyWidth.toFixed(2)}f,\n    bodyCurve = ${p.bodyCurve.toFixed(2)}f,\n    bodyGain = ${p.bodyGain.toFixed(0)}f,\n    edgePos = ${p.edgePos.toFixed(2)}f,\n    edgeWidth = ${p.edgeWidth.toFixed(3)}f,\n    edgeGain = ${p.edgeGain.toFixed(0)}f,\n    compression = ${p.compression.toFixed(2)}f,\n    clarity = ${p.clarity.toFixed(2)}f,\n    tangentSmear = ${p.tangentSmear.toFixed(2)}f,\n    brightness = ${p.brightness.toFixed(2)}f\n)`}
+function update(){meta.forEach(([k])=>{let v=document.getElementById('v-'+k),i=document.getElementById('i-'+k);if(v)v.textContent=Math.round(p[k]*1000)/1000;if(i&&parseFloat(i.value)!==p[k])i.value=p[k]});out.textContent=JSON.stringify(p,null,2)+'\n\n'+kotlin()}
+function preset(n){p={...presets[n]};update();render()}
+window.onresize=resize;scroll.onscroll=render;build();setTimeout(()=>{resize();scroll.scrollTop=500;render()},0);
 </script>
 </body>
 </html>
