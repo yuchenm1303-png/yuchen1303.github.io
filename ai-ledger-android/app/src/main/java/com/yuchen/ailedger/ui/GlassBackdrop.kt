@@ -52,11 +52,16 @@ fun SampledWeatherGlassBackdrop(
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val params = spec?.params ?: BackdropDebugParams()
-    val alpha = liftAlpha.coerceIn(0.34f, 1f)
+    val glass = ComposeGlassLabState.style
+    val alpha = liftAlpha.coerceIn(0.12f, 1.55f)
+    val dim = glass.backdropDim.coerceIn(0f, 1.80f)
+    val milk = glass.backdropMilk.coerceIn(0f, 1.80f)
+    val highlight = glass.backdropHighlight.coerceIn(0f, 1.80f)
     val baseAlpha = when (quality) { RenderQuality.Smooth -> 0.15f; RenderQuality.Balanced -> 0.18f; RenderQuality.Experimental -> 0.21f } * alpha
-    val milkAlpha = when (quality) { RenderQuality.Smooth -> 0.040f; RenderQuality.Balanced -> 0.052f; RenderQuality.Experimental -> 0.064f } * alpha
-    val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha
-    val backdropAlpha = when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha
+    val milkAlpha = when (quality) { RenderQuality.Smooth -> 0.040f; RenderQuality.Balanced -> 0.052f; RenderQuality.Experimental -> 0.064f } * alpha * milk
+    val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha * highlight
+    val backdropAlpha = (when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha).coerceIn(0f, 1f)
+    val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
 
     Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
         ticker?.frameNanos
@@ -66,10 +71,43 @@ fun SampledWeatherGlassBackdrop(
         } else {
             drawLightweightStartupGlassFallback(theme, params, baseAlpha, milkAlpha, highlightAlpha)
         }
-        drawRect(Brush.verticalGradient(listOf(Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.48f), Color(0xFF9AADBF).copy(alpha = baseAlpha * 0.28f), Color(0xFF40576D).copy(alpha = baseAlpha * 0.30f))), blendMode = BlendMode.SrcOver)
-        drawRect(Color(0xFF72859A).copy(alpha = baseAlpha * 0.26f), blendMode = BlendMode.SrcOver)
-        drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = milkAlpha * 0.46f), Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.22f), Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.10f), Color(0xFF172333).copy(alpha = baseAlpha * 0.14f))), blendMode = BlendMode.SrcOver)
-        drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = highlightAlpha * 0.42f), Color.White.copy(alpha = highlightAlpha * 0.08f), Color.Transparent), center = Offset(size.width * 0.42f, size.height * 0.08f), radius = size.width * 0.98f), blendMode = BlendMode.Screen)
+        if (dimAlpha > 0.001f) {
+            drawRect(Color(0xFF020817).copy(alpha = dimAlpha), blendMode = BlendMode.Multiply)
+        }
+        drawRect(
+            Brush.verticalGradient(
+                listOf(
+                    Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.48f),
+                    Color(0xFF9AADBF).copy(alpha = baseAlpha * 0.18f * dim),
+                    Color(0xFF40576D).copy(alpha = baseAlpha * 0.22f * dim)
+                )
+            ),
+            blendMode = BlendMode.SrcOver
+        )
+        drawRect(Color(0xFF72859A).copy(alpha = baseAlpha * 0.16f * milk), blendMode = BlendMode.SrcOver)
+        drawRect(
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = milkAlpha * 0.34f),
+                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.16f),
+                    Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.07f),
+                    Color(0xFF172333).copy(alpha = baseAlpha * 0.10f * dim)
+                )
+            ),
+            blendMode = BlendMode.SrcOver
+        )
+        drawRect(
+            Brush.radialGradient(
+                listOf(
+                    Color.White.copy(alpha = highlightAlpha * 0.42f),
+                    Color.White.copy(alpha = highlightAlpha * 0.08f),
+                    Color.Transparent
+                ),
+                center = Offset(size.width * 0.42f, size.height * 0.08f),
+                radius = size.width * 0.98f
+            ),
+            blendMode = BlendMode.Screen
+        )
     }
 }
 
