@@ -33,16 +33,16 @@ import kotlin.math.roundToInt
 
 @Immutable
 data class OpenGLLiquidPotentialLabOptics(
-    val surfaceWidth: Float = 0.24f,
-    val surfaceSteepness: Float = 1.35f,
-    val refractionGainPx: Float = 150f,
-    val slopeResponse: Float = 0.62f,
-    val lensClarity: Float = 0.92f,
-    val tangentSmear: Float = 0.86f,
-    val centerLensPx: Float = 22f,
-    val edgeDarkness: Float = 0.62f,
-    val highlightStrength: Float = 0.58f,
-    val brightness: Float = 1.03f
+    val surfaceWidth: Float = 0.18f,
+    val surfaceSteepness: Float = 1.20f,
+    val refractionGainPx: Float = 96f,
+    val slopeResponse: Float = 0.78f,
+    val lensClarity: Float = 0.64f,
+    val tangentSmear: Float = 0.32f,
+    val centerLensPx: Float = 14f,
+    val edgeDarkness: Float = 0.36f,
+    val highlightStrength: Float = 0.34f,
+    val brightness: Float = 1.00f
 )
 
 @Immutable
@@ -518,7 +518,7 @@ private class LabRenderer {
             }
         """
         const val FRAGMENT_SHADER = """
-            precision mediump float;
+            precision highp float;
             uniform vec2 uResolution;
             uniform float uRadius;
             uniform float uTextureReady;
@@ -531,7 +531,8 @@ private class LabRenderer {
 
             float sat(float x) { return clamp(x, 0.0, 1.0); }
             vec2 clampUv(vec2 uv) { return clamp(uv, vec2(0.0), vec2(1.0)); }
-            vec2 backdropUv(vec2 localUv) { return uBackdropRect.xy + localUv * uBackdropRect.zw; }
+            vec2 safeGlassUv(vec2 uv) { return clamp(uv, vec2(0.018), vec2(0.982)); }
+            vec2 backdropUv(vec2 localUv) { return uBackdropRect.xy + safeGlassUv(localUv) * uBackdropRect.zw; }
 
             float roundedBoxSdf(vec2 coord, vec2 rectSize, float radius) {
                 vec2 p = coord - rectSize * 0.5;
@@ -556,29 +557,30 @@ private class LabRenderer {
                 return texture2D(uLensTexture, clampUv(backdropUv(localUv))).rgb;
             }
 
-            float edgeProfileAt(float inside, float fieldWidth, float steepness) {
-                float t = max(inside / max(fieldWidth, 1.0), 0.0);
-                float curve = pow(t, max(steepness, 0.35));
-                return exp(-curve * 1.18);
+            float edgeProfileAt(float sd, float fieldWidth, float steepness) {
+                float inside = max(-sd, 0.0);
+                float shape = 1.0 - smoothstep(0.0, 3.0, sd);
+                float t = inside / max(fieldWidth, 1.0);
+                float curve = pow(max(t, 0.0), max(steepness, 0.35));
+                return exp(-curve * 1.42) * shape;
             }
 
             float surfaceHeightAt(vec2 coord, vec2 rectSize, float radius) {
                 float sd = roundedBoxSdf(coord, rectSize, radius);
-                float inside = max(-sd, 0.0);
                 float minSide = max(min(rectSize.x, rectSize.y), 1.0);
-                float fieldWidth = minSide * (0.08 + uOpticsA.x * 0.34);
-                float steepness = uOpticsA.y;
-                float edgeProfile = edgeProfileAt(inside, fieldWidth, steepness);
+                float fieldWidth = minSide * (0.06 + uOpticsA.x * 0.28);
+                float edgeProfile = edgeProfileAt(sd, fieldWidth, uOpticsA.y);
+                float shape = 1.0 - smoothstep(0.0, 3.0, sd);
 
                 vec2 local = clampUv(coord / rectSize);
                 vec2 p = local * 2.0 - 1.0;
                 p.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35) * 0.42;
                 float centerD = length(p);
                 float dome = pow(sat(1.0 - centerD * 0.74), 1.82);
-                float bridge = pow(sat(edgeProfile * dome), 0.58);
-                float cornerFocus = sat(length((local - vec2(0.5)) * vec2(rectSize.x / max(rectSize.y, 1.0), 1.0)) * 1.30 - 0.16);
-                float height = edgeProfile * 0.76 + bridge * 0.30 + dome * 0.20 + cornerFocus * edgeProfile * 0.20;
-                return height;
+                float bridge = pow(sat(edgeProfile * dome), 0.62);
+                float cornerFocus = sat(length((local - vec2(0.5)) * vec2(rectSize.x / max(rectSize.y, 1.0), 1.0)) * 1.22 - 0.20);
+                float height = edgeProfile * 0.58 + bridge * 0.22 + dome * 0.14 + cornerFocus * edgeProfile * 0.11;
+                return height * shape;
             }
 
             vec2 softLimitPx(vec2 v, float limitPx) {
@@ -592,19 +594,20 @@ private class LabRenderer {
                 vec2 rectSize = max(uResolution, vec2(1.0));
                 float radius = min(uRadius, min(rectSize.x, rectSize.y) * 0.5);
                 float sd = roundedBoxSdf(coord, rectSize, radius);
-                float mask = 1.0 - smoothstep(0.0, 1.30, sd);
+                float mask = 1.0 - smoothstep(0.0, 1.40, sd);
                 if (mask <= 0.001) discard;
 
                 vec2 uv = coord / rectSize;
                 vec2 centerDelta = uv - vec2(0.5);
                 centerDelta.x *= min(rectSize.x / max(rectSize.y, 1.0), 2.35);
                 float centerD = length(centerDelta);
-                float body = pow(sat(1.0 - centerD * 0.78), 1.55);
+                float body = pow(sat(1.0 - centerD * 0.78), 1.60);
 
                 float minSide = max(min(rectSize.x, rectSize.y), 1.0);
-                float fieldWidth = minSide * (0.08 + uOpticsA.x * 0.34);
+                float fieldWidth = minSide * (0.06 + uOpticsA.x * 0.28);
                 float inside = max(-sd, 0.0);
-                float edgeProfile = edgeProfileAt(inside, fieldWidth, uOpticsA.y);
+                float edgeProfile = edgeProfileAt(sd, fieldWidth, uOpticsA.y);
+                float edgeSafe = smoothstep(1.5, 12.0, inside);
 
                 float stepPx = 2.0;
                 float pL = surfaceHeightAt(coord - vec2(stepPx, 0.0), rectSize, radius);
@@ -616,39 +619,39 @@ private class LabRenderer {
                 vec2 gradDir = grad / max(slope, 0.0001);
                 vec2 bodyDir = centerDelta / max(centerD, 0.0001);
 
-                float slopeEnergy = pow(sat(slope * 13.5 + edgeProfile * 0.18), max(uOpticsA.w, 0.25));
-                float shoulderEnergy = sat(edgeProfile * 0.48 + slopeEnergy * 0.72);
-                vec2 slopeRefract = gradDir * slopeEnergy * uOpticsA.z * (0.36 + shoulderEnergy * 0.78);
-                vec2 bodyLens = -bodyDir * body * uOpticsB.z * (0.18 + 0.18 * shoulderEnergy);
-                vec2 flow = softLimitPx(slopeRefract + bodyLens, mix(42.0, 120.0, shoulderEnergy));
-                vec2 refractedUv = uv + flow / max(rectSize, vec2(1.0));
+                float response = max(uOpticsA.w, 0.25);
+                float slopeEnergy = pow(sat(slope * 8.2 + edgeProfile * 0.055), response);
+                float shoulderEnergy = sat(edgeProfile * 0.22 + slopeEnergy * 0.70);
+                vec2 slopeRefract = gradDir * slopeEnergy * uOpticsA.z * 0.52 * (0.24 + shoulderEnergy * 0.62);
+                vec2 bodyLens = -bodyDir * body * uOpticsB.z * 0.18;
+                vec2 flow = softLimitPx(slopeRefract + bodyLens, mix(26.0, 72.0, shoulderEnergy));
+                vec2 refractedUv = safeGlassUv(uv + flow / max(rectSize, vec2(1.0)));
 
                 vec3 blurColor = sampleBlur(refractedUv);
                 vec3 lensColor = sampleLens(refractedUv);
-                float lensMix = sat((0.18 + shoulderEnergy * 0.78 + body * 0.08) * uOpticsB.x);
+                float lensMix = sat((0.12 + shoulderEnergy * 0.54 + body * 0.05) * uOpticsB.x * 0.78);
                 vec3 color = mix(blurColor, lensColor, lensMix);
 
-                float smear = sat((slopeEnergy * 0.72 + edgeProfile * 0.42) * uOpticsB.y);
+                float smear = sat((slopeEnergy * 0.55 + edgeProfile * 0.20) * uOpticsB.y * 0.36 * edgeSafe);
                 if (smear > 0.002) {
                     vec2 tangent = vec2(-gradDir.y, gradDir.x);
-                    vec2 tangentPx = tangent * (6.0 + 42.0 * smear) / max(rectSize, vec2(1.0));
-                    vec2 normalPx = gradDir * (3.0 + 14.0 * smear) / max(rectSize, vec2(1.0));
-                    vec3 drag = sampleLens(refractedUv + tangentPx) * 0.27;
-                    drag += sampleLens(refractedUv - tangentPx) * 0.27;
-                    drag += sampleLens(refractedUv + tangentPx * 1.80 + normalPx) * 0.16;
-                    drag += sampleLens(refractedUv - tangentPx * 1.80 - normalPx) * 0.16;
-                    drag += sampleBlur(refractedUv - normalPx) * 0.14;
-                    color = mix(color, drag, sat(smear * 0.44));
+                    vec2 tangentPx = tangent * (3.0 + 18.0 * smear) / max(rectSize, vec2(1.0));
+                    vec2 normalPx = gradDir * (2.0 + 7.0 * smear) / max(rectSize, vec2(1.0));
+                    vec3 drag = sampleLens(refractedUv + tangentPx) * 0.34;
+                    drag += sampleLens(refractedUv - tangentPx) * 0.34;
+                    drag += sampleBlur(refractedUv + normalPx) * 0.16;
+                    drag += sampleBlur(refractedUv - normalPx) * 0.16;
+                    color = mix(color, drag, sat(smear * 0.24));
                 }
 
-                float lightFacing = sat(0.54 - gradDir.y * 0.46 + gradDir.x * 0.08);
-                float highlight = sat((slopeEnergy * 0.52 + edgeProfile * 0.18 + body * 0.025) * lightFacing * uOpticsC.x);
-                color *= uOpticsC.y * (1.0 + highlight * 0.34);
-                color += vec3(0.040, 0.065, 0.080) * highlight;
-                color -= vec3(0.055, 0.070, 0.088) * uOpticsB.w * shoulderEnergy;
-                color += vec3(0.018, 0.035, 0.045) * body * 0.08;
+                float lightFacing = sat(0.54 - gradDir.y * 0.36 + gradDir.x * 0.05);
+                float highlight = sat((slopeEnergy * 0.36 + edgeProfile * 0.10 + body * 0.020) * lightFacing * uOpticsC.x);
+                color *= uOpticsC.y * (1.0 + highlight * 0.24);
+                color += vec3(0.030, 0.050, 0.064) * highlight;
+                color -= vec3(0.044, 0.056, 0.070) * uOpticsB.w * shoulderEnergy;
+                color += vec3(0.014, 0.026, 0.034) * body * 0.055;
                 color = clamp(color, 0.0, 1.0);
-                gl_FragColor = vec4(color, 0.92 * mask);
+                gl_FragColor = vec4(color, 0.90 * mask);
             }
         """
     }
