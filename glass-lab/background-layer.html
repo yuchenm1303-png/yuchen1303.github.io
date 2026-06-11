@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Compose Glass 背景图层调参器</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(9, 14, 28, .72);
+      --panel2: rgba(14, 21, 40, .58);
+      --line: rgba(255,255,255,.13);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.56);
+      --soft: rgba(255,255,255,.34);
+      --cyan: #8df9ea;
+      --blue: #9dc8ff;
+      --orange: #ffb27a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #050812; color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { overflow-x: hidden; }
+    .page { min-height: 100vh; padding: 18px 16px max(28px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } }
+    .stageWrap, .controls { border: 1px solid var(--line); border-radius: 28px; background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); box-shadow: 0 24px 80px rgba(0,0,0,.42); backdrop-filter: blur(18px); }
+    .stageWrap { min-height: calc(100vh - 36px); padding: 14px; position: sticky; top: 16px; align-self: start; }
+    @media (max-width: 980px) { .stageWrap { position: relative; top: 0; min-height: auto; } }
+    .controls { padding: 14px; max-height: calc(100vh - 36px); overflow: auto; position: sticky; top: 16px; align-self: start; }
+    @media (max-width: 980px) { .controls { position: relative; top: 0; max-height: none; } }
+    .title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 4px 2px 14px; }
+    .title h1 { font-size: 19px; line-height: 1.15; margin: 0; letter-spacing: -.02em; }
+    .title p { font-size: 12px; line-height: 1.45; margin: 6px 0 0; color: var(--muted); }
+    .badge { border: 1px solid rgba(141,249,234,.28); color: rgba(141,249,234,.9); background: rgba(141,249,234,.08); border-radius: 999px; padding: 6px 9px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .stage { min-height: calc(100vh - 100px); border-radius: 24px; position: relative; overflow: hidden; background: #08101e; isolation: isolate; }
+    @media (max-width: 980px) { .stage { min-height: 650px; } }
+    .sourceBg, .blurBg, .sampleBg, .atmosphere { position: absolute; inset: 0; }
+    .sourceBg { background: var(--sourceBackground); transform: scale(1.06); }
+    .blurBg { background: var(--sourceBackground); transform: scale(var(--sourceScaleVisual)); filter: blur(var(--blurPx)) brightness(var(--brightness)) contrast(var(--contrast)) saturate(var(--saturation)); opacity: .94; }
+    .atmosphere { pointer-events: none; background:
+      radial-gradient(ellipse at 74% 14%, rgba(190,154,255,.34), transparent 36%),
+      radial-gradient(ellipse at 24% 80%, rgba(255,154,100,.28), transparent 42%),
+      linear-gradient(180deg, rgba(4,8,17,.10), rgba(4,6,14,.44));
+      mix-blend-mode: screen; opacity: var(--cloudAlpha);
+      filter: blur(calc(var(--cloudSoftness) * 8px));
+      transform: scaleX(var(--cloudStretchX)) scaleY(var(--cloudStretchY));
+    }
+    .wallLabel { position: absolute; left: 18px; top: 16px; z-index: 5; font-size: 12px; color: rgba(255,255,255,.62); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .layout { position: relative; z-index: 10; height: 100%; display: grid; place-items: center; padding: 54px 18px 24px; }
+    .samples { width: min(900px, 100%); display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; align-items: center; }
+    @media (max-width: 680px) { .samples { grid-template-columns: 1fr; } }
+    .glassCard, .miniCard, .menuCard { position: relative; border-radius: var(--radiusPx); overflow: hidden; box-shadow: 0 26px 90px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.16); }
+    .glassCard { height: 360px; padding: 24px; }
+    .miniStack { display: grid; gap: 14px; }
+    .miniCard { height: 118px; padding: 16px; border-radius: calc(var(--radiusPx) * .66); }
+    .menuCard { height: 270px; padding: 16px; border-radius: calc(var(--radiusPx) * .82); }
+    .glassLayer { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
+    .glassSample { background: var(--sourceBackground); background-position: center; background-size: cover; transform: scale(1.05); filter: blur(var(--sampleBlurPx)) brightness(var(--sampleBrightness)) contrast(var(--sampleContrast)) saturate(var(--sampleSaturation)); opacity: var(--backdrop); }
+    .glassDim { background: rgba(2,8,23,var(--backdropDimAlpha)); mix-blend-mode: multiply; }
+    .glassMilk { background:
+      linear-gradient(180deg, rgba(224,234,243,calc(.052 * var(--backdropMilk))), rgba(154,174,193,calc(.024 * var(--backdropMilk))), rgba(23,35,51,calc(.020 * var(--backdropDim))));
+      opacity: .95;
+    }
+    .glassHighlight { background: radial-gradient(ellipse at 42% 7%, rgba(255,255,255,calc(.13 * var(--backdropHighlight))), rgba(255,255,255,calc(.028 * var(--backdropHighlight))) 28%, transparent 64%); mix-blend-mode: screen; }
+    .bodyAbsorb { background: linear-gradient(135deg, rgba(13,20,51,calc(.045 * var(--bodyAbsorption))), rgba(8,13,36,calc(.070 * var(--bodyAbsorption))), rgba(3,6,21,calc(.105 * var(--bodyAbsorption)))); mix-blend-mode: multiply; }
+    .lowerMass { background: linear-gradient(180deg, transparent 24%, rgba(5,10,28,calc(.07 * var(--lowerBodyMass))) 72%, rgba(2,4,14,calc(.15 * var(--lowerBodyMass))) 100%); mix-blend-mode: multiply; }
+    .edgeLight { box-shadow: inset 0 1px rgba(255,255,255,calc(.12 * var(--edgeLight))), inset 0 -1px rgba(255,255,255,calc(.07 * var(--edgeLight))), inset 0 0 0 1px rgba(255,255,255,calc(.07 * var(--outerRim))); }
+    .content { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; justify-content: space-between; }
+    .content h2 { margin: 0; font-size: clamp(26px, 4vw, 44px); letter-spacing: -.05em; line-height: .95; }
+    .content p { margin: 10px 0 0; color: rgba(255,255,255,.58); font-size: 13px; max-width: 420px; line-height: 1.55; font-weight: 700; }
+    .chips { display: flex; gap: 9px; flex-wrap: wrap; }
+    .chip { border-radius: 999px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: rgba(255,255,255,.72); padding: 9px 12px; font-size: 12px; font-weight: 800; }
+    .miniTitle { position: relative; z-index: 2; font-size: 18px; font-weight: 900; letter-spacing: -.02em; }
+    .miniSub { position: relative; z-index: 2; font-size: 12px; color: rgba(255,255,255,.52); margin-top: 7px; line-height: 1.45; }
+    .group { border: 1px solid rgba(255,255,255,.11); border-radius: 20px; background: rgba(255,255,255,.045); padding: 12px; margin-bottom: 10px; }
+    .group h3 { margin: 0 0 4px; font-size: 14px; letter-spacing: -.01em; }
+    .group .desc { margin: 0 0 10px; color: var(--muted); font-size: 11px; line-height: 1.42; }
+    .control { padding: 8px 0; border-top: 1px solid rgba(255,255,255,.07); }
+    .control:first-of-type { border-top: 0; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+    .row label { font-size: 12px; color: rgba(255,255,255,.82); font-weight: 800; }
+    .value { font-size: 12px; color: rgba(141,249,234,.86); font-weight: 900; font-variant-numeric: tabular-nums; }
+    input[type="range"] { width: 100%; accent-color: var(--cyan); }
+    .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
+    button { border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.07); color: rgba(255,255,255,.86); border-radius: 14px; padding: 10px 8px; font-weight: 900; cursor: pointer; }
+    button:hover { background: rgba(255,255,255,.11); }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; color: rgba(255,255,255,.72); background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 12px; font-size: 11px; line-height: 1.45; }
+    .note { color: rgba(255,255,255,.48); font-size: 11px; line-height: 1.45; margin: 8px 2px 0; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="stageWrap">
+      <div class="title">
+        <div>
+          <h1>背景图层调参器</h1>
+          <p>把背景链分成两套：底图生成层（模糊位图）和玻璃采样层（透出、压暗、雾化、高光）。</p>
+        </div>
+        <div class="badge">Compose Glass Lab</div>
+      </div>
+      <div class="stage" id="stage">
+        <div class="sourceBg"></div>
+        <div class="blurBg"></div>
+        <div class="atmosphere"></div>
+        <div class="wallLabel">blurred backdrop bitmap</div>
+        <div class="layout">
+          <div class="samples">
+            <div class="glassCard glassSurface">
+              <div class="glassLayer glassSample"></div>
+              <div class="glassLayer glassDim"></div>
+              <div class="glassLayer glassMilk"></div>
+              <div class="glassLayer glassHighlight"></div>
+              <div class="glassLayer bodyAbsorb"></div>
+              <div class="glassLayer lowerMass"></div>
+              <div class="glassLayer edgeLight"></div>
+              <div class="content">
+                <div>
+                  <h2>Glass<br/>Backdrop</h2>
+                  <p>观察背景被玻璃采样后的清晰度、假亮感、雾化厚度和下半部分沉重感。</p>
+                </div>
+                <div class="chips"><span class="chip">采样层</span><span class="chip">模糊层</span><span class="chip">主体吸收</span></div>
+              </div>
+            </div>
+            <div class="miniStack">
+              <div class="miniCard glassSurface">
+                <div class="glassLayer glassSample"></div><div class="glassLayer glassDim"></div><div class="glassLayer glassMilk"></div><div class="glassLayer glassHighlight"></div><div class="glassLayer bodyAbsorb"></div><div class="glassLayer lowerMass"></div><div class="glassLayer edgeLight"></div>
+                <div class="miniTitle">Chip / Floating</div>
+                <div class="miniSub">小卡片会更容易暴露背景层假不假。</div>
+              </div>
+              <div class="menuCard glassSurface">
+                <div class="glassLayer glassSample"></div><div class="glassLayer glassDim"></div><div class="glassLayer glassMilk"></div><div class="glassLayer glassHighlight"></div><div class="glassLayer bodyAbsorb"></div><div class="glassLayer lowerMass"></div><div class="glassLayer edgeLight"></div>
+                <div class="miniTitle">Model Menu</div>
+                <div class="miniSub">目标是让背景被压住、变软，但不要脏成灰块。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="controls">
+      <div class="title">
+        <div>
+          <h1>参数</h1>
+          <p>调完后复制下面 Kotlin 默认值。</p>
+        </div>
+      </div>
+      <div class="buttons">
+        <button id="resetBtn">恢复默认</button>
+        <button id="copyBtn">复制 Kotlin</button>
+      </div>
+
+      <div class="group" data-group="source">
+        <h3>底图生成层</h3>
+        <p class="desc">对应 BlurredBackdropBitmap 生成链：scale / radius / iterations / tone。真实 App 中改这些会触发背景缓存重建。</p>
+      </div>
+      <div class="group" data-group="sample">
+        <h3>玻璃采样层</h3>
+        <p class="desc">对应 SampledWeatherGlassBackdrop：背景透出、压暗、雾化覆膜、高光。</p>
+      </div>
+      <div class="group" data-group="body">
+        <h3>主体厚度层</h3>
+        <p class="desc">对应 glassSkin 内部吸收层：让玻璃不再像塑料薄片。</p>
+      </div>
+      <div class="group" data-group="shape">
+        <h3>预览形体</h3>
+        <p class="desc">只影响网页预览，不一定写入 App 默认值。</p>
+      </div>
+
+      <pre id="kotlinOut"></pre>
+      <p class="note">提示：背景图层不止一套。上游模糊底图决定“背景本身假不假”，下游采样覆膜决定“玻璃里看到的背景假不假”。</p>
+    </aside>
+  </div>
+
+  <script>
+    const defaults = {
+      sourceScale: 0.24,
+      blurRadius: 7,
+      iterations: 3,
+      brightness: 1.05,
+      contrast: 0.96,
+      saturation: 0.92,
+      cloudAlpha: 0.72,
+      cloudSoftness: 1.08,
+      cloudStretchX: 1.10,
+      cloudStretchY: 0.94,
+
+      backdrop: 1.22,
+      backdropBlur: 0.92,
+      backdropDim: 0.38,
+      backdropMilk: 0.86,
+      backdropHighlight: 0.72,
+
+      bodyAbsorption: 0.46,
+      lowerBodyMass: 0.34,
+      innerTransition: 0.24,
+
+      radius: 37.15,
+      edgeLight: 0.26
+    };
+
+    const controls = [
+      ['source', 'sourceScale', '底图缩放', 0.14, 0.72, 0.01, '越小越糊、更省性能；默认壁纸 App 里固定偏低'],
+      ['source', 'blurRadius', '模糊半径', 1, 32, 1, '对应 BackdropDebugParams.radius'],
+      ['source', 'iterations', '模糊次数', 1, 8, 1, '对应 BackdropDebugParams.iterations'],
+      ['source', 'brightness', '底图亮度', 0.70, 1.35, 0.01, '对应 brightness'],
+      ['source', 'contrast', '底图对比', 0.70, 1.35, 0.01, '对应 contrast'],
+      ['source', 'saturation', '底图饱和', 0.50, 1.60, 0.01, '对应 saturation'],
+      ['source', 'cloudAlpha', '背景云气', 0.00, 1.80, 0.01, '网页模拟云雾/光斑强度'],
+      ['source', 'cloudSoftness', '云气柔度', 0.20, 2.40, 0.01, '网页模拟云雾 blur'],
+      ['source', 'cloudStretchX', '云气横向', 0.60, 2.20, 0.01, '网页模拟横向拉伸'],
+      ['source', 'cloudStretchY', '云气纵向', 0.40, 1.80, 0.01, '网页模拟纵向拉伸'],
+
+      ['sample', 'backdrop', '采样透出', 0.12, 1.55, 0.01, '对应 ComposeGlassStyle.backdrop'],
+      ['sample', 'backdropBlur', '采样模糊', 0.35, 2.20, 0.01, '对应 ComposeGlassStyle.backdropBlur / blurScale'],
+      ['sample', 'backdropDim', '背景压暗', 0.00, 1.80, 0.01, '对应 backdropDim'],
+      ['sample', 'backdropMilk', '雾化覆膜', 0.00, 1.80, 0.01, '对应 backdropMilk'],
+      ['sample', 'backdropHighlight', '背景高光', 0.00, 1.80, 0.01, '对应 backdropHighlight'],
+
+      ['body', 'bodyAbsorption', '主体吸收', 0.00, 1.60, 0.01, '对应 bodyAbsorption'],
+      ['body', 'lowerBodyMass', '下半厚度', 0.00, 1.60, 0.01, '对应 lowerBodyMass'],
+      ['body', 'innerTransition', '内缘过渡', 0.00, 1.60, 0.01, '对应 innerTransition'],
+
+      ['shape', 'radius', '圆角半径', 18, 84, 0.01, '预览圆角，也可写入 RuntimeDefaults.radius'],
+      ['shape', 'edgeLight', '预览外缘', 0, 1.8, 0.01, '网页预览用，近似 outerRim']
+    ];
+
+    const state = loadState();
+    buildControls();
+    apply();
+
+    function loadState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('compose-glass-backdrop-lab') || '{}');
+        return {...defaults, ...saved};
+      } catch { return {...defaults}; }
+    }
+
+    function saveState() {
+      localStorage.setItem('compose-glass-backdrop-lab', JSON.stringify(state));
+    }
+
+    function buildControls() {
+      for (const [group, key, label, min, max, step, hint] of controls) {
+        const box = document.querySelector(`[data-group="${group}"]`);
+        const div = document.createElement('div');
+        div.className = 'control';
+        div.innerHTML = `<div class="row"><label>${label}</label><span class="value" id="value-${key}"></span></div><input id="input-${key}" type="range" min="${min}" max="${max}" step="${step}" value="${state[key]}"><div class="desc">${hint}</div>`;
+        box.appendChild(div);
+        div.querySelector('input').addEventListener('input', e => {
+          state[key] = Number(e.target.value);
+          saveState();
+          apply();
+        });
+      }
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        Object.assign(state, defaults);
+        saveState();
+        for (const [, key] of controls) document.getElementById(`input-${key}`).value = state[key];
+        apply();
+      });
+      document.getElementById('copyBtn').addEventListener('click', async () => {
+        await navigator.clipboard.writeText(kotlinText());
+        document.getElementById('copyBtn').textContent = '已复制';
+        setTimeout(() => document.getElementById('copyBtn').textContent = '复制 Kotlin', 900);
+      });
+    }
+
+    function apply() {
+      for (const [, key] of controls) {
+        const el = document.getElementById(`value-${key}`);
+        if (el) el.textContent = fmt(state[key]);
+      }
+      const root = document.documentElement;
+      const source = sourceBackground();
+      root.style.setProperty('--sourceBackground', source);
+      root.style.setProperty('--sourceScaleVisual', 1 + (0.72 - state.sourceScale) * 0.20);
+      root.style.setProperty('--blurPx', `${state.blurRadius * state.iterations * 0.72}px`);
+      root.style.setProperty('--brightness', state.brightness);
+      root.style.setProperty('--contrast', state.contrast);
+      root.style.setProperty('--saturation', state.saturation);
+      root.style.setProperty('--cloudAlpha', state.cloudAlpha);
+      root.style.setProperty('--cloudSoftness', state.cloudSoftness);
+      root.style.setProperty('--cloudStretchX', state.cloudStretchX);
+      root.style.setProperty('--cloudStretchY', state.cloudStretchY);
+      root.style.setProperty('--backdrop', state.backdrop);
+      root.style.setProperty('--sampleBlurPx', `${state.blurRadius * state.iterations * state.backdropBlur * 0.30}px`);
+      root.style.setProperty('--sampleBrightness', Math.max(0.72, state.brightness * (1 - state.backdropDim * 0.045)));
+      root.style.setProperty('--sampleContrast', Math.max(0.68, state.contrast * (1 - state.backdropDim * 0.10)));
+      root.style.setProperty('--sampleSaturation', Math.max(0.42, state.saturation * (1 - state.backdropDim * 0.08)));
+      root.style.setProperty('--backdropDim', state.backdropDim);
+      root.style.setProperty('--backdropDimAlpha', clamp(0.06 * state.backdropDim * state.backdrop, 0, .22));
+      root.style.setProperty('--backdropMilk', state.backdropMilk);
+      root.style.setProperty('--backdropHighlight', state.backdropHighlight);
+      root.style.setProperty('--bodyAbsorption', state.bodyAbsorption);
+      root.style.setProperty('--lowerBodyMass', state.lowerBodyMass);
+      root.style.setProperty('--innerTransition', state.innerTransition);
+      root.style.setProperty('--radiusPx', `${state.radius}px`);
+      root.style.setProperty('--edgeLight', state.edgeLight);
+      document.getElementById('kotlinOut').textContent = kotlinText();
+    }
+
+    function sourceBackground() {
+      return `
+        radial-gradient(ellipse at 78% 10%, rgba(183,154,255,.72), transparent 32%),
+        radial-gradient(ellipse at 20% 76%, rgba(255,160,110,.62), transparent 42%),
+        radial-gradient(ellipse at 24% 44%, rgba(104,190,255,.40), transparent 34%),
+        linear-gradient(180deg, #071426 0%, #31446d 42%, #8a6b65 72%, #1b2440 100%)
+      `;
+    }
+
+    function kotlinText() {
+      return `// ComposeGlassRuntimeDefaults.kt
+const val backdrop = ${fmt(state.backdrop)}f
+const val backdropBlur = ${fmt(state.backdropBlur)}f
+const val backdropDim = ${fmt(state.backdropDim)}f
+const val backdropMilk = ${fmt(state.backdropMilk)}f
+const val backdropHighlight = ${fmt(state.backdropHighlight)}f
+
+const val bodyAbsorption = ${fmt(state.bodyAbsorption)}f
+const val lowerBodyMass = ${fmt(state.lowerBodyMass)}f
+const val innerTransition = ${fmt(state.innerTransition)}f
+const val radius = ${fmt(state.radius)}f
+
+// AppModels.kt / BackdropDebugParams 默认值，可选
+val scale: Float = ${fmt(state.sourceScale)}f
+val radius: Float = ${fmt(state.blurRadius)}f
+val iterations: Float = ${fmt(state.iterations)}f
+val brightness: Float = ${fmt(state.brightness)}f
+val contrast: Float = ${fmt(state.contrast)}f
+val saturation: Float = ${fmt(state.saturation)}f
+val cloudAlpha: Float = ${fmt(state.cloudAlpha)}f
+val cloudSoftness: Float = ${fmt(state.cloudSoftness)}f
+val cloudStretchX: Float = ${fmt(state.cloudStretchX)}f
+val cloudStretchY: Float = ${fmt(state.cloudStretchY)}f`;
+    }
+
+    function fmt(v) { return (Math.round(v * 100) / 100).toFixed(2).replace(/\.00$/, '.00'); }
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  </script>
+</body>
+</html>
