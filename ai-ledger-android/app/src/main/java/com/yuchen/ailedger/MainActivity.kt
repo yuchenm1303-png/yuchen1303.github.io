@@ -17,6 +17,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.yuchen.ailedger.ui.AccessibilitySilentComposeRoot
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
 
@@ -46,7 +47,9 @@ class MainActivity : ComponentActivity() {
         if (ENABLE_STARTUP_METRICS_OVERLAY) installStartupMetricsOverlay(window.decorView)
         setContent {
             if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
-            AiAssistantNativeApp()
+            AccessibilitySilentComposeRoot {
+                AiAssistantNativeApp()
+            }
         }
         reinforceAccessibilityPerformanceShield(window.decorView)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
