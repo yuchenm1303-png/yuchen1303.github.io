@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -53,7 +54,7 @@ fun SampledWeatherGlassBackdrop(
     val ticker = LocalBackdropFrameTicker.current
     val params = spec?.params ?: BackdropDebugParams()
     val glass = ComposeGlassLabState.style
-    val alpha = liftAlpha.coerceIn(0.12f, 1.55f)
+    val alpha = liftAlpha.coerceIn(0f, 1.55f)
     val dim = glass.backdropDim.coerceIn(0f, 1.80f)
     val milk = glass.backdropMilk.coerceIn(0f, 1.80f)
     val highlight = glass.backdropHighlight.coerceIn(0f, 1.80f)
@@ -62,8 +63,9 @@ fun SampledWeatherGlassBackdrop(
     val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha * highlight
     val backdropAlpha = (when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
+    val effectiveBlurRadiusDp = blurRadiusDp.coerceIn(0, 128).dp
 
-    Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
+    Canvas(modifier.blur(effectiveBlurRadiusDp).clip(RoundedCornerShape(radius.dp))) {
         ticker?.frameNanos
         val sampleOffset = coordinateSource.offsetRelativeTo(origin)
         if (cachedBackdrop != null) {
@@ -218,8 +220,5 @@ fun SampledWeatherEdgeRefraction(modifier: Modifier = Modifier, radius: Int, coo
         drawRoundRect(Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.030f * alpha), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.010f * alpha), Color.White.copy(alpha = 0.016f * alpha))), Offset(midInset, midInset), Size(w - midInset * 2f, h - midInset * 2f), corner, style = Stroke(4.8.dp.toPx()), blendMode = BlendMode.Screen)
         drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.004f * alpha), Color.Black.copy(alpha = 0.018f * alpha)), startY = h * 0.48f, endY = h), Offset(innerInset, innerInset), Size(w - innerInset * 2f, h - innerInset * 2f), corner, style = Stroke(2.4.dp.toPx()), blendMode = BlendMode.Multiply)
         drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = border.outerStrokeAlpha), Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f), Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)), endY = h), Offset(outerInset, outerInset), Size(w - outerInset * 2f, h - outerInset * 2f), corner, style = Stroke(1.15.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = border.innerStrokeAlpha), Color.Transparent, Color.White.copy(alpha = border.innerStrokeAlpha * 0.28f)), endY = h), Offset(midInset, midInset), Size(w - midInset * 2f, h - midInset * 2f), corner, style = Stroke(0.82.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = border.topHighlightAlpha * 0.38f), Color.Transparent), Offset(w * (phase - 0.32f), 0f), Offset(w * (phase + 0.18f), h * 0.18f)), Offset(outerInset, outerInset), Size(w - outerInset * 2f, h - outerInset * 2f), corner, style = Stroke(1.0.dp.toPx()), blendMode = BlendMode.Plus)
-        drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = border.bottomShadowAlpha)), startY = h * 0.52f, endY = h), Offset(midInset, midInset), Size(w - midInset * 2f, h - midInset * 2f), corner, style = Stroke(1.1.dp.toPx()), blendMode = BlendMode.Multiply)
     }
 }
