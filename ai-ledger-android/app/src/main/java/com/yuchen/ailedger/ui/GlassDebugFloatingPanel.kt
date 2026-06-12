@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,7 +37,6 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
-import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import kotlin.math.roundToInt
 
 @Composable
@@ -56,22 +54,8 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
             OpenGlGlassLab(state, border, onBorderChange)
         }
-        GlassLabFoldout("新版 OpenGL", "新版主体 + 旧版边框折射叠加样本", false, state) {
+        GlassLabFoldout("新版 OpenGL", "单一模糊背景层 + 新版采样层", false, state) {
             NewOpenGlGlassLab(state, border, onBorderChange)
-        }
-        GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
-            LabSlider("背景云雾", "背景云雾透明度", params.cloudAlpha, 0f..2f) { onBackdropChange(params.copy(cloudAlpha = it)) }
-            LabSlider("云雾柔化", "云层边缘柔和程度", params.cloudSoftness, 0f..3f) { onBackdropChange(params.copy(cloudSoftness = it)) }
-            LabSlider("背景亮度", "背景整体明暗", params.brightness, 0.5f..1.8f) { onBackdropChange(params.copy(brightness = it)) }
-            LabSlider("背景对比", "背景明暗反差", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
-            LabSlider("边缘宽度", "玻璃外缘可见宽度", border.ringWidthDp, 0f..24f) { onBorderChange(border.copy(ringWidthDp = it)) }
-            LabSlider("外描边", "外侧细边透明度", border.outerStrokeAlpha, 0f..1.5f) { onBorderChange(border.copy(outerStrokeAlpha = it)) }
-            LabSlider("顶部高光", "上沿高光强度", border.topHighlightAlpha, 0f..2f) { onBorderChange(border.copy(topHighlightAlpha = it)) }
-            LabSlider("底部阴影", "下沿暗部压边", border.bottomShadowAlpha, 0f..1.2f) { onBorderChange(border.copy(bottomShadowAlpha = it)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                LabActionButton("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
-                LabActionButton("背景图片", "上传", state, Modifier.weight(1f), onUploadBackgroundClick)
-            }
         }
         RestoredGlassLabSections(state)
     }
@@ -79,13 +63,7 @@ fun GlassDebugFloatingPanel(
 
 @Composable
 private fun OpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onBorderChange: (GlassBorderStyle) -> Unit) {
-    LegacyOpenGLGlassPreviewShell(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.70f,
-        motionIntensity = state.motionIntensity,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth().height(120.dp)
-    ) {
+    LegacyOpenGLGlassPreviewShell(state.quality, state.glassIntensity * 0.70f, state.motionIntensity, 26, Modifier.fillMaxWidth().height(120.dp)) {
         Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text("旧 OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -98,8 +76,6 @@ private fun OpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onB
     Group("旧样本参数", "只影响这一栏旧样本", state) {
         LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
         LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
-        LabSlider("旧边缘亮度", "旧 shader 的折射亮度", style.edgeBrightness, 0.20f..2.40f) { onBorderChange(style.copy(edgeBrightness = it)) }
-        LabSlider("旧边缘宽度", "旧 shader rim 宽度", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
     }
 }
 
@@ -108,93 +84,31 @@ private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, 
     val sampleCoordinates = remember { GlassCoordinateSource() }
     val blurRadius = style.edgeBlurDp.roundToInt().coerceIn(0, 128)
     val blurAlpha = (style.newOpenGlClarity * 0.62f * style.newOpenGlBrightness.coerceIn(0.4f, 2.2f)).coerceIn(0f, 1.35f)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(160.dp)
-            .clip(RoundedCornerShape(30.dp))
-            .onPlaced { sampleCoordinates.coordinates = it }
-            .background(Color.White.copy(alpha = 0.018f))
-    ) {
-        SampledWeatherGlassBackdrop(
-            modifier = Modifier.matchParentSize(),
-            radius = 30,
-            coordinateSource = sampleCoordinates,
-            quality = state.quality,
-            motionIntensity = state.motionIntensity,
-            theme = state.backgroundTheme,
-            blurRadiusDp = blurRadius,
-            liftAlpha = blurAlpha
-        )
-        NewOpenGLGlassCardLayer(
-            radius = 30,
-            glassIntensity = state.glassIntensity * 0.92f,
-            coordinateSource = sampleCoordinates,
-            modifier = Modifier.matchParentSize()
-        )
-        OpenGLGlassCardLayer(
-            radius = 30,
-            glassIntensity = state.glassIntensity * 0.62f,
-            coordinateSource = sampleCoordinates,
-            modifier = Modifier.matchParentSize().graphicsLayer(alpha = 0.72f)
-        )
+    Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(30.dp)).onPlaced { sampleCoordinates.coordinates = it }.background(Color.White.copy(alpha = 0.018f))) {
+        SampledWeatherGlassBackdrop(Modifier.matchParentSize(), 30, sampleCoordinates, state.quality, state.motionIntensity, state.backgroundTheme, blurRadius, blurAlpha)
+        NewOpenGLGlassCardLayer(30, state.glassIntensity * 0.92f, sampleCoordinates, Modifier.matchParentSize())
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("新版主体 + 旧版边框折射厚度层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("单一背景来源：模糊层独立，新版 OpenGL 独立采样", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
-                Metric("旧边", style.ringWidthDp, Modifier.weight(1f))
+                Metric("雾化", style.newOpenGlClarity, Modifier.weight(1f))
                 Metric("外缘", style.newOpenGlOuterRimGain, Modifier.weight(1f))
             }
         }
     }
-
-    Group("背景模糊层 Backdrop Blur Layer", "新版样本玻璃底层雾化背景，不再是纯透明", state) {
-        LabSlider("背景模糊半径 dp", "底层 SampledWeatherGlassBackdrop blurRadiusDp", style.edgeBlurDp, 0f..128f) { onBorderChange(style.copy(edgeBlurDp = it)) }
+    Group("背景模糊层", "只控制底层模糊背景；OpenGL 折射采样独立进行", state) {
+        LabSlider("背景模糊半径 dp", "底层 blurRadiusDp", style.edgeBlurDp, 0f..128f) { onBorderChange(style.copy(edgeBlurDp = it)) }
         LabSlider("背景模糊层透明度", "底层模糊背景 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
         LabSlider("背景模糊层亮度", "底层模糊背景亮度响应", style.newOpenGlBrightness, 0.4f..2.2f) { onBorderChange(style.copy(newOpenGlBrightness = it)) }
         LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
     }
-
-    Group("旧版边框厚度层 Legacy Rim Overlay", "完整叠加旧版 OpenGL 边框折射、底部暗脊和硬高光", state) {
-        LabSlider("旧边框宽度", "旧版 OpenGL ringWidthDp", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
-        LabSlider("旧边框拉力", "旧版 edgePullDp", style.edgePullDp, -600f..600f) { onBorderChange(style.copy(edgePullDp = it)) }
-        LabSlider("旧主体折射", "旧版 openGlPullScale", style.openGlPullScale, -300f..300f) { onBorderChange(style.copy(openGlPullScale = it)) }
-        LabSlider("旧边框亮度", "旧版 edgeBrightness", style.edgeBrightness, -5f..5f) { onBorderChange(style.copy(edgeBrightness = it)) }
-        LabSlider("旧暗边强度", "旧版 openGlDarkScale", style.openGlDarkScale, -10f..10f) { onBorderChange(style.copy(openGlDarkScale = it)) }
-    }
-
-    Group("主体折射 Body Field", "主体椭圆大范围背景拉伸扭曲", state) {
+    Group("主体折射", "新版 OpenGL 主体折射参数", state) {
         LabSlider("主体宽度", "bodyWidth", style.newOpenGlBodyWidth, 0.18f..1.50f) { onBorderChange(style.copy(newOpenGlBodyWidth = it)) }
         LabSlider("主体陡度", "bodyCurve", style.newOpenGlBodyCurve, 0.20f..3.20f) { onBorderChange(style.copy(newOpenGlBodyCurve = it)) }
         LabSlider("主体强度", "bodyGain", style.newOpenGlBodyGain, 0f..900f) { onBorderChange(style.copy(newOpenGlBodyGain = it)) }
-    }
-    Group("主体折射带 Body Band", "主体侧边折射带位置、宽度和强度", state) {
-        LabSlider("主体折射带位置", "bodyBandPos", style.newOpenGlBodyBandPos, 0.55f..0.98f) { onBorderChange(style.copy(newOpenGlBodyBandPos = it)) }
-        LabSlider("主体折射带宽度", "bodyBandWidth", style.newOpenGlBodyBandWidth, 0.015f..0.24f) { onBorderChange(style.copy(newOpenGlBodyBandWidth = it)) }
-        LabSlider("主体折射带强度", "bodyBandGain", style.newOpenGlBodyBandGain, 0f..1500f) { onBorderChange(style.copy(newOpenGlBodyBandGain = it)) }
-    }
-    Group("外侧压缩折射区 Outer Compressed Rim", "把背景压缩并抽取到外侧亮边", state) {
-        LabSlider("外压缩区厚度 px", "outerRimWidthPx", style.newOpenGlOuterRimWidthPx, 0.6f..14f) { onBorderChange(style.copy(newOpenGlOuterRimWidthPx = it)) }
-        LabSlider("外压缩强度", "outerRimCompression", style.newOpenGlOuterRimCompression, 0.25f..3f) { onBorderChange(style.copy(newOpenGlOuterRimCompression = it)) }
-        LabSlider("外压缩区向内采样 px", "outerRimReachPx", style.newOpenGlOuterRimReachPx, 0f..32f) { onBorderChange(style.copy(newOpenGlOuterRimReachPx = it)) }
-        LabSlider("外压缩区显现强度", "outerRimGain", style.newOpenGlOuterRimGain, 0f..2.5f) { onBorderChange(style.copy(newOpenGlOuterRimGain = it)) }
-    }
-    Group("内侧渐变折射墙 Inner Transition Wall", "边缘内侧强折射演替区", state) {
-        LabSlider("内墙起点位置 px", "innerWallOffsetPx", style.newOpenGlInnerWallOffsetPx, 1f..18f) { onBorderChange(style.copy(newOpenGlInnerWallOffsetPx = it)) }
-        LabSlider("内墙渐变宽度 px", "innerWallWidthPx", style.newOpenGlInnerWallWidthPx, 2f..34f) { onBorderChange(style.copy(newOpenGlInnerWallWidthPx = it)) }
-        LabSlider("内墙折射强度", "innerWallGain", style.newOpenGlInnerWallGain, 0f..420f) { onBorderChange(style.copy(newOpenGlInnerWallGain = it)) }
-        LabSlider("内墙衰减速度", "innerWallFalloff", style.newOpenGlInnerWallFalloff, 0.25f..4f) { onBorderChange(style.copy(newOpenGlInnerWallFalloff = it)) }
-        LabSlider("内墙向内采样 px", "innerWallReachPx", style.newOpenGlInnerWallReachPx, 0f..42f) { onBorderChange(style.copy(newOpenGlInnerWallReachPx = it)) }
-        LabSlider("黑色抽取强度", "darkExtract", style.newOpenGlDarkExtract, 0f..1.6f) { onBorderChange(style.copy(newOpenGlDarkExtract = it)) }
-        LabSlider("柔肩过渡宽度 px", "edgeShoulderWidthPx", style.newOpenGlEdgeShoulderWidthPx, 4f..38f) { onBorderChange(style.copy(newOpenGlEdgeShoulderWidthPx = it)) }
-        LabSlider("边缘切向拖色", "edgeTangentSmear", style.newOpenGlEdgeTangentSmear, 0f..160f) { onBorderChange(style.copy(newOpenGlEdgeTangentSmear = it)) }
-    }
-    LabActionButton("重置新版", "恢复最终预置", state, Modifier.fillMaxWidth()) {
-        onBorderChange(style.copy(newOpenGlBodyWidth = 1.31f, newOpenGlBodyCurve = 2.23f, newOpenGlBodyGain = 509f, newOpenGlBodyBandPos = 0.77f, newOpenGlBodyBandWidth = 0.24f, newOpenGlBodyBandGain = 0f, newOpenGlOuterRimWidthPx = 2.2f, newOpenGlOuterRimCompression = 3.0f, newOpenGlOuterRimReachPx = 32f, newOpenGlOuterRimGain = 2.5f, newOpenGlInnerWallOffsetPx = 5.4f, newOpenGlInnerWallWidthPx = 34f, newOpenGlInnerWallGain = 45f, newOpenGlInnerWallFalloff = 2.38f, newOpenGlInnerWallReachPx = 0f, newOpenGlDarkExtract = 0.62f, newOpenGlEdgeShoulderWidthPx = 18f, newOpenGlEdgeTangentSmear = 42f, newOpenGlClarity = 1.00f, newOpenGlBrightness = 1.00f, edgeBlurDp = 24f))
     }
 }
 
@@ -203,7 +117,7 @@ private fun GlassLabFoldout(title: String, subtitle: String, initiallyExpanded: 
     var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
     Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         PressableGlass(state.quality, state.glassIntensity * if (expanded) 0.94f else 0.76f, state.motionIntensity, 24, Modifier.fillMaxWidth().height(58.dp), GlassRole.Flex, onClick = { expanded = !expanded }) {
-            Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
                     Text(subtitle, color = Color.White.copy(alpha = 0.44f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
