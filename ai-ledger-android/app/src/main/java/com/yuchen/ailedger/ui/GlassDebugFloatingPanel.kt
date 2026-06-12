@@ -21,12 +21,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
 import kotlin.math.roundToInt
 
 @Composable
@@ -100,26 +103,52 @@ private fun OpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onB
 
 @Composable
 private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onBorderChange: (GlassBorderStyle) -> Unit) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.92f,
-        motionIntensity = state.motionIntensity,
-        radius = 30,
-        modifier = Modifier.fillMaxWidth().height(160.dp),
-        role = GlassRole.Shell,
-        onClick = {}
+    val sampleCoordinates = remember { GlassCoordinateSource() }
+    val blurRadius = style.edgeBlurDp.roundToInt().coerceIn(0, 128)
+    val blurAlpha = (style.newOpenGlClarity * 0.62f * style.newOpenGlBrightness.coerceIn(0.4f, 2.2f)).coerceIn(0f, 1.35f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(160.dp)
+            .clip(RoundedCornerShape(30.dp))
+            .onPlaced { sampleCoordinates.coordinates = it }
+            .background(Color.White.copy(alpha = 0.018f))
     ) {
+        SampledWeatherGlassBackdrop(
+            modifier = Modifier.matchParentSize(),
+            radius = 30,
+            coordinateSource = sampleCoordinates,
+            quality = state.quality,
+            motionIntensity = state.motionIntensity,
+            theme = state.backgroundTheme,
+            blurRadiusDp = blurRadius,
+            liftAlpha = blurAlpha
+        )
+        NewOpenGLGlassCardLayer(
+            radius = 30,
+            glassIntensity = state.glassIntensity * 0.92f,
+            coordinateSource = sampleCoordinates,
+            modifier = Modifier.matchParentSize()
+        )
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("网页 v21 · compressed outer rim + inner transition wall", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("网页 v21 · 背景模糊层 + compressed outer rim", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Metric("主体", style.newOpenGlBodyGain, Modifier.weight(1f))
+                Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
+                Metric("雾化", style.newOpenGlClarity, Modifier.weight(1f))
                 Metric("外缘", style.newOpenGlOuterRimGain, Modifier.weight(1f))
-                Metric("内墙", style.newOpenGlInnerWallGain, Modifier.weight(1f))
             }
         }
+    }
+
+    Group("背景模糊层 Backdrop Blur Layer", "新版样本玻璃底层雾化背景，不再是纯透明", state) {
+        LabSlider("背景模糊半径 dp", "底层 SampledWeatherGlassBackdrop blurRadiusDp", style.edgeBlurDp, 0f..128f) { onBorderChange(style.copy(edgeBlurDp = it)) }
+        LabSlider("背景模糊层透明度", "底层模糊背景 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
+        LabSlider("背景模糊层亮度", "底层模糊背景亮度响应", style.newOpenGlBrightness, 0.4f..2.2f) { onBorderChange(style.copy(newOpenGlBrightness = it)) }
+        LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
     }
 
     Group("主体折射 Body Field", "主体椭圆大范围背景拉伸扭曲", state) {
@@ -149,7 +178,7 @@ private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, 
         LabSlider("边缘切向拖色", "edgeTangentSmear", style.newOpenGlEdgeTangentSmear, 0f..160f) { onBorderChange(style.copy(newOpenGlEdgeTangentSmear = it)) }
     }
     LabActionButton("重置新版", "恢复最终预置", state, Modifier.fillMaxWidth()) {
-        onBorderChange(style.copy(newOpenGlBodyWidth = 1.31f, newOpenGlBodyCurve = 2.23f, newOpenGlBodyGain = 509f, newOpenGlBodyBandPos = 0.77f, newOpenGlBodyBandWidth = 0.24f, newOpenGlBodyBandGain = 0f, newOpenGlOuterRimWidthPx = 2.2f, newOpenGlOuterRimCompression = 3.0f, newOpenGlOuterRimReachPx = 32f, newOpenGlOuterRimGain = 2.5f, newOpenGlInnerWallOffsetPx = 5.4f, newOpenGlInnerWallWidthPx = 34f, newOpenGlInnerWallGain = 45f, newOpenGlInnerWallFalloff = 2.38f, newOpenGlInnerWallReachPx = 0f, newOpenGlDarkExtract = 0.62f, newOpenGlEdgeShoulderWidthPx = 18f, newOpenGlEdgeTangentSmear = 42f))
+        onBorderChange(style.copy(newOpenGlBodyWidth = 1.31f, newOpenGlBodyCurve = 2.23f, newOpenGlBodyGain = 509f, newOpenGlBodyBandPos = 0.77f, newOpenGlBodyBandWidth = 0.24f, newOpenGlBodyBandGain = 0f, newOpenGlOuterRimWidthPx = 2.2f, newOpenGlOuterRimCompression = 3.0f, newOpenGlOuterRimReachPx = 32f, newOpenGlOuterRimGain = 2.5f, newOpenGlInnerWallOffsetPx = 5.4f, newOpenGlInnerWallWidthPx = 34f, newOpenGlInnerWallGain = 45f, newOpenGlInnerWallFalloff = 2.38f, newOpenGlInnerWallReachPx = 0f, newOpenGlDarkExtract = 0.62f, newOpenGlEdgeShoulderWidthPx = 18f, newOpenGlEdgeTangentSmear = 42f, newOpenGlClarity = 1.00f, newOpenGlBrightness = 1.00f, edgeBlurDp = 24f))
     }
 }
 
