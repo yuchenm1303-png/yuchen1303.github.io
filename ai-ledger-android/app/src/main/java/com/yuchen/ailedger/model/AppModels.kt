@@ -64,11 +64,11 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
 @Immutable
 data class BackdropDebugParams(
     val scale: Float = 2.00f,
-    val radius: Float = 7f,
+    val radius: Float = 0.691f,
     val iterations: Float = 12f,
-    val brightness: Float = 1.16f,
-    val contrast: Float = 1.08f,
-    val saturation: Float = 1.08f,
+    val brightness: Float = 1.138f,
+    val contrast: Float = 1.087f,
+    val saturation: Float = 1.112f,
     val cloudAlpha: Float = 1.18f,
     val cloudSoftness: Float = 1.35f,
     val cloudStretchX: Float = 2.20f,
@@ -86,43 +86,43 @@ data class GlassBorderStyle(
     val topHighlightAlpha: Float = 1.28f,
     val bottomShadowAlpha: Float = 0.35f,
     val cornerGlintAlpha: Float = 0f,
-    val ringWidthDp: Float = 10f,
-    val edgePullDp: Float = -205.94f,
+    val ringWidthDp: Float = 8.295f,
+    val edgePullDp: Float = -199.078f,
     val edgeAlpha: Float = 0f,
-    val edgeBlurDp: Float = 24f,
+    val edgeBlurDp: Float = 0f,
     val edgeContrast: Float = 1.00f,
     val edgeSaturation: Float = 1.00f,
-    val edgeBrightness: Float = 1.03f,
+    val edgeBrightness: Float = 1.083f,
     val bodyAlpha: Float = 0f,
     val openGlDebugLineAlpha: Float = 0f,
-    val openGlVisibility: Float = 20f,
+    val openGlVisibility: Float = 19.954f,
     val openGlMaxAlpha: Float = 1.00f,
-    val openGlPullScale: Float = 83.21f,
+    val openGlPullScale: Float = -5.53f,
     val openGlCompressionScale: Float = -10f,
-    val openGlCornerScale: Float = 0f,
-    val openGlDarkScale: Float = -1.63f,
-    val openGlSampleRadiusScale: Float = 0f,
-    val newOpenGlBodyWidth: Float = 1.31f,
-    val newOpenGlBodyCurve: Float = 2.23f,
-    val newOpenGlBodyGain: Float = 509f,
-    val newOpenGlBodyBandPos: Float = 0.77f,
-    val newOpenGlBodyBandWidth: Float = 0.24f,
-    val newOpenGlBodyBandGain: Float = 0f,
-    val newOpenGlOuterRimWidthPx: Float = 2.2f,
-    val newOpenGlOuterRimCompression: Float = 3.0f,
+    val openGlCornerScale: Float = 54.378f,
+    val openGlDarkScale: Float = -2.21f,
+    val openGlSampleRadiusScale: Float = 66.359f,
+    val newOpenGlBodyWidth: Float = 0.18f,
+    val newOpenGlBodyCurve: Float = 1.569f,
+    val newOpenGlBodyGain: Float = 875.115f,
+    val newOpenGlBodyBandPos: Float = 0.98f,
+    val newOpenGlBodyBandWidth: Float = 0.201f,
+    val newOpenGlBodyBandGain: Float = 20.737f,
+    val newOpenGlOuterRimWidthPx: Float = 0f,
+    val newOpenGlOuterRimCompression: Float = 0f,
     val newOpenGlOuterRimReachPx: Float = 0f,
     val newOpenGlOuterRimGain: Float = 0f,
-    val newOpenGlInnerWallOffsetPx: Float = 18f,
-    val newOpenGlInnerWallWidthPx: Float = 2f,
+    val newOpenGlInnerWallOffsetPx: Float = 0f,
+    val newOpenGlInnerWallWidthPx: Float = 0f,
     val newOpenGlInnerWallGain: Float = 0f,
-    val newOpenGlInnerWallFalloff: Float = 2.38f,
+    val newOpenGlInnerWallFalloff: Float = 0f,
     val newOpenGlInnerWallReachPx: Float = 0f,
     val newOpenGlDarkExtract: Float = 0f,
-    val newOpenGlEdgeShoulderWidthPx: Float = 18f,
+    val newOpenGlEdgeShoulderWidthPx: Float = 0f,
     val newOpenGlEdgeTangentSmear: Float = 0f,
     val newOpenGlClarity: Float = 1.00f,
     val newOpenGlTangentSmear: Float = 0.18f,
-    val newOpenGlBrightness: Float = 1.00f
+    val newOpenGlBrightness: Float = 0.84f
 )
 
 @Immutable
@@ -218,133 +218,53 @@ data class ChatAttachment(
     val id: String,
     val mimeType: String = "image/jpeg",
     val base64Data: String,
-    val fileName: String? = null,
-    val width: Int? = null,
-    val height: Int? = null,
-    val sizeBytes: Int? = null,
-    val previewUri: String? = null
+    val name: String = "image.jpg"
 )
-
-enum class ComposerAttachmentStatus {
-    Preparing,
-    Ready,
-    Uploading,
-    Failed
-}
-
-@Immutable
-data class ComposerAttachment(
-    val id: String,
-    val localUri: String,
-    val mimeType: String = "image/jpeg",
-    val fileName: String? = null,
-    val width: Int? = null,
-    val height: Int? = null,
-    val sizeBytes: Int? = null,
-    val base64Data: String? = null,
-    val previewUri: String? = null,
-    val progress: Float = 0f,
-    val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
-    val errorText: String? = null
-) {
-    val isReady: Boolean
-        get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
-
-    fun toChatAttachment(): ChatAttachment? {
-        val data = base64Data?.takeIf { it.isNotBlank() } ?: return null
-        return ChatAttachment(
-            id = id,
-            mimeType = mimeType,
-            base64Data = data,
-            fileName = fileName,
-            width = width,
-            height = height,
-            sizeBytes = sizeBytes,
-            previewUri = previewUri
-        )
-    }
-}
 
 @Immutable
 data class ChatMessage(
     val id: String,
-    val text: String,
     val role: MessageRole,
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis(),
     val status: MessageStatus = MessageStatus.Sent,
-    val source: String? = null,
-    val model: String? = null,
-    val modelLabel: String? = null,
-    val version: String? = null,
-    val errorText: String? = null,
     val webSources: List<WebSource> = emptyList(),
-    val structuredData: StructuredDataCard? = null,
-    val searchUsed: Boolean = false,
-    val searchProvider: String? = null,
-    val attachments: List<ChatAttachment> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis()
-) {
-    val hasImageAttachments: Boolean
-        get() = attachments.any { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
-}
-
-@Immutable
-data class StatSummary(val title: String, val value: String)
-
-@Immutable
-data class ToolEntry(val title: String, val subtitle: String, val icon: String = "✦")
+    val dataCards: List<StructuredDataCard> = emptyList(),
+    val attachments: List<ChatAttachment> = emptyList()
+)
 
 @Immutable
 data class LedgerRecord(
     val id: String,
-    val title: String,
-    val amount: Float,
     val type: LedgerRecordType,
+    val title: String,
+    val amount: Double,
     val category: String,
-    val dateLabel: String
+    val time: Long = System.currentTimeMillis(),
+    val note: String = ""
 )
 
 @Immutable
 data class AssistantUiState(
-    val currentTab: AppTab = AppTab.Assistant,
-    val quality: RenderQuality = RenderQuality.Balanced,
-    val showPreviewConversation: Boolean = true,
+    val selectedTab: AppTab = AppTab.Assistant,
+    val selectedModel: ChatModel = ChatModel.Auto,
+    val messages: List<ChatMessage> = emptyList(),
+    val ledgerRecords: List<LedgerRecord> = emptyList(),
+    val inputText: String = "",
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
     val glassPreset: GlassPreset = GlassPreset.Liquid,
+    val quality: RenderQuality = RenderQuality.Balanced,
     val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val useCustomBackground: Boolean = false,
     val customBackgroundPath: String? = null,
-    val glassIntensity: Float = 1f,
-    val motionIntensity: Float = 1f,
-    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
-    val modelCardGlassStyle: ModelCardGlassStyle = ModelCardGlassStyle(),
     val backdropParams: BackdropDebugParams = BackdropDebugParams(),
     val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
-    val navigationHomeAddress: String = "",
-    val navigationSchoolAddress: String = "",
-    val navigationCompanyAddress: String = "",
-    val navigationDormAddress: String = "",
-    val stats: List<StatSummary> = emptyList(),
-    val messages: List<ChatMessage> = emptyList(),
-    val tools: List<ToolEntry> = emptyList(),
-    val composerText: String = "",
-    val composerAttachments: List<ComposerAttachment> = emptyList(),
-    val selectedModel: ChatModel = ChatModel.Auto,
-    val selectedModelLabel: String = ChatModel.Auto.label,
-    val onlineEnabled: Boolean = false,
-    val agentEnabled: Boolean = true,
-    val isSending: Boolean = false,
-    val selectedToolTitle: String? = null,
-    val ledgerRecords: List<LedgerRecord> = emptyList(),
-    val ledgerBudgetText: String = "1500",
-    val ledgerDraftTitle: String = "",
-    val ledgerDraftAmount: String = "",
-    val ledgerDraftType: LedgerRecordType = LedgerRecordType.Expense,
-    val ledgerDraftCategory: String = "餐饮"
-)
+    val modelCardGlassStyle: ModelCardGlassStyle = ModelCardGlassStyle()
+) {
+    val glassIntensity: Float
+        get() = glassPreset.glassIntensity
 
-@Immutable
-data class RainbowPrismStyle(
-    val overall: Float = 1.00f,
-    val edgeHighlight: Float = 1.00f,
-    val sweepMin: Float = 0.15f,
-    val sweepMax: Float = 0.65f,
-    val rainbowHalo: Float = 0.80f
-)
+    val motionIntensity: Float
+        get() = if (quality.enableMotion) glassPreset.motionIntensity else 0f
+}
