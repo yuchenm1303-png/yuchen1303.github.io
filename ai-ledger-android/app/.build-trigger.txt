@@ -1,3 +1,1 @@
-Build Compose Android APK verification
-2026-06-08 kline-tabs
-2026-06-09 accessibility-low-load-restore
+trigger: restore-glass-press-animation-4f08166
