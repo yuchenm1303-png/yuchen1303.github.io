@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
@@ -55,7 +56,7 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
             OpenGlGlassLab(state, border, onBorderChange)
         }
-        GlassLabFoldout("新版 OpenGL", "背景先模糊成层，OpenGL 只折射这张模糊层", false, state) {
+        GlassLabFoldout("新版 OpenGL", "单背景源：OpenGL 只折射模糊层，不再垫清晰背景", false, state) {
             NewOpenGlGlassLab(state, params, border, onBackdropChange, onBorderChange)
         }
         GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
@@ -112,7 +113,6 @@ private fun NewOpenGlGlassLab(
 ) {
     val sampleCoordinates = remember { GlassCoordinateSource() }
     val blurRadius = params.radius.roundToInt().coerceIn(0, 128)
-    val blurAlpha = style.newOpenGlClarity.coerceIn(0f, 1.6f)
     val blurLayer = LocalBlurredBackdrop.current
     val openGlBackdrop = remember(blurLayer) { blurLayer?.copy(lensImage = blurLayer.image) }
     val legacyRimStyle = style.copy(
@@ -145,18 +145,16 @@ private fun NewOpenGlGlassLab(
             .height(160.dp)
             .clip(RoundedCornerShape(30.dp))
             .onPlaced { sampleCoordinates.coordinates = it }
-            .background(Color.White.copy(alpha = 0.018f))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF07112A).copy(alpha = 0.96f),
+                        Color(0xFF08173E).copy(alpha = 0.98f),
+                        Color(0xFF03091D).copy(alpha = 0.99f)
+                    )
+                )
+            )
     ) {
-        SampledWeatherGlassBackdrop(
-            modifier = Modifier.matchParentSize(),
-            radius = 30,
-            coordinateSource = sampleCoordinates,
-            quality = state.quality,
-            motionIntensity = state.motionIntensity,
-            theme = state.backgroundTheme,
-            blurRadiusDp = 0,
-            liftAlpha = blurAlpha
-        )
         if (openGlBackdrop != null) {
             CompositionLocalProvider(
                 LocalBlurredBackdrop provides openGlBackdrop,
@@ -173,7 +171,7 @@ private fun NewOpenGlGlassLab(
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("新版边缘关闭；旧版 rim-only 厚边已恢复", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("单背景源；清晰底图已移除；旧版 rim-only 厚边保留", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
@@ -185,7 +183,7 @@ private fun NewOpenGlGlassLab(
 
     Group("背景模糊层 Backdrop Blur Layer", "直接重建底层模糊背景；玻璃只折射这张背景", state) {
         LabSlider("背景模糊半径 dp", "写入 BackdropDebugParams.radius", params.radius, 0f..128f) { onBackdropChange(params.copy(radius = it)) }
-        LabSlider("背景模糊层透明度", "只控制模糊层可见度 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
+        LabSlider("背景模糊层透明度", "只控制新版 OpenGL 折射清晰度", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
         LabSlider("背景模糊层亮度", "写入 BackdropDebugParams.brightness", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
         LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
     }
