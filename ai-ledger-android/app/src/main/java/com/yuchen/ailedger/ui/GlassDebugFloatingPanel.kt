@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +38,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
+import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import kotlin.math.roundToInt
 
 @Composable
@@ -54,7 +56,7 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
             OpenGlGlassLab(state, border, onBorderChange)
         }
-        GlassLabFoldout("新版 OpenGL", "网页新版玻璃原封装 / 样本玻璃 / 全参数滑块", false, state) {
+        GlassLabFoldout("新版 OpenGL", "新版主体 + 旧版边框折射叠加样本", false, state) {
             NewOpenGlGlassLab(state, border, onBorderChange)
         }
         GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
@@ -131,14 +133,20 @@ private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, 
             coordinateSource = sampleCoordinates,
             modifier = Modifier.matchParentSize()
         )
+        OpenGLGlassCardLayer(
+            radius = 30,
+            glassIntensity = state.glassIntensity * 0.62f,
+            coordinateSource = sampleCoordinates,
+            modifier = Modifier.matchParentSize().graphicsLayer(alpha = 0.72f)
+        )
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("网页 v21 · 背景模糊层 + compressed outer rim", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("新版主体 + 旧版边框折射厚度层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
-                Metric("雾化", style.newOpenGlClarity, Modifier.weight(1f))
+                Metric("旧边", style.ringWidthDp, Modifier.weight(1f))
                 Metric("外缘", style.newOpenGlOuterRimGain, Modifier.weight(1f))
             }
         }
@@ -149,6 +157,14 @@ private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, 
         LabSlider("背景模糊层透明度", "底层模糊背景 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
         LabSlider("背景模糊层亮度", "底层模糊背景亮度响应", style.newOpenGlBrightness, 0.4f..2.2f) { onBorderChange(style.copy(newOpenGlBrightness = it)) }
         LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
+    }
+
+    Group("旧版边框厚度层 Legacy Rim Overlay", "完整叠加旧版 OpenGL 边框折射、底部暗脊和硬高光", state) {
+        LabSlider("旧边框宽度", "旧版 OpenGL ringWidthDp", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
+        LabSlider("旧边框拉力", "旧版 edgePullDp", style.edgePullDp, -600f..600f) { onBorderChange(style.copy(edgePullDp = it)) }
+        LabSlider("旧主体折射", "旧版 openGlPullScale", style.openGlPullScale, -300f..300f) { onBorderChange(style.copy(openGlPullScale = it)) }
+        LabSlider("旧边框亮度", "旧版 edgeBrightness", style.edgeBrightness, -5f..5f) { onBorderChange(style.copy(edgeBrightness = it)) }
+        LabSlider("旧暗边强度", "旧版 openGlDarkScale", style.openGlDarkScale, -10f..10f) { onBorderChange(style.copy(openGlDarkScale = it)) }
     }
 
     Group("主体折射 Body Field", "主体椭圆大范围背景拉伸扭曲", state) {
