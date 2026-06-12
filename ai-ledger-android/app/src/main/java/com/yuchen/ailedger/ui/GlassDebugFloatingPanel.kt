@@ -115,13 +115,27 @@ private fun NewOpenGlGlassLab(
     val blurAlpha = style.newOpenGlClarity.coerceIn(0f, 1.6f)
     val blurLayer = LocalBlurredBackdrop.current
     val openGlBackdrop = remember(blurLayer) { blurLayer?.copy(lensImage = blurLayer.image) }
-    val openGlSpec = remember(state.quality, state.motionIntensity, state.backgroundTheme, params, style) {
+    val legacyRimStyle = style.copy(
+        edgeBlurDp = 0f,
+        ringWidthDp = style.ringWidthDp.coerceAtLeast(18f),
+        edgePullDp = if (style.edgePullDp > -320f) -360f else style.edgePullDp,
+        edgeBrightness = style.edgeBrightness.coerceAtLeast(1.70f),
+        openGlPullScale = style.openGlPullScale.coerceAtLeast(110f),
+        openGlDarkScale = style.openGlDarkScale.coerceAtLeast(2.20f),
+        newOpenGlOuterRimReachPx = 0f,
+        newOpenGlOuterRimGain = 0f,
+        newOpenGlInnerWallGain = 0f,
+        newOpenGlInnerWallReachPx = 0f,
+        newOpenGlDarkExtract = 0f,
+        newOpenGlEdgeTangentSmear = 0f
+    )
+    val openGlSpec = remember(state.quality, state.motionIntensity, state.backgroundTheme, params, legacyRimStyle) {
         GlassBackdropSpec(
             quality = state.quality,
             motionIntensity = state.motionIntensity,
             theme = state.backgroundTheme,
             params = params,
-            borderStyle = style.copy(edgeBlurDp = 0f)
+            borderStyle = legacyRimStyle
         )
     }
 
@@ -159,12 +173,12 @@ private fun NewOpenGlGlassLab(
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("背景先生成模糊层，OpenGL 只折射模糊层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("新版边缘关闭；旧版 rim-only 厚边已恢复", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
-                Metric("雾化", blurAlpha, Modifier.weight(1f))
-                Metric("外缘", style.newOpenGlOuterRimGain, Modifier.weight(1f))
+                Metric("旧边", legacyRimStyle.ringWidthDp, Modifier.weight(1f))
+                Metric("拉力", legacyRimStyle.edgePullDp, Modifier.weight(1f))
             }
         }
     }
@@ -176,7 +190,7 @@ private fun NewOpenGlGlassLab(
         LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
     }
 
-    Group("旧版边框厚度层 Legacy Rim Overlay", "旧版厚边参数已并入新版 shader，不再叠完整旧 OpenGL", state) {
+    Group("旧版边框厚度层 Legacy Rim Overlay", "旧版厚边参数并入新版 shader；不叠完整旧 OpenGL", state) {
         LabSlider("旧边框宽度", "新版 shader 内 rim-only ringWidthDp", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
         LabSlider("旧边框拉力", "新版 shader 内 edgePullDp", style.edgePullDp, -600f..600f) { onBorderChange(style.copy(edgePullDp = it)) }
         LabSlider("旧主体折射", "新版 shader 内 openGlPullScale", style.openGlPullScale, -300f..300f) { onBorderChange(style.copy(openGlPullScale = it)) }
@@ -196,14 +210,14 @@ private fun NewOpenGlGlassLab(
         LabSlider("主体折射带强度", "bodyBandGain", style.newOpenGlBodyBandGain, 0f..1500f) { onBorderChange(style.copy(newOpenGlBodyBandGain = it)) }
     }
 
-    Group("外侧压缩折射区 Outer Compressed Rim", "把背景压缩并抽取到外侧亮边", state) {
+    Group("外侧压缩折射区 Outer Compressed Rim", "这套新版边缘默认关闭，保留滑块方便对比", state) {
         LabSlider("外压缩区厚度 px", "outerRimWidthPx", style.newOpenGlOuterRimWidthPx, 0.6f..14f) { onBorderChange(style.copy(newOpenGlOuterRimWidthPx = it)) }
         LabSlider("外压缩强度", "outerRimCompression", style.newOpenGlOuterRimCompression, 0.25f..3f) { onBorderChange(style.copy(newOpenGlOuterRimCompression = it)) }
         LabSlider("外压缩区向内采样 px", "outerRimReachPx", style.newOpenGlOuterRimReachPx, 0f..32f) { onBorderChange(style.copy(newOpenGlOuterRimReachPx = it)) }
         LabSlider("外压缩区显现强度", "outerRimGain", style.newOpenGlOuterRimGain, 0f..2.5f) { onBorderChange(style.copy(newOpenGlOuterRimGain = it)) }
     }
 
-    Group("内侧渐变折射墙 Inner Transition Wall", "边缘内侧强折射演替区", state) {
+    Group("内侧渐变折射墙 Inner Transition Wall", "这套新版边缘默认关闭，保留滑块方便对比", state) {
         LabSlider("内墙起点位置 px", "innerWallOffsetPx", style.newOpenGlInnerWallOffsetPx, 1f..18f) { onBorderChange(style.copy(newOpenGlInnerWallOffsetPx = it)) }
         LabSlider("内墙渐变宽度 px", "innerWallWidthPx", style.newOpenGlInnerWallWidthPx, 2f..34f) { onBorderChange(style.copy(newOpenGlInnerWallWidthPx = it)) }
         LabSlider("内墙折射强度", "innerWallGain", style.newOpenGlInnerWallGain, 0f..420f) { onBorderChange(style.copy(newOpenGlInnerWallGain = it)) }
@@ -214,10 +228,15 @@ private fun NewOpenGlGlassLab(
         LabSlider("边缘切向拖色", "edgeTangentSmear", style.newOpenGlEdgeTangentSmear, 0f..160f) { onBorderChange(style.copy(newOpenGlEdgeTangentSmear = it)) }
     }
 
-    LabActionButton("重置新版", "恢复最终预置", state, Modifier.fillMaxWidth()) {
+    LabActionButton("重置新版", "恢复旧版 rim-only 厚边 + 关闭新版坏边缘", state, Modifier.fillMaxWidth()) {
         onBackdropChange(params.copy(radius = 24f, brightness = 1.00f))
         onBorderChange(
             style.copy(
+                ringWidthDp = 18f,
+                edgePullDp = -360f,
+                edgeBrightness = 1.70f,
+                openGlPullScale = 110f,
+                openGlDarkScale = 2.20f,
                 newOpenGlBodyWidth = 1.31f,
                 newOpenGlBodyCurve = 2.23f,
                 newOpenGlBodyGain = 509f,
