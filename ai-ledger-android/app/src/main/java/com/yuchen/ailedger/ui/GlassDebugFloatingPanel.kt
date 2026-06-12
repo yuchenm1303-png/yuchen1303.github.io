@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,8 +55,8 @@ fun GlassDebugFloatingPanel(
         GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
             OpenGlGlassLab(state, border, onBorderChange)
         }
-        GlassLabFoldout("新版 OpenGL", "单一模糊背景层 + 新版采样层", false, state) {
-            NewOpenGlGlassLab(state, border, onBorderChange)
+        GlassLabFoldout("新版 OpenGL", "背景先模糊成层，OpenGL 只折射这张模糊层", false, state) {
+            NewOpenGlGlassLab(state, params, border, onBackdropChange, onBorderChange)
         }
         RestoredGlassLabSections(state)
     }
@@ -80,29 +81,54 @@ private fun OpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onB
 }
 
 @Composable
-private fun NewOpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onBorderChange: (GlassBorderStyle) -> Unit) {
+private fun NewOpenGlGlassLab(
+    state: AssistantUiState,
+    params: BackdropDebugParams,
+    style: GlassBorderStyle,
+    onBackdropChange: (BackdropDebugParams) -> Unit,
+    onBorderChange: (GlassBorderStyle) -> Unit
+) {
     val sampleCoordinates = remember { GlassCoordinateSource() }
-    val blurRadius = style.edgeBlurDp.roundToInt().coerceIn(0, 128)
-    val blurAlpha = (style.newOpenGlClarity * 0.62f * style.newOpenGlBrightness.coerceIn(0.4f, 2.2f)).coerceIn(0f, 1.35f)
+    val blurRadius = params.radius.roundToInt().coerceIn(0, 128)
+    val blurAlpha = style.newOpenGlClarity.coerceIn(0f, 1.6f)
+    val blurLayer = LocalBlurredBackdrop.current
+    val openGlBackdrop = remember(blurLayer) { blurLayer?.copy(lensImage = blurLayer.image) }
+    val openGlSpec = remember(state.quality, state.motionIntensity, state.backgroundTheme, params, style) {
+        GlassBackdropSpec(
+            quality = state.quality,
+            motionIntensity = state.motionIntensity,
+            theme = state.backgroundTheme,
+            params = params,
+            borderStyle = style.copy(edgeBlurDp = 0f)
+        )
+    }
+
     Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(30.dp)).onPlaced { sampleCoordinates.coordinates = it }.background(Color.White.copy(alpha = 0.018f))) {
-        SampledWeatherGlassBackdrop(Modifier.matchParentSize(), 30, sampleCoordinates, state.quality, state.motionIntensity, state.backgroundTheme, blurRadius, blurAlpha)
-        NewOpenGLGlassCardLayer(30, state.glassIntensity * 0.92f, sampleCoordinates, Modifier.matchParentSize())
+        SampledWeatherGlassBackdrop(Modifier.matchParentSize(), 30, sampleCoordinates, state.quality, state.motionIntensity, state.backgroundTheme, 0, blurAlpha)
+        if (openGlBackdrop != null) {
+            CompositionLocalProvider(
+                LocalBlurredBackdrop provides openGlBackdrop,
+                LocalGlassBackdrop provides openGlSpec
+            ) {
+                NewOpenGLGlassCardLayer(30, state.glassIntensity * 0.92f, sampleCoordinates, Modifier.matchParentSize())
+            }
+        }
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("新版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("单一背景来源：模糊层独立，新版 OpenGL 独立采样", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("背景先生成模糊层，OpenGL 只折射模糊层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", blurRadius.toFloat(), Modifier.weight(1f))
-                Metric("雾化", style.newOpenGlClarity, Modifier.weight(1f))
+                Metric("雾化", blurAlpha, Modifier.weight(1f))
                 Metric("外缘", style.newOpenGlOuterRimGain, Modifier.weight(1f))
             }
         }
     }
-    Group("背景模糊层", "只控制底层模糊背景；OpenGL 折射采样独立进行", state) {
-        LabSlider("背景模糊半径 dp", "底层 blurRadiusDp", style.edgeBlurDp, 0f..128f) { onBorderChange(style.copy(edgeBlurDp = it)) }
-        LabSlider("背景模糊层透明度", "底层模糊背景 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
-        LabSlider("背景模糊层亮度", "底层模糊背景亮度响应", style.newOpenGlBrightness, 0.4f..2.2f) { onBorderChange(style.copy(newOpenGlBrightness = it)) }
+    Group("背景模糊层", "直接重建底层模糊背景；玻璃只折射这张背景", state) {
+        LabSlider("背景模糊半径 dp", "写入 BackdropDebugParams.radius", params.radius, 0f..128f) { onBackdropChange(params.copy(radius = it)) }
+        LabSlider("背景模糊层透明度", "只控制模糊层可见度 liftAlpha", style.newOpenGlClarity, 0f..1.6f) { onBorderChange(style.copy(newOpenGlClarity = it)) }
+        LabSlider("背景模糊层亮度", "写入 BackdropDebugParams.brightness", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
         LabSlider("OpenGL 最大透明", "新版 OpenGL 折射层 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
     }
     Group("主体折射", "新版 OpenGL 主体折射参数", state) {
