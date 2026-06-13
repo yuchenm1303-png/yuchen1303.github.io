@@ -179,7 +179,7 @@ private fun buildBlurredBackdropBitmap(
     }
 
     // 网页 lensTexture 直接读取未模糊 sourceCanvas；必须在模糊与色调处理前保留副本。
-    val lensBitmap = source.copy(Bitmap.Config.ARGB_8888, false)
+    val lensBitmap = Bitmap.createBitmap(source)
     val blurRadius = params.radius.roundToInt().coerceIn(0, 128)
     val blurIterations = params.iterations.roundToInt().coerceIn(1, 12)
     val blurred = boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
