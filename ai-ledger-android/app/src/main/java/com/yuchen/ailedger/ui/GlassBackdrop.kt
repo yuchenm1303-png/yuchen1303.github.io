@@ -158,7 +158,7 @@ fun SampledWeatherGlassBackdrop(
                     drawRect(highlightVeil, blendMode = BlendMode.Screen)
                 }
             }
-    )
+    ) {}
 }
 
 private data class FallbackGlassPalette(
@@ -323,5 +323,5 @@ fun SampledWeatherEdgeRefraction(
                     )
                 }
             }
-    )
+    ) {}
 }
