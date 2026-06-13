@@ -1,12 +1,15 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * Direct GLES port of the final web preview glass.
+ * App 主玻璃的组合着色器。
  *
- * The shader keeps the web architecture intact:
- * - precomputed harmonic ring Flow Map for the outer body transport;
- * - non-normalized polynomial center transport with a broad fourth-power envelope;
- * - the original rounded-rectangle SDF edge thickness/refraction chain.
+ * 主体折射保持当前网页版最终结构不变：
+ * - 调和环形 Flow Map；
+ * - 非归一化多项式中心运输场；
+ * - 四次方宽包络。
+ *
+ * 边缘折射则完整恢复到提交 9a6e4ac7605da3859ff9accd4a33fe0bab7a9ddc
+ * 中 OpenGLGlassCardLayer 的纯净边缘算法，仅在采样坐标中叠加现有主体位移。
  */
 internal object WebOpenGLGlassShaders {
     const val FRAGMENT_SHADER = """
@@ -55,6 +58,7 @@ internal object WebOpenGLGlassShaders {
             return v*(m/max(n,0.0001));
         }
 
+        // 当前已经调好的主体折射：保持不变。
         float centerEnvelope(vec2 u){
             float width=sat((uBody.x-0.18)/(1.5-0.18));
             vec2 span=vec2(mix(0.64,0.99,width),mix(0.56,0.90,width));
@@ -83,7 +87,6 @@ internal object WebOpenGLGlassShaders {
             float gain=sat(uBody.z/900.0);
             return mix(38.0,86.0,width)*mix(0.55,1.0,gain);
         }
-
         float ringBandWidthPx(vec2 z){
             return max(uBodyBand.y*min(z.x,z.y)*0.18,1.0);
         }
@@ -101,28 +104,115 @@ internal object WebOpenGLGlassShaders {
             float width=ringBandWidthPx(z);
             return max(4.0,min(width*4.20,uFlowDepth*0.46))*pow(sat(ringSafe),0.64);
         }
-        vec2 roundedSdfNormal(vec2 p,vec2 z,float r){
-            float d=1.4;
-            vec2 n=vec2(
-                boxSdf(p+vec2(d,0.0),z,r)-boxSdf(p-vec2(d,0.0),z,r),
-                boxSdf(p+vec2(0.0,d),z,r)-boxSdf(p-vec2(0.0,d),z,r)
-            );
-            return n/max(length(n),0.0001);
-        }
 
-        float edgeWidth(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*0.44);}
-        float rimWideFromDepth(float depth,vec2 z){return 1.0-smoothstep(0.0,edgeWidth(z),depth);}
-        float rimCoreFromDepth(float depth,vec2 z){return 1.0-smoothstep(0.0,max(edgeWidth(z)*0.28,2.0),depth);}
-        float rimBandFromDepth(float depth,vec2 z){return pow(1.0-smoothstep(0.0,max(edgeWidth(z)*1.45,6.0),depth),1.35);}
-        float dome(vec2 p,vec2 z){
-            vec2 q=clamp(p/z,0.0,1.0)*2.0-1.0;
-            q.x*=min(z.x/max(z.y,1.0),2.4)*0.38;
-            return pow(sat(1.0-length(q)*0.74),1.65);
+        // 以下边缘结构恢复自 9a6e4ac 的 OpenGLGlassCardLayer。
+        vec3 sourceBlurBackdrop(vec2 uv){
+            return sampleBg(uv);
         }
-        float thickFromSdf(vec2 p,vec2 z,float sdf){
-            float depth=insideFromSdf(sdf);
-            return (dome(p,z)*0.22+rimWideFromDepth(depth,z)*0.46+rimCoreFromDepth(depth,z)*0.34)
-                *(1.0-smoothstep(1.5,16.0,sdf));
+        vec3 sourceLensBackdrop(vec2 uv){
+            return sampleBg(uv);
+        }
+        vec3 blurBackdrop(vec2 uv,float edgeWeight){
+            float blurBoost=1.0+edgeWeight*0.38;
+            vec2 px=vec2(max(uOldB.x,0.0)*blurBoost)/max(uRootResolution,vec2(1.0));
+            vec3 c=sourceBlurBackdrop(uv)*0.200;
+            c+=sourceBlurBackdrop(uv+vec2(px.x,0.0))*0.110;
+            c+=sourceBlurBackdrop(uv-vec2(px.x,0.0))*0.110;
+            c+=sourceBlurBackdrop(uv+vec2(0.0,px.y))*0.110;
+            c+=sourceBlurBackdrop(uv-vec2(0.0,px.y))*0.110;
+            c+=sourceBlurBackdrop(uv+vec2(px.x,px.y))*0.090;
+            c+=sourceBlurBackdrop(uv+vec2(-px.x,px.y))*0.090;
+            c+=sourceBlurBackdrop(uv+vec2(px.x,-px.y))*0.090;
+            c+=sourceBlurBackdrop(uv+vec2(-px.x,-px.y))*0.090;
+            return c;
+        }
+        float effectiveEdgeWidth(vec2 rectSize){
+            float maxSafe=min(rectSize.x,rectSize.y)*0.34;
+            return clamp(uOldB.y,6.0,maxSafe);
+        }
+        float insideDistanceAt(vec2 coord,vec2 rectSize,float radius){
+            return max(-boxSdf(coord,rectSize,radius),0.0);
+        }
+        float rimWideAt(vec2 coord,vec2 rectSize,float radius){
+            float inside=insideDistanceAt(coord,rectSize,radius);
+            float w=effectiveEdgeWidth(rectSize);
+            return 1.0-smoothstep(0.0,w,inside);
+        }
+        float rimCoreAt(vec2 coord,vec2 rectSize,float radius){
+            float inside=insideDistanceAt(coord,rectSize,radius);
+            float w=max(effectiveEdgeWidth(rectSize)*0.28,3.0);
+            return 1.0-smoothstep(0.0,w,inside);
+        }
+        float edgeDragBandAt(vec2 coord,vec2 rectSize,float radius){
+            float inside=insideDistanceAt(coord,rectSize,radius);
+            float w=max(effectiveEdgeWidth(rectSize)*1.45,8.0);
+            return pow(1.0-smoothstep(0.0,w,inside),1.35);
+        }
+        vec2 sdfNormalAt(vec2 coord,vec2 rectSize,float radius){
+            float d=1.25;
+            float l=boxSdf(coord-vec2(d,0.0),rectSize,radius);
+            float r=boxSdf(coord+vec2(d,0.0),rectSize,radius);
+            float u=boxSdf(coord-vec2(0.0,d),rectSize,radius);
+            float b=boxSdf(coord+vec2(0.0,d),rectSize,radius);
+            vec2 n=vec2(r-l,b-u);
+            return n/max(length(n),0.001);
+        }
+        float colorSignal(vec3 c){
+            float luma=dot(c,vec3(0.299,0.587,0.114));
+            float chroma=length(c-vec3(luma));
+            return sat((luma-0.20)*1.25+chroma*1.55);
+        }
+        vec3 edgeColorDrag(
+            vec2 coord,
+            vec2 bodyOffset,
+            vec2 rectSize,
+            float radius,
+            float band,
+            float core
+        ){
+            vec2 n=sdfNormalAt(coord,rectSize,radius);
+            vec2 t=vec2(-n.y,n.x);
+            float pull=clamp(8.0+abs(uOldA.y)*0.030,8.0,42.0);
+            float smear=clamp(4.0+effectiveEdgeWidth(rectSize)*0.55,4.0,22.0);
+
+            vec2 transported=coord+bodyOffset;
+            vec2 baseIn=transported-n*pull;
+            vec2 baseFar=transported-n*(pull*1.85);
+            vec2 baseOut=transported+n*(pull*0.45);
+
+            vec3 c=sourceLensBackdrop(globalUv(baseIn))*0.28;
+            c+=sourceLensBackdrop(globalUv(baseFar))*0.18;
+            c+=sourceLensBackdrop(globalUv(baseOut))*0.12;
+            c+=sourceLensBackdrop(globalUv(baseIn+t*smear))*0.14;
+            c+=sourceLensBackdrop(globalUv(baseIn-t*smear))*0.14;
+            c+=sourceLensBackdrop(globalUv(baseIn+t*smear*1.85))*0.07;
+            c+=sourceLensBackdrop(globalUv(baseIn-t*smear*1.85))*0.07;
+
+            vec3 soft=blurBackdrop(globalUv(baseIn),band)*0.45+c*0.55;
+            float signal=colorSignal(c);
+            float dragAlpha=band*(0.035+sat(max(uOldA.z,0.0))*0.105+core*0.030)*signal;
+            return mix(vec3(0.0),soft,sat(dragAlpha));
+        }
+        float bodyDomeAt(vec2 coord,vec2 rectSize){
+            vec2 local=clamp(coord/rectSize,0.0,1.0);
+            vec2 p=local*2.0-1.0;
+            p.x*=min(rectSize.x/max(rectSize.y,1.0),2.4)*0.38;
+            float d=length(p);
+            return pow(sat(1.0-d*0.74),1.65);
+        }
+        float thicknessAt(vec2 coord,vec2 rectSize,float radius){
+            float sd=boxSdf(coord,rectSize,radius);
+            float maskGuard=1.0-smoothstep(1.5,16.0,sd);
+            float rimWide=rimWideAt(coord,rectSize,radius);
+            float rimCore=rimCoreAt(coord,rectSize,radius);
+            float dome=bodyDomeAt(coord,rectSize);
+            float thickness=dome*0.22+rimWide*0.46+rimCore*0.34;
+            return thickness*maskGuard;
+        }
+        vec2 softLimitPx(vec2 v,float limitPx){
+            float len=length(v);
+            float softLen=len/(1.0+len/max(limitPx,1.0));
+            return v*(softLen/max(len,0.0001));
         }
 
         void main(){
@@ -133,9 +223,8 @@ internal object WebOpenGLGlassShaders {
             float sd=boxSdf(p,z,r);
             float mask=1.0-smoothstep(0.0,1.35,sd);
             if(mask<=0.001)discard;
-            float st=2.0;
-            float edgeDepth=insideFromSdf(sd);
 
+            // 当前主体折射计算保持不变。
             vec4 ringData=texture2D(uFlow,clamp(p/z,0.0,1.0));
             float ringSafe=ringData.a;
             vec2 ringFlow=vec2(0.0);
@@ -161,39 +250,48 @@ internal object WebOpenGLGlassShaders {
             centerFlow=softLimit(centerFlow,centerLimitPx(z));
             vec2 bodyFlow=ringFlow+centerFlow;
 
-            float edgeSdfL=boxSdf(p-vec2(st,0.0),z,r);
-            float edgeSdfR=boxSdf(p+vec2(st,0.0),z,r);
-            float edgeSdfU=boxSdf(p-vec2(0.0,st),z,r);
-            float edgeSdfD=boxSdf(p+vec2(0.0,st),z,r);
-            float tL=thickFromSdf(p-vec2(st,0.0),z,edgeSdfL);
-            float tR=thickFromSdf(p+vec2(st,0.0),z,edgeSdfR);
-            float tU=thickFromSdf(p-vec2(0.0,st),z,edgeSdfU);
-            float tD=thickFromSdf(p+vec2(0.0,st),z,edgeSdfD);
-            vec2 edgeGrad=vec2(tR-tL,tD-tU);
-            float rw=rimWideFromDepth(edgeDepth,z);
-            float rc=rimCoreFromDepth(edgeDepth,z);
-            float rb=rimBandFromDepth(edgeDepth,z);
-            float glen=length(edgeGrad);
-            edgeGrad*=smoothstep(0.00035,0.011,glen)*min(1.0,0.26/max(glen,0.0001));
-            float perimeterAssist=pow(rc,1.65)*uOldA.w*0.0022;
-            float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.0*rb+perimeterAssist;
-            vec2 edgeFlow=softLimit(edgeGrad*pull*uMaterial.x,24.0+rw*62.0+sat(abs(uOldA.y)/600.0)*24.0);
+            // 9a6e4ac 纯净边缘折射计算。
+            float stepPx=2.0;
+            float tL=thicknessAt(p-vec2(stepPx,0.0),z,r);
+            float tR=thicknessAt(p+vec2(stepPx,0.0),z,r);
+            float tU=thicknessAt(p-vec2(0.0,stepPx),z,r);
+            float tD=thicknessAt(p+vec2(0.0,stepPx),z,r);
+            vec2 grad=vec2(tR-tL,tD-tU);
 
-            vec3 color=sampleBg(globalUv(p+bodyFlow+edgeFlow));
-            float edgeMix=sat(rb*(0.16+rc*0.60+sat(uOldA.z*0.07)));
-            if(edgeMix>0.0){
-                vec2 edgeN=roundedSdfNormal(p,z,r);
-                float sampleRadius=max(uOldB.x,0.0);
-                vec3 nearColor=sampleBg(globalUv(p-edgeN*(8.0+sampleRadius*0.20+abs(uOldA.y)*0.03)));
-                vec3 farColor=sampleBg(globalUv(p-edgeN*(16.0+sampleRadius*0.36+abs(uOldA.y)*0.055)));
-                vec3 outerColor=sampleBg(globalUv(p+edgeN*(6.0+sampleRadius*0.12)));
-                color=mix(color,nearColor*0.50+farColor*0.36+outerColor*0.14,edgeMix);
-            }
-            float boost=1.0+rc*0.16+rw*max(uMaterial.z,0.0)*0.10;
-            color*=uBody.w*uMaterial.z*boost;
-            color-=vec3(0.06,0.07,0.09)*uOldB.z*rw;
-            color=mix(color,vec3(1.0,0.45,0.0),smoothstep(-1.6,0.0,sd)*mask*uOldB.w);
-            gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMaterial.y*sat(uMaterial.x/20.0)*uIntensity);
+            float rimWide=rimWideAt(p,z,r);
+            float rimCore=rimCoreAt(p,z,r);
+            float dragBand=edgeDragBandAt(p,z,r);
+            float gLen=length(grad);
+            float gradGate=smoothstep(0.0004,0.012,gLen);
+            grad*=gradGate*min(1.0,0.22/max(gLen,0.0001));
+            float gradEnergy=sat(length(grad)*max(uOldA.w,0.0));
+
+            vec2 rawRefractPx=grad*(uOldA.x+uOldA.y*rimWide)*max(uMaterial.x,0.0);
+            float limitPx=mix(18.0,62.0,rimWide)+sat(abs(uOldA.y)/600.0)*16.0;
+            vec2 refractPx=softLimitPx(rawRefractPx,limitPx);
+            vec2 refractedUv=globalUv(p+bodyFlow)+refractPx/max(uRootResolution,vec2(1.0));
+
+            vec3 color=blurBackdrop(refractedUv,rimWide);
+            vec3 lensColor=sourceLensBackdrop(refractedUv);
+            float lensMix=sat(rimCore*max(uOldA.z,0.0)*0.42);
+            color=mix(color,lensColor,lensMix);
+
+            vec3 dragColor=edgeColorDrag(p,bodyFlow,z,r,dragBand,rimCore);
+            float dragMix=sat(max(max(dragColor.r,dragColor.g),dragColor.b));
+            color=mix(color,dragColor,dragMix);
+
+            float rimOpticalBoost=rimCore*0.16+gradEnergy*0.045;
+            color*=uBody.w*uMaterial.z*(1.0+rimOpticalBoost);
+
+            float debugEdge=smoothstep(-1.65,0.0,sd)*mask;
+            color=mix(color,vec3(1.0,0.45,0.0),debugEdge*uOldB.w);
+            color-=vec3(0.06,0.07,0.09)*uOldB.z*rimWide;
+            color=clamp(color,0.0,1.0);
+
+            gl_FragColor=vec4(
+                color,
+                mask*uMaterial.y*sat(uMaterial.x/20.0)*uIntensity
+            );
         }
     """
 }
