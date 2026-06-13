@@ -35,6 +35,7 @@ fun NewOpenGLGlassCardLayer(
     val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
     val blurredBitmap = remember(backdrop.image) { backdrop.image.asAndroidBitmap() }
+    val lensBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
@@ -74,12 +75,10 @@ fun NewOpenGLGlassCardLayer(
                     rootWidthPx,
                     rootHeightPx
                 )
-                // Keep the established press forwarding contract, but do not wake EGL for press-only
-                // changes: the current shader does not consume these values, while Compose still owns
-                // the shell scale/sink/rebound and all press highlights above this layer.
+                // 保留既有按压转发契约；外壳形变、回弹与表面光效仍由 Compose 原链负责。
                 view.setPressSpec(press, pressX, pressY)
-                val textureDirty = view.setBackdropTexture(blurredBitmap)
-                val styleDirty = view.setGlassStyle(border)
+                val textureDirty = view.setBackdropTextures(blurredBitmap, lensBitmap)
+                val styleDirty = view.setGlassStyle(border, density.density)
                 if (surfaceDirty || specDirty || samplingDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
