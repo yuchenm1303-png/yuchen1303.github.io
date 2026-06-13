@@ -10,7 +10,7 @@
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · annular ring field + isolated infinity field</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · strong annular ring + isolated infinity flow</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -58,23 +58,23 @@ vec4 infinityMetric(vec2 p,vec2 z,float r){
 }
 float infinityCenterDepth(vec2 z){
   float halfMin=min(z.x,z.y)*.5;
-  return halfMin*mix(.24,.50,sat(uBody.x/1.5));
+  return halfMin*mix(.38,.72,sat(uBody.x/1.5));
 }
 float infinityWidthPx(vec2 z){
   float halfMin=min(z.x,z.y)*.5;
   float curve=sat((uBody.y-.2)/3.0);
-  return halfMin*mix(.075,.22,curve);
+  return halfMin*mix(.16,.38,curve);
 }
 float infinityProfile(float depth,vec2 z){
   float center=infinityCenterDepth(z);
   float width=max(infinityWidthPx(z),1.0);
-  return gauss(depth,center,width)+gauss(depth,center+width*.58,width*1.7)*.72;
+  return gauss(depth,center,width)+gauss(depth,center+width*.58,width*1.7)*.82;
 }
 float infinityMask(vec2 p,vec2 z,float ringSafe){
   vec2 q=abs((p-z*.5)/max(z*.5,vec2(1.0)));
-  float xMask=1.0-smoothstep(.58,.93,q.x);
-  float yMask=1.0-smoothstep(.42,.86,q.y);
-  float ringSeparation=1.0-smoothstep(.06,.42,ringSafe);
+  float xMask=1.0-smoothstep(.48,.94,q.x);
+  float yMask=1.0-smoothstep(.30,.84,q.y);
+  float ringSeparation=1.0-smoothstep(.18,.72,ringSafe);
   return sat(xMask*yMask*ringSeparation);
 }
 
@@ -88,11 +88,11 @@ float ringBandCenterPx(vec2 z,float width){
 float ringShell(float depth,vec2 z){
   float width=ringBandWidthPx(z);
   float center=ringBandCenterPx(z,width);
-  return gauss(depth,center,width)+gauss(depth,center+width*.42,width*1.75)*.72;
+  return gauss(depth,center,width)+gauss(depth,center+width*.42,width*1.75)*.78;
 }
 float ringSafeLimit(vec2 z,float ringSafe){
   float width=ringBandWidthPx(z);
-  return max(2.0,min(width*1.75,uFlowDepth*.24))*pow(sat(ringSafe),.72);
+  return max(3.0,min(width*3.40,uFlowDepth*.36))*pow(sat(ringSafe),.68);
 }
 vec2 roundedSdfNormal(vec2 p,vec2 z,float r){
   float d=1.4;
@@ -118,7 +118,7 @@ if(mask<=.001)discard;
 float st=2.0;
 float edgeDepth=insideFromSdf(sd);
 
-/* 第一场：贴合玻璃轮廓的环形折射带。 */
+/* 第一场：贴合玻璃轮廓的强环形折射带。 */
 vec4 ringData=texture2D(uFlow,clamp(p/max(z,vec2(1.0)),0.0,1.0));
 float ringSafe=ringData.a;
 vec2 ringFlow=vec2(0.0);
@@ -131,12 +131,12 @@ if(ringSafe>0.001){
   float shellIn=ringShell(min(ringDepth+1.0,uFlowDepth),z);
   float shellOut=ringShell(max(ringDepth-1.0,0.0),z);
   float slope=(shellIn-shellOut)*.5;
-  float strength=uBand.z*.22+uBody.z*.0022;
-  ringFlow=-ringN*(slope*width*strength+shell*(uBand.z*.12+uBody.z*.0014))*ringSafe;
+  float strength=uBand.z*.90+uBody.z*.012;
+  ringFlow=-ringN*(slope*width*strength+shell*(uBand.z*.65+uBody.z*.009))*ringSafe;
   ringFlow=softLimit(ringFlow,ringSafeLimit(z,ringSafe));
 }
 
-/* 第二场：只存在于中心的无穷汇聚，不再决定外圈形状。 */
+/* 第二场：只存在于中心的强无穷汇聚，不再决定外圈形状。 */
 vec4 infinityData=infinityMetric(p,z,r);
 float centerMask=infinityMask(p,z,ringSafe);
 vec2 infinityFlow=vec2(0.0);
@@ -146,9 +146,9 @@ if(centerMask>0.0001){
   float hIn=infinityProfile(depth+1.0,z);
   float hOut=infinityProfile(max(depth-1.0,0.0),z);
   float dh=(hIn-hOut)*.5;
-  float energy=.34+hC*.72+abs(dh)*2.6;
-  infinityFlow=-infinityData.zw*dh*uBody.z*energy;
-  float centerLimit=mix(8.0,30.0,sat(uBody.x/1.5));
+  float energy=.75+hC*1.40+abs(dh)*5.20;
+  infinityFlow=-infinityData.zw*(dh*uBody.z*energy+hC*(uBody.z*.055+uBand.z*.60));
+  float centerLimit=mix(20.0,64.0,sat(uBody.x/1.5));
   infinityFlow=softLimit(infinityFlow,centerLimit)*centerMask;
 }
 
