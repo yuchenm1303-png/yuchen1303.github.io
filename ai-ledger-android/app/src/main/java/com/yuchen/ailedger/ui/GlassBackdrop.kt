@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -13,6 +14,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
@@ -36,6 +38,13 @@ data class GlassBackdropSpec(
 
 val LocalGlassBackdrop = compositionLocalOf<GlassBackdropSpec?> { null }
 
+private data class ComposeBackdropSample(
+    val image: ImageBitmap,
+    val fullWidthPx: Int,
+    val fullHeightPx: Int,
+    val scale: Float
+)
+
 @Composable
 fun SampledWeatherGlassBackdrop(
     modifier: Modifier = Modifier,
@@ -47,7 +56,22 @@ fun SampledWeatherGlassBackdrop(
     blurRadiusDp: Int = 112,
     liftAlpha: Float = 1f
 ) {
-    val cachedBackdrop = LocalBlurredBackdrop.current
+    val rawBackdrop = LocalBlurredBackdrop.current
+    val cachedBackdrop = remember(
+        rawBackdrop?.image,
+        rawBackdrop?.fullWidthPx,
+        rawBackdrop?.fullHeightPx,
+        rawBackdrop?.scale
+    ) {
+        rawBackdrop?.let {
+            ComposeBackdropSample(
+                image = it.image,
+                fullWidthPx = it.fullWidthPx,
+                fullHeightPx = it.fullHeightPx,
+                scale = it.scale
+            )
+        }
+    }
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
@@ -78,11 +102,24 @@ fun SampledWeatherGlassBackdrop(
         RenderQuality.Experimental -> 0.98f
     } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
-    val shape = RoundedCornerShape(radius.dp)
-
-    Box(
-        modifier = modifier
-            .clip(shape)
+    val cachedDrawModifier = remember(
+        radius,
+        cachedBackdrop,
+        origin,
+        ticker,
+        coordinateSource,
+        theme,
+        params,
+        baseAlpha,
+        milkAlpha,
+        highlightAlpha,
+        backdropAlpha,
+        dimAlpha,
+        dim,
+        milk
+    ) {
+        Modifier
+            .clip(RoundedCornerShape(radius.dp))
             .drawWithCache {
                 val primaryVeil = Brush.verticalGradient(
                     listOf(
@@ -158,7 +195,9 @@ fun SampledWeatherGlassBackdrop(
                     drawRect(highlightVeil, blendMode = BlendMode.Screen)
                 }
             }
-    ) {}
+    }
+
+    Box(modifier = modifier.then(cachedDrawModifier)) {}
 }
 
 private data class FallbackGlassPalette(
@@ -176,7 +215,7 @@ private fun fallbackPalette(theme: BackgroundTheme): FallbackGlassPalette = when
     BackgroundTheme.Dawn -> FallbackGlassPalette(Color(0xFF16253C), Color(0xFF708BAC), Color(0xFFC1A6A4), Color(0xFFE2CCFF), Color(0xFFFFC28A))
 }
 
-private fun DrawScope.drawVisibleBackdropImage(backdrop: BlurredBackdropBitmap, sampleOffset: Offset, alpha: Float) {
+private fun DrawScope.drawVisibleBackdropImage(backdrop: ComposeBackdropSample, sampleOffset: Offset, alpha: Float) {
     val rootW = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
     val rootH = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
     val localLeft = max(0f, -sampleOffset.x)
@@ -216,11 +255,9 @@ fun SampledWeatherEdgeRefraction(
     val ticker = LocalBackdropFrameTicker.current
     val border = spec?.borderStyle ?: GlassBorderStyle()
     val alpha = strength.coerceIn(0f, 0.34f)
-    val shape = RoundedCornerShape(radius.dp)
-
-    Box(
-        modifier = modifier
-            .clip(shape)
+    val cachedDrawModifier = remember(radius, origin, ticker, coordinateSource, border, alpha) {
+        Modifier
+            .clip(RoundedCornerShape(radius.dp))
             .drawWithCache {
                 val w = size.width
                 val h = size.height
@@ -323,5 +360,7 @@ fun SampledWeatherEdgeRefraction(
                     )
                 }
             }
-    ) {}
+    }
+
+    Box(modifier = modifier.then(cachedDrawModifier)) {}
 }
