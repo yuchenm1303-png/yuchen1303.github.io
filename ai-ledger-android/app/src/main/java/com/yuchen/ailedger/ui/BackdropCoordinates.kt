@@ -33,7 +33,7 @@ class BackdropCoordinateSource {
             if (lastRootOffset != null || lastSize != IntSize.Zero) {
                 lastRootOffset = null
                 lastSize = IntSize.Zero
-                placementVersion = System.nanoTime()
+                placementVersion += 1L
             }
             return
         }
@@ -42,7 +42,7 @@ class BackdropCoordinateSource {
         if (lastRootOffset != rootOffset || lastSize != size) {
             lastRootOffset = rootOffset
             lastSize = size
-            placementVersion = System.nanoTime()
+            placementVersion += 1L
         }
     }
 
@@ -78,7 +78,7 @@ class GlassCoordinateSource {
             wasAttached = attached
             lastRootOffset = rootOffset
             lastSize = size
-            placementVersion = System.nanoTime()
+            placementVersion += 1L
         }
     }
 
@@ -194,7 +194,7 @@ class GlassItemRegistry {
 
     private fun invalidate() {
         cachedSnapshot = items.values.toList()
-        version = System.nanoTime()
+        version += 1L
     }
 }
 
