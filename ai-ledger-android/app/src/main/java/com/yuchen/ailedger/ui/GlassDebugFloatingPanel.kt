@@ -52,11 +52,18 @@ fun GlassDebugFloatingPanel(
 ) {
     val params = state.backdropParams
     val border = state.glassBorderStyle
+    var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
         GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
-            OpenGlGlassLab(state, border, onBorderChange)
+            OpenGlGlassLab(
+                state = state,
+                params = params,
+                style = legacyBorder,
+                onStyleChange = { legacyBorder = it }
+            )
         }
-        GlassLabFoldout("新版 OpenGL", "网页版玻璃：旧边缘厚度场 + 新主体折射", false, state) {
+        GlassLabFoldout("新版 OpenGL", "网页版最终玻璃：环形 Flow Map + 连续运输场", false, state) {
             NewOpenGlGlassLab(state, params, border, onBackdropChange, onBorderChange)
         }
         GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
@@ -78,28 +85,44 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
-private fun OpenGlGlassLab(state: AssistantUiState, style: GlassBorderStyle, onBorderChange: (GlassBorderStyle) -> Unit) {
-    LegacyOpenGLGlassPreviewShell(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.70f,
-        motionIntensity = state.motionIntensity,
-        radius = 26,
-        modifier = Modifier.fillMaxWidth().height(120.dp)
-    ) {
-        Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text("旧 OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Metric("可见", style.openGlVisibility, Modifier.weight(1f))
-                Metric("透明", style.openGlMaxAlpha, Modifier.weight(1f))
-                Metric("亮度", style.edgeBrightness, Modifier.weight(1f))
+private fun OpenGlGlassLab(
+    state: AssistantUiState,
+    params: BackdropDebugParams,
+    style: GlassBorderStyle,
+    onStyleChange: (GlassBorderStyle) -> Unit
+) {
+    val legacySpec = remember(state.quality, state.motionIntensity, state.backgroundTheme, params, style) {
+        GlassBackdropSpec(
+            quality = state.quality,
+            motionIntensity = state.motionIntensity,
+            theme = state.backgroundTheme,
+            params = params,
+            borderStyle = style
+        )
+    }
+    CompositionLocalProvider(LocalGlassBackdrop provides legacySpec) {
+        LegacyOpenGLGlassPreviewShell(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * 0.70f,
+            motionIntensity = state.motionIntensity,
+            radius = 26,
+            modifier = Modifier.fillMaxWidth().height(120.dp)
+        ) {
+            Column(Modifier.fillMaxSize().padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Text("旧 OpenGL Shell 样本", color = Color.White.copy(alpha = 0.94f), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Metric("可见", style.openGlVisibility, Modifier.weight(1f))
+                    Metric("透明", style.openGlMaxAlpha, Modifier.weight(1f))
+                    Metric("亮度", style.edgeBrightness, Modifier.weight(1f))
+                }
             }
         }
     }
     Group("旧样本参数", "只影响这一栏旧样本", state) {
-        LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
-        LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
-        LabSlider("旧边缘亮度", "旧 shader 的折射亮度", style.edgeBrightness, 0.20f..2.40f) { onBorderChange(style.copy(edgeBrightness = it)) }
-        LabSlider("旧边缘宽度", "旧 shader rim 宽度", style.ringWidthDp, 0f..96f) { onBorderChange(style.copy(ringWidthDp = it)) }
+        LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onStyleChange(style.copy(openGlVisibility = it)) }
+        LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onStyleChange(style.copy(openGlMaxAlpha = it)) }
+        LabSlider("旧边缘亮度", "旧 shader 的折射亮度", style.edgeBrightness, 0.20f..2.40f) { onStyleChange(style.copy(edgeBrightness = it)) }
+        LabSlider("旧边缘宽度", "旧 shader rim 宽度", style.ringWidthDp, 0f..96f) { onStyleChange(style.copy(ringWidthDp = it)) }
     }
 }
 
@@ -156,7 +179,7 @@ private fun NewOpenGlGlassLab(
         Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("网页版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text("旧边缘厚度场 + 新主体折射；单背景模糊层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("调和环形 Flow Map + 非归一化连续运输；单背景模糊层", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Metric("模糊", params.radius, Modifier.weight(1f))
@@ -174,7 +197,7 @@ private fun NewOpenGlGlassLab(
         LabSlider("背景层饱和", "saturation", params.saturation, 0.3f..1.8f) { onBackdropChange(params.copy(saturation = it)) }
     }
 
-    Group("旧版 OpenGL 边缘折射 OpenGLGlassCardLayer", "网页玻璃使用的旧边缘厚度场参数", state) {
+    Group("旧版 OpenGL 边缘折射 OpenGLGlassCardLayer", "网页版玻璃内封装的旧边缘厚度场参数", state) {
         LabSlider("OpenGL可见强度", "openGlVisibility", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
         LabSlider("OpenGL最大透明", "openGlMaxAlpha", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
         LabSlider("旧边缘亮度", "edgeBrightness", style.edgeBrightness, -5f..5f) { onBorderChange(style.copy(edgeBrightness = it)) }
@@ -188,21 +211,21 @@ private fun NewOpenGlGlassLab(
         LabSlider("旧调试线", "openGlDebugLineAlpha", style.openGlDebugLineAlpha, 0f..1f) { onBorderChange(style.copy(openGlDebugLineAlpha = it)) }
     }
 
-    Group("新版 OpenGL 主体折射 NewOpenGLGlassCardLayer", "网页玻璃使用的新主体折射参数", state) {
+    Group("新版 OpenGL 主体折射 NewOpenGLGlassCardLayer", "网页版玻璃使用的新主体折射参数", state) {
         LabSlider("样本玻璃强度", "glassIntensity", style.newOpenGlGlassIntensity, 0.35f..1.35f) { onBorderChange(style.copy(newOpenGlGlassIntensity = it)) }
         LabSlider("新版输出亮度", "newOpenGlBrightness", style.newOpenGlBrightness, 0.4f..2.2f) { onBorderChange(style.copy(newOpenGlBrightness = it)) }
         LabSlider("主体宽度", "newOpenGlBodyWidth", style.newOpenGlBodyWidth, 0.18f..1.5f) { onBorderChange(style.copy(newOpenGlBodyWidth = it)) }
         LabSlider("主体陡度", "newOpenGlBodyCurve", style.newOpenGlBodyCurve, 0.20f..3.2f) { onBorderChange(style.copy(newOpenGlBodyCurve = it)) }
         LabSlider("主体强度", "newOpenGlBodyGain", style.newOpenGlBodyGain, 0f..900f) { onBorderChange(style.copy(newOpenGlBodyGain = it)) }
         LabSlider("主体折射带位置", "newOpenGlBodyBandPos", style.newOpenGlBodyBandPos, 0.55f..0.98f) { onBorderChange(style.copy(newOpenGlBodyBandPos = it)) }
-        LabSlider("主体折射带宽度", "newOpenGlBodyBandWidth", style.newOpenGlBodyBandWidth, 0.015f..0.24f) { onBorderChange(style.copy(newOpenGlBodyBandWidth = it)) }
+        LabSlider("主体折射带宽度", "newOpenGlBodyBandWidth", style.newOpenGlBodyBandWidth, 0.015f..0.8f) { onBorderChange(style.copy(newOpenGlBodyBandWidth = it)) }
         LabSlider("主体折射带强度", "newOpenGlBodyBandGain", style.newOpenGlBodyBandGain, 0f..1500f) { onBorderChange(style.copy(newOpenGlBodyBandGain = it)) }
     }
 
-    LabActionButton("重置新版", "恢复网页版当前默认参数", state, Modifier.fillMaxWidth()) {
+    LabActionButton("重置新版", "恢复网页版最终默认参数", state, Modifier.fillMaxWidth()) {
         onBackdropChange(
             params.copy(
-                radius = 0.691f,
+                radius = 0.6756757f,
                 iterations = 12f,
                 brightness = 1.138f,
                 contrast = 1.087f,
@@ -213,14 +236,14 @@ private fun NewOpenGlGlassLab(
             style.copy(
                 openGlVisibility = 19.954f,
                 openGlMaxAlpha = 1f,
-                edgeBrightness = 1.083f,
-                openGlPullScale = -5.53f,
-                edgePullDp = -199.078f,
+                edgeBrightness = 1.3175676f,
+                openGlPullScale = -6.081081f,
+                edgePullDp = -600f,
                 openGlCompressionScale = -10f,
-                openGlCornerScale = 54.378f,
-                openGlSampleRadiusScale = 66.359f,
-                ringWidthDp = 8.295f,
-                openGlDarkScale = -2.21f,
+                openGlCornerScale = 60.135136f,
+                openGlSampleRadiusScale = 75f,
+                ringWidthDp = 6.081081f,
+                openGlDarkScale = -1.4864864f,
                 openGlDebugLineAlpha = 0f,
                 newOpenGlGlassIntensity = 1.348f,
                 newOpenGlBrightness = 0.84f,
@@ -228,8 +251,8 @@ private fun NewOpenGlGlassLab(
                 newOpenGlBodyCurve = 1.569f,
                 newOpenGlBodyGain = 875.115f,
                 newOpenGlBodyBandPos = 0.98f,
-                newOpenGlBodyBandWidth = 0.201f,
-                newOpenGlBodyBandGain = 20.737f,
+                newOpenGlBodyBandWidth = 0.228f,
+                newOpenGlBodyBandGain = 46f,
                 edgeBlurDp = 0f,
                 newOpenGlOuterRimReachPx = 0f,
                 newOpenGlOuterRimGain = 0f,
@@ -241,6 +264,19 @@ private fun NewOpenGlGlassLab(
         )
     }
 }
+
+private fun legacyOpenGlLabStyle(): GlassBorderStyle = GlassBorderStyle(
+    ringWidthDp = 8.295f,
+    edgePullDp = -199.078f,
+    edgeBrightness = 1.083f,
+    openGlVisibility = 19.954f,
+    openGlMaxAlpha = 1f,
+    openGlPullScale = -5.53f,
+    openGlCompressionScale = -10f,
+    openGlCornerScale = 54.378f,
+    openGlDarkScale = -2.21f,
+    openGlSampleRadiusScale = 66.359f
+)
 
 @Composable
 private fun GlassLabFoldout(title: String, subtitle: String, initiallyExpanded: Boolean, state: AssistantUiState, content: @Composable () -> Unit) {
