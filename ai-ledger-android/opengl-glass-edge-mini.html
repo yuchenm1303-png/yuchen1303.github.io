@@ -38,11 +38,9 @@ float rimCore(vec2 p,vec2 z,float r){return 1.-smoothstep(0.,max(edgeWidth(z)*.2
 float rimBand(vec2 p,vec2 z,float r){return pow(1.-smoothstep(0.,max(edgeWidth(z)*1.45,6.),inside(p,z,r)),1.35);}
 float dome(vec2 p,vec2 z){vec2 q=clamp(p/z,0.,1.)*2.-1.;q.x*=min(z.x/max(z.y,1.),2.4)*.38;return pow(sat(1.-length(q)*.74),1.65);}
 float thick(vec2 p,vec2 z,float r){float sd=box(p,z,r);return (dome(p,z)*.22+rimWide(p,z,r)*.46+rimCore(p,z,r)*.34)*(1.-smoothstep(1.5,16.,sd));}
-float rho(vec2 p,vec2 z){vec2 u=clamp(p/z,0.,1.),q=abs(u*2.-1.);float n=5.8;return pow(pow(q.x,n)+pow(q.y,n),1./n);}
 float roundedRho(vec2 p,vec2 z,float r){float maxDepth=max(min(z.x,z.y)*.5,1.);return sat(1.-inside(p,z,r)/maxDepth);}
-float cornerZone(vec2 u){vec2 a=abs(u*2.-1.);return smoothstep(.62,.94,a.x)*smoothstep(.28,.86,a.y);}
 float ga(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
-float bodyH(vec2 p,vec2 z,float r){float sd=box(p,z,r),sh=1.-smoothstep(0.,4.,sd),rr=rho(p,z),er=roundedRho(p,z,r);float b=pow(sat(1.-rr),max(uBody.y,.2));b=pow(b,max(.28,2.-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));float shell=ga(er,uBand.x,uBand.y);float shoulder=ga(er,uBand.x-.025,uBand.y*1.8);return (pow(sat(b),.72)+shell*1.55+shoulder*.85)*sh;}
+float bodyH(vec2 p,vec2 z,float r){float sd=box(p,z,r),sh=1.-smoothstep(0.,4.,sd),er=roundedRho(p,z,r);float depth=sat(1.-er);float b=pow(depth,max(uBody.y,.2));b=pow(b,max(.28,2.-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));float shell=ga(er,uBand.x,uBand.y);float shoulder=ga(er,uBand.x-.025,uBand.y*1.8);return (pow(sat(b),.72)+shell*1.55+shoulder*.85)*sh;}
 vec2 normal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(box(p+vec2(d,0.),z,r)-box(p-vec2(d,0.),z,r),box(p+vec2(0.,d),z,r)-box(p-vec2(0.,d),z,r));return n/max(length(n),.0001);}
 vec2 soft(vec2 v,float lim){float n=length(v);float m=n/(1.+n/max(lim,1.));return v*(m/max(n,.0001));}
 void main(){
@@ -54,34 +52,30 @@ float hL=bodyH(p-vec2(st,0.),z,r),hR=bodyH(p+vec2(st,0.),z,r),hU=bodyH(p-vec2(0.
 vec2 g=vec2(hR-hL,hD-hU)*.5;
 float sl=length(g);
 vec2 u=p/z;
-float rr=rho(p,z),er=roundedRho(p,z,r),cz=cornerZone(u);
-float bodyPresence=sat(pow(sat(1.-rr),.42)*(.38+uBody.x*.72));
+float er=roundedRho(p,z,r);
+float bodyPresence=sat(pow(sat(1.-er),.42)*(.38+uBody.x*.72));
 float shell=ga(er,uBand.x,uBand.y)+ga(er,uBand.x-.028,uBand.y*1.9)*.55;
-float side=abs(u.x*2.-1.),sv=smoothstep(.055,.30,u.y)*smoothstep(.055,.30,1.-u.y);
-float sideBand=(ga(side,uBand.x,max(uBand.y*.72,.014))+ga(side,uBand.x-.060,max(uBand.y*1.65,.026))*.52)*sv*sat(.42+bodyPresence*.38+shell*.40)*(1.-cz*.88);
+float perimeterBand=sat(shell*(.42+bodyPresence*.38+shell*.40));
 float energy=pow(sat((sl*11.+hC*.22)*max(uBand.z,1.)),max(.32,max(uBand.z,1.)*.55));
+vec2 n=normal(p,z,r);
 vec2 bodyFlow=g*(uBody.z*bodyPresence*(.35+hC*.55+energy*.35)+uBand.z*shell*(.36+energy*.70+sl*2.4));
-bodyFlow.x*=mix(1.,1.72,sideBand);
 bodyFlow+=(vec2(.5)-u)*vec2(1.,.72)*(bodyPresence*uBody.z*.08);
-bodyFlow+=vec2(sign(.5-u.x),0.)*((uBand.z*.185+uBody.z*.105)*sideBand*(.72+hC*.42+bodyPresence*.25));
-bodyFlow.y+=(.5-u.y)*sideBand*(uBand.z*.030+uBody.z*.022)*(.45+hC*.35);
+bodyFlow-=n*((uBand.z*.185+uBody.z*.105)*perimeterBand*(.72+hC*.42+bodyPresence*.25));
 float tL=thick(p-vec2(st,0.),z,r),tR=thick(p+vec2(st,0.),z,r),tU=thick(p-vec2(0.,st),z,r),tD=thick(p+vec2(0.,st),z,r);
 vec2 eg=vec2(tR-tL,tD-tU);
 float rw=rimWide(p,z,r),rc=rimCore(p,z,r),rb=rimBand(p,z,r),glen=length(eg);
 eg*=smoothstep(.0004,.012,glen)*min(1.,.22/max(glen,.0001));
-vec2 n=normal(p,z,r);
-float cornerDepth=smoothstep(0.,max(edgeWidth(z)*.72,3.),inside(p,z,r));
-float corner=pow(rc,1.65)*cz*cornerDepth*uOldA.w*.004;
-float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.*rb+corner;
+float perimeterAssist=pow(rc,1.65)*uOldA.w*.0015;
+float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.*rb+perimeterAssist;
 vec2 edgeFlow=soft(eg*pull*uMat.x,18.+rw*48.+sat(abs(uOldA.y)/600.)*16.);
-float sample=max(uOldB.x,0.)*mix(1.,.42,cz);
+float sample=max(uOldB.x,0.);
 vec2 uv=guv(p+bodyFlow+edgeFlow);
 vec3 col=src(uv);
 vec3 near=src(guv(p-n*(8.+sample*.20+abs(uOldA.y)*.03)));
 vec3 far=src(guv(p-n*(16.+sample*.36+abs(uOldA.y)*.055)));
 vec3 outc=src(guv(p+n*(6.+sample*.12)));
 vec3 drag=near*.48+far*.34+outc*.18;
-float dragMix=sat(rb*(.10+rc*.42+sat(uOldA.z*.05)))*mix(1.,.62,cz);
+float dragMix=sat(rb*(.10+rc*.42+sat(uOldA.z*.05)));
 col=mix(col,drag,dragMix);
 float boost=1.+rc*.16+rw*max(uMat.z,0.)*.10;
 col*=uBody.w*uMat.z*boost;
