@@ -5,7 +5,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -54,7 +53,7 @@ fun SampledWeatherGlassBackdrop(
     val ticker = LocalBackdropFrameTicker.current
     val params = spec?.params ?: BackdropDebugParams()
     val glass = ComposeGlassLabState.style
-    val alpha = liftAlpha.coerceIn(0f, 1.55f)
+    val alpha = liftAlpha.coerceIn(0.12f, 1.55f)
     val dim = glass.backdropDim.coerceIn(0f, 1.80f)
     val milk = glass.backdropMilk.coerceIn(0f, 1.80f)
     val highlight = glass.backdropHighlight.coerceIn(0f, 1.80f)
@@ -63,9 +62,8 @@ fun SampledWeatherGlassBackdrop(
     val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha * highlight
     val backdropAlpha = (when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
-    val effectiveBlurRadiusDp = blurRadiusDp.coerceIn(0, 128).dp
 
-    Canvas(modifier.blur(effectiveBlurRadiusDp).clip(RoundedCornerShape(radius.dp))) {
+    Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
         ticker?.frameNanos
         val sampleOffset = coordinateSource.offsetRelativeTo(origin)
         if (cachedBackdrop != null) {
