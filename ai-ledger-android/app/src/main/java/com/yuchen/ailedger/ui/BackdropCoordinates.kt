@@ -130,12 +130,22 @@ class BackdropFrameTicker {
 @Composable
 fun SyncGlassBackdropToScroll(listState: LazyListState) {
     val ticker = LocalBackdropFrameTicker.current ?: return
+
+    // Instant jumps can change the sampling origin without entering a scrolling frame loop.
+    // During a real scroll the frame loop below is the single invalidation source, avoiding
+    // the old duplicate "offset collector + every-frame collector" fan-out.
     LaunchedEffect(listState, ticker) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect {
-                ticker.requestFrame(force = true)
-            }
+        snapshotFlow {
+            Triple(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+                listState.isScrollInProgress
+            )
+        }.collect { (_, _, isScrolling) ->
+            if (!isScrolling) ticker.requestFrame(force = true)
+        }
     }
+
     LaunchedEffect(listState, ticker) {
         snapshotFlow { listState.isScrollInProgress }
             .collect { isScrolling ->
@@ -145,7 +155,6 @@ fun SyncGlassBackdropToScroll(listState: LazyListState) {
                             ticker.requestFrame(nowNanos = frameTimeNanos, force = true)
                         }
                     }
-                    ticker.requestFrame(force = true)
                 }
             }
     }
