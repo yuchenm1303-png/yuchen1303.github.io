@@ -34,6 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yuchen.ailedger.AssistantViewModel
+import com.yuchen.ailedger.LedgerViewModel
+import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
@@ -45,6 +49,22 @@ fun StockFirstToolsHomeScreen(
     state: AssistantUiState,
     onOpenTool: (String) -> Unit
 ) {
+    val assistantViewModel: AssistantViewModel = viewModel()
+    val ledgerViewModel: LedgerViewModel = viewModel()
+    val liveState = assistantViewModel.uiState
+    val selectedTool = liveState.selectedToolTitle
+
+    if (selectedTool == "账单中心" || selectedTool == "数据统计") {
+        NativeLedgerCenterScreen(
+            appState = liveState,
+            ledgerViewModel = ledgerViewModel,
+            statisticsOnly = selectedTool == "数据统计",
+            onBack = assistantViewModel::closeTool,
+            onOpenAssistant = { assistantViewModel.selectTab(AppTab.Assistant) }
+        )
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
