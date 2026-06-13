@@ -55,13 +55,34 @@ fun NewOpenGLGlassCardLayer(
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
                 view.setStableSurfaceAnchor(surfaceAnchor)
-                val surfaceDirty = view.setStableSurfaceSize(widthPx.roundToInt(), heightPx.roundToInt(), rootWidthPx.roundToInt(), rootHeightPx.roundToInt())
-                val specDirty = view.setGlassSpec(widthPx, viewportHeightPx, safeViewportTopInsetPx, radiusPx, intensity)
-                val samplingDirty = view.setSamplingSpec(cardOrigin.x, cardOrigin.y + safeViewportTopInsetPx, rootWidthPx, rootHeightPx)
-                val pressDirty = view.setPressSpec(press, pressX, pressY)
+                val surfaceDirty = view.setStableSurfaceSize(
+                    widthPx.roundToInt(),
+                    heightPx.roundToInt(),
+                    rootWidthPx.roundToInt(),
+                    rootHeightPx.roundToInt()
+                )
+                val specDirty = view.setGlassSpec(
+                    widthPx,
+                    viewportHeightPx,
+                    safeViewportTopInsetPx,
+                    radiusPx,
+                    intensity
+                )
+                val samplingDirty = view.setSamplingSpec(
+                    cardOrigin.x,
+                    cardOrigin.y + safeViewportTopInsetPx,
+                    rootWidthPx,
+                    rootHeightPx
+                )
+                // Keep the established press forwarding contract, but do not wake EGL for press-only
+                // changes: the current shader does not consume these values, while Compose still owns
+                // the shell scale/sink/rebound and all press highlights above this layer.
+                view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTexture(blurredBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || styleDirty) view.requestRender()
+                if (surfaceDirty || specDirty || samplingDirty || textureDirty || styleDirty) {
+                    view.requestRender()
+                }
             }
         )
     }
