@@ -36,4 +36,37 @@ internal object WebOpenGLGlassMainShader {
             vec2 totalFlow=mainBodyFlow+centerFlow+pressBodyFlow;
             vec2 bodyUv=globalUv(p+totalFlow);
     """
+
+    const val BODY_SUFFIX = """
+            vec3 bodyColor;
+            if(press>0.001){
+                bodyColor=blurBackdrop(bodyUv,pressField*0.85+pressWide*0.22);
+                vec3 pressLensColor=clearBackdrop(bodyUv);
+                float pressLensMix=sat(pressField*0.220+pressWide*0.075);
+                bodyColor=mix(bodyColor,pressLensColor,pressLensMix);
+            }else{
+                bodyColor=blurPyramidBackdrop(bodyUv);
+            }
+
+            float opticalBoost=1.0+bodyWeight*0.24;
+            bodyColor*=uBody.w*uMaterial.z*opticalBoost;
+            bodyColor-=vec3(0.055,0.065,0.085)*uBodyLensB.z*bodyWeight;
+            bodyColor*=1.0-pressField*0.070-pressWide*0.025;
+            bodyColor+=vec3(0.018,0.035,0.046)*pressField*0.38;
+            float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
+            bodyColor=mix(bodyColor,vec3(1.0,0.45,0.0),bodyDebug*uBodyLensB.w);
+
+            vec3 color=bodyColor;
+            float bodyAlpha=uMaterial.y*sat(uMaterial.x/20.0)*uIntensity;
+            float alpha=bodyAlpha;
+            float legacyEdgeBand=edgeDragBandAt(p,z,r);
+            if(legacyEdgeBand>0.001){
+                vec3 legacyColor=legacyOpticalColor(p,z,r,sd,mask,legacyEdgeBand);
+                color=mix(bodyColor,legacyColor,legacyEdgeBand);
+                float legacyAlpha=clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0);
+                alpha=max(bodyAlpha,legacyAlpha*legacyEdgeBand);
+            }
+            gl_FragColor=vec4(clamp(color,0.0,1.0),mask*alpha);
+        }
+    """
 }
