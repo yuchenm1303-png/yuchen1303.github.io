@@ -28,14 +28,14 @@ const APP_RAW={
 
   legacyVisibility:20,
   legacyMaxAlpha:1,
-  legacyEdgeBrightness:1.03,
-  legacyPullScale:83.21,
-  legacyEdgePullDp:-205.94,
+  legacyEdgeBrightness:1.15207373271889,
+  legacyPullScale:-300,
+  legacyEdgePullDp:-600,
   legacyCompressionScale:-10,
-  legacyCornerScale:0,
-  legacySampleRadiusScale:0,
-  legacyEdgeWidthDp:10,
-  legacyDarkScale:-1.63,
+  legacyCornerScale:200,
+  legacySampleRadiusScale:14.2857142857143,
+  legacyEdgeWidthDp:8.29493087557604,
+  legacyDarkScale:-2.58064516129032,
   legacyDebugLineAlpha:0
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
