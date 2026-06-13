@@ -63,15 +63,12 @@ internal fun visibleComposerTextForAssistant(text: String): String {
     return if (text.trim().startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX)) "" else text
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal fun parseInstalledAppOpenCommand(text: String, installedAppIndex: InstalledAppIndex): MobileCommand? {
-    val trimmed = text.trim()
-    if (trimmed.isBlank()) return null
-    val prefixes = listOf("打开", "启动", "开启")
-    val prefix = prefixes.firstOrNull { trimmed.startsWith(it) } ?: return null
-    val appName = trimmed.removePrefix(prefix).trim()
-    if (appName.isBlank()) return null
-    val match = installedAppIndex.findBestApp(appName) ?: return null
-    return MobileCommand.OpenApp(appName = match.label, packageName = match.packageName)
+    // 已停用旧的“打开/启动/开启 + 模糊应用名”发送前拦截。
+    // 所有应用打开与 App 内后续页面任务都必须保留完整原始目标，交给 AgentBrain / GUI Plus 判断。
+    // 这样“打开 QQ”与“打开 QQ 找到设置页”不会再被本地字符串规则截断成同一个打开应用弹窗。
+    return null
 }
 
 internal fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessage>): PendingMobileAction? {
@@ -85,11 +82,9 @@ internal fun parsePendingMobileActionFromLatestMessage(messages: List<ChatMessag
     val body = text.substring(start + marker.length, end)
     val parts = body.split("|", limit = 3)
     return when (parts.firstOrNull()) {
-        "open_app" -> {
-            val packageName = parts.getOrNull(1).orEmpty()
-            val label = parts.getOrNull(2).orEmpty().ifBlank { packageName }
-            if (packageName.isBlank()) null else PendingMobileAction(text, MobileCommand.OpenApp(appName = label, packageName = packageName))
-        }
+        // 旧后端遗留的 open_app marker 不再转换成确认弹窗。
+        // 新链路必须返回 agentAction/run_agent_task 或结构化内部工具步骤。
+        "open_app" -> null
         else -> null
     }
 }
