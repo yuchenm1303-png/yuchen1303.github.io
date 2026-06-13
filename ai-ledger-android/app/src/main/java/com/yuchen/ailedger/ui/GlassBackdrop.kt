@@ -1,11 +1,12 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -14,7 +15,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -57,102 +57,107 @@ fun SampledWeatherGlassBackdrop(
     val dim = glass.backdropDim.coerceIn(0f, 1.80f)
     val milk = glass.backdropMilk.coerceIn(0f, 1.80f)
     val highlight = glass.backdropHighlight.coerceIn(0f, 1.80f)
-    val baseAlpha = when (quality) { RenderQuality.Smooth -> 0.15f; RenderQuality.Balanced -> 0.18f; RenderQuality.Experimental -> 0.21f } * alpha
-    val milkAlpha = when (quality) { RenderQuality.Smooth -> 0.040f; RenderQuality.Balanced -> 0.052f; RenderQuality.Experimental -> 0.064f } * alpha * milk
-    val highlightAlpha = when (quality) { RenderQuality.Smooth -> 0.036f; RenderQuality.Balanced -> 0.046f; RenderQuality.Experimental -> 0.056f } * alpha * highlight
-    val backdropAlpha = (when (quality) { RenderQuality.Smooth -> 0.90f; RenderQuality.Balanced -> 0.94f; RenderQuality.Experimental -> 0.98f } * alpha).coerceIn(0f, 1f)
+    val baseAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.15f
+        RenderQuality.Balanced -> 0.18f
+        RenderQuality.Experimental -> 0.21f
+    } * alpha
+    val milkAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.040f
+        RenderQuality.Balanced -> 0.052f
+        RenderQuality.Experimental -> 0.064f
+    } * alpha * milk
+    val highlightAlpha = when (quality) {
+        RenderQuality.Smooth -> 0.036f
+        RenderQuality.Balanced -> 0.046f
+        RenderQuality.Experimental -> 0.056f
+    } * alpha * highlight
+    val backdropAlpha = (when (quality) {
+        RenderQuality.Smooth -> 0.90f
+        RenderQuality.Balanced -> 0.94f
+        RenderQuality.Experimental -> 0.98f
+    } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
+    val shape = RoundedCornerShape(radius.dp)
 
-    Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
-        ticker?.frameNanos
-        val sampleOffset = coordinateSource.offsetRelativeTo(origin)
-        if (cachedBackdrop != null) {
-            drawVisibleBackdropImage(cachedBackdrop, sampleOffset, backdropAlpha)
-        } else {
-            drawLightweightStartupGlassFallback(theme, params, baseAlpha, milkAlpha, highlightAlpha)
-        }
-        if (dimAlpha > 0.001f) {
-            drawRect(Color(0xFF020817).copy(alpha = dimAlpha), blendMode = BlendMode.Multiply)
-        }
-        drawRect(
-            Brush.verticalGradient(
-                listOf(
-                    Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.48f),
-                    Color(0xFF9AADBF).copy(alpha = baseAlpha * 0.18f * dim),
-                    Color(0xFF40576D).copy(alpha = baseAlpha * 0.22f * dim)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .drawWithCache {
+                val primaryVeil = Brush.verticalGradient(
+                    listOf(
+                        Color(0xFFE0EAF3).copy(alpha = milkAlpha * 0.48f),
+                        Color(0xFF9AADBF).copy(alpha = baseAlpha * 0.18f * dim),
+                        Color(0xFF40576D).copy(alpha = baseAlpha * 0.22f * dim)
+                    )
                 )
-            ),
-            blendMode = BlendMode.SrcOver
-        )
-        drawRect(Color(0xFF72859A).copy(alpha = baseAlpha * 0.16f * milk), blendMode = BlendMode.SrcOver)
-        drawRect(
-            Brush.verticalGradient(
-                listOf(
-                    Color.White.copy(alpha = milkAlpha * 0.34f),
-                    Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.16f),
-                    Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.07f),
-                    Color(0xFF172333).copy(alpha = baseAlpha * 0.10f * dim)
+                val secondaryVeil = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = milkAlpha * 0.34f),
+                        Color(0xFFDCE5EF).copy(alpha = milkAlpha * 0.16f),
+                        Color(0xFF9BAEC1).copy(alpha = milkAlpha * 0.07f),
+                        Color(0xFF172333).copy(alpha = baseAlpha * 0.10f * dim)
+                    )
                 )
-            ),
-            blendMode = BlendMode.SrcOver
-        )
-        drawRect(
-            Brush.radialGradient(
-                listOf(
-                    Color.White.copy(alpha = highlightAlpha * 0.42f),
-                    Color.White.copy(alpha = highlightAlpha * 0.08f),
-                    Color.Transparent
-                ),
-                center = Offset(size.width * 0.42f, size.height * 0.08f),
-                radius = size.width * 0.98f
-            ),
-            blendMode = BlendMode.Screen
-        )
-    }
-}
+                val highlightVeil = Brush.radialGradient(
+                    listOf(
+                        Color.White.copy(alpha = highlightAlpha * 0.42f),
+                        Color.White.copy(alpha = highlightAlpha * 0.08f),
+                        Color.Transparent
+                    ),
+                    center = Offset(size.width * 0.42f, size.height * 0.08f),
+                    radius = size.width * 0.98f
+                )
+                val palette = fallbackPalette(theme)
+                val cloudAlpha = params.cloudAlpha.coerceIn(0.25f, 2.2f)
+                val fallbackBase = Brush.verticalGradient(
+                    colors = listOf(
+                        palette.top.copy(alpha = 0.46f + baseAlpha * 0.34f),
+                        palette.mid.copy(alpha = 0.34f + baseAlpha * 0.22f),
+                        palette.bottom.copy(alpha = 0.38f + baseAlpha * 0.24f)
+                    )
+                )
+                val fallbackGlowA = Brush.radialGradient(
+                    colors = listOf(
+                        palette.glowA.copy(alpha = (0.15f + highlightAlpha * 1.4f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                        palette.glowA.copy(alpha = 0.045f * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                        Color.Transparent
+                    ),
+                    center = Offset(size.width * 0.76f, size.height * 0.12f),
+                    radius = max(size.width, size.height) * 0.72f
+                )
+                val fallbackGlowB = Brush.radialGradient(
+                    colors = listOf(
+                        palette.glowB.copy(alpha = (0.12f + milkAlpha * 1.6f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                        palette.glowB.copy(alpha = 0.035f * cloudAlpha.coerceIn(0.65f, 1.35f)),
+                        Color.Transparent
+                    ),
+                    center = Offset(size.width * 0.22f, size.height * 0.76f),
+                    radius = max(size.width, size.height) * 0.66f
+                )
 
-private fun DrawScope.drawLightweightStartupGlassFallback(
-    theme: BackgroundTheme,
-    params: BackdropDebugParams,
-    baseAlpha: Float,
-    milkAlpha: Float,
-    highlightAlpha: Float
-) {
-    val palette = fallbackPalette(theme)
-    val cloudAlpha = params.cloudAlpha.coerceIn(0.25f, 2.2f)
-    drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                palette.top.copy(alpha = 0.46f + baseAlpha * 0.34f),
-                palette.mid.copy(alpha = 0.34f + baseAlpha * 0.22f),
-                palette.bottom.copy(alpha = 0.38f + baseAlpha * 0.24f)
-            )
-        ),
-        blendMode = BlendMode.SrcOver
-    )
-    drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                palette.glowA.copy(alpha = (0.15f + highlightAlpha * 1.4f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
-                palette.glowA.copy(alpha = 0.045f * cloudAlpha.coerceIn(0.65f, 1.35f)),
-                Color.Transparent
-            ),
-            center = Offset(size.width * 0.76f, size.height * 0.12f),
-            radius = max(size.width, size.height) * 0.72f
-        ),
-        blendMode = BlendMode.Screen
-    )
-    drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                palette.glowB.copy(alpha = (0.12f + milkAlpha * 1.6f) * cloudAlpha.coerceIn(0.65f, 1.35f)),
-                palette.glowB.copy(alpha = 0.035f * cloudAlpha.coerceIn(0.65f, 1.35f)),
-                Color.Transparent
-            ),
-            center = Offset(size.width * 0.22f, size.height * 0.76f),
-            radius = max(size.width, size.height) * 0.66f
-        ),
-        blendMode = BlendMode.Screen
+                onDrawBehind {
+                    ticker?.frameNanos
+                    val sampleOffset = coordinateSource.offsetRelativeTo(origin)
+                    if (cachedBackdrop != null) {
+                        drawVisibleBackdropImage(cachedBackdrop, sampleOffset, backdropAlpha)
+                    } else {
+                        drawRect(fallbackBase, blendMode = BlendMode.SrcOver)
+                        drawRect(fallbackGlowA, blendMode = BlendMode.Screen)
+                        drawRect(fallbackGlowB, blendMode = BlendMode.Screen)
+                    }
+                    if (dimAlpha > 0.001f) {
+                        drawRect(Color(0xFF020817).copy(alpha = dimAlpha), blendMode = BlendMode.Multiply)
+                    }
+                    drawRect(primaryVeil, blendMode = BlendMode.SrcOver)
+                    drawRect(
+                        Color(0xFF72859A).copy(alpha = baseAlpha * 0.16f * milk),
+                        blendMode = BlendMode.SrcOver
+                    )
+                    drawRect(secondaryVeil, blendMode = BlendMode.SrcOver)
+                    drawRect(highlightVeil, blendMode = BlendMode.Screen)
+                }
+            }
     )
 }
 
@@ -197,26 +202,126 @@ private fun DrawScope.drawVisibleBackdropImage(backdrop: BlurredBackdropBitmap, 
 }
 
 @Composable
-fun SampledWeatherEdgeRefraction(modifier: Modifier = Modifier, radius: Int, coordinateSource: GlassCoordinateSource, quality: RenderQuality, motionIntensity: Float, theme: BackgroundTheme, strength: Float = 1f) {
+fun SampledWeatherEdgeRefraction(
+    modifier: Modifier = Modifier,
+    radius: Int,
+    coordinateSource: GlassCoordinateSource,
+    quality: RenderQuality,
+    motionIntensity: Float,
+    theme: BackgroundTheme,
+    strength: Float = 1f
+) {
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
     val border = spec?.borderStyle ?: GlassBorderStyle()
     val alpha = strength.coerceIn(0f, 0.34f)
-    Canvas(modifier.clip(RoundedCornerShape(radius.dp))) {
-        ticker?.frameNanos
-        val sampleOffset = coordinateSource.offsetRelativeTo(origin)
-        val w = size.width
-        val h = size.height
-        val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val phase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
-        val outerInset = 0.55.dp.toPx()
-        val midInset = 2.70.dp.toPx()
-        val innerInset = 7.0.dp.toPx()
-        drawRoundRect(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.055f * alpha), Color.White.copy(alpha = 0.018f * alpha), Color.Transparent, Color.Black.copy(alpha = 0.010f * alpha), Color.White.copy(alpha = 0.010f * alpha)), Offset(w * (phase - 0.18f), 0f), Offset(w * (phase + 0.82f), h)), Offset(outerInset, outerInset), Size(w - outerInset * 2f, h - outerInset * 2f), corner, style = Stroke(8.5.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.070f * alpha), Color.White.copy(alpha = 0.018f * alpha), Color.Transparent), endY = h * 0.30f), Offset(midInset, midInset), Size(w - midInset * 2f, h - midInset * 2f), corner, style = Stroke(5.6.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.030f * alpha), Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.010f * alpha), Color.White.copy(alpha = 0.016f * alpha))), Offset(midInset, midInset), Size(w - midInset * 2f, h - midInset * 2f), corner, style = Stroke(4.8.dp.toPx()), blendMode = BlendMode.Screen)
-        drawRoundRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.004f * alpha), Color.Black.copy(alpha = 0.018f * alpha)), startY = h * 0.48f, endY = h), Offset(innerInset, innerInset), Size(w - innerInset * 2f, h - innerInset * 2f), corner, style = Stroke(2.4.dp.toPx()), blendMode = BlendMode.Multiply)
-        drawRoundRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = border.outerStrokeAlpha), Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f), Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)), endY = h), Offset(outerInset, outerInset), Size(w - outerInset * 2f, h - outerInset * 2f), corner, style = Stroke(1.15.dp.toPx()), blendMode = BlendMode.Screen)
-    }
+    val shape = RoundedCornerShape(radius.dp)
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+                val outerInset = 0.55.dp.toPx()
+                val midInset = 2.70.dp.toPx()
+                val innerInset = 7.0.dp.toPx()
+                val outerSize = Size(w - outerInset * 2f, h - outerInset * 2f)
+                val midSize = Size(w - midInset * 2f, h - midInset * 2f)
+                val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
+                val topRimBrush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.070f * alpha),
+                        Color.White.copy(alpha = 0.018f * alpha),
+                        Color.Transparent
+                    ),
+                    endY = h * 0.30f
+                )
+                val sideRimBrush = Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.030f * alpha),
+                        Color.Transparent,
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.010f * alpha),
+                        Color.White.copy(alpha = 0.016f * alpha)
+                    )
+                )
+                val lowerRimBrush = Brush.verticalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.004f * alpha),
+                        Color.Black.copy(alpha = 0.018f * alpha)
+                    ),
+                    startY = h * 0.48f,
+                    endY = h
+                )
+                val outerStrokeBrush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = border.outerStrokeAlpha),
+                        Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f),
+                        Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)
+                    ),
+                    endY = h
+                )
+
+                onDrawBehind {
+                    ticker?.frameNanos
+                    val sampleOffset = coordinateSource.offsetRelativeTo(origin)
+                    val phase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
+                    val movingOuterBrush = Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.055f * alpha),
+                            Color.White.copy(alpha = 0.018f * alpha),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.010f * alpha),
+                            Color.White.copy(alpha = 0.010f * alpha)
+                        ),
+                        Offset(w * (phase - 0.18f), 0f),
+                        Offset(w * (phase + 0.82f), h)
+                    )
+                    drawRoundRect(
+                        movingOuterBrush,
+                        Offset(outerInset, outerInset),
+                        outerSize,
+                        corner,
+                        style = Stroke(8.5.dp.toPx()),
+                        blendMode = BlendMode.Screen
+                    )
+                    drawRoundRect(
+                        topRimBrush,
+                        Offset(midInset, midInset),
+                        midSize,
+                        corner,
+                        style = Stroke(5.6.dp.toPx()),
+                        blendMode = BlendMode.Screen
+                    )
+                    drawRoundRect(
+                        sideRimBrush,
+                        Offset(midInset, midInset),
+                        midSize,
+                        corner,
+                        style = Stroke(4.8.dp.toPx()),
+                        blendMode = BlendMode.Screen
+                    )
+                    drawRoundRect(
+                        lowerRimBrush,
+                        Offset(innerInset, innerInset),
+                        innerSize,
+                        corner,
+                        style = Stroke(2.4.dp.toPx()),
+                        blendMode = BlendMode.Multiply
+                    )
+                    drawRoundRect(
+                        outerStrokeBrush,
+                        Offset(outerInset, outerInset),
+                        outerSize,
+                        corner,
+                        style = Stroke(1.15.dp.toPx()),
+                        blendMode = BlendMode.Screen
+                    )
+                }
+            }
+    )
 }
