@@ -5,9 +5,11 @@ internal object WebOpenGLLegacyEdgeCommonShader {
         float legacyRoundedBoxSdfAt(vec2 coord,vec2 rectSize,float radius){
             return roundedBoxSdf(coord,rectSize,radius);
         }
-        vec3 sourceBlurBackdrop(vec2 uv){return blurPyramidBackdrop(uv);}
+        vec3 sourceBlurBackdrop(vec2 uv){
+            return blurPyramidBackdropAt(uv,max(uBlurAmount,1.0));
+        }
         vec3 sourceLensBackdrop(vec2 uv){return clearBackdrop(uv);}
-        vec3 blurBackdrop(vec2 uv,float edgeWeight){
+        vec3 legacyBlurBackdrop(vec2 uv,float edgeWeight){
             float blurBoost=1.0+edgeWeight*0.38;
             vec2 px=vec2(max(uLegacyOptics.x,0.0)*blurBoost)/max(uRootResolution,vec2(1.0));
             vec3 c=sourceBlurBackdrop(uv)*0.200;
@@ -71,7 +73,7 @@ internal object WebOpenGLLegacyEdgeCommonShader {
             c+=sourceLensBackdrop(legacyGlobalUv(baseIn-t*smear))*0.14;
             c+=sourceLensBackdrop(legacyGlobalUv(baseIn+t*smear*1.85))*0.07;
             c+=sourceLensBackdrop(legacyGlobalUv(baseIn-t*smear*1.85))*0.07;
-            vec3 soft=blurBackdrop(legacyGlobalUv(baseIn),band)*0.45+c*0.55;
+            vec3 soft=legacyBlurBackdrop(legacyGlobalUv(baseIn),band)*0.45+c*0.55;
             float signal=colorSignal(c);
             float dragAlpha=band*(0.035+sat(max(uLegacyRefraction.z,0.0))*0.105+core*0.030)*signal;
             return mix(vec3(0.0),soft,sat(dragAlpha));
