@@ -3,13 +3,57 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Wired Parameters</title>
+<title>OpenGL V23 · Unified Continuous Field</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#07122b;color:white;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:white;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
+*{box-sizing:border-box}
+body{margin:0;background:#07122b;color:white;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}
+.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}
+#bg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.scroll{position:absolute;inset:0;overflow-y:auto}
+.world{height:1500px;position:relative}
+.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}
+#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}
+#gb{z-index:0}#gl{z-index:1}
+.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}
+.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}
+.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}
+.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}
+.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}
+.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}
+.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}
+.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}
+.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}
+input[type=range]{width:100%;accent-color:#9b7cff}
+button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:white;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}
+button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}
+.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}
+@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
-<div class="app"><div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · wired old edge + new body / continuous sliders</p></div><div class="bar"></div></div></div></div></div></div><aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn" onclick="document.getElementById('bgUpload').click()">上传自定义背景</button><button id="clearBgBtn" onclick="clearCustomBackground()" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button onclick="preset('app')">AppModels 默认</button><button onclick="preset('strong')">旧边更强</button><button onclick="setGeneratedBackground('flow')">流线背景</button><button onclick="setGeneratedBackground('stripes')">黑白条纹</button><button onclick="setGeneratedBackground('grid')">细网格</button><button id="moonBtn" onclick="toggleBlurMoon()">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre></aside></div>
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="bg"></canvas>
+    <div class="scroll" id="scroll"><div class="world">
+      <div class="glass" id="glass">
+        <canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div>
+        <div class="ui"><div><h1>Display</h1><p>v23 shell · unified continuous perimeter field</p></div><div class="bar"></div></div>
+      </div>
+    </div></div>
+  </div>
+  <aside class="panel">
+    <h2>v23 · 参数真实接线</h2>
+    <input id="bgUpload" type="file" accept="image/*" hidden>
+    <button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button>
+    <span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span>
+    <button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button>
+    <button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button>
+    <button id="moonBtn">显示模糊层月亮</button>
+    <div id="controls"></div><pre id="out"></pre>
+  </aside>
+</div>
 <script>
 const APP_RAW={radius:.691,iterations:12,brightness:1.138,contrast:1.087,saturation:1.112,moonScale:1,moonHaloAlpha:.18,moonRimAlpha:.42,ringWidthDp:8.295,edgePullDp:-199.078,edgeBrightness:1.083,openGlVisibility:19.954,openGlMaxAlpha:1,openGlPullScale:-5.53,openGlCompressionScale:-10,openGlCornerScale:54.378,openGlDarkScale:-2.21,openGlSampleRadiusScale:66.359,openGlDebugLineAlpha:0,newOpenGlBodyWidth:.18,newOpenGlBodyCurve:1.569,newOpenGlBodyGain:875.115,newOpenGlBodyBandPos:.98,newOpenGlBodyBandWidth:.201,newOpenGlBodyBandGain:20.737,newOpenGlBrightness:.84,glassIntensity:1.348};
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
@@ -18,7 +62,7 @@ const groups=[
 {title:'旧版 OpenGL 边缘折射 OpenGLGlassCardLayer',items:[['openGlVisibility','OpenGL可见强度',0,20],['openGlMaxAlpha','OpenGL最大透明',0,1],['edgeBrightness','旧边缘亮度',-5,5],['openGlPullScale','旧主体/边缘拉力',-300,300],['edgePullDp','旧边缘拉力 dp',-600,600],['openGlCompressionScale','旧压缩强度',-10,10],['openGlCornerScale','旧角部强度',0,200],['openGlSampleRadiusScale','旧采样半径',0,200],['ringWidthDp','旧边缘宽度',0,300],['openGlDarkScale','旧暗边强度',-10,10],['openGlDebugLineAlpha','旧调试线',0,1]]},
 {title:'新版 OpenGL 主体折射 NewOpenGLGlassCardLayer',items:[['glassIntensity','样本玻璃强度',.35,1.35],['newOpenGlBrightness','新版输出亮度',.4,2.2],['newOpenGlBodyWidth','主体宽度',.18,1.5],['newOpenGlBodyCurve','主体陡度',.20,3.2],['newOpenGlBodyGain','主体强度',0,900],['newOpenGlBodyBandPos','主体折射带位置',.55,.98],['newOpenGlBodyBandWidth','主体折射带宽度',.015,.24],['newOpenGlBodyBandGain','主体折射带强度',0,1500]]}
 ];
-const stage=document.getElementById('stage'),scroll=document.getElementById('scroll'),glassEl=document.getElementById('glass'),bg=document.getElementById('bg'),gb=document.getElementById('gb'),cv=document.getElementById('gl'),out=document.getElementById('out'),moonBtn=document.getElementById('moonBtn'),bgUpload=document.getElementById('bgUpload'),uploadBgBtn=document.getElementById('uploadBgBtn'),clearBgBtn=document.getElementById('clearBgBtn'),bgStatus=document.getElementById('bgStatus');
+const $=id=>document.getElementById(id),stage=$('stage'),scroll=$('scroll'),glassEl=$('glass'),bg=$('bg'),gb=$('gb'),cv=$('gl'),out=$('out'),moonBtn=$('moonBtn'),bgUpload=$('bgUpload'),uploadBgBtn=$('uploadBgBtn'),clearBgBtn=$('clearBgBtn'),bgStatus=$('bgStatus');
 const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),srcCanvas=document.createElement('canvas'),srcCtx=srcCanvas.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
 const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
@@ -27,90 +71,94 @@ uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uTex;
 uniform vec4 uMat,uOldA,uOldB,uBody,uBand;
 uniform float uRadius,uIntensity;
-float sat(float x){return clamp(x,0.,1.);}
-float box(vec2 p,vec2 z,float r){vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.));return length(max(q,0.))+min(max(q.x,q.y),0.)-r;}
-float inside(vec2 p,vec2 z,float r){return max(-box(p,z,r),0.);}
-vec2 guv(vec2 p){vec2 texel=.5/max(uRoot,vec2(1.));return clamp((uOrigin+p)/max(uRoot,vec2(1.)),texel,1.-texel);}
-vec3 src(vec2 uv){return texture2D(uTex,clamp(uv,0.,1.)).rgb;}
-float edgeWidth(vec2 z){return clamp(uOldB.y,2.,min(z.x,z.y)*.44);}
-float rimWide(vec2 p,vec2 z,float r){return 1.-smoothstep(0.,edgeWidth(z),inside(p,z,r));}
-float rimCore(vec2 p,vec2 z,float r){return 1.-smoothstep(0.,max(edgeWidth(z)*.28,2.),inside(p,z,r));}
-float rimBand(vec2 p,vec2 z,float r){return pow(1.-smoothstep(0.,max(edgeWidth(z)*1.45,6.),inside(p,z,r)),1.35);}
-float dome(vec2 p,vec2 z){vec2 q=clamp(p/z,0.,1.)*2.-1.;q.x*=min(z.x/max(z.y,1.),2.4)*.38;return pow(sat(1.-length(q)*.74),1.65);}
-float thick(vec2 p,vec2 z,float r){float sd=box(p,z,r);return (dome(p,z)*.22+rimWide(p,z,r)*.46+rimCore(p,z,r)*.34)*(1.-smoothstep(1.5,16.,sd));}
-float roundedRho(vec2 p,vec2 z,float r){float maxDepth=max(min(z.x,z.y)*.5,1.);return sat(1.-inside(p,z,r)/maxDepth);}
-float ga(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
-float bodyH(vec2 p,vec2 z,float r){float sd=box(p,z,r),sh=1.-smoothstep(0.,4.,sd),er=roundedRho(p,z,r);float depth=sat(1.-er);float b=pow(depth,max(uBody.y,.2));b=pow(b,max(.28,2.-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));float shell=ga(er,uBand.x,uBand.y);float shoulder=ga(er,uBand.x-.025,uBand.y*1.8);return (pow(sat(b),.72)+shell*1.55+shoulder*.85)*sh;}
-vec2 normal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(box(p+vec2(d,0.),z,r)-box(p-vec2(d,0.),z,r),box(p+vec2(0.,d),z,r)-box(p-vec2(0.,d),z,r));return n/max(length(n),.0001);}
-vec2 soft(vec2 v,float lim){float n=length(v);float m=n/(1.+n/max(lim,1.));return v*(m/max(n,.0001));}
+float sat(float x){return clamp(x,0.0,1.0);}
+float boxSdf(vec2 p,vec2 z,float r){vec2 q=abs(p-z*0.5)-max(z*0.5-vec2(r),vec2(0.0));return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;}
+vec2 globalUv(vec2 p){vec2 texel=0.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/max(uRoot,vec2(1.0)),texel,1.0-texel);}
+vec3 sampleBackdrop(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
+float fieldRho(vec2 p,vec2 z,float r){
+  vec2 h=max(z*0.5,vec2(1.0));
+  vec2 q=abs((p-h)/h);
+  float cornerRatio=sat(r/max(min(h.x,h.y),1.0));
+  float n=mix(7.5,3.6,cornerRatio);
+  return pow(pow(q.x,n)+pow(q.y,n),1.0/n);
+}
+float fieldDepthPx(vec2 p,vec2 z,float r){return max((1.0-fieldRho(p,z,r))*min(z.x,z.y)*0.5,0.0);}
+float edgeWidth(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*0.44);}
+float rimWide(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,edgeWidth(z),fieldDepthPx(p,z,r));}
+float rimCore(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,max(edgeWidth(z)*0.28,2.0),fieldDepthPx(p,z,r));}
+float rimBand(vec2 p,vec2 z,float r){return pow(1.0-smoothstep(0.0,max(edgeWidth(z)*1.45,6.0),fieldDepthPx(p,z,r)),1.35);}
+float gauss(float x,float m,float w){float q=(x-m)/max(w,0.0001);return exp(-q*q);}
+float bodyHeight(vec2 p,vec2 z,float r){
+  float sd=boxSdf(p,z,r);
+  float shape=1.0-smoothstep(0.0,4.0,sd);
+  float f=fieldRho(p,z,r);
+  float body=pow(sat(1.0-f),max(uBody.y,0.20));
+  body=pow(body,max(0.28,2.0-uBody.y*0.55));
+  body*=mix(0.72,1.9,sat(uBody.x));
+  float shell=gauss(f,uBand.x,uBand.y);
+  float shoulder=gauss(f,uBand.x-0.025,uBand.y*1.8);
+  return (pow(sat(body),0.72)+shell*1.55+shoulder*0.85)*shape;
+}
+float thickness(vec2 p,vec2 z,float r){
+  float sd=boxSdf(p,z,r);
+  float f=fieldRho(p,z,r);
+  float dome=pow(sat(1.0-f),1.65);
+  return (dome*0.22+rimWide(p,z,r)*0.46+rimCore(p,z,r)*0.34)*(1.0-smoothstep(1.5,16.0,sd));
+}
+vec2 fieldNormal(vec2 p,vec2 z,float r){
+  float d=1.4;
+  vec2 n=vec2(fieldRho(p+vec2(d,0.0),z,r)-fieldRho(p-vec2(d,0.0),z,r),fieldRho(p+vec2(0.0,d),z,r)-fieldRho(p-vec2(0.0,d),z,r));
+  return n/max(length(n),0.0001);
+}
+vec2 softLimit(vec2 v,float lim){float n=length(v);float m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,0.0001));}
 void main(){
-vec2 z=uRes,p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
-float r=min(uRadius,min(z.x,z.y)*.5),sd=box(p,z,r),mask=1.-smoothstep(0.,1.35,sd);
-if(mask<=.001)discard;
-float st=2.;
-float hL=bodyH(p-vec2(st,0.),z,r),hR=bodyH(p+vec2(st,0.),z,r),hU=bodyH(p-vec2(0.,st),z,r),hD=bodyH(p+vec2(0.,st),z,r),hC=bodyH(p,z,r);
-vec2 g=vec2(hR-hL,hD-hU)*.5;
-float sl=length(g);
-vec2 u=p/z;
-float er=roundedRho(p,z,r);
-float bodyPresence=sat(pow(sat(1.-er),.42)*(.38+uBody.x*.72));
-float shell=ga(er,uBand.x,uBand.y)+ga(er,uBand.x-.028,uBand.y*1.9)*.55;
-float perimeterBand=sat(shell*(.42+bodyPresence*.38+shell*.40));
-float energy=pow(sat((sl*11.+hC*.22)*max(uBand.z,1.)),max(.32,max(uBand.z,1.)*.55));
-vec2 n=normal(p,z,r);
-vec2 bodyFlow=g*(uBody.z*bodyPresence*(.35+hC*.55+energy*.35)+uBand.z*shell*(.36+energy*.70+sl*2.4));
-bodyFlow+=(vec2(.5)-u)*vec2(1.,.72)*(bodyPresence*uBody.z*.08);
-bodyFlow-=n*((uBand.z*.185+uBody.z*.105)*perimeterBand*(.72+hC*.42+bodyPresence*.25));
-float tL=thick(p-vec2(st,0.),z,r),tR=thick(p+vec2(st,0.),z,r),tU=thick(p-vec2(0.,st),z,r),tD=thick(p+vec2(0.,st),z,r);
-vec2 eg=vec2(tR-tL,tD-tU);
-float rw=rimWide(p,z,r),rc=rimCore(p,z,r),rb=rimBand(p,z,r),glen=length(eg);
-eg*=smoothstep(.0004,.012,glen)*min(1.,.22/max(glen,.0001));
-float perimeterAssist=pow(rc,1.65)*uOldA.w*.0015;
-float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.*rb+perimeterAssist;
-vec2 edgeFlow=soft(eg*pull*uMat.x,18.+rw*48.+sat(abs(uOldA.y)/600.)*16.);
-float sample=max(uOldB.x,0.);
-vec2 uv=guv(p+bodyFlow+edgeFlow);
-vec3 col=src(uv);
-vec3 near=src(guv(p-n*(8.+sample*.20+abs(uOldA.y)*.03)));
-vec3 far=src(guv(p-n*(16.+sample*.36+abs(uOldA.y)*.055)));
-vec3 outc=src(guv(p+n*(6.+sample*.12)));
-vec3 drag=near*.48+far*.34+outc*.18;
-float dragMix=sat(rb*(.10+rc*.42+sat(uOldA.z*.05)));
-col=mix(col,drag,dragMix);
-float boost=1.+rc*.16+rw*max(uMat.z,0.)*.10;
-col*=uBody.w*uMat.z*boost;
-col-=vec3(.06,.07,.09)*uOldB.z*rw;
-col=mix(col,vec3(1.,.45,0.),smoothstep(-1.6,0.,sd)*mask*uOldB.w);
-gl_FragColor=vec4(clamp(col,0.,1.),mask*uMat.y*sat(uMat.x/20.)*uIntensity);
+  vec2 z=uRes;
+  vec2 p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
+  float r=min(uRadius,min(z.x,z.y)*0.5);
+  float sd=boxSdf(p,z,r);
+  float mask=1.0-smoothstep(0.0,1.35,sd);
+  if(mask<=0.001)discard;
+  float st=2.0;
+  float hL=bodyHeight(p-vec2(st,0.0),z,r),hR=bodyHeight(p+vec2(st,0.0),z,r),hU=bodyHeight(p-vec2(0.0,st),z,r),hD=bodyHeight(p+vec2(0.0,st),z,r),hC=bodyHeight(p,z,r);
+  vec2 grad=vec2(hR-hL,hD-hU)*0.5;
+  float slope=length(grad);
+  float f=fieldRho(p,z,r);
+  float bodyPresence=sat(pow(sat(1.0-f),0.42)*(0.38+uBody.x*0.72));
+  float shell=gauss(f,uBand.x,uBand.y)+gauss(f,uBand.x-0.028,uBand.y*1.9)*0.55;
+  float perimeterBand=sat(shell*(0.42+bodyPresence*0.38+shell*0.40));
+  float energy=pow(sat((slope*11.0+hC*0.22)*max(uBand.z,1.0)),max(0.32,max(uBand.z,1.0)*0.55));
+  vec2 n=fieldNormal(p,z,r);
+  vec2 bodyFlow=grad*(uBody.z*bodyPresence*(0.35+hC*0.55+energy*0.35)+uBand.z*shell*(0.36+energy*0.70+slope*2.4));
+  bodyFlow-=n*((uBand.z*0.185+uBody.z*0.105)*perimeterBand*(0.72+hC*0.42+bodyPresence*0.25));
+  float tL=thickness(p-vec2(st,0.0),z,r),tR=thickness(p+vec2(st,0.0),z,r),tU=thickness(p-vec2(0.0,st),z,r),tD=thickness(p+vec2(0.0,st),z,r);
+  vec2 edgeGrad=vec2(tR-tL,tD-tU);
+  float rw=rimWide(p,z,r),rc=rimCore(p,z,r),rb=rimBand(p,z,r),glen=length(edgeGrad);
+  edgeGrad*=smoothstep(0.0004,0.012,glen)*min(1.0,0.22/max(glen,0.0001));
+  float perimeterAssist=pow(rc,1.65)*uOldA.w*0.0015;
+  float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.0*rb+perimeterAssist;
+  vec2 edgeFlow=softLimit(edgeGrad*pull*uMat.x,18.0+rw*48.0+sat(abs(uOldA.y)/600.0)*16.0);
+  float sampleRadius=max(uOldB.x,0.0);
+  vec2 uv=globalUv(p+bodyFlow+edgeFlow);
+  vec3 color=sampleBackdrop(uv);
+  vec3 nearColor=sampleBackdrop(globalUv(p-n*(8.0+sampleRadius*0.20+abs(uOldA.y)*0.03)));
+  vec3 farColor=sampleBackdrop(globalUv(p-n*(16.0+sampleRadius*0.36+abs(uOldA.y)*0.055)));
+  vec3 outerColor=sampleBackdrop(globalUv(p+n*(6.0+sampleRadius*0.12)));
+  vec3 drag=nearColor*0.48+farColor*0.34+outerColor*0.18;
+  color=mix(color,drag,sat(rb*(0.10+rc*0.42+sat(uOldA.z*0.05))));
+  float boost=1.0+rc*0.16+rw*max(uMat.z,0.0)*0.10;
+  color*=uBody.w*uMat.z*boost;
+  color-=vec3(0.06,0.07,0.09)*uOldB.z*rw;
+  color=mix(color,vec3(1.0,0.45,0.0),smoothstep(-1.6,0.0,sd)*mask*uOldB.w);
+  gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMat.y*sat(uMat.x/20.0)*uIntensity);
 }`;
-function sh(type,src){let x=gl.createShader(type);gl.shaderSource(x,src);gl.compileShader(x);if(!gl.getShaderParameter(x,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(x));return x}
-const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);if(!gl.getProgramParameter(pr,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(pr));
-const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-const L={a:gl.getAttribLocation(pr,'a'),uRes:gl.getUniformLocation(pr,'uRes'),uOrigin:gl.getUniformLocation(pr,'uOrigin'),uRoot:gl.getUniformLocation(pr,'uRoot'),uTex:gl.getUniformLocation(pr,'uTex'),uMat:gl.getUniformLocation(pr,'uMat'),uOldA:gl.getUniformLocation(pr,'uOldA'),uOldB:gl.getUniformLocation(pr,'uOldB'),uBody:gl.getUniformLocation(pr,'uBody'),uBand:gl.getUniformLocation(pr,'uBand'),uRadius:gl.getUniformLocation(pr,'uRadius'),uIntensity:gl.getUniformLocation(pr,'uIntensity')};
+function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader));return shader}
+const program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
+const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const L={a:gl.getAttribLocation(program,'a'),uRes:gl.getUniformLocation(program,'uRes'),uOrigin:gl.getUniformLocation(program,'uOrigin'),uRoot:gl.getUniformLocation(program,'uRoot'),uTex:gl.getUniformLocation(program,'uTex'),uMat:gl.getUniformLocation(program,'uMat'),uOldA:gl.getUniformLocation(program,'uOldA'),uOldB:gl.getUniformLocation(program,'uOldB'),uBody:gl.getUniformLocation(program,'uBody'),uBand:gl.getUniformLocation(program,'uBand'),uRadius:gl.getUniformLocation(program,'uRadius'),uIntensity:gl.getUniformLocation(program,'uIntensity')};
 const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-function rgba(r,g,b,a){return'rgba('+r+','+g+','+b+','+a+')'}
-function glow(x,y,rx,ry,c,a,ct){let g=ct.createRadialGradient(x,y,0,x,y,Math.max(rx,ry));g.addColorStop(0,c.replace('A',a));g.addColorStop(.45,c.replace('A',a*.28));g.addColorStop(1,'rgba(0,0,0,0)');ct.fillStyle=g;ct.beginPath();ct.ellipse(x,y,rx,ry,0,0,7);ct.fill()}
-function drawCover(ct,img,w,h){const iw=Math.max(img.naturalWidth||img.width||1,1),ih=Math.max(img.naturalHeight||img.height||1,1),scale=Math.max(w/iw,h/ih),dw=iw*scale,dh=ih*scale,dx=(w-dw)*.5,dy=(h-dh)*.5;ct.drawImage(img,dx,dy,dw,dh)}
-function drawBackdropTo(ct,w,h,withText){ct.clearRect(0,0,w,h);if(customBgImage){drawCover(ct,customBgImage,w,h);return}if(bgMode==='stripes'){for(let i=-w;i<w*2;i+=42){ct.fillStyle=(Math.floor(i/42)%2)?'#07142f':'#eef6ff';ct.fillRect(i,0,22,h)}return}let gr=ct.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#0a3a80');gr.addColorStop(.42,'#4fd5ff');gr.addColorStop(.72,'#173066');gr.addColorStop(1,'#d06c9e');ct.fillStyle=gr;ct.fillRect(0,0,w,h);if(bgMode==='grid'){ct.strokeStyle='rgba(255,255,255,.65)';ct.lineWidth=Math.max(1,w/1200);for(let i=0;i<w;i+=30){ct.beginPath();ct.moveTo(i,0);ct.lineTo(i,h);ct.stroke()}for(let j=0;j<h;j+=30){ct.beginPath();ct.moveTo(0,j);ct.lineTo(w,j);ct.stroke()}return}ct.globalAlpha=.55;for(let i=0;i<11;i++){ct.strokeStyle=i%2?'#fff':'#68e7ff';ct.lineWidth=3+i*.45;ct.beginPath();ct.moveTo(-80,130+i*60);ct.bezierCurveTo(260,20+i*10,520,330-i*20,1280,130+i*30);ct.stroke()}ct.globalAlpha=.25;for(let y=70;y<h;y+=160)for(let x=70;x<w;x+=140){ct.fillStyle='#fff';ct.fillRect(x,y,80,14)}ct.globalAlpha=1;if(withText||blurMoonVisible){let mr=Math.min(w,h)*.055*p.moonScale,mx=w*.73,my=h*.23;glow(mx,my,mr*2.25,mr*2.25,'rgba(255,244,218,A)',p.moonHaloAlpha,ct);ct.fillStyle=rgba(255,242,210,.92);ct.beginPath();ct.arc(mx,my,mr,0,7);ct.fill()}if(withText){ct.fillStyle='rgba(255,255,255,.22)';ct.font='900 '+Math.max(18,w*.038)+'px system-ui';ct.fillText('BACKGROUND LAYER',w*.08,h*.42)}}
-function tune(img){let d=img.data;for(let i=0;i<d.length;i+=4){let r=d[i],g=d[i+1],b=d[i+2],y=r*.2126+g*.7152+b*.0722;r=y+(r-y)*p.saturation;g=y+(g-y)*p.saturation;b=y+(b-y)*p.saturation;d[i]=Math.max(0,Math.min(255,((r-128)*p.contrast+128)*p.brightness));d[i+1]=Math.max(0,Math.min(255,((g-128)*p.contrast+128)*p.brightness));d[i+2]=Math.max(0,Math.min(255,((b-128)*p.contrast+128)*p.brightness))}return img}
-function boxBlurInt(img,rad,iters){rad=Math.max(0,Math.round(rad));iters=Math.max(1,Math.round(iters));let w=img.width,h=img.height,src=new Uint8ClampedArray(img.data);if(rad<=0)return new ImageData(src,w,h);let tmp=new Uint8ClampedArray(src.length),dst=new Uint8ClampedArray(src.length),win=rad*2+1;for(let it=0;it<iters;it++){for(let y=0;y<h;y++){let a=0,r=0,g=0,b=0,row=y*w*4;for(let k=-rad;k<=rad;k++){let o=row+Math.max(0,Math.min(w-1,k))*4;a+=src[o+3];r+=src[o];g+=src[o+1];b+=src[o+2]}for(let x=0;x<w;x++){let o=row+x*4;tmp[o]=r/win;tmp[o+1]=g/win;tmp[o+2]=b/win;tmp[o+3]=a/win;let rm=row+Math.max(0,Math.min(w-1,x-rad))*4,ad=row+Math.max(0,Math.min(w-1,x+rad+1))*4;r+=src[ad]-src[rm];g+=src[ad+1]-src[rm+1];b+=src[ad+2]-src[rm+2];a+=src[ad+3]-src[rm+3]}}for(let x=0;x<w;x++){let a=0,r=0,g=0,b=0;for(let k=-rad;k<=rad;k++){let o=(Math.max(0,Math.min(h-1,k))*w+x)*4;a+=tmp[o+3];r+=tmp[o];g+=tmp[o+1];b+=tmp[o+2]}for(let y=0;y<h;y++){let o=(y*w+x)*4;dst[o]=r/win;dst[o+1]=g/win;dst[o+2]=b/win;dst[o+3]=a/win;let rm=(Math.max(0,Math.min(h-1,y-rad))*w+x)*4,ad=(Math.max(0,Math.min(h-1,y+rad+1))*w+x)*4;r+=tmp[ad]-tmp[rm];g+=tmp[ad+1]-tmp[rm+1];b+=tmp[ad+2]-tmp[rm+2];a+=tmp[ad+3]-tmp[rm+3]}}src.set(dst)}return new ImageData(src,w,h)}
-function blend(a,b,t){let ad=a.data,bd=b.data;for(let i=0;i<ad.length;i++)ad[i]=ad[i]*(1-t)+bd[i]*t;return a}
-function blurRadius(img,rad,it){let r=Math.max(0,rad),r0=Math.floor(r),r1=Math.ceil(r),t=r-r0,a=boxBlurInt(img,r0,it);return t<=.0001?a:blend(a,boxBlurInt(img,r1,it),t)}
-function boxBlur(img,rad,iters){let it=Math.max(1,iters),i0=Math.floor(it),i1=Math.ceil(it),t=it-i0,a=blurRadius(img,rad,i0);return t<=.0001?a:blend(a,blurRadius(img,rad,i1),t)}
-function drawGlassBackdrop(){let d=Math.min(devicePixelRatio||1,2),a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect(),x=(b.left-a.left)*d,y=(b.top-a.top)*d,w=b.width*d,h=b.height*d;gb.width=Math.max(1,Math.round(w));gb.height=Math.max(1,Math.round(h));gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,x,y,w,h,0,0,gb.width,gb.height)}
-function drawBg(){let d=Math.min(devicePixelRatio||1,2),sr=stage.getBoundingClientRect(),w=Math.round(sr.width*d),h=Math.round(sr.height*d);bg.width=w;bg.height=h;drawBackdropTo(ctx,w,h,true);let sw=Math.max(128,Math.round(w*.24)),sh=Math.max(216,Math.round(h*.24));srcCanvas.width=sw;srcCanvas.height=sh;srcCtx.setTransform(1,0,0,1,0,0);srcCtx.clearRect(0,0,sw,sh);srcCtx.setTransform(sw/w,0,0,sh/h,0,0);drawBackdropTo(srcCtx,w,h,false);srcCtx.setTransform(1,0,0,1,0,0);let img=srcCtx.getImageData(0,0,sw,sh);img=boxBlur(img,p.radius,p.iterations);img=tune(img);srcCtx.putImageData(img,0,0);blurCanvas.width=w;blurCanvas.height=h;blurCtx.imageSmoothingEnabled=true;blurCtx.clearRect(0,0,w,h);blurCtx.drawImage(srcCanvas,0,0,w,h);drawGlassBackdrop();gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas)}
-function rect(){let a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return[(b.left-a.left),(b.top-a.top),b.width,b.height]}
-function resize(){let d=Math.min(devicePixelRatio||1,2),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);drawBg();render()}
-function render(){drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(pr);gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);let d=Math.min(devicePixelRatio||1,2),q=rect();gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q[0]*d,q[1]*d);gl.uniform2f(L.uRoot,bg.width,bg.height);gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,Math.max(.35,Math.min(1.35,p.glassIntensity)));gl.uniform4f(L.uMat,p.openGlVisibility,p.openGlMaxAlpha,p.edgeBrightness,p.openGlDebugLineAlpha);gl.uniform4f(L.uOldA,p.openGlPullScale*d,p.edgePullDp*d,p.openGlCompressionScale,p.openGlCornerScale);gl.uniform4f(L.uOldB,p.openGlSampleRadiusScale*d,p.ringWidthDp*d,p.openGlDarkScale,p.openGlDebugLineAlpha);gl.uniform4f(L.uBody,p.newOpenGlBodyWidth,p.newOpenGlBodyCurve,p.newOpenGlBodyGain,p.newOpenGlBrightness);gl.uniform4f(L.uBand,p.newOpenGlBodyBandPos,p.newOpenGlBodyBandWidth,p.newOpenGlBodyBandGain,0);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(L.uTex,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
-function setGeneratedBackground(mode){clearCustomBackground(false);bgMode=mode;bgStatus.textContent='当前背景：'+(mode==='flow'?'默认流线背景':mode==='stripes'?'黑白条纹':'细网格');drawBg();render()}
-function clearCustomBackground(redraw=true){if(customBgUrl){URL.revokeObjectURL(customBgUrl);customBgUrl=null}customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw){drawBg();render()}}
-function handleBackgroundUpload(event){const file=event.target.files&&event.target.files[0];if(!file)return;if(!file.type.startsWith('image/')){alert('请选择图片文件');event.target.value='';return}const nextUrl=URL.createObjectURL(file),nextImage=new Image();nextImage.onload=()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=nextUrl;customBgImage=nextImage;uploadBgBtn.textContent='更换自定义背景';clearBgBtn.disabled=false;bgStatus.textContent='当前背景：'+file.name;drawBg();render()};nextImage.onerror=()=>{URL.revokeObjectURL(nextUrl);event.target.value='';alert('图片读取失败，请换一张图片重试')};nextImage.src=nextUrl}
-function allItems(){return groups.flatMap(g=>g.items)}
-function build(){let root=document.getElementById('controls');root.innerHTML='';groups.forEach(group=>{let title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);group.items.forEach(([k,n,min,max])=>{let d=document.createElement('div');d.className='c';d.innerHTML=`<div class="h"><strong>${n}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(d);d.querySelector('input').oninput=e=>{p[k]=parseFloat(e.target.value);drawBg();update();render()}})});update()}
-function preset(name){p={...APP_RAW};if(name==='strong'){p.ringWidthDp=30;p.edgePullDp=-540;p.openGlPullScale=170;p.edgeBrightness=2.35;p.openGlDarkScale=3.8;p.openGlCompressionScale=4;p.openGlSampleRadiusScale=18}update();drawBg();render()}
-function toggleBlurMoon(){blurMoonVisible=!blurMoonVisible;moonBtn.textContent=blurMoonVisible?'隐藏模糊层月亮':'显示模糊层月亮';moonBtn.classList.toggle('on',blurMoonVisible);drawBg();render();update()}
-function fmt(v){return(Math.round(v*1000)/1000).toString()}
-function update(){allItems().forEach(([k])=>{let v=document.getElementById('v-'+k),i=document.getElementById('i-'+k);if(v)v.textContent=fmt(p[k]);if(i&&Math.abs(parseFloat(i.value)-p[k])>1e-9)i.value=p[k]});out.textContent=JSON.stringify(Object.assign({blurMoonVisible,customBackground:!!customBgImage},p),null,2)}
-bgUpload.addEventListener('change',handleBackgroundUpload);window.addEventListener('beforeunload',()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl)});window.onresize=resize;scroll.onscroll=render;build();setTimeout(()=>{resize();scroll.scrollTop=500;render()},0);
-</script>
-</body></html>
+function rgba(r,g,b,a){return`rgba(${r},${g},${b},${a})`}
+function glow(x,y,rx,ry,c,a,ct){const g=ct.createRadialGradient(x,y,0,x,y,Math.max(rx,ry));g.addColorStop(0,c.replace('A',a));g.addColorStop(.45,c.replace('A',a*.28));g.addColorStop(1,'rgba(0,0,0,0)');ct.fillStyle=g;ct.beginPath();ct.ellipse(x,y,rx,ry,0,0,Math.PI*2);ct.fill()}
+function drawCover(ct,img,w,h){const iw=Math.max(img.naturalWidth||img.width||1,1),ih=Math.max(img.naturalHeight||img.height||1,1),scale=Math.max(w/iw,h/ih),dw=iw*scale,dh=ih*scale;ct.drawImage(img,(w-dw)*.5,(h-dh)*.5,dw,dh)}
+function drawBackdropTo(ct,w,h,withText){ct.clearRect(0,0,w,h);if(customBgImage){drawCover(ct,customBgImage,w,h);return}if(bgMode==='stripes'){for(let i=-w;i<w*2;i+=42){ct.fillStyle=Math.floor(i/42)%2?'#07142f':'#eef6ff';ct.fillRect(i,0,22,h)}return}const gr=ct.createLinearGradient(0,0,0,h);gr.addColorStop(0,'#0a3a80');gr.addColorStop(.42,'#4fd5ff');gr.addColorStop(.72,'#173066');gr.addColorStop(1,'#d06c9e');ct.fillStyle=gr;ct.fillRect(0,0,w,h);if(bgMode==='grid'){ct.strokeStyle='rgba(255,255,255,.65)';ct.lineWidth=Math.max(1,w/1200);for(let x=0;x<w;x+=30){ct.beginPath();ct.moveTo(x,0);ct.lineTo(x,h);ct.stroke()}for(let y=0;y<h;y+=30){ct.beginPath();ct.moveTo(0,y);ct.lineTo(w,y);ct.stroke()}return}ct.globalAlpha=.55;for(let i=0;i<11;i++){ct.strokeStyle=i%2?'#fff':'#68e7ff';ct.lineWidth=3+i*.45;ct.beginPath();ct.moveTo(-80,130+i*60);ct.bezierCurveTo(260,20+i*10,520,330-i*20,1280,130+i*30);ct.stroke()}ct.globalAlpha=.25;for(let y=70;y<h;y+=160)for(let x=70;x<w;x+=140){ct.fillStyle='#fff';ct.fillRect(x,y,80,14)}ct.globalAlpha=1;if(withText||blurMoonVisible){const mr=Math.min(w,h)*.055*p.moonScale,mx=w*.73,my=h*.23;glow(mx,my,mr*2.25,mr*2.25,'rgba(255,244,218,A)',p.moonHaloAlpha,ct);ct.fillStyle=rgba(255,242,210,.92);ct.beginPath();ct.arc(mx,my,mr,0,Math.PI*2);ct.fill()}if(withText){ct.fillStyle='rgba(255,255,255,.22)';ct.font=`900 ${Math.max(18,w*.038)}px system-ui`;ct.fillText('BACKGROUND LAYER',w*.08,h*.42)}}
+function tune(img){const d=img.data;for(let i=0;i<d.length;i+=4){let r=d[i],g=d[i+1],b=d[i+2],y=r*.2126+g*.7152+b*.0722;r=y+(r-y)*p.saturation;g=y+(g-y)*p.saturation;b=y+(b-y)*p.saturation;d[i]=Math.max(0,Math.min(255,((r-128)*p.contrast+128)*p.brightness));d[i+1]=Math.max(0,Math.min(255,((g-128)*p.contrast+128)*p.brightness);d[i+2]=Math.max(0,Math.min(255,((b-128)*p.contrast+128)*p.brightness))}return img}
+function boxBlurInt(img,rad,iters){rad=Math.max(0,Math.round(rad));iters=Math.max(1,Math.round(iters));const w=img.width,h=img.height,src=new Uint8ClampedArray(img.data);if(rad<=0)return new ImageData(src,w,h);const tmp=new Uint8ClampedArray(src.length),dst=new Uint8ClampedArray(src.length),win=rad*2+1;for(let it=0;it<iters;it++){for(let y=0;y<h;y++){let a=0,r=0,g=0,b=0,row=y*w*4;for(let k=-rad;k<=rad;k++){const 
