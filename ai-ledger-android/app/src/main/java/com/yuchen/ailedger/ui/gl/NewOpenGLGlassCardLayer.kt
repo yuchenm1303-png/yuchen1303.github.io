@@ -75,11 +75,10 @@ fun NewOpenGLGlassCardLayer(
                     rootWidthPx,
                     rootHeightPx
                 )
-                // 保留既有按压转发契约；外壳形变、回弹与表面光效仍由 Compose 原链负责。
-                view.setPressSpec(press, pressX, pressY)
+                val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTextures(blurredBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border, density.density)
-                if (surfaceDirty || specDirty || samplingDirty || textureDirty || styleDirty) {
+                if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
             }
