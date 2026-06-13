@@ -142,9 +142,11 @@ fun NativeLedgerCenterScreen(
                     Text("账单明细", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
                     Text("共 ${filteredRecords.size} 笔符合条件", color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
-                LedgerSmallButton("导出 JSON", appState) {
-                    shareLedgerJson(context, ledgerViewModel.exportJson())
-                }
+                LedgerSmallButton(
+                    text = "导出 JSON",
+                    appState = appState,
+                    onClick = { shareLedgerJson(context, ledgerViewModel.exportJson()) }
+                )
             }
         }
         if (filteredRecords.isEmpty()) {
@@ -214,7 +216,7 @@ private fun LedgerSummaryCard(appState: AssistantUiState, state: LedgerScreenSta
             }
         }
         val progress = if (budget > 0.0) (expense / budget).toFloat().coerceIn(0f, 1f) else 0f
-        Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.08f))) {
+        Box(Modifier.fillMaxWidth(progress).height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.08f))) {
             Box(Modifier.fillMaxWidth(progress).height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.48f)))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -489,6 +491,7 @@ private fun LedgerChoiceChip(text: String, selected: Boolean, appState: Assistan
 
 @Composable
 private fun LedgerWideButton(title: String, subtitle: String, appState: AssistantUiState, enabled: Boolean, onClick: () -> Unit) {
+    val clickAction: () -> Unit = if (enabled) onClick else ({})
     PressableGlass(
         quality = appState.quality,
         glassIntensity = appState.glassIntensity,
@@ -496,7 +499,7 @@ private fun LedgerWideButton(title: String, subtitle: String, appState: Assistan
         radius = 22,
         modifier = Modifier.fillMaxWidth().height(54.dp),
         role = GlassRole.Chip,
-        onClick = if (enabled) onClick else {}
+        onClick = clickAction
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
