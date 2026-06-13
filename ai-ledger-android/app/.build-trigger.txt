@@ -1,1 +1,2 @@
-trigger: rollback-web-preview-to-13a6f01e8f4622d2881234565ebddbfa3df6c91d
+trigger: ledger-main-brain-tools-2026-06-13
+source-commit: afd84c0bb0e821643da006e49c01cdfc82479199
