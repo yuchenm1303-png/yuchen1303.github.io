@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Unified Continuous Field</title>
+<title>OpenGL V23 · Original Edge + Continuous Body</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · unified continuous perimeter field</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · original old edge + continuous body field</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -29,15 +29,65 @@ if(!gl)throw new Error('当前浏览器未启用 WebGL');
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const fs=`precision highp float;
 uniform vec2 uRes,uOrigin,uRoot;uniform sampler2D uTex;uniform vec4 uMat,uOldA,uOldB,uBody,uBand;uniform float uRadius,uIntensity;
-float sat(float x){return clamp(x,0.0,1.0);}float boxSdf(vec2 p,vec2 z,float r){vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;}
-vec2 globalUv(vec2 p){vec2 t=.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/max(uRoot,vec2(1.0)),t,1.0-t);}vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
-float fieldRho(vec2 p,vec2 z,float r){vec2 h=max(z*.5,vec2(1.0));vec2 q=abs((p-h)/h);float cr=sat(r/max(min(h.x,h.y),1.0));float n=mix(7.5,3.6,cr);return pow(pow(q.x,n)+pow(q.y,n),1.0/n);}
-float depthPx(vec2 p,vec2 z,float r){return max((1.0-fieldRho(p,z,r))*min(z.x,z.y)*.5,0.0);}float edgeW(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*.44);}
-float rimWide(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,edgeW(z),depthPx(p,z,r));}float rimCore(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,max(edgeW(z)*.28,2.0),depthPx(p,z,r));}float rimBand(vec2 p,vec2 z,float r){return pow(1.0-smoothstep(0.0,max(edgeW(z)*1.45,6.0),depthPx(p,z,r)),1.35);}
-float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float f=fieldRho(p,z,r);float b=pow(sat(1.0-f),max(uBody.y,.2));b=pow(b,max(.28,2.0-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));return (pow(sat(b),.72)+gauss(f,uBand.x,uBand.y)*1.55+gauss(f,uBand.x-.025,uBand.y*1.8)*.85)*shape;}
-float thickness(vec2 p,vec2 z,float r){float f=fieldRho(p,z,r);float dome=pow(sat(1.0-f),1.65);return (dome*.22+rimWide(p,z,r)*.46+rimCore(p,z,r)*.34)*(1.0-smoothstep(1.5,16.0,boxSdf(p,z,r)));}
-vec2 fieldNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(fieldRho(p+vec2(d,0),z,r)-fieldRho(p-vec2(d,0),z,r),fieldRho(p+vec2(0,d),z,r)-fieldRho(p-vec2(0,d),z,r));return n/max(length(n),.0001);}vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
-void main(){vec2 z=uRes,p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);float r=min(uRadius,min(z.x,z.y)*.5),sd=boxSdf(p,z,r),mask=1.0-smoothstep(0.0,1.35,sd);if(mask<=.001)discard;float st=2.0;float hL=bodyHeight(p-vec2(st,0),z,r),hR=bodyHeight(p+vec2(st,0),z,r),hU=bodyHeight(p-vec2(0,st),z,r),hD=bodyHeight(p+vec2(0,st),z,r),hC=bodyHeight(p,z,r);vec2 grad=vec2(hR-hL,hD-hU)*.5;float slope=length(grad),f=fieldRho(p,z,r),presence=sat(pow(sat(1.0-f),.42)*(.38+uBody.x*.72));float shell=gauss(f,uBand.x,uBand.y)+gauss(f,uBand.x-.028,uBand.y*1.9)*.55;float band=sat(shell*(.42+presence*.38+shell*.4));float energy=pow(sat((slope*11.0+hC*.22)*max(uBand.z,1.0)),max(.32,max(uBand.z,1.0)*.55));vec2 n=fieldNormal(p,z,r);vec2 bodyFlow=grad*(uBody.z*presence*(.35+hC*.55+energy*.35)+uBand.z*shell*(.36+energy*.7+slope*2.4));bodyFlow-=n*((uBand.z*.185+uBody.z*.105)*band*(.72+hC*.42+presence*.25));float tL=thickness(p-vec2(st,0),z,r),tR=thickness(p+vec2(st,0),z,r),tU=thickness(p-vec2(0,st),z,r),tD=thickness(p+vec2(0,st),z,r);vec2 eg=vec2(tR-tL,tD-tU);float rw=rimWide(p,z,r),rc=rimCore(p,z,r),rb=rimBand(p,z,r),glen=length(eg);eg*=smoothstep(.0004,.012,glen)*min(1.0,.22/max(glen,.0001));float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.0*rb+pow(rc,1.65)*uOldA.w*.0015;vec2 edgeFlow=softLimit(eg*pull*uMat.x,18.0+rw*48.0+sat(abs(uOldA.y)/600.0)*16.0);float sr=max(uOldB.x,0.0);vec3 color=sampleBg(globalUv(p+bodyFlow+edgeFlow));vec3 nearC=sampleBg(globalUv(p-n*(8.0+sr*.20+abs(uOldA.y)*.03)));vec3 farC=sampleBg(globalUv(p-n*(16.0+sr*.36+abs(uOldA.y)*.055)));vec3 outerC=sampleBg(globalUv(p+n*(6.0+sr*.12)));color=mix(color,nearC*.48+farC*.34+outerC*.18,sat(rb*(.10+rc*.42+sat(uOldA.z*.05))));color*=uBody.w*uMat.z*(1.0+rc*.16+rw*max(uMat.z,0.0)*.10);color-=vec3(.06,.07,.09)*uOldB.z*rw;color=mix(color,vec3(1.0,.45,0.0),smoothstep(-1.6,0.0,sd)*mask*uOldB.w);gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMat.y*sat(uMat.x/20.0)*uIntensity);}`;
+float sat(float x){return clamp(x,0.0,1.0);}
+float boxSdf(vec2 p,vec2 z,float r){vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;}
+float inside(vec2 p,vec2 z,float r){return max(-boxSdf(p,z,r),0.0);}
+vec2 globalUv(vec2 p){vec2 t=.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/max(uRoot,vec2(1.0)),t,1.0-t);}
+vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
+
+/* 新版主体：唯一连续超椭圆场，只负责主体折射。 */
+float bodyRho(vec2 p,vec2 z,float r){vec2 h=max(z*.5,vec2(1.0));vec2 q=abs((p-h)/h);float cr=sat(r/max(min(h.x,h.y),1.0));float n=mix(7.5,3.6,cr);return pow(pow(q.x,n)+pow(q.y,n),1.0/n);}
+float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
+float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float f=bodyRho(p,z,r);float b=pow(sat(1.0-f),max(uBody.y,.2));b=pow(b,max(.28,2.0-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));float shell=gauss(f,uBand.x,uBand.y);float shoulder=gauss(f,uBand.x-.025,uBand.y*1.8);return (pow(sat(b),.72)+shell*1.55+shoulder*.85)*shape;}
+vec2 bodyNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(bodyRho(p+vec2(d,0),z,r)-bodyRho(p-vec2(d,0),z,r),bodyRho(p+vec2(0,d),z,r)-bodyRho(p-vec2(0,d),z,r));return n/max(length(n),.0001);}
+
+/* 旧版边缘：完整恢复原版圆角 SDF、厚度场、法线与远距离采样。 */
+float edgeWidth(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*.44);}
+float rimWide(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,edgeWidth(z),inside(p,z,r));}
+float rimCore(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,max(edgeWidth(z)*.28,2.0),inside(p,z,r));}
+float rimBand(vec2 p,vec2 z,float r){return pow(1.0-smoothstep(0.0,max(edgeWidth(z)*1.45,6.0),inside(p,z,r)),1.35);}
+float dome(vec2 p,vec2 z){vec2 q=clamp(p/z,0.0,1.0)*2.0-1.0;q.x*=min(z.x/max(z.y,1.0),2.4)*.38;return pow(sat(1.0-length(q)*.74),1.65);}
+float thick(vec2 p,vec2 z,float r){float sd=boxSdf(p,z,r);return (dome(p,z)*.22+rimWide(p,z,r)*.46+rimCore(p,z,r)*.34)*(1.0-smoothstep(1.5,16.0,sd));}
+vec2 edgeNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(boxSdf(p+vec2(d,0),z,r)-boxSdf(p-vec2(d,0),z,r),boxSdf(p+vec2(0,d),z,r)-boxSdf(p-vec2(0,d),z,r));return n/max(length(n),.0001);}
+vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
+
+void main(){
+vec2 z=uRes,p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
+float r=min(uRadius,min(z.x,z.y)*.5),sd=boxSdf(p,z,r),mask=1.0-smoothstep(0.0,1.35,sd);
+if(mask<=.001)discard;
+float st=2.0;
+
+float hL=bodyHeight(p-vec2(st,0),z,r),hR=bodyHeight(p+vec2(st,0),z,r),hU=bodyHeight(p-vec2(0,st),z,r),hD=bodyHeight(p+vec2(0,st),z,r),hC=bodyHeight(p,z,r);
+vec2 bodyGrad=vec2(hR-hL,hD-hU)*.5;
+float bodySlope=length(bodyGrad),f=bodyRho(p,z,r),bodyPresence=sat(pow(sat(1.0-f),.42)*(.38+uBody.x*.72));
+float bodyShell=gauss(f,uBand.x,uBand.y)+gauss(f,uBand.x-.028,uBand.y*1.9)*.55;
+float bodyBand=sat(bodyShell*(.42+bodyPresence*.38+bodyShell*.40));
+float bodyEnergy=pow(sat((bodySlope*11.0+hC*.22)*max(uBand.z,1.0)),max(.32,max(uBand.z,1.0)*.55));
+vec2 bodyN=bodyNormal(p,z,r);
+vec2 bodyFlow=bodyGrad*(uBody.z*bodyPresence*(.35+hC*.55+bodyEnergy*.35)+uBand.z*bodyShell*(.36+bodyEnergy*.70+bodySlope*2.4));
+bodyFlow-=bodyN*((uBand.z*.185+uBody.z*.105)*bodyBand*(.72+hC*.42+bodyPresence*.25));
+
+float tL=thick(p-vec2(st,0),z,r),tR=thick(p+vec2(st,0),z,r),tU=thick(p-vec2(0,st),z,r),tD=thick(p+vec2(0,st),z,r);
+vec2 edgeGrad=vec2(tR-tL,tD-tU);
+float rw=rimWide(p,z,r),rc=rimCore(p,z,r),rb=rimBand(p,z,r),glen=length(edgeGrad);
+edgeGrad*=smoothstep(.0004,.012,glen)*min(1.0,.22/max(glen,.0001));
+float perimeterAssist=pow(rc,1.65)*uOldA.w*.0015;
+float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.0*rb+perimeterAssist;
+vec2 edgeFlow=softLimit(edgeGrad*pull*uMat.x,18.0+rw*48.0+sat(abs(uOldA.y)/600.0)*16.0);
+float sampleRadius=max(uOldB.x,0.0);
+vec2 edgeN=edgeNormal(p,z,r);
+vec3 color=sampleBg(globalUv(p+bodyFlow+edgeFlow));
+vec3 nearColor=sampleBg(globalUv(p-edgeN*(8.0+sampleRadius*.20+abs(uOldA.y)*.03)));
+vec3 farColor=sampleBg(globalUv(p-edgeN*(16.0+sampleRadius*.36+abs(uOldA.y)*.055)));
+vec3 outerColor=sampleBg(globalUv(p+edgeN*(6.0+sampleRadius*.12)));
+vec3 drag=nearColor*.48+farColor*.34+outerColor*.18;
+color=mix(color,drag,sat(rb*(.10+rc*.42+sat(uOldA.z*.05))));
+float boost=1.0+rc*.16+rw*max(uMat.z,0.0)*.10;
+color*=uBody.w*uMat.z*boost;
+color-=vec3(.06,.07,.09)*uOldB.z*rw;
+color=mix(color,vec3(1.0,.45,0.0),smoothstep(-1.6,0.0,sd)*mask*uOldB.w);
+gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMat.y*sat(uMat.x/20.0)*uIntensity);
+}`;
 function compile(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
 const program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
 const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
