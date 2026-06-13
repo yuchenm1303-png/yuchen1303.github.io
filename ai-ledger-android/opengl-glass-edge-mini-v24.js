@@ -8,6 +8,7 @@ const APP_RAW={
   moonScale:1,
   moonHaloAlpha:.18,
   moonRimAlpha:.42,
+
   bodyVisibility:20,
   bodyMaxAlpha:1,
   bodyOutputBrightness:1.81152073732719,
@@ -23,7 +24,19 @@ const APP_RAW={
   bodyLowFrequencyCurve:.2,
   bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,
-  glassIntensity:1.35
+  glassIntensity:1.35,
+
+  legacyVisibility:20,
+  legacyMaxAlpha:1,
+  legacyEdgeBrightness:1.03,
+  legacyPullScale:83.21,
+  legacyEdgePullDp:-205.94,
+  legacyCompressionScale:-10,
+  legacyCornerScale:0,
+  legacySampleRadiusScale:0,
+  legacyEdgeWidthDp:10,
+  legacyDarkScale:-1.63,
+  legacyDebugLineAlpha:0
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
 const groups=[
@@ -53,6 +66,19 @@ const groups=[
     ['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],
     ['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],
     ['bodyLowFrequencyGain','内部运输强度',0,900]
+  ]},
+  {title:'9a6e4ac 原版边缘折射带 Legacy Edge Refraction',items:[
+    ['legacyVisibility','旧边缘可见强度',0,20],
+    ['legacyMaxAlpha','旧边缘最大透明',0,1],
+    ['legacyEdgeBrightness','旧边缘亮度',-5,5],
+    ['legacyPullScale','旧边缘基础拉力',-300,300],
+    ['legacyEdgePullDp','旧边缘拉力 dp',-600,600],
+    ['legacyCompressionScale','旧边缘拖影强度',-10,10],
+    ['legacyCornerScale','旧边缘梯度增益',0,200],
+    ['legacySampleRadiusScale','旧边缘柔化半径',0,200],
+    ['legacyEdgeWidthDp','旧边缘宽度',0,300],
+    ['legacyDarkScale','旧边缘暗部强度',-10,10],
+    ['legacyDebugLineAlpha','旧边缘调试线',0,1]
   ]}
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
@@ -69,16 +95,21 @@ const L={
   uRes:gl.getUniformLocation(program,'uRes'),
   uOrigin:gl.getUniformLocation(program,'uOrigin'),
   uRoot:gl.getUniformLocation(program,'uRoot'),
-  uTex:gl.getUniformLocation(program,'uTex'),
+  uBlurTexture:gl.getUniformLocation(program,'uBlurTexture'),
+  uLensTexture:gl.getUniformLocation(program,'uLensTexture'),
   uMat:gl.getUniformLocation(program,'uMat'),
   uBodyLensA:gl.getUniformLocation(program,'uBodyLensA'),
   uBodyLensB:gl.getUniformLocation(program,'uBodyLensB'),
   uBody:gl.getUniformLocation(program,'uBody'),
+  uLegacyMaterial:gl.getUniformLocation(program,'uLegacyMaterial'),
+  uLegacyRefraction:gl.getUniformLocation(program,'uLegacyRefraction'),
+  uLegacyOptics:gl.getUniformLocation(program,'uLegacyOptics'),
   uRadius:gl.getUniformLocation(program,'uRadius'),
-  uIntensity:gl.getUniformLocation(program,'uIntensity')
+  uIntensity:gl.getUniformLocation(program,'uIntensity'),
+  uTextureReady:gl.getUniformLocation(program,'uTextureReady')
 };
 function initTexture(texture){gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE)}
-const tex=gl.createTexture();initTexture(tex);
+const blurTex=gl.createTexture(),lensTex=gl.createTexture();initTexture(blurTex);initTexture(lensTex);
 function drawCover(c,img,w,h){const iw=Math.max(img.naturalWidth||img.width||1,1),ih=Math.max(img.naturalHeight||img.height||1,1),s=Math.max(w/iw,h/ih),dw=iw*s,dh=ih*s;c.drawImage(img,(w-dw)/2,(h-dh)/2,dw,dh)}
 function drawBackdrop(c,w,h,withText){
   c.save();c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,w,h);
@@ -103,7 +134,12 @@ function drawBackdrop(c,w,h,withText){
 function stageDpr(){return Math.min(window.devicePixelRatio||1,2)}
 function glassRect(){const a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return{x:b.left-a.left,y:b.top-a.top,w:b.width,h:b.height}}
 function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;gb.width=Math.max(1,Math.round(sw));gb.height=Math.max(1,Math.round(sh));gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
-function rebuildBackdrop(){const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);blurCtx.save();blurCtx.clearRect(0,0,w,h);const blurPx=Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55));blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;blurCtx.drawImage(sourceCanvas,0,0);blurCtx.restore();drawGlassBackdrop();gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas)}
+function uploadBackdropTextures(){
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,lensTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sourceCanvas);
+  gl.activeTexture(gl.TEXTURE0)
+}
+function rebuildBackdrop(){const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);blurCtx.save();blurCtx.clearRect(0,0,w,h);const blurPx=Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55));blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;blurCtx.drawImage(sourceCanvas,0,0);blurCtx.restore();drawGlassBackdrop();uploadBackdropTextures()}
 function render(){
   drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);
   const d=stageDpr(),q=glassRect();
@@ -112,23 +148,29 @@ function render(){
   gl.uniform2f(L.uRoot,bg.width,bg.height);
   gl.uniform1f(L.uRadius,46*d);
   gl.uniform1f(L.uIntensity,p.glassIntensity);
+  gl.uniform1f(L.uTextureReady,1);
   gl.uniform4f(L.uMat,p.bodyVisibility,p.bodyMaxAlpha,p.bodyOutputBrightness,0);
   gl.uniform4f(L.uBodyLensA,p.bodyLensBasePull*d,p.bodyLensPullDp*d,p.bodyLensConcentration,p.bodyLensCornerBoost);
   gl.uniform4f(L.uBodyLensB,p.bodyLensExtraDistance*d,p.bodyLensReachDp*d,p.bodyLensDark,p.bodyLensDebug);
   gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
-  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(L.uTex,0);
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
+  gl.uniform4f(L.uLegacyMaterial,p.legacyVisibility,p.legacyMaxAlpha,p.legacyEdgeBrightness,0);
+  gl.uniform4f(L.uLegacyRefraction,p.legacyPullScale*d,p.legacyEdgePullDp*d,p.legacyCompressionScale,p.legacyCornerScale);
+  gl.uniform4f(L.uLegacyOptics,p.legacySampleRadiusScale*d,p.legacyEdgeWidthDp*d,p.legacyDebugLineAlpha,p.legacyDarkScale);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,lensTex);gl.uniform1i(L.uLensTexture,1);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.activeTexture(gl.TEXTURE0)
 }
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);rebuildBackdrop();render()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});out.textContent=JSON.stringify({mode:'v25BodyRefractionOnly',legacyEdgeAttached:false,visualBaseline:'13a6f01e8f4622d2881234565ebddbfa3df6c91d',...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});out.textContent=JSON.stringify({mode:'v25UnifiedBodyWithLegacy9a6e4acEdge',legacyEdgeAttached:true,legacySourceCommit:'9a6e4ac7605da3859ff9accd4a33fe0bab7a9ddc',...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);$('i-'+k).addEventListener('input',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))rebuildBackdrop();updateUi();render()})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw){rebuildBackdrop();render()}}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());
 clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
 bgUpload.addEventListener('change',e=>{const file=e.target.files&&e.target.files[0];if(!file)return;const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=url;customBgImage=img;uploadBgBtn.textContent='更换自定义背景';clearBgBtn.disabled=false;bgStatus.textContent='当前背景：'+file.name;rebuildBackdrop();render()};img.onerror=()=>{URL.revokeObjectURL(url);alert('图片读取失败')};img.src=url});
 document.querySelectorAll('[data-bg]').forEach(btn=>btn.addEventListener('click',()=>{clearCustomBackground(false);bgMode=btn.dataset.bg;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');rebuildBackdrop();render()}));
-document.querySelectorAll('[data-preset]').forEach(btn=>btn.addEventListener('click',()=>{p={...APP_RAW};if(btn.dataset.preset==='strong')Object.assign(p,{bodyLensReachDp:92,bodyLensPullDp:-600,bodyLensBasePull:300,bodyOutputBrightness:1.75,bodyLensDark:2.2,bodyLensConcentration:9.4,bodyLensCornerBoost:200,bodyLensExtraDistance:180,bodyLowFrequencyWidth:1.3,bodyLowFrequencyCurve:3.1,bodyLowFrequencyGain:900,bodyBrightness:1.12,glassIntensity:1.35});updateUi();rebuildBackdrop();render()}));
+document.querySelectorAll('[data-preset]').forEach(btn=>btn.addEventListener('click',()=>{p={...APP_RAW};if(btn.dataset.preset==='strong')Object.assign(p,{bodyLensReachDp:180,bodyLensPullDp:600,bodyLensBasePull:300,bodyOutputBrightness:1.9,bodyLensDark:.4,bodyLensConcentration:10,bodyLensCornerBoost:0,bodyLensExtraDistance:200,legacyEdgeWidthDp:18,legacyEdgePullDp:-300,legacyPullScale:120,legacyEdgeBrightness:1.15});updateUi();rebuildBackdrop();render()}));
 moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.textContent=blurMoonVisible?'隐藏模糊层月亮':'显示模糊层月亮';moonBtn.classList.toggle('on',blurMoonVisible);rebuildBackdrop();render()});
 window.addEventListener('resize',resize);
 scroll.addEventListener('scroll',render,{passive:true});
