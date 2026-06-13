@@ -52,9 +52,9 @@ internal object WebOpenGLGlassShaderPrelude {
             vec3 realColor=texture2D(uClearTexture,safeUv).rgb;
             return mix(fallbackBackdrop(safeUv),realColor,sat(uTextureReady));
         }
-        vec3 blurPyramidBackdrop(vec2 uv){
+        vec3 blurPyramidBackdropAt(vec2 uv,float requestedAmount){
             vec2 safeUv=clamp(uv,0.0,1.0);
-            float amount=clamp(uBlurAmount,0.0,4.0);
+            float amount=clamp(requestedAmount,0.0,4.0);
             vec3 result;
             if(amount<=0.001){
                 result=texture2D(uClearTexture,safeUv).rgb;
@@ -72,6 +72,9 @@ internal object WebOpenGLGlassShaderPrelude {
                 result=mix(mediumColor,highColor,(amount-2.0)*0.5);
             }
             return mix(fallbackBackdrop(safeUv),result,sat(uTextureReady));
+        }
+        vec3 blurPyramidBackdrop(vec2 uv){
+            return blurPyramidBackdropAt(uv,uBlurAmount);
         }
         vec2 softLimit(vec2 v,float lim){
             float n=length(v);
