@@ -35,11 +35,10 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * A single shared backdrop texture set for all glass.
+ * 全部玻璃共用的一套背景纹理。
  *
- * `image` is the real background blur layer. `lensImage` intentionally points to the same blurred
- * image, so OpenGL glass refracts the already-blurred background instead of pulling in a second clear
- * background layer.
+ * `image` 对应网页版 blurCanvas；`lensImage` 对应网页版 sourceCanvas。
+ * 两张纹理由同一个背景源一次生成，避免重复背景层，同时完整保留 V25.3 的双纹理光学链。
  */
 data class BlurredBackdropBitmap(
     val image: ImageBitmap,
@@ -122,7 +121,7 @@ private object BackdropTextureWarmup {
 
 private fun BackdropDebugParams.cacheKey(): String = buildString {
     append(scale.round2()).append('|')
-    append(radius.roundToInt()).append('|')
+    append(radius.round2()).append('|')
     append(iterations.roundToInt()).append('|')
     append(brightness.round2()).append('|')
     append(contrast.round2()).append('|')
@@ -139,7 +138,7 @@ private fun BackdropDebugParams.cacheKey(): String = buildString {
 
 private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
     scale = scale.round2(),
-    radius = radius.roundToInt().toFloat(),
+    radius = radius.round2(),
     iterations = iterations.roundToInt().toFloat(),
     brightness = brightness.round2(),
     contrast = contrast.round2(),
@@ -179,8 +178,10 @@ private fun buildBlurredBackdropBitmap(
         else drawAndroidBackdropSource(source, theme, params)
     }
 
+    // 网页 lensTexture 直接读取未模糊 sourceCanvas；必须在模糊与色调处理前保留副本。
+    val lensBitmap = source.copy(Bitmap.Config.ARGB_8888, false)
     val blurRadius = params.radius.roundToInt().coerceIn(0, 128)
-    val blurIterations = params.iterations.roundToInt().coerceIn(1, 8)
+    val blurIterations = params.iterations.roundToInt().coerceIn(1, 12)
     val blurred = boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
     val tuned = tuneBitmapTone(
         input = blurred,
@@ -191,13 +192,12 @@ private fun buildBlurredBackdropBitmap(
     if (blurred !== source && !blurred.isRecycled) blurred.recycle()
     if (!source.isRecycled) source.recycle()
 
-    val image = tuned.asImageBitmap()
     return BlurredBackdropBitmap(
-        image = image,
+        image = tuned.asImageBitmap(),
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
         scale = effectiveScale,
-        lensImage = image
+        lensImage = lensBitmap.asImageBitmap()
     )
 }
 
