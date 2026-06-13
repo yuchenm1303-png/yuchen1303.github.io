@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Dual Field Ring + Infinity</title>
+<title>OpenGL V23 · Movable Finite Body Shell</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · strong annular ring + isolated infinity flow</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · movable finite body shell + original old edge</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -28,20 +28,16 @@ const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
 if(!gl)throw new Error('当前浏览器未启用 WebGL');
 const vs='attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}';
 const fs=`precision highp float;
-uniform vec2 uRes,uOrigin,uRoot;
-uniform sampler2D uTex,uFlow;
-uniform vec4 uMat,uOldA,uOldB,uBody,uBand;
-uniform float uRadius,uIntensity,uFlowDepth;
+uniform vec2 uRes,uOrigin,uRoot;uniform sampler2D uTex;uniform vec4 uMat,uOldA,uOldB,uBody,uBand;uniform float uRadius,uIntensity;
 float sat(float x){return clamp(x,0.0,1.0);}
 float boxSdf(vec2 p,vec2 z,float r){vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;}
 float insideFromSdf(float sdf){return max(-sdf,0.0);}
 vec2 globalUv(vec2 p){vec2 t=.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/max(uRoot,vec2(1.0)),t,1.0-t);}
 vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
 float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
-vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
 
-/* 中心无穷场保留原超椭圆汇聚感，但通过中心遮罩与外圈完全隔离。 */
-vec4 infinityMetric(vec2 p,vec2 z,float r){
+/* 主体使用连续圆角矩形近似场，只在有限深度内生效，因此可向内移动但不会触及中心汇聚。 */
+vec4 bodyMetric(vec2 p,vec2 z,float r){
   vec2 h=max(z*.5,vec2(1.0));
   vec2 u=(p-h)/h;
   vec2 a=abs(u);
@@ -56,43 +52,38 @@ vec4 infinityMetric(vec2 p,vec2 z,float r){
   float sdf=(rho-1.0)/glen;
   return vec4(sdf,max(-sdf,0.0),grad/glen);
 }
-float infinityCenterDepth(vec2 z){
+float bodyCoreReachPx(vec2 z){
   float halfMin=min(z.x,z.y)*.5;
-  return halfMin*mix(.38,.72,sat(uBody.x/1.5));
+  return clamp(uBody.x*halfMin,2.0,halfMin*.48);
 }
-float infinityWidthPx(vec2 z){
+float bodySafeDepthPx(vec2 z,float r){
   float halfMin=min(z.x,z.y)*.5;
-  float curve=sat((uBody.y-.2)/3.0);
-  return halfMin*mix(.16,.38,curve);
+  return min(halfMin*.82,max(r*1.85,halfMin*.58));
 }
-float infinityProfile(float depth,vec2 z){
-  float center=infinityCenterDepth(z);
-  float width=max(infinityWidthPx(z),1.0);
-  return gauss(depth,center,width)+gauss(depth,center+width*.58,width*1.7)*.82;
+float bodyBandWidthPx(vec2 z,float safeDepth){
+  float raw=max(uBand.y*min(z.x,z.y)*.18,1.0);
+  return min(raw,max(safeDepth*.45,1.0));
 }
-float infinityMask(vec2 p,vec2 z,float ringSafe){
-  vec2 q=abs((p-z*.5)/max(z*.5,vec2(1.0)));
-  float xMask=1.0-smoothstep(.48,.94,q.x);
-  float yMask=1.0-smoothstep(.30,.84,q.y);
-  float ringSeparation=1.0-smoothstep(.18,.72,ringSafe);
-  return sat(xMask*yMask*ringSeparation);
-}
-
-/* 外圈主体折射只读取预计算环形坐标场，上下边保持水平，左右边保持垂直。 */
-float ringBandWidthPx(vec2 z){return max(uBand.y*min(z.x,z.y)*.18,1.0);}
-float ringBandCenterPx(vec2 z,float width){
+float bodyBandCenterPx(vec2 z,float safeDepth,float width){
   float halfMin=min(z.x,z.y)*.5;
   float raw=(1.0-uBand.x)*halfMin;
-  return clamp(raw,0.0,max(uFlowDepth-width*1.20,0.0));
+  return clamp(raw,0.0,max(safeDepth-width*.85,0.0));
 }
-float ringShell(float depth,vec2 z){
-  float width=ringBandWidthPx(z);
-  float center=ringBandCenterPx(z,width);
-  return gauss(depth,center,width)+gauss(depth,center+width*.42,width*1.75)*.78;
+float bodySafeGate(float depth,float safeDepth){
+  return 1.0-smoothstep(safeDepth*.84,safeDepth,depth);
 }
-float ringSafeLimit(vec2 z,float ringSafe){
-  float width=ringBandWidthPx(z);
-  return max(3.0,min(width*3.40,uFlowDepth*.36))*pow(sat(ringSafe),.68);
+float bodyShellFromDepth(float depth,vec2 z,float safeDepth){
+  float width=bodyBandWidthPx(z,safeDepth);
+  float center=bodyBandCenterPx(z,safeDepth,width);
+  float shell=gauss(depth,center,width)+gauss(depth,center+width*.42,width*1.8)*.85;
+  return shell*bodySafeGate(depth,safeDepth);
+}
+float bodyHeightFromDepth(float depth,vec2 z,float coreReach,float safeDepth){
+  float coreGate=1.0-smoothstep(coreReach*.76,coreReach,depth);
+  float core=pow(sat(1.0-depth/coreReach),max(uBody.y,.2));
+  core=pow(core,max(.28,2.0-uBody.y*.55));
+  core*=mix(.72,1.9,sat(uBody.x))*coreGate;
+  return pow(sat(core),.72)+bodyShellFromDepth(depth,z,safeDepth)*1.55;
 }
 vec2 roundedSdfNormal(vec2 p,vec2 z,float r){
   float d=1.4;
@@ -110,6 +101,7 @@ float rimCoreFromDepth(float depth,vec2 z){return 1.0-smoothstep(0.0,max(edgeWid
 float rimBandFromDepth(float depth,vec2 z){return pow(1.0-smoothstep(0.0,max(edgeWidth(z)*1.45,6.0),depth),1.35);}
 float dome(vec2 p,vec2 z){vec2 q=clamp(p/z,0.0,1.0)*2.0-1.0;q.x*=min(z.x/max(z.y,1.0),2.4)*.38;return pow(sat(1.0-length(q)*.74),1.65);}
 float thickFromSdf(vec2 p,vec2 z,float sdf){float depth=insideFromSdf(sdf);return (dome(p,z)*.22+rimWideFromDepth(depth,z)*.46+rimCoreFromDepth(depth,z)*.34)*(1.0-smoothstep(1.5,16.0,sdf));}
+vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
 
 void main(){
 vec2 z=uRes,p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
@@ -118,44 +110,32 @@ if(mask<=.001)discard;
 float st=2.0;
 float edgeDepth=insideFromSdf(sd);
 
-/* 第一场：贴合玻璃轮廓的强环形折射带。 */
-vec4 ringData=texture2D(uFlow,clamp(p/max(z,vec2(1.0)),0.0,1.0));
-float ringSafe=ringData.a;
-vec2 ringFlow=vec2(0.0);
-if(ringSafe>0.001){
-  float ringDepth=ringData.r*uFlowDepth;
-  vec2 ringN=ringData.gb*2.0-1.0;
-  ringN/=max(length(ringN),.0001);
-  float width=ringBandWidthPx(z);
-  float shell=ringShell(ringDepth,z);
-  float shellIn=ringShell(min(ringDepth+1.0,uFlowDepth),z);
-  float shellOut=ringShell(max(ringDepth-1.0,0.0),z);
-  float slope=(shellIn-shellOut)*.5;
-  float strength=uBand.z*.90+uBody.z*.012;
-  ringFlow=-ringN*(slope*width*strength+shell*(uBand.z*.65+uBody.z*.009))*ringSafe;
-  ringFlow=softLimit(ringFlow,ringSafeLimit(z,ringSafe));
+/* 新版主体：折射带位置与主体宽度解耦，可继续向内移动。 */
+vec2 bodyFlow=vec2(0.0);
+vec4 metric=bodyMetric(p,z,r);
+float bodyDepth=metric.y;
+float coreReach=bodyCoreReachPx(z);
+float safeDepth=bodySafeDepthPx(z,r);
+float activeGate=bodySafeGate(bodyDepth,safeDepth);
+if(activeGate>0.0001){
+  vec2 bodyN=metric.zw;
+  float bodyShell=bodyShellFromDepth(bodyDepth,z,safeDepth);
+  float hC=bodyHeightFromDepth(bodyDepth,z,coreReach,safeDepth);
+  float eps=1.0;
+  float hIn=bodyHeightFromDepth(bodyDepth+eps,z,coreReach,safeDepth);
+  float hOut=bodyHeightFromDepth(max(bodyDepth-eps,0.0),z,coreReach,safeDepth);
+  float bodyDh=(hIn-hOut)/(2.0*eps);
+  vec2 bodyGrad=-bodyN*bodyDh;
+  float bodySlope=abs(bodyDh);
+  float corePresence=sat(pow(sat(1.0-bodyDepth/coreReach),.42)*(.38+uBody.x*.72));
+  float bodyBand=sat(bodyShell*(.42+corePresence*.38+bodyShell*.40));
+  float bodyEnergy=pow(sat((bodySlope*11.0+hC*.22)*max(uBand.z,1.0)),max(.32,max(uBand.z,1.0)*.55));
+  bodyFlow=bodyGrad*(uBody.z*corePresence*(.35+hC*.55+bodyEnergy*.35)+uBand.z*bodyShell*(.36+bodyEnergy*.70+bodySlope*2.4));
+  bodyFlow-=bodyN*((uBand.z*.185+uBody.z*.105)*bodyBand*(.72+hC*.42+corePresence*.25));
+  bodyFlow*=activeGate;
 }
 
-/* 第二场：只存在于中心的强无穷汇聚，不再决定外圈形状。 */
-vec4 infinityData=infinityMetric(p,z,r);
-float centerMask=infinityMask(p,z,ringSafe);
-vec2 infinityFlow=vec2(0.0);
-if(centerMask>0.0001){
-  float depth=infinityData.y;
-  float hC=infinityProfile(depth,z);
-  float hIn=infinityProfile(depth+1.0,z);
-  float hOut=infinityProfile(max(depth-1.0,0.0),z);
-  float dh=(hIn-hOut)*.5;
-  float energy=.75+hC*1.40+abs(dh)*5.20;
-  infinityFlow=-infinityData.zw*(dh*uBody.z*energy+hC*(uBody.z*.055+uBand.z*.60));
-  float centerLimit=mix(20.0,64.0,sat(uBody.x/1.5));
-  infinityFlow=softLimit(infinityFlow,centerLimit)*centerMask;
-}
-
-/* 两场只在最终位移层相加，不混合深度和法线。 */
-vec2 bodyFlow=ringFlow+infinityFlow;
-
-/* 原版旧边缘：继续使用真实圆角矩形 SDF，不与主体双场共用。 */
+/* 原版旧边缘：继续使用真实圆角矩形 SDF，不与主体方向场共用。 */
 float edgeSdfL=boxSdf(p-vec2(st,0.0),z,r),edgeSdfR=boxSdf(p+vec2(st,0.0),z,r);
 float edgeSdfU=boxSdf(p-vec2(0.0,st),z,r),edgeSdfD=boxSdf(p+vec2(0.0,st),z,r);
 float tL=thickFromSdf(p-vec2(st,0.0),z,edgeSdfL),tR=thickFromSdf(p+vec2(st,0.0),z,edgeSdfR);
@@ -185,74 +165,18 @@ gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMat.y*sat(uMat.x/20.0)*uIntensity);
 function compile(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
 const program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
 const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-const L={a:gl.getAttribLocation(program,'a'),uRes:gl.getUniformLocation(program,'uRes'),uOrigin:gl.getUniformLocation(program,'uOrigin'),uRoot:gl.getUniformLocation(program,'uRoot'),uTex:gl.getUniformLocation(program,'uTex'),uFlow:gl.getUniformLocation(program,'uFlow'),uMat:gl.getUniformLocation(program,'uMat'),uOldA:gl.getUniformLocation(program,'uOldA'),uOldB:gl.getUniformLocation(program,'uOldB'),uBody:gl.getUniformLocation(program,'uBody'),uBand:gl.getUniformLocation(program,'uBand'),uRadius:gl.getUniformLocation(program,'uRadius'),uIntensity:gl.getUniformLocation(program,'uIntensity'),uFlowDepth:gl.getUniformLocation(program,'uFlowDepth')};
-function initTexture(texture){gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE)}
-const tex=gl.createTexture(),flowTex=gl.createTexture();initTexture(tex);initTexture(flowTex);
-let flowDepthPx=1;
-function clamp01(v){return Math.max(0,Math.min(1,v))}
-function smoothstepJs(a,b,x){const t=clamp01((x-a)/Math.max(b-a,1e-6));return t*t*(3-2*t)}
-function roundedRectSdfJs(x,y,w,h,r){const rr=Math.max(0,Math.min(r,Math.min(w,h)*.5));const qx=Math.abs(x-w*.5)-Math.max(w*.5-rr,0);const qy=Math.abs(y-h*.5)-Math.max(h*.5-rr,0);return Math.hypot(Math.max(qx,0),Math.max(qy,0))+Math.min(Math.max(qx,qy),0)-rr}
-function rebuildFlowTexture(){
-  const fullW=Math.max(cv.width,1),fullH=Math.max(cv.height,1),aspect=fullW/fullH;
-  const fw=Math.max(256,Math.min(448,Math.round(fullW/3.5)));
-  const fh=Math.max(64,Math.min(160,Math.round(fw/Math.max(aspect,.25))));
-  const sx=fullW/fw,sy=fullH/fh,cell=Math.max(sx,sy);
-  const outerR=Math.min(46*stageDpr(),fullH*.5);
-  flowDepthPx=Math.min(fullH*.44,Math.max(outerR*1.7,fullH*.32));
-  const innerW=Math.max(fullW-2*flowDepthPx,fullW*.12),innerH=Math.max(fullH-2*flowDepthPx,fullH*.16);
-  const innerR=Math.min(Math.max(outerR-flowDepthPx*.45,4),Math.min(innerW,innerH)*.45);
-  const count=fw*fh,fieldA=new Float32Array(count),fieldB=new Float32Array(count),fixed=new Uint8Array(count),ring=new Uint8Array(count);
-  const boundary=cell*1.35;
-  for(let y=0;y<fh;y++)for(let x=0;x<fw;x++){
-    const i=y*fw+x,px=(x+.5)*sx,py=(y+.5)*sy;
-    const outer=roundedRectSdfJs(px,py,fullW,fullH,outerR);
-    const inner=roundedRectSdfJs(px-flowDepthPx,py-flowDepthPx,innerW,innerH,innerR);
-    if(outer>0){fixed[i]=1;fieldA[i]=fieldB[i]=0;continue}
-    if(inner<=0){fixed[i]=1;fieldA[i]=fieldB[i]=1;continue}
-    ring[i]=1;
-    const outerDepth=Math.max(-outer,0),innerDistance=Math.max(inner,0),estimate=outerDepth/Math.max(outerDepth+innerDistance,1e-5);
-    fieldA[i]=fieldB[i]=clamp01(estimate);
-    if(outerDepth<=boundary){fixed[i]=1;fieldA[i]=fieldB[i]=0}
-    else if(innerDistance<=boundary){fixed[i]=1;fieldA[i]=fieldB[i]=1}
-  }
-  let current=fieldA,next=fieldB;
-  const diagonal=.70710678;
-  for(let iter=0;iter<180;iter++){
-    for(let y=1;y<fh-1;y++)for(let x=1;x<fw-1;x++){
-      const i=y*fw+x;if(fixed[i])continue;
-      const card=current[i-1]+current[i+1]+current[i-fw]+current[i+fw];
-      const diag=current[i-fw-1]+current[i-fw+1]+current[i+fw-1]+current[i+fw+1];
-      next[i]=(card+diagonal*diag)/(4+4*diagonal);
-    }
-    const swap=current;current=next;next=swap;
-  }
-  const pixels=new Uint8Array(count*4);
-  for(let y=0;y<fh;y++)for(let x=0;x<fw;x++){
-    const i=y*fw+x,o=i*4,t=clamp01(current[i]);
-    let nx=0,ny=0,safe=0;
-    if(ring[i]&&x>0&&x<fw-1&&y>0&&y<fh-1){
-      const gx=(current[i+1]-current[i-1])/(2*sx),gy=(current[i+fw]-current[i-fw])/(2*sy),g=Math.hypot(gx,gy);
-      if(g>1e-6){nx=-gx/g;ny=-gy/g}
-      else{
-        const e=Math.max(1,cell*.5),dx=roundedRectSdfJs((x+.5)*sx+e,(y+.5)*sy,fullW,fullH,outerR)-roundedRectSdfJs((x+.5)*sx-e,(y+.5)*sy,fullW,fullH,outerR),dy=roundedRectSdfJs((x+.5)*sx,(y+.5)*sy+e,fullW,fullH,outerR)-roundedRectSdfJs((x+.5)*sx,(y+.5)*sy-e,fullW,fullH,outerR),d=Math.hypot(dx,dy)||1;nx=dx/d;ny=dy/d
-      }
-      const innerFade=1-smoothstepJs(.78,.995,t),quality=clamp01(g*flowDepthPx*.9);
-      safe=innerFade*(.55+.45*quality);
-    }
-    pixels[o]=Math.round(t*255);pixels[o+1]=Math.round((nx*.5+.5)*255);pixels[o+2]=Math.round((ny*.5+.5)*255);pixels[o+3]=Math.round(clamp01(safe)*255);
-  }
-  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,flowTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,fw,fh,0,gl.RGBA,gl.UNSIGNED_BYTE,pixels);gl.activeTexture(gl.TEXTURE0);
-}
+const L={a:gl.getAttribLocation(program,'a'),uRes:gl.getUniformLocation(program,'uRes'),uOrigin:gl.getUniformLocation(program,'uOrigin'),uRoot:gl.getUniformLocation(program,'uRoot'),uTex:gl.getUniformLocation(program,'uTex'),uMat:gl.getUniformLocation(program,'uMat'),uOldA:gl.getUniformLocation(program,'uOldA'),uOldB:gl.getUniformLocation(program,'uOldB'),uBody:gl.getUniformLocation(program,'uBody'),uBand:gl.getUniformLocation(program,'uBand'),uRadius:gl.getUniformLocation(program,'uRadius'),uIntensity:gl.getUniformLocation(program,'uIntensity')};
+const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
 function drawCover(c,img,w,h){const iw=Math.max(img.naturalWidth||img.width||1,1),ih=Math.max(img.naturalHeight||img.height||1,1),s=Math.max(w/iw,h/ih),dw=iw*s,dh=ih*s;c.drawImage(img,(w-dw)/2,(h-dh)/2,dw,dh)}
 function drawBackdrop(c,w,h,withText){c.save();c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,w,h);if(customBgImage){drawCover(c,customBgImage,w,h);c.restore();return}if(bgMode==='stripes'){for(let x=-w;x<w*2;x+=42){c.fillStyle=Math.floor(x/42)%2?'#07142f':'#eef6ff';c.fillRect(x,0,22,h)}c.restore();return}const g=c.createLinearGradient(0,0,0,h);g.addColorStop(0,'#0a3a80');g.addColorStop(.42,'#4fd5ff');g.addColorStop(.72,'#173066');g.addColorStop(1,'#d06c9e');c.fillStyle=g;c.fillRect(0,0,w,h);if(bgMode==='grid'){c.strokeStyle='rgba(255,255,255,.65)';c.lineWidth=Math.max(1,w/1200);for(let x=0;x<w;x+=30){c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke()}for(let y=0;y<h;y+=30){c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke()}c.restore();return}c.globalAlpha=.55;for(let i=0;i<11;i++){c.strokeStyle=i%2?'#fff':'#68e7ff';c.lineWidth=3+i*.45;c.beginPath();c.moveTo(-80,130+i*60);c.bezierCurveTo(260,20+i*10,520,330-i*20,1280,130+i*30);c.stroke()}c.globalAlpha=.25;for(let y=70;y<h;y+=160)for(let x=70;x<w;x+=140){c.fillStyle='#fff';c.fillRect(x,y,80,14)}c.globalAlpha=1;if(withText||blurMoonVisible){const r=Math.min(w,h)*.055*p.moonScale,mx=w*.73,my=h*.23,halo=c.createRadialGradient(mx,my,0,mx,my,r*2.25);halo.addColorStop(0,`rgba(255,244,218,${p.moonHaloAlpha})`);halo.addColorStop(1,'rgba(255,244,218,0)');c.fillStyle=halo;c.beginPath();c.arc(mx,my,r*2.25,0,Math.PI*2);c.fill();c.fillStyle='rgba(255,242,210,.92)';c.beginPath();c.arc(mx,my,r,0,Math.PI*2);c.fill()}if(withText){c.fillStyle='rgba(255,255,255,.22)';c.font=`900 ${Math.max(18,w*.038)}px system-ui`;c.fillText('BACKGROUND LAYER',w*.08,h*.42)}c.restore()}
 function stageDpr(){return Math.min(window.devicePixelRatio||1,2)}
 function glassRect(){const a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return{x:b.left-a.left,y:b.top-a.top,w:b.width,h:b.height}}
 function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;gb.width=Math.max(1,Math.round(sw));gb.height=Math.max(1,Math.round(sh));gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
-function rebuildBackdrop(){const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);blurCtx.save();blurCtx.clearRect(0,0,w,h);const blurPx=Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55));blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;blurCtx.drawImage(sourceCanvas,0,0);blurCtx.restore();drawGlassBackdrop();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas)}
-function render(){drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);const d=stageDpr(),q=glassRect();gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q.x*d,q.y*d);gl.uniform2f(L.uRoot,bg.width,bg.height);gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform1f(L.uFlowDepth,flowDepthPx);gl.uniform4f(L.uMat,p.openGlVisibility,p.openGlMaxAlpha,p.edgeBrightness,p.openGlDebugLineAlpha);gl.uniform4f(L.uOldA,p.openGlPullScale*d,p.edgePullDp*d,p.openGlCompressionScale,p.openGlCornerScale);gl.uniform4f(L.uOldB,p.openGlSampleRadiusScale*d,p.ringWidthDp*d,p.openGlDarkScale,p.openGlDebugLineAlpha);gl.uniform4f(L.uBody,p.newOpenGlBodyWidth,p.newOpenGlBodyCurve,p.newOpenGlBodyGain,p.newOpenGlBrightness);gl.uniform4f(L.uBand,p.newOpenGlBodyBandPos,p.newOpenGlBodyBandWidth,p.newOpenGlBodyBandGain,0);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(L.uTex,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,flowTex);gl.uniform1i(L.uFlow,1);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.activeTexture(gl.TEXTURE0)}
-function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);rebuildFlowTexture();rebuildBackdrop();render()}
+function rebuildBackdrop(){const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);blurCtx.save();blurCtx.clearRect(0,0,w,h);const blurPx=Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55));blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;blurCtx.drawImage(sourceCanvas,0,0);blurCtx.restore();drawGlassBackdrop();gl.bindTexture(gl.TEXTURE_2D,tex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas)}
+function render(){drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);const d=stageDpr(),q=glassRect();gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q.x*d,q.y*d);gl.uniform2f(L.uRoot,bg.width,bg.height);gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform4f(L.uMat,p.openGlVisibility,p.openGlMaxAlpha,p.edgeBrightness,p.openGlDebugLineAlpha);gl.uniform4f(L.uOldA,p.openGlPullScale*d,p.edgePullDp*d,p.openGlCompressionScale,p.openGlCornerScale);gl.uniform4f(L.uOldB,p.openGlSampleRadiusScale*d,p.ringWidthDp*d,p.openGlDarkScale,p.openGlDebugLineAlpha);gl.uniform4f(L.uBody,p.newOpenGlBodyWidth,p.newOpenGlBodyCurve,p.newOpenGlBodyGain,p.newOpenGlBrightness);gl.uniform4f(L.uBand,p.newOpenGlBodyBandPos,p.newOpenGlBodyBandWidth,p.newOpenGlBodyBandGain,0);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(L.uTex,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
+function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);rebuildBackdrop();render()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});out.textContent=JSON.stringify({customBackground:!!customBgImage,flowMapDepthPx:Math.round(flowDepthPx*100)/100,...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});out.textContent=JSON.stringify({customBackground:!!customBgImage,...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);$('i-'+k).addEventListener('input',e=>{p[k]=Number(e.target.value);rebuildBackdrop();updateUi();render()})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw){rebuildBackdrop();render()}}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));bgUpload.addEventListener('change',e=>{const file=e.target.files&&e.target.files[0];if(!file)return;const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=url;customBgImage=img;uploadBgBtn.textContent='更换自定义背景';clearBgBtn.disabled=false;bgStatus.textContent='当前背景：'+file.name;rebuildBackdrop();render()};img.onerror=()=>{URL.revokeObjectURL(url);alert('图片读取失败')};img.src=url});
