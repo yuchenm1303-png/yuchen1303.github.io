@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Ring + Polynomial Transport</title>
+<title>OpenGL V23 · Ring + Flatter Polynomial Transport</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · refined strong ring + smooth polynomial transport</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · stronger edge ring + flatter center transport</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
 'use strict';
-const APP_RAW={radius:.691,iterations:12,brightness:1.138,contrast:1.087,saturation:1.112,moonScale:1,moonHaloAlpha:.18,moonRimAlpha:.42,ringWidthDp:8.295,edgePullDp:-199.078,edgeBrightness:1.083,openGlVisibility:19.954,openGlMaxAlpha:1,openGlPullScale:-5.53,openGlCompressionScale:-10,openGlCornerScale:54.378,openGlDarkScale:-2.21,openGlSampleRadiusScale:66.359,openGlDebugLineAlpha:0,newOpenGlBodyWidth:.18,newOpenGlBodyCurve:1.569,newOpenGlBodyGain:875.115,newOpenGlBodyBandPos:.98,newOpenGlBodyBandWidth:.201,newOpenGlBodyBandGain:20.737,newOpenGlBrightness:.84,glassIntensity:1.348};
+const APP_RAW={radius:.691,iterations:12,brightness:1.138,contrast:1.087,saturation:1.112,moonScale:1,moonHaloAlpha:.18,moonRimAlpha:.42,ringWidthDp:11.8,edgePullDp:-252.0,edgeBrightness:1.42,openGlVisibility:19.954,openGlMaxAlpha:1,openGlPullScale:26.0,openGlCompressionScale:-8.4,openGlCornerScale:72.0,openGlDarkScale:-1.45,openGlSampleRadiusScale:76.0,openGlDebugLineAlpha:0,newOpenGlBodyWidth:.18,newOpenGlBodyCurve:1.569,newOpenGlBodyGain:875.115,newOpenGlBodyBandPos:.98,newOpenGlBodyBandWidth:.228,newOpenGlBodyBandGain:46.0,newOpenGlBrightness:.84,glassIntensity:1.348};
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
 const groups=[
 {title:'背景模糊层 BackdropDebugParams',items:[['radius','背景模糊半径',0,4],['iterations','模糊迭代次数',1,12],['brightness','背景层亮度',.4,2.2],['contrast','背景层对比',.5,1.8],['saturation','背景层饱和',.3,1.8]]},
@@ -41,30 +41,34 @@ vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
 float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
 vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
 
-/* 中心场只使用连续、非归一化多项式运输；中心自然为零，不再生成固定轮廓。 */
+/* 中心场改成更平的连续运输，弱化中部下陷感。 */
 float centerEnvelope(vec2 u){
   float width=sat((uBody.x-.18)/(1.5-.18));
-  vec2 span=vec2(mix(.62,.98,width),mix(.52,.88,width));
+  vec2 span=vec2(mix(.64,.99,width),mix(.56,.90,width));
   vec2 q=abs(u)/max(span,vec2(.001));
   return exp(-(pow(q.x,4.0)+pow(q.y,4.0)));
 }
 vec2 polynomialTransport(vec2 u){
   float curve=sat((uBody.y-.2)/3.0);
-  float ky=mix(.18,.68,curve);
-  float kx=mix(.12,.58,curve);
-  float ay=mix(.78,1.22,curve);
+  float ky=mix(.14,.48,curve);
+  float kx=mix(.10,.42,curve);
+  float ay=mix(.44,.76,curve);
+  float yRelax=mix(.24,.42,curve);
+  float xBoost=mix(.08,.20,curve);
   vec2 transport=vec2(
     u.x*(1.0-ky*u.y*u.y),
     -ay*u.y*(1.0-kx*u.x*u.x)
   );
+  transport.x+=u.x*xBoost*(1.0-.65*u.y*u.y);
+  transport.y+=u.y*yRelax*(1.0-.75*u.x*u.x);
   vec2 tangent=vec2(-u.y,u.x);
-  transport+=tangent*mix(.018,.075,curve);
+  transport+=tangent*mix(.006,.026,curve);
   return transport;
 }
 float centerLimitPx(vec2 z){
   float width=sat((uBody.x-.18)/(1.5-.18));
   float gain=sat(uBody.z/900.0);
-  return mix(46.0,112.0,width)*mix(.55,1.0,gain);
+  return mix(38.0,86.0,width)*mix(.55,1.0,gain);
 }
 
 /* 外圈主体折射只读取预计算环形坐标场，上下边保持水平，左右边保持垂直。 */
@@ -81,7 +85,7 @@ float ringShell(float depth,vec2 z){
 }
 float ringSafeLimit(vec2 z,float ringSafe){
   float width=ringBandWidthPx(z);
-  return max(3.0,min(width*3.40,uFlowDepth*.36))*pow(sat(ringSafe),.68);
+  return max(4.0,min(width*4.20,uFlowDepth*.46))*pow(sat(ringSafe),.64);
 }
 vec2 roundedSdfNormal(vec2 p,vec2 z,float r){
   float d=1.4;
@@ -120,16 +124,16 @@ if(ringSafe>0.001){
   float shellIn=ringShell(min(ringDepth+1.0,uFlowDepth),z);
   float shellOut=ringShell(max(ringDepth-1.0,0.0),z);
   float slope=(shellIn-shellOut)*.5;
-  float strength=uBand.z*1.40;
-  ringFlow=-ringN*(slope*width*strength+shell*uBand.z*1.02)*ringSafe;
+  float strength=uBand.z*1.90;
+  ringFlow=-ringN*(slope*width*strength+shell*uBand.z*1.24)*ringSafe;
   ringFlow=softLimit(ringFlow,ringSafeLimit(z,ringSafe));
 }
 
-/* 第二场：宽包络内的非归一化多项式运输，与环形场宽范围自然叠加。 */
+/* 第二场：宽包络内的更平多项式运输，与环形场宽范围自然叠加。 */
 vec2 u=(p-z*.5)/max(z*.5,vec2(1.0));
 float centerGain=sat(uBody.z/900.0);
 float centerCurve=sat((uBody.y-.2)/3.0);
-float centerAmplitude=min(z.x,z.y)*.5*centerGain*mix(.16,.42,centerCurve);
+float centerAmplitude=min(z.x,z.y)*.5*centerGain*mix(.10,.24,centerCurve);
 vec2 centerFlow=polynomialTransport(u)*centerAmplitude*centerEnvelope(u);
 centerFlow=softLimit(centerFlow,centerLimitPx(z));
 
@@ -143,19 +147,19 @@ float tL=thickFromSdf(p-vec2(st,0.0),z,edgeSdfL),tR=thickFromSdf(p+vec2(st,0.0),
 float tU=thickFromSdf(p-vec2(0.0,st),z,edgeSdfU),tD=thickFromSdf(p+vec2(0.0,st),z,edgeSdfD);
 vec2 edgeGrad=vec2(tR-tL,tD-tU);
 float rw=rimWideFromDepth(edgeDepth,z),rc=rimCoreFromDepth(edgeDepth,z),rb=rimBandFromDepth(edgeDepth,z),glen=length(edgeGrad);
-edgeGrad*=smoothstep(.0004,.012,glen)*min(1.0,.22/max(glen,.0001));
-float perimeterAssist=pow(rc,1.65)*uOldA.w*.0015;
+edgeGrad*=smoothstep(.00035,.011,glen)*min(1.0,.26/max(glen,.0001));
+float perimeterAssist=pow(rc,1.65)*uOldA.w*.0022;
 float pull=uOldA.x+uOldA.y*rw+uOldA.z*8.0*rb+perimeterAssist;
-vec2 edgeFlow=softLimit(edgeGrad*pull*uMat.x,18.0+rw*48.0+sat(abs(uOldA.y)/600.0)*16.0);
+vec2 edgeFlow=softLimit(edgeGrad*pull*uMat.x,24.0+rw*62.0+sat(abs(uOldA.y)/600.0)*24.0);
 vec3 color=sampleBg(globalUv(p+bodyFlow+edgeFlow));
-float edgeMix=sat(rb*(.10+rc*.42+sat(uOldA.z*.05)));
+float edgeMix=sat(rb*(.16+rc*.60+sat(uOldA.z*.07)));
 if(edgeMix>0.0){
   vec2 edgeN=roundedSdfNormal(p,z,r);
   float sampleRadius=max(uOldB.x,0.0);
   vec3 nearColor=sampleBg(globalUv(p-edgeN*(8.0+sampleRadius*.20+abs(uOldA.y)*.03)));
   vec3 farColor=sampleBg(globalUv(p-edgeN*(16.0+sampleRadius*.36+abs(uOldA.y)*.055)));
   vec3 outerColor=sampleBg(globalUv(p+edgeN*(6.0+sampleRadius*.12)));
-  color=mix(color,nearColor*.48+farColor*.34+outerColor*.18,edgeMix);
+  color=mix(color,nearColor*.50+farColor*.36+outerColor*.14,edgeMix);
 }
 float boost=1.0+rc*.16+rw*max(uMat.z,0.0)*.10;
 color*=uBody.w*uMat.z*boost;
