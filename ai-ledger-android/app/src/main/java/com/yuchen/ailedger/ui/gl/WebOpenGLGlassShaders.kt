@@ -8,7 +8,11 @@ package com.yuchen.ailedger.ui.gl
  */
 internal object WebOpenGLGlassShaders {
     const val FRAGMENT_SHADER = """
+        #ifdef GL_FRAGMENT_PRECISION_HIGH
         precision highp float;
+        #else
+        precision mediump float;
+        #endif
         uniform vec2 uResolution;
         uniform vec2 uCardOrigin;
         uniform vec2 uRootResolution;
