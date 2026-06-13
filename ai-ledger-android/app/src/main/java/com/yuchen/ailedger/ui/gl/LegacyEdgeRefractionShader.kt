@@ -1,11 +1,11 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * Pure edge refraction restored from commit 9a6e4ac7605da3859ff9accd4a33fe0bab7a9ddc.
+ * Pure analytic edge refraction restored from commit 9a6e4ac7605da3859ff9accd4a33fe0bab7a9ddc.
  *
- * The app already provides one globally blurred backdrop texture. This edge stage therefore never
- * builds a second nine-tap blur from that texture. `openGlSampleRadiusScale` is kept only as the
- * edge-local near/far sampling reach, so it cannot create whole-card background ghosts.
+ * The app supplies one globally blurred backdrop texture. The edge stage therefore keeps the old
+ * rounded-rectangle SDF, thickness field, normal field, drag weights and pull geometry, while using
+ * that shared texture directly instead of building another full-card blur stack.
  */
 internal object LegacyEdgeRefractionShader {
     const val SOURCE = """
@@ -15,9 +15,6 @@ internal object LegacyEdgeRefractionShader {
         vec3 sourceLensBackdrop(vec2 uv){
             return sampleBg(uv);
         }
-
-        // The shared input is already the single blurred backdrop. Re-blurring it here previously
-        // produced nine displaced copies across the whole card when sampleRadius was large.
         vec3 blurBackdrop(vec2 uv,float edgeWeight){
             return sourceBlurBackdrop(uv);
         }
@@ -60,7 +57,6 @@ internal object LegacyEdgeRefractionShader {
         }
         vec3 edgeColorDrag(
             vec2 coord,
-            vec2 bodyOffset,
             vec2 rectSize,
             float radius,
             float band,
@@ -70,28 +66,12 @@ internal object LegacyEdgeRefractionShader {
 
             vec2 n=sdfNormalAt(coord,rectSize,radius);
             vec2 t=vec2(-n.y,n.x);
-            float sampleRadius=max(uOldB.x,0.0);
-            float nearPull=clamp(
-                8.0+abs(uOldA.y)*0.030+sampleRadius*0.20,
-                8.0,
-                82.0
-            );
-            float farPull=clamp(
-                16.0+abs(uOldA.y)*0.055+sampleRadius*0.36,
-                16.0,
-                128.0
-            );
-            float outerPull=clamp(
-                6.0+sampleRadius*0.12,
-                6.0,
-                42.0
-            );
+            float pull=clamp(8.0+abs(uOldA.y)*0.030,8.0,42.0);
             float smear=clamp(4.0+effectiveEdgeWidth(rectSize)*0.55,4.0,22.0);
 
-            vec2 transported=coord+bodyOffset;
-            vec2 baseIn=transported-n*nearPull;
-            vec2 baseFar=transported-n*farPull;
-            vec2 baseOut=transported+n*outerPull;
+            vec2 baseIn=coord-n*pull;
+            vec2 baseFar=coord-n*(pull*1.85);
+            vec2 baseOut=coord+n*(pull*0.45);
 
             vec3 c=sourceLensBackdrop(globalUv(baseIn))*0.28;
             c+=sourceLensBackdrop(globalUv(baseFar))*0.18;
@@ -101,7 +81,6 @@ internal object LegacyEdgeRefractionShader {
             c+=sourceLensBackdrop(globalUv(baseIn+t*smear*1.85))*0.07;
             c+=sourceLensBackdrop(globalUv(baseIn-t*smear*1.85))*0.07;
 
-            // Keep the restored edge drag blend, but sample the one shared blurred backdrop once.
             vec3 soft=sourceBlurBackdrop(globalUv(baseIn))*0.45+c*0.55;
             float signal=colorSignal(c);
             float dragAlpha=band*(0.035+sat(max(uOldA.z,0.0))*0.105+core*0.030)*signal;
