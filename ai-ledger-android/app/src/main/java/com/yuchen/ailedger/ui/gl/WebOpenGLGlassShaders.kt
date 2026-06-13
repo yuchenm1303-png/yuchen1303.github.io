@@ -128,6 +128,9 @@ internal object WebOpenGLGlassShaders {
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;
         }
         vec2 legacyTexUv(vec2 uv){return clamp(uv,0.0,1.0);}
+        vec2 legacyGlobalUv(vec2 localCoord){
+            return clamp((uCardOrigin+localCoord)/max(uRootResolution,vec2(1.0)),0.0,1.0);
+        }
         vec3 fallbackBackdrop(vec2 uv){
             float h=smoothstep(0.0,1.0,uv.y);
             return mix(vec3(0.12,0.22,0.38),vec3(0.36,0.50,0.72),h);
@@ -200,14 +203,14 @@ internal object WebOpenGLGlassShaders {
             vec2 baseIn=coord-n*pull;
             vec2 baseFar=coord-n*(pull*1.85);
             vec2 baseOut=coord+n*(pull*0.45);
-            vec3 c=sourceLensBackdrop(globalUv(baseIn))*0.28;
-            c+=sourceLensBackdrop(globalUv(baseFar))*0.18;
-            c+=sourceLensBackdrop(globalUv(baseOut))*0.12;
-            c+=sourceLensBackdrop(globalUv(baseIn+t*smear))*0.14;
-            c+=sourceLensBackdrop(globalUv(baseIn-t*smear))*0.14;
-            c+=sourceLensBackdrop(globalUv(baseIn+t*smear*1.85))*0.07;
-            c+=sourceLensBackdrop(globalUv(baseIn-t*smear*1.85))*0.07;
-            vec3 soft=blurBackdrop(globalUv(baseIn),band)*0.45+c*0.55;
+            vec3 c=sourceLensBackdrop(legacyGlobalUv(baseIn))*0.28;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseFar))*0.18;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseOut))*0.12;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseIn+t*smear))*0.14;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseIn-t*smear))*0.14;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseIn+t*smear*1.85))*0.07;
+            c+=sourceLensBackdrop(legacyGlobalUv(baseIn-t*smear*1.85))*0.07;
+            vec3 soft=blurBackdrop(legacyGlobalUv(baseIn),band)*0.45+c*0.55;
             float signal=colorSignal(c);
             float dragAlpha=band*(0.035+sat(max(uLegacyRefraction.z,0.0))*0.105+core*0.030)*signal;
             return mix(vec3(0.0),soft,sat(dragAlpha));
@@ -233,8 +236,15 @@ internal object WebOpenGLGlassShaders {
             float softLen=len/(1.0+len/max(limitPx,1.0));
             return v*(softLen/max(len,0.0001));
         }
-        vec3 legacyEdgeColor(vec2 coord,vec2 rectSize,float radius,float sd,out float dragBand){
-            vec2 bgUv=globalUv(coord);
+        vec3 legacyOpticalColor(
+            vec2 coord,
+            vec2 rectSize,
+            float radius,
+            float sd,
+            float mask,
+            out float edgeBand
+        ){
+            vec2 bgUv=legacyGlobalUv(coord);
             float stepPx=2.0;
             float tL=thicknessAt(coord-vec2(stepPx,0.0),rectSize,radius);
             float tR=thicknessAt(coord+vec2(stepPx,0.0),rectSize,radius);
@@ -243,7 +253,7 @@ internal object WebOpenGLGlassShaders {
             vec2 grad=vec2(tR-tL,tD-tU);
             float rimWide=rimWideAt(coord,rectSize,radius);
             float rimCore=rimCoreAt(coord,rectSize,radius);
-            dragBand=edgeDragBandAt(coord,rectSize,radius);
+            float dragBand=edgeDragBandAt(coord,rectSize,radius);
             float gLen=length(grad);
             float gradGate=smoothstep(0.0004,0.012,gLen);
             grad*=gradGate*min(1.0,0.22/max(gLen,0.0001));
@@ -261,9 +271,10 @@ internal object WebOpenGLGlassShaders {
             color=mix(color,dragColor,dragMix);
             float rimOpticalBoost=rimCore*0.16+gradEnergy*0.045;
             color*=uLegacyMaterial.z*(1.0+rimOpticalBoost);
-            float debugEdge=smoothstep(-1.65,0.0,sd);
+            float debugEdge=smoothstep(-1.65,0.0,sd)*mask;
             color=mix(color,vec3(1.0,0.45,0.0),debugEdge*uLegacyOptics.z);
             color-=vec3(0.06,0.07,0.09)*uLegacyOptics.w*rimWide;
+            edgeBand=dragBand;
             return clamp(color,0.0,1.0);
         }
 
@@ -288,13 +299,12 @@ internal object WebOpenGLGlassShaders {
             float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
             bodyColor=mix(bodyColor,vec3(1.0,0.45,0.0),bodyDebug*uBodyLensB.w);
 
-            float legacyBand=0.0;
-            vec3 edgeColor=legacyEdgeColor(p,z,r,sd,legacyBand);
-            vec3 color=mix(bodyColor,edgeColor,legacyBand);
-            float alpha=max(
-                uMaterial.y*sat(uMaterial.x/20.0)*uIntensity,
-                clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0)*legacyBand
-            );
+            float legacyEdgeBand=0.0;
+            vec3 legacyColor=legacyOpticalColor(p,z,r,sd,mask,legacyEdgeBand);
+            vec3 color=mix(bodyColor,legacyColor,legacyEdgeBand);
+            float bodyAlpha=uMaterial.y*sat(uMaterial.x/20.0)*uIntensity;
+            float legacyAlpha=clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0);
+            float alpha=max(bodyAlpha,legacyAlpha*legacyEdgeBand);
             gl_FragColor=vec4(clamp(color,0.0,1.0),mask*alpha);
         }
     """
