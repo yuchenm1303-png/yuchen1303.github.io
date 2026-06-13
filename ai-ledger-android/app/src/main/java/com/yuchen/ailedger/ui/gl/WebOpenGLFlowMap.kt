@@ -2,11 +2,11 @@ package com.yuchen.ailedger.ui.gl
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.LinkedHashMap
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 internal data class WebOpenGLFlowMap(
@@ -16,18 +16,85 @@ internal data class WebOpenGLFlowMap(
     val pixels: ByteBuffer
 )
 
-/** Exact CPU port of the web preview's precomputed harmonic ring Flow Map. */
+private data class WebOpenGLFlowMapKey(
+    val fullWidth: Int,
+    val fullHeight: Int,
+    val radiusQuarterPx: Int
+)
+
+private data class CachedWebOpenGLFlowMap(
+    val width: Int,
+    val height: Int,
+    val depthPx: Float,
+    val pixels: ByteArray
+) {
+    fun newUploadBuffer(): WebOpenGLFlowMap {
+        val buffer = ByteBuffer
+            .allocateDirect(pixels.size)
+            .order(ByteOrder.nativeOrder())
+        buffer.put(pixels)
+        buffer.position(0)
+        return WebOpenGLFlowMap(
+            width = width,
+            height = height,
+            depthPx = depthPx,
+            pixels = buffer
+        )
+    }
+}
+
+/**
+ * Exact CPU port of the web preview's precomputed harmonic ring Flow Map.
+ *
+ * Generated RGBA data is cached across renderer/TextureView recreation. Cache hits only skip the
+ * deterministic CPU solve; every renderer still receives its own direct upload buffer, so GL thread
+ * ownership and the generated pixels remain unchanged.
+ */
 internal object WebOpenGLFlowMapFactory {
+    private const val CACHE_CAPACITY = 6
+    private val cacheLock = Any()
+    private val cache = object : LinkedHashMap<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>(
+        CACHE_CAPACITY,
+        0.75f,
+        true
+    ) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>?
+        ): Boolean = size > CACHE_CAPACITY
+    }
+
     fun build(fullWidth: Int, fullHeight: Int, radiusPx: Float): WebOpenGLFlowMap {
         val safeFullWidth = fullWidth.coerceAtLeast(1)
         val safeFullHeight = fullHeight.coerceAtLeast(1)
+        val safeRadius = min(radiusPx, safeFullHeight * 0.5f)
+        val key = WebOpenGLFlowMapKey(
+            fullWidth = safeFullWidth,
+            fullHeight = safeFullHeight,
+            radiusQuarterPx = (safeRadius * 4f).roundToInt()
+        )
+
+        synchronized(cacheLock) {
+            cache[key]?.let { return it.newUploadBuffer() }
+        }
+
+        val generated = buildUncached(safeFullWidth, safeFullHeight, safeRadius)
+        val canonical = synchronized(cacheLock) {
+            cache[key] ?: generated.also { cache[key] = it }
+        }
+        return canonical.newUploadBuffer()
+    }
+
+    private fun buildUncached(
+        safeFullWidth: Int,
+        safeFullHeight: Int,
+        outerRadius: Float
+    ): CachedWebOpenGLFlowMap {
         val aspect = safeFullWidth.toFloat() / safeFullHeight.toFloat()
         val flowWidth = (safeFullWidth / 3.5f).roundToInt().coerceIn(256, 448)
         val flowHeight = (flowWidth / max(aspect, 0.25f)).roundToInt().coerceIn(64, 160)
         val scaleX = safeFullWidth.toFloat() / flowWidth.toFloat()
         val scaleY = safeFullHeight.toFloat() / flowHeight.toFloat()
         val cell = max(scaleX, scaleY)
-        val outerRadius = min(radiusPx, safeFullHeight * 0.5f)
         val flowDepth = min(
             safeFullHeight * 0.44f,
             max(outerRadius * 1.7f, safeFullHeight * 0.32f)
@@ -118,10 +185,8 @@ internal object WebOpenGLFlowMapFactory {
             next = swap
         }
 
-        val pixels = ByteBuffer
-            .allocateDirect(count * 4)
-            .order(ByteOrder.nativeOrder())
-
+        val pixels = ByteArray(count * 4)
+        var outputIndex = 0
         for (y in 0 until flowHeight) {
             for (x in 0 until flowWidth) {
                 val index = y * flowWidth + x
@@ -165,7 +230,8 @@ internal object WebOpenGLFlowMapFactory {
                             safeFullHeight.toFloat(),
                             outerRadius
                         )
-                        val magnitude = hypot(dx.toDouble(), dy.toDouble()).toFloat().takeIf { it > 1e-6f } ?: 1f
+                        val magnitude = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                            .takeIf { it > 1e-6f } ?: 1f
                         nx = dx / magnitude
                         ny = dy / magnitude
                     }
@@ -174,14 +240,14 @@ internal object WebOpenGLFlowMapFactory {
                     safe = innerFade * (0.55f + 0.45f * quality)
                 }
 
-                pixels.put(toByte(t))
-                pixels.put(toByte(nx * 0.5f + 0.5f))
-                pixels.put(toByte(ny * 0.5f + 0.5f))
-                pixels.put(toByte(clamp01(safe)))
+                pixels[outputIndex++] = toByte(t)
+                pixels[outputIndex++] = toByte(nx * 0.5f + 0.5f)
+                pixels[outputIndex++] = toByte(ny * 0.5f + 0.5f)
+                pixels[outputIndex++] = toByte(clamp01(safe))
             }
         }
-        pixels.position(0)
-        return WebOpenGLFlowMap(
+
+        return CachedWebOpenGLFlowMap(
             width = flowWidth,
             height = flowHeight,
             depthPx = flowDepth,
