@@ -64,10 +64,10 @@ enum class BackgroundTheme(val label: String, val storageValue: String) {
 @Immutable
 data class BackdropDebugParams(
     val scale: Float = 2.00f,
-    val radius: Float = 0.6756757f,
+    val radius: Float = 0.23041475f,
     val iterations: Float = 12f,
-    val brightness: Float = 1.138f,
-    val contrast: Float = 1.087f,
+    val brightness: Float = 1.1423963f,
+    val contrast: Float = 1.0241935f,
     val saturation: Float = 1.112f,
     val cloudAlpha: Float = 1.18f,
     val cloudSoftness: Float = 1.35f,
@@ -86,26 +86,44 @@ data class GlassBorderStyle(
     val topHighlightAlpha: Float = 1.28f,
     val bottomShadowAlpha: Float = 0.35f,
     val cornerGlintAlpha: Float = 0f,
-    val ringWidthDp: Float = 6.081081f,
+
+    // 9a6e4ac 原版边缘折射带参数。
+    val ringWidthDp: Float = 8.294931f,
     val edgePullDp: Float = -600f,
     val edgeAlpha: Float = 0f,
     val edgeBlurDp: Float = 0f,
     val edgeContrast: Float = 1.00f,
     val edgeSaturation: Float = 1.00f,
-    val edgeBrightness: Float = 1.3175676f,
+    val edgeBrightness: Float = 1.1520737f,
     val bodyAlpha: Float = 0f,
     val openGlDebugLineAlpha: Float = 0f,
-    val openGlVisibility: Float = 19.954f,
+    val openGlVisibility: Float = 20f,
     val openGlMaxAlpha: Float = 1.00f,
-    val openGlPullScale: Float = -6.081081f,
+    val openGlPullScale: Float = -300f,
     val openGlCompressionScale: Float = -10f,
-    val openGlCornerScale: Float = 60.135136f,
-    val openGlDarkScale: Float = -1.4864864f,
-    val openGlSampleRadiusScale: Float = 75f,
-    val newOpenGlGlassIntensity: Float = 1.348f,
-    val newOpenGlBodyWidth: Float = 0.18f,
-    val newOpenGlBodyCurve: Float = 1.569f,
-    val newOpenGlBodyGain: Float = 875.115f,
+    val openGlCornerScale: Float = 200f,
+    val openGlDarkScale: Float = -2.580645f,
+    val openGlSampleRadiusScale: Float = 14.285714f,
+
+    // V25.3 网页版统一主体折射参数。
+    val newOpenGlGlassIntensity: Float = 1.35f,
+    val newOpenGlBodyVisibility: Float = 20f,
+    val newOpenGlBodyMaxAlpha: Float = 1f,
+    val newOpenGlBodyOutputBrightness: Float = 1.8115207f,
+    val newOpenGlBodyLensBasePull: Float = 300f,
+    val newOpenGlBodyLensPullDp: Float = 600f,
+    val newOpenGlBodyLensConcentration: Float = 10f,
+    val newOpenGlBodyLensCornerBoost: Float = 0f,
+    val newOpenGlBodyLensExtraDistance: Float = 200f,
+    val newOpenGlBodyLensReachDp: Float = 180f,
+    val newOpenGlBodyLensDark: Float = 0.23041475f,
+    val newOpenGlBodyLensDebug: Float = 0f,
+    val newOpenGlBodyWidth: Float = 1.250599f,
+    val newOpenGlBodyCurve: Float = 0.2f,
+    val newOpenGlBodyGain: Float = 12.442396f,
+    val newOpenGlBrightness: Float = 0.5451613f,
+
+    // 旧网页结构遗留字段，仅为兼容已有状态与旧实验代码；新版渲染器不读取。
     val newOpenGlBodyBandPos: Float = 0.98f,
     val newOpenGlBodyBandWidth: Float = 0.228f,
     val newOpenGlBodyBandGain: Float = 46f,
@@ -122,8 +140,7 @@ data class GlassBorderStyle(
     val newOpenGlEdgeShoulderWidthPx: Float = 0f,
     val newOpenGlEdgeTangentSmear: Float = 0f,
     val newOpenGlClarity: Float = 1.00f,
-    val newOpenGlTangentSmear: Float = 0.18f,
-    val newOpenGlBrightness: Float = 0.84f
+    val newOpenGlTangentSmear: Float = 0.18f
 )
 
 @Immutable
