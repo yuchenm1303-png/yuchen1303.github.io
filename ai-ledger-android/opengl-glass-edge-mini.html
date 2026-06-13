@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Original Edge + Continuous Body</title>
+<title>OpenGL V23 · Original Edge + Rounded Body Field</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · original old edge + continuous body field</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · original old edge + rounded body field</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -35,18 +35,17 @@ float inside(vec2 p,vec2 z,float r){return max(-boxSdf(p,z,r),0.0);}
 vec2 globalUv(vec2 p){vec2 t=.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/max(uRoot,vec2(1.0)),t,1.0-t);}
 vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
 
-/* 新版主体：唯一连续超椭圆场，只负责主体折射。 */
-float bodyRho(vec2 p,vec2 z,float r){vec2 h=max(z*.5,vec2(1.0));vec2 q=abs((p-h)/h);float cr=sat(r/max(min(h.x,h.y),1.0));float n=mix(7.5,3.6,cr);return pow(pow(q.x,n)+pow(q.y,n),1.0/n);}
+/* 新版主体：有限深度的圆角矩形平行场，只负责主体折射。 */
 float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
-vec2 bodyRhoGradient(vec2 p,vec2 z,float r){float d=1.4;return vec2(bodyRho(p+vec2(d,0.0),z,r)-bodyRho(p-vec2(d,0.0),z,r),bodyRho(p+vec2(0.0,d),z,r)-bodyRho(p-vec2(0.0,d),z,r))/(2.0*d);}
-float bodyDepthPx(vec2 p,vec2 z,float r){float f=bodyRho(p,z,r);float g=max(length(bodyRhoGradient(p,z,r)),.0001);return max((1.0-f)/g,0.0);}
-float bodyBandCenterPx(vec2 z){return max((1.0-uBand.x)*min(z.x,z.y)*.5,0.0);}
-float bodyBandWidthPx(vec2 z){return max(uBand.y*min(z.x,z.y)*.5,1.0);}
-float bodyShellProfile(vec2 p,vec2 z,float r){float halfMin=min(z.x,z.y)*.5;float depth=bodyDepthPx(p,z,r);float center=bodyBandCenterPx(z);float width=bodyBandWidthPx(z);return gauss(depth,center,width)+gauss(depth,center+.025*halfMin,width*1.8)*.85;}
-float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float f=bodyRho(p,z,r);float b=pow(sat(1.0-f),max(uBody.y,.2));b=pow(b,max(.28,2.0-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));return (pow(sat(b),.72)+bodyShellProfile(p,z,r)*1.55)*shape;}
-vec2 bodyNormal(vec2 p,vec2 z,float r){vec2 n=bodyRhoGradient(p,z,r);return n/max(length(n),.0001);}
+float bodyDepthPx(vec2 p,vec2 z,float r){return inside(p,z,r);}
+float bodyReachPx(vec2 z){float halfMin=min(z.x,z.y)*.5;return clamp(uBody.x*halfMin,2.0,halfMin*.48);}
+float bodyBandCenterPx(vec2 z){float halfMin=min(z.x,z.y)*.5;return clamp((1.0-uBand.x)*halfMin,0.0,halfMin*.82);}
+float bodyBandWidthPx(vec2 z){return max(uBand.y*min(z.x,z.y)*.18,1.0);}
+float bodyShellProfile(vec2 p,vec2 z,float r){float halfMin=min(z.x,z.y)*.5;float depth=bodyDepthPx(p,z,r);float center=bodyBandCenterPx(z);float width=bodyBandWidthPx(z);float shell=gauss(depth,center,width)+gauss(depth,center+.025*halfMin,width*1.8)*.85;float gate=1.0-smoothstep(center+width*2.8,center+width*3.8,depth);return shell*gate;}
+float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float depth=bodyDepthPx(p,z,r);float reach=bodyReachPx(z);float core=pow(sat(1.0-depth/reach),max(uBody.y,.2));core=pow(core,max(.28,2.0-uBody.y*.55));core*=mix(.72,1.9,sat(uBody.x));return (pow(sat(core),.72)+bodyShellProfile(p,z,r)*1.55)*shape;}
+vec2 bodyNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(boxSdf(p+vec2(d,0.0),z,r)-boxSdf(p-vec2(d,0.0),z,r),boxSdf(p+vec2(0.0,d),z,r)-boxSdf(p-vec2(0.0,d),z,r));return n/max(length(n),.0001);}
 
-/* 旧版边缘：完整恢复原版圆角 SDF、厚度场、法线与远距离采样。 */
+/* 旧版边缘：完整保持原版圆角 SDF、厚度场、法线与远距离采样。 */
 float edgeWidth(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*.44);}
 float rimWide(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,edgeWidth(z),inside(p,z,r));}
 float rimCore(vec2 p,vec2 z,float r){return 1.0-smoothstep(0.0,max(edgeWidth(z)*.28,2.0),inside(p,z,r));}
@@ -64,9 +63,9 @@ float st=2.0;
 
 float hL=bodyHeight(p-vec2(st,0),z,r),hR=bodyHeight(p+vec2(st,0),z,r),hU=bodyHeight(p-vec2(0,st),z,r),hD=bodyHeight(p+vec2(0,st),z,r),hC=bodyHeight(p,z,r);
 vec2 bodyGrad=vec2(hR-hL,hD-hU)*.5;
-float bodySlope=length(bodyGrad),f=bodyRho(p,z,r),bodyPresence=sat(pow(sat(1.0-f),.42)*(.38+uBody.x*.72));
-float bodyDepth=bodyDepthPx(p,z,r),bodyCenter=bodyBandCenterPx(z),bodyWidth=bodyBandWidthPx(z),halfMin=min(z.x,z.y)*.5;
-float bodyShell=gauss(bodyDepth,bodyCenter,bodyWidth)+gauss(bodyDepth,bodyCenter+.028*halfMin,bodyWidth*1.9)*.55;
+float bodySlope=length(bodyGrad),bodyDepth=bodyDepthPx(p,z,r),bodyReach=bodyReachPx(z);
+float bodyPresence=sat(pow(sat(1.0-bodyDepth/bodyReach),.42)*(.38+uBody.x*.72));
+float bodyShell=bodyShellProfile(p,z,r);
 float bodyBand=sat(bodyShell*(.42+bodyPresence*.38+bodyShell*.40));
 float bodyEnergy=pow(sat((bodySlope*11.0+hC*.22)*max(uBand.z,1.0)),max(.32,max(uBand.z,1.0)*.55));
 vec2 bodyN=bodyNormal(p,z,r);
