@@ -1,1 +1,1 @@
-trigger: restore-glass-press-animation-4f08166
+trigger: verify-old-edge-refraction-592ef8ddf5da6efe77baa2a89726aa86be419bbc
