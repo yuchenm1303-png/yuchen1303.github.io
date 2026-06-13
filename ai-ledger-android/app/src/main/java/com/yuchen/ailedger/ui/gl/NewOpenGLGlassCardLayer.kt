@@ -17,6 +17,20 @@ import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/**
+ * 9a6e4ac 的旧边缘参数本身就是像素量；共享宿主仍会为 V25.3 主体参数乘 density。
+ * 在进入共享参数链前只反向归一化旧边缘的四个距离量，使宿主乘回 density 后恢复原值。
+ */
+private fun GlassBorderStyle.withLegacyPixelUnits(densityScale: Float): GlassBorderStyle {
+    val safeDensity = densityScale.coerceAtLeast(0.1f)
+    return copy(
+        openGlPullScale = openGlPullScale / safeDensity,
+        edgePullDp = edgePullDp / safeDensity,
+        openGlSampleRadiusScale = openGlSampleRadiusScale / safeDensity,
+        ringWidthDp = ringWidthDp / safeDensity
+    )
+}
+
 @Composable
 fun NewOpenGLGlassCardLayer(
     radius: Int,
@@ -31,6 +45,8 @@ fun NewOpenGLGlassCardLayer(
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
+    val densityScale = density.density
+    val rendererStyle = remember(border, densityScale) { border.withLegacyPixelUnits(densityScale) }
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
     val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
@@ -77,7 +93,7 @@ fun NewOpenGLGlassCardLayer(
                 )
                 val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTextures(blurredBitmap, lensBitmap)
-                val styleDirty = view.setGlassStyle(border, density.density)
+                val styleDirty = view.setGlassStyle(rendererStyle, densityScale)
                 if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || styleDirty) {
                     view.requestRender()
                 }
