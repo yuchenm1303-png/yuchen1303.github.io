@@ -216,7 +216,7 @@ private fun LedgerSummaryCard(appState: AssistantUiState, state: LedgerScreenSta
             }
         }
         val progress = if (budget > 0.0) (expense / budget).toFloat().coerceIn(0f, 1f) else 0f
-        Box(Modifier.fillMaxWidth(progress).height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.08f))) {
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.08f))) {
             Box(Modifier.fillMaxWidth(progress).height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.48f)))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
