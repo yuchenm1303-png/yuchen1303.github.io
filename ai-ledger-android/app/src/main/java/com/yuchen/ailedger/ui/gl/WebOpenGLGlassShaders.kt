@@ -1,10 +1,10 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * V25.3 网页版最终玻璃的 Android GLSL 封装。
+ * V25.3 主体折射 + 9a6e4ac 原版边缘折射。
  *
- * 主体折射、低频运输、9a6e4ac 原版边缘折射带、双纹理采样与混合顺序
- * 均按网页版本直接迁移；仅把网页全画布坐标改为 App 稳定宿主的 uRect 局部坐标。
+ * 清晰背景保持全分辨率；三级低分辨率模糊纹理由 uniform 连续插值。
+ * 昂贵的旧边缘多点采样只在真实边缘带内执行。
  */
 internal object WebOpenGLGlassShaders {
     const val FRAGMENT_SHADER = """
@@ -17,8 +17,10 @@ internal object WebOpenGLGlassShaders {
         uniform vec2 uCardOrigin;
         uniform vec2 uRootResolution;
         uniform vec4 uRect;
-        uniform sampler2D uBlurTexture;
-        uniform sampler2D uLensTexture;
+        uniform sampler2D uClearTexture;
+        uniform sampler2D uBlurLowTexture;
+        uniform sampler2D uBlurMediumTexture;
+        uniform sampler2D uBlurHighTexture;
         uniform vec4 uMaterial;
         uniform vec4 uBodyLensA;
         uniform vec4 uBodyLensB;
@@ -29,9 +31,10 @@ internal object WebOpenGLGlassShaders {
         uniform float uRadius;
         uniform float uIntensity;
         uniform float uTextureReady;
+        uniform float uBlurAmount;
 
         float sat(float x){return clamp(x,0.0,1.0);}
-        float boxSdf(vec2 p,vec2 z,float r){
+        float roundedBoxSdf(vec2 p,vec2 z,float r){
             vec2 q=abs(p-z*0.5)-max(z*0.5-vec2(r),vec2(0.0));
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
@@ -41,10 +44,38 @@ internal object WebOpenGLGlassShaders {
             vec2 texel=0.5/root;
             return clamp((uCardOrigin+p)/root,texel,1.0-texel);
         }
-        vec3 bodyBackdrop(vec2 uv){
-            vec3 fallback=mix(vec3(0.04,0.10,0.27),vec3(0.24,0.58,0.76),smoothstep(0.0,1.0,uv.y));
-            vec3 realColor=texture2D(uBlurTexture,clamp(uv,0.0,1.0)).rgb;
-            return mix(fallback,realColor,sat(uTextureReady));
+        vec2 legacyGlobalUv(vec2 localCoord){
+            return clamp((uCardOrigin+localCoord)/max(uRootResolution,vec2(1.0)),0.0,1.0);
+        }
+        vec3 fallbackBackdrop(vec2 uv){
+            float h=smoothstep(0.0,1.0,uv.y);
+            return mix(vec3(0.12,0.22,0.38),vec3(0.36,0.50,0.72),h);
+        }
+        vec3 clearBackdrop(vec2 uv){
+            vec2 safeUv=clamp(uv,0.0,1.0);
+            vec3 realColor=texture2D(uClearTexture,safeUv).rgb;
+            return mix(fallbackBackdrop(safeUv),realColor,sat(uTextureReady));
+        }
+        vec3 blurPyramidBackdrop(vec2 uv){
+            vec2 safeUv=clamp(uv,0.0,1.0);
+            float amount=clamp(uBlurAmount,0.0,4.0);
+            vec3 result;
+            if(amount<=0.001){
+                result=texture2D(uClearTexture,safeUv).rgb;
+            }else if(amount<1.0){
+                vec3 clearColor=texture2D(uClearTexture,safeUv).rgb;
+                vec3 lowColor=texture2D(uBlurLowTexture,safeUv).rgb;
+                result=mix(clearColor,lowColor,amount);
+            }else if(amount<2.0){
+                vec3 lowColor=texture2D(uBlurLowTexture,safeUv).rgb;
+                vec3 mediumColor=texture2D(uBlurMediumTexture,safeUv).rgb;
+                result=mix(lowColor,mediumColor,amount-1.0);
+            }else{
+                vec3 mediumColor=texture2D(uBlurMediumTexture,safeUv).rgb;
+                vec3 highColor=texture2D(uBlurHighTexture,safeUv).rgb;
+                result=mix(mediumColor,highColor,(amount-2.0)*0.5);
+            }
+            return mix(fallbackBackdrop(safeUv),result,sat(uTextureReady));
         }
         vec2 softLimit(vec2 v,float lim){
             float n=length(v);
@@ -122,28 +153,13 @@ internal object WebOpenGLGlassShaders {
         }
 
         float legacyRoundedBoxSdfAt(vec2 coord,vec2 rectSize,float radius){
-            vec2 p=coord-rectSize*0.5;
-            vec2 halfSize=rectSize*0.5;
-            vec2 q=abs(p)-max(halfSize-vec2(radius),vec2(0.0));
-            return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;
-        }
-        vec2 legacyTexUv(vec2 uv){return clamp(uv,0.0,1.0);}
-        vec2 legacyGlobalUv(vec2 localCoord){
-            return clamp((uCardOrigin+localCoord)/max(uRootResolution,vec2(1.0)),0.0,1.0);
-        }
-        vec3 fallbackBackdrop(vec2 uv){
-            float h=smoothstep(0.0,1.0,uv.y);
-            return mix(vec3(0.12,0.22,0.38),vec3(0.36,0.50,0.72),h);
+            return roundedBoxSdf(coord,rectSize,radius);
         }
         vec3 sourceBlurBackdrop(vec2 uv){
-            vec3 fallback=fallbackBackdrop(uv);
-            vec3 realColor=texture2D(uBlurTexture,legacyTexUv(uv)).rgb;
-            return mix(fallback,realColor,sat(uTextureReady));
+            return blurPyramidBackdrop(uv);
         }
         vec3 sourceLensBackdrop(vec2 uv){
-            vec3 fallback=fallbackBackdrop(uv);
-            vec3 realColor=texture2D(uLensTexture,legacyTexUv(uv)).rgb;
-            return mix(fallback,realColor,sat(uTextureReady));
+            return clearBackdrop(uv);
         }
         vec3 blurBackdrop(vec2 uv,float edgeWeight){
             float blurBoost=1.0+edgeWeight*0.38;
@@ -242,7 +258,7 @@ internal object WebOpenGLGlassShaders {
             float radius,
             float sd,
             float mask,
-            out float edgeBand
+            float dragBand
         ){
             vec2 bgUv=legacyGlobalUv(coord);
             float stepPx=2.0;
@@ -253,7 +269,6 @@ internal object WebOpenGLGlassShaders {
             vec2 grad=vec2(tR-tL,tD-tU);
             float rimWide=rimWideAt(coord,rectSize,radius);
             float rimCore=rimCoreAt(coord,rectSize,radius);
-            float dragBand=edgeDragBandAt(coord,rectSize,radius);
             float gLen=length(grad);
             float gradGate=smoothstep(0.0004,0.012,gLen);
             grad*=gradGate*min(1.0,0.22/max(gLen,0.0001));
@@ -274,7 +289,6 @@ internal object WebOpenGLGlassShaders {
             float debugEdge=smoothstep(-1.65,0.0,sd)*mask;
             color=mix(color,vec3(1.0,0.45,0.0),debugEdge*uLegacyOptics.z);
             color-=vec3(0.06,0.07,0.09)*uLegacyOptics.w*rimWide;
-            edgeBand=dragBand;
             return clamp(color,0.0,1.0);
         }
 
@@ -283,7 +297,7 @@ internal object WebOpenGLGlassShaders {
             vec2 z=max(uRect.zw,vec2(1.0));
             vec2 p=coord-uRect.xy;
             float r=min(uRadius,min(z.x,z.y)*0.5);
-            float sd=boxSdf(p,z,r);
+            float sd=roundedBoxSdf(p,z,r);
             float mask=1.0-smoothstep(0.0,1.35,sd);
             if(mask<=0.001)discard;
 
@@ -292,19 +306,23 @@ internal object WebOpenGLGlassShaders {
             vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
             vec2 centerFlow=centerTransport(p,z);
             vec2 totalFlow=mainBodyFlow+centerFlow;
-            vec3 bodyColor=bodyBackdrop(globalUv(p+totalFlow));
+            vec3 bodyColor=blurPyramidBackdrop(globalUv(p+totalFlow));
             float opticalBoost=1.0+bodyWeight*0.24;
             bodyColor*=uBody.w*uMaterial.z*opticalBoost;
             bodyColor-=vec3(0.055,0.065,0.085)*uBodyLensB.z*bodyWeight;
             float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
             bodyColor=mix(bodyColor,vec3(1.0,0.45,0.0),bodyDebug*uBodyLensB.w);
 
-            float legacyEdgeBand=0.0;
-            vec3 legacyColor=legacyOpticalColor(p,z,r,sd,mask,legacyEdgeBand);
-            vec3 color=mix(bodyColor,legacyColor,legacyEdgeBand);
+            vec3 color=bodyColor;
             float bodyAlpha=uMaterial.y*sat(uMaterial.x/20.0)*uIntensity;
-            float legacyAlpha=clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0);
-            float alpha=max(bodyAlpha,legacyAlpha*legacyEdgeBand);
+            float alpha=bodyAlpha;
+            float legacyEdgeBand=edgeDragBandAt(p,z,r);
+            if(legacyEdgeBand>0.001){
+                vec3 legacyColor=legacyOpticalColor(p,z,r,sd,mask,legacyEdgeBand);
+                color=mix(bodyColor,legacyColor,legacyEdgeBand);
+                float legacyAlpha=clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0);
+                alpha=max(bodyAlpha,legacyAlpha*legacyEdgeBand);
+            }
             gl_FragColor=vec4(clamp(color,0.0,1.0),mask*alpha);
         }
     """
