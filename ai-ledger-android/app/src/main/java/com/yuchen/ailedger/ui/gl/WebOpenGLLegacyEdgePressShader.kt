@@ -55,7 +55,7 @@ internal object WebOpenGLLegacyEdgePressShader {
             vec2 refractPx=softLimitPx(rawRefractPx,limitPx);
             vec2 refractedUv=bgUv+refractPx/max(uRootResolution,vec2(1.0));
 
-            vec3 color=blurBackdrop(
+            vec3 color=legacyBlurBackdrop(
                 refractedUv,
                 rimWide+pressField*0.85+pressWide*0.22
             );
