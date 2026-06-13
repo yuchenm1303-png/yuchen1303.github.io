@@ -38,8 +38,13 @@ vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
 /* 新版主体：唯一连续超椭圆场，只负责主体折射。 */
 float bodyRho(vec2 p,vec2 z,float r){vec2 h=max(z*.5,vec2(1.0));vec2 q=abs((p-h)/h);float cr=sat(r/max(min(h.x,h.y),1.0));float n=mix(7.5,3.6,cr);return pow(pow(q.x,n)+pow(q.y,n),1.0/n);}
 float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
-float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float f=bodyRho(p,z,r);float b=pow(sat(1.0-f),max(uBody.y,.2));b=pow(b,max(.28,2.0-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));float shell=gauss(f,uBand.x,uBand.y);float shoulder=gauss(f,uBand.x-.025,uBand.y*1.8);return (pow(sat(b),.72)+shell*1.55+shoulder*.85)*shape;}
-vec2 bodyNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(bodyRho(p+vec2(d,0),z,r)-bodyRho(p-vec2(d,0),z,r),bodyRho(p+vec2(0,d),z,r)-bodyRho(p-vec2(0,d),z,r));return n/max(length(n),.0001);}
+vec2 bodyRhoGradient(vec2 p,vec2 z,float r){float d=1.4;return vec2(bodyRho(p+vec2(d,0.0),z,r)-bodyRho(p-vec2(d,0.0),z,r),bodyRho(p+vec2(0.0,d),z,r)-bodyRho(p-vec2(0.0,d),z,r))/(2.0*d);}
+float bodyDepthPx(vec2 p,vec2 z,float r){float f=bodyRho(p,z,r);float g=max(length(bodyRhoGradient(p,z,r)),.0001);return max((1.0-f)/g,0.0);}
+float bodyBandCenterPx(vec2 z){return max((1.0-uBand.x)*min(z.x,z.y)*.5,0.0);}
+float bodyBandWidthPx(vec2 z){return max(uBand.y*min(z.x,z.y)*.5,1.0);}
+float bodyShellProfile(vec2 p,vec2 z,float r){float halfMin=min(z.x,z.y)*.5;float depth=bodyDepthPx(p,z,r);float center=bodyBandCenterPx(z);float width=bodyBandWidthPx(z);return gauss(depth,center,width)+gauss(depth,center+.025*halfMin,width*1.8)*.85;}
+float bodyHeight(vec2 p,vec2 z,float r){float shape=1.0-smoothstep(0.0,4.0,boxSdf(p,z,r));float f=bodyRho(p,z,r);float b=pow(sat(1.0-f),max(uBody.y,.2));b=pow(b,max(.28,2.0-uBody.y*.55));b*=mix(.72,1.9,sat(uBody.x));return (pow(sat(b),.72)+bodyShellProfile(p,z,r)*1.55)*shape;}
+vec2 bodyNormal(vec2 p,vec2 z,float r){vec2 n=bodyRhoGradient(p,z,r);return n/max(length(n),.0001);}
 
 /* 旧版边缘：完整恢复原版圆角 SDF、厚度场、法线与远距离采样。 */
 float edgeWidth(vec2 z){return clamp(uOldB.y,2.0,min(z.x,z.y)*.44);}
@@ -60,7 +65,8 @@ float st=2.0;
 float hL=bodyHeight(p-vec2(st,0),z,r),hR=bodyHeight(p+vec2(st,0),z,r),hU=bodyHeight(p-vec2(0,st),z,r),hD=bodyHeight(p+vec2(0,st),z,r),hC=bodyHeight(p,z,r);
 vec2 bodyGrad=vec2(hR-hL,hD-hU)*.5;
 float bodySlope=length(bodyGrad),f=bodyRho(p,z,r),bodyPresence=sat(pow(sat(1.0-f),.42)*(.38+uBody.x*.72));
-float bodyShell=gauss(f,uBand.x,uBand.y)+gauss(f,uBand.x-.028,uBand.y*1.9)*.55;
+float bodyDepth=bodyDepthPx(p,z,r),bodyCenter=bodyBandCenterPx(z),bodyWidth=bodyBandWidthPx(z),halfMin=min(z.x,z.y)*.5;
+float bodyShell=gauss(bodyDepth,bodyCenter,bodyWidth)+gauss(bodyDepth,bodyCenter+.028*halfMin,bodyWidth*1.9)*.55;
 float bodyBand=sat(bodyShell*(.42+bodyPresence*.38+bodyShell*.40));
 float bodyEnergy=pow(sat((bodySlope*11.0+hC*.22)*max(uBand.z,1.0)),max(.32,max(uBand.z,1.0)*.55));
 vec2 bodyN=bodyNormal(p,z,r);
