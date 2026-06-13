@@ -38,14 +38,16 @@ internal object WebOpenGLGlassMainShader {
     """
 
     const val BODY_SUFFIX = """
-            vec3 bodyColor;
+            float bodyBlurAmount=clamp(
+                uBlurAmount+pressField*0.42+pressWide*0.12,
+                0.0,
+                4.0
+            );
+            vec3 bodyColor=blurPyramidBackdropAt(bodyUv,bodyBlurAmount);
             if(press>0.001){
-                bodyColor=blurBackdrop(bodyUv,pressField*0.85+pressWide*0.22);
                 vec3 pressLensColor=clearBackdrop(bodyUv);
-                float pressLensMix=sat(pressField*0.220+pressWide*0.075);
+                float pressLensMix=sat(pressField*0.150+pressWide*0.045);
                 bodyColor=mix(bodyColor,pressLensColor,pressLensMix);
-            }else{
-                bodyColor=blurPyramidBackdrop(bodyUv);
             }
 
             float opticalBoost=1.0+bodyWeight*0.24;
