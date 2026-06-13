@@ -19,7 +19,6 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 private const val WEB_GLASS_SPEC_EPSILON_PX = 0.5f
 private const val WEB_GLASS_ORIGIN_EPSILON_PX = 0.35f
@@ -29,10 +28,7 @@ private const val WEB_GLASS_PRESS_CENTER_EPSILON = 0.002f
 private const val WEB_GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
 
 /**
- * Stable Android host for the exact web-preview renderer.
- *
- * Layout, sampling origin, viewport inset and press forwarding deliberately keep the existing
- * Compose/OpenGL stability chain untouched. Only the renderer behind this host is the new web glass.
+ * 保留既有 Compose/OpenGL 稳定宿主尺寸链，只替换内部渲染器为 V25.3 网页最终玻璃。
  */
 internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private val textureView = WebOpenGLGlassTextureView(context)
@@ -104,8 +100,7 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         visibleSurfaceWidth = (right - left).coerceAtLeast(1)
         visibleSurfaceHeight = (bottom - top).coerceAtLeast(1)
-        // The existing stable host deliberately keeps a fixed child surface. The visible glass rect
-        // moves inside that surface through rectOffsetY; changing this would reintroduce bottom jitter.
+        // 固定子 Surface，玻璃可视区域只通过 rectOffsetY 移动，避免聊天大玻璃底边抖动。
         textureView.translationY = 0f
         textureView.layout(0, 0, stableSurfaceWidth, stableSurfaceHeight)
         geometryAwaitingLayout = false
@@ -140,9 +135,11 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
         textureView.setPressSpec(progress, centerX, centerY)
 
-    fun setBackdropTexture(bitmap: Bitmap): Boolean = textureView.setBackdropTexture(bitmap)
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean =
+        textureView.setBackdropTextures(blurBitmap, lensBitmap)
 
-    fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
+    fun setGlassStyle(style: GlassBorderStyle, densityScale: Float): Boolean =
+        textureView.setGlassStyle(style, densityScale)
 
     fun requestRender() {
         if (!geometryAwaitingLayout) textureView.requestRender()
@@ -166,7 +163,8 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
 
 private class WebOpenGLGlassTextureView(context: Context) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: WebOpenGLGlassEglThread? = null
-    private var latestBackdropBitmap: Bitmap? = null
+    private var latestBlurBitmap: Bitmap? = null
+    private var latestLensBitmap: Bitmap? = null
     private var latestWidth = 1f
     private var latestHeight = 1f
     private var latestRectOffsetY = 0f
@@ -180,7 +178,8 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
     private var latestPressCenterX = 0.5f
     private var latestPressCenterY = 0.5f
     private var latestStyle = GlassBorderStyle()
-    private var latestStyleSignature = latestStyle.webOpenGlSignature()
+    private var latestDensityScale = 1f
+    private var latestStyleSignature = latestStyle.webOpenGlSignature(latestDensityScale)
 
     init {
         isOpaque = false
@@ -253,19 +252,22 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
         return dirty
     }
 
-    fun setBackdropTexture(bitmap: Bitmap): Boolean {
-        val dirty = bitmap !== latestBackdropBitmap
-        latestBackdropBitmap = bitmap
-        if (dirty) renderThread?.setBackdropTexture(bitmap)
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
+        val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
+        latestBlurBitmap = blurBitmap
+        latestLensBitmap = lensBitmap
+        if (dirty) renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
         return dirty
     }
 
-    fun setGlassStyle(style: GlassBorderStyle): Boolean {
-        val signature = style.webOpenGlSignature()
+    fun setGlassStyle(style: GlassBorderStyle, densityScale: Float): Boolean {
+        val safeDensity = densityScale.coerceAtLeast(0.1f)
+        val signature = style.webOpenGlSignature(safeDensity)
         val dirty = signature != latestStyleSignature
         latestStyle = style
+        latestDensityScale = safeDensity
         latestStyleSignature = signature
-        if (dirty) renderThread?.setGlassStyle(style)
+        if (dirty) renderThread?.setGlassStyle(style, safeDensity)
         return dirty
     }
 
@@ -279,8 +281,10 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
             thread.setGlassSpec(latestWidth, latestHeight, latestRectOffsetY, latestRadius, latestIntensity)
             thread.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
             thread.setPressSpec(latestPressProgress, latestPressCenterX, latestPressCenterY)
-            thread.setGlassStyle(latestStyle)
-            latestBackdropBitmap?.let(thread::setBackdropTexture)
+            thread.setGlassStyle(latestStyle, latestDensityScale)
+            val blur = latestBlurBitmap
+            val lens = latestLensBitmap
+            if (blur != null && lens != null) thread.setBackdropTextures(blur, lens)
             thread.start()
         }
     }
@@ -323,9 +327,11 @@ private class WebOpenGLGlassEglThread(
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) =
         renderer.setPressSpec(progress, centerX, centerY)
 
-    fun setBackdropTexture(bitmap: Bitmap) = renderer.setBackdropTexture(bitmap)
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) =
+        renderer.setBackdropTextures(blurBitmap, lensBitmap)
 
-    fun setGlassStyle(style: GlassBorderStyle) = renderer.setGlassStyle(style)
+    fun setGlassStyle(style: GlassBorderStyle, densityScale: Float) =
+        renderer.setGlassStyle(style, densityScale)
 
     fun requestRender() {
         synchronized(renderLock) {
@@ -439,59 +445,74 @@ private data class WebOpenGLGlassDrawSpec(
     val cardOriginY: Float,
     val rootWidth: Float,
     val rootHeight: Float,
-    val style: GlassBorderStyle
+    val style: GlassBorderStyle,
+    val densityScale: Float
 )
 
 private data class WebOpenGLGlassStyleSignature(
+    val densityScale: Float,
     val glassIntensity: Float,
-    val visibility: Float,
-    val maxAlpha: Float,
-    val edgeBrightness: Float,
-    val openGlPullScale: Float,
-    val edgePullDp: Float,
-    val compression: Float,
-    val corner: Float,
-    val sampleRadius: Float,
-    val ringWidth: Float,
-    val dark: Float,
-    val debugLine: Float,
+    val bodyVisibility: Float,
+    val bodyMaxAlpha: Float,
+    val bodyOutputBrightness: Float,
+    val bodyLensBasePull: Float,
+    val bodyLensPullDp: Float,
+    val bodyLensConcentration: Float,
+    val bodyLensCornerBoost: Float,
+    val bodyLensExtraDistance: Float,
+    val bodyLensReachDp: Float,
+    val bodyLensDark: Float,
+    val bodyLensDebug: Float,
     val bodyWidth: Float,
     val bodyCurve: Float,
     val bodyGain: Float,
-    val bodyBandPos: Float,
-    val bodyBandWidth: Float,
-    val bodyBandGain: Float,
-    val brightness: Float
+    val bodyBrightness: Float,
+    val legacyVisibility: Float,
+    val legacyMaxAlpha: Float,
+    val legacyEdgeBrightness: Float,
+    val legacyPullScale: Float,
+    val legacyEdgePullDp: Float,
+    val legacyCompressionScale: Float,
+    val legacyCornerScale: Float,
+    val legacySampleRadiusScale: Float,
+    val legacyEdgeWidthDp: Float,
+    val legacyDarkScale: Float,
+    val legacyDebugLineAlpha: Float
 )
 
-private fun GlassBorderStyle.webOpenGlSignature(): WebOpenGLGlassStyleSignature =
+private fun GlassBorderStyle.webOpenGlSignature(densityScale: Float): WebOpenGLGlassStyleSignature =
     WebOpenGLGlassStyleSignature(
+        densityScale = densityScale,
         glassIntensity = newOpenGlGlassIntensity.coerceIn(0.35f, 1.35f),
-        visibility = openGlVisibility.coerceIn(0f, 20f),
-        maxAlpha = openGlMaxAlpha.coerceIn(0f, 1f),
-        edgeBrightness = edgeBrightness.coerceIn(-5f, 5f),
-        openGlPullScale = openGlPullScale.coerceIn(-300f, 300f),
-        edgePullDp = edgePullDp.coerceIn(-600f, 600f),
-        compression = openGlCompressionScale.coerceIn(-10f, 10f),
-        corner = openGlCornerScale.coerceIn(0f, 200f),
-        sampleRadius = openGlSampleRadiusScale.coerceIn(0f, 200f),
-        ringWidth = ringWidthDp.coerceIn(0f, 300f),
-        dark = openGlDarkScale.coerceIn(-10f, 10f),
-        debugLine = openGlDebugLineAlpha.coerceIn(0f, 1f),
+        bodyVisibility = newOpenGlBodyVisibility.coerceIn(0f, 20f),
+        bodyMaxAlpha = newOpenGlBodyMaxAlpha.coerceIn(0f, 1f),
+        bodyOutputBrightness = newOpenGlBodyOutputBrightness.coerceIn(0.2f, 2.8f),
+        bodyLensBasePull = newOpenGlBodyLensBasePull.coerceIn(-300f, 300f),
+        bodyLensPullDp = newOpenGlBodyLensPullDp.coerceIn(-600f, 600f),
+        bodyLensConcentration = newOpenGlBodyLensConcentration.coerceIn(-10f, 10f),
+        bodyLensCornerBoost = newOpenGlBodyLensCornerBoost.coerceIn(0f, 200f),
+        bodyLensExtraDistance = newOpenGlBodyLensExtraDistance.coerceIn(0f, 200f),
+        bodyLensReachDp = newOpenGlBodyLensReachDp.coerceIn(8f, 180f),
+        bodyLensDark = newOpenGlBodyLensDark.coerceIn(-10f, 10f),
+        bodyLensDebug = newOpenGlBodyLensDebug.coerceIn(0f, 1f),
         bodyWidth = newOpenGlBodyWidth.coerceIn(0.18f, 1.5f),
-        bodyCurve = newOpenGlBodyCurve.coerceIn(0.20f, 3.2f),
+        bodyCurve = newOpenGlBodyCurve.coerceIn(0.2f, 3.2f),
         bodyGain = newOpenGlBodyGain.coerceIn(0f, 900f),
-        bodyBandPos = newOpenGlBodyBandPos.coerceIn(0.55f, 0.98f),
-        bodyBandWidth = newOpenGlBodyBandWidth.coerceIn(0.015f, 0.8f),
-        bodyBandGain = newOpenGlBodyBandGain.coerceIn(0f, 1500f),
-        brightness = newOpenGlBrightness.coerceIn(0.4f, 2.2f)
+        bodyBrightness = newOpenGlBrightness.coerceIn(0.4f, 2.2f),
+        legacyVisibility = openGlVisibility.coerceIn(0f, 20f),
+        legacyMaxAlpha = openGlMaxAlpha.coerceIn(0f, 1f),
+        legacyEdgeBrightness = edgeBrightness.coerceIn(-5f, 5f),
+        legacyPullScale = openGlPullScale.coerceIn(-300f, 300f),
+        legacyEdgePullDp = edgePullDp.coerceIn(-600f, 600f),
+        legacyCompressionScale = openGlCompressionScale.coerceIn(-10f, 10f),
+        legacyCornerScale = openGlCornerScale.coerceIn(0f, 200f),
+        legacySampleRadiusScale = openGlSampleRadiusScale.coerceIn(0f, 200f),
+        legacyEdgeWidthDp = ringWidthDp.coerceIn(0f, 300f),
+        legacyDarkScale = openGlDarkScale.coerceIn(-10f, 10f),
+        legacyDebugLineAlpha = openGlDebugLineAlpha.coerceIn(0f, 1f)
     )
 
-private data class FlowTextureKey(
-    val width: Int,
-    val height: Int,
-    val radiusQuarterPx: Int
-)
+private data class PendingBackdropTextures(val blur: Bitmap, val lens: Bitmap)
 
 private class WebOpenGLGlassRenderer {
     private val quadVertices: FloatBuffer = ByteBuffer
@@ -504,13 +525,10 @@ private class WebOpenGLGlassRenderer {
         }
     private val textureLock = Any()
     private val specLock = Any()
-    private var pendingBitmap: Bitmap? = null
-    private var backdropTextureId = 0
-    private var flowTextureId = 0
+    private var pendingTextures: PendingBackdropTextures? = null
+    private var blurTextureId = 0
+    private var lensTextureId = 0
     private var textureReady = false
-    private var flowTextureReady = false
-    private var flowTextureKey: FlowTextureKey? = null
-    private var flowDepthPx = 1f
     private var cardWidth = 1f
     private var cardHeight = 1f
     private var rectOffsetY = 0f
@@ -520,12 +538,11 @@ private class WebOpenGLGlassRenderer {
     private var cardOriginY = 0f
     private var rootWidth = 1f
     private var rootHeight = 1f
-    // Kept to preserve the established press forwarding chain. The web shader itself remains exact;
-    // Compose still applies the shell scale/sink/rebound and all surface optics above this layer.
     private var pressProgress = 0f
     private var pressCenterX = 0.5f
     private var pressCenterY = 0.5f
     private var style = GlassBorderStyle()
+    private var densityScale = 1f
     private var program = 0
     private var positionHandle = 0
     private var resolutionHandle = 0
@@ -535,14 +552,15 @@ private class WebOpenGLGlassRenderer {
     private var radiusHandle = 0
     private var intensityHandle = 0
     private var textureReadyHandle = 0
-    private var textureHandle = 0
-    private var flowTextureHandle = 0
-    private var flowDepthHandle = 0
+    private var blurTextureHandle = 0
+    private var lensTextureHandle = 0
     private var materialHandle = 0
-    private var oldAHandle = 0
-    private var oldBHandle = 0
+    private var bodyLensAHandle = 0
+    private var bodyLensBHandle = 0
     private var bodyHandle = 0
-    private var bandHandle = 0
+    private var legacyMaterialHandle = 0
+    private var legacyRefractionHandle = 0
+    private var legacyOpticsHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -573,12 +591,17 @@ private class WebOpenGLGlassRenderer {
         }
     }
 
-    fun setBackdropTexture(bitmap: Bitmap) {
-        synchronized(textureLock) { pendingBitmap = bitmap }
+    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
+        synchronized(textureLock) {
+            pendingTextures = PendingBackdropTextures(blurBitmap, lensBitmap)
+        }
     }
 
-    fun setGlassStyle(style: GlassBorderStyle) {
-        synchronized(specLock) { this.style = style }
+    fun setGlassStyle(style: GlassBorderStyle, densityScale: Float) {
+        synchronized(specLock) {
+            this.style = style
+            this.densityScale = densityScale.coerceAtLeast(0.1f)
+        }
     }
 
     fun onSurfaceCreated() {
@@ -591,21 +614,22 @@ private class WebOpenGLGlassRenderer {
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
         intensityHandle = GLES20.glGetUniformLocation(program, "uIntensity")
         textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
-        textureHandle = GLES20.glGetUniformLocation(program, "uTexture")
-        flowTextureHandle = GLES20.glGetUniformLocation(program, "uFlow")
-        flowDepthHandle = GLES20.glGetUniformLocation(program, "uFlowDepth")
+        blurTextureHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
+        lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
-        oldAHandle = GLES20.glGetUniformLocation(program, "uOldA")
-        oldBHandle = GLES20.glGetUniformLocation(program, "uOldB")
+        bodyLensAHandle = GLES20.glGetUniformLocation(program, "uBodyLensA")
+        bodyLensBHandle = GLES20.glGetUniformLocation(program, "uBodyLensB")
         bodyHandle = GLES20.glGetUniformLocation(program, "uBody")
-        bandHandle = GLES20.glGetUniformLocation(program, "uBodyBand")
+        legacyMaterialHandle = GLES20.glGetUniformLocation(program, "uLegacyMaterial")
+        legacyRefractionHandle = GLES20.glGetUniformLocation(program, "uLegacyRefraction")
+        legacyOpticsHandle = GLES20.glGetUniformLocation(program, "uLegacyOptics")
 
         val textures = IntArray(2)
         GLES20.glGenTextures(2, textures, 0)
-        backdropTextureId = textures[0]
-        flowTextureId = textures[1]
-        configureTexture(backdropTextureId)
-        configureTexture(flowTextureId)
+        blurTextureId = textures[0]
+        lensTextureId = textures[1]
+        configureTexture(blurTextureId)
+        configureTexture(lensTextureId)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
@@ -618,7 +642,7 @@ private class WebOpenGLGlassRenderer {
     }
 
     fun onDrawFrame() {
-        uploadPendingTextureIfNeeded()
+        uploadPendingTexturesIfNeeded()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
@@ -633,11 +657,12 @@ private class WebOpenGLGlassRenderer {
                 cardOriginY = cardOriginY,
                 rootWidth = rootWidth,
                 rootHeight = rootHeight,
-                style = style
+                style = style,
+                densityScale = densityScale
             )
         }
-        ensureFlowTexture(drawSpec)
         val s = drawSpec.style
+        val d = drawSpec.densityScale
 
         GLES20.glUseProgram(program)
         GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
@@ -656,49 +681,63 @@ private class WebOpenGLGlassRenderer {
         )
         GLES20.glUniform1f(intensityHandle, drawSpec.cardIntensity.coerceIn(0.35f, 1.35f))
         GLES20.glUniform1f(textureReadyHandle, if (textureReady) 1f else 0f)
-        GLES20.glUniform1f(flowDepthHandle, flowDepthPx)
+
         GLES20.glUniform4f(
             materialHandle,
-            s.openGlVisibility.coerceIn(0f, 20f),
-            s.openGlMaxAlpha.coerceIn(0f, 1f),
-            s.edgeBrightness.coerceIn(-5f, 5f),
-            s.openGlDebugLineAlpha.coerceIn(0f, 1f)
+            s.newOpenGlBodyVisibility.coerceIn(0f, 20f),
+            s.newOpenGlBodyMaxAlpha.coerceIn(0f, 1f),
+            s.newOpenGlBodyOutputBrightness.coerceIn(0.2f, 2.8f),
+            0f
         )
         GLES20.glUniform4f(
-            oldAHandle,
-            s.openGlPullScale.coerceIn(-300f, 300f),
-            s.edgePullDp.coerceIn(-600f, 600f),
-            s.openGlCompressionScale.coerceIn(-10f, 10f),
-            s.openGlCornerScale.coerceIn(0f, 200f)
+            bodyLensAHandle,
+            s.newOpenGlBodyLensBasePull.coerceIn(-300f, 300f) * d,
+            s.newOpenGlBodyLensPullDp.coerceIn(-600f, 600f) * d,
+            s.newOpenGlBodyLensConcentration.coerceIn(-10f, 10f),
+            s.newOpenGlBodyLensCornerBoost.coerceIn(0f, 200f)
         )
         GLES20.glUniform4f(
-            oldBHandle,
-            s.openGlSampleRadiusScale.coerceIn(0f, 200f),
-            s.ringWidthDp.coerceIn(0f, 300f),
-            s.openGlDarkScale.coerceIn(-10f, 10f),
-            s.openGlDebugLineAlpha.coerceIn(0f, 1f)
+            bodyLensBHandle,
+            s.newOpenGlBodyLensExtraDistance.coerceIn(0f, 200f) * d,
+            s.newOpenGlBodyLensReachDp.coerceIn(8f, 180f) * d,
+            s.newOpenGlBodyLensDark.coerceIn(-10f, 10f),
+            s.newOpenGlBodyLensDebug.coerceIn(0f, 1f)
         )
         GLES20.glUniform4f(
             bodyHandle,
             s.newOpenGlBodyWidth.coerceIn(0.18f, 1.5f),
-            s.newOpenGlBodyCurve.coerceIn(0.20f, 3.2f),
+            s.newOpenGlBodyCurve.coerceIn(0.2f, 3.2f),
             s.newOpenGlBodyGain.coerceIn(0f, 900f),
             s.newOpenGlBrightness.coerceIn(0.4f, 2.2f)
         )
         GLES20.glUniform4f(
-            bandHandle,
-            s.newOpenGlBodyBandPos.coerceIn(0.55f, 0.98f),
-            s.newOpenGlBodyBandWidth.coerceIn(0.015f, 0.8f),
-            s.newOpenGlBodyBandGain.coerceIn(0f, 1500f),
+            legacyMaterialHandle,
+            s.openGlVisibility.coerceIn(0f, 20f),
+            s.openGlMaxAlpha.coerceIn(0f, 1f),
+            s.edgeBrightness.coerceIn(-5f, 5f),
             0f
+        )
+        GLES20.glUniform4f(
+            legacyRefractionHandle,
+            s.openGlPullScale.coerceIn(-300f, 300f) * d,
+            s.edgePullDp.coerceIn(-600f, 600f) * d,
+            s.openGlCompressionScale.coerceIn(-10f, 10f),
+            s.openGlCornerScale.coerceIn(0f, 200f)
+        )
+        GLES20.glUniform4f(
+            legacyOpticsHandle,
+            s.openGlSampleRadiusScale.coerceIn(0f, 200f) * d,
+            s.ringWidthDp.coerceIn(0f, 300f) * d,
+            s.openGlDebugLineAlpha.coerceIn(0f, 1f),
+            s.openGlDarkScale.coerceIn(-10f, 10f)
         )
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, backdropTextureId)
-        GLES20.glUniform1i(textureHandle, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTextureId)
+        GLES20.glUniform1i(blurTextureHandle, 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, flowTextureId)
-        GLES20.glUniform1i(flowTextureHandle, 1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lensTextureId)
+        GLES20.glUniform1i(lensTextureHandle, 1)
 
         quadVertices.position(0)
         GLES20.glEnableVertexAttribArray(positionHandle)
@@ -709,82 +748,35 @@ private class WebOpenGLGlassRenderer {
     }
 
     fun onRelease() {
-        val textures = intArrayOf(backdropTextureId, flowTextureId)
-        if (backdropTextureId != 0 || flowTextureId != 0) {
-            GLES20.glDeleteTextures(2, textures, 0)
-        }
+        val textures = intArrayOf(blurTextureId, lensTextureId)
+        if (blurTextureId != 0 || lensTextureId != 0) GLES20.glDeleteTextures(2, textures, 0)
         if (program != 0) GLES20.glDeleteProgram(program)
-        backdropTextureId = 0
-        flowTextureId = 0
+        blurTextureId = 0
+        lensTextureId = 0
         program = 0
-        flowTextureReady = false
-        flowTextureKey = null
+        textureReady = false
     }
 
-    private fun uploadPendingTextureIfNeeded() {
-        val bitmap = synchronized(textureLock) {
-            pendingBitmap?.also { pendingBitmap = null }
+    private fun uploadPendingTexturesIfNeeded() {
+        val textures = synchronized(textureLock) {
+            pendingTextures?.also { pendingTextures = null }
         } ?: return
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, backdropTextureId)
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-        textureReady = true
-    }
-
-    private fun ensureFlowTexture(drawSpec: WebOpenGLGlassDrawSpec) {
-        val width = drawSpec.cardWidth.roundToInt().coerceAtLeast(1)
-        val height = drawSpec.cardHeight.roundToInt().coerceAtLeast(1)
-        val radius = drawSpec.cardRadius.coerceIn(0f, minOf(width, height) * 0.5f)
-        val key = FlowTextureKey(
-            width = width,
-            height = height,
-            radiusQuarterPx = (radius * 4f).roundToInt()
-        )
-        if (flowTextureReady && key == flowTextureKey) return
-
-        val map = WebOpenGLFlowMapFactory.build(width, height, radius)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, blurTextureId)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, textures.blur, 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, flowTextureId)
-        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-        map.pixels.position(0)
-        GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D,
-            0,
-            GLES20.GL_RGBA,
-            map.width,
-            map.height,
-            0,
-            GLES20.GL_RGBA,
-            GLES20.GL_UNSIGNED_BYTE,
-            map.pixels
-        )
-        flowDepthPx = map.depthPx
-        flowTextureKey = key
-        flowTextureReady = true
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lensTextureId)
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, textures.lens, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        textureReady = true
     }
 
     private fun configureTexture(textureId: Int) {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MIN_FILTER,
-            GLES20.GL_LINEAR
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MAG_FILTER,
-            GLES20.GL_LINEAR
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_S,
-            GLES20.GL_CLAMP_TO_EDGE
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_T,
-            GLES20.GL_CLAMP_TO_EDGE
-        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
     }
 }
 
