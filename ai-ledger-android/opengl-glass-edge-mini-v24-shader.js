@@ -23,37 +23,62 @@ vec2 softLimit(vec2 v,float lim){
   float m=n/(1.0+n/max(lim,1.0));
   return v*(m/max(n,.0001));
 }
-vec2 sdfNormalAt(vec2 p,vec2 z,float r){
-  float d=1.25;
-  vec2 n=vec2(
-    boxSdf(p+vec2(d,0.0),z,r)-boxSdf(p-vec2(d,0.0),z,r),
-    boxSdf(p+vec2(0.0,d),z,r)-boxSdf(p-vec2(0.0,d),z,r)
-  );
-  return n/max(length(n),.0001);
+
+/*
+ * 整圈统一的圆角矩形边缘坐标。
+ * 直边与圆角共用同一个最近边界点和同一条法线；圆角只负责连续转向，
+ * 不叠加上下边/左右边，也不引入任何角落增强结构。
+ */
+vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
+  vec2 local=p-z*.5;
+  vec2 core=max(z*.5-vec2(r),vec2(0.0));
+  vec2 nearest=clamp(local,-core,core);
+  vec2 radial=local-nearest;
+  float radialLength=length(radial);
+  if(radialLength>.0001){
+    return radial/radialLength;
+  }
+
+  vec2 safeCore=max(core,vec2(1.0));
+  vec2 sideRatio=abs(local)/safeCore;
+  if(sideRatio.x>sideRatio.y){
+    return vec2(local.x<0.0?-1.0:1.0,0.0);
+  }
+  return vec2(0.0,local.y<0.0?-1.0:1.0);
 }
 
-/* V25 主体折射：只重命名并隔离参数，公式和默认视觉保持不变。 */
-float bodyLensWeight(float depth,vec2 z){
-  float reach=clamp(uBodyLensB.y,8.0,min(z.x,z.y)*.46);
+/*
+ * 同一个折射截面沿整个边缘扫一圈。
+ * 有效深度统一限制在圆角半径以内，避免圆角法线穿过曲率中心后折叠。
+ */
+float bodyLensReach(vec2 z,float r){
+  float requested=max(uBodyLensB.y,8.0);
+  float curvatureSafe=max(r*.96,8.0);
+  return min(requested,min(curvatureSafe,min(z.x,z.y)*.46));
+}
+float bodyLensWeight(float depth,vec2 z,float r){
+  float reach=bodyLensReach(z,r);
   float x=sat(depth/max(reach,1.0));
   float smooth=x*x*(3.0-2.0*x);
   float concentration=mix(.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
   return pow(1.0-smooth,concentration);
 }
-float bodyCornerFactor(vec2 p,vec2 z){
-  vec2 q=abs((p-z*.5)/max(z*.5,vec2(1.0)));
-  return smoothstep(.52,.94,min(q.x,q.y));
-}
 vec2 bodyRefractionFlow(vec2 p,vec2 z,float r,float depth,float weight){
-  vec2 n=sdfNormalAt(p,z,r);
-  float pull=abs(uBodyLensA.y)*.052+abs(uBodyLensA.x)*.20+max(uBodyLensB.x,0.0)*.12;
-  float cornerBoost=1.0+bodyCornerFactor(p,z)*sat(uBodyLensA.w/200.0)*.52;
+  vec2 n=perimeterNormalAt(p,z,r);
+  float rawPull=abs(uBodyLensA.y)*.052+abs(uBodyLensA.x)*.20+max(uBodyLensB.x,0.0)*.12;
   float core=pow(weight,1.28);
-  vec2 flow=-n*pull*core*cornerBoost;
-  return softLimit(flow,96.0+max(uBodyLensB.x,0.0)*.16);
+  float reach=bodyLensReach(z,r);
+  float remaining=max(reach-depth,0.0);
+
+  /*
+   * 把采样深度限制在同一条无自交的边缘管带中。
+   * 上下左右与圆角使用完全相同的标量位移，只旋转法线方向。
+   */
+  float displacement=remaining*(1.0-exp(-(rawPull*core)/max(remaining,1.0)))*.96;
+  return -n*displacement;
 }
 
-/* 极宽、无闭合轮廓的内部低频运输，只负责轻微材质流动。 */
+/* 极宽、无闭合轮廓的内部低频运输；当前最终参数中强度为 0。 */
 float centerEnvelope(vec2 u){
   float width=sat((uBody.x-.18)/(1.5-.18));
   vec2 span=vec2(mix(.72,1.16,width),mix(.66,1.08,width));
@@ -94,13 +119,13 @@ void main(){
   if(mask<=.001)discard;
 
   float depth=insideFromSdf(sd);
-  float bodyWeight=bodyLensWeight(depth,z);
+  float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
   vec2 totalFlow=mainBodyFlow+centerFlow;
 
   vec3 color=sampleBg(globalUv(p+totalFlow));
-  float opticalBoost=1.0+bodyWeight*.24+bodyCornerFactor(p,z)*bodyWeight*.10;
+  float opticalBoost=1.0+bodyWeight*.24;
   color*=uBody.w*uMat.z*opticalBoost;
   color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   float debugEdge=smoothstep(-1.6,0.0,sd)*mask;
