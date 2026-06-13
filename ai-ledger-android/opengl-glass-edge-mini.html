@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Harmonic Ring Flow Map</title>
+<title>OpenGL V23 · Harmonic Ring Flow Map · High Range</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · harmonic annular flow map + original old edge</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · harmonic annular flow map / expanded body range</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -20,7 +20,7 @@ let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,custom
 const groups=[
 {title:'背景模糊层 BackdropDebugParams',items:[['radius','背景模糊半径',0,4],['iterations','模糊迭代次数',1,12],['brightness','背景层亮度',.4,2.2],['contrast','背景层对比',.5,1.8],['saturation','背景层饱和',.3,1.8]]},
 {title:'旧版 OpenGL 边缘折射 OpenGLGlassCardLayer',items:[['openGlVisibility','OpenGL可见强度',0,20],['openGlMaxAlpha','OpenGL最大透明',0,1],['edgeBrightness','旧边缘亮度',-5,5],['openGlPullScale','旧主体/边缘拉力',-300,300],['edgePullDp','旧边缘拉力 dp',-600,600],['openGlCompressionScale','旧压缩强度',-10,10],['openGlCornerScale','旧角部强度',0,200],['openGlSampleRadiusScale','旧采样半径',0,200],['ringWidthDp','旧边缘宽度',0,300],['openGlDarkScale','旧暗边强度',-10,10],['openGlDebugLineAlpha','旧调试线',0,1]]},
-{title:'新版 OpenGL 主体折射 NewOpenGLGlassCardLayer',items:[['glassIntensity','样本玻璃强度',.35,1.35],['newOpenGlBrightness','新版输出亮度',.4,2.2],['newOpenGlBodyWidth','主体宽度',.18,1.5],['newOpenGlBodyCurve','主体陡度',.2,3.2],['newOpenGlBodyGain','主体强度',0,900],['newOpenGlBodyBandPos','主体折射带位置',.55,.98],['newOpenGlBodyBandWidth','主体折射带宽度',.015,.8],['newOpenGlBodyBandGain','主体折射带强度',0,1500]]}
+{title:'新版 OpenGL 主体折射 NewOpenGLGlassCardLayer',items:[['glassIntensity','样本玻璃强度',.1,3],['newOpenGlBrightness','新版输出亮度',.2,4],['newOpenGlBodyWidth','主体宽度',.02,3],['newOpenGlBodyCurve','主体陡度',.1,8],['newOpenGlBodyGain','主体强度',0,6000],['newOpenGlBodyBandPos','主体折射带位置',.05,.995],['newOpenGlBodyBandWidth','主体折射带宽度',.005,2.4],['newOpenGlBodyBandGain','主体折射带强度',0,10000]]}
 ];
 const $=id=>document.getElementById(id),stage=$('stage'),scroll=$('scroll'),glassEl=$('glass'),bg=$('bg'),gb=$('gb'),cv=$('gl'),out=$('out'),errorEl=$('error'),moonBtn=$('moonBtn'),bgUpload=$('bgUpload'),uploadBgBtn=$('uploadBgBtn'),clearBgBtn=$('clearBgBtn'),bgStatus=$('bgStatus');
 const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),sourceCanvas=document.createElement('canvas'),sourceCtx=sourceCanvas.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
@@ -41,13 +41,13 @@ float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q)
 vec2 softLimit(vec2 v,float lim){float n=length(v),m=n/(1.0+n/max(lim,1.0));return v*(m/max(n,.0001));}
 
 /* 主体折射读取预计算的环形 harmonic flow map，不再实时延伸全局 SDF 法线。 */
-float bodyCoreReachPx(vec2 z){float halfMin=min(z.x,z.y)*.5;return clamp(uBody.x*halfMin,2.0,min(halfMin*.48,uFlowDepth*.72));}
+float bodyCoreReachPx(vec2 z){float halfMin=min(z.x,z.y)*.5;float cap=min(halfMin*.82,uFlowDepth*.86);float response=1.0-exp(-max(uBody.x,0.0)*1.45);return mix(2.0,cap,sat(response));}
 float bodyBandWidthPx(vec2 z){return max(uBand.y*min(z.x,z.y)*.18,1.0);}
 float bodyBandCenterPx(vec2 z,float width){float halfMin=min(z.x,z.y)*.5;float raw=(1.0-uBand.x)*halfMin;return clamp(raw,0.0,max(uFlowDepth-width*1.25,0.0));}
 float bodyFlowGate(float depth,float width){return 1.0-smoothstep(uFlowDepth-width*1.55,uFlowDepth-width*.45,depth);}
 float bodyShellFromDepth(float depth,vec2 z){float width=bodyBandWidthPx(z);float center=bodyBandCenterPx(z,width);float shell=gauss(depth,center,width)+gauss(depth,center+width*.42,width*1.8)*.85;return shell*bodyFlowGate(depth,width);}
 float bodyHeightFromDepth(float depth,vec2 z,float coreReach){float coreGate=1.0-smoothstep(coreReach*.76,coreReach,depth);float core=pow(sat(1.0-depth/coreReach),max(uBody.y,.2));core=pow(core,max(.28,2.0-uBody.y*.55));core*=mix(.72,1.9,sat(uBody.x))*coreGate;return pow(sat(core),.72)+bodyShellFromDepth(depth,z)*1.55;}
-float bodySafeOffsetPx(vec2 z,float safeGain){float width=bodyBandWidthPx(z);return max(1.0,min(width*.58,uFlowDepth*.14))*safeGain;}
+float bodySafeOffsetPx(vec2 z,float safeGain){float width=bodyBandWidthPx(z);float geometric=max(2.0,min(width*2.4,uFlowDepth*.34));float strength=.45+.55*sat((abs(uBody.z)+abs(uBand.z)*2.0)/6000.0);return geometric*pow(sat(safeGain),.65)*strength;}
 vec2 roundedSdfNormal(vec2 p,vec2 z,float r){float d=1.4;vec2 n=vec2(boxSdf(p+vec2(d,0.0),z,r)-boxSdf(p-vec2(d,0.0),z,r),boxSdf(p+vec2(0.0,d),z,r)-boxSdf(p-vec2(0.0,d),z,r));return n/max(length(n),.0001);}
 
 /* 旧版边缘宽度、厚度、梯度方向与远采样保持原版。 */
