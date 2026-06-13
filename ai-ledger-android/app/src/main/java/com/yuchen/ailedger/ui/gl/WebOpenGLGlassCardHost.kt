@@ -471,6 +471,9 @@ private data class WebOpenGLGlassDrawSpec(
     val cardOriginY: Float,
     val rootWidth: Float,
     val rootHeight: Float,
+    val pressProgress: Float,
+    val pressCenterX: Float,
+    val pressCenterY: Float,
     val blurAmount: Float,
     val style: GlassBorderStyle,
     val densityScale: Float
@@ -523,6 +526,7 @@ private class WebOpenGLGlassRenderer {
     private var rectHandle = 0
     private var radiusHandle = 0
     private var intensityHandle = 0
+    private var pressHandle = 0
     private var textureReadyHandle = 0
     private var blurAmountHandle = 0
     private var clearTextureHandle = 0
@@ -594,6 +598,7 @@ private class WebOpenGLGlassRenderer {
         rectHandle = GLES20.glGetUniformLocation(program, "uRect")
         radiusHandle = GLES20.glGetUniformLocation(program, "uRadius")
         intensityHandle = GLES20.glGetUniformLocation(program, "uIntensity")
+        pressHandle = GLES20.glGetUniformLocation(program, "uPress")
         textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
         blurAmountHandle = GLES20.glGetUniformLocation(program, "uBlurAmount")
         clearTextureHandle = GLES20.glGetUniformLocation(program, "uClearTexture")
@@ -642,6 +647,9 @@ private class WebOpenGLGlassRenderer {
                 cardOriginY = cardOriginY,
                 rootWidth = rootWidth,
                 rootHeight = rootHeight,
+                pressProgress = pressProgress,
+                pressCenterX = pressCenterX,
+                pressCenterY = pressCenterY,
                 blurAmount = blurAmount,
                 style = style,
                 densityScale = densityScale
@@ -660,6 +668,13 @@ private class WebOpenGLGlassRenderer {
             drawSpec.cardRadius.coerceIn(2f, max(drawSpec.cardWidth, drawSpec.cardHeight))
         )
         GLES20.glUniform1f(intensityHandle, drawSpec.cardIntensity.coerceIn(0.35f, 1.35f))
+        GLES20.glUniform4f(
+            pressHandle,
+            drawSpec.pressProgress.coerceIn(0f, 1f),
+            drawSpec.pressCenterX.coerceIn(0f, 1f),
+            drawSpec.pressCenterY.coerceIn(0f, 1f),
+            0f
+        )
         GLES20.glUniform1f(textureReadyHandle, if (textureReady) 1f else 0f)
         GLES20.glUniform1f(blurAmountHandle, drawSpec.blurAmount.coerceIn(0f, 4f))
 
