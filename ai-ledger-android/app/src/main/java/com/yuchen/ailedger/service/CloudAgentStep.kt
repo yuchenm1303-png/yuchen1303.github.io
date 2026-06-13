@@ -20,7 +20,8 @@ data class CloudAgentState(
                 ?: root.optJSONObject("result")?.optJSONObject("agentState")
                 ?: root.optJSONObject("plan")?.optJSONObject("agentState")
                 ?: root.takeIf {
-                    it.has("isComplete") || it.has("complete") || it.has("isExpected") || it.has("expectedProgress") || it.has("isWrong")
+                    it.has("isComplete") || it.has("complete") ||
+                        it.has("expectedProgress") || it.has("isWrong")
                 }
                 ?: return null
 
@@ -28,13 +29,11 @@ data class CloudAgentState(
                 ?: item.optFlexibleBoolean("complete")
                 ?: item.optFlexibleBoolean("completed")
                 ?: item.optFlexibleBoolean("isExpected")
-                ?: item.optFlexibleBoolean("expected")
                 ?: false
             val progress = item.optFlexibleBoolean("expectedProgress")
                 ?: item.optFlexibleBoolean("progress")
                 ?: item.optFlexibleBoolean("isProgress")
                 ?: item.optFlexibleBoolean("onRightTrack")
-                ?: item.optFlexibleBoolean("closerToGoal")
                 ?: complete
             val wrong = item.optFlexibleBoolean("isWrong")
                 ?: item.optFlexibleBoolean("wrong")
@@ -54,13 +53,11 @@ data class CloudAgentState(
                 expectedProgress = progress || complete,
                 isWrong = safeWrong,
                 confidence = confidence.coerceIn(0f, 1f),
-                reason = item.optString("reason")
-                    .notBlankOrNull()
+                reason = item.optString("reason").notBlankOrNull()
                     ?: item.optString("explanation").notBlankOrNull()
                     ?: item.optString("rationale").notBlankOrNull()
                     ?: "",
-                nextHint = item.optString("nextHint")
-                    .notBlankOrNull()
+                nextHint = item.optString("nextHint").notBlankOrNull()
                     ?: item.optString("next_hint").notBlankOrNull()
                     ?: item.optString("hint").notBlankOrNull()
                     ?: "",
@@ -104,9 +101,9 @@ data class CloudAgentPlan(
                 root.optJSONObject("result"),
                 root.optJSONObject("agentPlan"),
             )
-            val keys = listOf("agentSteps", "steps", "actionBatch", "actions")
             return containers.flatMap { container ->
-                keys.flatMap { key -> container.optJSONArray(key).toAgentSteps() }
+                listOf("agentSteps", "steps", "actionBatch", "actions")
+                    .flatMap { key -> container.optJSONArray(key).toAgentSteps() }
             }
         }
 
@@ -120,20 +117,19 @@ data class CloudAgentPlan(
                 root.optJSONObject("agentPlan"),
             )
             return containers.flatMap { container ->
-                listOf("stopConditions", "batchStopConditions", "replanOn").flatMap { key ->
-                    container.optStringSet(key)
-                }
+                listOf("stopConditions", "batchStopConditions", "replanOn")
+                    .flatMap { key -> container.optStringSet(key) }
             }.toSet()
         }
 
         private fun JSONArray?.toAgentSteps(): List<CloudAgentStep> {
             if (this == null) return emptyList()
-            val result = mutableListOf<CloudAgentStep>()
-            for (i in 0 until length()) {
-                val item = optJSONObject(i) ?: continue
-                CloudAgentStep.fromJson(item)?.let { result += it }
+            return buildList {
+                for (index in 0 until length()) {
+                    val item = optJSONObject(index) ?: continue
+                    CloudAgentStep.fromJson(item)?.let(::add)
+                }
             }
-            return result
         }
     }
 }
@@ -159,45 +155,11 @@ data class CloudAgentStep(
     val toolArgs: JSONObject? = null,
 ) {
     val typeLabel: String
-        get() = when (type) {
-            "open_app" -> "打开应用"
-            "tap_node" -> "点击节点"
-            "tap_xy" -> "点击坐标"
-            "input_text" -> "输入文字"
-            "scroll" -> "滚动屏幕"
-            "swipe" -> "滑动屏幕"
-            "back" -> "返回"
-            "home" -> "回到桌面"
-            "recents" -> "打开最近任务"
-            "notifications" -> "下拉通知栏"
-            "quick_settings" -> "打开快捷设置"
-            "wait" -> "等待"
-            "finish" -> "任务完成"
-            "need_user_help" -> "需要用户协助"
-            "open_system_settings" -> "打开系统设置"
-            "open_app_settings" -> "打开应用设置"
-            "set_brightness" -> "调节亮度"
-            "set_screen_timeout" -> "设置息屏时间"
-            "set_auto_rotate" -> "设置自动旋转"
-            "set_media_volume" -> "设置媒体音量"
-            "set_wifi_enabled" -> "设置 Wi‑Fi"
-            "set_bluetooth_enabled" -> "设置蓝牙"
-            "set_mobile_data_enabled" -> "设置移动数据"
-            "set_dark_mode" -> "设置深色模式"
-            "device_status" -> "设备状态"
-            "shizuku_status" -> "Shizuku 状态"
-            "request_shizuku_permission" -> "请求 Shizuku 授权"
-            "set_animation_scale" -> "设置动画缩放"
-            "force_stop_app" -> "强停应用"
-            "clear_app_data" -> "清除应用数据"
-            "uninstall_app" -> "卸载应用"
-            "disable_app" -> "禁用应用"
-            "enable_app" -> "启用应用"
-            else -> type
-        }
+        get() = TYPE_LABELS[type] ?: type
 
     val shouldUseFocusedDirectInput: Boolean
-        get() = inputMode?.lowercase()?.replace('-', '_') in focusedInputModes || useFocusedInput || expectsFocusedInput || !requiresInputNode
+        get() = inputMode?.lowercase()?.replace('-', '_') in focusedInputModes ||
+            useFocusedInput || expectsFocusedInput || !requiresInputNode
 
     fun argString(vararg names: String): String? {
         val args = toolArgs ?: return null
@@ -232,53 +194,75 @@ data class CloudAgentStep(
 
     companion object {
         private val focusedInputModes = setOf(
-            "focused_direct",
-            "focused",
-            "direct",
-            "keyboard",
-            "ime",
-            "active_input",
-            "current_focus",
+            "focused_direct", "focused", "direct", "keyboard", "ime",
+            "active_input", "current_focus",
         )
 
-        val deviceToolTypes = setOf(
-            "open_app",
-            "open_system_settings",
-            "open_app_settings",
-            "set_brightness",
-            "set_screen_timeout",
-            "set_auto_rotate",
-            "set_media_volume",
-            "set_wifi_enabled",
-            "set_bluetooth_enabled",
-            "set_mobile_data_enabled",
-            "set_dark_mode",
-            "device_status",
-            "shizuku_status",
-            "request_shizuku_permission",
-            "set_animation_scale",
-            "force_stop_app",
-            "clear_app_data",
-            "uninstall_app",
-            "disable_app",
-            "enable_app",
+        private val TYPE_LABELS = mapOf(
+            "open_app" to "打开应用",
+            "tap_node" to "点击节点",
+            "tap_xy" to "点击坐标",
+            "input_text" to "输入文字",
+            "scroll" to "滚动屏幕",
+            "swipe" to "滑动屏幕",
+            "back" to "返回",
+            "home" to "回到桌面",
+            "recents" to "打开最近任务",
+            "notifications" to "下拉通知栏",
+            "quick_settings" to "打开快捷设置",
+            "wait" to "等待",
+            "finish" to "任务完成",
+            "need_user_help" to "需要用户协助",
+            "open_system_settings" to "打开系统设置",
+            "open_app_settings" to "打开应用设置",
+            "set_brightness" to "调节亮度",
+            "set_screen_timeout" to "设置息屏时间",
+            "set_auto_rotate" to "设置自动旋转",
+            "set_media_volume" to "设置媒体音量",
+            "set_wifi_enabled" to "设置 Wi‑Fi",
+            "set_bluetooth_enabled" to "设置蓝牙",
+            "set_mobile_data_enabled" to "设置移动数据",
+            "set_dark_mode" to "设置深色模式",
+            "device_status" to "设备状态",
+            "shizuku_status" to "Shizuku 状态",
+            "request_shizuku_permission" to "请求 Shizuku 授权",
+            "set_animation_scale" to "设置动画缩放",
+            "force_stop_app" to "强停应用",
+            "clear_app_data" to "清除应用数据",
+            "uninstall_app" to "卸载应用",
+            "disable_app" to "禁用应用",
+            "enable_app" to "启用应用",
+            "ledger_add_record" to "新增账单",
+            "ledger_set_budget" to "设置账单预算",
+            "ledger_query_summary" to "查询账单汇总",
+            "ledger_list_records" to "查询账单明细",
         )
+
+        val systemDeviceToolTypes = setOf(
+            "open_app", "open_system_settings", "open_app_settings",
+            "set_brightness", "set_screen_timeout", "set_auto_rotate",
+            "set_media_volume", "set_wifi_enabled", "set_bluetooth_enabled",
+            "set_mobile_data_enabled", "set_dark_mode", "device_status",
+            "shizuku_status", "request_shizuku_permission", "set_animation_scale",
+            "force_stop_app", "clear_app_data", "uninstall_app",
+            "disable_app", "enable_app",
+        )
+
+        val ledgerToolTypes = setOf(
+            "ledger_add_record",
+            "ledger_set_budget",
+            "ledger_query_summary",
+            "ledger_list_records",
+        )
+
+        val deviceToolTypes = systemDeviceToolTypes + ledgerToolTypes
+        val internalToolTypes = deviceToolTypes
 
         val supportedTypes = setOf(
-            "tap_node",
-            "tap_xy",
-            "input_text",
-            "scroll",
-            "swipe",
-            "back",
-            "home",
-            "recents",
-            "notifications",
-            "quick_settings",
-            "wait",
-            "finish",
-            "need_user_help",
-        ) + deviceToolTypes
+            "tap_node", "tap_xy", "input_text", "scroll", "swipe",
+            "back", "home", "recents", "notifications", "quick_settings",
+            "wait", "finish", "need_user_help",
+        ) + internalToolTypes
 
         fun fromJson(root: JSONObject?): CloudAgentStep? {
             val item = root?.optJSONObject("agentStep")
@@ -289,124 +273,138 @@ data class CloudAgentStep(
                 ?: root?.optJSONObject("result")?.optJSONObject("agentStep")
                 ?: root?.takeIf { it.has("type") || it.has("action") || it.has("tool") || it.has("name") }
                 ?: return null
-            val toolArgs = item.mergedToolArgs()
-            fun argString(vararg names: String): String? {
-                for (name in names) {
-                    val value = toolArgs.optString(name).trim()
-                    if (value.isNotBlank()) return value
-                }
-                return null
-            }
-            val rawType = item.optString("type").notBlankOrNull()
-                ?: item.optString("action").notBlankOrNull()
-                ?: item.optString("tool").notBlankOrNull()
-                ?: item.optString("name").notBlankOrNull()
-                ?: return null
+            val args = item.mergedToolArgs()
+            val rawType = item.firstNonBlank("type", "action", "tool", "name") ?: return null
             val normalizedType = normalizeStepType(rawType) ?: return null
-            val parsedTargetText = item.optString("targetText").notBlankOrNull()
-                ?: item.optString("label").notBlankOrNull()
-                ?: item.optString("title").notBlankOrNull()
-                ?: item.optString("target").notBlankOrNull()
-                ?: argString("targetText", "target", "label", "title", "page", "kind")
-            val parsedText = item.optString("text").notBlankOrNull()
-                ?: item.optString("inputText").notBlankOrNull()
-                ?: item.optString("value").notBlankOrNull()
-                ?: argString("text", "inputText", "value", "query", "content")
-            val parsedAppName = item.optString("appName").notBlankOrNull()
-                ?: item.optString("app").notBlankOrNull()
-                ?: item.optString("application").notBlankOrNull()
-                ?: argString("appName", "app", "application", "label", "name")
-                ?: if (normalizedType == "open_app") parsedTargetText ?: parsedText else null
-            val parsedPackageName = item.optString("packageName").notBlankOrNull()
-                ?: item.optString("package").notBlankOrNull()
-                ?: item.optString("pkg").notBlankOrNull()
-                ?: argString("packageName", "package", "pkg")
-            val parsedInputMode = item.optString("inputMode").notBlankOrNull()
-                ?: item.optString("input_mode").notBlankOrNull()
-                ?: item.optString("inputStrategy").notBlankOrNull()
-                ?: item.optString("input_strategy").notBlankOrNull()
-                ?: argString("inputMode", "input_mode", "inputStrategy", "input_strategy")
+            val parsedInputMode = item.firstNonBlank(
+                "inputMode", "input_mode", "inputStrategy", "input_strategy",
+            ) ?: args.firstNonBlank("inputMode", "input_mode", "inputStrategy", "input_strategy")
             val inputModeKey = parsedInputMode?.lowercase()?.replace('-', '_')
-            val explicitUseFocusedInput = item.optFlexibleBoolean("useFocusedInput")
+            val explicitFocused = item.optFlexibleBoolean("useFocusedInput")
                 ?: item.optFlexibleBoolean("use_focused_input")
                 ?: item.optFlexibleBoolean("focusedDirect")
                 ?: item.optFlexibleBoolean("focused_direct")
-            val parsedExpectsFocusedInput = item.optFlexibleBoolean("expectsFocusedInput")
+            val expectsFocused = item.optFlexibleBoolean("expectsFocusedInput")
                 ?: item.optFlexibleBoolean("expects_focused_input")
                 ?: item.optFlexibleBoolean("focusedInput")
                 ?: item.optFlexibleBoolean("focused_input")
                 ?: false
-            val inferredFocusedDirect = inputModeKey in focusedInputModes || explicitUseFocusedInput == true || parsedExpectsFocusedInput
-            val parsedRequiresInputNode = item.optFlexibleBoolean("requiresInputNode")
+            val inferredFocused = inputModeKey in focusedInputModes ||
+                explicitFocused == true || expectsFocused
+            val requiresNode = item.optFlexibleBoolean("requiresInputNode")
                 ?: item.optFlexibleBoolean("requires_input_node")
                 ?: item.optFlexibleBoolean("inputNodeRequired")
                 ?: item.optFlexibleBoolean("input_node_required")
-                ?: !inferredFocusedDirect
+                ?: !inferredFocused
+
+            val targetText = item.firstNonBlank("targetText", "label", "title", "target")
+                ?: args.firstNonBlank("targetText", "target", "label", "title", "page", "kind")
+            val parsedText = item.firstNonBlank("text", "inputText", "value")
+                ?: args.firstNonBlank("text", "inputText", "value", "query", "content")
+            val appName = item.firstNonBlank("appName", "app", "application")
+                ?: args.firstNonBlank("appName", "app", "application", "label", "name")
+                ?: if (normalizedType == "open_app") targetText ?: parsedText else null
+            val packageName = item.firstNonBlank("packageName", "package", "pkg")
+                ?: args.firstNonBlank("packageName", "package", "pkg")
+
             return CloudAgentStep(
                 type = normalizedType,
-                targetNodeId = item.optString("targetNodeId").notBlankOrNull()
-                    ?: item.optString("nodeId").notBlankOrNull()
-                    ?: item.optString("targetId").notBlankOrNull()
-                    ?: argString("targetNodeId", "nodeId", "targetId"),
-                targetText = parsedTargetText,
+                targetNodeId = item.firstNonBlank("targetNodeId", "nodeId", "targetId")
+                    ?: args.firstNonBlank("targetNodeId", "nodeId", "targetId"),
+                targetText = targetText,
                 text = parsedText,
-                direction = item.optString("direction").notBlankOrNull()?.lowercase()
-                    ?: argString("direction")?.lowercase(),
-                reason = item.optString("reason").notBlankOrNull()
-                    ?: item.optString("rationale").notBlankOrNull()
-                    ?: argString("reason", "rationale"),
-                riskLevel = item.optString("riskLevel").notBlankOrNull()?.lowercase()?.replace('-', '_')
-                    ?: item.optString("risk").notBlankOrNull()?.lowercase()?.replace('-', '_')
-                    ?: argString("riskLevel", "risk")?.lowercase()?.replace('-', '_')
+                direction = item.firstNonBlank("direction")?.lowercase()
+                    ?: args.firstNonBlank("direction")?.lowercase(),
+                reason = item.firstNonBlank("reason", "rationale")
+                    ?: args.firstNonBlank("reason", "rationale"),
+                riskLevel = item.firstNonBlank("riskLevel", "risk")
+                    ?.lowercase()?.replace('-', '_')
+                    ?: args.firstNonBlank("riskLevel", "risk")
+                        ?.lowercase()?.replace('-', '_')
                     ?: "low",
                 requiresConfirmation = item.optFlexibleBoolean("requiresConfirmation")
                     ?: item.optFlexibleBoolean("confirm")
                     ?: false,
-                appName = parsedAppName,
-                packageName = parsedPackageName,
-                x = item.optTapCoordinateComponent(0) ?: toolArgs.optTapCoordinateComponent(0),
-                y = item.optTapCoordinateComponent(1) ?: toolArgs.optTapCoordinateComponent(1),
-                durationMs = item.optNullableLong("durationMs") ?: item.optNullableLong("delayMs") ?: item.optNullableLong("waitMs")
-                    ?: toolArgs.optNullableLong("durationMs") ?: toolArgs.optNullableLong("delayMs") ?: toolArgs.optNullableLong("waitMs"),
+                appName = appName,
+                packageName = packageName,
+                x = item.optTapCoordinateComponent(0) ?: args.optTapCoordinateComponent(0),
+                y = item.optTapCoordinateComponent(1) ?: args.optTapCoordinateComponent(1),
+                durationMs = item.optNullableLong("durationMs")
+                    ?: item.optNullableLong("delayMs")
+                    ?: item.optNullableLong("waitMs")
+                    ?: args.optNullableLong("durationMs")
+                    ?: args.optNullableLong("delayMs")
+                    ?: args.optNullableLong("waitMs"),
                 inputMode = parsedInputMode,
-                requiresInputNode = parsedRequiresInputNode,
-                expectsFocusedInput = parsedExpectsFocusedInput,
-                useFocusedInput = explicitUseFocusedInput ?: inferredFocusedDirect,
-                toolArgs = toolArgs.takeIf { it.length() > 0 },
+                requiresInputNode = requiresNode,
+                expectsFocusedInput = expectsFocused,
+                useFocusedInput = explicitFocused ?: inferredFocused,
+                toolArgs = args.takeIf { it.length() > 0 },
             )
         }
 
         private fun normalizeStepType(rawType: String): String? {
             val key = rawType.lowercase().trim().replace('-', '_')
-            val normalized = when (key) {
-                "open", "launch", "launch_app", "open_application" -> "open_app"
-                "tap", "click", "press", "point", "tap_point", "click_xy", "coordinate_click", "coordinate_tap" -> "tap_xy"
-                "input", "type", "enter_text", "text" -> "input_text"
-                "done", "complete", "completed" -> "finish"
-                "ask_user", "need_help", "clarify" -> "need_user_help"
-                "settings", "open_settings", "system_settings" -> "open_system_settings"
-                "app_settings", "app_info", "open_app_detail" -> "open_app_settings"
-                "brightness", "screen_brightness" -> "set_brightness"
-                "screen_timeout", "sleep_timeout" -> "set_screen_timeout"
-                "auto_rotate", "rotation", "accelerometer_rotation" -> "set_auto_rotate"
-                "media_volume", "volume", "set_volume", "music_volume" -> "set_media_volume"
-                "wifi", "wi_fi", "set_wifi", "wifi_enabled" -> "set_wifi_enabled"
-                "bluetooth", "set_bluetooth", "bluetooth_enabled" -> "set_bluetooth_enabled"
-                "mobile_data", "cellular_data", "data_enabled", "set_data" -> "set_mobile_data_enabled"
-                "dark_mode", "night_mode", "ui_mode" -> "set_dark_mode"
-                "health", "device_health" -> "device_status"
-                "shell_status", "enhanced_status", "shizuku" -> "shizuku_status"
-                "shizuku_permission", "request_shizuku" -> "request_shizuku_permission"
-                "animation_scale" -> "set_animation_scale"
-                "force_stop", "force_stop_application" -> "force_stop_app"
-                "clear_data" -> "clear_app_data"
-                "uninstall" -> "uninstall_app"
-                "disable" -> "disable_app"
-                "enable" -> "enable_app"
-                else -> key
-            }
+            val normalized = TYPE_ALIASES[key] ?: key
             return normalized.takeIf { it in supportedTypes }
         }
+
+        private val TYPE_ALIASES = mapOf(
+            "open" to "open_app", "launch" to "open_app",
+            "launch_app" to "open_app", "open_application" to "open_app",
+            "tap" to "tap_xy", "click" to "tap_xy", "press" to "tap_xy",
+            "point" to "tap_xy", "tap_point" to "tap_xy",
+            "click_xy" to "tap_xy", "coordinate_click" to "tap_xy",
+            "coordinate_tap" to "tap_xy",
+            "input" to "input_text", "type" to "input_text",
+            "enter_text" to "input_text", "text" to "input_text",
+            "done" to "finish", "complete" to "finish", "completed" to "finish",
+            "ask_user" to "need_user_help", "need_help" to "need_user_help",
+            "clarify" to "need_user_help",
+            "settings" to "open_system_settings", "open_settings" to "open_system_settings",
+            "system_settings" to "open_system_settings",
+            "app_settings" to "open_app_settings", "app_info" to "open_app_settings",
+            "open_app_detail" to "open_app_settings",
+            "brightness" to "set_brightness", "screen_brightness" to "set_brightness",
+            "screen_timeout" to "set_screen_timeout", "sleep_timeout" to "set_screen_timeout",
+            "auto_rotate" to "set_auto_rotate", "rotation" to "set_auto_rotate",
+            "accelerometer_rotation" to "set_auto_rotate",
+            "media_volume" to "set_media_volume", "volume" to "set_media_volume",
+            "set_volume" to "set_media_volume", "music_volume" to "set_media_volume",
+            "wifi" to "set_wifi_enabled", "wi_fi" to "set_wifi_enabled",
+            "set_wifi" to "set_wifi_enabled", "wifi_enabled" to "set_wifi_enabled",
+            "bluetooth" to "set_bluetooth_enabled",
+            "set_bluetooth" to "set_bluetooth_enabled",
+            "bluetooth_enabled" to "set_bluetooth_enabled",
+            "mobile_data" to "set_mobile_data_enabled",
+            "cellular_data" to "set_mobile_data_enabled",
+            "data_enabled" to "set_mobile_data_enabled", "set_data" to "set_mobile_data_enabled",
+            "dark_mode" to "set_dark_mode", "night_mode" to "set_dark_mode",
+            "ui_mode" to "set_dark_mode",
+            "health" to "device_status", "device_health" to "device_status",
+            "shell_status" to "shizuku_status", "enhanced_status" to "shizuku_status",
+            "shizuku" to "shizuku_status",
+            "shizuku_permission" to "request_shizuku_permission",
+            "request_shizuku" to "request_shizuku_permission",
+            "animation_scale" to "set_animation_scale",
+            "force_stop" to "force_stop_app",
+            "force_stop_application" to "force_stop_app",
+            "clear_data" to "clear_app_data", "uninstall" to "uninstall_app",
+            "disable" to "disable_app", "enable" to "enable_app",
+            "add_ledger_record" to "ledger_add_record",
+            "create_ledger_record" to "ledger_add_record",
+            "ledger_record_add" to "ledger_add_record",
+            "ledger_add" to "ledger_add_record",
+            "set_ledger_budget" to "ledger_set_budget",
+            "ledger_budget_set" to "ledger_set_budget",
+            "budget_set" to "ledger_set_budget",
+            "query_ledger_summary" to "ledger_query_summary",
+            "ledger_summary" to "ledger_query_summary",
+            "ledger_query" to "ledger_query_summary",
+            "list_ledger_records" to "ledger_list_records",
+            "ledger_records" to "ledger_list_records",
+            "ledger_list" to "ledger_list_records",
+        )
     }
 }
 
@@ -422,15 +420,17 @@ private fun CloudAgentStep.batchKey(): String = buildString {
     append(x?.toString().orEmpty())
     append('|')
     append(y?.toString().orEmpty())
+    append('|')
+    append(toolArgs?.toString().orEmpty())
 }
 
 private fun JSONObject.optStringSet(name: String): Set<String> {
     if (!has(name) || isNull(name)) return emptySet()
-    val raw = opt(name)
-    return when (raw) {
-        is JSONArray -> mutableSetOf<String>().apply {
-            for (i in 0 until raw.length()) {
-                raw.optString(i).notBlankOrNull()?.let { add(it.lowercase().replace('-', '_')) }
+    return when (val raw = opt(name)) {
+        is JSONArray -> buildSet {
+            for (index in 0 until raw.length()) {
+                raw.optString(index).notBlankOrNull()
+                    ?.lowercase()?.replace('-', '_')?.let(::add)
             }
         }
         is String -> raw.split(',', ';', '|')
@@ -444,15 +444,29 @@ private fun JSONObject.mergedToolArgs(): JSONObject {
     val source = optJSONObject("args") ?: optJSONObject("arguments") ?: JSONObject()
     val merged = runCatching { JSONObject(source.toString()) }.getOrDefault(JSONObject())
     val keys = listOf(
-        "appName", "app", "application", "packageName", "package", "pkg", "targetText", "target", "label", "title",
-        "page", "kind", "percent", "brightness", "volume", "value", "seconds", "minutes", "timeoutMs", "durationMs", "scale",
-        "enabled", "enable", "on", "state", "mode", "operation", "delta", "deltaPercent", "changePercent", "adjustBy",
-        "text", "query", "reason", "risk", "riskLevel", "direction", "inputMode",
+        "appName", "app", "application", "packageName", "package", "pkg",
+        "targetText", "target", "label", "title", "page", "kind",
+        "percent", "brightness", "volume", "value", "seconds", "minutes",
+        "timeoutMs", "durationMs", "scale", "enabled", "enable", "on",
+        "state", "mode", "operation", "delta", "deltaPercent", "changePercent",
+        "adjustBy", "text", "query", "reason", "risk", "riskLevel",
+        "direction", "inputMode",
+        "amount", "budget", "recordType", "transactionType", "entryType",
+        "category", "date", "dateLabel", "range", "period", "timeRange",
+        "month", "startDate", "endDate", "limit", "count", "description",
     )
     for (key in keys) {
         if (!merged.has(key) && has(key)) merged.put(key, opt(key))
     }
     return merged
+}
+
+private fun JSONObject.firstNonBlank(vararg names: String): String? {
+    for (name in names) {
+        val value = optString(name).notBlankOrNull()
+        if (value != null) return value
+    }
+    return null
 }
 
 private fun String?.notBlankOrNull(): String? = this?.trim()?.takeIf { it.isNotBlank() }
@@ -476,8 +490,11 @@ private fun JSONObject.optTapCoordinateComponent(index: Int): Float? {
     for (name in directNames) {
         optNullableFloat(name)?.let { return it }
     }
-    val containerNames = listOf("coordinate", "coordinates", "coord", "coords", "point", "position", "center", "tapPoint", "xy")
-    for (name in containerNames) {
+    val containers = listOf(
+        "coordinate", "coordinates", "coord", "coords",
+        "point", "position", "center", "tapPoint", "xy",
+    )
+    for (name in containers) {
         optJSONArray(name)?.let { array ->
             if (array.length() > index) {
                 runCatching { array.optDouble(index).toFloat() }.getOrNull()?.let { return it }
@@ -495,13 +512,14 @@ private fun JSONObject.optTapCoordinateComponent(index: Int): Float? {
 
 private fun JSONObject.optFlexibleBoolean(name: String): Boolean? {
     if (!has(name) || isNull(name)) return null
-    val raw = opt(name)
-    return when (raw) {
+    return when (val raw = opt(name)) {
         is Boolean -> raw
         is Number -> raw.toInt() != 0
         is String -> when (raw.lowercase().trim()) {
-            "true", "yes", "1", "expected", "complete", "completed", "progress", "success", "wrong", "on", "enable", "enabled" -> true
-            "false", "no", "0", "uncertain", "unknown", "", "off", "disable", "disabled" -> false
+            "true", "yes", "1", "expected", "complete", "completed",
+            "progress", "success", "wrong", "on", "enable", "enabled" -> true
+            "false", "no", "0", "uncertain", "unknown", "",
+            "off", "disable", "disabled" -> false
             else -> null
         }
         else -> null

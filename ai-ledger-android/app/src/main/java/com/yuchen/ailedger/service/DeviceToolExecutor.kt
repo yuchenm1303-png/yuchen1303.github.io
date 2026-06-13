@@ -29,12 +29,14 @@ class DeviceToolExecutor(
 ) {
     private val appContext = context.applicationContext
     private val shellBridge = DeviceShellBridge(appContext)
+    private val ledgerToolExecutor = LedgerInternalToolExecutor(appContext)
 
     fun canExecute(step: CloudAgentStep): Boolean {
-        return step.type in executableDeviceToolTypes
+        return step.type in executableDeviceToolTypes || ledgerToolExecutor.canExecute(step)
     }
 
     fun execute(step: CloudAgentStep, confirmedHighRisk: Boolean = false): AgentExecutionResult {
+        if (ledgerToolExecutor.canExecute(step)) return ledgerToolExecutor.execute(step)
         return runCatching {
             when (step.type) {
                 "open_app" -> executeOpenApp(step)
@@ -637,7 +639,7 @@ class DeviceToolExecutor(
         private const val DEFAULT_BRIGHTNESS_PERCENT = 50f
         private const val DEFAULT_BRIGHTNESS_DELTA = 15f
         private const val DEFAULT_VOLUME_DELTA = 15f
-        private val executableDeviceToolTypes = CloudAgentStep.deviceToolTypes
+        private val executableDeviceToolTypes = CloudAgentStep.systemDeviceToolTypes
 
         private const val ACTION_SETTINGS_COMPAT = "android.settings.SETTINGS"
         private const val ACTION_WIFI_SETTINGS_COMPAT = "android.settings.WIFI_SETTINGS"
