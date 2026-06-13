@@ -4,7 +4,7 @@ window.OpenGLV24Shaders={
   fs:`precision highp float;
 uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uTex;
-uniform vec4 uMat,uOldA,uOldB,uBody;
+uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform float uRadius,uIntensity;
 float sat(float x){return clamp(x,0.0,1.0);}
 float boxSdf(vec2 p,vec2 z,float r){
@@ -32,25 +32,25 @@ vec2 sdfNormalAt(vec2 p,vec2 z,float r){
   return n/max(length(n),.0001);
 }
 
-/* 单一解析边缘透镜：边界最强，向内部单调衰减，不再形成内外双框。 */
-float edgeLensWeight(float depth,vec2 z){
-  float reach=clamp(uOldB.y,8.0,min(z.x,z.y)*.46);
+/* V25 主体折射：只重命名并隔离参数，公式和默认视觉保持不变。 */
+float bodyLensWeight(float depth,vec2 z){
+  float reach=clamp(uBodyLensB.y,8.0,min(z.x,z.y)*.46);
   float x=sat(depth/max(reach,1.0));
   float smooth=x*x*(3.0-2.0*x);
-  float concentration=mix(.58,1.82,sat((uOldA.z+10.0)/20.0));
+  float concentration=mix(.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
   return pow(1.0-smooth,concentration);
 }
-float cornerFactor(vec2 p,vec2 z){
+float bodyCornerFactor(vec2 p,vec2 z){
   vec2 q=abs((p-z*.5)/max(z*.5,vec2(1.0)));
   return smoothstep(.52,.94,min(q.x,q.y));
 }
-vec2 analyticEdgeFlow(vec2 p,vec2 z,float r,float depth,float weight){
+vec2 bodyRefractionFlow(vec2 p,vec2 z,float r,float depth,float weight){
   vec2 n=sdfNormalAt(p,z,r);
-  float pull=abs(uOldA.y)*.052+abs(uOldA.x)*.20+max(uOldB.x,0.0)*.12;
-  float cornerBoost=1.0+cornerFactor(p,z)*sat(uOldA.w/200.0)*.52;
+  float pull=abs(uBodyLensA.y)*.052+abs(uBodyLensA.x)*.20+max(uBodyLensB.x,0.0)*.12;
+  float cornerBoost=1.0+bodyCornerFactor(p,z)*sat(uBodyLensA.w/200.0)*.52;
   float core=pow(weight,1.28);
   vec2 flow=-n*pull*core*cornerBoost;
-  return softLimit(flow,96.0+max(uOldB.x,0.0)*.16);
+  return softLimit(flow,96.0+max(uBodyLensB.x,0.0)*.16);
 }
 
 /* 极宽、无闭合轮廓的内部低频运输，只负责轻微材质流动。 */
@@ -94,17 +94,17 @@ void main(){
   if(mask<=.001)discard;
 
   float depth=insideFromSdf(sd);
-  float edgeWeight=edgeLensWeight(depth,z);
-  vec2 edgeFlow=analyticEdgeFlow(p,z,r,depth,edgeWeight);
+  float bodyWeight=bodyLensWeight(depth,z);
+  vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
-  vec2 totalFlow=edgeFlow+centerFlow;
+  vec2 totalFlow=mainBodyFlow+centerFlow;
 
   vec3 color=sampleBg(globalUv(p+totalFlow));
-  float opticalBoost=1.0+edgeWeight*.24+cornerFactor(p,z)*edgeWeight*.10;
+  float opticalBoost=1.0+bodyWeight*.24+bodyCornerFactor(p,z)*bodyWeight*.10;
   color*=uBody.w*uMat.z*opticalBoost;
-  color-=vec3(.055,.065,.085)*uOldB.z*edgeWeight;
+  color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   float debugEdge=smoothstep(-1.6,0.0,sd)*mask;
-  color=mix(color,vec3(1.0,.45,0.0),debugEdge*uOldB.w);
+  color=mix(color,vec3(1.0,.45,0.0),debugEdge*uBodyLensB.w);
   gl_FragColor=vec4(clamp(color,0.0,1.0),mask*uMat.y*sat(uMat.x/20.0)*uIntensity);
 }`
 };
