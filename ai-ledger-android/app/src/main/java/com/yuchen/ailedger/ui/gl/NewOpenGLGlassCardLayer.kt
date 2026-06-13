@@ -47,13 +47,15 @@ fun NewOpenGLGlassCardLayer(
     val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
     val press = pressProgress.coerceIn(0f, 1f)
     val pressX = pressCenter.x.coerceIn(0f, 1f)
-    val pressY = pressCenter.y.coerceIn(0f, 1f)
+    val rawPressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
+        val mappedPressY = ((rawPressY * heightPx - safeViewportTopInsetPx) / viewportHeightPx)
+            .coerceIn(0f, 1f)
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
         AndroidView(
@@ -80,7 +82,7 @@ fun NewOpenGLGlassCardLayer(
                     rootWidthPx,
                     rootHeightPx
                 )
-                val pressDirty = view.setPressSpec(press, pressX, pressY)
+                val pressDirty = view.setPressSpec(press, pressX, mappedPressY)
                 val textureDirty = view.setBackdropTextures(
                     clearBitmap = clearBitmap,
                     blurLowBitmap = blurLowBitmap,
