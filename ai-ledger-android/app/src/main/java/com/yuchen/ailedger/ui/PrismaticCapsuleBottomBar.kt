@@ -237,42 +237,36 @@ private fun Modifier.bottomSliderPrismOptics(
     val active = activeEnergy.coerceIn(0f, 1f)
     val e = energy.coerceIn(0f, 1.12f)
     val corner = CornerRadius(h / 2f, h / 2f)
-    drawContent()
-
-    if (active < 0.012f) {
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.040f),
-                    Color(0xFF7FFFF2).copy(alpha = 0.026f),
-                    Color.White.copy(alpha = 0.028f)
-                ),
-                start = Offset.Zero,
-                end = Offset(w, h)
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = corner,
-            blendMode = BlendMode.Screen
-        )
-        return@drawWithContent
-    }
-
     val sweep = ((sin((phase * 0.98f + edgeSeed * 0.31f) * 2f * PI.toFloat()) + 1f) * 0.50f).coerceIn(0f, 1f)
     val sweepCenter = -0.38f + 1.76f * sweep + 0.06f * drift + 0.050f * travelDirection * e
+    val glassEnergy = (0.30f + e * 0.70f + stopEnergy * 0.20f).coerceIn(0f, 1.35f)
+    val rimEnergy = (0.34f + active * 0.66f + e * 0.18f).coerceIn(0f, 1.25f)
 
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.034f + 0.042f * e),
-                Color(0xFFFF7AD6).copy(alpha = 0.038f * e),
-                Color(0xFFFFD86E).copy(alpha = 0.030f * e),
-                Color(0xFF6DFFF0).copy(alpha = 0.046f * e),
-                Color(0xFFA796FF).copy(alpha = 0.034f * e),
-                Color.White.copy(alpha = 0.024f + 0.024f * e)
+                Color.White.copy(alpha = 0.055f + 0.042f * glassEnergy),
+                Color(0xFFE9FFFF).copy(alpha = 0.030f + 0.026f * glassEnergy),
+                Color(0xFF304A76).copy(alpha = 0.032f + 0.030f * glassEnergy),
+                Color(0xFF030714).copy(alpha = 0.060f + 0.050f * glassEnergy)
             ),
-            start = Offset.Zero,
+            start = Offset(0f, 0f),
             end = Offset(w, h)
+        ),
+        topLeft = Offset.Zero,
+        size = Size(w, h),
+        cornerRadius = corner,
+        blendMode = BlendMode.SrcOver
+    )
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.105f * glassEnergy),
+                Color(0xFFBFFAF6).copy(alpha = 0.040f * glassEnergy),
+                Color.Transparent
+            ),
+            center = Offset(w * (0.50f + 0.10f * drift), h * 0.18f),
+            radius = maxOf(w, h) * 0.72f
         ),
         topLeft = Offset.Zero,
         size = Size(w, h),
@@ -280,14 +274,51 @@ private fun Modifier.bottomSliderPrismOptics(
         blendMode = BlendMode.Screen
     )
 
+    drawContent()
+
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.145f + 0.125f * rimEnergy),
+                Color(0xFFE8FFFF).copy(alpha = 0.060f + 0.055f * rimEnergy),
+                Color.Transparent,
+                Color(0xFF01030A).copy(alpha = 0.145f + 0.105f * rimEnergy),
+                Color.White.copy(alpha = 0.050f + 0.030f * rimEnergy)
+            ),
+            startY = 0f,
+            endY = h
+        ),
+        topLeft = Offset(0.45f, 0.45f),
+        size = Size((w - 0.90f).coerceAtLeast(1f), (h - 0.90f).coerceAtLeast(1f)),
+        cornerRadius = corner,
+        style = androidx.compose.ui.graphics.drawscope.Stroke(1.15.dp.toPx() + 0.85.dp.toPx() * rimEnergy),
+        blendMode = BlendMode.Screen
+    )
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color(0xFF00030A).copy(alpha = 0.120f + 0.145f * rimEnergy)
+            ),
+            startY = h * 0.42f,
+            endY = h
+        ),
+        topLeft = Offset(2.0.dp.toPx(), 2.0.dp.toPx()),
+        size = Size((w - 4.0.dp.toPx()).coerceAtLeast(1f), (h - 4.0.dp.toPx()).coerceAtLeast(1f)),
+        cornerRadius = corner,
+        style = androidx.compose.ui.graphics.drawscope.Stroke(2.8.dp.toPx() + 1.8.dp.toPx() * rimEnergy),
+        blendMode = BlendMode.Multiply
+    )
+
     drawRoundRect(
         brush = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = 0.122f * e),
-                Color(0xFFFFE17A).copy(alpha = 0.064f * e),
-                Color(0xFF67FFF0).copy(alpha = 0.094f * e),
-                Color(0xFFFF75D4).copy(alpha = 0.064f * e),
+                Color.White.copy(alpha = 0.112f * e),
+                Color(0xFFFFE17A).copy(alpha = 0.056f * e),
+                Color(0xFF67FFF0).copy(alpha = 0.088f * e),
+                Color(0xFFFF75D4).copy(alpha = 0.052f * e),
                 Color.Transparent
             ),
             start = Offset(w * (sweepCenter - 0.50f), -h * 0.36f),
@@ -302,16 +333,34 @@ private fun Modifier.bottomSliderPrismOptics(
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.034f + 0.050f * e + 0.030f * stopEnergy),
-                Color(0xFF7FFFF2).copy(alpha = 0.026f * e),
+                Color.White.copy(alpha = 0.092f + 0.082f * e + 0.046f * stopEnergy),
+                Color(0xFF7FFFF2).copy(alpha = 0.040f + 0.036f * e),
                 Color.Transparent
             ),
-            center = Offset(w * (0.50f + 0.10f * drift), h * 0.36f),
-            radius = maxOf(w, h) * 0.46f
+            center = Offset(w * (0.08f + 0.84f * sweep), h * 0.02f),
+            radius = maxOf(w, h) * 0.42f
         ),
         topLeft = Offset.Zero,
         size = Size(w, h),
         cornerRadius = corner,
         blendMode = BlendMode.Screen
     )
+
+    if (active < 0.012f) {
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.030f),
+                    Color(0xFF7FFFF2).copy(alpha = 0.018f),
+                    Color.White.copy(alpha = 0.024f)
+                ),
+                start = Offset.Zero,
+                end = Offset(w, h)
+            ),
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = corner,
+            blendMode = BlendMode.Screen
+        )
+    }
 }
