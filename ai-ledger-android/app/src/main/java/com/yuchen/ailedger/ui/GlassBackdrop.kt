@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -75,6 +77,12 @@ fun SampledWeatherGlassBackdrop(
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
+    val sampleOffsetState = remember(coordinateSource, origin, ticker) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            ticker?.frameNanos
+            coordinateSource.offsetRelativeTo(origin)
+        }
+    }
     val params = spec?.params ?: BackdropDebugParams()
     val glass = ComposeGlassLabState.style
     val alpha = liftAlpha.coerceIn(0.12f, 1.55f)
@@ -105,9 +113,7 @@ fun SampledWeatherGlassBackdrop(
     val cachedDrawModifier = remember(
         radius,
         cachedBackdrop,
-        origin,
-        ticker,
-        coordinateSource,
+        sampleOffsetState,
         theme,
         params,
         baseAlpha,
@@ -174,8 +180,7 @@ fun SampledWeatherGlassBackdrop(
                 )
 
                 onDrawBehind {
-                    ticker?.frameNanos
-                    val sampleOffset = coordinateSource.offsetRelativeTo(origin)
+                    val sampleOffset = sampleOffsetState.value
                     if (cachedBackdrop != null) {
                         drawVisibleBackdropImage(cachedBackdrop, sampleOffset, backdropAlpha)
                     } else {
@@ -253,9 +258,15 @@ fun SampledWeatherEdgeRefraction(
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
+    val sampleOffsetState = remember(coordinateSource, origin, ticker) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            ticker?.frameNanos
+            coordinateSource.offsetRelativeTo(origin)
+        }
+    }
     val border = spec?.borderStyle ?: GlassBorderStyle()
     val alpha = strength.coerceIn(0f, 0.34f)
-    val cachedDrawModifier = remember(radius, origin, ticker, coordinateSource, border, alpha) {
+    val cachedDrawModifier = remember(radius, sampleOffsetState, border, alpha) {
         Modifier
             .clip(RoundedCornerShape(radius.dp))
             .drawWithCache {
@@ -304,8 +315,7 @@ fun SampledWeatherEdgeRefraction(
                 )
 
                 onDrawBehind {
-                    ticker?.frameNanos
-                    val sampleOffset = coordinateSource.offsetRelativeTo(origin)
+                    val sampleOffset = sampleOffsetState.value
                     val phase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
                     val movingOuterBrush = Brush.linearGradient(
                         listOf(
