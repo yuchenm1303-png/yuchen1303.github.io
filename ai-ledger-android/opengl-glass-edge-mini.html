@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>OpenGL V23 · Movable Finite Body Shell</title>
+<title>OpenGL V23 · Flattened Top Bottom Body Shell</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#07122b;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.app{display:grid;grid-template-columns:1fr 350px;gap:16px;padding:16px;min-height:100vh}.stage{position:relative;height:calc(100vh - 32px);min-height:560px;border-radius:28px;overflow:hidden;border:1px solid rgba(255,255,255,.16)}#bg{position:absolute;inset:0;width:100%;height:100%;display:block}.scroll{position:absolute;inset:0;overflow-y:auto}.world{height:1500px;position:relative}.glass{position:absolute;left:7%;right:7%;top:610px;height:250px;border-radius:46px;overflow:hidden;filter:drop-shadow(0 22px 34px rgba(0,0,0,.32));background:#12375a}#gb,#gl{position:absolute;inset:0;width:100%;height:100%;display:block}#gb{z-index:0}#gl{z-index:1}.rim{position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,.16);box-shadow:inset 0 1px 2px rgba(255,255,255,.14),inset 0 -14px 26px rgba(0,0,0,.14);pointer-events:none;z-index:3}.ui{position:absolute;inset:0;padding:28px 36px;display:flex;flex-direction:column;justify-content:space-between;pointer-events:none;z-index:2}.ui h1{margin:0;font-size:54px;letter-spacing:-.05em;text-shadow:0 1px 18px rgba(0,0,0,.22)}.ui p{margin:6px 0 0;color:rgba(255,255,255,.70);font-weight:800}.bar{height:8px;border-radius:99px;background:rgba(255,255,255,.86)}.panel{border:1px solid rgba(255,255,255,.14);border-radius:24px;padding:14px;background:rgba(18,28,64,.76);height:calc(100vh - 32px);overflow:auto}.groupTitle{margin:16px 0 2px;color:rgba(255,255,255,.56);font-size:12px;font-weight:900;letter-spacing:.08em}.c{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.h{display:flex;justify-content:space-between;color:rgba(255,255,255,.82);font-size:13px;font-weight:800}input[type=range]{width:100%;accent-color:#9b7cff}button{border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);color:#fff;border-radius:99px;padding:8px 11px;font-weight:800;margin:0 6px 8px 0}button.on{background:rgba(116,154,255,.25)}button:disabled{opacity:.42;cursor:not-allowed}.bgStatus{display:block;margin:0 0 10px;color:rgba(255,255,255,.56);font-size:11px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}pre{white-space:pre-wrap;font-size:11px;color:rgba(255,255,255,.72)}.error{color:#ffb3b3;white-space:pre-wrap;font-size:12px}@media(max-width:900px){.app{grid-template-columns:1fr}.stage{height:70vh}.panel{height:auto}.ui h1{font-size:42px}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · movable finite body shell + original old edge</p></div><div class="bar"></div></div></div></div></div></div>
+  <div class="stage" id="stage"><canvas id="bg"></canvas><div class="scroll" id="scroll"><div class="world"><div class="glass" id="glass"><canvas id="gb"></canvas><canvas id="gl"></canvas><div class="rim"></div><div class="ui"><div><h1>Display</h1><p>v23 shell · flattened top/bottom body + original old edge</p></div><div class="bar"></div></div></div></div></div></div>
   <aside class="panel"><h2>v23 · 参数真实接线</h2><input id="bgUpload" type="file" accept="image/*" hidden><button id="uploadBgBtn">上传自定义背景</button><button id="clearBgBtn" disabled>恢复默认背景</button><span id="bgStatus" class="bgStatus">当前背景：默认流线背景</span><button data-preset="app">AppModels 默认</button><button data-preset="strong">旧边更强</button><button data-bg="flow">流线背景</button><button data-bg="stripes">黑白条纹</button><button data-bg="grid">细网格</button><button id="moonBtn">显示模糊层月亮</button><div id="controls"></div><pre id="out"></pre><div id="error" class="error"></div></aside>
 </div>
 <script>
@@ -36,7 +36,7 @@ vec2 globalUv(vec2 p){vec2 t=.5/max(uRoot,vec2(1.0));return clamp((uOrigin+p)/ma
 vec3 sampleBg(vec2 uv){return texture2D(uTex,clamp(uv,0.0,1.0)).rgb;}
 float gauss(float x,float m,float w){float q=(x-m)/max(w,.0001);return exp(-q*q);}
 
-/* 主体使用连续圆角矩形近似场，只在有限深度内生效，因此可向内移动但不会触及中心汇聚。 */
+/* 保留原主体汇聚场，并在上下边中段平滑混入水平等深线与垂直法线。 */
 vec4 bodyMetric(vec2 p,vec2 z,float r){
   vec2 h=max(z*.5,vec2(1.0));
   vec2 u=(p-h)/h;
@@ -51,6 +51,17 @@ vec4 bodyMetric(vec2 p,vec2 z,float r){
   float glen=max(length(grad),1e-5);
   float sdf=(rho-1.0)/glen;
   return vec4(sdf,max(-sdf,0.0),grad/glen);
+}
+float bodyFlatBlend(vec2 p,vec2 z,float r,vec2 bodyN){
+  vec2 h=max(z*.5,vec2(1.0));
+  float xNorm=abs(p.x-h.x)/h.x;
+  float yNorm=abs(p.y-h.y)/h.y;
+  float flatStart=clamp(1.0-r*2.8/max(h.x,1.0),.62,.90);
+  float flatEnd=min(flatStart+.12,.995);
+  float centerSpan=1.0-smoothstep(flatStart,flatEnd,xNorm);
+  float topBottom=smoothstep(.48,.90,abs(bodyN.y));
+  float centerGuard=smoothstep(.08,.28,yNorm);
+  return sat(centerSpan*topBottom*centerGuard*.94);
 }
 float bodyCoreReachPx(vec2 z){
   float halfMin=min(z.x,z.y)*.5;
@@ -110,15 +121,19 @@ if(mask<=.001)discard;
 float st=2.0;
 float edgeDepth=insideFromSdf(sd);
 
-/* 新版主体：折射带位置与主体宽度解耦，可继续向内移动。 */
+/* 新版主体：保留原汇聚结构，只压平上下边中段的深度和法线。 */
 vec2 bodyFlow=vec2(0.0);
 vec4 metric=bodyMetric(p,z,r);
-float bodyDepth=metric.y;
+float flatBlend=bodyFlatBlend(p,z,r,metric.zw);
+float flatDepth=min(p.y,z.y-p.y);
+float bodyDepth=mix(metric.y,flatDepth,flatBlend);
+vec2 flatN=vec2(0.0,p.y<z.y*.5?-1.0:1.0);
+vec2 bodyN=mix(metric.zw,flatN,flatBlend);
+bodyN/=max(length(bodyN),.0001);
 float coreReach=bodyCoreReachPx(z);
 float safeDepth=bodySafeDepthPx(z,r);
 float activeGate=bodySafeGate(bodyDepth,safeDepth);
 if(activeGate>0.0001){
-  vec2 bodyN=metric.zw;
   float bodyShell=bodyShellFromDepth(bodyDepth,z,safeDepth);
   float hC=bodyHeightFromDepth(bodyDepth,z,coreReach,safeDepth);
   float eps=1.0;
