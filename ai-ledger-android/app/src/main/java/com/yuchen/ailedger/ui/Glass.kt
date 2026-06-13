@@ -27,12 +27,16 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onPlaced
@@ -42,9 +46,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import kotlinx.coroutines.launch
 
 enum class GlassRole {
     Shell,
@@ -61,6 +65,7 @@ private const val SHELL_GLASS_BLUR_DP = 118
 private const val CARD_GLASS_BLUR_DP = 76
 private const val CHIP_GLASS_BLUR_DP = 58
 private const val UNIFIED_GLASS_BACKDROP_ALPHA = 0.92f
+private const val UNIFIED_EDGE_STRENGTH = 0.20f
 private const val USE_CARD_BOUND_OPENGL_GLASS = true
 
 private val ShellPressPreloadEasing = CubicBezierEasing(0.20f, 0.00f, 0.18f, 1.00f)
@@ -81,6 +86,11 @@ private fun blurForRole(role: GlassRole): Int {
     return (base * ComposeGlassLabState.style.blurScale).roundToInt().coerceIn(32, 128)
 }
 
+private fun ordinaryBackdropAlpha(role: GlassRole, intensity: Float): Float {
+    val roleScale = if (role == GlassRole.Shell) UNIFIED_GLASS_BACKDROP_ALPHA else ComposeGlassLabState.style.backdropAlpha
+    return roleScale * intensity.coerceIn(0.70f, 1.25f)
+}
+
 private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     if (radius >= 999) return radius
     val base = when (role) {
@@ -92,11 +102,6 @@ private fun effectiveGlassRadius(radius: Int, role: GlassRole): Int {
     }
     if (role == GlassRole.Shell) return base
     return (base * ComposeGlassLabState.style.radiusScale).roundToInt().coerceAtLeast(8)
-}
-
-private fun ordinaryBackdropAlpha(role: GlassRole, intensity: Float): Float {
-    val roleScale = if (role == GlassRole.Shell) UNIFIED_GLASS_BACKDROP_ALPHA else ComposeGlassLabState.style.backdropAlpha
-    return roleScale * intensity.coerceIn(0.70f, 1.25f)
 }
 
 private fun glassSmoothStep(value: Float): Float {
@@ -143,8 +148,8 @@ fun GlassPanel(
     val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
-    val safeViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
     val density = LocalDensity.current
+    val safeViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
     val safeViewportTopInsetPx = with(density) { safeViewportTopInset.toPx().toInt().toFloat() }
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
 
@@ -170,7 +175,9 @@ fun GlassPanel(
 
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
-            .onSizeChanged { size -> shellPressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat()) }
+            .onSizeChanged { size ->
+                shellPressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
+            }
             .pointerInput(motionIntensity) {
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
@@ -290,7 +297,11 @@ fun GlassPanel(
                 )
             }
             if (!useNewOpenGlBackdrop) {
-                Box(Modifier.matchParentSize().glassSkin(quality, effectiveRadius, shimmer + shellPressCompression * 0.030f, breathe, pressedGlassIntensity, role = role, includeShadow = false))
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .glassSkin(quality, effectiveRadius, shimmer + shellPressCompression * 0.030f, breathe, pressedGlassIntensity, role = role, includeShadow = false)
+                )
             }
             content()
             if (shellPressEnabled) {
@@ -550,23 +561,29 @@ private fun Modifier.ordinaryPressSurfaceOptics(
 }
 
 @Composable
-private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float =
-    if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
+private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float = if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
 
 @Composable
-private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float =
-    if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
+private fun rememberGlassBreath(quality: RenderQuality, motionIntensity: Float): Float = if (quality.enableMotion && motionIntensity > 0.02f) 0.38f else 0.34f
 
-private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float, role: GlassRole = GlassRole.Card): Modifier {
-    val alpha = (0.18f + glassIntensity.coerceIn(0f, 1.4f) * 0.10f) * ComposeGlassLabState.style.shadowAlpha
-    val elevation = when (role) {
-        GlassRole.Shell -> 18.dp
-        GlassRole.Card, GlassRole.Floating -> 12.dp
-        GlassRole.Nav -> 10.dp
-        GlassRole.Chip, GlassRole.Flex -> 8.dp
-    }
-    return shadow(elevation = elevation, shape = RoundedCornerShape(radius.dp), ambientColor = Color.Black.copy(alpha = alpha * 0.35f), spotColor = Color.Black.copy(alpha = alpha))
-        .clip(RoundedCornerShape(radius.dp))
+private fun roleShadowElevation(role: GlassRole): Dp = when (role) {
+    GlassRole.Shell -> 5.dp
+    GlassRole.Card, GlassRole.Floating, GlassRole.Nav -> 4.dp
+    GlassRole.Chip, GlassRole.Flex -> 3.dp
+}
+
+private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float, role: GlassRole): Modifier {
+    val shape = RoundedCornerShape(radius.dp)
+    val material = glassMaterial(glassIntensity, role)
+    return this
+        .shadow(
+            elevation = roleShadowElevation(role),
+            shape = shape,
+            clip = false,
+            ambientColor = Color.Black.copy(alpha = material.shadowAmbient),
+            spotColor = Color.White.copy(alpha = material.shadowSpot)
+        )
+        .clip(shape)
 }
 
 private fun Modifier.shellPressSurfaceOptics(
@@ -650,85 +667,192 @@ fun Modifier.glassSkin(
     return base.drawWithCache {
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
-        val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val style = ComposeGlassLabState.style
+        val radiusPx = radius.dp.toPx()
+        val cornerRadius = CornerRadius(radiusPx, radiusPx)
         val intensityScale = glassIntensity.coerceIn(0.25f, 1.45f)
+        val pulse = 0.94f + breathe * 0.030f
+
+        val glass = ComposeGlassLabState.style
         val frost = ComposeGlassRuntimeDefaults.frost * intensityScale
-        val quiet = style.quiet
-        val topLight = style.topLight * intensityScale
-        val bottomLight = style.bottomLight * intensityScale
-        val outerRim = style.outerRim * intensityScale
-        val bottomMass = style.bottomMass * intensityScale
-        val pulse = 0.92f + breathe * 0.045f
-        val safeShimmer = shimmer - shimmer.toInt()
-        val drift = safeShimmer - 0.5f
+        val quiet = glass.quiet
+        val topLight = glass.topLight * intensityScale
+        val edgeWidth = glass.topWidthDp.dp.toPx().coerceAtLeast(0.05.dp.toPx())
+        val pathFlow = glass.topVariation
+        val bottomLight = glass.bottomLight * intensityScale
+        val bottomWidth = glass.bottomWidthDp.dp.toPx().coerceAtLeast(0.05.dp.toPx())
+        val outerRim = glass.outerRim * intensityScale
+        val bottomMass = glass.bottomMass * intensityScale
+        val sideCarry = glass.sideLight * intensityScale
 
         val baseField = Brush.linearGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.026f * frost * (0.94f + breathe * 0.030f)),
+                Color.White.copy(alpha = 0.026f * frost * pulse),
                 Color.White.copy(alpha = 0.0f),
                 Color(0xFF000000).copy(alpha = 0.080f * quiet)
             ),
             start = Offset(0f, 0f),
             end = Offset(w, h)
         )
-        val edgeBrush = Brush.verticalGradient(
+
+        val quietField = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.120f * topLight),
-                Color.White.copy(alpha = 0.018f * outerRim),
+                Color.White.copy(alpha = 0.010f / quiet.coerceAtLeast(0.25f)),
                 Color.Transparent,
-                Color(0xFF00020A).copy(alpha = 0.140f * bottomMass),
-                Color.White.copy(alpha = 0.080f * bottomLight)
+                Color(0xFF000000).copy(alpha = 0.045f * quiet)
+            ),
+            center = Offset(w * 0.50f, h * 0.46f),
+            radius = maxOf(w, h) * 0.72f
+        )
+
+        val opticalBandWidth = (1.0.dp.toPx() + edgeWidth * 2.20f + bottomWidth * 0.72f).coerceIn(1.0.dp.toPx(), minOf(w, h) * 0.22f)
+        val innerLeft = opticalBandWidth
+        val innerTop = opticalBandWidth
+        val innerRight = (w - opticalBandWidth).coerceAtLeast(innerLeft + 1f)
+        val innerBottom = (h - opticalBandWidth).coerceAtLeast(innerTop + 1f)
+        val innerRadius = (radiusPx - opticalBandWidth).coerceAtLeast(0f)
+
+        val edgeBandPath = Path().apply {
+            fillType = PathFillType.EvenOdd
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+            addRoundRect(RoundRect(innerLeft, innerTop, innerRight, innerBottom, innerRadius, innerRadius))
+        }
+
+        val bottomMassWidth = (opticalBandWidth + bottomWidth * 2.10f).coerceIn(opticalBandWidth, minOf(w, h) * 0.28f)
+        val massInnerLeft = bottomMassWidth
+        val massInnerTop = bottomMassWidth
+        val massInnerRight = (w - bottomMassWidth).coerceAtLeast(massInnerLeft + 1f)
+        val massInnerBottom = (h - bottomMassWidth).coerceAtLeast(massInnerTop + 1f)
+        val massInnerRadius = (radiusPx - bottomMassWidth).coerceAtLeast(0f)
+        val bottomMassBandPath = Path().apply {
+            fillType = PathFillType.EvenOdd
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+            addRoundRect(RoundRect(massInnerLeft, massInnerTop, massInnerRight, massInnerBottom, massInnerRadius, massInnerRadius))
+        }
+
+        val topAlpha = (0.120f + 0.055f * pathFlow) * topLight
+        val sideAlpha = 0.028f * sideCarry
+        val bottomAlpha = 0.090f * bottomLight
+        val edgeBandBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color(0xFFEAF9FF).copy(alpha = topAlpha * 0.36f),
+                Color.White.copy(alpha = sideAlpha),
+                Color.Transparent,
+                Color.White.copy(alpha = bottomAlpha * 0.26f),
+                Color.White.copy(alpha = bottomAlpha)
             ),
             startY = 0f,
             endY = h
         )
-        val topLens = Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.018f * pulse * intensityScale), Color.White.copy(alpha = 0.006f * topLight), Color.Transparent),
-            0f,
-            h * 0.22f
+
+        val flowBrush = Brush.horizontalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = topAlpha * 0.18f * pathFlow),
+                Color.White.copy(alpha = topAlpha * 0.04f),
+                Color.Transparent,
+                Color.White.copy(alpha = topAlpha * 0.08f * pathFlow),
+                Color.White.copy(alpha = topAlpha * 0.025f)
+            ),
+            startX = 0f,
+            endX = w
         )
-        val movingEdgeGlint = Brush.linearGradient(
-            listOf(Color.Transparent, Color.White.copy(alpha = 0.012f * intensityScale), Color.Transparent),
-            Offset(w * (safeShimmer - 0.28f), 0f),
-            Offset(w * (safeShimmer + 0.16f), h * 0.20f)
+
+        val bottomMassBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent,
+                Color(0xFF07132F).copy(alpha = 0.024f * bottomMass),
+                Color(0xFF030714).copy(alpha = 0.082f * bottomMass),
+                Color(0xFF00020A).copy(alpha = 0.180f * bottomMass)
+            ),
+            startY = 0f,
+            endY = h
         )
-        val cornerCatchlight = Brush.radialGradient(
-            listOf(Color.White.copy(alpha = 0.020f * intensityScale), Color.White.copy(alpha = 0.002f * intensityScale), Color.Transparent),
-            Offset(w * (0.035f + drift * 0.010f), h * 0.020f),
-            w * 0.26f
+
+        val rimField = Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.120f * outerRim),
+                Color.White.copy(alpha = 0.018f * outerRim),
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.072f * bottomMass),
+                Color.White.copy(alpha = 0.014f * outerRim)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
         )
-        val rimInset = 0.75.dp.toPx()
 
         onDrawWithContent {
             drawRect(baseField)
-            drawRect(topLens, blendMode = BlendMode.Screen)
-            drawContent()
-            drawRoundRect(
-                brush = edgeBrush,
-                topLeft = Offset(rimInset, rimInset),
-                size = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f)),
-                cornerRadius = cornerRadius,
-                style = Stroke((0.34.dp.toPx() + 0.30.dp.toPx() * outerRim).coerceAtLeast(0.34.dp.toPx())),
-                blendMode = BlendMode.Screen
-            )
-            if (quality.enableMotion) {
-                drawRoundRect(
-                    brush = movingEdgeGlint,
-                    topLeft = Offset(rimInset, rimInset),
-                    size = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f)),
-                    cornerRadius = cornerRadius,
-                    style = Stroke(0.07.dp.toPx()),
-                    blendMode = BlendMode.Plus
-                )
+            drawRect(quietField)
+
+            drawPath(path = edgeBandPath, brush = edgeBandBrush, blendMode = BlendMode.Screen)
+
+            if (pathFlow > 0.001f) {
+                clipRect(left = 0f, top = 0f, right = w, bottom = (h * 0.52f).coerceAtLeast(1f)) {
+                    drawPath(path = edgeBandPath, brush = flowBrush, blendMode = BlendMode.Screen)
+                }
             }
+
+            if (bottomMass > 0.001f) {
+                clipRect(left = 0f, top = h * 0.45f, right = w, bottom = h) {
+                    drawPath(path = bottomMassBandPath, brush = bottomMassBrush, blendMode = BlendMode.Multiply)
+                }
+            }
+
+            drawContent()
+
             drawRoundRect(
-                brush = cornerCatchlight,
-                topLeft = Offset(rimInset, rimInset),
-                size = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f)),
+                brush = rimField,
+                topLeft = Offset(0.75.dp.toPx(), 0.75.dp.toPx()),
+                size = Size((w - 1.5.dp.toPx()).coerceAtLeast(1f), (h - 1.5.dp.toPx()).coerceAtLeast(1f)),
                 cornerRadius = cornerRadius,
+                style = Stroke(maxOf(0.34.dp.toPx(), 0.48.dp.toPx() * outerRim)),
                 blendMode = BlendMode.Screen
             )
         }
     }
+}
+
+private data class GlassMaterial(
+    val frost: Float,
+    val rim: Float,
+    val innerRim: Float,
+    val topHighlight: Float,
+    val cornerGlint: Float,
+    val depthShadow: Float,
+    val shadowAmbient: Float,
+    val shadowSpot: Float,
+    val strokeWidth: Float
+)
+
+private fun glassMaterial(intensity: Float, role: GlassRole): GlassMaterial {
+    val safeIntensity = intensity.coerceIn(0.25f, 1.45f)
+    val ordinary = role != GlassRole.Shell
+    if (ordinary) {
+        val glass = ComposeGlassLabState.style
+        return GlassMaterial(
+            frost = (0.044f * ComposeGlassRuntimeDefaults.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+            rim = (0.104f * glass.outerRim * safeIntensity).coerceIn(0.010f, 0.240f),
+            innerRim = (0.030f * ComposeGlassRuntimeDefaults.innerBevel * safeIntensity).coerceIn(0f, 0.120f),
+            topHighlight = (0.036f * glass.topLight * safeIntensity).coerceIn(0.002f, 0.100f),
+            cornerGlint = (0.020f * glass.topVariation * safeIntensity).coerceIn(0f, 0.080f),
+            depthShadow = (0.015f * glass.bottomMass * safeIntensity).coerceIn(0.002f, 0.055f),
+            shadowAmbient = (0.028f * ComposeGlassRuntimeDefaults.shadow * safeIntensity).coerceIn(0.004f, 0.080f),
+            shadowSpot = (0.0035f * ComposeGlassRuntimeDefaults.shadow * safeIntensity).coerceIn(0.001f, 0.014f),
+            strokeWidth = (0.42f + glass.outerRim * 0.24f).coerceIn(0.40f, 2.20f)
+        )
+    }
+
+    val base = GlassMaterial(0.044f, 0.104f, 0.030f, 0.036f, 0.020f, 0.015f, 0.028f, 0.0035f, 1f)
+    return GlassMaterial(
+        frost = (base.frost * safeIntensity).coerceIn(0.004f, 0.090f),
+        rim = (base.rim * safeIntensity).coerceIn(0.010f, 0.240f),
+        innerRim = (base.innerRim * safeIntensity * 0.30f).coerceIn(0f, 0.120f),
+        topHighlight = (base.topHighlight * safeIntensity).coerceIn(0.002f, 0.100f),
+        cornerGlint = (base.cornerGlint * safeIntensity * 0.46f).coerceIn(0f, 0.080f),
+        depthShadow = (base.depthShadow * safeIntensity).coerceIn(0.002f, 0.055f),
+        shadowAmbient = (base.shadowAmbient * safeIntensity).coerceIn(0.004f, 0.080f),
+        shadowSpot = (base.shadowSpot * safeIntensity).coerceIn(0.001f, 0.014f),
+        strokeWidth = 1f
+    )
 }
