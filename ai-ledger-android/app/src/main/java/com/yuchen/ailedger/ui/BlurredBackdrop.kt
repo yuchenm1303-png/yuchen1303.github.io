@@ -34,30 +34,62 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+private const val DEFAULT_BLUR_SOURCE_SCALE = 0.36f
+private const val MIN_BLUR_SOURCE_SCALE = 0.28f
+private const val MAX_BLUR_SOURCE_SCALE = 0.72f
+private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
+
 /**
- * 全部玻璃共用的一套背景纹理。
+ * OpenGL Shell 共用的一套背景纹理。
  *
- * `image` 对应网页版 blurCanvas；`lensImage` 对应网页版 sourceCanvas。
- * 两张纹理由同一个背景源一次生成，避免重复背景层，同时完整保留 V25.3 的双纹理光学链。
+ * lensImage 始终是全分辨率清晰纹理；三个 blur 纹理是低分辨率固定层级。
+ * radius 只作为 GPU 连续混合量，不再触发 CPU 重建和 GPU 重传。
  */
 data class BlurredBackdropBitmap(
     val image: ImageBitmap,
     val fullWidthPx: Int,
     val fullHeightPx: Int,
     val scale: Float,
-    val lensImage: ImageBitmap = image
+    val lensImage: ImageBitmap = image,
+    val blurLowImage: ImageBitmap = image,
+    val blurMediumImage: ImageBitmap = image,
+    val blurHighImage: ImageBitmap = image,
+    val blurAmount: Float = 0f
 )
+
+private data class BackdropTextureSet(
+    val clearImage: ImageBitmap,
+    val blurLowImage: ImageBitmap,
+    val blurMediumImage: ImageBitmap,
+    val blurHighImage: ImageBitmap,
+    val fullWidthPx: Int,
+    val fullHeightPx: Int,
+    val blurScale: Float
+) {
+    fun withBlurAmount(amount: Float): BlurredBackdropBitmap = BlurredBackdropBitmap(
+        image = blurMediumImage,
+        fullWidthPx = fullWidthPx,
+        fullHeightPx = fullHeightPx,
+        scale = blurScale,
+        lensImage = clearImage,
+        blurLowImage = blurLowImage,
+        blurMediumImage = blurMediumImage,
+        blurHighImage = blurHighImage,
+        blurAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
+    )
+}
 
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 
 private object BlurredBackdropMemoryCache {
-    private const val MAX_ENTRIES = 4
-    private val entries = object : LinkedHashMap<String, BlurredBackdropBitmap>(MAX_ENTRIES, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BlurredBackdropBitmap>?): Boolean = size > MAX_ENTRIES
+    private const val MAX_ENTRIES = 2
+    private val entries = object : LinkedHashMap<String, BackdropTextureSet>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BackdropTextureSet>?): Boolean =
+            size > MAX_ENTRIES
     }
 
-    @Synchronized fun get(key: String): BlurredBackdropBitmap? = entries[key]
-    @Synchronized fun put(key: String, value: BlurredBackdropBitmap) { entries[key] = value }
+    @Synchronized fun get(key: String): BackdropTextureSet? = entries[key]
+    @Synchronized fun put(key: String, value: BackdropTextureSet) { entries[key] = value }
 }
 
 @Composable
@@ -75,53 +107,56 @@ fun rememberBlurredBackdropBitmap(
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
-    val paramsKey = params.cacheKey()
+    val textureParamsKey = params.textureCacheKey()
     val customKey = when (customBackgroundPath) {
-        null -> "default_wallpaper_lowres"
+        null -> "default_wallpaper_fullres"
         BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
         else -> {
             val file = File(customBackgroundPath)
             if (file.exists()) "${file.absolutePath}:${file.lastModified()}:${file.length()}" else "missing:$customBackgroundPath"
         }
     }
-    val cacheKey = "$width×$height|${theme.storageValue}|${quality.storageValue}|$paramsKey|$customKey"
-    var bitmap by remember(cacheKey) { mutableStateOf(BlurredBackdropMemoryCache.get(cacheKey)) }
+    val textureKey = "$width×$height|${theme.storageValue}|${quality.storageValue}|$textureParamsKey|$customKey"
+    var textures by remember(textureKey) { mutableStateOf(BlurredBackdropMemoryCache.get(textureKey)) }
 
-    LaunchedEffect(cacheKey) {
-        BlurredBackdropMemoryCache.get(cacheKey)?.let { cached ->
-            bitmap = cached
+    LaunchedEffect(textureKey) {
+        BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
+            textures = cached
             BackdropTextureWarmup.warmUp(cached)
             return@LaunchedEffect
         }
-        if (bitmap != null) delay(120)
+        if (textures != null) delay(120)
         val next = withContext(Dispatchers.Default) {
             runCatching {
                 val preset = if (customBackgroundPath == null) decodePresetNightSkyBitmap(context) else null
-                buildBlurredBackdropBitmap(
+                buildBackdropTextureSet(
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
-                    params = params.quantized(),
+                    params = params.quantizedForTextures(),
                     customBackgroundPath = customBackgroundPath,
                     presetBitmap = preset
                 ).also(BackdropTextureWarmup::warmUp)
             }.getOrNull()
         }
         if (next != null) {
-            BlurredBackdropMemoryCache.put(cacheKey, next)
-            bitmap = next
+            BlurredBackdropMemoryCache.put(textureKey, next)
+            textures = next
         }
     }
-    return bitmap
+
+    return remember(textures, params.radius) {
+        textures?.withBlurAmount(params.radius)
+    }
 }
 
 private object BackdropTextureWarmup {
-    fun warmUp(backdrop: BlurredBackdropBitmap) = Unit
+    fun warmUp(backdrop: BackdropTextureSet) = Unit
 }
 
-private fun BackdropDebugParams.cacheKey(): String = buildString {
+/** radius 被排除：调节模糊只更新 uniform，不重建四张纹理。 */
+private fun BackdropDebugParams.textureCacheKey(): String = buildString {
     append(scale.round2()).append('|')
-    append(radius.round2()).append('|')
     append(iterations.roundToInt()).append('|')
     append(brightness.round2()).append('|')
     append(contrast.round2()).append('|')
@@ -136,9 +171,8 @@ private fun BackdropDebugParams.cacheKey(): String = buildString {
     append(moonRimAlpha.round2())
 }
 
-private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
+private fun BackdropDebugParams.quantizedForTextures(): BackdropDebugParams = copy(
     scale = scale.round2(),
-    radius = radius.round2(),
     iterations = iterations.roundToInt().toFloat(),
     brightness = brightness.round2(),
     contrast = contrast.round2(),
@@ -155,34 +189,61 @@ private fun BackdropDebugParams.quantized(): BackdropDebugParams = copy(
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
 
-private fun buildBlurredBackdropBitmap(
+private fun buildBackdropTextureSet(
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme,
     params: BackdropDebugParams,
     customBackgroundPath: String?,
     presetBitmap: Bitmap?
-): BlurredBackdropBitmap {
+): BackdropTextureSet {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
-    val sourceScale = if (useDefaultWallpaper) 0.24f else params.scale.coerceIn(0.18f, 0.72f)
-    val smallWidth = (fullWidth * sourceScale).roundToInt().coerceAtLeast(128)
-    val smallHeight = (fullHeight * sourceScale).roundToInt().coerceAtLeast(216)
-    val effectiveScale = smallWidth.toFloat() / fullWidth.toFloat()
 
-    val source = Bitmap.createBitmap(smallWidth, smallHeight, Bitmap.Config.ARGB_8888)
-    val drewCustom = if (useThemePreset) false else drawCustomImageBackdropSource(source, customBackgroundPath)
+    val clearSource = Bitmap.createBitmap(fullWidth, fullHeight, Bitmap.Config.ARGB_8888)
+    val drewCustom = if (useThemePreset) false else drawCustomImageBackdropSource(clearSource, customBackgroundPath)
     if (!drewCustom) {
-        if (useThemePreset) drawAndroidBackdropSource(source, theme, params)
-        else if (presetBitmap != null) drawBitmapCoverIntoTarget(presetBitmap, source)
-        else drawAndroidBackdropSource(source, theme, params)
+        if (useThemePreset) drawAndroidBackdropSource(clearSource, theme, params)
+        else if (presetBitmap != null) drawBitmapCoverIntoTarget(presetBitmap, clearSource)
+        else drawAndroidBackdropSource(clearSource, theme, params)
     }
 
-    // 网页 lensTexture 直接读取未模糊 sourceCanvas；必须在模糊与色调处理前保留副本。
-    val lensBitmap = Bitmap.createBitmap(source)
-    val blurRadius = params.radius.roundToInt().coerceIn(0, 128)
-    val blurIterations = params.iterations.roundToInt().coerceIn(1, 12)
-    val blurred = boxBlur(input = source, radius = blurRadius, iterations = blurIterations)
+    val blurScale = if (useDefaultWallpaper) {
+        DEFAULT_BLUR_SOURCE_SCALE
+    } else {
+        params.scale.coerceIn(MIN_BLUR_SOURCE_SCALE, MAX_BLUR_SOURCE_SCALE)
+    }
+    val blurWidth = (fullWidth * blurScale).roundToInt().coerceAtLeast(192)
+    val blurHeight = (fullHeight * blurScale).roundToInt().coerceAtLeast(320)
+    val effectiveScale = blurWidth.toFloat() / fullWidth.toFloat()
+    val blurSource = Bitmap.createBitmap(blurWidth, blurHeight, Bitmap.Config.ARGB_8888)
+    drawBitmapCoverIntoTarget(clearSource, blurSource)
+
+    val iterations = params.iterations.roundToInt().coerceIn(1, 12)
+    val low = buildTunedBlurLevel(blurSource, radius = 1, iterations = iterations, params = params)
+    val medium = buildTunedBlurLevel(blurSource, radius = 2, iterations = iterations, params = params)
+    val high = buildTunedBlurLevel(blurSource, radius = 4, iterations = iterations, params = params)
+
+    if (!blurSource.isRecycled) blurSource.recycle()
+
+    return BackdropTextureSet(
+        clearImage = clearSource.asImageBitmap(),
+        blurLowImage = low.asImageBitmap(),
+        blurMediumImage = medium.asImageBitmap(),
+        blurHighImage = high.asImageBitmap(),
+        fullWidthPx = fullWidth,
+        fullHeightPx = fullHeight,
+        blurScale = effectiveScale
+    )
+}
+
+private fun buildTunedBlurLevel(
+    source: Bitmap,
+    radius: Int,
+    iterations: Int,
+    params: BackdropDebugParams
+): Bitmap {
+    val blurred = boxBlur(source, radius, iterations)
     val tuned = tuneBitmapTone(
         input = blurred,
         brightness = params.brightness.coerceIn(0.40f, 2.20f),
@@ -190,15 +251,7 @@ private fun buildBlurredBackdropBitmap(
         saturation = params.saturation.coerceIn(0.30f, 1.80f)
     )
     if (blurred !== source && !blurred.isRecycled) blurred.recycle()
-    if (!source.isRecycled) source.recycle()
-
-    return BlurredBackdropBitmap(
-        image = tuned.asImageBitmap(),
-        fullWidthPx = fullWidth,
-        fullHeightPx = fullHeight,
-        scale = effectiveScale,
-        lensImage = lensBitmap.asImageBitmap()
-    )
+    return tuned
 }
 
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
@@ -251,7 +304,12 @@ private fun drawBitmapCoverIntoTarget(source: Bitmap, target: Bitmap) {
         cropX = 0
         cropY = ((srcH - cropH) / 2f).roundToInt().coerceAtLeast(0)
     }
-    canvas.drawBitmap(source, Rect(cropX, cropY, cropX + cropW, cropY + cropH), RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()), paint)
+    canvas.drawBitmap(
+        source,
+        Rect(cropX, cropY, cropX + cropW, cropY + cropH),
+        RectF(0f, 0f, dstW.toFloat(), dstH.toFloat()),
+        paint
+    )
 }
 
 private val ANDROID_BACKDROP_CLOUD_Y_FRACTIONS = floatArrayOf(0.12f, 0.28f, 0.48f, 0.68f)
@@ -262,7 +320,15 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, pa
     val h = bitmap.height.toFloat()
     val p = androidWeatherPalette(theme)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    paint.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(p.top, p.upper, p.mid, p.horizon, p.bottom), null, Shader.TileMode.CLAMP)
+    paint.shader = LinearGradient(
+        0f,
+        0f,
+        0f,
+        h,
+        intArrayOf(p.top, p.upper, p.mid, p.horizon, p.bottom),
+        null,
+        Shader.TileMode.CLAMP
+    )
     canvas.drawRect(0f, 0f, w, h, paint)
     paint.shader = null
     drawGlow(canvas, paint, w * 0.82f, h * 0.12f, w * 0.52f, h * 0.26f, p.violet, 0.38f)
@@ -276,8 +342,24 @@ private fun drawAndroidBackdropSource(bitmap: Bitmap, theme: BackgroundTheme, pa
     }
 }
 
-private fun drawGlow(canvas: Canvas, paint: Paint, cx: Float, cy: Float, rx: Float, ry: Float, color: Int, alpha: Float) {
-    paint.shader = RadialGradient(cx, cy, max(rx, ry), intArrayOf(withAlpha(color, alpha), withAlpha(color, alpha * 0.28f), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+private fun drawGlow(
+    canvas: Canvas,
+    paint: Paint,
+    cx: Float,
+    cy: Float,
+    rx: Float,
+    ry: Float,
+    color: Int,
+    alpha: Float
+) {
+    paint.shader = RadialGradient(
+        cx,
+        cy,
+        max(rx, ry),
+        intArrayOf(withAlpha(color, alpha), withAlpha(color, alpha * 0.28f), Color.TRANSPARENT),
+        null,
+        Shader.TileMode.CLAMP
+    )
     canvas.drawOval(RectF(cx - rx, cy - ry, cx + rx, cy + ry), paint)
     paint.shader = null
 }
@@ -304,14 +386,27 @@ private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
     return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
 }
 
-private fun boxBlurHorizontal(source: IntArray, temp: IntArray, width: Int, height: Int, radius: Int, window: Int) {
+private fun boxBlurHorizontal(
+    source: IntArray,
+    temp: IntArray,
+    width: Int,
+    height: Int,
+    radius: Int,
+    window: Int
+) {
     for (y in 0 until height) {
-        var a = 0; var r = 0; var g = 0; var b = 0
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
         val row = y * width
         for (i in -radius..radius) {
             val x = i.coerceIn(0, width - 1)
             val c = source[row + x]
-            a += c ushr 24; r += (c shr 16) and 0xFF; g += (c shr 8) and 0xFF; b += c and 0xFF
+            a += c ushr 24
+            r += (c shr 16) and 0xFF
+            g += (c shr 8) and 0xFF
+            b += c and 0xFF
         }
         for (x in 0 until width) {
             temp[row + x] = ((a / window) shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
@@ -325,13 +420,26 @@ private fun boxBlurHorizontal(source: IntArray, temp: IntArray, width: Int, heig
     }
 }
 
-private fun boxBlurVertical(temp: IntArray, output: IntArray, width: Int, height: Int, radius: Int, window: Int) {
+private fun boxBlurVertical(
+    temp: IntArray,
+    output: IntArray,
+    width: Int,
+    height: Int,
+    radius: Int,
+    window: Int
+) {
     for (x in 0 until width) {
-        var a = 0; var r = 0; var g = 0; var b = 0
+        var a = 0
+        var r = 0
+        var g = 0
+        var b = 0
         for (i in -radius..radius) {
             val y = i.coerceIn(0, height - 1)
             val c = temp[y * width + x]
-            a += c ushr 24; r += (c shr 16) and 0xFF; g += (c shr 8) and 0xFF; b += c and 0xFF
+            a += c ushr 24
+            r += (c shr 16) and 0xFF
+            g += (c shr 8) and 0xFF
+            b += c and 0xFF
         }
         for (y in 0 until height) {
             output[y * width + x] = ((a / window) shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
@@ -388,4 +496,5 @@ private fun androidWeatherPalette(theme: BackgroundTheme): AndroidWeatherPalette
 }
 
 private fun rgb(r: Int, g: Int, b: Int): Int = Color.rgb(r, g, b)
-private fun withAlpha(color: Int, alpha: Float): Int = ((alpha.coerceIn(0f, 1f) * 255f).roundToInt() shl 24) or (color and 0x00FFFFFF)
+private fun withAlpha(color: Int, alpha: Float): Int =
+    ((alpha.coerceIn(0f, 1f) * 255f).roundToInt() shl 24) or (color and 0x00FFFFFF)
