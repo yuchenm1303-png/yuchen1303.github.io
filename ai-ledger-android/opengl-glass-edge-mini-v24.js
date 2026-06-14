@@ -30,8 +30,8 @@ const APP_RAW={
   edgeMode:1,
   shoulderWidthPx:28,
   shoulderMaxAngleDeg:88,
-  shoulderFalloffRoundness:.72,
-  shoulderMaterialStrength:2.4
+  shoulderFalloffRoundness:.82,
+  shoulderMaterialStrength:3.2
 };
 
 let p={...APP_RAW};
@@ -68,11 +68,11 @@ const groups=[
     ['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],
     ['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'直接法线圆肩 Direct Normal Shoulder',items:[
+  {title:'直接法线圆肩连续填充 Filled Normal Shoulder',items:[
     ['shoulderWidthPx','圆肩宽度',4,80],
     ['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],
     ['shoulderFalloffRoundness','法线回落圆润度',0,1],
-    ['shoulderMaterialStrength','圆肩材质轮廓强度',0,4]
+    ['shoulderMaterialStrength','圆肩整体材质填充',0,4]
   ]}
 ];
 
@@ -487,13 +487,11 @@ function updateUi(){
   }
   syncModeUi();
   out.textContent=JSON.stringify({
-    mode:'v29DirectNormalShoulder',
-    edgeMode:p.edgeMode===0?'pureV25_3Body':'directNormalShoulder',
-    removedParameters:[
-      'bevelZRadiusPx',
-      'bevelOpticalThicknessPx',
-      'bevelRefractiveIndex'
-    ],
+    mode:'v29_1FilledNormalShoulder',
+    edgeMode:p.edgeMode===0?'pureV25_3Body':'filledNormalShoulder',
+    shoulderMaterialCoverage:'broadFillThenZeroSlopeFade',
+    shoulderBodyTransition:'coordinateAndMaterialCrossfade',
+    innerRim:false,
     oneFinalOpticalCoord:true,
     extraEdgeSamples:0,
     blurBackend:'fullResolutionShiftAverage',
@@ -655,7 +653,7 @@ window.addEventListener('beforeunload',()=>{
 });
 
 try{
-  document.title='OpenGL V29 · Direct Normal Shoulder';
+  document.title='OpenGL V29.1 · Filled Normal Shoulder';
   initGl();
   buildControls();
   requestAnimationFrame(()=>{
