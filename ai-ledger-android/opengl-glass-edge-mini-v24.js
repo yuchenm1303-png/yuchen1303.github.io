@@ -30,8 +30,8 @@ const groups=[
   {title:'主体低频运输 Body Low-Frequency Transport',items:[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'固定深层取样压缩 Fixed-Capture Compression',items:[
-    ['shoulderWidthPx','圆肩可见宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','法线回落圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderTangentialFlowStrength','固定取样切向揉开',0,2.4]
+  {title:'外沿尖峰固定取样 Outer-Peak Fixed Capture',items:[
+    ['shoulderWidthPx','圆肩可见宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','外沿集中与内沿圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderTangentialFlowStrength','固定取样切向揉开',0,2.4]
   ]}
 ];
 
@@ -98,8 +98,8 @@ function render(){
 }
 
 function format(v){return String(Math.round(v*1000)/1000)}
-function syncModeUi(){document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode))}
-function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}syncModeUi();out.textContent=JSON.stringify({mode:'v29_3FixedCaptureCompressionShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'fixedCaptureCompressionShoulder',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:'fixedDeepSourceDomainCompressedIntoVisibleShoulder',removedParameter:'shoulderDeepProbeStrength',tangentialFlowBasis:'fixedCaptureWidth',shoulderBodyTransition:'zeroSlopeCrossfade',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
+function syncModeUi(){document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.datasetEdgeMode)===p.edgeMode))}
+function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_4OuterPeakFixedCaptureShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'outerPeakFixedCaptureShoulder',peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
 function refresh(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=0;rebuildBackdrop();updateUi();render()}
 function schedule(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=requestAnimationFrame(()=>{backdropFrame=0;rebuildBackdrop();updateUi();render()})}
 
@@ -118,4 +118,4 @@ moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.t
 function resize(){const d=dpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refresh()}
 window.addEventListener('resize',resize);scroll.addEventListener('scroll',render,{passive:true});window.addEventListener('beforeunload',()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl)});
 
-try{document.title='OpenGL V29.3 · Fixed-Capture Compression Shoulder';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
+try{document.title='OpenGL V29.4 · Outer-Peak Fixed-Capture Shoulder';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
