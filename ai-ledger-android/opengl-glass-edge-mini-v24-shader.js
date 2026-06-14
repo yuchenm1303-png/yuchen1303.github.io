@@ -115,9 +115,10 @@ vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r,float pointWeight){
  * One-Sided Rounded Shoulder Rim
  * 只生成一个最终折射坐标：
  * 1. 单侧圆肩法线通过 Snell 折射定位玻璃内部来源点；
- * 2. 来源点继续进入同一套 V25.3 主体折射场；
- * 3. 只围绕唯一坐标执行三点切线颜色足迹。
- * 内沿 theta=0，来源点=p，最终坐标严格等于主体坐标。
+ * 2. 折射位移被锁定到边缘内法线，圆角和直边都不会向玻璃外取样；
+ * 3. 来源点继续进入同一套 V25.3 主体折射场；
+ * 4. 只围绕唯一坐标执行三点切线颜色足迹。
+ * 内沿通过连续锁定严格回到主体坐标和主体权重。
  *
  * uRimA = rimWidthPx, opticalThicknessPx, maxBevelAngleDeg, shoulderCurve
  * uRimB = refractiveIndex, tangentSpreadPx, footprintStrength, brightCapture
@@ -152,20 +153,30 @@ vec3 renderUnifiedRoundedRim(
   float ior=clamp(uRimB.x,1.01,1.85);
   vec3 refractedRay=refract(viewRay,surfaceNormal,1.0/ior);
   float rayZ=max(-refractedRay.z,.22);
-  vec2 rayOffset=refractedRay.xy/rayZ*max(uRimA.y,0.0);
+  vec2 rawRayOffset=refractedRay.xy/rayZ*max(uRimA.y,0.0);
   float maxSafeOffset=max(rimWidth*1.1,min(z.x,z.y)*.44);
-  rayOffset=softLimit(rayOffset,maxSafeOffset);
+  rawRayOffset=softLimit(rawRayOffset,maxSafeOffset);
 
-  vec2 sourcePoint=p+rayOffset;
+  /* refract 的二维位移只允许沿 -edgeNormal 进入玻璃，杜绝圆角外采样。 */
+  float inwardTravel=max(dot(rawRayOffset,-edgeNormal),0.0);
+  vec2 sourcePoint=p-edgeNormal*inwardTravel;
+
+  /* 最内侧 22% 平滑锁回 V25.3 主体，保证坐标和一阶变化连续。 */
+  float innerContinuity=smoother01(sat((t-.78)/.22));
+  sourcePoint=mix(sourcePoint,p,innerContinuity);
   float sourceWeight=evaluateBodyWeightAt(sourcePoint,z,r);
   vec2 finalOpticalCoord=evaluateBodyOpticalCoordAt(
       sourcePoint,z,r,sourceWeight
   );
+  sourceWeight=mix(sourceWeight,bodyWeight,innerContinuity);
+  finalOpticalCoord=mix(finalOpticalCoord,bodyOpticalCoord,innerContinuity);
 
-  /* 内沿 sourcePoint=p，因此这里与主体完全是同一个最终坐标。 */
+  /* 扩散距离与混合权重分开衰减：颜色能浸入圆肩，但不会形成清晰副本。 */
   vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
-  float footprint=sat(shoulder*clamp(uRimB.z,0.0,1.0));
-  float spread=max(uRimB.y,0.0)*footprint;
+  float footprintStrength=clamp(uRimB.z,0.0,1.0);
+  float spreadShape=pow(max(shoulder,0.0),.58);
+  float blendShape=pow(max(shoulder,0.0),.92);
+  float spread=max(uRimB.y,0.0)*spreadShape;
 
   vec3 centerColor=sampleBodyMaterial(
       globalUv(finalOpticalCoord),sourceWeight
@@ -177,21 +188,23 @@ vec3 renderUnifiedRoundedRim(
       globalUv(finalOpticalCoord-tangent*spread),sourceWeight
   );
 
-  float sideWeight=.22*footprint;
+  float plusLuma=luminanceOf(plusColor);
+  float minusLuma=luminanceOf(minusColor);
+  float sideWeight=.16*footprintStrength*blendShape;
   float centerWeight=1.0-sideWeight*2.0;
   vec3 transmitted=
       centerColor*centerWeight
       +plusColor*sideWeight
       +minusColor*sideWeight;
 
-  /* 深层亮色只改变能量，不再生成另一幅几何不同的边缘图像。 */
+  /* 亮色捕获只改变同一折射足迹的能量，不引入第二套几何。 */
   float centerLuma=luminanceOf(centerColor);
-  float peakLuma=max(centerLuma,max(luminanceOf(plusColor),luminanceOf(minusColor)));
+  float peakLuma=max(centerLuma,max(plusLuma,minusLuma));
   float capture=sat((peakLuma-centerLuma)*max(uRimB.w,0.0));
-  transmitted*=1.0+capture*.20*shoulder;
+  transmitted*=1.0+capture*.18*pow(max(shoulder,0.0),.72);
   transmitted*=mix(1.0,clamp(uRimC.x,.45,1.15),shoulder);
 
-  /* Fresnel 与方向亮面属于同一个边框材质，不建立独立发光层。 */
+  /* Fresnel 反射复用同一切线足迹的环境颜色，只在迎光面加入少量暖色。 */
   float cosIncidence=sat(dot(-viewRay,surfaceNormal));
   float f0=(ior-1.0)/(ior+1.0);
   f0*=f0;
@@ -205,17 +218,20 @@ vec3 renderUnifiedRoundedRim(
   float facing=sat(dot(edgeNormal,lightDirection));
   float directional=pow(facing,max(uRimC.w,1.0));
   float falloff=1.0/(1.0+lightDistance2*.40);
+  float reflectionFacing=.08+.92*directional*falloff;
 
   float reflectionAmount=sat(
       fresnel
       *max(uRimC.y,0.0)
-      *pow(shoulder,1.45)
-      *(.34+.66*directional*falloff)
+      *pow(max(shoulder,0.0),1.35)
+      *reflectionFacing
   );
-  vec3 reflectionColor=mix(
-      transmitted,
+  vec3 footprintHighlight=plusLuma>minusLuma?plusColor:minusColor;
+  vec3 reflectionColor=mix(transmitted,footprintHighlight,.48);
+  reflectionColor=mix(
+      reflectionColor,
       vec3(1.0,.995,.98),
-      .28+.30*directional
+      .08+.20*directional
   );
   vec3 color=mix(transmitted,reflectionColor,reflectionAmount);
 
