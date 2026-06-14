@@ -96,7 +96,13 @@ fun CachedAppTabHost(
                 val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
 
-                GlassSceneScope(tab.defaultGlassSceneGroup()) {
+                OrdinaryGlassSceneHost(
+                    group = tab.defaultGlassSceneGroup(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(if (active) 1f else -1f)
+                        .graphicsLayer { this.alpha = alpha }
+                ) {
                     CompositionLocalProvider(
                         LocalPageActive provides active,
                         LocalPageVisible provides visibleDuringTransition,
@@ -111,15 +117,8 @@ fun CachedAppTabHost(
                         LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
                         LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(if (active) 1f else -1f)
-                                .graphicsLayer { this.alpha = alpha }
-                        ) {
-                            key(tab) {
-                                content(tab)
-                            }
+                        key(tab) {
+                            content(tab)
                         }
                     }
                 }
