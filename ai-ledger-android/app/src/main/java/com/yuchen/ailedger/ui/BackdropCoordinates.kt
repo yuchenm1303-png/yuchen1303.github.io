@@ -162,6 +162,7 @@ fun SyncGlassBackdropToScroll(listState: LazyListState) {
 
 data class GlassRenderItem(
     val key: Any,
+    val sceneGroup: GlassSceneGroup = GlassSceneGroup.Unassigned,
     val coordinates: GlassCoordinateSource,
     val radius: Int,
     val role: GlassRole,
