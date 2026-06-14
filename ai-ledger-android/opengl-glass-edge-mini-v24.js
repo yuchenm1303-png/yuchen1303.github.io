@@ -85,38 +85,45 @@ function drawBackdrop(c,w,h,withText){
 }
 function stageDpr(){return Math.min(window.devicePixelRatio||1,2)}
 function glassRect(){const a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return{x:b.left-a.left,y:b.top-a.top,w:b.width,h:b.height}}
-function configureSmoothContext(c){c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=true;try{c.imageSmoothingQuality='high'}catch(_){}}
+function configureSmoothContext(c){c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=true;try{c.imageSmoothingQuality='high'}catch(_){}c.globalAlpha=1;c.globalCompositeOperation='source-over'}
 function resizeCanvas(canvas,w,h){const iw=Math.max(1,Math.round(w)),ih=Math.max(1,Math.round(h));if(canvas.width!==iw)canvas.width=iw;if(canvas.height!==ih)canvas.height=ih}
 function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;resizeCanvas(gb,sw,sh);configureSmoothContext(gbCtx);gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
 function effectiveBlurPx(d){return Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55))}
+function drawShiftAverage(dstCtx,src,w,h,step,horizontal){
+  configureSmoothContext(dstCtx);dstCtx.clearRect(0,0,w,h);dstCtx.save();
+  dstCtx.globalCompositeOperation='lighter';dstCtx.globalAlpha=.2;
+  for(let i=-2;i<=2;i++){
+    const dx=horizontal?i*step:0,dy=horizontal?0:i*step;
+    dstCtx.drawImage(src,dx,dy,w,h);
+  }
+  dstCtx.restore();
+  dstCtx.save();dstCtx.globalCompositeOperation='destination-over';dstCtx.globalAlpha=1;dstCtx.drawImage(src,0,0,w,h);dstCtx.restore();
+}
+function applyFullResolutionBlur(source,w,h,blurPx){
+  configureSmoothContext(blurCtx);blurCtx.clearRect(0,0,w,h);
+  if(blurPx<=.025){blurCtx.drawImage(source,0,0,w,h);return}
+  resizeCanvas(blurLevelA,w,h);resizeCanvas(blurLevelB,w,h);
+  const passCount=Math.max(1,Math.min(3,Math.ceil(p.iterations/4)));
+  const step=Math.max(.25,blurPx/Math.sqrt(2*passCount));
+  let current=source;
+  for(let pass=0;pass<passCount;pass++){
+    drawShiftAverage(blurLevelACtx,current,w,h,step,true);
+    drawShiftAverage(blurLevelBCtx,blurLevelA,w,h,step,false);
+    current=blurLevelB;
+  }
+  blurCtx.drawImage(current,0,0,w,h);
+}
 function uploadBackdropTexture(){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas);gl.flush()}
 function rebuildBackdrop(){
   const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));
   resizeCanvas(bg,w,h);resizeCanvas(sourceCanvas,w,h);resizeCanvas(colorCanvas,w,h);resizeCanvas(blurCanvas,w,h);
   drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);
 
-  configureSmoothContext(colorCtx);colorCtx.clearRect(0,0,w,h);
-  colorCtx.save();
+  configureSmoothContext(colorCtx);colorCtx.clearRect(0,0,w,h);colorCtx.save();
   colorCtx.filter=`brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;
-  colorCtx.drawImage(sourceCanvas,0,0,w,h);
-  colorCtx.filter='none';colorCtx.restore();
+  colorCtx.drawImage(sourceCanvas,0,0,w,h);colorCtx.filter='none';colorCtx.restore();
 
-  const blurPx=effectiveBlurPx(d);
-  configureSmoothContext(blurCtx);blurCtx.clearRect(0,0,w,h);
-  if(blurPx<=.025){
-    blurCtx.drawImage(colorCanvas,0,0,w,h);
-  }else{
-    const finalScale=Math.max(.075,1/(1+blurPx*.22));
-    const middleScale=Math.sqrt(finalScale);
-    const aw=Math.max(2,Math.round(w*middleScale)),ah=Math.max(2,Math.round(h*middleScale));
-    const bw=Math.max(2,Math.round(w*finalScale)),bh=Math.max(2,Math.round(h*finalScale));
-    resizeCanvas(blurLevelA,aw,ah);resizeCanvas(blurLevelB,bw,bh);
-    configureSmoothContext(blurLevelACtx);configureSmoothContext(blurLevelBCtx);
-    blurLevelACtx.clearRect(0,0,aw,ah);blurLevelACtx.drawImage(colorCanvas,0,0,w,h,0,0,aw,ah);
-    blurLevelBCtx.clearRect(0,0,bw,bh);blurLevelBCtx.drawImage(blurLevelA,0,0,aw,ah,0,0,bw,bh);
-    blurCtx.drawImage(blurLevelB,0,0,bw,bh,0,0,w,h);
-  }
-
+  applyFullResolutionBlur(colorCanvas,w,h,effectiveBlurPx(d));
   drawGlassBackdrop();uploadBackdropTexture();backdropRevision++;
 }
 function cancelScheduledBackdropRefresh(){if(backdropRefreshFrame){cancelAnimationFrame(backdropRefreshFrame);backdropRefreshFrame=0}}
@@ -134,7 +141,7 @@ function render(){
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refreshBackdropNow()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-rim-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.rimMode)===p.rimMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousDeepLensRim',rimMode:p.rimMode===0?'bodyOnly':'continuousDeepLens',blurBackend:'deterministicDownsample',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousDeepLensRim',rimMode:p.rimMode===0?'bodyOnly':'continuousDeepLens',blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);const input=$('i-'+k);const applyValue=e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))scheduleBackdropRefresh();else{updateUi();render()}};input.addEventListener('input',applyValue);input.addEventListener('change',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))refreshBackdropNow();else{updateUi();render()}})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw)refreshBackdropNow()}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
