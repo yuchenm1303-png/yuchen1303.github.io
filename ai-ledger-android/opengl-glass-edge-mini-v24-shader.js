@@ -30,14 +30,16 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.5 Unified Perimeter Mapping Test
+ * V29.6 Normal-Locked Unified Perimeter Mapping Test
  * uShoulderEnabled:
  *   0 = pure V25.3 body
  *   1 = original V29.4 local-normal capture
- *   2 = experimental unified full-perimeter capture
+ *   2 = V29.5 affine unified full-perimeter capture
+ *   3 = V29.6 normal-locked unified perimeter capture
  *
- * 仅来源坐标构造在模式 2 中改变。主体、圆肩包络、材质、Fresnel、
- * 透明度与最终合成顺序保持 V29.4 不变。
+ * 模式 3 在直边锁定切向坐标，只沿玻璃法线拉伸；进入圆角后平滑恢复
+ * 统一内轮廓映射的切向分量，以保持整圈连续且不重新产生重影。
+ * 主体、圆肩包络、材质、Fresnel、透明度与最终合成顺序保持不变。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -152,17 +154,12 @@ float shoulderX(float depth,vec2 z){
   return sat(depth/max(shoulderWidth(z),1.0));
 }
 
-/*
- * 最大变化率位于 x=0，随后单调减弱；x=1 时值和导数都为 0。
- * roundness 越高，尖峰越集中在最外沿、内沿越平缓。
- */
 float shoulderOuterEnvelope(float depth,vec2 z){
   float x=shoulderX(depth,z);
   float exponent=mix(2.0,4.8,sat(uShoulder.z));
   return pow(max(1.0-x,0.0),exponent);
 }
 
-/* 材质覆盖较宽，但同样不在内沿形成二次峰值。 */
 float shoulderMaterialFill(float depth,vec2 z){
   float x=shoulderX(depth,z);
   float exponent=mix(1.20,1.85,sat(uShoulder.z));
@@ -177,18 +174,12 @@ float shoulderTheta(float depth,vec2 z){
   return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
 }
 
-/* 原版 V29.4 局部法线深度。 */
 float shoulderCaptureDepth(float depth,vec2 z){
   float captureWidth=shoulderCaptureWidth(z);
   float envelope=shoulderOuterEnvelope(depth,z);
   return depth+(captureWidth-depth)*envelope;
 }
 
-/*
- * 将整圈外轮廓按统一归一化坐标映射到同一个内部轮廓。
- * 上边、圆角、右边等区域共享同一连续映射，不再各自沿局部法线
- * 独立争用背景来源点。
- */
 vec2 unifiedInnerContourPoint(vec2 boundaryPoint,vec2 z){
   vec2 center=z*.5;
   vec2 halfSize=max(z*.5,vec2(1.0));
@@ -199,6 +190,36 @@ vec2 unifiedInnerContourPoint(vec2 boundaryPoint,vec2 z){
   );
   vec2 normalized=(boundaryPoint-center)/halfSize;
   return center+normalized*innerHalf;
+}
+
+float unifiedCornerBlend(
+  vec2 boundaryPoint,
+  vec2 z,
+  float r
+){
+  vec2 local=abs(boundaryPoint-z*.5);
+  vec2 core=max(z*.5-vec2(r),vec2(0.0));
+  vec2 cornerOffset=max(local-core,vec2(0.0));
+  float cornerDepth=min(cornerOffset.x,cornerOffset.y);
+  float feather=max(r*.22,1.0);
+  return smoothstep(0.0,feather,cornerDepth);
+}
+
+vec2 normalLockedUnifiedInnerPoint(
+  vec2 boundaryPoint,
+  vec2 edgeNormal,
+  vec2 z,
+  float r
+){
+  vec2 unifiedPoint=unifiedInnerContourPoint(boundaryPoint,z);
+  vec2 delta=unifiedPoint-boundaryPoint;
+  vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+  float normalShift=dot(delta,edgeNormal);
+  float tangentShift=dot(delta,tangent);
+  float cornerBlend=unifiedCornerBlend(boundaryPoint,z,r);
+  return boundaryPoint
+      +edgeNormal*normalShift
+      +tangent*tangentShift*cornerBlend;
 }
 
 float shoulderTangentialSignal(
@@ -273,9 +294,16 @@ vec4 evaluateShoulderSource(
         -edgeNormal*sourceDepth
         +tangent*tangentTravel;
   }else{
-    vec2 innerContourPoint=unifiedInnerContourPoint(
-        boundaryPoint,z
-    );
+    vec2 innerContourPoint;
+    if(uShoulderEnabled<2.5){
+      innerContourPoint=unifiedInnerContourPoint(
+          boundaryPoint,z
+      );
+    }else{
+      innerContourPoint=normalLockedUnifiedInnerPoint(
+          boundaryPoint,edgeNormal,z,r
+      );
+    }
     sourcePoint=
         mix(p,innerContourPoint,envelope)
         +tangent*tangentTravel;
