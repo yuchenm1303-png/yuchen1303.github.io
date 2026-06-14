@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
@@ -56,7 +57,18 @@ fun SampledWeatherGlassBackdrop(
     motionIntensity: Float,
     theme: BackgroundTheme,
     blurRadiusDp: Int = 112,
-    liftAlpha: Float = 1f
+    liftAlpha: Float = 1f,
+    ordinaryRoleHint: GlassRole? = null,
+    ordinaryGlassIntensityHint: Float = liftAlpha,
+    ordinaryEdgeStrengthHint: Float = 0f,
+    ordinaryPressableHint: Boolean = false,
+    ordinaryShimmerHint: Float = 0f,
+    ordinaryBreatheHint: Float = 0f,
+    ordinaryPressProgressHint: Float = 0f,
+    ordinaryLensProgressHint: Float = 0f,
+    ordinarySweepProgressHint: Float = 0f,
+    ordinaryElasticityHint: Float = 0f,
+    ordinaryPressCenterHint: Offset = Offset(0.5f, 0.5f)
 ) {
     val rawBackdrop = LocalBlurredBackdrop.current
     val cachedBackdrop = remember(
@@ -110,6 +122,46 @@ fun SampledWeatherGlassBackdrop(
         RenderQuality.Experimental -> 0.98f
     } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
+
+    // 第一阶段只登记普通 Compose 玻璃的几何和状态，不关闭当前子级绘制。
+    // Shell 通过角色提示或现有 blur 特征被硬排除，不进入普通玻璃 registry。
+    val sceneGroup = LocalGlassSceneGroup
+    val inferredRole = ordinaryRoleHint ?: when {
+        blurRadiusDp >= 100 -> GlassRole.Shell
+        radius >= 999 -> GlassRole.Nav
+        blurRadiusDp <= 62 -> GlassRole.Chip
+        else -> GlassRole.Card
+    }
+    val ordinaryNode = remember(coordinateSource) {
+        OrdinaryGlassRenderNode(coordinates = coordinateSource)
+    }
+    val ordinaryNodeEnabled = inferredRole != GlassRole.Shell && sceneGroup != GlassSceneGroup.Unassigned
+
+    SideEffect {
+        if (ordinaryNodeEnabled) {
+            ordinaryNode.updateStatic(
+                sceneGroup = sceneGroup,
+                role = inferredRole,
+                quality = quality,
+                radius = radius,
+                glassIntensity = ordinaryGlassIntensityHint,
+                backdropAlpha = backdropAlpha,
+                edgeStrength = ordinaryEdgeStrengthHint,
+                pressable = ordinaryPressableHint
+            )
+            ordinaryNode.updateMotion(
+                shimmer = ordinaryShimmerHint,
+                breathe = ordinaryBreatheHint,
+                pressProgress = ordinaryPressProgressHint,
+                lensProgress = ordinaryLensProgressHint,
+                sweepProgress = ordinarySweepProgressHint,
+                elasticity = ordinaryElasticityHint,
+                pressCenter = ordinaryPressCenterHint
+            )
+        }
+    }
+    BindOrdinaryGlassRenderNode(node = ordinaryNode, enabled = ordinaryNodeEnabled)
+
     val cachedDrawModifier = remember(
         radius,
         cachedBackdrop,
@@ -258,119 +310,46 @@ fun SampledWeatherEdgeRefraction(
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
-    val sampleOffsetState = remember(coordinateSource, origin, ticker) {
+    val glass = ComposeGlassLabState.style
+    val border = spec?.borderStyle ?: GlassBorderStyle()
+    val offsetState = remember(coordinateSource, origin, ticker) {
         derivedStateOf(structuralEqualityPolicy()) {
             ticker?.frameNanos
             coordinateSource.offsetRelativeTo(origin)
         }
     }
-    val border = spec?.borderStyle ?: GlassBorderStyle()
-    val alpha = strength.coerceIn(0f, 0.34f)
-    val cachedDrawModifier = remember(radius, sampleOffsetState, border, alpha) {
+    val edgeAlpha = (0.055f * strength.coerceIn(0f, 2f) * glass.edgeRefraction).coerceIn(0f, 0.18f)
+    val edgeWidth = (1.0f + glass.edgeWidthScale.coerceIn(0.55f, 1.85f) * 1.4f).dp
+    val lineAlpha = border.outerStrokeAlpha.coerceIn(0f, 1.6f)
+    val cachedEdgeModifier = remember(radius, offsetState, edgeAlpha, edgeWidth, lineAlpha) {
         Modifier
             .clip(RoundedCornerShape(radius.dp))
             .drawWithCache {
-                val w = size.width
-                val h = size.height
                 val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-                val outerInset = 0.55.dp.toPx()
-                val midInset = 2.70.dp.toPx()
-                val innerInset = 7.0.dp.toPx()
-                val outerSize = Size(w - outerInset * 2f, h - outerInset * 2f)
-                val midSize = Size(w - midInset * 2f, h - midInset * 2f)
-                val innerSize = Size(w - innerInset * 2f, h - innerInset * 2f)
-                val topRimBrush = Brush.verticalGradient(
+                val topGlow = Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.070f * alpha),
-                        Color.White.copy(alpha = 0.018f * alpha),
+                        Color.White.copy(alpha = edgeAlpha * 0.95f),
+                        Color(0xFFBFF7FF).copy(alpha = edgeAlpha * 0.40f),
                         Color.Transparent
                     ),
-                    endY = h * 0.30f
+                    endY = size.height * 0.30f
                 )
-                val sideRimBrush = Brush.horizontalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.030f * alpha),
-                        Color.Transparent,
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.010f * alpha),
-                        Color.White.copy(alpha = 0.016f * alpha)
-                    )
-                )
-                val lowerRimBrush = Brush.verticalGradient(
-                    listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = 0.004f * alpha),
-                        Color.Black.copy(alpha = 0.018f * alpha)
-                    ),
-                    startY = h * 0.48f,
-                    endY = h
-                )
-                val outerStrokeBrush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = border.outerStrokeAlpha),
-                        Color.White.copy(alpha = border.outerStrokeAlpha * 0.34f),
-                        Color.White.copy(alpha = border.outerStrokeAlpha * 0.12f)
-                    ),
-                    endY = h
-                )
-
                 onDrawBehind {
-                    val sampleOffset = sampleOffsetState.value
-                    val phase = ((sampleOffset.x + sampleOffset.y) / 900f) % 1f
-                    val movingOuterBrush = Brush.linearGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.055f * alpha),
-                            Color.White.copy(alpha = 0.018f * alpha),
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.010f * alpha),
-                            Color.White.copy(alpha = 0.010f * alpha)
-                        ),
-                        Offset(w * (phase - 0.18f), 0f),
-                        Offset(w * (phase + 0.82f), h)
-                    )
+                    offsetState.value
                     drawRoundRect(
-                        movingOuterBrush,
-                        Offset(outerInset, outerInset),
-                        outerSize,
-                        corner,
-                        style = Stroke(8.5.dp.toPx()),
+                        brush = topGlow,
+                        cornerRadius = corner,
+                        style = Stroke(edgeWidth.toPx()),
                         blendMode = BlendMode.Screen
                     )
                     drawRoundRect(
-                        topRimBrush,
-                        Offset(midInset, midInset),
-                        midSize,
-                        corner,
-                        style = Stroke(5.6.dp.toPx()),
-                        blendMode = BlendMode.Screen
-                    )
-                    drawRoundRect(
-                        sideRimBrush,
-                        Offset(midInset, midInset),
-                        midSize,
-                        corner,
-                        style = Stroke(4.8.dp.toPx()),
-                        blendMode = BlendMode.Screen
-                    )
-                    drawRoundRect(
-                        lowerRimBrush,
-                        Offset(innerInset, innerInset),
-                        innerSize,
-                        corner,
-                        style = Stroke(2.4.dp.toPx()),
-                        blendMode = BlendMode.Multiply
-                    )
-                    drawRoundRect(
-                        outerStrokeBrush,
-                        Offset(outerInset, outerInset),
-                        outerSize,
-                        corner,
-                        style = Stroke(1.15.dp.toPx()),
+                        color = Color.White.copy(alpha = 0.045f * lineAlpha),
+                        cornerRadius = corner,
+                        style = Stroke(0.7.dp.toPx()),
                         blendMode = BlendMode.Screen
                     )
                 }
             }
     }
-
-    Box(modifier = modifier.then(cachedDrawModifier)) {}
+    Box(modifier = modifier.then(cachedEdgeModifier)) {}
 }
