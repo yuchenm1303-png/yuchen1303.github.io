@@ -6,6 +6,7 @@ uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform vec4 uShoulder;
+uniform vec2 uShoulderFlow;
 uniform float uShoulderEnabled,uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
@@ -33,12 +34,13 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.1 Filled Direct Normal Shoulder
+ * V29.2 Deep-Probe Flow Shoulder
  * uShoulder = widthPx, maxAngleDeg, falloffRoundness, materialFillStrength
+ * uShoulderFlow = deepProbeStrength, tangentialFlowStrength
  *
- * 圆肩区域采用宽幅材质填充，最后一段才以零斜率退回主体。
- * 圆肩来源坐标也在内沿与原始 V25.3 主体坐标平滑融合，
- * 不生成独立内沿亮线，不形成双层框。
+ * 圆肩来源点通过严格单调的深探入曲线进入玻璃内部，
+ * 同时沿连续边缘切线加入低频流动，把背景纹理自然揉开。
+ * 圆肩内沿仍与纯 V25.3 主体坐标和材质权重零斜率融合。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -152,23 +154,17 @@ float shoulderProfile(float depth,vec2 z){
   return 1.0-mix(cubic,quintic,roundness);
 }
 
-/*
- * 宽幅填充：前 68% 圆肩区域保持完整材质响应，
- * 后 32% 才平滑退回主体，端点导数为 0。
- */
+/* 圆肩前 72% 保持完整材质填充，末段零斜率退场。 */
 float shoulderMaterialFill(float depth,vec2 z){
   float x=sat(depth/max(shoulderWidth(z),1.0));
-  float tail=sat((x-.68)/.32);
+  float tail=sat((x-.72)/.28);
   return 1.0-smoother01(tail);
 }
 
-/*
- * 折射坐标在圆肩后 38% 内平滑回到纯 V25.3 主体坐标，
- * 避免内沿硬分界和双层框。
- */
+/* 折射坐标用更长的尾部回归主体，避免深探入后形成分界。 */
 float shoulderOpticalBlend(float depth,vec2 z){
   float x=sat(depth/max(shoulderWidth(z),1.0));
-  float tail=sat((x-.62)/.38);
+  float tail=sat((x-.50)/.50);
   return 1.0-smoother01(tail);
 }
 
@@ -180,16 +176,100 @@ float shoulderTheta(float depth,vec2 z){
   return shoulderMaxAngle()*shoulderProfile(depth,z);
 }
 
+/* smoothstep 的解析积分，供单调深探入曲线使用。 */
+float smoothstepIntegral(float x){
+  x=sat(x);
+  return x*x*x-.5*x*x*x*x;
+}
+
+/*
+ * 构造端点导数为 0、内部最大负斜率小于 1 的探入曲线。
+ * 因而即使外沿探入约 0.8W，sourceDepth 仍保持严格单调。
+ */
+float shoulderTravelRatio(float x,float outerRatio){
+  float ramp=.15;
+  float plateauSlope=outerRatio/(1.0-ramp);
+
+  if(x<ramp){
+    float t=x/ramp;
+    return outerRatio
+        -plateauSlope*ramp*smoothstepIntegral(t);
+  }
+
+  if(x>1.0-ramp){
+    float t=(1.0-x)/ramp;
+    return plateauSlope*ramp*smoothstepIntegral(t);
+  }
+
+  return plateauSlope*((1.0-ramp)-x)
+      +plateauSlope*ramp*.5;
+}
+
 float shoulderTravel(float depth,vec2 z){
-  float profile=shoulderProfile(depth,z);
-  float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),1.35);
-  return shoulderWidth(z)*.44*angleResponse*profile;
+  float width=shoulderWidth(z);
+  float x=sat(depth/max(width,1.0));
+  float deepStrength=clamp(uShoulderFlow.x,0.0,2.4);
+  float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),.90);
+  float outerRatio=clamp(
+      .22+.26*deepStrength,
+      .18,
+      .80
+  )*angleResponse;
+  return width*shoulderTravelRatio(x,outerRatio);
+}
+
+/*
+ * 将主体低频运输方向与环绕圆角矩形的连续切向方向混合，
+ * 形成随位置变化的圆肩流动，而不是整圈同距离平移。
+ */
+float shoulderTangentialSignal(
+  vec2 p,
+  vec2 edgeNormal,
+  vec2 z
+){
+  vec2 u=(p-z*.5)/max(z*.5,vec2(1.0));
+  vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+
+  vec2 contourVector=vec2(-u.y,u.x);
+  float contourLength=length(contourVector);
+  float contourSignal=0.0;
+  if(contourLength>.0001){
+    contourSignal=dot(
+        contourVector/contourLength,
+        tangent
+    );
+  }
+
+  float bodySignal=dot(
+      polynomialTransport(u),
+      tangent
+  );
+  float mixed=.48*contourSignal+.52*bodySignal;
+  return mixed/(.65+abs(mixed));
+}
+
+float shoulderTangentialTravel(
+  vec2 p,
+  vec2 edgeNormal,
+  vec2 z,
+  float depth
+){
+  float width=shoulderWidth(z);
+  float flowStrength=clamp(uShoulderFlow.y,0.0,2.4);
+  float amplitude=width*.48*sat(flowStrength/2.4);
+  float envelope=
+      shoulderMaterialFill(depth,z)
+      *shoulderOpticalBlend(depth,z);
+  return amplitude
+      *shoulderTangentialSignal(p,edgeNormal,z)
+      *envelope;
 }
 
 vec4 evaluateShoulderSource(
   vec2 p,
   vec2 edgeNormal,
   vec2 z,
+  float r,
   float depth
 ){
   float width=shoulderWidth(z);
@@ -199,8 +279,25 @@ vec4 evaluateShoulderSource(
 
   float profile=shoulderProfile(depth,z);
   float theta=shoulderTheta(depth,z);
-  float travel=shoulderTravel(depth,z);
-  vec2 sourcePoint=p-edgeNormal*travel;
+  float inwardTravel=shoulderTravel(depth,z);
+  float tangentTravel=shoulderTangentialTravel(
+      p,edgeNormal,z,depth
+  );
+  vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+
+  vec2 sourcePoint=
+      p
+      -edgeNormal*inwardTravel
+      +tangent*tangentTravel;
+
+  /* 圆角切向流动可能把来源点推近轮廓，统一压回安全内部。 */
+  float sourceSd=boxSdf(sourcePoint,z,r);
+  if(sourceSd>-.5){
+    vec2 sourceNormal=perimeterNormalAt(
+        sourcePoint,z,r
+    );
+    sourcePoint-=sourceNormal*(sourceSd+.5);
+  }
 
   float f0=.04;
   float cosIncidence=cos(theta);
@@ -245,7 +342,7 @@ void main(){
   float width=shoulderWidth(z);
   if(uShoulderEnabled>.5&&depth<width){
     vec4 shoulderData=evaluateShoulderSource(
-        p,normal,z,depth
+        p,normal,z,r,depth
     );
     vec2 sourcePoint=shoulderData.xy;
     shoulder=shoulderData.z;
@@ -274,42 +371,36 @@ void main(){
       globalUv(bodyOpticalCoord),materialWeight
   );
 
-  /*
-   * 整个圆肩区域先获得连续材质填充；
-   * 外沿 Fresnel 只是叠加在填充上的方向性细节，
-   * 不再承担“显示圆肩”的全部责任。
-   */
   float strength=clamp(uShoulder.w,0.0,4.0);
   float fill=shoulderMaterialFill(depth,z);
-  float x=sat(depth/max(width,1.0));
-  float outerRim=pow(shoulder,3.8);
+  float outerRim=pow(shoulder,3.6);
 
   vec2 lightDirection=normalize(vec2(-.62,-.78));
-  float lightFacing=pow(sat(dot(normal,lightDirection)),2.8);
+  float lightFacing=pow(sat(dot(normal,lightDirection)),2.7);
 
-  float volumeShadow=.012*strength*fill
-      *(.32+.68*(1.0-lightFacing));
+  float volumeShadow=.014*strength*fill
+      *(.30+.70*(1.0-lightFacing));
   color*=1.0-volumeShadow;
 
   float fillSheen=sat(
-      .060*strength*fill
-      *(.42+.58*lightFacing)
+      .072*strength*fill
+      *(.40+.60*lightFacing)
   );
   vec3 filledColor=mix(
       color,
       vec3(.88,.96,1.0),
-      .34
+      .36
   );
   color=mix(color,filledColor,fillSheen);
 
   float reflection=sat(
-      .22*strength*shoulderFresnel*outerRim
+      .21*strength*shoulderFresnel*outerRim
       *(.18+.82*lightFacing)
   );
   vec3 reflectionColor=mix(
       color,
-      vec3(.92,.97,1.0),
-      .70
+      vec3(.93,.98,1.0),
+      .72
   );
   color=mix(color,reflectionColor,reflection);
 
