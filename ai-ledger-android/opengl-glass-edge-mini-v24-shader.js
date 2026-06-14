@@ -5,7 +5,7 @@ window.OpenGLV24Shaders={
 uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
-uniform vec4 uRimA,uRimB;
+uniform vec4 uRimA,uRimB,uRimC;
 uniform float uRadius,uIntensity,uRimMode;
 
 float sat(float x){return clamp(x,0.0,1.0);}
@@ -99,38 +99,49 @@ vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
 }
 
 /*
- * 窄幅边缘折射带。
- * 只沿法线向玻璃内部取样，并从外沿最大压缩单调回归到主体坐标。
- * 不再使用正负翻转，也不制造第二个沙漏截面。
+ * 圆润玻璃倒角折射带。
+ * 高度截面 h(t)=sin(pi*t)^power；power>1 保证两端高度和坡度同时归零。
+ * 截面坡度自然形成外侧斜面、中央冠部和内侧斜面，不再使用边界突变的 cos(pi*t)。
  *
- * uRimA.x = 折射带宽度(px)
- * uRimA.y = 法线压缩比例
- * uRimA.z = 回归曲线强度
- * uRimA.w = 折射带光学强度
+ * uRimA = widthPx, profilePower, refractiveIndex, opticalThickness
+ * uRimB = innerBevelRatio, crownPullRatio, absorption, overallStrength
+ * uRimC = outerHighlight, innerCaustic, highlightPower, crownClarity
  */
-vec2 monotonicRimFlow(float sd,vec2 normal){
+void rimProfile(float t,out float profile,out float signedSlope){
+  float angle=3.14159265*sat(t);
+  float s=max(sin(angle),0.0);
+  float c=cos(angle);
+  float power=max(uRimA.y,1.15);
+  profile=pow(s,power);
+  float edgeGate=smoother01(sat(s/.085));
+  signedSlope=power*3.14159265*pow(max(s,.0001),power-1.0)*c*edgeGate;
+}
+vec2 roundedBevelRimFlow(float sd,vec2 normal){
   float rimWidth=max(uRimA.x,1.0);
   float depth=max(-sd,0.0);
   float t=sat(depth/rimWidth);
+  float profile=0.0;
+  float signedSlope=0.0;
+  rimProfile(t,profile,signedSlope);
 
-  float curve=sat(uRimA.z);
-  float falloffT=mix(t,smoother01(t),curve);
-  float compressionProfile=1.0-falloffT;
+  float innerRatio=sat(uRimB.x);
+  signedSlope*=mix(innerRatio,1.0,step(0.0,signedSlope));
+  float slopeScale=signedSlope*.34;
+  float boundedSlope=slopeScale/(1.0+abs(slopeScale));
 
-  /*
-   * 保证采样深度始终单调：
-   * smootherstep 最大斜率约为 1.875，压缩比例按曲线强度自动限幅。
-   */
-  float maxProfileSlope=mix(1.0,1.875,curve);
-  float requestedRatio=clamp(uRimA.y,0.0,.48);
-  float safeRatio=min(requestedRatio,.82/maxProfileSlope);
-  float shiftPx=rimWidth*safeRatio*compressionProfile*sat(uRimA.w)*sat(uRimB.w);
+  float ior=clamp(uRimA.z,1.01,1.85);
+  float snellGain=(1.0-1.0/ior)*2.15;
+  float bevelShift=rimWidth*max(uRimA.w,0.0)*snellGain*boundedSlope;
+  float crownShift=rimWidth*max(uRimB.y,0.0)*profile;
+  float rawShift=(bevelShift+crownShift)*sat(uRimB.w);
 
+  float shiftLimit=rimWidth*.42;
+  float shiftPx=rawShift/(1.0+abs(rawShift)/max(shiftLimit,.001));
   return -normal*shiftPx*step(sd,0.0);
 }
 
-/* 高光和吸收只作用于统一采样后的颜色。 */
-vec3 applyContinuousRimMaterial(
+/* 折射后的材质：冠部颜色凝聚、厚度吸收、窄外沿反射、窄内沿焦散。 */
+vec3 applyRoundedBevelMaterial(
   vec2 p,
   vec2 z,
   float sd,
@@ -140,27 +151,41 @@ vec3 applyContinuousRimMaterial(
   float rimWidth=max(uRimA.x,1.0);
   float depth=max(-sd,0.0);
   float t=sat(depth/rimWidth);
-  float materialStrength=sat(uRimB.w);
-  float profile=sin(3.14159265*t);
+  float profile=0.0;
+  float signedSlope=0.0;
+  rimProfile(t,profile,signedSlope);
+  float strength=sat(uRimB.w);
 
-  float absorptionShape=profile*(.42+.58*t);
-  color*=exp(-max(uRimB.x,0.0)*absorptionShape*.42*materialStrength);
+  float luma=dot(color,vec3(.299,.587,.114));
+  float clarity=profile*sat(uRimC.w)*strength;
+  vec3 concentrated=vec3(luma)+(color-vec3(luma))*(1.0+clarity*.58);
+  concentrated=(concentrated-.5)*(1.0+clarity*.16)+.5;
+  color=mix(color,concentrated,clarity*.55);
+
+  float absorption=profile*max(uRimB.z,0.0)*.34*strength;
+  color*=exp(-absorption);
 
   vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
-  vec2 lightAnchor=vec2(-1.15,-1.65);
+  vec2 lightAnchor=vec2(-1.18,-1.58);
   vec2 toLight=lightAnchor-local;
   float lightDistance2=max(dot(toLight,toLight),.001);
   vec2 lightDirection=toLight*inversesqrt(lightDistance2);
   float facing=sat(dot(normal,lightDirection));
-  float directional=pow(facing,max(uRimB.z,1.0));
-  float falloff=1.0/(1.0+lightDistance2*.42);
-  float outerSurface=pow(1.0-t,2.8);
-  float rimLuma=dot(color,vec3(.299,.587,.114));
-  float baseReflection=pow(1.0-t,1.6)*(.120+.080*sat(rimLuma));
-  float directionalReflection=directional*falloff*outerSurface*max(uRimB.y,0.0);
-  float surfaceReflection=sat((baseReflection+directionalReflection)*materialStrength);
-  vec3 highlightColor=mix(color,vec3(1.0,.995,.980),.68);
-  color=mix(color,highlightColor,surfaceReflection);
+  float directional=pow(facing,max(uRimC.z,1.0));
+  float falloff=1.0/(1.0+lightDistance2*.40);
+
+  float outerLineWidth=max(1.0,min(1.7,rimWidth*.14));
+  float outerLine=1.0-smoothstep(0.0,outerLineWidth,depth);
+  float outerReflection=outerLine*(.045+directional*falloff*max(uRimC.x,0.0)*.52)*strength;
+  vec3 outerColor=mix(color,vec3(1.0,.995,.978),.72);
+  color=mix(color,outerColor,sat(outerReflection));
+
+  float innerCenter=rimWidth*.82;
+  float innerLineWidth=max(.70,rimWidth*.065);
+  float innerLine=1.0-smoothstep(innerLineWidth,innerLineWidth*2.15,abs(depth-innerCenter));
+  float innerResponse=(.035+.145*max(uRimC.y,0.0))*innerLine*strength;
+  vec3 causticColor=mix(color,vec3(1.0,.985,.94),.38);
+  color=mix(color,causticColor,sat(innerResponse));
 
   float peak=max(max(color.r,color.g),color.b);
   color/=1.0+max(peak-1.0,0.0)*.28;
@@ -182,7 +207,7 @@ void main(){
   vec2 centerFlow=centerTransport(p,z);
   vec2 rimFlow=vec2(0.0);
   if(uRimMode>.5&&depth<uRimA.x){
-    rimFlow=monotonicRimFlow(sd,normal);
+    rimFlow=roundedBevelRimFlow(sd,normal);
   }
 
   vec2 totalFlow=mainBodyFlow+centerFlow+rimFlow;
@@ -193,7 +218,7 @@ void main(){
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
   if(uRimMode>.5&&depth<uRimA.x){
-    color=applyContinuousRimMaterial(p,z,sd,normal,color);
+    color=applyRoundedBevelMaterial(p,z,sd,normal,color);
   }
 
   float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
