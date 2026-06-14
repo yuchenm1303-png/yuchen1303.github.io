@@ -34,7 +34,8 @@ const APP_RAW={
   rimAbsorption:.42,
   rimHighlightStrength:.58,
   rimHighlightPower:2.8,
-  rimStrength:.95
+  rimStrength:.95,
+  rimJoinSoftness:.72
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
 const groups=[
@@ -48,7 +49,7 @@ const groups=[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
   {title:'连续厚玻璃边框 Continuous Glass Rim',items:[
-    ['rimWidthPx','边框截面宽度',4,18],['rimCurvature','截面曲率',.1,1.5],['rimRefractionPx','边框折射距离',0,12],['rimRefractionMix','折射混合强度',0,1],['rimAbsorption','厚度吸收',0,1],['rimHighlightStrength','方向亮面强度',0,1.2],['rimHighlightPower','亮面方向集中度',1,8],['rimStrength','边框整体强度',0,1]
+    ['rimWidthPx','边框截面宽度',4,18],['rimCurvature','截面曲率',.1,1.5],['rimRefractionPx','边框折射距离',0,12],['rimRefractionMix','折射混合强度',0,1],['rimAbsorption','厚度吸收',0,1],['rimHighlightStrength','方向亮面强度',0,1.2],['rimHighlightPower','亮面方向集中度',1,8],['rimStrength','边框整体强度',0,1],['rimJoinSoftness','主体衔接柔度',0,1]
   ]}
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
@@ -62,7 +63,7 @@ function initGl(){
   function compile(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s}
   program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
   buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-  const names=['a','uRes','uOrigin','uRoot','uBlurTexture','uMat','uBodyLensA','uBodyLensB','uBody','uRimA','uRimB','uRadius','uIntensity','uRimMode'];
+  const names=['a','uRes','uOrigin','uRoot','uBlurTexture','uMat','uBodyLensA','uBodyLensB','uBody','uRimA','uRimB','uRadius','uIntensity','uRimMode','uRimJoinSoftness'];
   L={};for(const name of names)L[name]=name==='a'?gl.getAttribLocation(program,name):gl.getUniformLocation(program,name);
   const missing=names.filter(name=>name==='a'?L[name]<0:L[name]===null);if(missing.length)throw new Error('Shader 参数未绑定：'+missing.join(', '));
   blurTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
@@ -88,7 +89,7 @@ function render(){
   drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);
   const d=stageDpr(),q=glassRect();
   gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q.x*d,q.y*d);gl.uniform2f(L.uRoot,bg.width,bg.height);
-  gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform1f(L.uRimMode,p.rimMode);
+  gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform1f(L.uRimMode,p.rimMode);gl.uniform1f(L.uRimJoinSoftness,p.rimJoinSoftness);
   gl.uniform4f(L.uMat,p.bodyVisibility,p.bodyMaxAlpha,p.bodyOutputBrightness,0);gl.uniform4f(L.uBodyLensA,p.bodyLensBasePull*d,p.bodyLensPullDp*d,p.bodyLensConcentration,p.bodyLensCornerBoost);gl.uniform4f(L.uBodyLensB,p.bodyLensExtraDistance*d,p.bodyLensReachDp*d,p.bodyLensDark,p.bodyLensDebug);gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
   gl.uniform4f(L.uRimA,p.rimWidthPx*d,p.rimCurvature,p.rimRefractionPx*d,p.rimRefractionMix);gl.uniform4f(L.uRimB,p.rimAbsorption,p.rimHighlightStrength,p.rimHighlightPower,p.rimStrength);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
@@ -96,7 +97,7 @@ function render(){
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);rebuildBackdrop();render()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-rim-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.rimMode)===p.rimMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousGlassRim',rimMode:p.rimMode===0?'bodyOnly':'continuousRim',...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousGlassRimSmoothJoin',rimMode:p.rimMode===0?'bodyOnly':'continuousRim',...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);$('i-'+k).addEventListener('input',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))rebuildBackdrop();updateUi();render()})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw){rebuildBackdrop();render()}}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
