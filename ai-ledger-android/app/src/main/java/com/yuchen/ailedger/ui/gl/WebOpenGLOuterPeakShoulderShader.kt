@@ -1,9 +1,11 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * V29.4 外沿尖峰固定深层取样圆肩。
+ * V29.5 整圈统一折射映射圆肩。
  *
  * 网页调试值以 CSS px 表示，Android 侧按 dp 处理并在 Renderer 中只乘一次 density。
+ * 主体折射、按压链、模糊金字塔、圆肩材质与最终合成保持 V29.4 不变；
+ * 仅将边缘来源点从局部法线深层投影改为整圈共享的内部轮廓映射。
  * 运行时不增加纹理、渲染通道或 draw call。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
@@ -45,10 +47,19 @@ internal object WebOpenGLOuterPeakShoulderShader {
         float shoulderTheta(float depth,vec2 z){
             return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
         }
-        float shoulderCaptureDepth(float depth,vec2 z){
+        vec2 unifiedInnerContourPoint(
+            vec2 boundaryPoint,
+            vec2 z
+        ){
+            vec2 center=z*0.5;
+            vec2 halfSize=max(z*0.5,vec2(1.0));
             float captureWidth=shoulderCaptureWidth(z);
-            float envelope=shoulderOuterEnvelope(depth,z);
-            return depth+(captureWidth-depth)*envelope;
+            vec2 innerHalf=max(
+                halfSize-vec2(captureWidth),
+                vec2(1.0)
+            );
+            vec2 normalized=(boundaryPoint-center)/halfSize;
+            return center+normalized*innerHalf;
         }
         float shoulderTangentialSignal(
             vec2 p,
@@ -93,15 +104,16 @@ internal object WebOpenGLOuterPeakShoulderShader {
         ){
             float envelope=shoulderOuterEnvelope(depth,z);
             float theta=shoulderTheta(depth,z);
-            float sourceDepth=shoulderCaptureDepth(depth,z);
             float tangentTravel=shoulderTangentialTravel(
                 p,edgeNormal,z,depth
             );
             vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
             vec2 boundaryPoint=p+edgeNormal*depth;
+            vec2 innerContourPoint=unifiedInnerContourPoint(
+                boundaryPoint,z
+            );
             vec2 sourcePoint=
-                boundaryPoint
-                -edgeNormal*sourceDepth
+                mix(p,innerContourPoint,envelope)
                 +tangent*tangentTravel;
             float sourceSd=roundedBoxSdf(sourcePoint,z,r);
             if(sourceSd>-0.5){
