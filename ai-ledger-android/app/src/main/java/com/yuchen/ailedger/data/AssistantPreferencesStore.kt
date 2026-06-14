@@ -15,15 +15,14 @@ import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -53,10 +52,11 @@ data class AssistantPreferences(
 class AssistantPreferencesStore(private val context: Context) {
     private var pendingThemeSelection = false
 
-    // 滑块实时值在落盘完成前保持本地权威，DataStore 旧快照不得回灌覆盖。
-    private val pendingGlassIntensity = MutableStateFlow<Float?>(null)
-    private val pendingMotionIntensity = MutableStateFlow<Float?>(null)
-    private val pendingRainbowPrism = MutableStateFlow<RainbowPrismStyle?>(null)
+    // 待确认值只作为原子覆盖层，不主动发 Flow；拖动每帧仍只由 ViewModel
+    // 更新一次 UI。DataStore 返回快照时再读取它们，旧快照无法覆盖最新实时值。
+    private val pendingGlassIntensity = AtomicReference<Float?>(null)
+    private val pendingMotionIntensity = AtomicReference<Float?>(null)
+    private val pendingRainbowPrism = AtomicReference<RainbowPrismStyle?>(null)
 
     // 参数滑块在拖动时可能每帧产生新值。CONFLATED 通道只保留最新值，
     // 并等待数值稳定后再写盘，避免产生历史写入队列和多余磁盘 I/O。
@@ -113,69 +113,61 @@ class AssistantPreferencesStore(private val context: Context) {
         }
     }
 
-    private val persistedPreferencesFlow: Flow<AssistantPreferences> =
-        context.assistantPreferencesDataStore.data
-            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
-            .map { preferences ->
-                val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
-                val preset = RainbowPrismStyle()
-                val legacySweep = preferences[Keys.legacyRainbowDiagonalSweep]
-                val rawMin = preferences[Keys.rainbowSweepMin]
-                    ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) }
-                    ?: preset.sweepMin
-                val rawMax = preferences[Keys.rainbowSweepMax]
-                    ?: legacySweep?.let { it.coerceIn(0f, 2f) }
-                    ?: preset.sweepMax
-                val sweepMin = minOf(rawMin, rawMax).coerceIn(0f, 2f)
-                val sweepMax = maxOf(rawMin, rawMax).coerceIn(0f, 2f)
-                AssistantPreferences(
-                    quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
-                        ?: RenderQuality.Balanced,
-                    showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
-                    glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage)
-                        ?: GlassPreset.Liquid,
-                    backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
-                        ?: BackgroundTheme.Aurora,
-                    customBackgroundPath = customPath,
-                    glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
-                    motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
-                    rainbowPrismStyle = RainbowPrismStyle(
-                        overall = (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f),
-                        edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight)
-                            .coerceIn(0f, 2f),
-                        sweepMin = sweepMin,
-                        sweepMax = sweepMax,
-                        rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo)
-                            .coerceIn(0f, 2f)
-                    ),
-                    navigationHomeAddress = preferences[Keys.navigationHomeAddress].orEmpty(),
-                    navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
-                    navigationCompanyAddress = preferences[Keys.navigationCompanyAddress].orEmpty(),
-                    navigationDormAddress = preferences[Keys.navigationDormAddress].orEmpty()
-                )
-            }
-
-    val preferencesFlow: Flow<AssistantPreferences> = combine(
-        persistedPreferencesFlow,
-        pendingGlassIntensity,
-        pendingMotionIntensity,
-        pendingRainbowPrism
-    ) { persisted, liveGlass, liveMotion, liveRainbow ->
-        val merged = persisted.copy(
-            glassIntensity = liveGlass ?: persisted.glassIntensity,
-            motionIntensity = liveMotion ?: persisted.motionIntensity,
-            rainbowPrismStyle = liveRainbow ?: persisted.rainbowPrismStyle
-        )
-        acknowledgePersistedSliderValues(
-            persisted = persisted,
-            expectedGlass = liveGlass,
-            expectedMotion = liveMotion,
-            expectedRainbow = liveRainbow
-        )
-        merged
-    }.map { preferences ->
-        preferences.also { AssistantLocalMemoryRuntime.update(it) }
-    }
+    val preferencesFlow: Flow<AssistantPreferences> = context.assistantPreferencesDataStore.data
+        .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+        .map { preferences ->
+            val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
+            val preset = RainbowPrismStyle()
+            val legacySweep = preferences[Keys.legacyRainbowDiagonalSweep]
+            val rawMin = preferences[Keys.rainbowSweepMin]
+                ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) }
+                ?: preset.sweepMin
+            val rawMax = preferences[Keys.rainbowSweepMax]
+                ?: legacySweep?.let { it.coerceIn(0f, 2f) }
+                ?: preset.sweepMax
+            val sweepMin = minOf(rawMin, rawMax).coerceIn(0f, 2f)
+            val sweepMax = maxOf(rawMin, rawMax).coerceIn(0f, 2f)
+            val persisted = AssistantPreferences(
+                quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
+                    ?: RenderQuality.Balanced,
+                showPreviewConversation = preferences[Keys.showPreviewConversation] ?: true,
+                glassPreset = preferences[Keys.glassPreset]?.let(GlassPreset::fromStorage)
+                    ?: GlassPreset.Liquid,
+                backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
+                    ?: BackgroundTheme.Aurora,
+                customBackgroundPath = customPath,
+                glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
+                motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
+                rainbowPrismStyle = RainbowPrismStyle(
+                    overall = (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f),
+                    edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight)
+                        .coerceIn(0f, 2f),
+                    sweepMin = sweepMin,
+                    sweepMax = sweepMax,
+                    rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo)
+                        .coerceIn(0f, 2f)
+                ),
+                navigationHomeAddress = preferences[Keys.navigationHomeAddress].orEmpty(),
+                navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
+                navigationCompanyAddress = preferences[Keys.navigationCompanyAddress].orEmpty(),
+                navigationDormAddress = preferences[Keys.navigationDormAddress].orEmpty()
+            )
+            val expectedGlass = pendingGlassIntensity.get()
+            val expectedMotion = pendingMotionIntensity.get()
+            val expectedRainbow = pendingRainbowPrism.get()
+            val merged = persisted.copy(
+                glassIntensity = expectedGlass ?: persisted.glassIntensity,
+                motionIntensity = expectedMotion ?: persisted.motionIntensity,
+                rainbowPrismStyle = expectedRainbow ?: persisted.rainbowPrismStyle
+            )
+            acknowledgePersistedSliderValues(
+                persisted = persisted,
+                expectedGlass = expectedGlass,
+                expectedMotion = expectedMotion,
+                expectedRainbow = expectedRainbow
+            )
+            merged.also { AssistantLocalMemoryRuntime.update(it) }
+        }
 
     suspend fun setRenderQuality(quality: RenderQuality) {
         context.assistantPreferencesDataStore.edit { it[Keys.renderQuality] = quality.storageValue }
@@ -190,8 +182,8 @@ class AssistantPreferencesStore(private val context: Context) {
     suspend fun setGlassPreset(glassPreset: GlassPreset) {
         val glass = glassPreset.glassIntensity.coerceIn(0.6f, 1.4f)
         val motion = glassPreset.motionIntensity.coerceIn(0f, 1.4f)
-        pendingGlassIntensity.value = glass
-        pendingMotionIntensity.value = motion
+        pendingGlassIntensity.set(glass)
+        pendingMotionIntensity.set(motion)
         glassIntensityWrites.send(glass)
         motionIntensityWrites.send(motion)
         context.assistantPreferencesDataStore.edit {
@@ -224,19 +216,19 @@ class AssistantPreferencesStore(private val context: Context) {
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
         val resolved = glassIntensity.coerceIn(0.6f, 1.4f)
-        pendingGlassIntensity.value = resolved
+        pendingGlassIntensity.set(resolved)
         glassIntensityWrites.send(resolved)
     }
 
     suspend fun setMotionIntensity(motionIntensity: Float) {
         val resolved = motionIntensity.coerceIn(0f, 1.4f)
-        pendingMotionIntensity.value = resolved
+        pendingMotionIntensity.set(resolved)
         motionIntensityWrites.send(resolved)
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
         val resolved = style.normalized()
-        pendingRainbowPrism.value = resolved
+        pendingRainbowPrism.set(resolved)
         rainbowPrismWrites.send(resolved)
     }
 
@@ -276,24 +268,24 @@ class AssistantPreferencesStore(private val context: Context) {
     ) {
         if (
             expectedGlass != null &&
-            pendingGlassIntensity.value == expectedGlass &&
+            pendingGlassIntensity.get() == expectedGlass &&
             abs(persisted.glassIntensity - expectedGlass) <= SLIDER_VALUE_EPSILON
         ) {
-            pendingGlassIntensity.value = null
+            pendingGlassIntensity.set(null)
         }
         if (
             expectedMotion != null &&
-            pendingMotionIntensity.value == expectedMotion &&
+            pendingMotionIntensity.get() == expectedMotion &&
             abs(persisted.motionIntensity - expectedMotion) <= SLIDER_VALUE_EPSILON
         ) {
-            pendingMotionIntensity.value = null
+            pendingMotionIntensity.set(null)
         }
         if (
             expectedRainbow != null &&
-            pendingRainbowPrism.value == expectedRainbow &&
+            pendingRainbowPrism.get() == expectedRainbow &&
             persisted.rainbowPrismStyle.approximatelyEquals(expectedRainbow)
         ) {
-            pendingRainbowPrism.value = null
+            pendingRainbowPrism.set(null)
         }
     }
 
