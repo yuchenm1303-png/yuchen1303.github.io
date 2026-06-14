@@ -11,11 +11,11 @@ const APP_RAW={
   bodyLowFrequencyWidth:1.25059907834101,bodyLowFrequencyCurve:.2,bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,glassIntensity:1.35,
   edgeMode:1,
-  shoulderWidthPx:24,
-  shoulderMaxAngleDeg:89.2,
-  shoulderFalloffRoundness:.86,
-  shoulderMaterialStrength:3.4,
-  shoulderTangentialFlowStrength:1.45
+  shoulderWidthPx:21.7162162162162,
+  shoulderMaxAngleDeg:89.5,
+  shoulderFalloffRoundness:0,
+  shoulderMaterialStrength:4,
+  shoulderTangentialFlowStrength:0
 };
 
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
