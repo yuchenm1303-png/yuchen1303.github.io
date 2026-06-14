@@ -98,7 +98,6 @@ function render(){
 }
 
 function format(v){return String(Math.round(v*1000)/1000)}
-function syncModeUi(){document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.datasetEdgeMode)===p.edgeMode))}
 function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_4OuterPeakFixedCaptureShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'outerPeakFixedCaptureShoulder',peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
 function refresh(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=0;rebuildBackdrop();updateUi();render()}
 function schedule(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=requestAnimationFrame(()=>{backdropFrame=0;rebuildBackdrop();updateUi();render()})}
