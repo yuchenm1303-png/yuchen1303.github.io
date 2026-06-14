@@ -32,9 +32,9 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V26.3 Single Body Optical Field
- * 以 V26.1 稳定主体场为基准。
- * 沿边界流动仅作用于最外侧窄带，不改写主体内部坐标。
+ * V26.4 Single Body Capsule Lens Field
+ * 胶囊边缘不是独立 rim，而是主体折射场最外侧的连续圆肩透镜。
+ * 整块玻璃始终只有一个 bodyOpticalCoord 和一次背景纹理采样。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -65,101 +65,69 @@ float bodyLensWeight(float depth,vec2 z,float r){
   return pow(1.0-smooth,concentration);
 }
 
-/* 主过渡带与长尾共同把边缘压缩连续融入主体。 */
-float integratedBodyEdgeProfile(float depth,vec2 z,float r){
-  float requestedWidth=max(uBodyEdge.x,1.0);
-  float width=min(requestedWidth,min(z.x,z.y)*.44);
-
-  float primaryX=sat(depth/max(width,1.0));
-  float primary=1.0-smoother01(primaryX);
-
-  float tailWidth=min(
-      width*1.85,
-      min(z.x,z.y)*.47
-  );
-  float tailX=sat(depth/max(tailWidth,1.0));
-  float tail=1.0-smoother01(tailX);
-
-  float curve=clamp(uBodyEdge.z,.25,3.0);
-  float primaryCurve=mix(.82,1.28,sat(curve/3.0));
-  float tailCurve=mix(.72,1.08,sat(curve/3.0));
-
-  primary=pow(max(primary,0.0),primaryCurve);
-  tail=pow(max(tail,0.0),tailCurve);
-
-  return mix(primary,tail,.50)*sat(uEdgeMode);
-}
-
-/* 仅最外侧约 40% 的边缘宽度参与弧向运输。 */
-float outerArcMask(float depth,vec2 z){
+/*
+ * 单侧圆肩截面：外沿坡度最大，向内平滑躺平。
+ * 末端保留极弱长尾，只负责消除与主体场的接缝。
+ */
+float capsuleShoulderAt(float depth,vec2 z,float r){
   float width=min(
       max(uBodyEdge.x,1.0),
       min(z.x,z.y)*.44
   );
-  float arcWidth=max(width*.42,3.0);
-  return (1.0-smoother01(depth/arcWidth))*sat(uEdgeMode);
-}
+  float curve=clamp(uBodyEdge.z,.35,2.4);
 
-float roundedCornernessAt(vec2 p,vec2 z,float r){
-  vec2 local=abs(p-z*.5);
-  vec2 core=max(z*.5-vec2(r),vec2(0.0));
-  vec2 cornerOffset=max(local-core,vec2(0.0));
-  float bothAxes=min(cornerOffset.x,cornerOffset.y);
-  return smoother01(sat(bothAxes/max(r*.42,1.0)));
+  float primary=1.0-smoother01(depth/max(width,1.0));
+  primary=pow(max(primary,0.0),curve);
+
+  float tailWidth=min(width*1.38,min(z.x,z.y)*.47);
+  float tail=1.0-smoother01(depth/max(tailWidth,1.0));
+  tail=pow(max(tail,0.0),1.18);
+
+  return mix(primary,tail,.12)*sat(uEdgeMode);
 }
 
 /*
- * 在稳定法向来源点上增加一个小幅、全圈同向的弧向位移。
- * 使用中点切线修正圆角方向，不使用 sign()，因此中线不会翻转成 X。
+ * 用圆肩表面法线和折射率求光线斜率，但最终位移始终锁定到玻璃内法线。
+ * 位移上限小于圆肩宽度的一半，保证来源深度单调，避免折返和 X 型割裂。
  */
-vec2 capsuleArcSource(
-  vec2 basePoint,
-  vec2 originalPoint,
-  vec2 z,
-  float r,
+float capsuleRefractionTravel(
+  vec2 edgeNormal,
   float depth,
-  float normalDisplacement
+  vec2 z,
+  float r
 ){
-  float arcMask=outerArcMask(depth,z);
-  float edgeWidth=min(
+  float shoulder=capsuleShoulderAt(depth,z,r);
+  if(shoulder<=.0001){return 0.0;}
+
+  float width=min(
       max(uBodyEdge.x,1.0),
       min(z.x,z.y)*.44
   );
-  float cornerness=roundedCornernessAt(originalPoint,z,r);
-  float flowStrength=max(uBodyEdge.w,0.0);
+  float strength=sat(max(uBodyEdge.w,0.0)/2.5);
+  float maxAngle=mix(40.0,68.0,strength)*.01745329252;
+  float theta=maxAngle*pow(shoulder,.82);
 
-  vec2 local=(originalPoint-z*.5)/max(z*.5,vec2(1.0));
-  float modulation=.82+.18*sin((local.x-local.y)*3.14159265);
-  float arcTravel=edgeWidth
-      *.18
-      *flowStrength
-      *arcMask
-      *modulation
-      *mix(.88,1.36,cornerness);
-  arcTravel=min(arcTravel,edgeWidth*.24);
-
-  vec2 n0=perimeterNormalAt(basePoint,z,r);
-  vec2 t0=vec2(-n0.y,n0.x);
-  vec2 midpoint=basePoint+t0*(arcTravel*.5);
-  vec2 nm=perimeterNormalAt(midpoint,z,r);
-  vec2 tm=vec2(-nm.y,nm.x);
-  vec2 direction=t0+tm;
-  direction/=max(length(direction),.0001);
-
-  vec2 point=basePoint+direction*arcTravel;
-
-  /* 只做一次柔和等深度校正，避免抵消圆角流动。 */
-  float desiredDepth=max(-boxSdf(basePoint,z,r),0.0);
-  float pointDepth=max(-boxSdf(point,z,r),0.0);
-  vec2 pointNormal=perimeterNormalAt(point,z,r);
-  point-=pointNormal*(desiredDepth-pointDepth)*.38;
-
-  vec2 arcOffset=point-basePoint;
-  arcOffset=softLimit(
-      arcOffset,
-      min(edgeWidth*.26,normalDisplacement*.38+edgeWidth*.12+1.0)
+  vec3 surfaceNormal=normalize(vec3(
+      edgeNormal*sin(theta),
+      cos(theta)
+  ));
+  vec3 viewRay=vec3(0.0,0.0,-1.0);
+  float ior=mix(1.10,1.58,strength);
+  vec3 refractedRay=refract(
+      viewRay,
+      surfaceNormal,
+      1.0/ior
   );
-  return basePoint+arcOffset;
+
+  float raySlope=length(refractedRay.xy)
+      /max(-refractedRay.z,.30);
+  float rawTravel=max(uBodyEdge.y,0.0)*raySlope;
+
+  float safeMax=width*mix(.31,.42,strength);
+  float travel=safeMax
+      *(1.0-exp(-rawTravel/max(safeMax,1.0)));
+
+  return travel;
 }
 
 vec2 bodyRefractionFlow(
@@ -170,7 +138,7 @@ vec2 bodyRefractionFlow(
   float depth,
   float weight
 ){
-  /* 原始 V25.3 主体法线折射。 */
+  /* 原始 V25.3 主体法线折射保持不变。 */
   float rawPull=
       abs(uBodyLensA.y)*.052
       +abs(uBodyLensA.x)*.20
@@ -183,26 +151,11 @@ vec2 bodyRefractionFlow(
       *(1.0-exp(-(rawPull*core)/max(remaining,1.0)))
       *.96;
 
-  /* V26.1 的稳定边缘压缩和软上限。 */
-  float edgeProfile=integratedBodyEdgeProfile(depth,z,r);
-  float edgeWidth=min(
-      max(uBodyEdge.x,1.0),
-      min(z.x,z.y)*.44
+  /* 胶囊圆肩是同一法向折射场的外沿增强，不再做切向平移。 */
+  float capsuleTravel=capsuleRefractionTravel(
+      n,depth,z,r
   );
-  float requestedEdgePull=max(uBodyEdge.y,0.0);
-  float safeEdgePull=edgeWidth
-      *(1.0-exp(-requestedEdgePull/max(edgeWidth,1.0)));
-  float edgePull=safeEdgePull*edgeProfile;
-  float normalDisplacement=
-      displacement
-      +edgePull*(.60+.22*weight);
-
-  vec2 basePoint=p-n*normalDisplacement;
-  vec2 sourcePoint=capsuleArcSource(
-      basePoint,p,z,r,depth,normalDisplacement
-  );
-
-  return sourcePoint-p;
+  return -n*(displacement+capsuleTravel);
 }
 
 float centerEnvelope(vec2 u){
@@ -258,7 +211,7 @@ void main(){
   float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 normal=perimeterNormalAt(p,z,r);
 
-  /* 始终只有这一套主体坐标和一次背景采样。 */
+  /* 始终只有这一套主体坐标。 */
   vec2 mainBodyFlow=bodyRefractionFlow(
       p,normal,z,r,depth,bodyWeight
   );
@@ -267,6 +220,19 @@ void main(){
   vec3 color=sampleBodyMaterial(
       globalUv(bodyOpticalCoord),bodyWeight
   );
+
+  /* 同一材质中的轻微方向透射变化，只强调圆肩体积，不生成白色独立描边。 */
+  float capsuleWeight=capsuleShoulderAt(depth,z,r);
+  vec2 lightDirection=normalize(vec2(-.62,-.78));
+  float lightFacing=pow(sat(dot(normal,lightDirection)),3.2);
+  float shoulderMid=pow(
+      sat(4.0*capsuleWeight*(1.0-capsuleWeight)),
+      1.35
+  );
+  color*=1.0
+      -.022*shoulderMid
+      -.030*capsuleWeight
+      +.095*capsuleWeight*lightFacing;
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
