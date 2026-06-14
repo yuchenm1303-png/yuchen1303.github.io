@@ -96,28 +96,30 @@ fun CachedAppTabHost(
                 val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
 
-                CompositionLocalProvider(
-                    LocalPageActive provides active,
-                    LocalPageVisible provides visibleDuringTransition,
-                    LocalPageLeaving provides leaving,
-                    LocalPageActivationTick provides activationKey,
-                    LocalPageHeavyEffectsEnabled provides (visualEffectsEnabled && heavyEffectsReady),
-                    // Keep this false for Shell cards. A true viewport flag means an external
-                    // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
-                    LocalOpenGLGlassViewportActive provides false,
-                    LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
-                    LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
-                    LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
-                    LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(if (active) 1f else -1f)
-                            .graphicsLayer { this.alpha = alpha }
+                GlassSceneScope(tab.defaultGlassSceneGroup()) {
+                    CompositionLocalProvider(
+                        LocalPageActive provides active,
+                        LocalPageVisible provides visibleDuringTransition,
+                        LocalPageLeaving provides leaving,
+                        LocalPageActivationTick provides activationKey,
+                        LocalPageHeavyEffectsEnabled provides (visualEffectsEnabled && heavyEffectsReady),
+                        // Keep this false for Shell cards. A true viewport flag means an external
+                        // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
+                        LocalOpenGLGlassViewportActive provides false,
+                        LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
+                        LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
+                        LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
+                        LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
                     ) {
-                        key(tab) {
-                            content(tab)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(if (active) 1f else -1f)
+                                .graphicsLayer { this.alpha = alpha }
+                        ) {
+                            key(tab) {
+                                content(tab)
+                            }
                         }
                     }
                 }
