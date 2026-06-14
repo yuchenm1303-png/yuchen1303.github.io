@@ -5,9 +5,14 @@ window.OpenGLV24Shaders={
 uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
+uniform vec4 uBevelA,uBevelB;
 uniform float uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
+float smoother01(float x){
+  x=sat(x);
+  return x*x*x*(x*(x*6.0-15.0)+10.0);
+}
 float boxSdf(vec2 p,vec2 z,float r){
   vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));
   return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
@@ -28,8 +33,11 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * Pure V25.3 body optical field.
- * No capsule, rim, edge mapping, Fresnel, caustic or secondary source point.
+ * V28 SDF Bevel Lens
+ * uBevelA = widthPx, zRadiusPx, opticalThicknessPx, refractiveIndex
+ * uBevelB = maxAngleDeg, profileCurve, materialStrength, enabled
+ *
+ * 边缘只负责决定主体折射场的观察来源点，不生成第二张边框图。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -115,6 +123,88 @@ vec2 centerTransport(vec2 p,vec2 z){
   return softLimit(flow,mix(52.0,118.0,gain));
 }
 
+vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r){
+  float pointSd=boxSdf(point,z,r);
+  float pointDepth=max(-pointSd,0.0);
+  vec2 pointNormal=perimeterNormalAt(point,z,r);
+  float pointWeight=bodyLensWeight(pointDepth,z,r);
+  return point
+      +bodyRefractionFlow(
+          point,pointNormal,z,r,pointDepth,pointWeight
+      )
+      +centerTransport(point,z);
+}
+
+/*
+ * 单侧椭圆圆肩：外沿陡、向内连续躺平。
+ * maxAngle 限制最外沿坡度，避免数学奇点。
+ */
+float bevelThetaAt(float depth,float width,float zRadius){
+  float t=sat(depth/max(width,1.0));
+  float curve=clamp(uBevelB.y,.35,2.5);
+  float q=pow(max(1.0-t,0.0),curve);
+  float denominator=sqrt(max(1.0-q*q,.0036));
+  float slope=(zRadius/max(width,1.0))*q/denominator;
+  float maxAngle=clamp(uBevelB.x,20.0,82.0)*.01745329252;
+  return min(atan(slope),maxAngle);
+}
+
+/*
+ * 返回 xy=来源点，z=圆肩权重，w=Fresnel。
+ * 位移包络上限为 width*0.50，保证来源深度保持单调。
+ */
+vec4 evaluateBevelSource(
+  vec2 p,
+  vec2 edgeNormal,
+  vec2 z,
+  float depth
+){
+  float width=min(
+      max(uBevelA.x,1.0),
+      min(z.x,z.y)*.44
+  );
+  if(uBevelB.w<.5||depth>=width){
+    return vec4(p,0.0,0.0);
+  }
+
+  float t=sat(depth/max(width,1.0));
+  float bevelMask=1.0-smoother01(t);
+  float theta=bevelThetaAt(
+      depth,width,max(uBevelA.y,1.0)
+  );
+
+  vec3 surfaceNormal=normalize(vec3(
+      edgeNormal*sin(theta),
+      cos(theta)
+  ));
+  vec3 viewRay=vec3(0.0,0.0,-1.0);
+  float ior=clamp(uBevelA.w,1.01,1.80);
+  vec3 refractedRay=refract(
+      viewRay,
+      surfaceNormal,
+      1.0/ior
+  );
+
+  float raySlope=length(refractedRay.xy)
+      /max(-refractedRay.z,.28);
+  float rawTravel=raySlope*max(uBevelA.z,0.0);
+
+  /* smoother01 的最大梯度约为 1.875；0.50W 保持安全余量。 */
+  float travelCap=width*.50*bevelMask;
+  float travel=travelCap
+      *(1.0-exp(-rawTravel/max(travelCap,1.0)));
+
+  vec2 sourcePoint=p-edgeNormal*travel;
+
+  float f0=(ior-1.0)/(ior+1.0);
+  f0*=f0;
+  float cosIncidence=sat(dot(-viewRay,surfaceNormal));
+  float fresnel=f0+(1.0-f0)
+      *pow(1.0-cosIncidence,5.0);
+
+  return vec4(sourcePoint,bevelMask,fresnel);
+}
+
 vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   vec3 color=bodyBackdrop(uv);
   float opticalBoost=1.0+bodyWeight*.24;
@@ -132,17 +222,56 @@ void main(){
   if(bodyMask<=.001)discard;
 
   float depth=insideFromSdf(sd);
-  float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 normal=perimeterNormalAt(p,z,r);
+  float bodyWeight=bodyLensWeight(depth,z,r);
 
-  vec2 mainBodyFlow=bodyRefractionFlow(
-      p,normal,z,r,depth,bodyWeight
+  vec2 bodyOpticalCoord;
+  float materialWeight=bodyWeight;
+  float bevelMask=0.0;
+  float bevelFresnel=0.0;
+
+  float bevelWidth=min(
+      max(uBevelA.x,1.0),
+      min(z.x,z.y)*.44
   );
-  vec2 centerFlow=centerTransport(p,z);
-  vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow;
+
+  /* 主体区域完全保持原始 V25.3 路径。 */
+  if(uBevelB.w>.5&&depth<bevelWidth){
+    vec4 bevelData=evaluateBevelSource(
+        p,normal,z,depth
+    );
+    vec2 sourcePoint=bevelData.xy;
+    bevelMask=bevelData.z;
+    bevelFresnel=bevelData.w;
+    float sourceSd=boxSdf(sourcePoint,z,r);
+    float sourceDepth=max(-sourceSd,0.0);
+    materialWeight=bodyLensWeight(sourceDepth,z,r);
+    bodyOpticalCoord=evaluateBodyOpticalCoordAt(
+        sourcePoint,z,r
+    );
+  }else{
+    vec2 mainBodyFlow=bodyRefractionFlow(
+        p,normal,z,r,depth,bodyWeight
+    );
+    vec2 centerFlow=centerTransport(p,z);
+    bodyOpticalCoord=p+mainBodyFlow+centerFlow;
+  }
+
   vec3 color=sampleBodyMaterial(
-      globalUv(bodyOpticalCoord),bodyWeight
+      globalUv(bodyOpticalCoord),materialWeight
   );
+
+  /*
+   * 同一材质内的轻微透射变化；不新增白色描边或第二次纹理采样。
+   */
+  float materialStrength=clamp(uBevelB.z,0.0,1.0);
+  vec2 lightDirection=normalize(vec2(-.62,-.78));
+  float lightFacing=pow(sat(dot(normal,lightDirection)),3.0);
+  float bevelVolume=bevelMask*materialStrength;
+  color*=1.0-.025*bevelVolume;
+  color*=1.0
+      +.10*bevelFresnel*bevelVolume
+      *(.30+.70*lightFacing);
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
