@@ -29,12 +29,35 @@ internal object WebOpenGLGlassMainShader {
             vec2 pressDimplePx=-pressDir*pressField*(8.0+press*10.0);
 
             float depth=insideFromSdf(sd);
+            vec2 normal=perimeterNormalAt(p,z,r);
             float bodyWeight=bodyLensWeight(depth,z,r);
             vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
             vec2 centerFlow=centerTransport(p,z);
             vec2 pressBodyFlow=pressDimplePx+inwardPx*(1.76+0.46*bodyWeight);
-            vec2 totalFlow=mainBodyFlow+centerFlow+pressBodyFlow;
-            vec2 bodyUv=globalUv(p+totalFlow);
+            vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow+pressBodyFlow;
+            float materialWeight=bodyWeight;
+            float shoulder=0.0;
+            float shoulderFresnel=0.0;
+            float shoulderActive=0.0;
+
+            float width=shoulderWidth(z);
+            if(depth<width){
+                vec4 shoulderData=evaluateShoulderSource(
+                    p,normal,z,r,depth
+                );
+                vec2 sourcePoint=shoulderData.xy;
+                shoulder=shoulderData.z;
+                shoulderFresnel=shoulderData.w;
+                float sourceDepth=max(
+                    -roundedBoxSdf(sourcePoint,z,r),0.0
+                );
+                materialWeight=bodyLensWeight(sourceDepth,z,r);
+                bodyOpticalCoord=evaluateBodyOpticalCoordAt(
+                    sourcePoint,z,r,pressCenter,press
+                );
+                shoulderActive=1.0;
+            }
+            vec2 bodyUv=globalUv(bodyOpticalCoord);
     """
 
     const val BODY_SUFFIX = """
@@ -50,25 +73,63 @@ internal object WebOpenGLGlassMainShader {
                 bodyColor=mix(bodyColor,pressLensColor,pressLensMix);
             }
 
-            float opticalBoost=1.0+bodyWeight*0.24;
+            float opticalBoost=1.0+materialWeight*0.24;
             bodyColor*=uBody.w*uMaterial.z*opticalBoost;
-            bodyColor-=vec3(0.055,0.065,0.085)*uBodyLensB.z*bodyWeight;
+            bodyColor-=vec3(0.055,0.065,0.085)
+                *uBodyLensB.z*materialWeight;
             bodyColor*=1.0-pressField*0.070-pressWide*0.025;
             bodyColor+=vec3(0.018,0.035,0.046)*pressField*0.38;
             float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
-            bodyColor=mix(bodyColor,vec3(1.0,0.45,0.0),bodyDebug*uBodyLensB.w);
+            bodyColor=mix(
+                bodyColor,
+                vec3(1.0,0.45,0.0),
+                bodyDebug*uBodyLensB.w
+            );
 
             vec3 color=bodyColor;
-            float bodyAlpha=uMaterial.y*sat(uMaterial.x/20.0)*uIntensity;
-            float alpha=bodyAlpha;
-            float legacyEdgeBand=edgeDragBandAt(p,z,r);
-            if(legacyEdgeBand>0.001){
-                vec3 legacyColor=legacyOpticalColor(p,z,r,sd,mask,legacyEdgeBand);
-                color=mix(bodyColor,legacyColor,legacyEdgeBand);
-                float legacyAlpha=clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0);
-                alpha=max(bodyAlpha,legacyAlpha*legacyEdgeBand);
+            if(shoulderActive>0.5){
+                float strength=clamp(uShoulder.w,0.0,4.0);
+                float fill=shoulderMaterialFill(depth,z);
+                float outerRim=pow(shoulder,2.8);
+                vec2 lightDirection=normalize(vec2(-0.62,-0.78));
+                float lightFacing=pow(
+                    sat(dot(normal,lightDirection)),2.7
+                );
+
+                float volumeShadow=0.014*strength*fill
+                    *(0.30+0.70*(1.0-lightFacing));
+                color*=1.0-volumeShadow;
+
+                float fillSheen=sat(
+                    0.072*strength*fill
+                    *(0.40+0.60*lightFacing)
+                );
+                vec3 filledColor=mix(
+                    color,
+                    vec3(0.88,0.96,1.0),
+                    0.36
+                );
+                color=mix(color,filledColor,fillSheen);
+
+                float reflection=sat(
+                    0.21*strength*shoulderFresnel*outerRim
+                    *(0.18+0.82*lightFacing)
+                );
+                vec3 reflectionColor=mix(
+                    color,
+                    vec3(0.93,0.98,1.0),
+                    0.72
+                );
+                color=mix(color,reflectionColor,reflection);
             }
-            gl_FragColor=vec4(clamp(color,0.0,1.0),mask*alpha);
+
+            float bodyAlpha=uMaterial.y
+                *sat(uMaterial.x/20.0)
+                *uIntensity;
+            gl_FragColor=vec4(
+                clamp(color,0.0,1.0),
+                mask*bodyAlpha
+            );
         }
     """
 }
