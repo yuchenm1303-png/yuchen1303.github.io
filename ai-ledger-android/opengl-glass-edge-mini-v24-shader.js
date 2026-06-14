@@ -30,14 +30,14 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.4 Outer-Peak Fixed-Capture Shoulder
- * uShoulder = visibleWidthPx, maxAngleDeg, falloffRoundness, materialStrength
- * uShoulderFlow = fixedCaptureWidthPx, tangentialFlowStrength
+ * V29.5 Unified Perimeter Mapping Test
+ * uShoulderEnabled:
+ *   0 = pure V25.3 body
+ *   1 = original V29.4 local-normal capture
+ *   2 = experimental unified full-perimeter capture
  *
- * 固定深层取样域仍由 captureWidth 决定。
- * 圆肩最外沿直接读取最深来源；向主体内部时，sourcePoint 自身
- * 连续回到当前像素 p，且内沿位置与一阶导数都与纯 V25.3 主体一致。
- * 因此折射尖峰移动到最外沿，不再依靠内沿 crossfade 强行收束。
+ * 仅来源坐标构造在模式 2 中改变。主体、圆肩包络、材质、Fresnel、
+ * 透明度与最终合成顺序保持 V29.4 不变。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -177,15 +177,28 @@ float shoulderTheta(float depth,vec2 z){
   return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
 }
 
-/*
- * 可见位置的真实深度为 depth。
- * 外沿通过 envelope 被拉到固定 captureWidth 深处；
- * 内沿 envelope=0，因此 sourceDepth=depth，且 d(sourceDepth)/d(depth)=1。
- */
+/* 原版 V29.4 局部法线深度。 */
 float shoulderCaptureDepth(float depth,vec2 z){
   float captureWidth=shoulderCaptureWidth(z);
   float envelope=shoulderOuterEnvelope(depth,z);
   return depth+(captureWidth-depth)*envelope;
+}
+
+/*
+ * 将整圈外轮廓按统一归一化坐标映射到同一个内部轮廓。
+ * 上边、圆角、右边等区域共享同一连续映射，不再各自沿局部法线
+ * 独立争用背景来源点。
+ */
+vec2 unifiedInnerContourPoint(vec2 boundaryPoint,vec2 z){
+  vec2 center=z*.5;
+  vec2 halfSize=max(z*.5,vec2(1.0));
+  float captureWidth=shoulderCaptureWidth(z);
+  vec2 innerHalf=max(
+      halfSize-vec2(captureWidth),
+      vec2(1.0)
+  );
+  vec2 normalized=(boundaryPoint-center)/halfSize;
+  return center+normalized*innerHalf;
 }
 
 float shoulderTangentialSignal(
@@ -246,17 +259,27 @@ vec4 evaluateShoulderSource(
 
   float envelope=shoulderOuterEnvelope(depth,z);
   float theta=shoulderTheta(depth,z);
-  float sourceDepth=shoulderCaptureDepth(depth,z);
   float tangentTravel=shoulderTangentialTravel(
       p,edgeNormal,z,depth
   );
   vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
-
   vec2 boundaryPoint=p+edgeNormal*depth;
-  vec2 sourcePoint=
-      boundaryPoint
-      -edgeNormal*sourceDepth
-      +tangent*tangentTravel;
+  vec2 sourcePoint;
+
+  if(uShoulderEnabled<1.5){
+    float sourceDepth=shoulderCaptureDepth(depth,z);
+    sourcePoint=
+        boundaryPoint
+        -edgeNormal*sourceDepth
+        +tangent*tangentTravel;
+  }else{
+    vec2 innerContourPoint=unifiedInnerContourPoint(
+        boundaryPoint,z
+    );
+    sourcePoint=
+        mix(p,innerContourPoint,envelope)
+        +tangent*tangentTravel;
+  }
 
   float sourceSd=boxSdf(sourcePoint,z,r);
   if(sourceSd>-.5){
@@ -317,10 +340,6 @@ void main(){
     float sourceDepth=max(-boxSdf(sourcePoint,z,r),0.0);
     materialWeight=bodyLensWeight(sourceDepth,z,r);
 
-    /*
-     * 不再进行内沿 crossfade。
-     * sourcePoint 在内沿已经精确回到 p，因此这里天然等于 pureBodyCoord。
-     */
     bodyOpticalCoord=evaluateBodyOpticalCoordAt(
         sourcePoint,z,r
     );
