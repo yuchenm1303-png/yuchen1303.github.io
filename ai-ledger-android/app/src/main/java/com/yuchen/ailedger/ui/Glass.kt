@@ -173,6 +173,24 @@ fun GlassPanel(
     } else 0f
     val pressedGlassIntensity = baseIntensity * (1f + shellPressCompression * 0.10f)
 
+    ReportOrdinaryGlassNode(
+        coordinates = coordinates,
+        role = role,
+        quality = quality,
+        radius = effectiveRadius,
+        glassIntensity = pressedGlassIntensity,
+        backdropAlpha = ordinaryBackdropAlpha(role, pressedGlassIntensity),
+        edgeStrength = UNIFIED_EDGE_STRENGTH,
+        pressable = false,
+        shimmer = shimmer,
+        breathe = breathe,
+        pressProgress = 0f,
+        lensProgress = 0f,
+        sweepProgress = 0f,
+        elasticity = 0f,
+        pressCenter = Offset(0.5f, 0.5f)
+    )
+
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
             .onSizeChanged { size ->
@@ -363,6 +381,24 @@ fun PressableGlass(
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
+
+    ReportOrdinaryGlassNode(
+        coordinates = coordinates,
+        role = role,
+        quality = quality,
+        radius = effectiveRadius,
+        glassIntensity = pressedIntensity,
+        backdropAlpha = ordinaryBackdropAlpha(role, pressedIntensity),
+        edgeStrength = UNIFIED_EDGE_STRENGTH,
+        pressable = true,
+        shimmer = shimmer + 0.030f * pressCompression,
+        breathe = breathe,
+        pressProgress = pressValue,
+        lensProgress = lensValue,
+        sweepProgress = sweepValue,
+        elasticity = elasticity,
+        pressCenter = pressCenter
+    )
 
     Box(
         modifier = modifier
