@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -163,6 +164,64 @@ internal fun BindOrdinaryGlassRenderNode(
             if (enabled && sceneState != null) sceneState.registry.unregister(node.key)
         }
     }
+}
+
+/**
+ * GlassPanel / PressableGlass 的唯一普通玻璃上报入口。
+ * Shell 在这里被硬排除，不会进入普通 Compose registry。
+ */
+@Composable
+internal fun ReportOrdinaryGlassNode(
+    coordinates: GlassCoordinateSource,
+    role: GlassRole,
+    quality: RenderQuality,
+    radius: Int,
+    glassIntensity: Float,
+    backdropAlpha: Float,
+    edgeStrength: Float,
+    pressable: Boolean,
+    shimmer: Float,
+    breathe: Float,
+    pressProgress: Float,
+    lensProgress: Float,
+    sweepProgress: Float,
+    elasticity: Float,
+    pressCenter: Offset
+) {
+    val sceneGroup = LocalGlassSceneGroup
+    val sceneState = LocalOrdinaryGlassSceneState.current
+    val node = remember(coordinates) {
+        OrdinaryGlassRenderNode(coordinates = coordinates)
+    }
+    val enabled = role != GlassRole.Shell &&
+        sceneGroup != GlassSceneGroup.Unassigned &&
+        sceneState != null
+
+    SideEffect {
+        if (enabled) {
+            node.updateStatic(
+                sceneGroup = sceneGroup,
+                role = role,
+                quality = quality,
+                radius = radius,
+                glassIntensity = glassIntensity,
+                backdropAlpha = backdropAlpha,
+                edgeStrength = edgeStrength,
+                pressable = pressable
+            )
+            node.updateMotion(
+                shimmer = shimmer,
+                breathe = breathe,
+                pressProgress = pressProgress,
+                lensProgress = lensProgress,
+                sweepProgress = sweepProgress,
+                elasticity = elasticity,
+                pressCenter = pressCenter
+            )
+        }
+    }
+
+    BindOrdinaryGlassRenderNode(node = node, enabled = enabled)
 }
 
 @Composable
