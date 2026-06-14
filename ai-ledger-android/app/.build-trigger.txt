@@ -1,2 +1,2 @@
-trigger: rollback-original-v29-4-2026-06-14
-source-commit: c8a7f50c8b75bc62bf2359ddd7f3fce12c03516f
+trigger: sync-settings-only-2026-06-14
+source-commit: 8a0a4b67fbff9e5e0e7d039df87122dd57d4112b
