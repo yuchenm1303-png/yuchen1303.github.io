@@ -15,24 +15,13 @@ internal object WebOpenGLGlassMainShader {
             vec2 pressCenter=clamp(uPress.yz,vec2(0.0),vec2(1.0));
             float pressField=0.0;
             float pressWide=0.0;
-            vec2 pressBodyFlow=vec2(0.0);
             if(press>0.0){
-                vec2 pressCenterPx=pressCenter*z;
                 pressField=pressFieldAt(p,z,pressCenter,press);
                 float aspect=min(z.x/max(z.y,1.0),2.2);
                 pressWide=press*pow(
                     sat(1.0-length((p/z-pressCenter)*vec2(aspect,1.0))*0.58),
                     1.25
                 );
-                vec2 inwardPx=softLimitPx(
-                    (pressCenterPx-p)*(0.028*press+0.070*pressField),
-                    24.0+press*18.0
-                );
-                vec2 pressDelta=p-pressCenterPx;
-                vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
-                vec2 pressDimplePx=-pressDir*pressField*(8.0+press*10.0);
-                pressBodyFlow=pressDimplePx
-                    +inwardPx*(1.76+0.46*bodyLensWeight(insideFromSdf(sd),z,r));
             }
 
             float depth=insideFromSdf(sd);
@@ -62,16 +51,16 @@ internal object WebOpenGLGlassMainShader {
             }else{
                 float bodyWeight=bodyLensWeight(depth,z,r);
                 materialWeight=bodyWeight;
+                vec2 pressBodyFlow=vec2(0.0);
                 if(press>0.0){
                     vec2 pressCenterPx=pressCenter*z;
-                    float pointPressField=pressField;
                     vec2 inwardPx=softLimitPx(
-                        (pressCenterPx-p)*(0.028*press+0.070*pointPressField),
+                        (pressCenterPx-p)*(0.028*press+0.070*pressField),
                         24.0+press*18.0
                     );
                     vec2 pressDelta=p-pressCenterPx;
                     vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
-                    vec2 pressDimplePx=-pressDir*pointPressField*(8.0+press*10.0);
+                    vec2 pressDimplePx=-pressDir*pressField*(8.0+press*10.0);
                     pressBodyFlow=pressDimplePx
                         +inwardPx*(1.76+0.46*bodyWeight);
                 }
