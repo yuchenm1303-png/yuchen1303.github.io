@@ -679,7 +679,7 @@ private class WebOpenGLGlassRenderer {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
-        var dirtyMask: Int
+        var dirtyMask = 0
         var localCardWidth = 0f
         var localCardHeight = 0f
         var localRectOffsetY = 0f
