@@ -1,2 +1,2 @@
-trigger: opengl-v29-4-migration-final-2026-06-14
-source-commit: 637fb38c94b3e86898eb505889a241ebdc4cebb7
+trigger: rollback-original-v29-4-2026-06-14
+source-commit: c8a7f50c8b75bc62bf2359ddd7f3fce12c03516f
