@@ -6,7 +6,7 @@ uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform vec4 uRimA,uRimB;
-uniform float uRadius,uIntensity,uRimMode,uRimJoinSoftness;
+uniform float uRadius,uIntensity,uRimMode,uRimJoinWidth;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float smoother01(float x){
@@ -101,46 +101,45 @@ vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   return color;
 }
 
-/* 连续厚玻璃截面：边框内半段平顺回收到主体，不改变主体 alpha。 */
-vec3 continuousGlassRim(
+/*
+ * 边框折射不再二次采样。
+ * 它直接生成 rimFlow，与主体流场一起组成唯一 opticalCoord。
+ * 两端使用五次平滑接入，保证边界和主体连接处的位移与变化率都回到 0。
+ */
+vec2 continuousRimFlow(float sd,vec2 normal){
+  float rimWidth=max(uRimA.x,1.0);
+  float depth=max(-sd,0.0);
+  float t=sat(depth/rimWidth);
+  float joinWidth=clamp(uRimJoinWidth,.02,.45);
+  float outerJoin=smootherRange(0.0,joinWidth,t);
+  float innerJoin=1.0-smootherRange(1.0-joinWidth,1.0,t);
+  float joinWindow=outerJoin*innerJoin*step(sd,0.0);
+
+  float curvature=max(uRimA.y,.01);
+  float rawSlope=cos(3.14159265*t);
+  float slopeInput=rawSlope*curvature*2.4;
+  float slope=slopeInput/(1.0+abs(slopeInput));
+  float flowStrength=sat(uRimA.w)*sat(uRimB.w);
+  float refractPx=max(uRimA.z,0.0)*slope*joinWindow*flowStrength;
+  return -normal*refractPx;
+}
+
+/* 高光和吸收只处理统一采样后的颜色，不再改变折射坐标。 */
+vec3 applyContinuousRimMaterial(
   vec2 p,
   vec2 z,
   float sd,
   vec2 normal,
-  vec2 bodyCoord,
-  float bodyWeight,
-  vec3 bodyColor,
-  out float rimInfluence
+  vec3 color
 ){
   float rimWidth=max(uRimA.x,1.0);
   float depth=max(-sd,0.0);
   float t=sat(depth/rimWidth);
-  float joinSoftness=sat(uRimJoinSoftness);
-
-  /* 五次平滑曲线保证内侧衔接的一阶、二阶变化都归零。 */
-  float baseEnvelope=1.0-smoother01(t);
-  float joinStart=mix(.78,.38,joinSoftness);
-  float handoff=1.0-smootherRange(joinStart,1.0,t);
-  float materialEnvelope=baseEnvelope*mix(1.0,handoff,joinSoftness)*step(sd,0.0);
-
-  float curvature=max(uRimA.y,.01);
+  float materialStrength=sat(uRimB.w);
   float profile=sin(3.14159265*t);
 
-  /* 外半截维持厚玻璃折射，内半截反向折射按衔接柔度大幅削弱。 */
-  float rawSlope=cos(3.14159265*t);
-  float innerReturn=mix(.32,.04,joinSoftness);
-  float asymmetricSlope=max(rawSlope,0.0)+min(rawSlope,0.0)*innerReturn;
-  float slopeInput=asymmetricSlope*curvature*2.4;
-  float slope=slopeInput/(1.0+abs(slopeInput));
-  float refractEnvelope=baseEnvelope*mix(1.0,handoff,joinSoftness);
-  float refractPx=max(uRimA.z,0.0)*slope*refractEnvelope;
-  vec2 rimCoord=bodyCoord-normal*refractPx;
-  vec3 rimSample=sampleBodyMaterial(globalUv(rimCoord),bodyWeight);
-  vec3 rimColor=mix(bodyColor,rimSample,sat(uRimA.w)*refractEnvelope);
-
-  /* 吸收先于边框影响结束，避免内侧出现一圈色阶。 */
-  float absorptionShape=profile*(.42+.58*t)*materialEnvelope;
-  rimColor*=exp(-max(uRimB.x,0.0)*absorptionShape*.42);
+  float absorptionShape=profile*(.42+.58*t);
+  color*=exp(-max(uRimB.x,0.0)*absorptionShape*.42*materialStrength);
 
   vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
   vec2 lightAnchor=vec2(-1.15,-1.65);
@@ -150,18 +149,17 @@ vec3 continuousGlassRim(
   float facing=sat(dot(normal,lightDirection));
   float directional=pow(facing,max(uRimB.z,1.0));
   float falloff=1.0/(1.0+lightDistance2*.42);
-  float outerSurface=pow(1.0-t,2.8)*sat(.50+.50*max(slope,0.0));
-  float rimLuma=dot(rimColor,vec3(.299,.587,.114));
-  float baseReflection=pow(1.0-t,1.6)*(.120+.080*sat(rimLuma))*sat(.60+.40*max(slope,0.0));
+  float outerSurface=pow(1.0-t,2.8);
+  float rimLuma=dot(color,vec3(.299,.587,.114));
+  float baseReflection=pow(1.0-t,1.6)*(.120+.080*sat(rimLuma));
   float directionalReflection=directional*falloff*outerSurface*max(uRimB.y,0.0);
-  float surfaceReflection=sat(baseReflection+directionalReflection);
-  vec3 highlightColor=mix(rimColor,vec3(1.0,.995,.980),.68);
-  rimColor=mix(rimColor,highlightColor,surfaceReflection);
+  float surfaceReflection=sat((baseReflection+directionalReflection)*materialStrength);
+  vec3 highlightColor=mix(color,vec3(1.0,.995,.980),.68);
+  color=mix(color,highlightColor,surfaceReflection);
 
-  float peak=max(max(rimColor.r,rimColor.g),rimColor.b);
-  rimColor/=1.0+max(peak-1.0,0.0)*.28;
-  rimInfluence=materialEnvelope*sat(uRimB.w);
-  return rimColor;
+  float peak=max(max(color.r,color.g),color.b);
+  color/=1.0+max(peak-1.0,0.0)*.28;
+  return color;
 }
 
 void main(){
@@ -177,15 +175,20 @@ void main(){
   vec2 normal=perimeterNormalAt(p,z,r);
   vec2 mainBodyFlow=bodyRefractionFlow(normal,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
-  vec2 bodyCoord=p+mainBodyFlow+centerFlow;
-  vec3 color=sampleBodyMaterial(globalUv(bodyCoord),bodyWeight);
+  vec2 rimFlow=vec2(0.0);
+  if(uRimMode>.5&&depth<uRimA.x){
+    rimFlow=continuousRimFlow(sd,normal);
+  }
+
+  vec2 totalFlow=mainBodyFlow+centerFlow+rimFlow;
+  vec2 opticalCoord=p+totalFlow;
+  vec3 color=sampleBodyMaterial(globalUv(opticalCoord),bodyWeight);
+
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
   if(uRimMode>.5&&depth<uRimA.x){
-    float rimInfluence=0.0;
-    vec3 rimColor=continuousGlassRim(p,z,sd,normal,bodyCoord,bodyWeight,color,rimInfluence);
-    color=mix(color,rimColor,rimInfluence);
+    color=applyContinuousRimMaterial(p,z,sd,normal,color);
   }
 
   float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
