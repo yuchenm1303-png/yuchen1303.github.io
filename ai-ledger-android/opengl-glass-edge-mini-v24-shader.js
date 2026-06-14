@@ -32,8 +32,8 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V26 Single Body Optical Field
- * 不再存在独立 rim 坐标、rim 颜色或 rim 材质分支。
+ * V26.1 Single Body Optical Field
+ * 不存在独立 rim 坐标、rim 颜色或 rim 材质分支。
  * 边缘压缩与拉伸直接进入 V25.3 主体折射场本身。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
@@ -65,13 +65,32 @@ float bodyLensWeight(float depth,vec2 z,float r){
   return pow(1.0-smooth,concentration);
 }
 
+/*
+ * 主过渡带与长尾共同组成同一条连续边缘轮廓。
+ * primary 保留外沿形变，tail 把回落延长到主体内部，避免出现明显接缝。
+ */
 float integratedBodyEdgeProfile(float depth,vec2 z,float r){
   float requestedWidth=max(uBodyEdge.x,1.0);
-  float width=min(requestedWidth,min(z.x,z.y)*.46);
-  float x=sat(depth/max(width,1.0));
-  float retreat=1.0-smoother01(x);
+  float width=min(requestedWidth,min(z.x,z.y)*.44);
+
+  float primaryX=sat(depth/max(width,1.0));
+  float primary=1.0-smoother01(primaryX);
+
+  float tailWidth=min(
+      width*1.85,
+      min(z.x,z.y)*.47
+  );
+  float tailX=sat(depth/max(tailWidth,1.0));
+  float tail=1.0-smoother01(tailX);
+
   float curve=clamp(uBodyEdge.z,.25,3.0);
-  return pow(max(retreat,0.0),curve)*sat(uEdgeMode);
+  float primaryCurve=mix(.82,1.28,sat(curve/3.0));
+  float tailCurve=mix(.72,1.08,sat(curve/3.0));
+
+  primary=pow(max(primary,0.0),primaryCurve);
+  tail=pow(max(tail,0.0),tailCurve);
+
+  return mix(primary,tail,.50)*sat(uEdgeMode);
 }
 
 vec2 bodyRefractionFlow(
@@ -96,30 +115,39 @@ vec2 bodyRefractionFlow(
       *.96;
 
   /*
-   * 同一主体场的边缘非线性：
-   * 外沿直接从更深的主体区域取样，向内连续回落到原始 V25.3。
-   * 一段宽背景纹理因此会被压进窄边缘，而不是再画一张边框图。
+   * 附加拉力采用宽度相关的指数软上限。
+   * 即使滑块给出很大的拉力，也不会在短距离内强行折返形成割裂带。
    */
   float edgeProfile=integratedBodyEdgeProfile(depth,z,r);
-  float edgePull=max(uBodyEdge.y,0.0)*edgeProfile;
-  float normalDisplacement=displacement+edgePull*(.72+.28*weight);
+  float edgeWidth=min(
+      max(uBodyEdge.x,1.0),
+      min(z.x,z.y)*.44
+  );
+  float requestedEdgePull=max(uBodyEdge.y,0.0);
+  float safeEdgePull=edgeWidth
+      *(1.0-exp(-requestedEdgePull/max(edgeWidth,1.0)));
+  float edgePull=safeEdgePull*edgeProfile;
+  float normalDisplacement=
+      displacement
+      +edgePull*(.60+.22*weight);
 
   /*
-   * 切向拉伸同样直接加入 bodyOpticalCoord。
-   * perimeterNormalAt 在圆角连续旋转，所以直边纹理会自然绕入圆角。
+   * 切向形变比法向形变更早衰减，防止交界位置形成横向亮带。
+   * 它仍然直接属于 bodyOpticalCoord，没有第二套边缘坐标。
    */
   vec2 tangent=vec2(-n.y,n.x);
   vec2 local=p-z*.5;
   float tangentCoordinate=dot(local,tangent);
   float tangentStretch=max(uBodyEdge.w,0.0);
+  float stretchProfile=pow(max(edgeProfile,0.0),1.55);
   float tangentShift=
       tangentCoordinate
-      *.12
+      *.075
       *tangentStretch
-      *edgeProfile;
+      *stretchProfile;
   vec2 tangentFlow=softLimit(
       tangent*tangentShift,
-      min(z.x,z.y)*.16
+      min(z.x,z.y)*.12
   );
 
   return -n*normalDisplacement+tangentFlow;
