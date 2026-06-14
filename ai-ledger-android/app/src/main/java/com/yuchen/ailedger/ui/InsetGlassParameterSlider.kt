@@ -54,6 +54,7 @@ private const val LaboratoryInsetBackdropAlpha = 0.82f
 private const val LaboratoryInsetRimHighlight = 0.34f
 private const val LaboratoryInsetInnerShadow = 0.67f
 private const val LaboratoryInsetFloorDim = 0.23f
+private const val SliderCommitGuardDelayMs = 240L
 private const val SliderCommitFallbackDelayMs = 1_200L
 
 /**
@@ -83,6 +84,7 @@ internal fun InsetGlassParameterSlider(
     var dragValue by remember { mutableFloatStateOf(clampedValue) }
     var dragging by remember { mutableStateOf(false) }
     var pendingCommit by remember { mutableStateOf<Float?>(null) }
+    var commitGuardReady by remember { mutableStateOf(true) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
     val reservedWidthPx = with(LocalDensity.current) { 112.dp.toPx() }
 
@@ -101,22 +103,34 @@ internal fun InsetGlassParameterSlider(
 
     // 外部状态只在空闲时接管显示。拖动中以及松手后的提交确认期内，
     // 始终保持本地最终值，避免旧的偏好流回灌造成一帧回跳。
-    LaunchedEffect(clampedValue, dragging, pendingCommit, start, end) {
+    LaunchedEffect(clampedValue, dragging, pendingCommit, commitGuardReady, start, end) {
         if (dragging) return@LaunchedEffect
         val pending = pendingCommit
         if (pending == null) {
             dragValue = clampedValue
-        } else if (abs(clampedValue - pending) <= acknowledgementTolerance) {
+        } else if (
+            commitGuardReady &&
+            abs(clampedValue - pending) <= acknowledgementTolerance
+        ) {
             dragValue = clampedValue
             pendingCommit = null
         }
     }
 
-    // 正常情况下外部状态会很快确认最终值。该兜底仅防止回调被上层拒绝时
-    // 本地锁永久悬挂，不参与正常拖动动画。
+    // 松手后的短保护窗口内，即便上层先同步了同值，也暂不释放本地最终位置。
+    // 这样可以覆盖 DataStore 旧快照恰好晚到的极端时序。
     LaunchedEffect(pendingCommit) {
-        val expected = pendingCommit ?: return@LaunchedEffect
-        delay(SliderCommitFallbackDelayMs)
+        val expected = pendingCommit
+        if (expected == null) {
+            commitGuardReady = true
+            return@LaunchedEffect
+        }
+        commitGuardReady = false
+        delay(SliderCommitGuardDelayMs)
+        if (pendingCommit != expected) return@LaunchedEffect
+        commitGuardReady = true
+
+        delay(SliderCommitFallbackDelayMs - SliderCommitGuardDelayMs)
         if (!dragging && pendingCommit == expected) {
             dragValue = currentExternalValue
             pendingCommit = null
@@ -189,6 +203,7 @@ internal fun InsetGlassParameterSlider(
                     onDragStarted = {
                         dragValue = currentDisplayValue
                         pendingCommit = null
+                        commitGuardReady = true
                         dragging = true
                     },
                     onDragStopped = {
