@@ -29,7 +29,6 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -79,10 +78,16 @@ private data class BackdropTextureSet(
     )
 }
 
+private class BackdropPixelScratch(pixelCount: Int) {
+    val source = IntArray(pixelCount)
+    val temp = IntArray(pixelCount)
+    val output = IntArray(pixelCount)
+}
+
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 
 private object BlurredBackdropMemoryCache {
-    private const val MAX_ENTRIES = 2
+    private const val MAX_ENTRIES = 1
     private val entries = object : LinkedHashMap<String, BackdropTextureSet>(MAX_ENTRIES, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BackdropTextureSet>?): Boolean =
             size > MAX_ENTRIES
@@ -122,10 +127,8 @@ fun rememberBlurredBackdropBitmap(
     LaunchedEffect(textureKey) {
         BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
             textures = cached
-            BackdropTextureWarmup.warmUp(cached)
             return@LaunchedEffect
         }
-        if (textures != null) delay(120)
         val next = withContext(Dispatchers.Default) {
             runCatching {
                 val preset = if (customBackgroundPath == null) decodePresetNightSkyBitmap(context) else null
@@ -136,7 +139,7 @@ fun rememberBlurredBackdropBitmap(
                     params = params.quantizedForTextures(),
                     customBackgroundPath = customBackgroundPath,
                     presetBitmap = preset
-                ).also(BackdropTextureWarmup::warmUp)
+                )
             }.getOrNull()
         }
         if (next != null) {
@@ -148,10 +151,6 @@ fun rememberBlurredBackdropBitmap(
     return remember(textures, params.radius) {
         textures?.withBlurAmount(params.radius)
     }
-}
-
-private object BackdropTextureWarmup {
-    fun warmUp(backdrop: BackdropTextureSet) = Unit
 }
 
 /** radius 被排除：调节模糊只更新 uniform，不重建四张纹理。 */
@@ -220,9 +219,10 @@ private fun buildBackdropTextureSet(
     drawBitmapCoverIntoTarget(clearSource, blurSource)
 
     val iterations = params.iterations.roundToInt().coerceIn(1, 12)
-    val low = buildTunedBlurLevel(blurSource, radius = 1, iterations = iterations, params = params)
-    val medium = buildTunedBlurLevel(blurSource, radius = 2, iterations = iterations, params = params)
-    val high = buildTunedBlurLevel(blurSource, radius = 4, iterations = iterations, params = params)
+    val scratch = BackdropPixelScratch(blurWidth * blurHeight)
+    val low = buildTunedBlurLevel(blurSource, radius = 1, iterations = iterations, params = params, scratch = scratch)
+    val medium = buildTunedBlurLevel(blurSource, radius = 2, iterations = iterations, params = params, scratch = scratch)
+    val high = buildTunedBlurLevel(blurSource, radius = 4, iterations = iterations, params = params, scratch = scratch)
 
     if (!blurSource.isRecycled) blurSource.recycle()
 
@@ -241,17 +241,18 @@ private fun buildTunedBlurLevel(
     source: Bitmap,
     radius: Int,
     iterations: Int,
-    params: BackdropDebugParams
+    params: BackdropDebugParams,
+    scratch: BackdropPixelScratch
 ): Bitmap {
-    val blurred = boxBlur(source, radius, iterations)
-    val tuned = tuneBitmapTone(
+    val blurred = boxBlur(source, radius, iterations, scratch)
+    tuneBitmapToneInPlace(
         input = blurred,
         brightness = params.brightness.coerceIn(0.40f, 2.20f),
         contrast = params.contrast.coerceIn(0.50f, 1.80f),
-        saturation = params.saturation.coerceIn(0.30f, 1.80f)
+        saturation = params.saturation.coerceIn(0.30f, 1.80f),
+        pixels = scratch.source
     )
-    if (blurred !== source && !blurred.isRecycled) blurred.recycle()
-    return tuned
+    return blurred
 }
 
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
@@ -364,14 +365,13 @@ private fun drawGlow(
     paint.shader = null
 }
 
-private fun boxBlur(input: Bitmap, radius: Int, iterations: Int): Bitmap {
-    if (radius <= 0 || iterations <= 0) return input
+private fun boxBlur(input: Bitmap, radius: Int, iterations: Int, scratch: BackdropPixelScratch): Bitmap {
+    if (radius <= 0 || iterations <= 0) return input.copy(Bitmap.Config.ARGB_8888, false)
     val width = input.width
     val height = input.height
-    val pixelCount = width * height
-    var source = IntArray(pixelCount)
-    val temp = IntArray(pixelCount)
-    var output = IntArray(pixelCount)
+    var source = scratch.source
+    val temp = scratch.temp
+    var output = scratch.output
     input.getPixels(source, 0, width, 0, 0, width, height)
     val window = radius * 2 + 1
     repeat(iterations) { iteration ->
@@ -453,12 +453,18 @@ private fun boxBlurVertical(
     }
 }
 
-private fun tuneBitmapTone(input: Bitmap, brightness: Float, contrast: Float, saturation: Float): Bitmap {
+private fun tuneBitmapToneInPlace(
+    input: Bitmap,
+    brightness: Float,
+    contrast: Float,
+    saturation: Float,
+    pixels: IntArray
+) {
     val width = input.width
     val height = input.height
-    val pixels = IntArray(width * height)
     input.getPixels(pixels, 0, width, 0, 0, width, height)
-    pixels.forEachIndexed { index, color ->
+    for (index in 0 until width * height) {
+        val color = pixels[index]
         val a = color ushr 24
         val r0 = ((color shr 16) and 0xFF).toFloat()
         val g0 = ((color shr 8) and 0xFF).toFloat()
@@ -472,7 +478,7 @@ private fun tuneBitmapTone(input: Bitmap, brightness: Float, contrast: Float, sa
         val b = (((sb - 128f) * contrast + 128f) * brightness).roundToInt().coerceIn(0, 255)
         pixels[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
-    return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+    input.setPixels(pixels, 0, width, 0, 0, width, height)
 }
 
 private data class AndroidWeatherPalette(
