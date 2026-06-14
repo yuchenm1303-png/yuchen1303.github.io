@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
@@ -280,9 +281,9 @@ private fun OrdinaryGlassParentLayer(
 }
 
 /**
- * 影子阶段只遍历，不构造每帧临时列表，避免为了验证坐标额外制造 GC 压力。
+ * Shadow 阶段只遍历，不构造每帧临时列表；ParentDraw 才调用父级材质函数。
  */
-private fun observeVisibleOrdinaryGlassItems(
+private fun DrawScope.observeVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     phase: OrdinaryGlassParentPhase,
     viewportSize: Size
@@ -310,29 +311,35 @@ private fun observeVisibleOrdinaryGlassItems(
         )
         rect.intersectionOrNull(viewport) ?: return@forEach
 
-        when (phase) {
-            OrdinaryGlassParentPhase.Underlay -> {
-                node.quality
-                node.radius
-                node.glassIntensity
-                node.backdropAlpha
-                node.edgeStrength
-            }
-            OrdinaryGlassParentPhase.Overlay -> {
-                node.shimmer
-                node.breathe
-                node.pressProgress
-                node.lensProgress
-                node.sweepProgress
-                node.elasticity
-                node.pressCenter
-                node.pressable
-            }
-        }
-
-        // 当前固定为 Shadow，不输出像素。切到 ParentDraw 后在这里调用对应父级绘制函数。
         if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
-            // 实际绘制将在完成视觉等价验证后接入。
+            when (phase) {
+                OrdinaryGlassParentPhase.Underlay -> {
+                    drawOrdinaryComposeGlassMaterial(node = node, rect = rect)
+                }
+                OrdinaryGlassParentPhase.Overlay -> {
+                    drawOrdinaryComposeGlassPressOptics(node = node, rect = rect)
+                }
+            }
+        } else {
+            when (phase) {
+                OrdinaryGlassParentPhase.Underlay -> {
+                    node.quality
+                    node.radius
+                    node.glassIntensity
+                    node.backdropAlpha
+                    node.edgeStrength
+                }
+                OrdinaryGlassParentPhase.Overlay -> {
+                    node.shimmer
+                    node.breathe
+                    node.pressProgress
+                    node.lensProgress
+                    node.sweepProgress
+                    node.elasticity
+                    node.pressCenter
+                    node.pressable
+                }
+            }
         }
     }
 }
