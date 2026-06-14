@@ -6,15 +6,12 @@ uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform vec4 uRimA,uRimB;
-uniform float uRadius,uIntensity,uRimMode,uRimJoinWidth;
+uniform float uRadius,uIntensity,uRimMode;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float smoother01(float x){
   x=sat(x);
   return x*x*x*(x*(x*6.0-15.0)+10.0);
-}
-float smootherRange(float a,float b,float x){
-  return smoother01((x-a)/max(b-a,.0001));
 }
 float boxSdf(vec2 p,vec2 z,float r){
   vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));
@@ -102,29 +99,37 @@ vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
 }
 
 /*
- * 边框折射不再二次采样。
- * 它直接生成 rimFlow，与主体流场一起组成唯一 opticalCoord。
- * 两端使用五次平滑接入，保证边界和主体连接处的位移与变化率都回到 0。
+ * 窄幅边缘折射带。
+ * 只沿法线向玻璃内部取样，并从外沿最大压缩单调回归到主体坐标。
+ * 不再使用正负翻转，也不制造第二个沙漏截面。
+ *
+ * uRimA.x = 折射带宽度(px)
+ * uRimA.y = 法线压缩比例
+ * uRimA.z = 回归曲线强度
+ * uRimA.w = 折射带光学强度
  */
-vec2 continuousRimFlow(float sd,vec2 normal){
+vec2 monotonicRimFlow(float sd,vec2 normal){
   float rimWidth=max(uRimA.x,1.0);
   float depth=max(-sd,0.0);
   float t=sat(depth/rimWidth);
-  float joinWidth=clamp(uRimJoinWidth,.02,.45);
-  float outerJoin=smootherRange(0.0,joinWidth,t);
-  float innerJoin=1.0-smootherRange(1.0-joinWidth,1.0,t);
-  float joinWindow=outerJoin*innerJoin*step(sd,0.0);
 
-  float curvature=max(uRimA.y,.01);
-  float rawSlope=cos(3.14159265*t);
-  float slopeInput=rawSlope*curvature*2.4;
-  float slope=slopeInput/(1.0+abs(slopeInput));
-  float flowStrength=sat(uRimA.w)*sat(uRimB.w);
-  float refractPx=max(uRimA.z,0.0)*slope*joinWindow*flowStrength;
-  return -normal*refractPx;
+  float curve=sat(uRimA.z);
+  float falloffT=mix(t,smoother01(t),curve);
+  float compressionProfile=1.0-falloffT;
+
+  /*
+   * 保证采样深度始终单调：
+   * smootherstep 最大斜率约为 1.875，压缩比例按曲线强度自动限幅。
+   */
+  float maxProfileSlope=mix(1.0,1.875,curve);
+  float requestedRatio=clamp(uRimA.y,0.0,.48);
+  float safeRatio=min(requestedRatio,.82/maxProfileSlope);
+  float shiftPx=rimWidth*safeRatio*compressionProfile*sat(uRimA.w)*sat(uRimB.w);
+
+  return -normal*shiftPx*step(sd,0.0);
 }
 
-/* 高光和吸收只处理统一采样后的颜色，不再改变折射坐标。 */
+/* 高光和吸收只作用于统一采样后的颜色。 */
 vec3 applyContinuousRimMaterial(
   vec2 p,
   vec2 z,
@@ -177,7 +182,7 @@ void main(){
   vec2 centerFlow=centerTransport(p,z);
   vec2 rimFlow=vec2(0.0);
   if(uRimMode>.5&&depth<uRimA.x){
-    rimFlow=continuousRimFlow(sd,normal);
+    rimFlow=monotonicRimFlow(sd,normal);
   }
 
   vec2 totalFlow=mainBodyFlow+centerFlow+rimFlow;
