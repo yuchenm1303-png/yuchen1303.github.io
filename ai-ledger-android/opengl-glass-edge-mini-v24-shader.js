@@ -32,9 +32,9 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V26.2 Single Body Optical Field
- * 边缘厚度压缩与沿边界运输都直接属于同一个 bodyOpticalCoord。
- * 不存在独立 rim 坐标、rim 图像或额外纹理采样。
+ * V26.3 Single Body Optical Field
+ * 以 V26.1 稳定主体场为基准。
+ * 沿边界流动仅作用于最外侧窄带，不改写主体内部坐标。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -63,6 +63,146 @@ float bodyLensWeight(float depth,vec2 z,float r){
   float smooth=x*x*(3.0-2.0*x);
   float concentration=mix(.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
   return pow(1.0-smooth,concentration);
+}
+
+/* 主过渡带与长尾共同把边缘压缩连续融入主体。 */
+float integratedBodyEdgeProfile(float depth,vec2 z,float r){
+  float requestedWidth=max(uBodyEdge.x,1.0);
+  float width=min(requestedWidth,min(z.x,z.y)*.44);
+
+  float primaryX=sat(depth/max(width,1.0));
+  float primary=1.0-smoother01(primaryX);
+
+  float tailWidth=min(
+      width*1.85,
+      min(z.x,z.y)*.47
+  );
+  float tailX=sat(depth/max(tailWidth,1.0));
+  float tail=1.0-smoother01(tailX);
+
+  float curve=clamp(uBodyEdge.z,.25,3.0);
+  float primaryCurve=mix(.82,1.28,sat(curve/3.0));
+  float tailCurve=mix(.72,1.08,sat(curve/3.0));
+
+  primary=pow(max(primary,0.0),primaryCurve);
+  tail=pow(max(tail,0.0),tailCurve);
+
+  return mix(primary,tail,.50)*sat(uEdgeMode);
+}
+
+/* 仅最外侧约 40% 的边缘宽度参与弧向运输。 */
+float outerArcMask(float depth,vec2 z){
+  float width=min(
+      max(uBodyEdge.x,1.0),
+      min(z.x,z.y)*.44
+  );
+  float arcWidth=max(width*.42,3.0);
+  return (1.0-smoother01(depth/arcWidth))*sat(uEdgeMode);
+}
+
+float roundedCornernessAt(vec2 p,vec2 z,float r){
+  vec2 local=abs(p-z*.5);
+  vec2 core=max(z*.5-vec2(r),vec2(0.0));
+  vec2 cornerOffset=max(local-core,vec2(0.0));
+  float bothAxes=min(cornerOffset.x,cornerOffset.y);
+  return smoother01(sat(bothAxes/max(r*.42,1.0)));
+}
+
+/*
+ * 在稳定法向来源点上增加一个小幅、全圈同向的弧向位移。
+ * 使用中点切线修正圆角方向，不使用 sign()，因此中线不会翻转成 X。
+ */
+vec2 capsuleArcSource(
+  vec2 basePoint,
+  vec2 originalPoint,
+  vec2 z,
+  float r,
+  float depth,
+  float normalDisplacement
+){
+  float arcMask=outerArcMask(depth,z);
+  float edgeWidth=min(
+      max(uBodyEdge.x,1.0),
+      min(z.x,z.y)*.44
+  );
+  float cornerness=roundedCornernessAt(originalPoint,z,r);
+  float flowStrength=max(uBodyEdge.w,0.0);
+
+  vec2 local=(originalPoint-z*.5)/max(z*.5,vec2(1.0));
+  float modulation=.82+.18*sin((local.x-local.y)*3.14159265);
+  float arcTravel=edgeWidth
+      *.18
+      *flowStrength
+      *arcMask
+      *modulation
+      *mix(.88,1.36,cornerness);
+  arcTravel=min(arcTravel,edgeWidth*.24);
+
+  vec2 n0=perimeterNormalAt(basePoint,z,r);
+  vec2 t0=vec2(-n0.y,n0.x);
+  vec2 midpoint=basePoint+t0*(arcTravel*.5);
+  vec2 nm=perimeterNormalAt(midpoint,z,r);
+  vec2 tm=vec2(-nm.y,nm.x);
+  vec2 direction=t0+tm;
+  direction/=max(length(direction),.0001);
+
+  vec2 point=basePoint+direction*arcTravel;
+
+  /* 只做一次柔和等深度校正，避免抵消圆角流动。 */
+  float desiredDepth=max(-boxSdf(basePoint,z,r),0.0);
+  float pointDepth=max(-boxSdf(point,z,r),0.0);
+  vec2 pointNormal=perimeterNormalAt(point,z,r);
+  point-=pointNormal*(desiredDepth-pointDepth)*.38;
+
+  vec2 arcOffset=point-basePoint;
+  arcOffset=softLimit(
+      arcOffset,
+      min(edgeWidth*.26,normalDisplacement*.38+edgeWidth*.12+1.0)
+  );
+  return basePoint+arcOffset;
+}
+
+vec2 bodyRefractionFlow(
+  vec2 p,
+  vec2 n,
+  vec2 z,
+  float r,
+  float depth,
+  float weight
+){
+  /* 原始 V25.3 主体法线折射。 */
+  float rawPull=
+      abs(uBodyLensA.y)*.052
+      +abs(uBodyLensA.x)*.20
+      +max(uBodyLensB.x,0.0)*.12;
+  float core=pow(weight,1.28);
+  float reach=bodyLensReach(z,r);
+  float remaining=max(reach-depth,0.0);
+  float displacement=
+      remaining
+      *(1.0-exp(-(rawPull*core)/max(remaining,1.0)))
+      *.96;
+
+  /* V26.1 的稳定边缘压缩和软上限。 */
+  float edgeProfile=integratedBodyEdgeProfile(depth,z,r);
+  float edgeWidth=min(
+      max(uBodyEdge.x,1.0),
+      min(z.x,z.y)*.44
+  );
+  float requestedEdgePull=max(uBodyEdge.y,0.0);
+  float safeEdgePull=edgeWidth
+      *(1.0-exp(-requestedEdgePull/max(edgeWidth,1.0)));
+  float edgePull=safeEdgePull*edgeProfile;
+  float normalDisplacement=
+      displacement
+      +edgePull*(.60+.22*weight);
+
+  vec2 basePoint=p-n*normalDisplacement;
+  vec2 sourcePoint=capsuleArcSource(
+      basePoint,p,z,r,depth,normalDisplacement
+  );
+
+  return sourcePoint-p;
 }
 
 float centerEnvelope(vec2 u){
@@ -98,157 +238,6 @@ vec2 centerTransport(vec2 p,vec2 z){
   return softLimit(flow,mix(52.0,118.0,gain));
 }
 
-/* 主过渡带和长尾共同把外沿形变连续融入主体。 */
-float integratedBodyEdgeProfile(float depth,vec2 z,float r){
-  float requestedWidth=max(uBodyEdge.x,1.0);
-  float width=min(requestedWidth,min(z.x,z.y)*.44);
-
-  float primaryX=sat(depth/max(width,1.0));
-  float primary=1.0-smoother01(primaryX);
-
-  float tailWidth=min(
-      width*1.85,
-      min(z.x,z.y)*.47
-  );
-  float tailX=sat(depth/max(tailWidth,1.0));
-  float tail=1.0-smoother01(tailX);
-
-  float curve=clamp(uBodyEdge.z,.25,3.0);
-  float primaryCurve=mix(.82,1.28,sat(curve/3.0));
-  float tailCurve=mix(.72,1.08,sat(curve/3.0));
-
-  primary=pow(max(primary,0.0),primaryCurve);
-  tail=pow(max(tail,0.0),tailCurve);
-
-  return mix(primary,tail,.50)*sat(uEdgeMode);
-}
-
-/* 只在真正的圆角区提高沿边界运输量，直边保持克制。 */
-float roundedCornernessAt(vec2 p,vec2 z,float r){
-  vec2 local=abs(p-z*.5);
-  vec2 core=max(z*.5-vec2(r),vec2(0.0));
-  vec2 cornerOffset=max(local-core,vec2(0.0));
-  float bothAxes=min(cornerOffset.x,cornerOffset.y);
-  return smoother01(sat(bothAxes/max(r*.46,1.0)));
-}
-
-/*
- * 让来源点沿 rounded-rect 的等深度轮廓走三小步。
- * 每一步重新计算法线和切线，并校正回同一光学深度，
- * 因此图像会沿直边进入圆角再转向，而不是做固定方向平移。
- */
-vec2 perimeterGuidedSource(
-  vec2 p,
-  vec2 z,
-  float r,
-  vec2 baseNormal,
-  float depth,
-  float normalDisplacement,
-  float edgeProfile
-){
-  vec2 point=p-baseNormal*normalDisplacement;
-  float desiredDepth=min(
-      depth+normalDisplacement,
-      min(z.x,z.y)*.47
-  );
-
-  float edgeWidth=min(
-      max(uBodyEdge.x,1.0),
-      min(z.x,z.y)*.44
-  );
-  float cornerness=roundedCornernessAt(p,z,r);
-  float flowStrength=max(uBodyEdge.w,0.0);
-  float totalTravel=edgeWidth
-      *.30
-      *flowStrength
-      *pow(max(edgeProfile,0.0),1.12)
-      *mix(.82,1.62,cornerness);
-  totalTravel=min(totalTravel,min(z.x,z.y)*.18);
-
-  vec2 stepNormal=perimeterNormalAt(point,z,r);
-  vec2 stepTangent=vec2(-stepNormal.y,stepNormal.x);
-  vec2 guide=polynomialTransport(
-      (point-z*.5)/max(z*.5,vec2(1.0))
-  );
-  float guideAlong=dot(guide,stepTangent);
-  float signedGuide=guideAlong/(abs(guideAlong)+.055);
-  point+=stepTangent*(totalTravel*.42*signedGuide);
-  stepNormal=perimeterNormalAt(point,z,r);
-  float pointDepth=max(-boxSdf(point,z,r),0.0);
-  point-=stepNormal*(desiredDepth-pointDepth)*.72;
-
-  stepNormal=perimeterNormalAt(point,z,r);
-  stepTangent=vec2(-stepNormal.y,stepNormal.x);
-  guide=polynomialTransport(
-      (point-z*.5)/max(z*.5,vec2(1.0))
-  );
-  guideAlong=dot(guide,stepTangent);
-  signedGuide=guideAlong/(abs(guideAlong)+.055);
-  point+=stepTangent*(totalTravel*.33*signedGuide);
-  stepNormal=perimeterNormalAt(point,z,r);
-  pointDepth=max(-boxSdf(point,z,r),0.0);
-  point-=stepNormal*(desiredDepth-pointDepth)*.72;
-
-  stepNormal=perimeterNormalAt(point,z,r);
-  stepTangent=vec2(-stepNormal.y,stepNormal.x);
-  guide=polynomialTransport(
-      (point-z*.5)/max(z*.5,vec2(1.0))
-  );
-  guideAlong=dot(guide,stepTangent);
-  signedGuide=guideAlong/(abs(guideAlong)+.055);
-  point+=stepTangent*(totalTravel*.25*signedGuide);
-  stepNormal=perimeterNormalAt(point,z,r);
-  pointDepth=max(-boxSdf(point,z,r),0.0);
-  point-=stepNormal*(desiredDepth-pointDepth)*.72;
-
-  return point;
-}
-
-vec2 bodyRefractionFlow(
-  vec2 p,
-  vec2 n,
-  vec2 z,
-  float r,
-  float depth,
-  float weight
-){
-  /* 原始 V25.3 主体法线折射。 */
-  float rawPull=
-      abs(uBodyLensA.y)*.052
-      +abs(uBodyLensA.x)*.20
-      +max(uBodyLensB.x,0.0)*.12;
-  float core=pow(weight,1.28);
-  float reach=bodyLensReach(z,r);
-  float remaining=max(reach-depth,0.0);
-  float displacement=
-      remaining
-      *(1.0-exp(-(rawPull*core)/max(remaining,1.0)))
-      *.96;
-
-  /* 边缘附加拉力保持软上限，避免坐标折返形成割裂亮带。 */
-  float edgeProfile=integratedBodyEdgeProfile(depth,z,r);
-  float edgeWidth=min(
-      max(uBodyEdge.x,1.0),
-      min(z.x,z.y)*.44
-  );
-  float requestedEdgePull=max(uBodyEdge.y,0.0);
-  float safeEdgePull=edgeWidth
-      *(1.0-exp(-requestedEdgePull/max(edgeWidth,1.0)));
-  float edgePull=safeEdgePull*edgeProfile;
-  float normalDisplacement=
-      displacement
-      +edgePull*(.60+.22*weight);
-
-  vec2 sourcePoint=perimeterGuidedSource(
-      p,z,r,n,depth,normalDisplacement,edgeProfile
-  );
-  vec2 guidedFlow=sourcePoint-p;
-  return softLimit(
-      guidedFlow,
-      normalDisplacement+edgeWidth*.42+1.0
-  );
-}
-
 vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   vec3 color=bodyBackdrop(uv);
   float opticalBoost=1.0+bodyWeight*.24;
@@ -269,7 +258,7 @@ void main(){
   float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 normal=perimeterNormalAt(p,z,r);
 
-  /* 始终只有这一套主体折射坐标和一次背景纹理采样。 */
+  /* 始终只有这一套主体坐标和一次背景采样。 */
   vec2 mainBodyFlow=bodyRefractionFlow(
       p,normal,z,r,depth,bodyWeight
   );
