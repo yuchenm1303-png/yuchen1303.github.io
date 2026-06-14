@@ -10,10 +10,6 @@ uniform vec2 uShoulderFlow;
 uniform float uShoulderEnabled,uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
-float smoother01(float x){
-  x=sat(x);
-  return x*x*x*(x*(x*6.0-15.0)+10.0);
-}
 float boxSdf(vec2 p,vec2 z,float r){
   vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));
   return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
@@ -34,13 +30,14 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.3 Fixed-Capture Compression Shoulder
+ * V29.4 Outer-Peak Fixed-Capture Shoulder
  * uShoulder = visibleWidthPx, maxAngleDeg, falloffRoundness, materialStrength
  * uShoulderFlow = fixedCaptureWidthPx, tangentialFlowStrength
  *
- * 可见圆肩宽度只决定显示压缩宽度。
- * 背景来源始终使用固定最大宽度的深层取样域，
- * 圆肩缩窄时把同一深层图像压缩进边缘，而不是退回边缘重新取样。
+ * 固定深层取样域仍由 captureWidth 决定。
+ * 圆肩最外沿直接读取最深来源；向主体内部时，sourcePoint 自身
+ * 连续回到当前像素 p，且内沿位置与一阶导数都与纯 V25.3 主体一致。
+ * 因此折射尖峰移动到最外沿，不再依靠内沿 crossfade 强行收束。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -151,25 +148,25 @@ float shoulderCaptureWidth(vec2 z){
   return min(requested,min(z.x,z.y)*.46);
 }
 
-float shoulderProfile(float depth,vec2 z){
-  float width=shoulderWidth(z);
-  float x=sat(depth/max(width,1.0));
-  float cubic=x*x*(3.0-2.0*x);
-  float quintic=smoother01(x);
-  float roundness=sat(uShoulder.z);
-  return 1.0-mix(cubic,quintic,roundness);
+float shoulderX(float depth,vec2 z){
+  return sat(depth/max(shoulderWidth(z),1.0));
 }
 
+/*
+ * 最大变化率位于 x=0，随后单调减弱；x=1 时值和导数都为 0。
+ * roundness 越高，尖峰越集中在最外沿、内沿越平缓。
+ */
+float shoulderOuterEnvelope(float depth,vec2 z){
+  float x=shoulderX(depth,z);
+  float exponent=mix(2.0,4.8,sat(uShoulder.z));
+  return pow(max(1.0-x,0.0),exponent);
+}
+
+/* 材质覆盖较宽，但同样不在内沿形成二次峰值。 */
 float shoulderMaterialFill(float depth,vec2 z){
-  float x=sat(depth/max(shoulderWidth(z),1.0));
-  float tail=sat((x-.72)/.28);
-  return 1.0-smoother01(tail);
-}
-
-float shoulderOpticalBlend(float depth,vec2 z){
-  float x=sat(depth/max(shoulderWidth(z),1.0));
-  float tail=sat((x-.55)/.45);
-  return 1.0-smoother01(tail);
+  float x=shoulderX(depth,z);
+  float exponent=mix(1.20,1.85,sat(uShoulder.z));
+  return pow(max(1.0-x,0.0),exponent);
 }
 
 float shoulderMaxAngle(){
@@ -177,46 +174,18 @@ float shoulderMaxAngle(){
 }
 
 float shoulderTheta(float depth,vec2 z){
-  return shoulderMaxAngle()*shoulderProfile(depth,z);
-}
-
-float smoothstepIntegral(float x){
-  x=sat(x);
-  return x*x*x-.5*x*x*x*x;
+  return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
 }
 
 /*
- * 固定最大宽度下的深层来源曲线。
- * x 始终来自可见圆肩的归一化深度，
- * 但最终来源深度始终乘固定 captureWidth。
+ * 可见位置的真实深度为 depth。
+ * 外沿通过 envelope 被拉到固定 captureWidth 深处；
+ * 内沿 envelope=0，因此 sourceDepth=depth，且 d(sourceDepth)/d(depth)=1。
  */
-float shoulderCaptureTravelRatio(float x,float outerRatio){
-  float ramp=.15;
-  float slope=outerRatio/(1.0-ramp);
-
-  if(x<ramp){
-    float t=x/ramp;
-    return outerRatio
-        -slope*ramp*smoothstepIntegral(t);
-  }
-
-  if(x>1.0-ramp){
-    float t=(1.0-x)/ramp;
-    return slope*ramp*smoothstepIntegral(t);
-  }
-
-  return slope*((1.0-ramp)-x)
-      +slope*ramp*.5;
-}
-
 float shoulderCaptureDepth(float depth,vec2 z){
-  float visibleWidth=shoulderWidth(z);
   float captureWidth=shoulderCaptureWidth(z);
-  float x=sat(depth/max(visibleWidth,1.0));
-  float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),.90);
-  float outerRatio=.78*angleResponse;
-  float extraRatio=shoulderCaptureTravelRatio(x,outerRatio);
-  return captureWidth*(x+extraRatio);
+  float envelope=shoulderOuterEnvelope(depth,z);
+  return depth+(captureWidth-depth)*envelope;
 }
 
 float shoulderTangentialSignal(
@@ -254,9 +223,10 @@ float shoulderTangentialTravel(
   float captureWidth=shoulderCaptureWidth(z);
   float flowStrength=clamp(uShoulderFlow.y,0.0,2.4);
   float amplitude=captureWidth*.30*sat(flowStrength/2.4);
-  float envelope=
-      shoulderMaterialFill(depth,z)
-      *shoulderOpticalBlend(depth,z);
+  float envelope=pow(
+      shoulderOuterEnvelope(depth,z),
+      .82
+  );
   return amplitude
       *shoulderTangentialSignal(p,edgeNormal,z)
       *envelope;
@@ -274,7 +244,7 @@ vec4 evaluateShoulderSource(
     return vec4(p,0.0,0.0);
   }
 
-  float profile=shoulderProfile(depth,z);
+  float envelope=shoulderOuterEnvelope(depth,z);
   float theta=shoulderTheta(depth,z);
   float sourceDepth=shoulderCaptureDepth(depth,z);
   float tangentTravel=shoulderTangentialTravel(
@@ -282,10 +252,6 @@ vec4 evaluateShoulderSource(
   );
   vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
 
-  /*
-   * 先回到外轮廓，再按固定最大取样深度进入玻璃。
-   * 因而 visibleWidth 缩小时只是压缩显示，不改变来源区域。
-   */
   vec2 boundaryPoint=p+edgeNormal*depth;
   vec2 sourcePoint=
       boundaryPoint
@@ -305,7 +271,7 @@ vec4 evaluateShoulderSource(
   float fresnel=f0+(1.0-f0)
       *pow(1.0-sat(cosIncidence),5.0);
 
-  return vec4(sourcePoint,profile,fresnel);
+  return vec4(sourcePoint,envelope,fresnel);
 }
 
 vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
@@ -338,7 +304,6 @@ void main(){
   float materialWeight=bodyWeight;
   float shoulder=0.0;
   float shoulderFresnel=0.0;
-  float shoulderBlend=0.0;
 
   float width=shoulderWidth(z);
   if(uShoulderEnabled>.5&&depth<width){
@@ -348,23 +313,16 @@ void main(){
     vec2 sourcePoint=shoulderData.xy;
     shoulder=shoulderData.z;
     shoulderFresnel=shoulderData.w;
-    shoulderBlend=shoulderOpticalBlend(depth,z);
 
     float sourceDepth=max(-boxSdf(sourcePoint,z,r),0.0);
-    float sourceWeight=bodyLensWeight(sourceDepth,z,r);
-    vec2 shoulderCoord=evaluateBodyOpticalCoordAt(
-        sourcePoint,z,r
-    );
+    materialWeight=bodyLensWeight(sourceDepth,z,r);
 
-    bodyOpticalCoord=mix(
-        pureBodyCoord,
-        shoulderCoord,
-        shoulderBlend
-    );
-    materialWeight=mix(
-        bodyWeight,
-        sourceWeight,
-        shoulderBlend
+    /*
+     * 不再进行内沿 crossfade。
+     * sourcePoint 在内沿已经精确回到 p，因此这里天然等于 pureBodyCoord。
+     */
+    bodyOpticalCoord=evaluateBodyOpticalCoordAt(
+        sourcePoint,z,r
     );
   }
 
@@ -374,7 +332,7 @@ void main(){
 
   float strength=clamp(uShoulder.w,0.0,4.0);
   float fill=shoulderMaterialFill(depth,z);
-  float outerRim=pow(shoulder,3.6);
+  float outerRim=pow(shoulder,2.8);
 
   vec2 lightDirection=normalize(vec2(-.62,-.78));
   float lightFacing=pow(sat(dot(normal,lightDirection)),2.7);
