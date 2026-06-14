@@ -16,8 +16,8 @@ import android.widget.FrameLayout
 import com.yuchen.ailedger.model.GlassBorderStyle
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 
 private const val WEB_GLASS_SPEC_EPSILON_PX = 0.5f
@@ -27,6 +27,15 @@ private const val WEB_GLASS_PRESS_EPSILON = 0.003f
 private const val WEB_GLASS_PRESS_CENTER_EPSILON = 0.002f
 private const val WEB_GLASS_BLUR_EPSILON = 0.002f
 private const val WEB_GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
+private const val WEB_GLASS_SCISSOR_PADDING_PX = 2
+
+private const val DIRTY_SURFACE = 1
+private const val DIRTY_GEOMETRY = 1 shl 1
+private const val DIRTY_SAMPLING = 1 shl 2
+private const val DIRTY_PRESS = 1 shl 3
+private const val DIRTY_BLUR = 1 shl 4
+private const val DIRTY_STYLE = 1 shl 5
+private const val DIRTY_ALL = DIRTY_SURFACE or DIRTY_GEOMETRY or DIRTY_SAMPLING or DIRTY_PRESS or DIRTY_BLUR or DIRTY_STYLE
 
 /**
  * 保留 Compose/OpenGL 固定宿主尺寸链；清晰纹理与三级模糊纹理只在内容变化时上传。
@@ -211,9 +220,7 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
         latestRectOffsetY = rectOffsetY
         latestRadius = radius
         latestIntensity = nextIntensity
-        if (dirty) {
-            renderThread?.setGlassSpec(nextWidth, nextHeight, rectOffsetY, radius, nextIntensity)
-        }
+        if (dirty) renderThread?.setGlassSpec(nextWidth, nextHeight, rectOffsetY, radius, nextIntensity)
         return dirty
     }
 
@@ -228,9 +235,7 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
         latestOriginY = originY
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
-        if (dirty) {
-            renderThread?.setSamplingSpec(originX, originY, nextRootWidth, nextRootHeight)
-        }
+        if (dirty) renderThread?.setSamplingSpec(originX, originY, nextRootWidth, nextRootHeight)
         return dirty
     }
 
@@ -262,14 +267,7 @@ private class WebOpenGLGlassTextureView(context: Context) : TextureView(context)
         latestBlurLowBitmap = blurLowBitmap
         latestBlurMediumBitmap = blurMediumBitmap
         latestBlurHighBitmap = blurHighBitmap
-        if (dirty) {
-            renderThread?.setBackdropTextures(
-                clearBitmap,
-                blurLowBitmap,
-                blurMediumBitmap,
-                blurHighBitmap
-            )
-        }
+        if (dirty) renderThread?.setBackdropTextures(clearBitmap, blurLowBitmap, blurMediumBitmap, blurHighBitmap)
         return dirty
     }
 
@@ -461,48 +459,22 @@ private class WebOpenGLGlassEglThread(
     }
 }
 
-private data class WebOpenGLGlassDrawSpec(
-    val cardWidth: Float,
-    val cardHeight: Float,
-    val rectOffsetY: Float,
-    val cardRadius: Float,
-    val cardIntensity: Float,
-    val cardOriginX: Float,
-    val cardOriginY: Float,
-    val rootWidth: Float,
-    val rootHeight: Float,
-    val pressProgress: Float,
-    val pressCenterX: Float,
-    val pressCenterY: Float,
-    val blurAmount: Float,
-    val style: GlassBorderStyle,
-    val densityScale: Float
-)
-
-private data class PendingBackdropTextures(
-    val clear: Bitmap,
-    val low: Bitmap,
-    val medium: Bitmap,
-    val high: Bitmap
-)
-
 private class WebOpenGLGlassRenderer {
-    private val quadVertices: FloatBuffer = ByteBuffer
-        .allocateDirect(FULLSCREEN_QUAD.size * 4)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
-        .apply {
-            put(FULLSCREEN_QUAD)
-            position(0)
-        }
     private val textureLock = Any()
     private val specLock = Any()
-    private var pendingTextures: PendingBackdropTextures? = null
+    private var pendingClearBitmap: Bitmap? = null
+    private var pendingBlurLowBitmap: Bitmap? = null
+    private var pendingBlurMediumBitmap: Bitmap? = null
+    private var pendingBlurHighBitmap: Bitmap? = null
     private var clearTextureId = 0
     private var blurLowTextureId = 0
     private var blurMediumTextureId = 0
     private var blurHighTextureId = 0
+    private val textureWidths = IntArray(4)
+    private val textureHeights = IntArray(4)
     private var textureReady = false
+
+    private var pendingDirtyMask = DIRTY_ALL
     private var blurAmount = 0f
     private var cardWidth = 1f
     private var cardHeight = 1f
@@ -516,9 +488,31 @@ private class WebOpenGLGlassRenderer {
     private var pressProgress = 0f
     private var pressCenterX = 0.5f
     private var pressCenterY = 0.5f
-    private var style = GlassBorderStyle()
-    private var densityScale = 1f
+
+    private var materialX = 0f
+    private var materialY = 0f
+    private var materialZ = 0f
+    private var bodyLensAX = 0f
+    private var bodyLensAY = 0f
+    private var bodyLensAZ = 0f
+    private var bodyLensAW = 0f
+    private var bodyLensBX = 0f
+    private var bodyLensBY = 0f
+    private var bodyLensBZ = 0f
+    private var bodyLensBW = 0f
+    private var bodyX = 0f
+    private var bodyY = 0f
+    private var bodyZ = 0f
+    private var bodyW = 0f
+    private var shoulderVisibleWidth = 0f
+    private var shoulderCaptureWidth = 0f
+
+    private var drawCardWidth = 1f
+    private var drawCardHeight = 1f
+    private var drawRectOffsetY = 0f
+
     private var program = 0
+    private var quadBufferId = 0
     private var positionHandle = 0
     private var resolutionHandle = 0
     private var cardOriginHandle = 0
@@ -538,9 +532,13 @@ private class WebOpenGLGlassRenderer {
     private var bodyLensBHandle = 0
     private var bodyHandle = 0
     private var shoulderHandle = 0
-    private var shoulderFlowHandle = 0
+    private var shoulderCaptureWidthHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
+
+    init {
+        applyStyleValues(GlassBorderStyle(), 1f)
+    }
 
     fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float, intensity: Float) {
         synchronized(specLock) {
@@ -549,6 +547,7 @@ private class WebOpenGLGlassRenderer {
             this.rectOffsetY = rectOffsetY
             cardRadius = radius
             cardIntensity = intensity
+            pendingDirtyMask = pendingDirtyMask or DIRTY_GEOMETRY
         }
     }
 
@@ -558,6 +557,7 @@ private class WebOpenGLGlassRenderer {
             cardOriginY = originY
             this.rootWidth = rootWidth.coerceAtLeast(1f)
             this.rootHeight = rootHeight.coerceAtLeast(1f)
+            pendingDirtyMask = pendingDirtyMask or DIRTY_SAMPLING
         }
     }
 
@@ -566,25 +566,30 @@ private class WebOpenGLGlassRenderer {
             pressProgress = progress.coerceIn(0f, 1f)
             pressCenterX = centerX.coerceIn(0f, 1f)
             pressCenterY = centerY.coerceIn(0f, 1f)
+            pendingDirtyMask = pendingDirtyMask or DIRTY_PRESS
         }
     }
 
     fun setBackdropTextures(clear: Bitmap, low: Bitmap, medium: Bitmap, high: Bitmap) {
         synchronized(textureLock) {
-            pendingTextures = PendingBackdropTextures(clear, low, medium, high)
+            pendingClearBitmap = clear
+            pendingBlurLowBitmap = low
+            pendingBlurMediumBitmap = medium
+            pendingBlurHighBitmap = high
         }
     }
 
     fun setBackdropBlurAmount(amount: Float) {
         synchronized(specLock) {
             blurAmount = amount.coerceIn(0f, 4f)
+            pendingDirtyMask = pendingDirtyMask or DIRTY_BLUR
         }
     }
 
     fun setGlassStyle(style: GlassBorderStyle, densityScale: Float) {
         synchronized(specLock) {
-            this.style = style
-            this.densityScale = densityScale.coerceAtLeast(0.1f)
+            applyStyleValues(style, densityScale.coerceAtLeast(0.1f))
+            pendingDirtyMask = pendingDirtyMask or DIRTY_STYLE
         }
     }
 
@@ -609,7 +614,14 @@ private class WebOpenGLGlassRenderer {
         bodyLensBHandle = GLES20.glGetUniformLocation(program, "uBodyLensB")
         bodyHandle = GLES20.glGetUniformLocation(program, "uBody")
         shoulderHandle = GLES20.glGetUniformLocation(program, "uShoulder")
-        shoulderFlowHandle = GLES20.glGetUniformLocation(program, "uShoulderFlow")
+        shoulderCaptureWidthHandle = GLES20.glGetUniformLocation(program, "uShoulderCaptureWidth")
+
+        GLES20.glUseProgram(program)
+        GLES20.glUniform1i(clearTextureHandle, 0)
+        GLES20.glUniform1i(blurLowTextureHandle, 1)
+        GLES20.glUniform1i(blurMediumTextureHandle, 2)
+        GLES20.glUniform1i(blurHighTextureHandle, 3)
+        GLES20.glUniform1f(textureReadyHandle, 0f)
 
         val textures = IntArray(4)
         GLES20.glGenTextures(4, textures, 0)
@@ -617,166 +629,273 @@ private class WebOpenGLGlassRenderer {
         blurLowTextureId = textures[1]
         blurMediumTextureId = textures[2]
         blurHighTextureId = textures[3]
-        textures.forEach(::configureTexture)
+        configureTexture(0, GLES20.GL_TEXTURE0, clearTextureId)
+        configureTexture(1, GLES20.GL_TEXTURE1, blurLowTextureId)
+        configureTexture(2, GLES20.GL_TEXTURE2, blurMediumTextureId)
+        configureTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+
+        val buffers = IntArray(1)
+        GLES20.glGenBuffers(1, buffers, 0)
+        quadBufferId = buffers[0]
+        val quadVertices = ByteBuffer
+            .allocateDirect(FULLSCREEN_QUAD.size * 4)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+            .apply {
+                put(FULLSCREEN_QUAD)
+                position(0)
+            }
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, quadBufferId)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            FULLSCREEN_QUAD.size * 4,
+            quadVertices,
+            GLES20.GL_STATIC_DRAW
+        )
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, 0)
+
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
+        synchronized(specLock) {
+            pendingDirtyMask = pendingDirtyMask or DIRTY_ALL
+        }
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
         viewportWidth = max(width, 1)
         viewportHeight = max(height, 1)
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
+        synchronized(specLock) {
+            pendingDirtyMask = pendingDirtyMask or DIRTY_SURFACE
+        }
     }
 
     fun onDrawFrame() {
         uploadPendingTexturesIfNeeded()
+        GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (program == 0) return
 
-        val drawSpec = synchronized(specLock) {
-            WebOpenGLGlassDrawSpec(
-                cardWidth = cardWidth,
-                cardHeight = cardHeight,
-                rectOffsetY = rectOffsetY,
-                cardRadius = cardRadius,
-                cardIntensity = cardIntensity,
-                cardOriginX = cardOriginX,
-                cardOriginY = cardOriginY,
-                rootWidth = rootWidth,
-                rootHeight = rootHeight,
-                pressProgress = pressProgress,
-                pressCenterX = pressCenterX,
-                pressCenterY = pressCenterY,
-                blurAmount = blurAmount,
-                style = style,
-                densityScale = densityScale
-            )
+        var dirtyMask: Int
+        var localCardWidth = 0f
+        var localCardHeight = 0f
+        var localRectOffsetY = 0f
+        var localRadius = 0f
+        var localIntensity = 0f
+        var localOriginX = 0f
+        var localOriginY = 0f
+        var localRootWidth = 0f
+        var localRootHeight = 0f
+        var localPress = 0f
+        var localPressX = 0f
+        var localPressY = 0f
+        var localBlur = 0f
+        var localMaterialX = 0f
+        var localMaterialY = 0f
+        var localMaterialZ = 0f
+        var localBodyLensAX = 0f
+        var localBodyLensAY = 0f
+        var localBodyLensAZ = 0f
+        var localBodyLensAW = 0f
+        var localBodyLensBX = 0f
+        var localBodyLensBY = 0f
+        var localBodyLensBZ = 0f
+        var localBodyLensBW = 0f
+        var localBodyX = 0f
+        var localBodyY = 0f
+        var localBodyZ = 0f
+        var localBodyW = 0f
+        var localShoulderVisibleWidth = 0f
+        var localShoulderCaptureWidth = 0f
+
+        synchronized(specLock) {
+            dirtyMask = pendingDirtyMask
+            pendingDirtyMask = 0
+            if (dirtyMask and DIRTY_GEOMETRY != 0) {
+                localCardWidth = cardWidth
+                localCardHeight = cardHeight
+                localRectOffsetY = rectOffsetY
+                localRadius = cardRadius
+                localIntensity = cardIntensity
+            }
+            if (dirtyMask and DIRTY_SAMPLING != 0) {
+                localOriginX = cardOriginX
+                localOriginY = cardOriginY
+                localRootWidth = rootWidth
+                localRootHeight = rootHeight
+            }
+            if (dirtyMask and DIRTY_PRESS != 0) {
+                localPress = pressProgress
+                localPressX = pressCenterX
+                localPressY = pressCenterY
+            }
+            if (dirtyMask and DIRTY_BLUR != 0) {
+                localBlur = blurAmount
+            }
+            if (dirtyMask and DIRTY_STYLE != 0) {
+                localMaterialX = materialX
+                localMaterialY = materialY
+                localMaterialZ = materialZ
+                localBodyLensAX = bodyLensAX
+                localBodyLensAY = bodyLensAY
+                localBodyLensAZ = bodyLensAZ
+                localBodyLensAW = bodyLensAW
+                localBodyLensBX = bodyLensBX
+                localBodyLensBY = bodyLensBY
+                localBodyLensBZ = bodyLensBZ
+                localBodyLensBW = bodyLensBW
+                localBodyX = bodyX
+                localBodyY = bodyY
+                localBodyZ = bodyZ
+                localBodyW = bodyW
+                localShoulderVisibleWidth = shoulderVisibleWidth
+                localShoulderCaptureWidth = shoulderCaptureWidth
+            }
         }
-        val s = drawSpec.style
-        val d = drawSpec.densityScale
 
-        GLES20.glUseProgram(program)
-        GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
-        GLES20.glUniform2f(cardOriginHandle, drawSpec.cardOriginX, drawSpec.cardOriginY)
-        GLES20.glUniform2f(rootResolutionHandle, drawSpec.rootWidth, drawSpec.rootHeight)
-        GLES20.glUniform4f(rectHandle, 0f, drawSpec.rectOffsetY, drawSpec.cardWidth, drawSpec.cardHeight)
-        GLES20.glUniform1f(
-            radiusHandle,
-            drawSpec.cardRadius.coerceIn(2f, max(drawSpec.cardWidth, drawSpec.cardHeight))
-        )
-        GLES20.glUniform1f(intensityHandle, drawSpec.cardIntensity.coerceIn(0.35f, 1.35f))
-        GLES20.glUniform4f(
-            pressHandle,
-            drawSpec.pressProgress.coerceIn(0f, 1f),
-            drawSpec.pressCenterX.coerceIn(0f, 1f),
-            drawSpec.pressCenterY.coerceIn(0f, 1f),
-            0f
-        )
-        GLES20.glUniform1f(textureReadyHandle, if (textureReady) 1f else 0f)
-        GLES20.glUniform1f(blurAmountHandle, drawSpec.blurAmount.coerceIn(0f, 4f))
+        if (dirtyMask and DIRTY_SURFACE != 0) {
+            GLES20.glUniform2f(resolutionHandle, viewportWidth.toFloat(), viewportHeight.toFloat())
+        }
+        if (dirtyMask and DIRTY_GEOMETRY != 0) {
+            drawCardWidth = localCardWidth
+            drawCardHeight = localCardHeight
+            drawRectOffsetY = localRectOffsetY
+            GLES20.glUniform4f(rectHandle, 0f, localRectOffsetY, localCardWidth, localCardHeight)
+            GLES20.glUniform1f(radiusHandle, localRadius.coerceIn(2f, max(localCardWidth, localCardHeight)))
+            GLES20.glUniform1f(intensityHandle, localIntensity.coerceIn(0.35f, 1.35f))
+        }
+        if (dirtyMask and DIRTY_SAMPLING != 0) {
+            GLES20.glUniform2f(cardOriginHandle, localOriginX, localOriginY)
+            GLES20.glUniform2f(rootResolutionHandle, localRootWidth, localRootHeight)
+        }
+        if (dirtyMask and DIRTY_PRESS != 0) {
+            GLES20.glUniform4f(pressHandle, localPress, localPressX, localPressY, 0f)
+        }
+        if (dirtyMask and DIRTY_BLUR != 0) {
+            GLES20.glUniform1f(blurAmountHandle, localBlur)
+        }
+        if (dirtyMask and DIRTY_STYLE != 0) {
+            GLES20.glUniform4f(materialHandle, localMaterialX, localMaterialY, localMaterialZ, 0f)
+            GLES20.glUniform4f(bodyLensAHandle, localBodyLensAX, localBodyLensAY, localBodyLensAZ, localBodyLensAW)
+            GLES20.glUniform4f(bodyLensBHandle, localBodyLensBX, localBodyLensBY, localBodyLensBZ, localBodyLensBW)
+            GLES20.glUniform4f(bodyHandle, localBodyX, localBodyY, localBodyZ, localBodyW)
+            GLES20.glUniform4f(
+                shoulderHandle,
+                localShoulderVisibleWidth,
+                WebOpenGLOuterPeakShoulderShader.DEFAULT_MAX_ANGLE_DEG,
+                WebOpenGLOuterPeakShoulderShader.DEFAULT_FALLOFF_ROUNDNESS,
+                WebOpenGLOuterPeakShoulderShader.DEFAULT_MATERIAL_STRENGTH
+            )
+            GLES20.glUniform1f(shoulderCaptureWidthHandle, localShoulderCaptureWidth)
+        }
 
-        GLES20.glUniform4f(
-            materialHandle,
-            s.newOpenGlBodyVisibility.coerceIn(0f, 20f),
-            s.newOpenGlBodyMaxAlpha.coerceIn(0f, 1f),
-            s.newOpenGlBodyOutputBrightness.coerceIn(0.2f, 2.8f),
-            0f
-        )
-        GLES20.glUniform4f(
-            bodyLensAHandle,
-            s.newOpenGlBodyLensBasePull.coerceIn(-300f, 300f) * d,
-            s.newOpenGlBodyLensPullDp.coerceIn(-600f, 600f) * d,
-            s.newOpenGlBodyLensConcentration.coerceIn(-10f, 10f),
-            s.newOpenGlBodyLensCornerBoost.coerceIn(0f, 200f)
-        )
-        GLES20.glUniform4f(
-            bodyLensBHandle,
-            s.newOpenGlBodyLensExtraDistance.coerceIn(0f, 200f) * d,
-            s.newOpenGlBodyLensReachDp.coerceIn(8f, 180f) * d,
-            s.newOpenGlBodyLensDark.coerceIn(-10f, 10f),
-            s.newOpenGlBodyLensDebug.coerceIn(0f, 1f)
-        )
-        GLES20.glUniform4f(
-            bodyHandle,
-            s.newOpenGlBodyWidth.coerceIn(0.18f, 1.5f),
-            s.newOpenGlBodyCurve.coerceIn(0.2f, 3.2f),
-            s.newOpenGlBodyGain.coerceIn(0f, 900f),
-            s.newOpenGlBrightness.coerceIn(0.4f, 2.2f)
-        )
-        GLES20.glUniform4f(
-            shoulderHandle,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_VISIBLE_WIDTH_DP * d,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_MAX_ANGLE_DEG,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_FALLOFF_ROUNDNESS,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_MATERIAL_STRENGTH
-        )
-        GLES20.glUniform2f(
-            shoulderFlowHandle,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_CAPTURE_WIDTH_DP * d,
-            WebOpenGLOuterPeakShoulderShader.DEFAULT_TANGENTIAL_FLOW_STRENGTH
-        )
-
-        bindTexture(GLES20.GL_TEXTURE0, clearTextureId, clearTextureHandle, 0)
-        bindTexture(GLES20.GL_TEXTURE1, blurLowTextureId, blurLowTextureHandle, 1)
-        bindTexture(GLES20.GL_TEXTURE2, blurMediumTextureId, blurMediumTextureHandle, 2)
-        bindTexture(GLES20.GL_TEXTURE3, blurHighTextureId, blurHighTextureHandle, 3)
-
-        quadVertices.position(0)
-        GLES20.glEnableVertexAttribArray(positionHandle)
-        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, quadVertices)
+        if (!applyGlassScissor()) return
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        GLES20.glDisableVertexAttribArray(positionHandle)
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
     }
 
     fun onRelease() {
-        val textures = intArrayOf(
-            clearTextureId,
-            blurLowTextureId,
-            blurMediumTextureId,
-            blurHighTextureId
-        )
+        val textures = intArrayOf(clearTextureId, blurLowTextureId, blurMediumTextureId, blurHighTextureId)
         if (textures.any { it != 0 }) GLES20.glDeleteTextures(4, textures, 0)
+        if (quadBufferId != 0) GLES20.glDeleteBuffers(1, intArrayOf(quadBufferId), 0)
         if (program != 0) GLES20.glDeleteProgram(program)
         clearTextureId = 0
         blurLowTextureId = 0
         blurMediumTextureId = 0
         blurHighTextureId = 0
+        quadBufferId = 0
         program = 0
         textureReady = false
     }
 
+    private fun applyStyleValues(style: GlassBorderStyle, densityScale: Float) {
+        materialX = style.newOpenGlBodyVisibility.coerceIn(0f, 20f)
+        materialY = style.newOpenGlBodyMaxAlpha.coerceIn(0f, 1f)
+        materialZ = style.newOpenGlBodyOutputBrightness.coerceIn(0.2f, 2.8f)
+        bodyLensAX = style.newOpenGlBodyLensBasePull.coerceIn(-300f, 300f) * densityScale
+        bodyLensAY = style.newOpenGlBodyLensPullDp.coerceIn(-600f, 600f) * densityScale
+        bodyLensAZ = style.newOpenGlBodyLensConcentration.coerceIn(-10f, 10f)
+        bodyLensAW = style.newOpenGlBodyLensCornerBoost.coerceIn(0f, 200f)
+        bodyLensBX = style.newOpenGlBodyLensExtraDistance.coerceIn(0f, 200f) * densityScale
+        bodyLensBY = style.newOpenGlBodyLensReachDp.coerceIn(8f, 180f) * densityScale
+        bodyLensBZ = style.newOpenGlBodyLensDark.coerceIn(-10f, 10f)
+        bodyLensBW = style.newOpenGlBodyLensDebug.coerceIn(0f, 1f)
+        bodyX = style.newOpenGlBodyWidth.coerceIn(0.18f, 1.5f)
+        bodyY = style.newOpenGlBodyCurve.coerceIn(0.2f, 3.2f)
+        bodyZ = style.newOpenGlBodyGain.coerceIn(0f, 900f)
+        bodyW = style.newOpenGlBrightness.coerceIn(0.4f, 2.2f)
+        shoulderVisibleWidth = WebOpenGLOuterPeakShoulderShader.DEFAULT_VISIBLE_WIDTH_DP * densityScale
+        shoulderCaptureWidth = WebOpenGLOuterPeakShoulderShader.DEFAULT_CAPTURE_WIDTH_DP * densityScale
+    }
+
+    private fun applyGlassScissor(): Boolean {
+        val top = (drawRectOffsetY.toInt() - WEB_GLASS_SCISSOR_PADDING_PX).coerceAtLeast(0)
+        val right = ceil((drawCardWidth + WEB_GLASS_SCISSOR_PADDING_PX).toDouble())
+            .toInt()
+            .coerceIn(0, viewportWidth)
+        val bottom = ceil((drawRectOffsetY + drawCardHeight + WEB_GLASS_SCISSOR_PADDING_PX).toDouble())
+            .toInt()
+            .coerceIn(0, viewportHeight)
+        val height = (bottom - top).coerceAtLeast(0)
+        if (right <= 0 || height <= 0) return false
+        GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
+        GLES20.glScissor(0, viewportHeight - bottom, right, height)
+        return true
+    }
+
     private fun uploadPendingTexturesIfNeeded() {
-        val textures = synchronized(textureLock) {
-            pendingTextures?.also { pendingTextures = null }
-        } ?: return
-        uploadTexture(GLES20.GL_TEXTURE0, clearTextureId, textures.clear)
-        uploadTexture(GLES20.GL_TEXTURE1, blurLowTextureId, textures.low)
-        uploadTexture(GLES20.GL_TEXTURE2, blurMediumTextureId, textures.medium)
-        uploadTexture(GLES20.GL_TEXTURE3, blurHighTextureId, textures.high)
+        var clear: Bitmap? = null
+        var low: Bitmap? = null
+        var medium: Bitmap? = null
+        var high: Bitmap? = null
+        synchronized(textureLock) {
+            clear = pendingClearBitmap
+            low = pendingBlurLowBitmap
+            medium = pendingBlurMediumBitmap
+            high = pendingBlurHighBitmap
+            pendingClearBitmap = null
+            pendingBlurLowBitmap = null
+            pendingBlurMediumBitmap = null
+            pendingBlurHighBitmap = null
+        }
+        val clearBitmap = clear ?: return
+        val lowBitmap = low ?: return
+        val mediumBitmap = medium ?: return
+        val highBitmap = high ?: return
+        uploadTexture(0, GLES20.GL_TEXTURE0, clearTextureId, clearBitmap)
+        uploadTexture(1, GLES20.GL_TEXTURE1, blurLowTextureId, lowBitmap)
+        uploadTexture(2, GLES20.GL_TEXTURE2, blurMediumTextureId, mediumBitmap)
+        uploadTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId, highBitmap)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        textureReady = true
+        if (!textureReady) {
+            textureReady = true
+            GLES20.glUniform1f(textureReadyHandle, 1f)
+        }
     }
 
-    private fun uploadTexture(textureUnit: Int, textureId: Int, bitmap: Bitmap) {
+    private fun uploadTexture(index: Int, textureUnit: Int, textureId: Int, bitmap: Bitmap) {
         GLES20.glActiveTexture(textureUnit)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        if (textureWidths[index] == bitmap.width && textureHeights[index] == bitmap.height) {
+            GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
+        } else {
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            textureWidths[index] = bitmap.width
+            textureHeights[index] = bitmap.height
+        }
     }
 
-    private fun bindTexture(textureUnit: Int, textureId: Int, uniformHandle: Int, slot: Int) {
+    private fun configureTexture(index: Int, textureUnit: Int, textureId: Int) {
         GLES20.glActiveTexture(textureUnit)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-        GLES20.glUniform1i(uniformHandle, slot)
-    }
-
-    private fun configureTexture(textureId: Int) {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        textureWidths[index] = 0
+        textureHeights[index] = 0
     }
 }
 
