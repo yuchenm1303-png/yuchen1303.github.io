@@ -30,16 +30,17 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.6 Normal-Locked Unified Perimeter Mapping Test
+ * V29.7 Curvature-Safe Perimeter Normal Mapping Test
  * uShoulderEnabled:
  *   0 = pure V25.3 body
  *   1 = original V29.4 local-normal capture
  *   2 = V29.5 affine unified full-perimeter capture
- *   3 = V29.6 normal-locked unified perimeter capture
+ *   3 = V29.6 normal-locked blended mapping
+ *   4 = V29.7 curvature-safe perimeter normal mapping
  *
- * 模式 3 在直边锁定切向坐标，只沿玻璃法线拉伸；进入圆角后平滑恢复
- * 统一内轮廓映射的切向分量，以保持整圈连续且不重新产生重影。
- * 主体、圆肩包络、材质、Fresnel、透明度与最终合成顺序保持不变。
+ * 模式 4 全程只沿同一条边界法线映射：直边远离圆角时保留完整固定深度，
+ * 接近圆角时平滑降低深度，圆弧内始终保持 captureDepth < radius，避免
+ * 内圆角半径翻转。这样既保持直边正交拉伸，也不再拼接两套折射场。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -222,6 +223,63 @@ vec2 normalLockedUnifiedInnerPoint(
       +tangent*tangentShift*cornerBlend;
 }
 
+float curvatureSafeCaptureWidth(
+  vec2 boundaryPoint,
+  vec2 edgeNormal,
+  vec2 z,
+  float r
+){
+  float fullCapture=shoulderCaptureWidth(z);
+  float curvatureLimit=max(r-1.0,1.0);
+  float cornerCapture=min(
+      fullCapture,
+      min(max(r*.78,1.0),curvatureLimit)
+  );
+
+  vec2 local=abs(boundaryPoint-z*.5);
+  vec2 core=max(z*.5-vec2(r),vec2(0.0));
+  vec2 cornerOffset=max(local-core,vec2(0.0));
+  float onArc=step(.001,cornerOffset.x)
+      *step(.001,cornerOffset.y);
+
+  float horizontalSide=step(
+      abs(edgeNormal.x),
+      abs(edgeNormal.y)
+  );
+  float distanceToCorner=mix(
+      max(core.y-local.y,0.0),
+      max(core.x-local.x,0.0),
+      horizontalSide
+  );
+  float feather=max(
+      r*1.55,
+      fullCapture-cornerCapture
+  );
+  float straightBlend=smoothstep(
+      0.0,
+      max(feather,1.0),
+      distanceToCorner
+  );
+  float straightCapture=mix(
+      cornerCapture,
+      fullCapture,
+      straightBlend
+  );
+  return mix(straightCapture,cornerCapture,onArc);
+}
+
+vec2 curvatureSafePerimeterInnerPoint(
+  vec2 boundaryPoint,
+  vec2 edgeNormal,
+  vec2 z,
+  float r
+){
+  float capture=curvatureSafeCaptureWidth(
+      boundaryPoint,edgeNormal,z,r
+  );
+  return boundaryPoint-edgeNormal*capture;
+}
+
 float shoulderTangentialSignal(
   vec2 p,
   vec2 edgeNormal,
@@ -299,8 +357,12 @@ vec4 evaluateShoulderSource(
       innerContourPoint=unifiedInnerContourPoint(
           boundaryPoint,z
       );
-    }else{
+    }else if(uShoulderEnabled<3.5){
       innerContourPoint=normalLockedUnifiedInnerPoint(
+          boundaryPoint,edgeNormal,z,r
+      );
+    }else{
+      innerContourPoint=curvatureSafePerimeterInnerPoint(
           boundaryPoint,edgeNormal,z,r
       );
     }
