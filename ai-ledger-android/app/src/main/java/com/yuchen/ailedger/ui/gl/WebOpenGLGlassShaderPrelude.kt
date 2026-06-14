@@ -21,6 +21,7 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform vec4 uBody;
         uniform vec4 uShoulder;
         uniform vec4 uShoulderFlow;
+        uniform vec4 uDispersion;
         uniform float uRadius;
         uniform float uIntensity;
         uniform float uTextureReady;

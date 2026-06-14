@@ -85,6 +85,46 @@ internal object WebOpenGLGlassMainShader {
                 bodyColor=mix(bodyColor,pressLensColor,pressLensMix);
             }
 
+            float dispersionStrength=clamp(uDispersion.x,0.0,1.5);
+            float dispersionDistance=max(uDispersion.y,0.0);
+            if(dispersionStrength>0.001&&dispersionDistance>0.001){
+                float dispersionWidth=max(uDispersion.z,1.0);
+                float dispersionConcentration=max(uDispersion.w,0.25);
+                float edgeEnvelope=1.0-smoothstep(
+                    0.0,
+                    dispersionWidth,
+                    depth
+                );
+                float cornerAmount=1.0-max(
+                    abs(normal.x),
+                    abs(normal.y)
+                );
+                float dispersionMask=pow(
+                    sat(edgeEnvelope),
+                    dispersionConcentration
+                )*dispersionStrength*(1.0+cornerAmount*0.72);
+                if(dispersionMask>0.001){
+                    vec2 splitPx=normal*dispersionDistance
+                        *(0.72+0.28*edgeEnvelope);
+                    vec3 redSample=clearBackdrop(
+                        globalUv(bodyOpticalCoord+splitPx)
+                    );
+                    vec3 blueSample=clearBackdrop(
+                        globalUv(bodyOpticalCoord-splitPx)
+                    );
+                    vec3 prismColor=vec3(
+                        redSample.r,
+                        (redSample.g+blueSample.g)*0.5,
+                        blueSample.b
+                    );
+                    bodyColor=mix(
+                        bodyColor,
+                        prismColor,
+                        sat(dispersionMask)
+                    );
+                }
+            }
+
             float opticalBoost=1.0+materialWeight*0.24;
             bodyColor*=uBody.w*uMaterial.z*opticalBoost;
             bodyColor-=vec3(0.055,0.065,0.085)

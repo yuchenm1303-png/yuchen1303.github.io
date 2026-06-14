@@ -78,7 +78,11 @@ private const val STYLE_SHOULDER_FALLOFF = 18
 private const val STYLE_SHOULDER_MATERIAL = 19
 private const val STYLE_SHOULDER_FLOW = 20
 private const val STYLE_SHOULDER_CORRECTION = 21
-private const val STYLE_SIZE = 22
+private const val STYLE_DISPERSION_STRENGTH = 22
+private const val STYLE_DISPERSION_DISTANCE = 23
+private const val STYLE_DISPERSION_EDGE_WIDTH = 24
+private const val STYLE_DISPERSION_CONCENTRATION = 25
+private const val STYLE_SIZE = 26
 
 /**
  * 保留 Compose/OpenGL 固定宿主尺寸链；清晰纹理与三级模糊纹理只在内容变化时上传。
@@ -632,6 +636,7 @@ private class WebOpenGLGlassRenderer {
     private var bodyHandle = 0
     private var shoulderHandle = 0
     private var shoulderFlowHandle = 0
+    private var dispersionHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -720,6 +725,7 @@ private class WebOpenGLGlassRenderer {
         bodyHandle = GLES20.glGetUniformLocation(program, "uBody")
         shoulderHandle = GLES20.glGetUniformLocation(program, "uShoulder")
         shoulderFlowHandle = GLES20.glGetUniformLocation(program, "uShoulderFlow")
+        dispersionHandle = GLES20.glGetUniformLocation(program, "uDispersion")
 
         GLES20.glUseProgram(program)
         GLES20.glUniform1i(clearTextureHandle, 0)
@@ -902,6 +908,13 @@ private class WebOpenGLGlassRenderer {
                 styleSnapshot[STYLE_SHOULDER_CORRECTION],
                 0f
             )
+            GLES20.glUniform4f(
+                dispersionHandle,
+                styleSnapshot[STYLE_DISPERSION_STRENGTH],
+                styleSnapshot[STYLE_DISPERSION_DISTANCE],
+                styleSnapshot[STYLE_DISPERSION_EDGE_WIDTH],
+                styleSnapshot[STYLE_DISPERSION_CONCENTRATION]
+            )
         }
 
         if (!applyGlassScissor()) return
@@ -963,6 +976,14 @@ private class WebOpenGLGlassRenderer {
             style.newOpenGlShoulderTangentialFlowStrength.coerceIn(0f, 2.4f)
         styleState[STYLE_SHOULDER_CORRECTION] =
             style.newOpenGlShoulderTangentialCorrection.coerceIn(0f, 1f)
+        styleState[STYLE_DISPERSION_STRENGTH] =
+            style.newOpenGlDispersionStrength.coerceIn(0f, 1.5f)
+        styleState[STYLE_DISPERSION_DISTANCE] =
+            style.newOpenGlDispersionDistanceDp.coerceIn(0f, 8f) * densityScale
+        styleState[STYLE_DISPERSION_EDGE_WIDTH] =
+            style.newOpenGlDispersionEdgeWidthDp.coerceIn(2f, 64f) * densityScale
+        styleState[STYLE_DISPERSION_CONCENTRATION] =
+            style.newOpenGlDispersionConcentration.coerceIn(0.25f, 4f)
     }
 
     private fun applyGlassScissor(): Boolean {

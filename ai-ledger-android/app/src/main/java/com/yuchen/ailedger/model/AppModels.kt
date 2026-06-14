@@ -132,6 +132,12 @@ data class GlassBorderStyle(
     val newOpenGlShoulderTangentialFlowStrength: Float = 0f,
     val newOpenGlShoulderTangentialCorrection: Float = 0.45f,
 
+    // 色散只作用于最终背景采样，不改变整圈统一映射来源点。
+    val newOpenGlDispersionStrength: Float = 0.55f,
+    val newOpenGlDispersionDistanceDp: Float = 2.4f,
+    val newOpenGlDispersionEdgeWidthDp: Float = 26f,
+    val newOpenGlDispersionConcentration: Float = 1.55f,
+
     // 旧网页结构遗留字段，仅为兼容已有状态与旧实验代码；新版渲染器不读取。
     val newOpenGlBodyBandPos: Float = 0.98f,
     val newOpenGlBodyBandWidth: Float = 0.228f,

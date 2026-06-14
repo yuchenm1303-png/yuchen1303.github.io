@@ -102,7 +102,7 @@ internal fun LatestOpenGLGlassLab(
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    "原整圈统一映射保持不变；这里只同步参数面板",
+                    "整圈统一映射保持不变；色散仅作用于最终采样",
                     color = Color.White.copy(alpha = 0.52f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -113,7 +113,7 @@ internal fun LatestOpenGLGlassLab(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LatestMetric("模糊", params.radius, Modifier.weight(1f))
                 LatestMetric("圆肩", style.newOpenGlShoulderWidthDp, Modifier.weight(1f))
-                LatestMetric("强度", style.newOpenGlGlassIntensity, Modifier.weight(1f))
+                LatestMetric("色散", style.newOpenGlDispersionStrength, Modifier.weight(1f))
             }
         }
     }
@@ -211,6 +211,21 @@ internal fun LatestOpenGLGlassLab(
         }
     }
 
+    LatestGroup("色散 Chromatic Dispersion", "RGB 通道沿玻璃边缘法线轻量分离") {
+        LatestSlider("色散强度", "dispersionStrength", style.newOpenGlDispersionStrength, 0f..1.5f) {
+            onBorderChange(style.copy(newOpenGlDispersionStrength = it))
+        }
+        LatestSlider("RGB 分离距离", "dispersionDistanceDp", style.newOpenGlDispersionDistanceDp, 0f..8f) {
+            onBorderChange(style.copy(newOpenGlDispersionDistanceDp = it))
+        }
+        LatestSlider("色散作用宽度", "dispersionEdgeWidthDp", style.newOpenGlDispersionEdgeWidthDp, 2f..64f) {
+            onBorderChange(style.copy(newOpenGlDispersionEdgeWidthDp = it))
+        }
+        LatestSlider("边缘集中度", "dispersionConcentration", style.newOpenGlDispersionConcentration, 0.25f..4f) {
+            onBorderChange(style.copy(newOpenGlDispersionConcentration = it))
+        }
+    }
+
     PressableGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 0.72f,
@@ -242,7 +257,7 @@ internal fun LatestOpenGLGlassLab(
                 fontWeight = FontWeight.Black
             )
             Text(
-                "恢复网页主体、背景与圆肩默认参数",
+                "恢复网页主体、背景、圆肩与色散默认参数",
                 color = Color.White.copy(alpha = 0.44f),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold
@@ -273,7 +288,11 @@ private fun GlassBorderStyle.copyLatestWebGlassDefaults(): GlassBorderStyle = co
     newOpenGlShoulderMaxAngleDeg = 89.5f,
     newOpenGlShoulderFalloffRoundness = 0f,
     newOpenGlShoulderMaterialStrength = 4f,
-    newOpenGlShoulderTangentialFlowStrength = 0f
+    newOpenGlShoulderTangentialFlowStrength = 0f,
+    newOpenGlDispersionStrength = 0.55f,
+    newOpenGlDispersionDistanceDp = 2.4f,
+    newOpenGlDispersionEdgeWidthDp = 26f,
+    newOpenGlDispersionConcentration = 1.55f
 )
 
 @Composable
