@@ -6,7 +6,7 @@ package com.yuchen.ailedger.ui.gl
  * 网页调试值以 CSS px 表示，Android 侧按 dp 处理并在 Renderer 中只乘一次 density。
  * 主体折射、按压链、模糊金字塔、圆肩材质与最终合成保持 V29.4 不变；
  * 仅将边缘来源点从局部法线深层投影改为整圈共享的内部轮廓映射。
- * 运行时不增加纹理、渲染通道或 draw call。
+ * App 固定切向揉开为 0，因此正式着色器直接裁掉该零贡献链路。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_VISIBLE_WIDTH_DP = 21.716216f
@@ -14,7 +14,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_MAX_ANGLE_DEG = 89.5f
     const val DEFAULT_FALLOFF_ROUNDNESS = 0f
     const val DEFAULT_MATERIAL_STRENGTH = 4f
-    const val DEFAULT_TANGENTIAL_FLOW_STRENGTH = 0f
 
     const val SOURCE = """
         float shoulderWidth(vec2 z){
@@ -25,7 +24,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
         }
         float shoulderCaptureWidth(vec2 z){
             float visible=shoulderWidth(z);
-            float requested=max(uShoulderFlow.x,visible);
+            float requested=max(uShoulderCaptureWidth,visible);
             return min(requested,min(z.x,z.y)*0.46);
         }
         float shoulderX(float depth,vec2 z){
@@ -44,9 +43,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
         float shoulderMaxAngle(){
             return clamp(uShoulder.y,0.0,89.5)*0.01745329252;
         }
-        float shoulderTheta(float depth,vec2 z){
-            return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
-        }
         vec2 unifiedInnerContourPoint(
             vec2 boundaryPoint,
             vec2 z
@@ -61,40 +57,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 normalized=(boundaryPoint-center)/halfSize;
             return center+normalized*innerHalf;
         }
-        float shoulderTangentialSignal(
-            vec2 p,
-            vec2 edgeNormal,
-            vec2 z
-        ){
-            vec2 u=(p-z*0.5)/max(z*0.5,vec2(1.0));
-            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
-            vec2 contourVector=vec2(-u.y,u.x);
-            float contourLength=length(contourVector);
-            float contourSignal=0.0;
-            if(contourLength>0.0001){
-                contourSignal=dot(contourVector/contourLength,tangent);
-            }
-            float bodySignal=dot(polynomialTransport(u),tangent);
-            float mixed=0.48*contourSignal+0.52*bodySignal;
-            return mixed/(0.65+abs(mixed));
-        }
-        float shoulderTangentialTravel(
-            vec2 p,
-            vec2 edgeNormal,
-            vec2 z,
-            float depth
-        ){
-            float flowStrength=clamp(uShoulderFlow.y,0.0,2.4);
-            if(flowStrength<=0.0001){
-                return 0.0;
-            }
-            float captureWidth=shoulderCaptureWidth(z);
-            float amplitude=captureWidth*0.30*sat(flowStrength/2.4);
-            float envelope=pow(shoulderOuterEnvelope(depth,z),0.82);
-            return amplitude
-                *shoulderTangentialSignal(p,edgeNormal,z)
-                *envelope;
-        }
         vec4 evaluateShoulderSource(
             vec2 p,
             vec2 edgeNormal,
@@ -103,18 +65,12 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float depth
         ){
             float envelope=shoulderOuterEnvelope(depth,z);
-            float theta=shoulderTheta(depth,z);
-            float tangentTravel=shoulderTangentialTravel(
-                p,edgeNormal,z,depth
-            );
-            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+            float theta=shoulderMaxAngle()*envelope;
             vec2 boundaryPoint=p+edgeNormal*depth;
             vec2 innerContourPoint=unifiedInnerContourPoint(
                 boundaryPoint,z
             );
-            vec2 sourcePoint=
-                mix(p,innerContourPoint,envelope)
-                +tangent*tangentTravel;
+            vec2 sourcePoint=mix(p,innerContourPoint,envelope);
             float sourceSd=roundedBoxSdf(sourcePoint,z,r);
             if(sourceSd>-0.5){
                 vec2 sourceNormal=perimeterNormalAt(sourcePoint,z,r);
@@ -135,27 +91,32 @@ internal object WebOpenGLOuterPeakShoulderShader {
         ){
             float pointSd=roundedBoxSdf(point,z,r);
             float pointDepth=max(-pointSd,0.0);
+            vec2 pointNormal=perimeterNormalAt(point,z,r);
             float pointWeight=bodyLensWeight(pointDepth,z,r);
-            float pointPressField=pressFieldAt(
-                point,z,pressCenter,press
-            );
-            vec2 pressCenterPx=pressCenter*z;
-            vec2 inwardPx=softLimitPx(
-                (pressCenterPx-point)
-                    *(0.028*press+0.070*pointPressField),
-                24.0+press*18.0
-            );
-            vec2 pressDelta=point-pressCenterPx;
-            vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
-            vec2 pressDimplePx=-pressDir*pointPressField
-                *(8.0+press*10.0);
+            vec2 pressFlow=vec2(0.0);
+            if(press>0.0){
+                float pointPressField=pressFieldAt(
+                    point,z,pressCenter,press
+                );
+                vec2 pressCenterPx=pressCenter*z;
+                vec2 inwardPx=softLimitPx(
+                    (pressCenterPx-point)
+                        *(0.028*press+0.070*pointPressField),
+                    24.0+press*18.0
+                );
+                vec2 pressDelta=point-pressCenterPx;
+                vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
+                vec2 pressDimplePx=-pressDir*pointPressField
+                    *(8.0+press*10.0);
+                pressFlow=pressDimplePx
+                    +inwardPx*(1.76+0.46*pointWeight);
+            }
             return point
                 +bodyRefractionFlow(
-                    point,z,r,pointDepth,pointWeight
+                    pointNormal,z,r,pointDepth,pointWeight
                 )
                 +centerTransport(point,z)
-                +pressDimplePx
-                +inwardPx*(1.76+0.46*pointWeight);
+                +pressFlow;
         }
     """
 }
