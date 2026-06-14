@@ -64,16 +64,18 @@ fun InAppWebBrowserOverlay(
 ) {
     val safeTarget = target ?: return
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.975f, animationSpec = tween(220, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.985f, animationSpec = tween(140))
+    GlassSceneScope(GlassSceneGroup.WebBrowserOverlay) {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
-            WebBrowserDialogContent(target = safeTarget, onDismiss = onDismiss)
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.975f, animationSpec = tween(220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.985f, animationSpec = tween(140))
+            ) {
+                WebBrowserDialogContent(target = safeTarget, onDismiss = onDismiss)
+            }
         }
     }
 }
