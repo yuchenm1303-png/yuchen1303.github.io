@@ -1,6 +1,12 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +20,12 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -29,7 +40,7 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
 
-/** V25.3 网页最终玻璃的独立实验室内容。 */
+/** 只同步网页参数面板；不修改新版 OpenGL 的整圈统一映射与渲染公式。 */
 @Composable
 internal fun LatestOpenGLGlassLab(
     state: AssistantUiState,
@@ -79,11 +90,19 @@ internal fun LatestOpenGLGlassLab(
                 )
             }
         }
-        Column(Modifier.fillMaxSize().padding(15.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(
+            Modifier.fillMaxSize().padding(15.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("网页版 OpenGL 样本玻璃", color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, fontWeight = FontWeight.Black)
                 Text(
-                    "整圈统一主体折射 + 9a6e4ac 原版边缘带；网页双纹理链",
+                    "网页版 OpenGL 样本玻璃",
+                    color = Color.White.copy(alpha = 0.96f),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    "原整圈统一映射保持不变；这里只同步参数面板",
                     color = Color.White.copy(alpha = 0.52f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -93,13 +112,13 @@ internal fun LatestOpenGLGlassLab(
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LatestMetric("模糊", params.radius, Modifier.weight(1f))
-                LatestMetric("旧边", style.ringWidthDp, Modifier.weight(1f))
+                LatestMetric("圆肩", 21.716216f, Modifier.weight(1f))
                 LatestMetric("强度", style.newOpenGlGlassIntensity, Modifier.weight(1f))
             }
         }
     }
 
-    LatestGroup("背景模糊层 BackdropDebugParams", "与 V25.3 网页默认参数一致") {
+    LatestGroup("背景模糊层 BackdropDebugParams", "网页背景模糊与色彩参数") {
         LatestSlider("背景模糊半径", "radius", params.radius, 0f..4f) { onBackdropChange(params.copy(radius = it)) }
         LatestSlider("模糊迭代次数", "iterations", params.iterations, 1f..12f) { onBackdropChange(params.copy(iterations = it)) }
         LatestSlider("背景层亮度", "brightness", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
@@ -107,7 +126,7 @@ internal fun LatestOpenGLGlassLab(
         LatestSlider("背景层饱和", "saturation", params.saturation, 0.3f..1.8f) { onBackdropChange(params.copy(saturation = it)) }
     }
 
-    LatestGroup("主体折射 Body Refraction", "V25.3 整圈统一主体折射参数") {
+    LatestGroup("主体折射 Body Refraction", "原整圈统一主体折射参数") {
         LatestSlider("主体可见强度", "bodyVisibility", style.newOpenGlBodyVisibility, 0f..20f) { onBorderChange(style.copy(newOpenGlBodyVisibility = it)) }
         LatestSlider("主体最大透明", "bodyMaxAlpha", style.newOpenGlBodyMaxAlpha, 0f..1f) { onBorderChange(style.copy(newOpenGlBodyMaxAlpha = it)) }
         LatestSlider("主体折射亮度", "bodyOutputBrightness", style.newOpenGlBodyOutputBrightness, 0.2f..2.8f) { onBorderChange(style.copy(newOpenGlBodyOutputBrightness = it)) }
@@ -129,18 +148,13 @@ internal fun LatestOpenGLGlassLab(
         LatestSlider("内部运输强度", "bodyLowFrequencyGain", style.newOpenGlBodyGain, 0f..900f) { onBorderChange(style.copy(newOpenGlBodyGain = it)) }
     }
 
-    LatestGroup("9a6e4ac 原版边缘折射带 Legacy Edge Refraction", "原版公式、采样权重和参数顺序保持不变") {
-        LatestSlider("旧边缘可见强度", "legacyVisibility", style.openGlVisibility, 0f..20f) { onBorderChange(style.copy(openGlVisibility = it)) }
-        LatestSlider("旧边缘最大透明", "legacyMaxAlpha", style.openGlMaxAlpha, 0f..1f) { onBorderChange(style.copy(openGlMaxAlpha = it)) }
-        LatestSlider("旧边缘亮度", "legacyEdgeBrightness", style.edgeBrightness, -5f..5f) { onBorderChange(style.copy(edgeBrightness = it)) }
-        LatestSlider("旧边缘基础拉力", "legacyPullScale", style.openGlPullScale, -300f..300f) { onBorderChange(style.copy(openGlPullScale = it)) }
-        LatestSlider("旧边缘拉力 dp", "legacyEdgePullDp", style.edgePullDp, -600f..600f) { onBorderChange(style.copy(edgePullDp = it)) }
-        LatestSlider("旧边缘拖影强度", "legacyCompressionScale", style.openGlCompressionScale, -10f..10f) { onBorderChange(style.copy(openGlCompressionScale = it)) }
-        LatestSlider("旧边缘梯度增益", "legacyCornerScale", style.openGlCornerScale, 0f..200f) { onBorderChange(style.copy(openGlCornerScale = it)) }
-        LatestSlider("旧边缘柔化半径", "legacySampleRadiusScale", style.openGlSampleRadiusScale, 0f..200f) { onBorderChange(style.copy(openGlSampleRadiusScale = it)) }
-        LatestSlider("旧边缘宽度", "legacyEdgeWidthDp", style.ringWidthDp, 0f..300f) { onBorderChange(style.copy(ringWidthDp = it)) }
-        LatestSlider("旧边缘暗部强度", "legacyDarkScale", style.openGlDarkScale, -10f..10f) { onBorderChange(style.copy(openGlDarkScale = it)) }
-        LatestSlider("旧边缘调试线", "legacyDebugLineAlpha", style.openGlDebugLineAlpha, 0f..1f) { onBorderChange(style.copy(openGlDebugLineAlpha = it)) }
+    LatestGroup("整圈统一映射圆肩 Outer-Peak Shoulder", "原渲染代码固定参数；仅同步展示") {
+        LatestFixedParameter("圆肩可见宽度", "shoulderWidthPx", 21.716216f)
+        LatestFixedParameter("固定取样深度", "shoulderCaptureWidthPx", 96f)
+        LatestFixedParameter("外沿最大坡度", "shoulderMaxAngleDeg", 89.5f)
+        LatestFixedParameter("外沿集中与内沿圆润度", "shoulderFalloffRoundness", 0f)
+        LatestFixedParameter("圆肩整体材质填充", "shoulderMaterialStrength", 4f)
+        LatestFixedParameter("固定取样切向揉开", "原代码固定为 0，不新增校正链", 0f)
     }
 
     PressableGlass(
@@ -163,9 +177,12 @@ internal fun LatestOpenGLGlassLab(
             onBorderChange(style.copyLatestWebGlassDefaults())
         }
     ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
             Text("重置新版", color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black)
-            Text("恢复 V25.3 网页最终默认参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+            Text("恢复网页主体与背景默认参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -186,22 +203,12 @@ private fun GlassBorderStyle.copyLatestWebGlassDefaults(): GlassBorderStyle = co
     newOpenGlBodyWidth = 1.250599f,
     newOpenGlBodyCurve = 0.2f,
     newOpenGlBodyGain = 12.442396f,
-    newOpenGlBrightness = 0.5451613f,
-    openGlVisibility = 20f,
-    openGlMaxAlpha = 1f,
-    edgeBrightness = 1.1520737f,
-    openGlPullScale = -300f,
-    edgePullDp = -600f,
-    openGlCompressionScale = -10f,
-    openGlCornerScale = 200f,
-    openGlSampleRadiusScale = 14.285714f,
-    ringWidthDp = 8.294931f,
-    openGlDarkScale = -2.580645f,
-    openGlDebugLineAlpha = 0f
+    newOpenGlBrightness = 0.5451613f
 )
 
 @Composable
 private fun LatestGroup(title: String, subtitle: String, content: @Composable () -> Unit) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -210,23 +217,74 @@ private fun LatestGroup(title: String, subtitle: String, content: @Composable ()
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black)
-        Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        content()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                if (expanded) "收起 ︿" else "展开 ﹀",
+                color = Color.White.copy(alpha = 0.56f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                content()
+            }
+        }
     }
 }
 
 @Composable
-private fun LatestSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
+private fun LatestSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = Color.White.copy(alpha = 0.76f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-                Text(subtitle, color = Color.White.copy(alpha = 0.38f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text(subtitle, color = Color.White.copy(alpha = 0.38f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(String.format("%.3f", value), color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black)
         }
         Slider(value = value.coerceIn(range.start, range.endInclusive), onValueChange = onValueChange, valueRange = range)
+    }
+}
+
+@Composable
+private fun LatestFixedParameter(title: String, subtitle: String, value: Float) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White.copy(alpha = 0.035f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White.copy(alpha = 0.76f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Text(subtitle, color = Color.White.copy(alpha = 0.38f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(String.format("%.3f", value), color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black)
     }
 }
 
