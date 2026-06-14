@@ -33,13 +33,12 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29 Direct Normal Shoulder
- * uShoulder = widthPx, maxAngleDeg, falloffRoundness, materialStrength
+ * V29.1 Filled Direct Normal Shoulder
+ * uShoulder = widthPx, maxAngleDeg, falloffRoundness, materialFillStrength
  *
- * 删除截面高度、光学厚度和可调折射率。
- * 胶囊边缘由一条直接可控的法线肩部产生：
- * 宽度决定区域，最大坡度同时驱动背景位移和 Fresnel，
- * 回落圆润度决定法线从外沿回到主体的节奏。
+ * 圆肩区域采用宽幅材质填充，最后一段才以零斜率退回主体。
+ * 圆肩来源坐标也在内沿与原始 V25.3 主体坐标平滑融合，
+ * 不生成独立内沿亮线，不形成双层框。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -144,10 +143,6 @@ float shoulderWidth(vec2 z){
   );
 }
 
-/*
- * cubic 与 quintic 都是零端点导数的单调曲线。
- * 混合后仍保持稳定，圆润度不会再产生隐藏饱和。
- */
 float shoulderProfile(float depth,vec2 z){
   float width=shoulderWidth(z);
   float x=sat(depth/max(width,1.0));
@@ -155,6 +150,26 @@ float shoulderProfile(float depth,vec2 z){
   float quintic=smoother01(x);
   float roundness=sat(uShoulder.z);
   return 1.0-mix(cubic,quintic,roundness);
+}
+
+/*
+ * 宽幅填充：前 68% 圆肩区域保持完整材质响应，
+ * 后 32% 才平滑退回主体，端点导数为 0。
+ */
+float shoulderMaterialFill(float depth,vec2 z){
+  float x=sat(depth/max(shoulderWidth(z),1.0));
+  float tail=sat((x-.68)/.32);
+  return 1.0-smoother01(tail);
+}
+
+/*
+ * 折射坐标在圆肩后 38% 内平滑回到纯 V25.3 主体坐标，
+ * 避免内沿硬分界和双层框。
+ */
+float shoulderOpticalBlend(float depth,vec2 z){
+  float x=sat(depth/max(shoulderWidth(z),1.0));
+  float tail=sat((x-.62)/.38);
+  return 1.0-smoother01(tail);
 }
 
 float shoulderMaxAngle(){
@@ -165,11 +180,6 @@ float shoulderTheta(float depth,vec2 z){
   return shoulderMaxAngle()*shoulderProfile(depth,z);
 }
 
-/*
- * 最大坡度直接决定最大背景位移。
- * 位移上限为 0.44W；对于 quintic 最大梯度仍保持正向映射，
- * 不会重新产生 X 型折返。
- */
 float shoulderTravel(float depth,vec2 z){
   float profile=shoulderProfile(depth,z);
   float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),1.35);
@@ -220,10 +230,17 @@ void main(){
   vec2 normal=perimeterNormalAt(p,z,r);
   float bodyWeight=bodyLensWeight(depth,z,r);
 
-  vec2 bodyOpticalCoord;
+  vec2 pureBodyCoord=p
+      +bodyRefractionFlow(
+          p,normal,z,r,depth,bodyWeight
+      )
+      +centerTransport(p,z);
+
+  vec2 bodyOpticalCoord=pureBodyCoord;
   float materialWeight=bodyWeight;
   float shoulder=0.0;
   float shoulderFresnel=0.0;
+  float shoulderBlend=0.0;
 
   float width=shoulderWidth(z);
   if(uShoulderEnabled>.5&&depth<width){
@@ -233,18 +250,24 @@ void main(){
     vec2 sourcePoint=shoulderData.xy;
     shoulder=shoulderData.z;
     shoulderFresnel=shoulderData.w;
+    shoulderBlend=shoulderOpticalBlend(depth,z);
 
     float sourceDepth=max(-boxSdf(sourcePoint,z,r),0.0);
-    materialWeight=bodyLensWeight(sourceDepth,z,r);
-    bodyOpticalCoord=evaluateBodyOpticalCoordAt(
+    float sourceWeight=bodyLensWeight(sourceDepth,z,r);
+    vec2 shoulderCoord=evaluateBodyOpticalCoordAt(
         sourcePoint,z,r
     );
-  }else{
-    vec2 mainBodyFlow=bodyRefractionFlow(
-        p,normal,z,r,depth,bodyWeight
+
+    bodyOpticalCoord=mix(
+        pureBodyCoord,
+        shoulderCoord,
+        shoulderBlend
     );
-    vec2 centerFlow=centerTransport(p,z);
-    bodyOpticalCoord=p+mainBodyFlow+centerFlow;
+    materialWeight=mix(
+        bodyWeight,
+        sourceWeight,
+        shoulderBlend
+    );
   }
 
   vec3 color=sampleBodyMaterial(
@@ -252,36 +275,43 @@ void main(){
   );
 
   /*
-   * 材质只负责把已存在的法线肩部显出来：
-   * 中段轻微压暗形成透明体积，迎光外沿产生条件 Fresnel，
-   * 内沿只保留很弱的聚光，不建立独立描边层。
+   * 整个圆肩区域先获得连续材质填充；
+   * 外沿 Fresnel 只是叠加在填充上的方向性细节，
+   * 不再承担“显示圆肩”的全部责任。
    */
   float strength=clamp(uShoulder.w,0.0,4.0);
+  float fill=shoulderMaterialFill(depth,z);
   float x=sat(depth/max(width,1.0));
-  float midVolume=pow(sat(4.0*shoulder*(1.0-shoulder)),1.15);
-  float outerRim=pow(shoulder,4.5);
-  float innerRim=exp(-pow((x-.82)/.11,2.0));
+  float outerRim=pow(shoulder,3.8);
 
   vec2 lightDirection=normalize(vec2(-.62,-.78));
   float lightFacing=pow(sat(dot(normal,lightDirection)),2.8);
-  float shadow=.038*strength*midVolume
-      *(.45+.55*(1.0-lightFacing));
-  color*=1.0-shadow;
+
+  float volumeShadow=.012*strength*fill
+      *(.32+.68*(1.0-lightFacing));
+  color*=1.0-volumeShadow;
+
+  float fillSheen=sat(
+      .060*strength*fill
+      *(.42+.58*lightFacing)
+  );
+  vec3 filledColor=mix(
+      color,
+      vec3(.88,.96,1.0),
+      .34
+  );
+  color=mix(color,filledColor,fillSheen);
 
   float reflection=sat(
-      .30*strength*shoulderFresnel*outerRim
+      .22*strength*shoulderFresnel*outerRim
       *(.18+.82*lightFacing)
   );
   vec3 reflectionColor=mix(
       color,
-      vec3(.90,.96,1.0),
-      .72
+      vec3(.92,.97,1.0),
+      .70
   );
   color=mix(color,reflectionColor,reflection);
-
-  float innerLift=.032*strength*innerRim
-      *(.30+.70*lightFacing);
-  color*=1.0+innerLift;
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
