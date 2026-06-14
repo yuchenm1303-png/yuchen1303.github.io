@@ -34,13 +34,13 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.2 Deep-Probe Flow Shoulder
- * uShoulder = widthPx, maxAngleDeg, falloffRoundness, materialFillStrength
- * uShoulderFlow = deepProbeStrength, tangentialFlowStrength
+ * V29.3 Fixed-Capture Compression Shoulder
+ * uShoulder = visibleWidthPx, maxAngleDeg, falloffRoundness, materialStrength
+ * uShoulderFlow = fixedCaptureWidthPx, tangentialFlowStrength
  *
- * 圆肩来源点通过严格单调的深探入曲线进入玻璃内部，
- * 同时沿连续边缘切线加入低频流动，把背景纹理自然揉开。
- * 圆肩内沿仍与纯 V25.3 主体坐标和材质权重零斜率融合。
+ * 可见圆肩宽度只决定显示压缩宽度。
+ * 背景来源始终使用固定最大宽度的深层取样域，
+ * 圆肩缩窄时把同一深层图像压缩进边缘，而不是退回边缘重新取样。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -145,6 +145,12 @@ float shoulderWidth(vec2 z){
   );
 }
 
+float shoulderCaptureWidth(vec2 z){
+  float visible=shoulderWidth(z);
+  float requested=max(uShoulderFlow.x,visible);
+  return min(requested,min(z.x,z.y)*.46);
+}
+
 float shoulderProfile(float depth,vec2 z){
   float width=shoulderWidth(z);
   float x=sat(depth/max(width,1.0));
@@ -154,17 +160,15 @@ float shoulderProfile(float depth,vec2 z){
   return 1.0-mix(cubic,quintic,roundness);
 }
 
-/* 圆肩前 72% 保持完整材质填充，末段零斜率退场。 */
 float shoulderMaterialFill(float depth,vec2 z){
   float x=sat(depth/max(shoulderWidth(z),1.0));
   float tail=sat((x-.72)/.28);
   return 1.0-smoother01(tail);
 }
 
-/* 折射坐标用更长的尾部回归主体，避免深探入后形成分界。 */
 float shoulderOpticalBlend(float depth,vec2 z){
   float x=sat(depth/max(shoulderWidth(z),1.0));
-  float tail=sat((x-.50)/.50);
+  float tail=sat((x-.55)/.45);
   return 1.0-smoother01(tail);
 }
 
@@ -176,52 +180,45 @@ float shoulderTheta(float depth,vec2 z){
   return shoulderMaxAngle()*shoulderProfile(depth,z);
 }
 
-/* smoothstep 的解析积分，供单调深探入曲线使用。 */
 float smoothstepIntegral(float x){
   x=sat(x);
   return x*x*x-.5*x*x*x*x;
 }
 
 /*
- * 构造端点导数为 0、内部最大负斜率小于 1 的探入曲线。
- * 因而即使外沿探入约 0.8W，sourceDepth 仍保持严格单调。
+ * 固定最大宽度下的深层来源曲线。
+ * x 始终来自可见圆肩的归一化深度，
+ * 但最终来源深度始终乘固定 captureWidth。
  */
-float shoulderTravelRatio(float x,float outerRatio){
+float shoulderCaptureTravelRatio(float x,float outerRatio){
   float ramp=.15;
-  float plateauSlope=outerRatio/(1.0-ramp);
+  float slope=outerRatio/(1.0-ramp);
 
   if(x<ramp){
     float t=x/ramp;
     return outerRatio
-        -plateauSlope*ramp*smoothstepIntegral(t);
+        -slope*ramp*smoothstepIntegral(t);
   }
 
   if(x>1.0-ramp){
     float t=(1.0-x)/ramp;
-    return plateauSlope*ramp*smoothstepIntegral(t);
+    return slope*ramp*smoothstepIntegral(t);
   }
 
-  return plateauSlope*((1.0-ramp)-x)
-      +plateauSlope*ramp*.5;
+  return slope*((1.0-ramp)-x)
+      +slope*ramp*.5;
 }
 
-float shoulderTravel(float depth,vec2 z){
-  float width=shoulderWidth(z);
-  float x=sat(depth/max(width,1.0));
-  float deepStrength=clamp(uShoulderFlow.x,0.0,2.4);
+float shoulderCaptureDepth(float depth,vec2 z){
+  float visibleWidth=shoulderWidth(z);
+  float captureWidth=shoulderCaptureWidth(z);
+  float x=sat(depth/max(visibleWidth,1.0));
   float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),.90);
-  float outerRatio=clamp(
-      .22+.26*deepStrength,
-      .18,
-      .80
-  )*angleResponse;
-  return width*shoulderTravelRatio(x,outerRatio);
+  float outerRatio=.78*angleResponse;
+  float extraRatio=shoulderCaptureTravelRatio(x,outerRatio);
+  return captureWidth*(x+extraRatio);
 }
 
-/*
- * 将主体低频运输方向与环绕圆角矩形的连续切向方向混合，
- * 形成随位置变化的圆肩流动，而不是整圈同距离平移。
- */
 float shoulderTangentialSignal(
   vec2 p,
   vec2 edgeNormal,
@@ -254,9 +251,9 @@ float shoulderTangentialTravel(
   vec2 z,
   float depth
 ){
-  float width=shoulderWidth(z);
+  float captureWidth=shoulderCaptureWidth(z);
   float flowStrength=clamp(uShoulderFlow.y,0.0,2.4);
-  float amplitude=width*.48*sat(flowStrength/2.4);
+  float amplitude=captureWidth*.30*sat(flowStrength/2.4);
   float envelope=
       shoulderMaterialFill(depth,z)
       *shoulderOpticalBlend(depth,z);
@@ -272,25 +269,29 @@ vec4 evaluateShoulderSource(
   float r,
   float depth
 ){
-  float width=shoulderWidth(z);
-  if(uShoulderEnabled<.5||depth>=width){
+  float visibleWidth=shoulderWidth(z);
+  if(uShoulderEnabled<.5||depth>=visibleWidth){
     return vec4(p,0.0,0.0);
   }
 
   float profile=shoulderProfile(depth,z);
   float theta=shoulderTheta(depth,z);
-  float inwardTravel=shoulderTravel(depth,z);
+  float sourceDepth=shoulderCaptureDepth(depth,z);
   float tangentTravel=shoulderTangentialTravel(
       p,edgeNormal,z,depth
   );
   vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
 
+  /*
+   * 先回到外轮廓，再按固定最大取样深度进入玻璃。
+   * 因而 visibleWidth 缩小时只是压缩显示，不改变来源区域。
+   */
+  vec2 boundaryPoint=p+edgeNormal*depth;
   vec2 sourcePoint=
-      p
-      -edgeNormal*inwardTravel
+      boundaryPoint
+      -edgeNormal*sourceDepth
       +tangent*tangentTravel;
 
-  /* 圆角切向流动可能把来源点推近轮廓，统一压回安全内部。 */
   float sourceSd=boxSdf(sourcePoint,z,r);
   if(sourceSd>-.5){
     vec2 sourceNormal=perimeterNormalAt(
