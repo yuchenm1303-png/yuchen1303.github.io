@@ -73,8 +73,11 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 z,
             float depth
         ){
-            float captureWidth=shoulderCaptureWidth(z);
             float flowStrength=clamp(uShoulderFlow.y,0.0,2.4);
+            if(flowStrength<=0.0001){
+                return 0.0;
+            }
+            float captureWidth=shoulderCaptureWidth(z);
             float amplitude=captureWidth*0.30*sat(flowStrength/2.4);
             float envelope=pow(shoulderOuterEnvelope(depth,z),0.82);
             return amplitude
