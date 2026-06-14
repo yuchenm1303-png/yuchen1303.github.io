@@ -28,13 +28,10 @@ const APP_RAW={
   glassIntensity:1.35,
 
   edgeMode:1,
-  bevelWidthPx:58,
-  bevelZRadiusPx:120,
-  bevelOpticalThicknessPx:550,
-  bevelRefractiveIndex:2.2,
-  bevelMaxAngleDeg:88,
-  bevelProfileCurve:.35,
-  bevelMaterialStrength:1.25
+  shoulderWidthPx:28,
+  shoulderMaxAngleDeg:88,
+  shoulderFalloffRoundness:.72,
+  shoulderMaterialStrength:2.4
 };
 
 let p={...APP_RAW};
@@ -71,14 +68,11 @@ const groups=[
     ['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],
     ['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'SDF 圆肩透镜极限观察 Extreme SDF Bevel Lens',items:[
-    ['bevelWidthPx','圆肩作用宽度',4,140],
-    ['bevelZRadiusPx','圆肩截面高度',1,240],
-    ['bevelOpticalThicknessPx','圆肩光学厚度',0,1200],
-    ['bevelRefractiveIndex','玻璃折射率',1.001,3.5],
-    ['bevelMaxAngleDeg','外沿最大坡度',5,89.5],
-    ['bevelProfileCurve','圆肩截面曲线',.08,8],
-    ['bevelMaterialStrength','圆肩材质强度',0,4]
+  {title:'直接法线圆肩 Direct Normal Shoulder',items:[
+    ['shoulderWidthPx','圆肩宽度',4,80],
+    ['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],
+    ['shoulderFalloffRoundness','法线回落圆润度',0,1],
+    ['shoulderMaterialStrength','圆肩材质轮廓强度',0,4]
   ]}
 ];
 
@@ -157,7 +151,7 @@ function initGl(){
   const names=[
     'a','uRes','uOrigin','uRoot','uBlurTexture',
     'uMat','uBodyLensA','uBodyLensB','uBody',
-    'uBevelA','uBevelB','uRadius','uIntensity'
+    'uShoulder','uShoulderEnabled','uRadius','uIntensity'
   ];
   L={};
   for(const name of names){
@@ -455,19 +449,13 @@ function render(){
       p.bodyBrightness
   );
   gl.uniform4f(
-      L.uBevelA,
-      p.bevelWidthPx*d,
-      p.bevelZRadiusPx*d,
-      p.bevelOpticalThicknessPx*d,
-      p.bevelRefractiveIndex
+      L.uShoulder,
+      p.shoulderWidthPx*d,
+      p.shoulderMaxAngleDeg,
+      p.shoulderFalloffRoundness,
+      p.shoulderMaterialStrength
   );
-  gl.uniform4f(
-      L.uBevelB,
-      p.bevelMaxAngleDeg,
-      p.bevelProfileCurve,
-      p.bevelMaterialStrength,
-      p.edgeMode
-  );
+  gl.uniform1f(L.uShoulderEnabled,p.edgeMode);
 
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D,blurTex);
@@ -499,8 +487,13 @@ function updateUi(){
   }
   syncModeUi();
   out.textContent=JSON.stringify({
-    mode:'v28_1ExtremeSdfBevelLens',
-    edgeMode:p.edgeMode===0?'pureV25_3Body':'extremeSdfBevelLens',
+    mode:'v29DirectNormalShoulder',
+    edgeMode:p.edgeMode===0?'pureV25_3Body':'directNormalShoulder',
+    removedParameters:[
+      'bevelZRadiusPx',
+      'bevelOpticalThicknessPx',
+      'bevelRefractiveIndex'
+    ],
     oneFinalOpticalCoord:true,
     extraEdgeSamples:0,
     blurBackend:'fullResolutionShiftAverage',
@@ -662,7 +655,7 @@ window.addEventListener('beforeunload',()=>{
 });
 
 try{
-  document.title='OpenGL V28.1 · Extreme SDF Bevel Lens';
+  document.title='OpenGL V29 · Direct Normal Shoulder';
   initGl();
   buildControls();
   requestAnimationFrame(()=>{
