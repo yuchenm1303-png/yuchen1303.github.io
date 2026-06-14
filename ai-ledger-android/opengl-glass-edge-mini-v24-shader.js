@@ -5,8 +5,8 @@ window.OpenGLV24Shaders={
 uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
-uniform vec4 uBevelA,uBevelB;
-uniform float uRadius,uIntensity;
+uniform vec4 uShoulder;
+uniform float uShoulderEnabled,uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float smoother01(float x){
@@ -33,9 +33,13 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V28.1 Extreme SDF Bevel Lens Observation
- * uBevelA = widthPx, zRadiusPx, opticalThicknessPx, refractiveIndex
- * uBevelB = maxAngleDeg, profileCurve, materialStrength, enabled
+ * V29 Direct Normal Shoulder
+ * uShoulder = widthPx, maxAngleDeg, falloffRoundness, materialStrength
+ *
+ * 删除截面高度、光学厚度和可调折射率。
+ * 胶囊边缘由一条直接可控的法线肩部产生：
+ * 宽度决定区域，最大坡度同时驱动背景位移和 Fresnel，
+ * 回落圆润度决定法线从外沿回到主体的节奏。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -133,66 +137,67 @@ vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r){
       +centerTransport(point,z);
 }
 
-float bevelThetaAt(float depth,float width,float zRadius){
-  float t=sat(depth/max(width,1.0));
-  float curve=clamp(uBevelB.y,.08,8.0);
-  float q=pow(max(1.0-t,0.0),curve);
-  float denominator=sqrt(max(1.0-q*q,.0004));
-  float slope=(zRadius/max(width,1.0))*q/denominator;
-  float maxAngle=clamp(uBevelB.x,5.0,89.5)*.01745329252;
-  return min(atan(slope),maxAngle);
+float shoulderWidth(vec2 z){
+  return min(
+      max(uShoulder.x,1.0),
+      min(z.x,z.y)*.46
+  );
 }
 
-vec4 evaluateBevelSource(
+/*
+ * cubic 与 quintic 都是零端点导数的单调曲线。
+ * 混合后仍保持稳定，圆润度不会再产生隐藏饱和。
+ */
+float shoulderProfile(float depth,vec2 z){
+  float width=shoulderWidth(z);
+  float x=sat(depth/max(width,1.0));
+  float cubic=x*x*(3.0-2.0*x);
+  float quintic=smoother01(x);
+  float roundness=sat(uShoulder.z);
+  return 1.0-mix(cubic,quintic,roundness);
+}
+
+float shoulderMaxAngle(){
+  return clamp(uShoulder.y,0.0,89.5)*.01745329252;
+}
+
+float shoulderTheta(float depth,vec2 z){
+  return shoulderMaxAngle()*shoulderProfile(depth,z);
+}
+
+/*
+ * 最大坡度直接决定最大背景位移。
+ * 位移上限为 0.44W；对于 quintic 最大梯度仍保持正向映射，
+ * 不会重新产生 X 型折返。
+ */
+float shoulderTravel(float depth,vec2 z){
+  float profile=shoulderProfile(depth,z);
+  float angleResponse=pow(max(sin(shoulderMaxAngle()),0.0),1.35);
+  return shoulderWidth(z)*.44*angleResponse*profile;
+}
+
+vec4 evaluateShoulderSource(
   vec2 p,
   vec2 edgeNormal,
   vec2 z,
   float depth
 ){
-  float width=min(
-      max(uBevelA.x,1.0),
-      min(z.x,z.y)*.49
-  );
-  if(uBevelB.w<.5||depth>=width){
+  float width=shoulderWidth(z);
+  if(uShoulderEnabled<.5||depth>=width){
     return vec4(p,0.0,0.0);
   }
 
-  float t=sat(depth/max(width,1.0));
-  float bevelMask=1.0-smoother01(t);
-  float theta=bevelThetaAt(
-      depth,width,max(uBevelA.y,1.0)
-  );
-
-  vec3 surfaceNormal=normalize(vec3(
-      edgeNormal*sin(theta),
-      cos(theta)
-  ));
-  vec3 viewRay=vec3(0.0,0.0,-1.0);
-  float ior=clamp(uBevelA.w,1.001,3.5);
-  vec3 refractedRay=refract(
-      viewRay,
-      surfaceNormal,
-      1.0/ior
-  );
-
-  float raySlope=length(refractedRay.xy)
-      /max(-refractedRay.z,.12);
-  float rawTravel=raySlope*max(uBevelA.z,0.0);
-
-  /* 极限观察版：明显放大边缘位移包络。 */
-  float travelCap=width*.72*bevelMask;
-  float travel=travelCap
-      *(1.0-exp(-rawTravel/max(travelCap,1.0)));
-
+  float profile=shoulderProfile(depth,z);
+  float theta=shoulderTheta(depth,z);
+  float travel=shoulderTravel(depth,z);
   vec2 sourcePoint=p-edgeNormal*travel;
 
-  float f0=(ior-1.0)/(ior+1.0);
-  f0*=f0;
-  float cosIncidence=sat(dot(-viewRay,surfaceNormal));
+  float f0=.04;
+  float cosIncidence=cos(theta);
   float fresnel=f0+(1.0-f0)
-      *pow(1.0-cosIncidence,5.0);
+      *pow(1.0-sat(cosIncidence),5.0);
 
-  return vec4(sourcePoint,bevelMask,fresnel);
+  return vec4(sourcePoint,profile,fresnel);
 }
 
 vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
@@ -217,23 +222,19 @@ void main(){
 
   vec2 bodyOpticalCoord;
   float materialWeight=bodyWeight;
-  float bevelMask=0.0;
-  float bevelFresnel=0.0;
+  float shoulder=0.0;
+  float shoulderFresnel=0.0;
 
-  float bevelWidth=min(
-      max(uBevelA.x,1.0),
-      min(z.x,z.y)*.49
-  );
-
-  if(uBevelB.w>.5&&depth<bevelWidth){
-    vec4 bevelData=evaluateBevelSource(
+  float width=shoulderWidth(z);
+  if(uShoulderEnabled>.5&&depth<width){
+    vec4 shoulderData=evaluateShoulderSource(
         p,normal,z,depth
     );
-    vec2 sourcePoint=bevelData.xy;
-    bevelMask=bevelData.z;
-    bevelFresnel=bevelData.w;
-    float sourceSd=boxSdf(sourcePoint,z,r);
-    float sourceDepth=max(-sourceSd,0.0);
+    vec2 sourcePoint=shoulderData.xy;
+    shoulder=shoulderData.z;
+    shoulderFresnel=shoulderData.w;
+
+    float sourceDepth=max(-boxSdf(sourcePoint,z,r),0.0);
     materialWeight=bodyLensWeight(sourceDepth,z,r);
     bodyOpticalCoord=evaluateBodyOpticalCoordAt(
         sourcePoint,z,r
@@ -250,14 +251,37 @@ void main(){
       globalUv(bodyOpticalCoord),materialWeight
   );
 
-  float materialStrength=clamp(uBevelB.z,0.0,4.0);
+  /*
+   * 材质只负责把已存在的法线肩部显出来：
+   * 中段轻微压暗形成透明体积，迎光外沿产生条件 Fresnel，
+   * 内沿只保留很弱的聚光，不建立独立描边层。
+   */
+  float strength=clamp(uShoulder.w,0.0,4.0);
+  float x=sat(depth/max(width,1.0));
+  float midVolume=pow(sat(4.0*shoulder*(1.0-shoulder)),1.15);
+  float outerRim=pow(shoulder,4.5);
+  float innerRim=exp(-pow((x-.82)/.11,2.0));
+
   vec2 lightDirection=normalize(vec2(-.62,-.78));
-  float lightFacing=pow(sat(dot(normal,lightDirection)),2.5);
-  float bevelVolume=bevelMask*materialStrength;
-  color*=1.0-.055*bevelVolume;
-  color*=1.0
-      +.24*bevelFresnel*bevelVolume
-      *(.22+.78*lightFacing);
+  float lightFacing=pow(sat(dot(normal,lightDirection)),2.8);
+  float shadow=.038*strength*midVolume
+      *(.45+.55*(1.0-lightFacing));
+  color*=1.0-shadow;
+
+  float reflection=sat(
+      .30*strength*shoulderFresnel*outerRim
+      *(.18+.82*lightFacing)
+  );
+  vec3 reflectionColor=mix(
+      color,
+      vec3(.90,.96,1.0),
+      .72
+  );
+  color=mix(color,reflectionColor,reflection);
+
+  float innerLift=.032*strength*innerRim
+      *(.30+.70*lightFacing);
+  color*=1.0+innerLift;
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
