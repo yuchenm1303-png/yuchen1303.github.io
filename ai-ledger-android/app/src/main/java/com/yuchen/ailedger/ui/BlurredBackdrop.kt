@@ -366,7 +366,7 @@ private fun drawGlow(
 }
 
 private fun boxBlur(input: Bitmap, radius: Int, iterations: Int, scratch: BackdropPixelScratch): Bitmap {
-    if (radius <= 0 || iterations <= 0) return input.copy(Bitmap.Config.ARGB_8888, false)
+    if (radius <= 0 || iterations <= 0) return input.copy(Bitmap.Config.ARGB_8888, true)
     val width = input.width
     val height = input.height
     var source = scratch.source
@@ -383,7 +383,9 @@ private fun boxBlur(input: Bitmap, radius: Int, iterations: Int, scratch: Backdr
             output = reusable
         }
     }
-    return Bitmap.createBitmap(output, width, height, Bitmap.Config.ARGB_8888)
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+        bitmap.setPixels(output, 0, width, 0, 0, width, height)
+    }
 }
 
 private fun boxBlurHorizontal(
