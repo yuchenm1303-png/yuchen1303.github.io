@@ -32,9 +32,9 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V26.5 Monotonic Capsule Depth Mapping
- * 胶囊边缘是主体折射场最外侧的单调深度重映射。
- * 不存在独立 rim 坐标、边框图像或额外纹理采样。
+ * V26.6 Aggressive Monotonic Capsule Lens
+ * 胶囊边缘先生成唯一来源点，再进入原始 V25.3 主体折射场。
+ * 映射导数始终为正，同时允许内侧有限回弹放大。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -76,38 +76,55 @@ float capsuleStrength(){
   return sat((uBodyEdge.w-.20)/2.30);
 }
 
-/*
- * 外沿对应的内部来源深度比例。
- * 光学厚度和折射强度只改变比例，但始终限制在圆肩宽度以内。
- */
-float capsuleOuterSourceRatio(vec2 z){
+float capsuleDrive(vec2 z){
   float width=capsuleWidth(z);
   float opticalResponse=1.0-exp(
-      -max(uBodyEdge.y,0.0)/max(width*1.15,1.0)
+      -max(uBodyEdge.y,0.0)/max(width*.78,1.0)
   );
   float strength=capsuleStrength();
-  float drive=opticalResponse*(.55+.45*strength);
-  float ratio=mix(.18,.46,sat(drive));
-
-  float curveNorm=sat((uBodyEdge.z-.35)/(2.40-.35));
-  ratio*=mix(.94,1.06,curveNorm);
-  return clamp(ratio,.16,.48);
+  return sat(opticalResponse*(.66+.54*strength));
 }
 
-/* 外沿局部压缩率，始终保持为正值。 */
-float capsuleOuterSlope(){
-  float strength=capsuleStrength();
+/* 外沿映射斜率：越小，外沿压缩越强。 */
+float capsuleOuterSlope(vec2 z){
+  float drive=capsuleDrive(z);
   float curveNorm=sat((uBodyEdge.z-.35)/(2.40-.35));
-  float slope=mix(.36,.14,strength);
-  slope*=mix(1.10,.82,curveNorm);
-  return clamp(slope,.10,.42);
+  float slope=mix(.30,.16,drive);
+  slope*=mix(.88,1.12,curveNorm);
+  return clamp(slope,.14,.34);
 }
 
 /*
- * 三次 Hermite 单调映射：
- * depth=0 时从圆肩内部取样；
- * depth=width 时 sourceDepth=depth 且导数精确等于 1；
- * 因此进入主体时位置与变化率都连续。
+ * 零积分回弹项的幅度。
+ * 它只重新分配压缩率，不改变两个端点，因此不会造成接缝。
+ */
+float capsuleRebound(vec2 z){
+  float drive=capsuleDrive(z);
+  float curveNorm=sat((uBodyEdge.z-.35)/(2.40-.35));
+  float rebound=mix(.22,.50,drive);
+  rebound*=mix(1.08,.90,curveNorm);
+  return clamp(rebound,.18,.52);
+}
+
+/*
+ * 正导数轮廓：
+ * 外沿强压缩 -> 中后段有限回弹 -> 内沿导数精确回到 1。
+ */
+float capsuleSlopeProfile(float x,vec2 z){
+  float m0=capsuleOuterSlope(z);
+  float rebound=capsuleRebound(z);
+  float smoothRise=3.0*x*x-2.0*x*x*x;
+  float zeroAreaShape=4.0*x*(1.0-x)*(2.0*x-1.0);
+  float slope=
+      m0
+      +(1.0-m0)*smoothRise
+      +rebound*zeroAreaShape;
+  return clamp(slope,.012,1.24);
+}
+
+/*
+ * 对正导数轮廓进行解析积分。
+ * y(0)=(1-m0)/2，y(1)=1，且整个映射严格向内单调。
  */
 float capsuleMappedDepth(float depth,vec2 z,float r){
   float width=capsuleWidth(z);
@@ -116,45 +133,30 @@ float capsuleMappedDepth(float depth,vec2 z,float r){
   float x=sat(depth/max(width,1.0));
   float x2=x*x;
   float x3=x2*x;
+  float x4=x2*x2;
+  float m0=capsuleOuterSlope(z);
+  float rebound=capsuleRebound(z);
 
-  float h00=2.0*x3-3.0*x2+1.0;
-  float h10=x3-2.0*x2+x;
-  float h01=-2.0*x3+3.0*x2;
-  float h11=x3-x2;
+  float outerSource=.5*(1.0-m0);
+  float baseIntegral=
+      m0*x
+      +(1.0-m0)*(x3-.5*x4);
+  float zeroAreaIntegral=
+      -2.0*x2*(1.0-x)*(1.0-x);
 
-  float outerRatio=capsuleOuterSourceRatio(z);
-  float outerSlope=capsuleOuterSlope();
-  float normalizedDepth=
-      h00*outerRatio
-      +h10*outerSlope
-      +h01
-      +h11;
+  float mapped=
+      outerSource
+      +baseIntegral
+      +rebound*zeroAreaIntegral;
 
-  return width*normalizedDepth;
+  return width*clamp(mapped,0.0,1.0);
 }
 
-/* 解析导数用于材质体积感，不需要额外纹理采样。 */
 float capsuleMappedSlope(float depth,vec2 z,float r){
   float width=capsuleWidth(z);
   if(uEdgeMode<.5||depth>=width){return 1.0;}
-
   float x=sat(depth/max(width,1.0));
-  float x2=x*x;
-
-  float dh00=6.0*x2-6.0*x;
-  float dh10=3.0*x2-4.0*x+1.0;
-  float dh01=-6.0*x2+6.0*x;
-  float dh11=3.0*x2-2.0*x;
-
-  float outerRatio=capsuleOuterSourceRatio(z);
-  float outerSlope=capsuleOuterSlope();
-  float slope=
-      dh00*outerRatio
-      +dh10*outerSlope
-      +dh01
-      +dh11;
-
-  return clamp(slope,.08,1.0);
+  return capsuleSlopeProfile(x,z);
 }
 
 float capsuleShoulderAt(float depth,vec2 z,float r){
@@ -163,15 +165,14 @@ float capsuleShoulderAt(float depth,vec2 z,float r){
   return 1.0-smoother01(depth/max(width,1.0));
 }
 
-vec2 bodyRefractionFlow(
-  vec2 p,
+/* 原始 V25.3 主体法线折射，不包含胶囊映射。 */
+vec2 baseBodyRefractionFlow(
   vec2 n,
   vec2 z,
   float r,
   float depth,
   float weight
 ){
-  /* 原始 V25.3 主体法线折射保持不变。 */
   float rawPull=
       abs(uBodyLensA.y)*.052
       +abs(uBodyLensA.x)*.20
@@ -183,15 +184,7 @@ vec2 bodyRefractionFlow(
       remaining
       *(1.0-exp(-(rawPull*core)/max(remaining,1.0)))
       *.96;
-
-  /*
-   * 胶囊附加位移直接来自严格单调的 sourceDepth-depth。
-   * 不再使用 refract 位移上限或切向运输。
-   */
-  float mappedDepth=capsuleMappedDepth(depth,z,r);
-  float capsuleOffset=max(mappedDepth-depth,0.0);
-
-  return -n*(displacement+capsuleOffset);
+  return -n*displacement;
 }
 
 float centerEnvelope(vec2 u){
@@ -227,6 +220,27 @@ vec2 centerTransport(vec2 p,vec2 z){
   return softLimit(flow,mix(52.0,118.0,gain));
 }
 
+float evaluateBodyWeightAt(vec2 point,vec2 z,float r){
+  float pointSd=boxSdf(point,z,r);
+  return bodyLensWeight(max(-pointSd,0.0),z,r);
+}
+
+vec2 evaluateBodyOpticalCoordAt(
+  vec2 point,
+  vec2 z,
+  float r,
+  float pointWeight
+){
+  float pointSd=boxSdf(point,z,r);
+  float pointDepth=max(-pointSd,0.0);
+  vec2 pointNormal=perimeterNormalAt(point,z,r);
+  return point
+      +baseBodyRefractionFlow(
+          pointNormal,z,r,pointDepth,pointWeight
+      )
+      +centerTransport(point,z);
+}
+
 vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   vec3 color=bodyBackdrop(uv);
   float opticalBoost=1.0+bodyWeight*.24;
@@ -247,30 +261,43 @@ void main(){
   float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 normal=perimeterNormalAt(p,z,r);
 
-  /* 始终只有这一套主体坐标和一次背景纹理采样。 */
-  vec2 mainBodyFlow=bodyRefractionFlow(
-      p,normal,z,r,depth,bodyWeight
+  /*
+   * 胶囊映射先决定来源点；来源点再进入同一套 V25.3 主体折射。
+   */
+  float mappedDepth=capsuleMappedDepth(depth,z,r);
+  float capsuleOffset=max(mappedDepth-depth,0.0);
+  vec2 opticalSourcePoint=p-normal*capsuleOffset;
+  float sourceWeight=evaluateBodyWeightAt(
+      opticalSourcePoint,z,r
   );
-  vec2 centerFlow=centerTransport(p,z);
-  vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow;
+  vec2 bodyOpticalCoord=evaluateBodyOpticalCoordAt(
+      opticalSourcePoint,z,r,sourceWeight
+  );
   vec3 color=sampleBodyMaterial(
-      globalUv(bodyOpticalCoord),bodyWeight
+      globalUv(bodyOpticalCoord),sourceWeight
   );
 
   /*
-   * 厚度明暗来自同一深度映射的压缩率。
-   * 不生成独立白边，也不把透明圆肩压成黑色实体。
+   * 强观察版材质：压缩区强调体积，回弹区形成有限内侧聚光。
+   * 所有明暗都来自同一映射导数，不生成独立边框。
    */
   float shoulder=capsuleShoulderAt(depth,z,r);
   float mappedSlope=capsuleMappedSlope(depth,z,r);
-  float compression=sat(1.0-mappedSlope);
-  float volume=pow(compression,.78)*shoulder;
+  float compression=sat((1.0-mappedSlope)/.86);
+  float rebound=sat((mappedSlope-1.0)/.24);
+  float outerVolume=pow(compression,.62)*shoulder;
+  float innerCaustic=pow(rebound,.78)*(1.0-shoulder*.32);
 
   vec2 lightDirection=normalize(vec2(-.62,-.78));
-  float lightFacing=pow(sat(dot(normal,lightDirection)),3.0);
-  float transmission=1.0-.018*volume;
-  float directionalLift=.052*volume*lightFacing;
-  color*=transmission+directionalLift;
+  float lightFacing=pow(sat(dot(normal,lightDirection)),2.65);
+  float transmission=
+      1.0
+      -.040*outerVolume
+      -.010*innerCaustic;
+  float directionalLift=
+      .115*outerVolume*lightFacing;
+  float innerLift=.085*innerCaustic;
+  color*=transmission+directionalLift+innerLift;
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
