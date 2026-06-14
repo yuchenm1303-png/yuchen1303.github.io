@@ -7,10 +7,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.yuchen.ailedger.model.AppTab
 
 /**
- * 普通 Compose 玻璃后续父级绘制时使用的场景边界。
+ * 普通 Compose 玻璃父级绘制使用的场景边界。
  *
- * 当前阶段只负责标记普通 GlassPanel / PressableGlass 的归属，不注册玻璃、
- * 不改变绘制顺序，也不触发任何 OpenGL、聊天气泡、Frost 或 Inset 绘制链。
+ * 只覆盖普通 GlassPanel / PressableGlass，不触发 OpenGL、聊天气泡、
+ * FrostInfoGlassPanel、InsetGlassSlot 或其他自定义玻璃绘制链。
  */
 enum class GlassSceneGroup(
     val owner: GlassSceneOwner
@@ -58,14 +58,22 @@ fun GlassSceneScope(
     group: GlassSceneGroup,
     content: @Composable () -> Unit
 ) {
-    val parent = LocalGlassSceneContext.current
-    CompositionLocalProvider(
-        LocalGlassSceneContext provides GlassSceneContext(
+    if (group.owner == GlassSceneOwner.Page || group.owner == GlassSceneOwner.ScrollSubScene) {
+        OrdinaryGlassSceneHost(
             group = group,
-            parentGroup = parent.group.takeUnless { it == GlassSceneGroup.Unassigned }
+            renderMode = OrdinaryGlassRenderMode.Shadow,
+            content = content
         )
-    ) {
-        content()
+    } else {
+        val parent = LocalGlassSceneContext.current
+        CompositionLocalProvider(
+            LocalGlassSceneContext provides GlassSceneContext(
+                group = group,
+                parentGroup = parent.group.takeUnless { it == GlassSceneGroup.Unassigned }
+            )
+        ) {
+            content()
+        }
     }
 }
 
