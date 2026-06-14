@@ -28,15 +28,15 @@ const APP_RAW={
 
   rimMode:1,
   rimWidthPx:12,
-  rimSourceNearPx:18,
-  rimSourceMidPx:38,
-  rimSourceFarPx:72,
-  rimBrightCapture:2.55,
-  rimTransportStrength:.90,
-  rimTransmission:.94,
-  rimJoinSoftness:.64,
-  rimOuterReflection:.58,
-  rimInnerCaustic:.28,
+  rimSourceDepthPx:52,
+  rimRefractionStrength:.96,
+  rimRefractionCurve:1.35,
+  rimBrightCapture:2.35,
+  rimTransportStrength:.92,
+  rimTransmission:.93,
+  rimJoinSoftness:.56,
+  rimOuterReflection:.54,
+  rimInnerCaustic:.26,
   rimHighlightPower:3.2
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
@@ -50,8 +50,8 @@ const groups=[
   {title:'主体低频运输 Body Low-Frequency Transport',items:[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'深层内部投射边缘 Deep Interior Projection Rim',items:[
-    ['rimWidthPx','边缘投射带宽度',6,20],['rimSourceNearPx','近层取样深度',6,45],['rimSourceMidPx','中层取样深度',12,80],['rimSourceFarPx','远层取样深度',24,130],['rimBrightCapture','内部亮色捕获',0,4],['rimTransportStrength','深层颜色投射强度',0,1],['rimTransmission','边缘透射率',.45,1.15],['rimJoinSoftness','主体衔接柔度',0,1],['rimOuterReflection','外沿反射强度',0,1.2],['rimInnerCaustic','内沿焦散强度',0,1],['rimHighlightPower','亮面方向集中度',1,8]
+  {title:'连续深层透镜边缘 Continuous Deep-Lens Rim',items:[
+    ['rimWidthPx','边缘折射带宽度',6,20],['rimSourceDepthPx','中层取样深度',12,110],['rimRefractionStrength','折射压缩强度',0,1.35],['rimRefractionCurve','折射截面曲线',.3,3],['rimBrightCapture','内部亮色捕获',0,4],['rimTransportStrength','深层颜色投射强度',0,1],['rimTransmission','边缘透射率',.45,1.15],['rimJoinSoftness','主体衔接柔度',0,1],['rimOuterReflection','外沿反射强度',0,1.2],['rimInnerCaustic','内沿焦散强度',0,1],['rimHighlightPower','亮面方向集中度',1,8]
   ]}
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
@@ -87,9 +87,7 @@ function stageDpr(){return Math.min(window.devicePixelRatio||1,2)}
 function glassRect(){const a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return{x:b.left-a.left,y:b.top-a.top,w:b.width,h:b.height}}
 function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;gb.width=Math.max(1,Math.round(sw));gb.height=Math.max(1,Math.round(sh));gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
 function effectiveBlurPx(d){return Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55))}
-function uploadBackdropTexture(){
-  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas);gl.flush();
-}
+function uploadBackdropTexture(){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas);gl.flush()}
 function rebuildBackdrop(){
   const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));
   bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;
@@ -97,44 +95,27 @@ function rebuildBackdrop(){
   blurCtx.save();blurCtx.setTransform(1,0,0,1,0,0);blurCtx.clearRect(0,0,w,h);
   const blurPx=effectiveBlurPx(d);
   blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;
-  blurCtx.drawImage(sourceCanvas,0,0);
-  blurCtx.filter='none';blurCtx.restore();
-  try{blurCtx.getImageData(0,0,1,1)}catch(_){/* Safari 同步失败时仍继续上传当前画布 */}
+  blurCtx.drawImage(sourceCanvas,0,0);blurCtx.filter='none';blurCtx.restore();
+  try{blurCtx.getImageData(0,0,1,1)}catch(_){}
   drawGlassBackdrop();uploadBackdropTexture();backdropRevision++;
 }
 function cancelScheduledBackdropRefresh(){if(backdropRefreshFrame){cancelAnimationFrame(backdropRefreshFrame);backdropRefreshFrame=0}}
 function refreshBackdropNow(){cancelScheduledBackdropRefresh();rebuildBackdrop();updateUi();render()}
-function scheduleBackdropRefresh(){
-  cancelScheduledBackdropRefresh();
-  backdropRefreshFrame=requestAnimationFrame(()=>{backdropRefreshFrame=0;rebuildBackdrop();updateUi();render()});
-}
+function scheduleBackdropRefresh(){cancelScheduledBackdropRefresh();backdropRefreshFrame=requestAnimationFrame(()=>{backdropRefreshFrame=0;rebuildBackdrop();updateUi();render()})}
 function render(){
   drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(L.a);gl.vertexAttribPointer(L.a,2,gl.FLOAT,false,0,0);
   const d=stageDpr(),q=glassRect();
   gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q.x*d,q.y*d);gl.uniform2f(L.uRoot,bg.width,bg.height);
   gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform1f(L.uRimMode,p.rimMode);
   gl.uniform4f(L.uMat,p.bodyVisibility,p.bodyMaxAlpha,p.bodyOutputBrightness,0);gl.uniform4f(L.uBodyLensA,p.bodyLensBasePull*d,p.bodyLensPullDp*d,p.bodyLensConcentration,p.bodyLensCornerBoost);gl.uniform4f(L.uBodyLensB,p.bodyLensExtraDistance*d,p.bodyLensReachDp*d,p.bodyLensDark,p.bodyLensDebug);gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
-  gl.uniform4f(L.uRimA,p.rimWidthPx*d,p.rimSourceNearPx*d,p.rimSourceMidPx*d,p.rimSourceFarPx*d);gl.uniform4f(L.uRimB,p.rimBrightCapture,p.rimTransportStrength,p.rimTransmission,p.rimJoinSoftness);gl.uniform4f(L.uRimC,p.rimOuterReflection,p.rimInnerCaustic,p.rimHighlightPower,0);
+  gl.uniform4f(L.uRimA,p.rimWidthPx*d,p.rimSourceDepthPx*d,p.rimRefractionStrength,p.rimRefractionCurve);gl.uniform4f(L.uRimB,p.rimBrightCapture,p.rimTransportStrength,p.rimTransmission,p.rimJoinSoftness);gl.uniform4f(L.uRimC,p.rimOuterReflection,p.rimInnerCaustic,p.rimHighlightPower,0);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
 }
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refreshBackdropNow()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-rim-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.rimMode)===p.rimMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25DeepInteriorProjectionRim',rimMode:p.rimMode===0?'bodyOnly':'deepInteriorProjection',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
-function buildControls(){
-  const root=$('controls');root.innerHTML='';
-  for(const group of groups){
-    const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);
-    for(const [k,name,min,max] of group.items){
-      const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);
-      const input=$('i-'+k);
-      const applyValue=e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))scheduleBackdropRefresh();else{updateUi();render()}};
-      input.addEventListener('input',applyValue);
-      input.addEventListener('change',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))refreshBackdropNow();else{updateUi();render()}});
-    }
-  }
-  updateUi();
-}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousDeepLensRim',rimMode:p.rimMode===0?'bodyOnly':'continuousDeepLens',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
+function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);const input=$('i-'+k);const applyValue=e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))scheduleBackdropRefresh();else{updateUi();render()}};input.addEventListener('input',applyValue);input.addEventListener('change',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))refreshBackdropNow();else{updateUi();render()}})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw)refreshBackdropNow()}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
 bgUpload.addEventListener('change',e=>{const file=e.target.files&&e.target.files[0];if(!file)return;const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=url;customBgImage=img;uploadBgBtn.textContent='更换自定义背景';clearBgBtn.disabled=false;bgStatus.textContent='当前背景：'+file.name;refreshBackdropNow()};img.onerror=()=>{URL.revokeObjectURL(url);alert('图片读取失败')};img.src=url});
