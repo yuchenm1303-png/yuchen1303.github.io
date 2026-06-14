@@ -148,71 +148,69 @@ fun ChatBubbleMaterialLayer(
 ) {
     if (messages.isEmpty()) return
 
-    GlassSceneScope(GlassSceneGroup.AssistantChatBubbles) {
-        Canvas(modifier = modifier) {
-            val viewportWidth = size.width
-            val viewportHeight = size.height
-            if (viewportWidth <= 1f || viewportHeight <= 1f) return@Canvas
+    Canvas(modifier = modifier) {
+        val viewportWidth = size.width
+        val viewportHeight = size.height
+        if (viewportWidth <= 1f || viewportHeight <= 1f) return@Canvas
 
-            val visibleItems = listState.layoutInfo.visibleItemsInfo
-            if (visibleItems.isEmpty()) return@Canvas
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        if (visibleItems.isEmpty()) return@Canvas
 
-            val messageCount = messages.size
-            val horizontalPadding = 6.dp.toPx()
-            val verticalPadding = 3.dp.toPx()
-            val contentWidth = (viewportWidth - horizontalPadding * 2f).coerceAtLeast(1f)
-            val motion = motionIntensity.coerceIn(0f, 1f)
-            val basePhase = if (motion > 0.001f) phase else 0f
+        val messageCount = messages.size
+        val horizontalPadding = 6.dp.toPx()
+        val verticalPadding = 3.dp.toPx()
+        val contentWidth = (viewportWidth - horizontalPadding * 2f).coerceAtLeast(1f)
+        val motion = motionIntensity.coerceIn(0f, 1f)
+        val basePhase = if (motion > 0.001f) phase else 0f
 
-            visibleItems.forEach { item ->
-                if (item.index !in 0 until messageCount) return@forEach
+        visibleItems.forEach { item ->
+            if (item.index !in 0 until messageCount) return@forEach
 
-                val message = messages[item.index]
-                val visualInfo = layerState.visualFor(message)
-                val fromUser = visualInfo.fromUser
-                val bubbleFraction = if (fromUser) 0.76f else 0.90f
-                val bubbleWidth = contentWidth * bubbleFraction
-                val rawLeft = if (fromUser) {
-                    horizontalPadding + contentWidth - bubbleWidth
+            val message = messages[item.index]
+            val visualInfo = layerState.visualFor(message)
+            val fromUser = visualInfo.fromUser
+            val bubbleFraction = if (fromUser) 0.76f else 0.90f
+            val bubbleWidth = contentWidth * bubbleFraction
+            val rawLeft = if (fromUser) {
+                horizontalPadding + contentWidth - bubbleWidth
+            } else {
+                horizontalPadding
+            }
+            val rawTop = item.offset.toFloat() + verticalPadding
+            val rawHeight = (item.size.toFloat() - verticalPadding * 2f).coerceAtLeast(1f)
+
+            val transform = chatBubbleVisualTransform(visualInfo.appear, fromUser)
+            val pivotX = rawLeft + bubbleWidth * transform.originX
+            val pivotY = rawTop + rawHeight * transform.originY
+            val rectLeft = pivotX + (rawLeft - pivotX) * transform.scaleX + transform.translationX
+            val rectTop = pivotY + (rawTop - pivotY) * transform.scaleY + transform.translationY
+            val rectRight = pivotX + (rawLeft + bubbleWidth - pivotX) * transform.scaleX + transform.translationX
+            val rectBottom = pivotY + (rawTop + rawHeight - pivotY) * transform.scaleY + transform.translationY
+
+            val intersectsViewport = rectRight > 0f && rectLeft < viewportWidth && rectBottom > 0f && rectTop < viewportHeight
+            if (intersectsViewport && rectRight - rectLeft > 1f && rectBottom - rectTop > 1f) {
+                val thinkingSweepStrength = if (!fromUser && visualInfo.status == MessageStatus.Sending) {
+                    visualInfo.thinkingSweepStrength.coerceIn(0f, 1f)
                 } else {
-                    horizontalPadding
+                    0f
                 }
-                val rawTop = item.offset.toFloat() + verticalPadding
-                val rawHeight = (item.size.toFloat() - verticalPadding * 2f).coerceAtLeast(1f)
-
-                val transform = chatBubbleVisualTransform(visualInfo.appear, fromUser)
-                val pivotX = rawLeft + bubbleWidth * transform.originX
-                val pivotY = rawTop + rawHeight * transform.originY
-                val rectLeft = pivotX + (rawLeft - pivotX) * transform.scaleX + transform.translationX
-                val rectTop = pivotY + (rawTop - pivotY) * transform.scaleY + transform.translationY
-                val rectRight = pivotX + (rawLeft + bubbleWidth - pivotX) * transform.scaleX + transform.translationX
-                val rectBottom = pivotY + (rawTop + rawHeight - pivotY) * transform.scaleY + transform.translationY
-
-                val intersectsViewport = rectRight > 0f && rectLeft < viewportWidth && rectBottom > 0f && rectTop < viewportHeight
-                if (intersectsViewport && rectRight - rectLeft > 1f && rectBottom - rectTop > 1f) {
-                    val thinkingSweepStrength = if (!fromUser && visualInfo.status == MessageStatus.Sending) {
-                        visualInfo.thinkingSweepStrength.coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                    val sending = thinkingSweepStrength > 0.001f
-                    val itemPhase = if (sending) {
-                        ((basePhase * 3f) + visualInfo.phaseOffset) % 1f
-                    } else {
-                        (basePhase + visualInfo.phaseOffset) % 1f
-                    }
-                    drawChatBubblePrismMaterial(
-                        rect = Rect(rectLeft, rectTop, rectRight, rectBottom),
-                        phase = itemPhase,
-                        fromUser = fromUser,
-                        sending = sending,
-                        failed = visualInfo.status == MessageStatus.Failed,
-                        motionIntensity = motion,
-                        radiusDp = visualInfo.radiusDp,
-                        layerAlpha = transform.alpha,
-                        thinkingSweepStrength = thinkingSweepStrength
-                    )
+                val sending = thinkingSweepStrength > 0.001f
+                val itemPhase = if (sending) {
+                    ((basePhase * 3f) + visualInfo.phaseOffset) % 1f
+                } else {
+                    (basePhase + visualInfo.phaseOffset) % 1f
                 }
+                drawChatBubblePrismMaterial(
+                    rect = Rect(rectLeft, rectTop, rectRight, rectBottom),
+                    phase = itemPhase,
+                    fromUser = fromUser,
+                    sending = sending,
+                    failed = visualInfo.status == MessageStatus.Failed,
+                    motionIntensity = motion,
+                    radiusDp = visualInfo.radiusDp,
+                    layerAlpha = transform.alpha,
+                    thinkingSweepStrength = thinkingSweepStrength
+                )
             }
         }
     }
