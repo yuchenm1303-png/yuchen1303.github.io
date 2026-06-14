@@ -13,9 +13,6 @@ float smoother01(float x){
   x=sat(x);
   return x*x*x*(x*(x*6.0-15.0)+10.0);
 }
-float smootherRange(float a,float b,float x){
-  return smoother01((x-a)/max(b-a,.0001));
-}
 float luminanceOf(vec3 color){return dot(color,vec3(.299,.587,.114));}
 float boxSdf(vec2 p,vec2 z,float r){
   vec2 q=abs(p-z*.5)-max(z*.5-vec2(r),vec2(0.0));
@@ -115,137 +112,117 @@ vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r,float pointWeight){
 }
 
 /*
- * Capsule Deep-Lens Rim
- * 用圆截面而不是平顶遮罩：外沿、中央冠部、内沿属于同一条胶囊曲线。
- * uRimA = rimWidthPx, sourceDepthPx, refractionStrength, capsuleRoundness
- * uRimB = brightCapture, transportStrength, transmission, innerJoinSoftness
- * uRimC = outerReflection, innerCaustic, highlightPower, reserved
+ * One-Sided Rounded Shoulder Rim
+ * 只生成一个最终折射坐标：
+ * 1. 单侧圆肩法线通过 Snell 折射定位玻璃内部来源点；
+ * 2. 来源点继续进入同一套 V25.3 主体折射场；
+ * 3. 只围绕唯一坐标执行三点切线颜色足迹。
+ * 内沿 theta=0，来源点=p，最终坐标严格等于主体坐标。
+ *
+ * uRimA = rimWidthPx, opticalThicknessPx, maxBevelAngleDeg, shoulderCurve
+ * uRimB = refractiveIndex, tangentSpreadPx, footprintStrength, brightCapture
+ * uRimC = transmission, outerReflection, innerCaustic, highlightPower
  */
-void capsuleCrossSection(
-  float t,
-  float roundness,
-  float innerSoftness,
-  out float height,
-  out float slopeLobe
-){
-  float x=sat(t)*2.0-1.0;
-  float circle=max(1.0-x*x,0.0);
-  float base=sqrt(circle);
-  float rounded=pow(base,clamp(roundness,.35,2.4));
-  float outerGate=smootherRange(0.0,.035,t);
-  float innerEdge=mix(.965,.84,sat(innerSoftness));
-  float innerGate=1.0-smootherRange(innerEdge,1.0,t);
-  height=rounded*outerGate*innerGate;
-
-  /* 两侧斜面方向相反，两端和冠部都回到 0。 */
-  slopeLobe=-x*pow(circle,.36)*outerGate*innerGate;
+float roundedShoulder(float t,float curve){
+  float retreat=1.0-smoother01(sat(t));
+  return pow(max(retreat,0.0),clamp(curve,.35,3.0));
 }
 
-vec3 sampleCapsuleInteriorLens(
-  vec2 p,
-  vec2 z,
-  float r,
-  vec2 normal,
-  float t,
-  float capsuleHeight,
-  float capsuleSlope,
-  vec2 bodyOpticalCoord,
-  float bodyWeight
-){
-  float rimWidth=max(uRimA.x,1.0);
-  float maxSafeDepth=max(rimWidth*1.1,min(z.x,z.y)*.42);
-  float centerDepth=clamp(uRimA.y,rimWidth*1.1,maxSafeDepth);
-  float strength=clamp(uRimA.z,0.0,1.35);
-
-  /* 中央冠部深入玻璃，两侧斜面产生方向相反的少量折射偏置。 */
-  float depthFromThickness=centerDepth*capsuleHeight;
-  float slopeOffset=rimWidth*.82*strength*capsuleSlope;
-  float sourceDepth=clamp(
-      depthFromThickness+slopeOffset,
-      0.0,
-      maxSafeDepth
-  );
-
-  vec2 sourcePoint=p-normal*sourceDepth;
-  float sourceWeight=evaluateBodyWeightAt(sourcePoint,z,r);
-  vec2 sourceOpticalCoord=evaluateBodyOpticalCoordAt(sourcePoint,z,r,sourceWeight);
-
-  float coordinateAmount=sat(capsuleHeight*strength*sat(uRimB.y));
-  vec2 lensOpticalCoord=mix(bodyOpticalCoord,sourceOpticalCoord,coordinateAmount);
-  float lensWeight=mix(bodyWeight,sourceWeight,coordinateAmount);
-  vec3 refractedColor=sampleBodyMaterial(globalUv(lensOpticalCoord),lensWeight);
-
-  /* 中层锚点只提供亮色浓缩，不再引入第二套几何形状。 */
-  float anchorDepth=centerDepth*capsuleHeight;
-  vec2 anchorPoint=p-normal*anchorDepth;
-  float anchorWeight=evaluateBodyWeightAt(anchorPoint,z,r);
-  vec2 anchorOpticalCoord=evaluateBodyOpticalCoordAt(anchorPoint,z,r,anchorWeight);
-  vec3 anchorColor=sampleBodyMaterial(globalUv(anchorOpticalCoord),anchorWeight);
-
-  float capture=clamp(uRimB.x,0.0,4.0);
-  float refractedLuma=luminanceOf(refractedColor);
-  float anchorLuma=luminanceOf(anchorColor);
-  float captureAmount=
-      sat(max(anchorLuma-refractedLuma,0.0)*capture*.58)
-      *coordinateAmount;
-  refractedColor*=1.0+captureAmount*.30;
-  return refractedColor;
-}
-
-vec3 projectCapsuleInteriorLens(
+vec3 renderUnifiedRoundedRim(
   vec2 p,
   vec2 z,
   float r,
   float sd,
-  vec2 normal,
+  vec2 edgeNormal,
   vec2 bodyOpticalCoord,
-  float bodyWeight,
-  vec3 bodyColor
+  float bodyWeight
 ){
   float rimWidth=max(uRimA.x,1.0);
   float depth=max(-sd,0.0);
   float t=sat(depth/rimWidth);
+  float shoulder=roundedShoulder(t,uRimA.w);
 
-  float capsuleHeight=0.0;
-  float capsuleSlope=0.0;
-  capsuleCrossSection(
-      t,uRimA.w,uRimB.w,capsuleHeight,capsuleSlope
+  float maxAngle=clamp(uRimA.z,0.0,78.0)*.01745329252;
+  float theta=maxAngle*shoulder;
+  float sinTheta=sin(theta);
+  float cosTheta=cos(theta);
+  vec3 surfaceNormal=normalize(vec3(edgeNormal*sinTheta,cosTheta));
+
+  vec3 viewRay=vec3(0.0,0.0,-1.0);
+  float ior=clamp(uRimB.x,1.01,1.85);
+  vec3 refractedRay=refract(viewRay,surfaceNormal,1.0/ior);
+  float rayZ=max(-refractedRay.z,.22);
+  vec2 rayOffset=refractedRay.xy/rayZ*max(uRimA.y,0.0);
+  float maxSafeOffset=max(rimWidth*1.1,min(z.x,z.y)*.44);
+  rayOffset=softLimit(rayOffset,maxSafeOffset);
+
+  vec2 sourcePoint=p+rayOffset;
+  float sourceWeight=evaluateBodyWeightAt(sourcePoint,z,r);
+  vec2 finalOpticalCoord=evaluateBodyOpticalCoordAt(
+      sourcePoint,z,r,sourceWeight
   );
 
-  vec3 lensColor=sampleCapsuleInteriorLens(
-      p,z,r,normal,t,capsuleHeight,capsuleSlope,
-      bodyOpticalCoord,bodyWeight
+  /* 内沿 sourcePoint=p，因此这里与主体完全是同一个最终坐标。 */
+  vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+  float footprint=sat(shoulder*clamp(uRimB.z,0.0,1.0));
+  float spread=max(uRimB.y,0.0)*footprint;
+
+  vec3 centerColor=sampleBodyMaterial(
+      globalUv(finalOpticalCoord),sourceWeight
+  );
+  vec3 plusColor=sampleBodyMaterial(
+      globalUv(finalOpticalCoord+tangent*spread),sourceWeight
+  );
+  vec3 minusColor=sampleBodyMaterial(
+      globalUv(finalOpticalCoord-tangent*spread),sourceWeight
   );
 
-  float transmission=mix(
-      1.0,
-      clamp(uRimB.z,.45,1.15),
-      capsuleHeight
-  );
-  vec3 transmitted=lensColor*transmission;
-  float materialCoverage=sat(capsuleHeight*sat(uRimB.y));
-  vec3 color=mix(bodyColor,transmitted,materialCoverage);
+  float sideWeight=.22*footprint;
+  float centerWeight=1.0-sideWeight*2.0;
+  vec3 transmitted=
+      centerColor*centerWeight
+      +plusColor*sideWeight
+      +minusColor*sideWeight;
+
+  /* 深层亮色只改变能量，不再生成另一幅几何不同的边缘图像。 */
+  float centerLuma=luminanceOf(centerColor);
+  float peakLuma=max(centerLuma,max(luminanceOf(plusColor),luminanceOf(minusColor)));
+  float capture=sat((peakLuma-centerLuma)*max(uRimB.w,0.0));
+  transmitted*=1.0+capture*.20*shoulder;
+  transmitted*=mix(1.0,clamp(uRimC.x,.45,1.15),shoulder);
+
+  /* Fresnel 与方向亮面属于同一个边框材质，不建立独立发光层。 */
+  float cosIncidence=sat(dot(-viewRay,surfaceNormal));
+  float f0=(ior-1.0)/(ior+1.0);
+  f0*=f0;
+  float fresnel=f0+(1.0-f0)*pow(1.0-cosIncidence,5.0);
 
   vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
   vec2 lightAnchor=vec2(-1.18,-1.58);
   vec2 toLight=lightAnchor-local;
   float lightDistance2=max(dot(toLight,toLight),.001);
   vec2 lightDirection=toLight*inversesqrt(lightDistance2);
-  float facing=sat(dot(normal,lightDirection));
-  float directional=pow(facing,max(uRimC.z,1.0));
+  float facing=sat(dot(edgeNormal,lightDirection));
+  float directional=pow(facing,max(uRimC.w,1.0));
   float falloff=1.0/(1.0+lightDistance2*.40);
 
-  float outerLineWidth=max(1.0,min(1.7,rimWidth*.14));
-  float outerLine=1.0-smoothstep(0.0,outerLineWidth,depth);
-  float outerAmount=outerLine*(.024+directional*falloff*max(uRimC.x,0.0)*.40);
-  vec3 reflectedColor=mix(color,lensColor,.74);
-  reflectedColor=mix(reflectedColor,vec3(1.0,.995,.98),.13*directional);
-  color=mix(color,reflectedColor,sat(outerAmount));
+  float reflectionAmount=sat(
+      fresnel
+      *max(uRimC.y,0.0)
+      *pow(shoulder,1.45)
+      *(.34+.66*directional*falloff)
+  );
+  vec3 reflectionColor=mix(
+      transmitted,
+      vec3(1.0,.995,.98),
+      .28+.30*directional
+  );
+  vec3 color=mix(transmitted,reflectionColor,reflectionAmount);
 
-  /* 内沿焦散放在胶囊内侧斜面，而不是平台末端。 */
-  float innerShoulder=pow(sat(-capsuleSlope),1.35);
-  float causticAmount=innerShoulder*max(uRimC.y,0.0)*.18;
-  vec3 causticColor=mix(lensColor,vec3(1.0,.985,.95),.10);
+  /* 内沿只保留极弱焦散，且在进入主体前归零。 */
+  float innerLine=1.0-smoothstep(.055,.17,abs(t-.76));
+  float causticAmount=innerLine*max(uRimC.z,0.0)*.14*(1.0-t);
+  vec3 causticColor=mix(color,vec3(1.0,.985,.95),.10);
   color=mix(color,causticColor,sat(causticAmount));
 
   float peak=max(max(color.r,color.g),color.b);
@@ -266,15 +243,15 @@ void main(){
   vec2 normal=perimeterNormalAt(p,z,r);
   vec2 mainBodyFlow=bodyRefractionFlow(normal,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
-  vec2 opticalCoord=p+mainBodyFlow+centerFlow;
-  vec3 color=sampleBodyMaterial(globalUv(opticalCoord),bodyWeight);
+  vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow;
+  vec3 color=sampleBodyMaterial(globalUv(bodyOpticalCoord),bodyWeight);
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
   if(uRimMode>.5&&depth<uRimA.x){
-    color=projectCapsuleInteriorLens(
-        p,z,r,sd,normal,opticalCoord,bodyWeight,color
+    color=renderUnifiedRoundedRim(
+        p,z,r,sd,normal,bodyOpticalCoord,bodyWeight
     );
   }
 
