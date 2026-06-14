@@ -20,7 +20,7 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform vec4 uBodyLensB;
         uniform vec4 uBody;
         uniform vec4 uShoulder;
-        uniform float uShoulderCaptureWidth;
+        uniform vec4 uShoulderFlow;
         uniform float uRadius;
         uniform float uIntensity;
         uniform float uTextureReady;
