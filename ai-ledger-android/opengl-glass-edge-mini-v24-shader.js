@@ -101,8 +101,6 @@ vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   return color;
 }
-
-/* 在任意玻璃内部点复用完整 V25.3 主体折射。 */
 vec3 evaluateBodyColorAt(vec2 point,vec2 z,float r){
   float pointSd=boxSdf(point,z,r);
   float pointDepth=max(-pointSd,0.0);
@@ -116,12 +114,16 @@ vec3 evaluateBodyColorAt(vec2 point,vec2 z,float r){
 }
 
 /*
- * Deep Interior Projection Rim
- * uRimA = rimWidthPx, sourceNearPx, sourceMidPx, sourceFarPx
+ * Continuous Deep-Lens Rim
+ * 只保留一个中层深度；近/远来源由中层深度自动生成。
+ * 取样位置随边缘截面连续扫过整条内部走廊，因此不是贴一块深层颜色，
+ * 而是把较宽的内部范围压缩成窄边缘折射带。
+ *
+ * uRimA = rimWidthPx, sourceDepthPx, refractionStrength, refractionCurve
  * uRimB = brightCapture, transportStrength, transmission, joinSoftness
  * uRimC = outerReflection, innerCaustic, highlightPower, reserved
  */
-vec3 sampleDeepInteriorCorridor(
+vec3 sampleContinuousInteriorLens(
   vec2 p,
   vec2 z,
   float r,
@@ -130,37 +132,42 @@ vec3 sampleDeepInteriorCorridor(
 ){
   float rimWidth=max(uRimA.x,1.0);
   float maxSafeDepth=max(rimWidth*1.1,min(z.x,z.y)*.42);
-  float nearDepth=clamp(uRimA.y,rimWidth*1.05,maxSafeDepth);
-  float midDepth=clamp(max(uRimA.z,nearDepth+1.0),nearDepth,maxSafeDepth);
-  float farDepth=clamp(max(uRimA.w,midDepth+1.0),midDepth,maxSafeDepth);
+  float centerDepth=clamp(uRimA.y,rimWidth*1.1,maxSafeDepth);
+  float strength=clamp(uRimA.z,0.0,1.35);
+  float curve=max(uRimA.w,.30);
 
-  vec3 nearColor=evaluateBodyColorAt(p-normal*nearDepth,z,r);
-  vec3 midColor=evaluateBodyColorAt(p-normal*midDepth,z,r);
-  vec3 farColor=evaluateBodyColorAt(p-normal*farDepth,z,r);
+  float safeT=clamp(t,.0001,.9999);
+  float ta=pow(safeT,curve);
+  float tb=pow(1.0-safeT,curve);
+  float shapedT=ta/max(ta+tb,.0001);
+  float lensT=.5-.5*cos(3.14159265*shapedT);
+
+  float corridorHalfSpan=min(
+      centerDepth*.58,
+      max(rimWidth*1.85,centerDepth*.31)
+  )*strength;
+  float corridorOffset=(1.0-2.0*lensT)*corridorHalfSpan;
+  float crown=sin(3.14159265*t);
+  float crownPull=rimWidth*.22*strength*crown*crown;
+  float mappedDepth=clamp(
+      centerDepth+corridorOffset+crownPull,
+      rimWidth*1.05,
+      maxSafeDepth
+  );
+
+  vec3 refractedColor=evaluateBodyColorAt(p-normal*mappedDepth,z,r);
+  vec3 anchorColor=evaluateBodyColorAt(p-normal*centerDepth,z,r);
 
   float capture=clamp(uRimB.x,0.0,4.0);
-  float nearLuma=clamp(luminanceOf(nearColor),0.0,1.35);
-  float midLuma=clamp(luminanceOf(midColor),0.0,1.35);
-  float farLuma=clamp(luminanceOf(farColor),0.0,1.35);
-
-  /* 将整条深层走廊压缩进边缘：外段偏远层，中段偏中层，内段偏近层。 */
-  float nearPreference=smoother01(t);
-  float farPreference=1.0-smoother01(t);
-  float crownPreference=smoother01(1.0-abs(t*2.0-1.0));
-
-  float nearWeight=(.18+.82*nearPreference)*exp2(nearLuma*capture);
-  float midWeight=(.32+.78*crownPreference)*exp2(midLuma*capture);
-  float farWeight=(.18+.82*farPreference)*exp2(farLuma*capture);
-  float weightSum=max(nearWeight+midWeight+farWeight,.0001);
-
+  float refractedWeight=exp2(clamp(luminanceOf(refractedColor),0.0,1.35)*capture);
+  float anchorWeight=(.28+.30*crown)*exp2(clamp(luminanceOf(anchorColor),0.0,1.35)*capture);
   return (
-      nearColor*nearWeight
-      +midColor*midWeight
-      +farColor*farWeight
-  )/weightSum;
+      refractedColor*refractedWeight
+      +anchorColor*anchorWeight
+  )/max(refractedWeight+anchorWeight,.0001);
 }
 
-vec3 projectDeepInteriorIntoRim(
+vec3 projectContinuousInteriorLens(
   vec2 p,
   vec2 z,
   float r,
@@ -173,17 +180,16 @@ vec3 projectDeepInteriorIntoRim(
   float t=sat(depth/rimWidth);
   float joinSoftness=sat(uRimB.w);
 
-  float outerRise=smootherRange(0.0,.105,t);
-  float innerStart=mix(.82,.56,joinSoftness);
+  float outerRise=smootherRange(0.0,.055,t);
+  float innerStart=mix(.84,.60,joinSoftness);
   float innerFall=1.0-smootherRange(innerStart,1.0,t);
-  float transportMask=outerRise*innerFall;
+  float lensMask=outerRise*innerFall;
 
-  vec3 deepColor=sampleDeepInteriorCorridor(p,z,r,normal,t);
-  vec3 transmitted=deepColor*clamp(uRimB.z,.45,1.15);
-  float transportAmount=transportMask*sat(uRimB.y);
-  vec3 color=mix(bodyColor,transmitted,transportAmount);
+  vec3 lensColor=sampleContinuousInteriorLens(p,z,r,normal,t);
+  vec3 transmitted=lensColor*clamp(uRimB.z,.45,1.15);
+  float projectionAmount=lensMask*sat(uRimB.y);
+  vec3 color=mix(bodyColor,transmitted,projectionAmount);
 
-  /* 外沿反射只占极窄表面，并沿虚拟光源方向变化。 */
   vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
   vec2 lightAnchor=vec2(-1.18,-1.58);
   vec2 toLight=lightAnchor-local;
@@ -193,22 +199,21 @@ vec3 projectDeepInteriorIntoRim(
   float directional=pow(facing,max(uRimC.z,1.0));
   float falloff=1.0/(1.0+lightDistance2*.40);
 
-  float outerLineWidth=max(1.0,min(1.8,rimWidth*.15));
+  float outerLineWidth=max(1.0,min(1.7,rimWidth*.14));
   float outerLine=1.0-smoothstep(0.0,outerLineWidth,depth);
-  float outerAmount=outerLine*(.035+directional*falloff*max(uRimC.x,0.0)*.48);
-  vec3 reflectedColor=mix(color,deepColor,.64);
-  reflectedColor=mix(reflectedColor,vec3(1.0,.995,.98),.18*directional);
+  float outerAmount=outerLine*(.028+directional*falloff*max(uRimC.x,0.0)*.42);
+  vec3 reflectedColor=mix(color,lensColor,.72);
+  reflectedColor=mix(reflectedColor,vec3(1.0,.995,.98),.14*directional);
   color=mix(color,reflectedColor,sat(outerAmount));
 
-  /* 内沿焦散继续使用深层颜色，只加入极少暖白收口。 */
-  float innerCenter=mix(.79,.70,joinSoftness);
-  float innerLine=1.0-smoothstep(.035,.125,abs(t-innerCenter));
-  float causticAmount=innerLine*max(uRimC.y,0.0)*.22;
-  vec3 causticColor=mix(deepColor,vec3(1.0,.985,.95),.16);
+  float innerCenter=mix(.80,.71,joinSoftness);
+  float innerLine=1.0-smoothstep(.028,.115,abs(t-innerCenter));
+  float causticAmount=innerLine*max(uRimC.y,0.0)*.20;
+  vec3 causticColor=mix(lensColor,vec3(1.0,.985,.95),.12);
   color=mix(color,causticColor,sat(causticAmount));
 
   float peak=max(max(color.r,color.g),color.b);
-  color/=1.0+max(peak-1.0,0.0)*.24;
+  color/=1.0+max(peak-1.0,0.0)*.22;
   return color;
 }
 
@@ -232,7 +237,7 @@ void main(){
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
   if(uRimMode>.5&&depth<uRimA.x){
-    color=projectDeepInteriorIntoRim(p,z,r,sd,normal,color);
+    color=projectContinuousInteriorLens(p,z,r,sd,normal,color);
   }
 
   float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
