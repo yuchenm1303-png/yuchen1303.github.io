@@ -101,23 +101,26 @@ vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
   color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   return color;
 }
-vec3 evaluateBodyColorAt(vec2 point,vec2 z,float r){
+float evaluateBodyWeightAt(vec2 point,vec2 z,float r){
+  float pointSd=boxSdf(point,z,r);
+  return bodyLensWeight(max(-pointSd,0.0),z,r);
+}
+vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r,float pointWeight){
   float pointSd=boxSdf(point,z,r);
   float pointDepth=max(-pointSd,0.0);
-  float pointWeight=bodyLensWeight(pointDepth,z,r);
   vec2 pointNormal=perimeterNormalAt(point,z,r);
-  vec2 pointOpticalCoord=
-      point
+  return point
       +bodyRefractionFlow(pointNormal,z,r,pointDepth,pointWeight)
       +centerTransport(point,z);
-  return sampleBodyMaterial(globalUv(pointOpticalCoord),pointWeight);
 }
 
 /*
  * Continuous Deep-Lens Rim
- * 只保留一个中层深度；近/远来源由中层深度自动生成。
- * 取样位置随边缘截面连续扫过整条内部走廊，因此不是贴一块深层颜色，
- * 而是把较宽的内部范围压缩成窄边缘折射带。
+ * 深层来源在边缘内部仍保持强折射，但靠近主体内沿时：
+ * 1. 深层取样距离连续收缩到 0；
+ * 2. 深层光学坐标连续收敛到当前主体光学坐标；
+ * 3. 亮色捕获只改变能量，不再混入另一幅不同宽度的图像。
+ * 因而接缝处的位置、宽度和一阶变化率都与主体一致。
  *
  * uRimA = rimWidthPx, sourceDepthPx, refractionStrength, refractionCurve
  * uRimB = brightCapture, transportStrength, transmission, joinSoftness
@@ -128,7 +131,11 @@ vec3 sampleContinuousInteriorLens(
   vec2 z,
   float r,
   vec2 normal,
-  float t
+  float t,
+  float opticalJoin,
+  float outerRise,
+  vec2 bodyOpticalCoord,
+  float bodyWeight
 ){
   float rimWidth=max(uRimA.x,1.0);
   float maxSafeDepth=max(rimWidth*1.1,min(z.x,z.y)*.42);
@@ -149,22 +156,36 @@ vec3 sampleContinuousInteriorLens(
   float corridorOffset=(1.0-2.0*lensT)*corridorHalfSpan;
   float crown=sin(3.14159265*t);
   float crownPull=rimWidth*.22*strength*crown*crown;
-  float mappedDepth=clamp(
+  float rawMappedDepth=clamp(
       centerDepth+corridorOffset+crownPull,
       rimWidth*1.05,
       maxSafeDepth
   );
 
-  vec3 refractedColor=evaluateBodyColorAt(p-normal*mappedDepth,z,r);
-  vec3 anchorColor=evaluateBodyColorAt(p-normal*centerDepth,z,r);
+  /* 内沿处源点本身退回当前像素，而不是只把两幅颜色交叉淡化。 */
+  float sourceDepth=rawMappedDepth*opticalJoin;
+  vec2 sourcePoint=p-normal*sourceDepth;
+  float sourceWeight=evaluateBodyWeightAt(sourcePoint,z,r);
+  vec2 sourceOpticalCoord=evaluateBodyOpticalCoordAt(sourcePoint,z,r,sourceWeight);
+
+  float coordinateAmount=outerRise*opticalJoin*sat(uRimB.y);
+  vec2 lensOpticalCoord=mix(bodyOpticalCoord,sourceOpticalCoord,coordinateAmount);
+  float lensWeight=mix(bodyWeight,sourceWeight,coordinateAmount);
+  vec3 refractedColor=sampleBodyMaterial(globalUv(lensOpticalCoord),lensWeight);
+
+  /* 固定中层只用于亮度估计，不再把不同几何宽度的 anchorColor 混进结果。 */
+  float anchorDepth=centerDepth*opticalJoin;
+  vec2 anchorPoint=p-normal*anchorDepth;
+  float anchorWeight=evaluateBodyWeightAt(anchorPoint,z,r);
+  vec2 anchorOpticalCoord=evaluateBodyOpticalCoordAt(anchorPoint,z,r,anchorWeight);
+  vec3 anchorColor=sampleBodyMaterial(globalUv(anchorOpticalCoord),anchorWeight);
 
   float capture=clamp(uRimB.x,0.0,4.0);
-  float refractedWeight=exp2(clamp(luminanceOf(refractedColor),0.0,1.35)*capture);
-  float anchorWeight=(.28+.30*crown)*exp2(clamp(luminanceOf(anchorColor),0.0,1.35)*capture);
-  return (
-      refractedColor*refractedWeight
-      +anchorColor*anchorWeight
-  )/max(refractedWeight+anchorWeight,.0001);
+  float refractedLuma=luminanceOf(refractedColor);
+  float anchorLuma=luminanceOf(anchorColor);
+  float captureAmount=sat(max(anchorLuma-refractedLuma,0.0)*capture*.62)*coordinateAmount;
+  refractedColor*=1.0+captureAmount*.34;
+  return refractedColor;
 }
 
 vec3 projectContinuousInteriorLens(
@@ -173,6 +194,8 @@ vec3 projectContinuousInteriorLens(
   float r,
   float sd,
   vec2 normal,
+  vec2 bodyOpticalCoord,
+  float bodyWeight,
   vec3 bodyColor
 ){
   float rimWidth=max(uRimA.x,1.0);
@@ -182,13 +205,14 @@ vec3 projectContinuousInteriorLens(
 
   float outerRise=smootherRange(0.0,.055,t);
   float innerStart=mix(.84,.60,joinSoftness);
-  float innerFall=1.0-smootherRange(innerStart,1.0,t);
-  float lensMask=outerRise*innerFall;
+  float opticalJoin=1.0-smootherRange(innerStart,1.0,t);
+  float lensMask=outerRise*opticalJoin;
 
-  vec3 lensColor=sampleContinuousInteriorLens(p,z,r,normal,t);
+  vec3 lensColor=sampleContinuousInteriorLens(
+      p,z,r,normal,t,opticalJoin,outerRise,bodyOpticalCoord,bodyWeight
+  );
   vec3 transmitted=lensColor*clamp(uRimB.z,.45,1.15);
-  float projectionAmount=lensMask*sat(uRimB.y);
-  vec3 color=mix(bodyColor,transmitted,projectionAmount);
+  vec3 color=mix(bodyColor,transmitted,lensMask);
 
   vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
   vec2 lightAnchor=vec2(-1.18,-1.58);
@@ -208,7 +232,7 @@ vec3 projectContinuousInteriorLens(
 
   float innerCenter=mix(.80,.71,joinSoftness);
   float innerLine=1.0-smoothstep(.028,.115,abs(t-innerCenter));
-  float causticAmount=innerLine*max(uRimC.y,0.0)*.20;
+  float causticAmount=innerLine*max(uRimC.y,0.0)*.20*opticalJoin;
   vec3 causticColor=mix(lensColor,vec3(1.0,.985,.95),.12);
   color=mix(color,causticColor,sat(causticAmount));
 
@@ -237,7 +261,9 @@ void main(){
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
   if(uRimMode>.5&&depth<uRimA.x){
-    color=projectContinuousInteriorLens(p,z,r,sd,normal,color);
+    color=projectContinuousInteriorLens(
+        p,z,r,sd,normal,opticalCoord,bodyWeight,color
+    );
   }
 
   float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
