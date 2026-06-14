@@ -10,7 +10,7 @@ const APP_RAW={
   bodyLensExtraDistance:200,bodyLensReachDp:180,bodyLensDark:.23041474654378,bodyLensDebug:0,
   bodyLowFrequencyWidth:1.25059907834101,bodyLowFrequencyCurve:.2,bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,glassIntensity:1.35,
-  edgeMode:1,
+  edgeMode:2,
   shoulderWidthPx:21.7162162162162,
   shoulderMaxAngleDeg:89.5,
   shoulderFalloffRoundness:0,
@@ -98,7 +98,8 @@ function render(){
 }
 
 function format(v){return String(Math.round(v*1000)/1000)}
-function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_4OuterPeakFixedCaptureShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'outerPeakFixedCaptureShoulder',peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
+function edgeModeName(mode){return mode===0?'pureV25_3Body':mode===1?'originalV29_4LocalNormalCapture':'unifiedPerimeterContourMapping'}
+function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_5UnifiedPerimeterMappingTest',edgeMode:edgeModeName(p.edgeMode),peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:p.edgeMode===2?'sharedInnerContourC1Convergence':'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
 function refresh(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=0;rebuildBackdrop();updateUi();render()}
 function schedule(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=requestAnimationFrame(()=>{backdropFrame=0;rebuildBackdrop();updateUi();render()})}
 
@@ -117,4 +118,4 @@ moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.t
 function resize(){const d=dpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refresh()}
 window.addEventListener('resize',resize);scroll.addEventListener('scroll',render,{passive:true});window.addEventListener('beforeunload',()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl)});
 
-try{document.title='OpenGL V29.4 · Outer-Peak Fixed-Capture Shoulder';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
+try{document.title='OpenGL V29.5 · Unified Perimeter Mapping Test';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
