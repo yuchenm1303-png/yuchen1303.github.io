@@ -52,6 +52,14 @@ const $=id=>document.getElementById(id),stage=$('stage'),scroll=$('scroll'),glas
 const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),sourceCanvas=document.createElement('canvas'),sourceCtx=sourceCanvas.getContext('2d'),colorCanvas=document.createElement('canvas'),colorCtx=colorCanvas.getContext('2d'),blurLevelA=document.createElement('canvas'),blurLevelACtx=blurLevelA.getContext('2d'),blurLevelB=document.createElement('canvas'),blurLevelBCtx=blurLevelB.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
 let gl,program,buffer,L,blurTex;
 let backdropRefreshFrame=0,backdropRevision=0;
+function prepareShellUi(){
+  document.title='OpenGL V26 · Single Body Optical Field';
+  const heading=document.querySelector('.panel h2');if(heading)heading.textContent='V26 · 单一主体折射场';
+  const subtitle=document.querySelector('.ui p');if(subtitle)subtitle.textContent='single V25.3 body field · integrated edge deformation';
+  const previewTitle=document.querySelector('.panel .groupTitle');if(previewTitle)previewTitle.textContent='主体折射场边缘对比 Body Edge Comparison';
+  document.querySelectorAll('[data-rim-mode]').forEach(btn=>{btn.dataset.edgeMode=btn.dataset.rimMode;btn.removeAttribute('data-rim-mode');btn.textContent=btn.dataset.edgeMode==='0'?'原始 V25.3 主体':'主体边缘增强（同一折射场）'});
+  if(bgUpload){bgUpload.type='file';bgUpload.accept='image/*'}
+}
 function initGl(){
   gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:false});
   if(!gl)throw new Error('当前浏览器未启用 WebGL');
@@ -144,4 +152,4 @@ document.querySelectorAll('[data-edge-mode]').forEach(btn=>btn.addEventListener(
 resetBodyBtn.addEventListener('click',()=>{p={...APP_RAW};refreshBackdropNow()});
 moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.textContent=blurMoonVisible?'隐藏模糊层月亮':'显示模糊层月亮';moonBtn.classList.toggle('on',blurMoonVisible);refreshBackdropNow()});
 window.addEventListener('resize',resize);scroll.addEventListener('scroll',render,{passive:true});window.addEventListener('beforeunload',()=>{cancelScheduledBackdropRefresh();if(customBgUrl)URL.revokeObjectURL(customBgUrl)});
-try{initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refreshBackdropNow,render}})}catch(err){errorEl.textContent=String(err&&err.stack||err);console.error(err)}
+try{prepareShellUi();initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refreshBackdropNow,render}})}catch(err){errorEl.textContent=String(err&&err.stack||err);console.error(err)}
