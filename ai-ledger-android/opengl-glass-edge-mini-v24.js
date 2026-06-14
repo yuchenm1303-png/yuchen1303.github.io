@@ -27,18 +27,17 @@ const APP_RAW={
   glassIntensity:1.35,
 
   rimMode:1,
-  rimWidthPx:13,
-  rimProfilePower:2.2,
-  rimRefractiveIndex:1.42,
-  rimOpticalThickness:.74,
-  rimInnerBevelRatio:.62,
-  rimCrownPullRatio:.105,
-  rimAbsorption:.16,
-  rimStrength:.94,
-  rimOuterHighlight:.58,
-  rimInnerCaustic:.26,
-  rimHighlightPower:3.2,
-  rimCrownClarity:.20
+  rimWidthPx:12,
+  rimSourceNearPx:18,
+  rimSourceMidPx:38,
+  rimSourceFarPx:72,
+  rimBrightCapture:2.55,
+  rimTransportStrength:.90,
+  rimTransmission:.94,
+  rimJoinSoftness:.64,
+  rimOuterReflection:.58,
+  rimInnerCaustic:.28,
+  rimHighlightPower:3.2
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
 const groups=[
@@ -51,8 +50,8 @@ const groups=[
   {title:'主体低频运输 Body Low-Frequency Transport',items:[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'圆润倒角折射带 Rounded Bevel Rim',items:[
-    ['rimWidthPx','边缘折射带宽度',6,20],['rimProfilePower','截面圆润度',1.15,4],['rimRefractiveIndex','玻璃折射率',1.01,1.85],['rimOpticalThickness','光学厚度',0,1.2],['rimInnerBevelRatio','内侧斜面强度',0,1],['rimCrownPullRatio','冠部内拉量',0,.28],['rimCrownClarity','冠部颜色凝聚',0,.5],['rimAbsorption','厚度吸收',0,1],['rimOuterHighlight','外沿亮面强度',0,1.2],['rimInnerCaustic','内沿焦散强度',0,1],['rimHighlightPower','亮面方向集中度',1,8],['rimStrength','边框整体强度',0,1]
+  {title:'深层内部投射边缘 Deep Interior Projection Rim',items:[
+    ['rimWidthPx','边缘投射带宽度',6,20],['rimSourceNearPx','近层取样深度',6,45],['rimSourceMidPx','中层取样深度',12,80],['rimSourceFarPx','远层取样深度',24,130],['rimBrightCapture','内部亮色捕获',0,4],['rimTransportStrength','深层颜色投射强度',0,1],['rimTransmission','边缘透射率',.45,1.15],['rimJoinSoftness','主体衔接柔度',0,1],['rimOuterReflection','外沿反射强度',0,1.2],['rimInnerCaustic','内沿焦散强度',0,1],['rimHighlightPower','亮面方向集中度',1,8]
   ]}
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
@@ -115,13 +114,13 @@ function render(){
   gl.uniform2f(L.uRes,cv.width,cv.height);gl.uniform2f(L.uOrigin,q.x*d,q.y*d);gl.uniform2f(L.uRoot,bg.width,bg.height);
   gl.uniform1f(L.uRadius,46*d);gl.uniform1f(L.uIntensity,p.glassIntensity);gl.uniform1f(L.uRimMode,p.rimMode);
   gl.uniform4f(L.uMat,p.bodyVisibility,p.bodyMaxAlpha,p.bodyOutputBrightness,0);gl.uniform4f(L.uBodyLensA,p.bodyLensBasePull*d,p.bodyLensPullDp*d,p.bodyLensConcentration,p.bodyLensCornerBoost);gl.uniform4f(L.uBodyLensB,p.bodyLensExtraDistance*d,p.bodyLensReachDp*d,p.bodyLensDark,p.bodyLensDebug);gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
-  gl.uniform4f(L.uRimA,p.rimWidthPx*d,p.rimProfilePower,p.rimRefractiveIndex,p.rimOpticalThickness);gl.uniform4f(L.uRimB,p.rimInnerBevelRatio,p.rimCrownPullRatio,p.rimAbsorption,p.rimStrength);gl.uniform4f(L.uRimC,p.rimOuterHighlight,p.rimInnerCaustic,p.rimHighlightPower,p.rimCrownClarity);
+  gl.uniform4f(L.uRimA,p.rimWidthPx*d,p.rimSourceNearPx*d,p.rimSourceMidPx*d,p.rimSourceFarPx*d);gl.uniform4f(L.uRimB,p.rimBrightCapture,p.rimTransportStrength,p.rimTransmission,p.rimJoinSoftness);gl.uniform4f(L.uRimC,p.rimOuterReflection,p.rimInnerCaustic,p.rimHighlightPower,0);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
 }
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refreshBackdropNow()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-rim-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.rimMode)===p.rimMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25RoundedBevelRim',rimMode:p.rimMode===0?'bodyOnly':'roundedBevelRim',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25DeepInteriorProjectionRim',rimMode:p.rimMode===0?'bodyOnly':'deepInteriorProjection',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
 function buildControls(){
   const root=$('controls');root.innerHTML='';
   for(const group of groups){
