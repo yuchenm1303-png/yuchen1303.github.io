@@ -5,7 +5,8 @@ window.OpenGLV24Shaders={
 uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
-uniform float uRadius,uIntensity;
+uniform vec4 uRimA,uRimB;
+uniform float uRadius,uIntensity,uRimMode;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float boxSdf(vec2 p,vec2 z,float r){
@@ -25,6 +26,7 @@ vec2 softLimit(vec2 v,float lim){
   return v*(m/max(n,.0001));
 }
 
+/* V25.3 主体折射稳定基准。 */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
   vec2 core=max(z*.5-vec2(r),vec2(0.0));
@@ -49,8 +51,7 @@ float bodyLensWeight(float depth,vec2 z,float r){
   float concentration=mix(.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
   return pow(1.0-smooth,concentration);
 }
-vec2 bodyRefractionFlow(vec2 p,vec2 z,float r,float depth,float weight){
-  vec2 n=perimeterNormalAt(p,z,r);
+vec2 bodyRefractionFlow(vec2 n,vec2 z,float r,float depth,float weight){
   float rawPull=abs(uBodyLensA.y)*.052+abs(uBodyLensA.x)*.20+max(uBodyLensB.x,0.0)*.12;
   float core=pow(weight,1.28);
   float reach=bodyLensReach(z,r);
@@ -85,6 +86,64 @@ vec2 centerTransport(vec2 p,vec2 z){
   vec2 flow=polynomialTransport(u)*amplitude*centerEnvelope(u);
   return softLimit(flow,mix(52.0,118.0,gain));
 }
+vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
+  vec3 color=bodyBackdrop(uv);
+  float opticalBoost=1.0+bodyWeight*.24;
+  color*=uBody.w*uMat.z*opticalBoost;
+  color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
+  return color;
+}
+
+/* 连续厚玻璃截面：不分层、不改 alpha，只对主体材质做连续法线折射。 */
+vec3 continuousGlassRim(
+  vec2 p,
+  vec2 z,
+  float sd,
+  vec2 normal,
+  vec2 bodyCoord,
+  float bodyWeight,
+  vec3 bodyColor,
+  out float rimInfluence
+){
+  float rimWidth=max(uRimA.x,1.0);
+  float depth=max(-sd,0.0);
+  float t=sat(depth/rimWidth);
+  float smoothT=t*t*(3.0-2.0*t);
+  float envelope=(1.0-smoothT)*step(sd,0.0);
+
+  float curvature=max(uRimA.y,.01);
+  float profile=sin(3.14159265*t);
+  float slopeInput=cos(3.14159265*t)*curvature*2.4;
+  float slope=slopeInput/(1.0+abs(slopeInput));
+  float refractPx=max(uRimA.z,0.0)*slope*envelope;
+  vec2 rimCoord=bodyCoord-normal*refractPx;
+  vec3 rimSample=sampleBodyMaterial(globalUv(rimCoord),bodyWeight);
+  vec3 rimColor=mix(bodyColor,rimSample,sat(uRimA.w)*envelope);
+
+  float absorptionShape=profile*(.42+.58*t);
+  rimColor*=exp(-max(uRimB.x,0.0)*absorptionShape*.42);
+
+  vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
+  vec2 lightAnchor=vec2(-1.15,-1.65);
+  vec2 toLight=lightAnchor-local;
+  float lightDistance2=max(dot(toLight,toLight),.001);
+  vec2 lightDirection=toLight*inversesqrt(lightDistance2);
+  float facing=sat(dot(normal,lightDirection));
+  float directional=pow(facing,max(uRimB.z,1.0));
+  float falloff=1.0/(1.0+lightDistance2*.42);
+  float outerSurface=pow(1.0-t,2.8)*sat(.50+.50*slope);
+  float rimLuma=dot(rimColor,vec3(.299,.587,.114));
+  float baseReflection=pow(1.0-t,1.6)*(.120+.080*sat(rimLuma))*sat(.60+.40*slope);
+  float directionalReflection=directional*falloff*outerSurface*max(uRimB.y,0.0);
+  float surfaceReflection=sat(baseReflection+directionalReflection);
+  vec3 highlightColor=mix(rimColor,vec3(1.0,.995,.980),.68);
+  rimColor=mix(rimColor,highlightColor,surfaceReflection);
+
+  float peak=max(max(rimColor.r,rimColor.g),rimColor.b);
+  rimColor/=1.0+max(peak-1.0,0.0)*.28;
+  rimInfluence=envelope*sat(uRimB.w);
+  return rimColor;
+}
 
 void main(){
   vec2 p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
@@ -96,15 +155,19 @@ void main(){
 
   float depth=insideFromSdf(sd);
   float bodyWeight=bodyLensWeight(depth,z,r);
-  vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
+  vec2 normal=perimeterNormalAt(p,z,r);
+  vec2 mainBodyFlow=bodyRefractionFlow(normal,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
-  vec2 totalFlow=mainBodyFlow+centerFlow;
-  vec3 color=bodyBackdrop(globalUv(p+totalFlow));
-  float opticalBoost=1.0+bodyWeight*.24;
-  color*=uBody.w*uMat.z*opticalBoost;
-  color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
+  vec2 bodyCoord=p+mainBodyFlow+centerFlow;
+  vec3 color=sampleBodyMaterial(globalUv(bodyCoord),bodyWeight);
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
+
+  if(uRimMode>.5&&depth<uRimA.x){
+    float rimInfluence=0.0;
+    vec3 rimColor=continuousGlassRim(p,z,sd,normal,bodyCoord,bodyWeight,color,rimInfluence);
+    color=mix(color,rimColor,rimInfluence);
+  }
 
   float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
   if(alpha<=.001)discard;
