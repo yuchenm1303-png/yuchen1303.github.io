@@ -152,7 +152,7 @@ class AssistantPreferencesStore(private val context: Context) {
                     navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
                     navigationCompanyAddress = preferences[Keys.navigationCompanyAddress].orEmpty(),
                     navigationDormAddress = preferences[Keys.navigationDormAddress].orEmpty()
-                ).also(::acknowledgePersistedSliderValues)
+                )
             }
 
     val preferencesFlow: Flow<AssistantPreferences> = combine(
@@ -161,11 +161,18 @@ class AssistantPreferencesStore(private val context: Context) {
         pendingMotionIntensity,
         pendingRainbowPrism
     ) { persisted, liveGlass, liveMotion, liveRainbow ->
-        persisted.copy(
+        val merged = persisted.copy(
             glassIntensity = liveGlass ?: persisted.glassIntensity,
             motionIntensity = liveMotion ?: persisted.motionIntensity,
             rainbowPrismStyle = liveRainbow ?: persisted.rainbowPrismStyle
         )
+        acknowledgePersistedSliderValues(
+            persisted = persisted,
+            expectedGlass = liveGlass,
+            expectedMotion = liveMotion,
+            expectedRainbow = liveRainbow
+        )
+        merged
     }.map { preferences ->
         preferences.also { AssistantLocalMemoryRuntime.update(it) }
     }
@@ -261,21 +268,32 @@ class AssistantPreferencesStore(private val context: Context) {
         }
     }
 
-    private fun acknowledgePersistedSliderValues(preferences: AssistantPreferences) {
-        pendingGlassIntensity.value?.let { pending ->
-            if (abs(preferences.glassIntensity - pending) <= SLIDER_VALUE_EPSILON) {
-                pendingGlassIntensity.value = null
-            }
+    private fun acknowledgePersistedSliderValues(
+        persisted: AssistantPreferences,
+        expectedGlass: Float?,
+        expectedMotion: Float?,
+        expectedRainbow: RainbowPrismStyle?
+    ) {
+        if (
+            expectedGlass != null &&
+            pendingGlassIntensity.value == expectedGlass &&
+            abs(persisted.glassIntensity - expectedGlass) <= SLIDER_VALUE_EPSILON
+        ) {
+            pendingGlassIntensity.value = null
         }
-        pendingMotionIntensity.value?.let { pending ->
-            if (abs(preferences.motionIntensity - pending) <= SLIDER_VALUE_EPSILON) {
-                pendingMotionIntensity.value = null
-            }
+        if (
+            expectedMotion != null &&
+            pendingMotionIntensity.value == expectedMotion &&
+            abs(persisted.motionIntensity - expectedMotion) <= SLIDER_VALUE_EPSILON
+        ) {
+            pendingMotionIntensity.value = null
         }
-        pendingRainbowPrism.value?.let { pending ->
-            if (preferences.rainbowPrismStyle.approximatelyEquals(pending)) {
-                pendingRainbowPrism.value = null
-            }
+        if (
+            expectedRainbow != null &&
+            pendingRainbowPrism.value == expectedRainbow &&
+            persisted.rainbowPrismStyle.approximatelyEquals(expectedRainbow)
+        ) {
+            pendingRainbowPrism.value = null
         }
     }
 
