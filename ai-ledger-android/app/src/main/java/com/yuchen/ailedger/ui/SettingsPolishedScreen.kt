@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -432,15 +431,15 @@ private fun GlassContent(state: AssistantUiState, onQualityChange: (RenderQualit
     val prism = state.rainbowPrismStyle
     SettingChipGrid(RenderQuality.entries, state.quality, { qualityLabel(it) }, state, onQualityChange)
     SettingChipGrid(GlassPreset.entries, state.glassPreset, { glassPresetLabel(it) }, state, onGlassPresetChange)
-    SliderSettingRow("玻璃强度", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
-    SliderSettingRow("动态强度", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
+    SliderSettingRow("玻璃强度", "控制通用玻璃的可见度、雾感和边缘能量。", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
+    SliderSettingRow("动态强度", "控制呼吸、扫光和形变动画幅度，0 为静态。", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
     SectionTitleInline("首页聊天大玻璃彩虹")
-    SliderSettingRow("整体彩虹强度", prism.overall, 0f..2f) { onRainbowPrismChange(prism.copy(overall = it)) }
-    SliderSettingRow("棱彩边缘高光", prism.edgeHighlight, 0f..2f) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
+    SliderSettingRow("整体彩虹强度", "统一调节聊天大玻璃彩虹镀膜的总能量。", prism.overall, 0f..2f) { onRainbowPrismChange(prism.copy(overall = it)) }
+    SliderSettingRow("棱彩边缘高光", "增强圆角和玻璃边缘对彩色入射光的捕获。", prism.edgeHighlight, 0f..2f) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
     SectionTitleInline("随机渐变扫光区间")
-    SliderSettingRow("扫光强度下限", prism.sweepMin, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
-    SliderSettingRow("扫光强度上限", prism.sweepMax, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
-    SliderSettingRow("粉金青蓝彩虹光晕", prism.rainbowHalo, 0f..2f) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
+    SliderSettingRow("扫光强度下限", "随机扫光每次出现时允许的最低亮度。", prism.sweepMin, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
+    SliderSettingRow("扫光强度上限", "随机扫光每次出现时允许的最高亮度。", prism.sweepMax, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
+    SliderSettingRow("粉金青蓝彩虹光晕", "调节粉、金、青、蓝在玻璃外缘形成的柔和光晕。", prism.rainbowHalo, 0f..2f) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
 }
 
 @Composable
@@ -524,15 +523,21 @@ private fun <T> SettingChipGrid(items: List<T>, selected: T, label: (T) -> Strin
 }
 
 @Composable
-private fun SliderSettingRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, color = Color.White.copy(alpha = 0.74f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            Text("${value.formatSettingValue()}x", color = Color.White.copy(alpha = 0.52f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
-        Slider(value = value, onValueChange = onValueChange, valueRange = range)
-    }
+private fun SliderSettingRow(
+    label: String,
+    description: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    InsetGlassParameterSlider(
+        title = label,
+        description = description,
+        value = value,
+        valueRange = range,
+        onValueChange = onValueChange,
+        valueText = "${value.formatSettingValue()}×"
+    )
 }
 
 @Composable
