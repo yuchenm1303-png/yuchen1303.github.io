@@ -318,8 +318,8 @@ fun SampledWeatherEdgeRefraction(
             coordinateSource.offsetRelativeTo(origin)
         }
     }
-    val edgeAlpha = (0.055f * strength.coerceIn(0f, 2f) * glass.edgeRefraction).coerceIn(0f, 0.18f)
-    val edgeWidth = (1.0f + glass.edgeWidthScale.coerceIn(0.55f, 1.85f) * 1.4f).dp
+    val edgeAlpha = (0.055f * strength.coerceIn(0f, 2f) * glass.edge).coerceIn(0f, 0.18f)
+    val edgeWidth = (1.0f + glass.topWidthDp.coerceIn(0.55f, 1.85f) * 1.4f).dp
     val lineAlpha = border.outerStrokeAlpha.coerceIn(0f, 1.6f)
     val cachedEdgeModifier = remember(radius, offsetState, edgeAlpha, edgeWidth, lineAlpha) {
         Modifier
