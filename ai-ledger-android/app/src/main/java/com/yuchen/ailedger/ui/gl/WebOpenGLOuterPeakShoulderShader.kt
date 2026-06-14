@@ -4,9 +4,8 @@ package com.yuchen.ailedger.ui.gl
  * V29.5 整圈统一折射映射圆肩。
  *
  * 网页调试值以 CSS px 表示，Android 侧按 dp 处理并在 Renderer 中只乘一次 density。
- * 主体折射、按压链、模糊金字塔、圆肩材质与最终合成保持 V29.4 不变；
- * 仅将边缘来源点从局部法线深层投影改为整圈共享的内部轮廓映射。
- * App 固定切向揉开为 0，因此正式着色器直接裁掉该零贡献链路。
+ * 主体折射、按压链、模糊金字塔、圆肩材质与最终合成保持不变；
+ * 整圈共享内部轮廓映射保持不变，仅恢复网页原有的可调切向揉开参数。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_VISIBLE_WIDTH_DP = 21.716216f
@@ -14,6 +13,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_MAX_ANGLE_DEG = 89.5f
     const val DEFAULT_FALLOFF_ROUNDNESS = 0f
     const val DEFAULT_MATERIAL_STRENGTH = 4f
+    const val DEFAULT_TANGENTIAL_FLOW_STRENGTH = 0f
 
     const val SOURCE = """
         float shoulderWidth(vec2 z){
@@ -57,6 +57,49 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 normalized=(boundaryPoint-center)/halfSize;
             return center+normalized*innerHalf;
         }
+        float shoulderTangentialSignal(
+            vec2 p,
+            vec2 edgeNormal,
+            vec2 z
+        ){
+            vec2 u=(p-z*0.5)/max(z*0.5,vec2(1.0));
+            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+            vec2 contourVector=vec2(-u.y,u.x);
+            float contourLength=length(contourVector);
+            float contourSignal=0.0;
+            if(contourLength>0.0001){
+                contourSignal=dot(
+                    contourVector/contourLength,
+                    tangent
+                );
+            }
+            float bodySignal=dot(
+                polynomialTransport(u),
+                tangent
+            );
+            float mixed=0.48*contourSignal+0.52*bodySignal;
+            return mixed/(0.65+abs(mixed));
+        }
+        float shoulderTangentialTravel(
+            vec2 p,
+            vec2 edgeNormal,
+            vec2 z,
+            float depth
+        ){
+            float flowStrength=clamp(uMaterial.w,0.0,2.4);
+            if(flowStrength<=0.0001){
+                return 0.0;
+            }
+            float captureWidth=shoulderCaptureWidth(z);
+            float amplitude=captureWidth*0.30*sat(flowStrength/2.4);
+            float envelope=pow(
+                shoulderOuterEnvelope(depth,z),
+                0.82
+            );
+            return amplitude
+                *shoulderTangentialSignal(p,edgeNormal,z)
+                *envelope;
+        }
         vec4 evaluateShoulderSource(
             vec2 p,
             vec2 edgeNormal,
@@ -70,7 +113,11 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 innerContourPoint=unifiedInnerContourPoint(
                 boundaryPoint,z
             );
+            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
             vec2 sourcePoint=mix(p,innerContourPoint,envelope);
+            sourcePoint+=tangent*shoulderTangentialTravel(
+                p,edgeNormal,z,depth
+            );
             float sourceSd=roundedBoxSdf(sourcePoint,z,r);
             if(sourceSd>-0.5){
                 vec2 sourceNormal=perimeterNormalAt(sourcePoint,z,r);

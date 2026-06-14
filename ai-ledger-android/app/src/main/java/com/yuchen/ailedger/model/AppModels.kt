@@ -123,6 +123,14 @@ data class GlassBorderStyle(
     val newOpenGlBodyGain: Float = 12.442396f,
     val newOpenGlBrightness: Float = 0.5451613f,
 
+    // 整圈统一映射圆肩参数。只把原有参数接入状态，不改变映射公式。
+    val newOpenGlShoulderWidthDp: Float = 21.716216f,
+    val newOpenGlShoulderCaptureWidthDp: Float = 96f,
+    val newOpenGlShoulderMaxAngleDeg: Float = 89.5f,
+    val newOpenGlShoulderFalloffRoundness: Float = 0f,
+    val newOpenGlShoulderMaterialStrength: Float = 4f,
+    val newOpenGlShoulderTangentialFlowStrength: Float = 0f,
+
     // 旧网页结构遗留字段，仅为兼容已有状态与旧实验代码；新版渲染器不读取。
     val newOpenGlBodyBandPos: Float = 0.98f,
     val newOpenGlBodyBandWidth: Float = 0.228f,

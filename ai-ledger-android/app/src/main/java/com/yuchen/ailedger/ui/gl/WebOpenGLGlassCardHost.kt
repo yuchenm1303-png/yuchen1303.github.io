@@ -90,8 +90,7 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
 
         val current = textureView.layoutParams as? LayoutParams
         val layoutDirty = current == null ||
-            current.width != stableSurfaceWidth ||
-            current.height != stableSurfaceHeight
+            current.width != stableSurfaceWidth || current.height != stableSurfaceHeight
         if (layoutDirty) {
             textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
         }
@@ -492,6 +491,7 @@ private class WebOpenGLGlassRenderer {
     private var materialX = 0f
     private var materialY = 0f
     private var materialZ = 0f
+    private var materialW = 0f
     private var bodyLensAX = 0f
     private var bodyLensAY = 0f
     private var bodyLensAZ = 0f
@@ -506,6 +506,9 @@ private class WebOpenGLGlassRenderer {
     private var bodyW = 0f
     private var shoulderVisibleWidth = 0f
     private var shoulderCaptureWidth = 0f
+    private var shoulderMaxAngle = 0f
+    private var shoulderFalloffRoundness = 0f
+    private var shoulderMaterialStrength = 0f
 
     private var drawCardWidth = 1f
     private var drawCardHeight = 1f
@@ -696,6 +699,7 @@ private class WebOpenGLGlassRenderer {
         var localMaterialX = 0f
         var localMaterialY = 0f
         var localMaterialZ = 0f
+        var localMaterialW = 0f
         var localBodyLensAX = 0f
         var localBodyLensAY = 0f
         var localBodyLensAZ = 0f
@@ -710,6 +714,9 @@ private class WebOpenGLGlassRenderer {
         var localBodyW = 0f
         var localShoulderVisibleWidth = 0f
         var localShoulderCaptureWidth = 0f
+        var localShoulderMaxAngle = 0f
+        var localShoulderFalloffRoundness = 0f
+        var localShoulderMaterialStrength = 0f
 
         synchronized(specLock) {
             dirtyMask = pendingDirtyMask
@@ -739,6 +746,7 @@ private class WebOpenGLGlassRenderer {
                 localMaterialX = materialX
                 localMaterialY = materialY
                 localMaterialZ = materialZ
+                localMaterialW = materialW
                 localBodyLensAX = bodyLensAX
                 localBodyLensAY = bodyLensAY
                 localBodyLensAZ = bodyLensAZ
@@ -753,6 +761,9 @@ private class WebOpenGLGlassRenderer {
                 localBodyW = bodyW
                 localShoulderVisibleWidth = shoulderVisibleWidth
                 localShoulderCaptureWidth = shoulderCaptureWidth
+                localShoulderMaxAngle = shoulderMaxAngle
+                localShoulderFalloffRoundness = shoulderFalloffRoundness
+                localShoulderMaterialStrength = shoulderMaterialStrength
             }
         }
 
@@ -778,16 +789,16 @@ private class WebOpenGLGlassRenderer {
             GLES20.glUniform1f(blurAmountHandle, localBlur)
         }
         if (dirtyMask and DIRTY_STYLE != 0) {
-            GLES20.glUniform4f(materialHandle, localMaterialX, localMaterialY, localMaterialZ, 0f)
+            GLES20.glUniform4f(materialHandle, localMaterialX, localMaterialY, localMaterialZ, localMaterialW)
             GLES20.glUniform4f(bodyLensAHandle, localBodyLensAX, localBodyLensAY, localBodyLensAZ, localBodyLensAW)
             GLES20.glUniform4f(bodyLensBHandle, localBodyLensBX, localBodyLensBY, localBodyLensBZ, localBodyLensBW)
             GLES20.glUniform4f(bodyHandle, localBodyX, localBodyY, localBodyZ, localBodyW)
             GLES20.glUniform4f(
                 shoulderHandle,
                 localShoulderVisibleWidth,
-                WebOpenGLOuterPeakShoulderShader.DEFAULT_MAX_ANGLE_DEG,
-                WebOpenGLOuterPeakShoulderShader.DEFAULT_FALLOFF_ROUNDNESS,
-                WebOpenGLOuterPeakShoulderShader.DEFAULT_MATERIAL_STRENGTH
+                localShoulderMaxAngle,
+                localShoulderFalloffRoundness,
+                localShoulderMaterialStrength
             )
             GLES20.glUniform1f(shoulderCaptureWidthHandle, localShoulderCaptureWidth)
         }
@@ -814,6 +825,7 @@ private class WebOpenGLGlassRenderer {
         materialX = style.newOpenGlBodyVisibility.coerceIn(0f, 20f)
         materialY = style.newOpenGlBodyMaxAlpha.coerceIn(0f, 1f)
         materialZ = style.newOpenGlBodyOutputBrightness.coerceIn(0.2f, 2.8f)
+        materialW = style.newOpenGlShoulderTangentialFlowStrength.coerceIn(0f, 2.4f)
         bodyLensAX = style.newOpenGlBodyLensBasePull.coerceIn(-300f, 300f) * densityScale
         bodyLensAY = style.newOpenGlBodyLensPullDp.coerceIn(-600f, 600f) * densityScale
         bodyLensAZ = style.newOpenGlBodyLensConcentration.coerceIn(-10f, 10f)
@@ -826,8 +838,11 @@ private class WebOpenGLGlassRenderer {
         bodyY = style.newOpenGlBodyCurve.coerceIn(0.2f, 3.2f)
         bodyZ = style.newOpenGlBodyGain.coerceIn(0f, 900f)
         bodyW = style.newOpenGlBrightness.coerceIn(0.4f, 2.2f)
-        shoulderVisibleWidth = WebOpenGLOuterPeakShoulderShader.DEFAULT_VISIBLE_WIDTH_DP * densityScale
-        shoulderCaptureWidth = WebOpenGLOuterPeakShoulderShader.DEFAULT_CAPTURE_WIDTH_DP * densityScale
+        shoulderVisibleWidth = style.newOpenGlShoulderWidthDp.coerceIn(4f, 96f) * densityScale
+        shoulderCaptureWidth = style.newOpenGlShoulderCaptureWidthDp.coerceIn(4f, 192f) * densityScale
+        shoulderMaxAngle = style.newOpenGlShoulderMaxAngleDeg.coerceIn(0f, 89.5f)
+        shoulderFalloffRoundness = style.newOpenGlShoulderFalloffRoundness.coerceIn(0f, 1f)
+        shoulderMaterialStrength = style.newOpenGlShoulderMaterialStrength.coerceIn(0f, 4f)
     }
 
     private fun applyGlassScissor(): Boolean {
