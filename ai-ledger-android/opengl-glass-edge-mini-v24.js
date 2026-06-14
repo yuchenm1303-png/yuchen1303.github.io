@@ -7,14 +7,14 @@ const APP_RAW={
   bodyLensExtraDistance:200,bodyLensReachDp:180,bodyLensDark:.23041474654378,bodyLensDebug:0,
   bodyLowFrequencyWidth:1.25059907834101,bodyLowFrequencyCurve:.2,bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,glassIntensity:1.35,
-  edgeMode:1,bodyEdgeWidthPx:46,bodyEdgePullPx:62,bodyEdgeCurve:.82,bodyEdgeTangentialStretch:1.55
+  edgeMode:1,bodyEdgeWidthPx:58,bodyEdgePullPx:170,bodyEdgeCurve:.62,bodyEdgeTangentialStretch:2.35
 };
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
 const groups=[
   {title:'背景模糊层 BackdropDebugParams',items:[['radius','背景模糊半径',0,4],['iterations','模糊迭代次数',1,12],['brightness','背景层亮度',.4,2.2],['contrast','背景层对比',.5,1.8],['saturation','背景层饱和',.3,1.8]]},
   {title:'主体折射 Body Refraction',items:[['bodyVisibility','主体可见强度',0,20],['bodyMaxAlpha','主体最大透明',0,1],['bodyOutputBrightness','主体折射亮度',.2,2.8],['bodyLensBasePull','主体基础拉力',-300,300],['bodyLensPullDp','主体主拉力 dp',-600,600],['bodyLensConcentration','主体向内衰减集中度',-10,10],['bodyLensCornerBoost','主体圆角增强',0,200],['bodyLensExtraDistance','主体额外折射距离',0,200],['bodyLensReachDp','主体作用深度',8,180],['bodyLensDark','主体暗部强度',-10,10],['bodyLensDebug','主体调试线',0,1]]},
   {title:'主体低频运输 Body Low-Frequency Transport',items:[['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]]},
-  {title:'主体外沿胶囊深度映射 Capsule Depth Mapping',items:[['bodyEdgeWidthPx','胶囊圆肩宽度',8,72],['bodyEdgePullPx','胶囊光学厚度',0,180],['bodyEdgeCurve','胶囊圆肩曲率',.35,2.4],['bodyEdgeTangentialStretch','胶囊折射率强度',.2,2.5]]}
+  {title:'强胶囊复合折射观察 Aggressive Capsule Lens',items:[['bodyEdgeWidthPx','胶囊圆肩宽度',8,84],['bodyEdgePullPx','胶囊光学厚度',0,220],['bodyEdgeCurve','胶囊圆肩曲率',.35,2.4],['bodyEdgeTangentialStretch','胶囊折射率强度',.2,2.5]]}
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
 const $=id=>document.getElementById(id);
@@ -22,13 +22,13 @@ const stage=$('stage'),scroll=$('scroll'),glassEl=$('glass'),bg=$('bg'),gb=$('gb
 const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),sourceCanvas=document.createElement('canvas'),sourceCtx=sourceCanvas.getContext('2d'),colorCanvas=document.createElement('canvas'),colorCtx=colorCanvas.getContext('2d'),blurLevelA=document.createElement('canvas'),blurLevelACtx=blurLevelA.getContext('2d'),blurLevelB=document.createElement('canvas'),blurLevelBCtx=blurLevelB.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
 let gl,program,buffer,L,blurTex,backdropRefreshFrame=0,backdropRevision=0;
 function prepareShellUi(){
-  document.title='OpenGL V26.5 · Monotonic Capsule Depth Mapping';
+  document.title='OpenGL V26.6 · Aggressive Compound Capsule Lens';
   const h=document.querySelector('.panel h2'),s=document.querySelector('.ui p'),t=document.querySelector('.panel .groupTitle');
-  if(h)h.textContent='V26.5 · 单调胶囊深度映射';
-  if(s)s.textContent='single V25.3 body field · monotonic capsule depth mapping';
-  if(t)t.textContent='主体折射场胶囊边缘对比 Capsule Mapping Comparison';
+  if(h)h.textContent='V26.6 · 强胶囊复合折射观察版';
+  if(s)s.textContent='capsule source mapping · then V25.3 body refraction';
+  if(t)t.textContent='主体折射场胶囊边缘对比 Aggressive Capsule Comparison';
   document.querySelectorAll('[data-rim-mode]').forEach(btn=>{btn.dataset.edgeMode=btn.dataset.rimMode;btn.removeAttribute('data-rim-mode')});
-  document.querySelectorAll('[data-edge-mode]').forEach(btn=>{btn.textContent=btn.dataset.edgeMode==='0'?'原始 V25.3 主体':'单调胶囊深度映射'});
+  document.querySelectorAll('[data-edge-mode]').forEach(btn=>{btn.textContent=btn.dataset.edgeMode==='0'?'原始 V25.3 主体':'强胶囊复合折射'});
   bgUpload.type='file';bgUpload.accept='image/*';
 }
 prepareShellUi();
@@ -72,7 +72,7 @@ function render(){drawGlassBackdrop();gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_B
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refreshBackdropNow()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-edge-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.edgeMode)===p.edgeMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v26_5MonotonicCapsuleDepthMapping',edgeMode:p.edgeMode===0?'originalV25Body':'monotonicCapsuleMapping',separateRimShader:false,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v26_6AggressiveCompoundCapsuleLens',edgeMode:p.edgeMode===0?'originalV25Body':'aggressiveCompoundCapsuleLens',separateRimShader:false,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);const input=$('i-'+k),apply=e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))scheduleBackdropRefresh();else{updateUi();render()}};input.addEventListener('input',apply);input.addEventListener('change',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))refreshBackdropNow();else{updateUi();render()}})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw)refreshBackdropNow()}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
