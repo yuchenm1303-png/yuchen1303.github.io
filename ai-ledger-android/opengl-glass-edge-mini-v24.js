@@ -56,7 +56,7 @@ const groups=[
 ];
 const backdropParamKeys=new Set(['radius','iterations','brightness','contrast','saturation']);
 const $=id=>document.getElementById(id),stage=$('stage'),scroll=$('scroll'),glassEl=$('glass'),bg=$('bg'),gb=$('gb'),cv=$('gl'),out=$('out'),errorEl=$('error'),moonBtn=$('moonBtn'),bgUpload=$('bgUpload'),uploadBgBtn=$('uploadBgBtn'),clearBgBtn=$('clearBgBtn'),bgStatus=$('bgStatus'),resetBodyBtn=$('resetBodyBtn');
-const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),sourceCanvas=document.createElement('canvas'),sourceCtx=sourceCanvas.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
+const ctx=bg.getContext('2d'),gbCtx=gb.getContext('2d'),sourceCanvas=document.createElement('canvas'),sourceCtx=sourceCanvas.getContext('2d'),colorCanvas=document.createElement('canvas'),colorCtx=colorCanvas.getContext('2d'),blurLevelA=document.createElement('canvas'),blurLevelACtx=blurLevelA.getContext('2d'),blurLevelB=document.createElement('canvas'),blurLevelBCtx=blurLevelB.getContext('2d'),blurCanvas=document.createElement('canvas'),blurCtx=blurCanvas.getContext('2d');
 let gl,program,buffer,L,blurTex;
 let backdropRefreshFrame=0,backdropRevision=0;
 function initGl(){
@@ -85,18 +85,38 @@ function drawBackdrop(c,w,h,withText){
 }
 function stageDpr(){return Math.min(window.devicePixelRatio||1,2)}
 function glassRect(){const a=stage.getBoundingClientRect(),b=glassEl.getBoundingClientRect();return{x:b.left-a.left,y:b.top-a.top,w:b.width,h:b.height}}
-function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;gb.width=Math.max(1,Math.round(sw));gb.height=Math.max(1,Math.round(sh));gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
+function configureSmoothContext(c){c.setTransform(1,0,0,1,0,0);c.imageSmoothingEnabled=true;try{c.imageSmoothingQuality='high'}catch(_){}}
+function resizeCanvas(canvas,w,h){const iw=Math.max(1,Math.round(w)),ih=Math.max(1,Math.round(h));if(canvas.width!==iw)canvas.width=iw;if(canvas.height!==ih)canvas.height=ih}
+function drawGlassBackdrop(){const d=stageDpr(),q=glassRect(),sx=q.x*d,sy=q.y*d,sw=q.w*d,sh=q.h*d;resizeCanvas(gb,sw,sh);configureSmoothContext(gbCtx);gbCtx.clearRect(0,0,gb.width,gb.height);gbCtx.drawImage(blurCanvas,sx,sy,sw,sh,0,0,gb.width,gb.height)}
 function effectiveBlurPx(d){return Math.max(0,p.radius*d*Math.pow(Math.max(1,p.iterations),.55))}
 function uploadBackdropTexture(){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,blurCanvas);gl.flush()}
 function rebuildBackdrop(){
   const d=stageDpr(),r=stage.getBoundingClientRect(),w=Math.max(1,Math.round(r.width*d)),h=Math.max(1,Math.round(r.height*d));
-  bg.width=w;bg.height=h;sourceCanvas.width=w;sourceCanvas.height=h;blurCanvas.width=w;blurCanvas.height=h;
+  resizeCanvas(bg,w,h);resizeCanvas(sourceCanvas,w,h);resizeCanvas(colorCanvas,w,h);resizeCanvas(blurCanvas,w,h);
   drawBackdrop(ctx,w,h,true);drawBackdrop(sourceCtx,w,h,false);
-  blurCtx.save();blurCtx.setTransform(1,0,0,1,0,0);blurCtx.clearRect(0,0,w,h);
+
+  configureSmoothContext(colorCtx);colorCtx.clearRect(0,0,w,h);
+  colorCtx.save();
+  colorCtx.filter=`brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;
+  colorCtx.drawImage(sourceCanvas,0,0,w,h);
+  colorCtx.filter='none';colorCtx.restore();
+
   const blurPx=effectiveBlurPx(d);
-  blurCtx.filter=`blur(${blurPx}px) brightness(${p.brightness}) contrast(${p.contrast}) saturate(${p.saturation})`;
-  blurCtx.drawImage(sourceCanvas,0,0);blurCtx.filter='none';blurCtx.restore();
-  try{blurCtx.getImageData(0,0,1,1)}catch(_){}
+  configureSmoothContext(blurCtx);blurCtx.clearRect(0,0,w,h);
+  if(blurPx<=.025){
+    blurCtx.drawImage(colorCanvas,0,0,w,h);
+  }else{
+    const finalScale=Math.max(.075,1/(1+blurPx*.22));
+    const middleScale=Math.sqrt(finalScale);
+    const aw=Math.max(2,Math.round(w*middleScale)),ah=Math.max(2,Math.round(h*middleScale));
+    const bw=Math.max(2,Math.round(w*finalScale)),bh=Math.max(2,Math.round(h*finalScale));
+    resizeCanvas(blurLevelA,aw,ah);resizeCanvas(blurLevelB,bw,bh);
+    configureSmoothContext(blurLevelACtx);configureSmoothContext(blurLevelBCtx);
+    blurLevelACtx.clearRect(0,0,aw,ah);blurLevelACtx.drawImage(colorCanvas,0,0,w,h,0,0,aw,ah);
+    blurLevelBCtx.clearRect(0,0,bw,bh);blurLevelBCtx.drawImage(blurLevelA,0,0,aw,ah,0,0,bw,bh);
+    blurCtx.drawImage(blurLevelB,0,0,bw,bh,0,0,w,h);
+  }
+
   drawGlassBackdrop();uploadBackdropTexture();backdropRevision++;
 }
 function cancelScheduledBackdropRefresh(){if(backdropRefreshFrame){cancelAnimationFrame(backdropRefreshFrame);backdropRefreshFrame=0}}
@@ -114,7 +134,7 @@ function render(){
 function resize(){const d=stageDpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refreshBackdropNow()}
 function fmt(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-rim-mode]').forEach(btn=>btn.classList.toggle('on',Number(btn.dataset.rimMode)===p.rimMode))}
-function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousDeepLensRim',rimMode:p.rimMode===0?'bodyOnly':'continuousDeepLens',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
+function updateUi(){groups.flatMap(g=>g.items).forEach(([k])=>{const label=$('v-'+k),input=$('i-'+k);if(label)label.textContent=fmt(p[k]);if(input&&Math.abs(Number(input.value)-p[k])>1e-9)input.value=p[k]});syncModeUi();out.textContent=JSON.stringify({mode:'v25ContinuousDeepLensRim',rimMode:p.rimMode===0?'bodyOnly':'continuousDeepLens',blurBackend:'deterministicDownsample',backdropRevision,effectiveBlurPx:effectiveBlurPx(stageDpr()),...p},null,2)}
 function buildControls(){const root=$('controls');root.innerHTML='';for(const group of groups){const title=document.createElement('div');title.className='groupTitle';title.textContent=group.title;root.appendChild(title);for(const [k,name,min,max] of group.items){const row=document.createElement('div');row.className='c';row.innerHTML=`<div class="h"><strong>${name}</strong><small id="v-${k}"></small></div><input id="i-${k}" type="range" min="${min}" max="${max}" step="any" value="${p[k]}">`;root.appendChild(row);const input=$('i-'+k);const applyValue=e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))scheduleBackdropRefresh();else{updateUi();render()}};input.addEventListener('input',applyValue);input.addEventListener('change',e=>{p[k]=Number(e.target.value);if(backdropParamKeys.has(k))refreshBackdropNow();else{updateUi();render()}})}}updateUi()}
 function clearCustomBackground(redraw=true){if(customBgUrl)URL.revokeObjectURL(customBgUrl);customBgUrl=null;customBgImage=null;bgUpload.value='';uploadBgBtn.textContent='上传自定义背景';clearBgBtn.disabled=true;bgStatus.textContent='当前背景：'+(bgMode==='flow'?'默认流线背景':bgMode==='stripes'?'黑白条纹':'细网格');if(redraw)refreshBackdropNow()}
 uploadBgBtn.addEventListener('click',()=>bgUpload.click());clearBgBtn.addEventListener('click',()=>clearCustomBackground(true));
