@@ -32,9 +32,9 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V26.4 Single Body Capsule Lens Field
- * 胶囊边缘不是独立 rim，而是主体折射场最外侧的连续圆肩透镜。
- * 整块玻璃始终只有一个 bodyOpticalCoord 和一次背景纹理采样。
+ * V26.5 Monotonic Capsule Depth Mapping
+ * 胶囊边缘是主体折射场最外侧的单调深度重映射。
+ * 不存在独立 rim 坐标、边框图像或额外纹理采样。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -65,69 +65,102 @@ float bodyLensWeight(float depth,vec2 z,float r){
   return pow(1.0-smooth,concentration);
 }
 
-/*
- * 单侧圆肩截面：外沿坡度最大，向内平滑躺平。
- * 末端保留极弱长尾，只负责消除与主体场的接缝。
- */
-float capsuleShoulderAt(float depth,vec2 z,float r){
-  float width=min(
+float capsuleWidth(vec2 z){
+  return min(
       max(uBodyEdge.x,1.0),
       min(z.x,z.y)*.44
   );
-  float curve=clamp(uBodyEdge.z,.35,2.4);
+}
 
-  float primary=1.0-smoother01(depth/max(width,1.0));
-  primary=pow(max(primary,0.0),curve);
-
-  float tailWidth=min(width*1.38,min(z.x,z.y)*.47);
-  float tail=1.0-smoother01(depth/max(tailWidth,1.0));
-  tail=pow(max(tail,0.0),1.18);
-
-  return mix(primary,tail,.12)*sat(uEdgeMode);
+float capsuleStrength(){
+  return sat((uBodyEdge.w-.20)/2.30);
 }
 
 /*
- * 用圆肩表面法线和折射率求光线斜率，但最终位移始终锁定到玻璃内法线。
- * 位移上限小于圆肩宽度的一半，保证来源深度单调，避免折返和 X 型割裂。
+ * 外沿对应的内部来源深度比例。
+ * 光学厚度和折射强度只改变比例，但始终限制在圆肩宽度以内。
  */
-float capsuleRefractionTravel(
-  vec2 edgeNormal,
-  float depth,
-  vec2 z,
-  float r
-){
-  float shoulder=capsuleShoulderAt(depth,z,r);
-  if(shoulder<=.0001){return 0.0;}
-
-  float width=min(
-      max(uBodyEdge.x,1.0),
-      min(z.x,z.y)*.44
+float capsuleOuterSourceRatio(vec2 z){
+  float width=capsuleWidth(z);
+  float opticalResponse=1.0-exp(
+      -max(uBodyEdge.y,0.0)/max(width*1.15,1.0)
   );
-  float strength=sat(max(uBodyEdge.w,0.0)/2.5);
-  float maxAngle=mix(40.0,68.0,strength)*.01745329252;
-  float theta=maxAngle*pow(shoulder,.82);
+  float strength=capsuleStrength();
+  float drive=opticalResponse*(.55+.45*strength);
+  float ratio=mix(.18,.46,sat(drive));
 
-  vec3 surfaceNormal=normalize(vec3(
-      edgeNormal*sin(theta),
-      cos(theta)
-  ));
-  vec3 viewRay=vec3(0.0,0.0,-1.0);
-  float ior=mix(1.10,1.58,strength);
-  vec3 refractedRay=refract(
-      viewRay,
-      surfaceNormal,
-      1.0/ior
-  );
+  float curveNorm=sat((uBodyEdge.z-.35)/(2.40-.35));
+  ratio*=mix(.94,1.06,curveNorm);
+  return clamp(ratio,.16,.48);
+}
 
-  float raySlope=length(refractedRay.xy)
-      /max(-refractedRay.z,.30);
-  float rawTravel=max(uBodyEdge.y,0.0)*raySlope;
+/* 外沿局部压缩率，始终保持为正值。 */
+float capsuleOuterSlope(){
+  float strength=capsuleStrength();
+  float curveNorm=sat((uBodyEdge.z-.35)/(2.40-.35));
+  float slope=mix(.36,.14,strength);
+  slope*=mix(1.10,.82,curveNorm);
+  return clamp(slope,.10,.42);
+}
 
-  float safeMax=width*mix(.31,.42,strength);
-  float travel=safeMax
-      *(1.0-exp(-rawTravel/max(safeMax,1.0)));
+/*
+ * 三次 Hermite 单调映射：
+ * depth=0 时从圆肩内部取样；
+ * depth=width 时 sourceDepth=depth 且导数精确等于 1；
+ * 因此进入主体时位置与变化率都连续。
+ */
+float capsuleMappedDepth(float depth,vec2 z,float r){
+  float width=capsuleWidth(z);
+  if(uEdgeMode<.5||depth>=width){return depth;}
 
-  return travel;
+  float x=sat(depth/max(width,1.0));
+  float x2=x*x;
+  float x3=x2*x;
+
+  float h00=2.0*x3-3.0*x2+1.0;
+  float h10=x3-2.0*x2+x;
+  float h01=-2.0*x3+3.0*x2;
+  float h11=x3-x2;
+
+  float outerRatio=capsuleOuterSourceRatio(z);
+  float outerSlope=capsuleOuterSlope();
+  float normalizedDepth=
+      h00*outerRatio
+      +h10*outerSlope
+      +h01
+      +h11;
+
+  return width*normalizedDepth;
+}
+
+/* 解析导数用于材质体积感，不需要额外纹理采样。 */
+float capsuleMappedSlope(float depth,vec2 z,float r){
+  float width=capsuleWidth(z);
+  if(uEdgeMode<.5||depth>=width){return 1.0;}
+
+  float x=sat(depth/max(width,1.0));
+  float x2=x*x;
+
+  float dh00=6.0*x2-6.0*x;
+  float dh10=3.0*x2-4.0*x+1.0;
+  float dh01=-6.0*x2+6.0*x;
+  float dh11=3.0*x2-2.0*x;
+
+  float outerRatio=capsuleOuterSourceRatio(z);
+  float outerSlope=capsuleOuterSlope();
+  float slope=
+      dh00*outerRatio
+      +dh10*outerSlope
+      +dh01
+      +dh11;
+
+  return clamp(slope,.08,1.0);
+}
+
+float capsuleShoulderAt(float depth,vec2 z,float r){
+  float width=capsuleWidth(z);
+  if(uEdgeMode<.5||depth>=width){return 0.0;}
+  return 1.0-smoother01(depth/max(width,1.0));
 }
 
 vec2 bodyRefractionFlow(
@@ -151,11 +184,14 @@ vec2 bodyRefractionFlow(
       *(1.0-exp(-(rawPull*core)/max(remaining,1.0)))
       *.96;
 
-  /* 胶囊圆肩是同一法向折射场的外沿增强，不再做切向平移。 */
-  float capsuleTravel=capsuleRefractionTravel(
-      n,depth,z,r
-  );
-  return -n*(displacement+capsuleTravel);
+  /*
+   * 胶囊附加位移直接来自严格单调的 sourceDepth-depth。
+   * 不再使用 refract 位移上限或切向运输。
+   */
+  float mappedDepth=capsuleMappedDepth(depth,z,r);
+  float capsuleOffset=max(mappedDepth-depth,0.0);
+
+  return -n*(displacement+capsuleOffset);
 }
 
 float centerEnvelope(vec2 u){
@@ -211,7 +247,7 @@ void main(){
   float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 normal=perimeterNormalAt(p,z,r);
 
-  /* 始终只有这一套主体坐标。 */
+  /* 始终只有这一套主体坐标和一次背景纹理采样。 */
   vec2 mainBodyFlow=bodyRefractionFlow(
       p,normal,z,r,depth,bodyWeight
   );
@@ -221,18 +257,20 @@ void main(){
       globalUv(bodyOpticalCoord),bodyWeight
   );
 
-  /* 同一材质中的轻微方向透射变化，只强调圆肩体积，不生成白色独立描边。 */
-  float capsuleWeight=capsuleShoulderAt(depth,z,r);
+  /*
+   * 厚度明暗来自同一深度映射的压缩率。
+   * 不生成独立白边，也不把透明圆肩压成黑色实体。
+   */
+  float shoulder=capsuleShoulderAt(depth,z,r);
+  float mappedSlope=capsuleMappedSlope(depth,z,r);
+  float compression=sat(1.0-mappedSlope);
+  float volume=pow(compression,.78)*shoulder;
+
   vec2 lightDirection=normalize(vec2(-.62,-.78));
-  float lightFacing=pow(sat(dot(normal,lightDirection)),3.2);
-  float shoulderMid=pow(
-      sat(4.0*capsuleWeight*(1.0-capsuleWeight)),
-      1.35
-  );
-  color*=1.0
-      -.022*shoulderMid
-      -.030*capsuleWeight
-      +.095*capsuleWeight*lightFacing;
+  float lightFacing=pow(sat(dot(normal,lightDirection)),3.0);
+  float transmission=1.0-.018*volume;
+  float directionalLift=.052*volume*lightFacing;
+  color*=transmission+directionalLift;
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
