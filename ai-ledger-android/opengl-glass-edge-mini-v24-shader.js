@@ -7,6 +7,7 @@ uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform vec4 uShoulder;
 uniform vec2 uShoulderFlow;
+uniform float uShoulderCorrection;
 uniform float uShoulderEnabled,uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
@@ -30,17 +31,17 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V29.7 Curvature-Safe Perimeter Normal Mapping Test
+ * V29.8 Affine Unified Mapping with Exact Tangential Correction
  * uShoulderEnabled:
  *   0 = pure V25.3 body
  *   1 = original V29.4 local-normal capture
  *   2 = V29.5 affine unified full-perimeter capture
  *   3 = V29.6 normal-locked blended mapping
  *   4 = V29.7 curvature-safe perimeter normal mapping
+ *   5 = V29.8 affine unified mapping + exact tangential correction
  *
- * 模式 4 全程只沿同一条边界法线映射：直边远离圆角时保留完整固定深度，
- * 接近圆角时平滑降低深度，圆弧内始终保持 captureDepth < radius，避免
- * 内圆角半径翻转。这样既保持直边正交拉伸，也不再拼接两套折射场。
+ * 模式 5 完整保留模式 2 的统一内轮廓和无重影结构，只精确测量最终来源点
+ * 相对当前像素产生的切向漂移，再按 uShoulderCorrection 比例抵消。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -280,6 +281,32 @@ vec2 curvatureSafePerimeterInnerPoint(
   return boundaryPoint-edgeNormal*capture;
 }
 
+vec2 tangentCorrectedUnifiedSource(
+  vec2 p,
+  vec2 boundaryPoint,
+  vec2 edgeNormal,
+  vec2 z,
+  float envelope
+){
+  vec2 innerContourPoint=unifiedInnerContourPoint(
+      boundaryPoint,z
+  );
+  vec2 source=mix(p,innerContourPoint,envelope);
+  vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+  float tangentDrift=dot(source-p,tangent);
+  float axisAlignment=max(
+      abs(edgeNormal.x),
+      abs(edgeNormal.y)
+  );
+  float straightWeight=mix(
+      .35,
+      1.0,
+      smoothstep(.72,1.0,axisAlignment)
+  );
+  float correction=sat(uShoulderCorrection)*straightWeight;
+  return source-tangent*tangentDrift*correction;
+}
+
 float shoulderTangentialSignal(
   vec2 p,
   vec2 edgeNormal,
@@ -351,24 +378,31 @@ vec4 evaluateShoulderSource(
         boundaryPoint
         -edgeNormal*sourceDepth
         +tangent*tangentTravel;
-  }else{
-    vec2 innerContourPoint;
-    if(uShoulderEnabled<2.5){
-      innerContourPoint=unifiedInnerContourPoint(
-          boundaryPoint,z
-      );
-    }else if(uShoulderEnabled<3.5){
-      innerContourPoint=normalLockedUnifiedInnerPoint(
-          boundaryPoint,edgeNormal,z,r
-      );
-    }else{
-      innerContourPoint=curvatureSafePerimeterInnerPoint(
-          boundaryPoint,edgeNormal,z,r
-      );
-    }
+  }else if(uShoulderEnabled<2.5){
+    vec2 innerContourPoint=unifiedInnerContourPoint(
+        boundaryPoint,z
+    );
     sourcePoint=
         mix(p,innerContourPoint,envelope)
         +tangent*tangentTravel;
+  }else if(uShoulderEnabled<3.5){
+    vec2 innerContourPoint=normalLockedUnifiedInnerPoint(
+        boundaryPoint,edgeNormal,z,r
+    );
+    sourcePoint=
+        mix(p,innerContourPoint,envelope)
+        +tangent*tangentTravel;
+  }else if(uShoulderEnabled<4.5){
+    vec2 innerContourPoint=curvatureSafePerimeterInnerPoint(
+        boundaryPoint,edgeNormal,z,r
+    );
+    sourcePoint=
+        mix(p,innerContourPoint,envelope)
+        +tangent*tangentTravel;
+  }else{
+    sourcePoint=tangentCorrectedUnifiedSource(
+        p,boundaryPoint,edgeNormal,z,envelope
+    )+tangent*tangentTravel;
   }
 
   float sourceSd=boxSdf(sourcePoint,z,r);
