@@ -83,6 +83,7 @@ fun GlassSceneScope(
 
 internal fun AppTab.defaultGlassSceneGroup(): GlassSceneGroup = when (this) {
     AppTab.Assistant -> GlassSceneGroup.AssistantPage
-    AppTab.Tools -> GlassSceneGroup.ToolsPage
+    // 工具首页与账单页会在各自入口覆盖；未覆盖的当前实际页面就是股票行情页。
+    AppTab.Tools -> GlassSceneGroup.StockMarketPage
     AppTab.Settings -> GlassSceneGroup.SettingsPage
 }
