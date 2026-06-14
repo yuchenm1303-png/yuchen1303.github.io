@@ -537,9 +537,8 @@ private class WebOpenGLGlassRenderer {
     private var bodyLensAHandle = 0
     private var bodyLensBHandle = 0
     private var bodyHandle = 0
-    private var legacyMaterialHandle = 0
-    private var legacyRefractionHandle = 0
-    private var legacyOpticsHandle = 0
+    private var shoulderHandle = 0
+    private var shoulderFlowHandle = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -609,9 +608,8 @@ private class WebOpenGLGlassRenderer {
         bodyLensAHandle = GLES20.glGetUniformLocation(program, "uBodyLensA")
         bodyLensBHandle = GLES20.glGetUniformLocation(program, "uBodyLensB")
         bodyHandle = GLES20.glGetUniformLocation(program, "uBody")
-        legacyMaterialHandle = GLES20.glGetUniformLocation(program, "uLegacyMaterial")
-        legacyRefractionHandle = GLES20.glGetUniformLocation(program, "uLegacyRefraction")
-        legacyOpticsHandle = GLES20.glGetUniformLocation(program, "uLegacyOptics")
+        shoulderHandle = GLES20.glGetUniformLocation(program, "uShoulder")
+        shoulderFlowHandle = GLES20.glGetUniformLocation(program, "uShoulderFlow")
 
         val textures = IntArray(4)
         GLES20.glGenTextures(4, textures, 0)
@@ -707,26 +705,16 @@ private class WebOpenGLGlassRenderer {
             s.newOpenGlBrightness.coerceIn(0.4f, 2.2f)
         )
         GLES20.glUniform4f(
-            legacyMaterialHandle,
-            s.openGlVisibility.coerceIn(0f, 20f),
-            s.openGlMaxAlpha.coerceIn(0f, 1f),
-            s.edgeBrightness.coerceIn(-5f, 5f),
-            0f
+            shoulderHandle,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_VISIBLE_WIDTH_DP * d,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_MAX_ANGLE_DEG,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_FALLOFF_ROUNDNESS,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_MATERIAL_STRENGTH
         )
-        // 9a6e4ac 的旧边缘距离参数原本就是像素量，不参与 density 换算。
-        GLES20.glUniform4f(
-            legacyRefractionHandle,
-            s.openGlPullScale.coerceIn(-300f, 300f),
-            s.edgePullDp.coerceIn(-600f, 600f),
-            s.openGlCompressionScale.coerceIn(-10f, 10f),
-            s.openGlCornerScale.coerceIn(0f, 200f)
-        )
-        GLES20.glUniform4f(
-            legacyOpticsHandle,
-            s.openGlSampleRadiusScale.coerceIn(0f, 200f),
-            s.ringWidthDp.coerceIn(0f, 300f),
-            s.openGlDebugLineAlpha.coerceIn(0f, 1f),
-            s.openGlDarkScale.coerceIn(-10f, 10f)
+        GLES20.glUniform2f(
+            shoulderFlowHandle,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_CAPTURE_WIDTH_DP * d,
+            WebOpenGLOuterPeakShoulderShader.DEFAULT_TANGENTIAL_FLOW_STRENGTH
         )
 
         bindTexture(GLES20.GL_TEXTURE0, clearTextureId, clearTextureHandle, 0)
