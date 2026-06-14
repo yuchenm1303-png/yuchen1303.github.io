@@ -10,12 +10,13 @@ const APP_RAW={
   bodyLensExtraDistance:200,bodyLensReachDp:180,bodyLensDark:.23041474654378,bodyLensDebug:0,
   bodyLowFrequencyWidth:1.25059907834101,bodyLowFrequencyCurve:.2,bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,glassIntensity:1.35,
-  edgeMode:4,
+  edgeMode:5,
   shoulderWidthPx:21.7162162162162,
   shoulderMaxAngleDeg:89.5,
   shoulderFalloffRoundness:0,
   shoulderMaterialStrength:4,
-  shoulderTangentialFlowStrength:0
+  shoulderTangentialFlowStrength:0,
+  shoulderTangentialCorrection:.45
 };
 
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
@@ -31,7 +32,7 @@ const groups=[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
   {title:'外沿尖峰固定取样 Outer-Peak Fixed Capture',items:[
-    ['shoulderWidthPx','圆肩可见宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','外沿集中与内沿圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderTangentialFlowStrength','固定取样切向揉开',0,2.4]
+    ['shoulderWidthPx','圆肩可见宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','外沿集中与内沿圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderTangentialFlowStrength','固定取样切向揉开',0,2.4],['shoulderTangentialCorrection','统一映射切向校正',0,1]
   ]}
 ];
 
@@ -48,7 +49,7 @@ function initGl(){
   const compile=(type,source)=>{const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader));return shader};
   program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
   buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-  const names=['a','uRes','uOrigin','uRoot','uBlurTexture','uMat','uBodyLensA','uBodyLensB','uBody','uShoulder','uShoulderFlow','uShoulderEnabled','uRadius','uIntensity'];
+  const names=['a','uRes','uOrigin','uRoot','uBlurTexture','uMat','uBodyLensA','uBodyLensB','uBody','uShoulder','uShoulderFlow','uShoulderCorrection','uShoulderEnabled','uRadius','uIntensity'];
   L={};for(const name of names)L[name]=name==='a'?gl.getAttribLocation(program,name):gl.getUniformLocation(program,name);
   const missing=names.filter(name=>name==='a'?L[name]<0:L[name]===null);if(missing.length)throw new Error('Shader 参数未绑定：'+missing.join(', '));
   blurTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
@@ -93,13 +94,14 @@ function render(){
   gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
   gl.uniform4f(L.uShoulder,p.shoulderWidthPx*d,p.shoulderMaxAngleDeg,p.shoulderFalloffRoundness,p.shoulderMaterialStrength);
   gl.uniform2f(L.uShoulderFlow,SHOULDER_CAPTURE_WIDTH_PX*d,p.shoulderTangentialFlowStrength);
+  gl.uniform1f(L.uShoulderCorrection,p.shoulderTangentialCorrection);
   gl.uniform1f(L.uShoulderEnabled,p.edgeMode);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 function format(v){return String(Math.round(v*1000)/1000)}
-function edgeModeName(mode){return mode===0?'pureV25_3Body':mode===1?'originalV29_4LocalNormalCapture':mode===2?'affineUnifiedPerimeterMapping':mode===3?'normalLockedBlendedMapping':'curvatureSafePerimeterNormalMapping'}
-function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_7CurvatureSafePerimeterNormalTest',edgeMode:edgeModeName(p.edgeMode),peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:p.edgeMode===4?'fullStraightCaptureCurvatureSafeCorner':p.edgeMode===3?'straightEdgeNormalLockedCornerBlended':p.edgeMode===2?'sharedInnerContourC1Convergence':'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
+function edgeModeName(mode){return mode===0?'pureV25_3Body':mode===1?'originalV29_4LocalNormalCapture':mode===2?'affineUnifiedPerimeterMapping':mode===3?'normalLockedBlendedMapping':mode===4?'curvatureSafePerimeterNormalMapping':'affineUnifiedExactTangentialCorrection'}
+function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode));out.textContent=JSON.stringify({mode:'v29_8AffineUnifiedTangentialCorrectionTest',edgeMode:edgeModeName(p.edgeMode),peakLocation:'outerBoundary',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:p.edgeMode===5?'affineUnifiedWithMeasuredTangentialDriftCorrection':p.edgeMode===4?'fullStraightCaptureCurvatureSafeCorner':p.edgeMode===3?'straightEdgeNormalLockedCornerBlended':p.edgeMode===2?'sharedInnerContourC1Convergence':'fixedDeepDomainWithSourcePointC1Convergence',shoulderBodyTransition:'sourcePointC1ConvergenceNoCrossfade',tangentialFlowBasis:'fixedCaptureWidthOuterEnvelope',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
 function refresh(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=0;rebuildBackdrop();updateUi();render()}
 function schedule(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=requestAnimationFrame(()=>{backdropFrame=0;rebuildBackdrop();updateUi();render()})}
 
@@ -118,4 +120,4 @@ moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.t
 function resize(){const d=dpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refresh()}
 window.addEventListener('resize',resize);scroll.addEventListener('scroll',render,{passive:true});window.addEventListener('beforeunload',()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl)});
 
-try{document.title='OpenGL V29.7 · Curvature-Safe Perimeter Normal Test';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
+try{document.title='OpenGL V29.8 · Affine Unified Tangential Correction Test';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
