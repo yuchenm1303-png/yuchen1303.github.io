@@ -28,13 +28,13 @@ const APP_RAW={
   glassIntensity:1.35,
 
   edgeMode:1,
-  bevelWidthPx:34,
-  bevelZRadiusPx:26,
-  bevelOpticalThicknessPx:110,
-  bevelRefractiveIndex:1.52,
-  bevelMaxAngleDeg:72,
-  bevelProfileCurve:.85,
-  bevelMaterialStrength:.35
+  bevelWidthPx:58,
+  bevelZRadiusPx:120,
+  bevelOpticalThicknessPx:550,
+  bevelRefractiveIndex:2.2,
+  bevelMaxAngleDeg:88,
+  bevelProfileCurve:.35,
+  bevelMaterialStrength:1.25
 };
 
 let p={...APP_RAW};
@@ -71,14 +71,14 @@ const groups=[
     ['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],
     ['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'SDF 圆肩透镜 SDF Bevel Lens',items:[
-    ['bevelWidthPx','圆肩作用宽度',6,72],
-    ['bevelZRadiusPx','圆肩截面高度',2,64],
-    ['bevelOpticalThicknessPx','圆肩光学厚度',0,180],
-    ['bevelRefractiveIndex','玻璃折射率',1.01,1.8],
-    ['bevelMaxAngleDeg','外沿最大坡度',20,82],
-    ['bevelProfileCurve','圆肩截面曲线',.35,2.5],
-    ['bevelMaterialStrength','圆肩材质强度',0,1]
+  {title:'SDF 圆肩透镜极限观察 Extreme SDF Bevel Lens',items:[
+    ['bevelWidthPx','圆肩作用宽度',4,140],
+    ['bevelZRadiusPx','圆肩截面高度',1,240],
+    ['bevelOpticalThicknessPx','圆肩光学厚度',0,1200],
+    ['bevelRefractiveIndex','玻璃折射率',1.001,3.5],
+    ['bevelMaxAngleDeg','外沿最大坡度',5,89.5],
+    ['bevelProfileCurve','圆肩截面曲线',.08,8],
+    ['bevelMaterialStrength','圆肩材质强度',0,4]
   ]}
 ];
 
@@ -499,8 +499,8 @@ function updateUi(){
   }
   syncModeUi();
   out.textContent=JSON.stringify({
-    mode:'v28SdfBevelLens',
-    edgeMode:p.edgeMode===0?'pureV25_3Body':'sdfBevelLens',
+    mode:'v28_1ExtremeSdfBevelLens',
+    edgeMode:p.edgeMode===0?'pureV25_3Body':'extremeSdfBevelLens',
     oneFinalOpticalCoord:true,
     extraEdgeSamples:0,
     blurBackend:'fullResolutionShiftAverage',
@@ -662,7 +662,7 @@ window.addEventListener('beforeunload',()=>{
 });
 
 try{
-  document.title='OpenGL V28 · SDF Bevel Lens';
+  document.title='OpenGL V28.1 · Extreme SDF Bevel Lens';
   initGl();
   buildControls();
   requestAnimationFrame(()=>{
