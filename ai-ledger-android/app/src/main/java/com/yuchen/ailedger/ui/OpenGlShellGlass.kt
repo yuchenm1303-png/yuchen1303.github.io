@@ -40,26 +40,28 @@ fun OpenGlShellGlass(
     val surfaceModifier = modifier
 
     if (useOpenGlShell) {
-        val interaction = remember { MutableInteractionSource() }
-        val clickableModifier = if (onClick != null) {
-            Modifier.clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick
-            )
-        } else {
-            Modifier
-        }
+        GlassSceneScope(GlassSceneGroup.OpenGLShell) {
+            val interaction = remember { MutableInteractionSource() }
+            val clickableModifier = if (onClick != null) {
+                Modifier.clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onClick = onClick
+                )
+            } else {
+                Modifier
+            }
 
-        GlassPanel(
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = motionIntensity,
-            radius = radius,
-            modifier = surfaceModifier.then(clickableModifier),
-            role = GlassRole.Shell,
-            content = content
-        )
+            GlassPanel(
+                quality = quality,
+                glassIntensity = glassIntensity,
+                motionIntensity = motionIntensity,
+                radius = radius,
+                modifier = surfaceModifier.then(clickableModifier),
+                role = GlassRole.Shell,
+                content = content
+            )
+        }
     } else if (onClick != null) {
         PressableGlass(
             quality = quality,
@@ -67,7 +69,7 @@ fun OpenGlShellGlass(
             motionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f,
             radius = radius,
             modifier = surfaceModifier,
-            role = if (wantsOpenGlShell) GlassRole.Card else GlassRole.Card,
+            role = GlassRole.Card,
             onClick = onClick,
             content = content
         )
