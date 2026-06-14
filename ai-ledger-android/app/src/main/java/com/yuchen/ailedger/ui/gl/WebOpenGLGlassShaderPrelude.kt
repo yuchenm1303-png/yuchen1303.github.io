@@ -20,7 +20,7 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform vec4 uBodyLensB;
         uniform vec4 uBody;
         uniform vec4 uShoulder;
-        uniform vec2 uShoulderFlow;
+        uniform float uShoulderCaptureWidth;
         uniform float uRadius;
         uniform float uIntensity;
         uniform float uTextureReady;
@@ -69,9 +69,6 @@ internal object WebOpenGLGlassShaderPrelude {
             }
             return mix(fallbackBackdrop(safeUv),result,sat(uTextureReady));
         }
-        vec3 blurPyramidBackdrop(vec2 uv){
-            return blurPyramidBackdropAt(uv,uBlurAmount);
-        }
         vec2 softLimit(vec2 v,float lim){
             float n=length(v);
             float m=n/(1.0+n/max(lim,1.0));
@@ -110,20 +107,20 @@ internal object WebOpenGLGlassShaderPrelude {
             float concentration=mix(0.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
             return pow(1.0-smooth,concentration);
         }
-        vec2 bodyRefractionFlow(vec2 p,vec2 z,float r,float depth,float weight){
-            vec2 n=perimeterNormalAt(p,z,r);
+        vec2 bodyRefractionFlow(vec2 normal,vec2 z,float r,float depth,float weight){
             float rawPull=abs(uBodyLensA.y)*0.052+abs(uBodyLensA.x)*0.20+max(uBodyLensB.x,0.0)*0.12;
             float core=pow(weight,1.28);
             float reach=bodyLensReach(z,r);
             float remaining=max(reach-depth,0.0);
             float displacement=remaining*(1.0-exp(-(rawPull*core)/max(remaining,1.0)))*0.96;
-            return -n*displacement;
+            return -normal*displacement;
         }
         float centerEnvelope(vec2 u){
             float width=sat((uBody.x-0.18)/(1.5-0.18));
             vec2 span=vec2(mix(0.72,1.16,width),mix(0.66,1.08,width));
             vec2 q=abs(u)/max(span,vec2(0.001));
-            return exp(-(pow(q.x,4.0)+pow(q.y,4.0)));
+            vec2 q2=q*q;
+            return exp(-(q2.x*q2.x+q2.y*q2.y));
         }
         vec2 polynomialTransport(vec2 u){
             float curve=sat((uBody.y-0.2)/3.0);
