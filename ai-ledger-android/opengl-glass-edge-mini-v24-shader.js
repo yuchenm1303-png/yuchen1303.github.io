@@ -3,10 +3,9 @@ window.OpenGLV24Shaders={
   vs:'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}',
   fs:`precision highp float;
 uniform vec2 uRes,uOrigin,uRoot;
-uniform sampler2D uBlurTexture,uLensTexture;
+uniform sampler2D uBlurTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
-uniform vec4 uLegacyMaterial,uLegacyRefraction,uLegacyOptics;
-uniform float uRadius,uIntensity,uTextureReady,uRenderMode;
+uniform float uRadius,uIntensity;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float boxSdf(vec2 p,vec2 z,float r){
@@ -26,7 +25,6 @@ vec2 softLimit(vec2 v,float lim){
   return v*(m/max(n,.0001));
 }
 
-/* V25.3 主体折射稳定基准。 */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
   vec2 core=max(z*.5-vec2(r),vec2(0.0));
@@ -88,111 +86,6 @@ vec2 centerTransport(vec2 p,vec2 z){
   return softLimit(flow,mix(52.0,118.0,gain));
 }
 
-/* 9a6e4ac 原版边缘链，仅作为旧边缘参考模式。 */
-float legacyRoundedBoxSdfAt(vec2 coord,vec2 rectSize,float radius){
-  vec2 p=coord-rectSize*.5;
-  vec2 halfSize=rectSize*.5;
-  vec2 q=abs(p)-max(halfSize-vec2(radius),vec2(0.0));
-  return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;
-}
-vec2 legacyTexUv(vec2 uv){return clamp(uv,0.0,1.0);}
-vec3 fallbackBackdrop(vec2 uv){float h=smoothstep(0.0,1.0,uv.y);return mix(vec3(.12,.22,.38),vec3(.36,.50,.72),h);}
-vec3 sourceBlurBackdrop(vec2 uv){vec3 fallback=fallbackBackdrop(uv);vec3 realColor=texture2D(uBlurTexture,legacyTexUv(uv)).rgb;return mix(fallback,realColor,sat(uTextureReady));}
-vec3 sourceLensBackdrop(vec2 uv){vec3 fallback=fallbackBackdrop(uv);vec3 realColor=texture2D(uLensTexture,legacyTexUv(uv)).rgb;return mix(fallback,realColor,sat(uTextureReady));}
-vec3 blurBackdrop(vec2 uv,float edgeWeight){
-  float blurBoost=1.0+edgeWeight*.38;
-  vec2 px=vec2(max(uLegacyOptics.x,0.0)*blurBoost)/max(uRoot,vec2(1.0));
-  vec3 c=sourceBlurBackdrop(uv)*.200;
-  c+=sourceBlurBackdrop(uv+vec2(px.x,0.0))*.110;
-  c+=sourceBlurBackdrop(uv-vec2(px.x,0.0))*.110;
-  c+=sourceBlurBackdrop(uv+vec2(0.0,px.y))*.110;
-  c+=sourceBlurBackdrop(uv-vec2(0.0,px.y))*.110;
-  c+=sourceBlurBackdrop(uv+vec2(px.x,px.y))*.090;
-  c+=sourceBlurBackdrop(uv+vec2(-px.x,px.y))*.090;
-  c+=sourceBlurBackdrop(uv+vec2(px.x,-px.y))*.090;
-  c+=sourceBlurBackdrop(uv+vec2(-px.x,-px.y))*.090;
-  return c;
-}
-float effectiveEdgeWidth(vec2 rectSize){float maxSafe=min(rectSize.x,rectSize.y)*.34;return clamp(uLegacyOptics.y,6.0,maxSafe);}
-float insideDistanceAt(vec2 coord,vec2 rectSize,float radius){return max(-legacyRoundedBoxSdfAt(coord,rectSize,radius),0.0);}
-float rimWideAt(vec2 coord,vec2 rectSize,float radius){float inside=insideDistanceAt(coord,rectSize,radius);float w=effectiveEdgeWidth(rectSize);return 1.0-smoothstep(0.0,w,inside);}
-float rimCoreAt(vec2 coord,vec2 rectSize,float radius){float inside=insideDistanceAt(coord,rectSize,radius);float w=max(effectiveEdgeWidth(rectSize)*.28,3.0);return 1.0-smoothstep(0.0,w,inside);}
-float edgeDragBandAt(vec2 coord,vec2 rectSize,float radius){float inside=insideDistanceAt(coord,rectSize,radius);float w=max(effectiveEdgeWidth(rectSize)*1.45,8.0);return pow(1.0-smoothstep(0.0,w,inside),1.35);}
-vec2 sdfNormalAt(vec2 coord,vec2 rectSize,float radius){
-  float d=1.25;
-  float l=legacyRoundedBoxSdfAt(coord-vec2(d,0.0),rectSize,radius);
-  float rr=legacyRoundedBoxSdfAt(coord+vec2(d,0.0),rectSize,radius);
-  float u=legacyRoundedBoxSdfAt(coord-vec2(0.0,d),rectSize,radius);
-  float b=legacyRoundedBoxSdfAt(coord+vec2(0.0,d),rectSize,radius);
-  vec2 n=vec2(rr-l,b-u);
-  return n/max(length(n),.001);
-}
-float colorSignal(vec3 c){float luma=dot(c,vec3(.299,.587,.114));float chroma=length(c-vec3(luma));return sat((luma-.20)*1.25+chroma*1.55);}
-vec3 edgeColorDrag(vec2 coord,vec2 rectSize,float radius,float band,float core){
-  vec2 n=sdfNormalAt(coord,rectSize,radius);
-  vec2 t=vec2(-n.y,n.x);
-  float pull=clamp(8.0+abs(uLegacyRefraction.y)*.030,8.0,42.0);
-  float smear=clamp(4.0+effectiveEdgeWidth(rectSize)*.55,4.0,22.0);
-  vec2 baseIn=coord-n*pull;
-  vec2 baseFar=coord-n*(pull*1.85);
-  vec2 baseOut=coord+n*(pull*.45);
-  vec3 c=sourceLensBackdrop(globalUv(baseIn))*.28;
-  c+=sourceLensBackdrop(globalUv(baseFar))*.18;
-  c+=sourceLensBackdrop(globalUv(baseOut))*.12;
-  c+=sourceLensBackdrop(globalUv(baseIn+t*smear))*.14;
-  c+=sourceLensBackdrop(globalUv(baseIn-t*smear))*.14;
-  c+=sourceLensBackdrop(globalUv(baseIn+t*smear*1.85))*.07;
-  c+=sourceLensBackdrop(globalUv(baseIn-t*smear*1.85))*.07;
-  vec3 soft=blurBackdrop(globalUv(baseIn),band)*.45+c*.55;
-  float signal=colorSignal(c);
-  float dragAlpha=band*(.035+sat(max(uLegacyRefraction.z,0.0))*.105+core*.030)*signal;
-  return mix(vec3(0.0),soft,sat(dragAlpha));
-}
-float bodyDomeAt(vec2 coord,vec2 rectSize){vec2 local=clamp(coord/rectSize,0.0,1.0);vec2 pp=local*2.0-1.0;pp.x*=min(rectSize.x/max(rectSize.y,1.0),2.4)*.38;float d=length(pp);return pow(sat(1.0-d*.74),1.65);}
-float thicknessAt(vec2 coord,vec2 rectSize,float radius){
-  float sd=legacyRoundedBoxSdfAt(coord,rectSize,radius);
-  float maskGuard=1.0-smoothstep(1.5,16.0,sd);
-  float rimWide=rimWideAt(coord,rectSize,radius);
-  float rimCore=rimCoreAt(coord,rectSize,radius);
-  float dome=bodyDomeAt(coord,rectSize);
-  float tt=dome*.22+rimWide*.46+rimCore*.34;
-  return tt*maskGuard;
-}
-vec2 softLimitPx(vec2 v,float limitPx){float len=length(v);float softLen=len/(1.0+len/max(limitPx,1.0));return v*(softLen/max(len,.0001));}
-vec3 legacyEdgeColor(vec2 coord,vec2 rectSize,float radius,float sd,out float dragBand){
-  vec2 bgUv=globalUv(coord);
-  float stepPx=2.0;
-  float tL=thicknessAt(coord-vec2(stepPx,0.0),rectSize,radius);
-  float tR=thicknessAt(coord+vec2(stepPx,0.0),rectSize,radius);
-  float tU=thicknessAt(coord-vec2(0.0,stepPx),rectSize,radius);
-  float tD=thicknessAt(coord+vec2(0.0,stepPx),rectSize,radius);
-  vec2 grad=vec2(tR-tL,tD-tU);
-  float rimWide=rimWideAt(coord,rectSize,radius);
-  float rimCore=rimCoreAt(coord,rectSize,radius);
-  dragBand=edgeDragBandAt(coord,rectSize,radius);
-  float gLen=length(grad);
-  float gradGate=smoothstep(.0004,.012,gLen);
-  grad*=gradGate*min(1.0,.22/max(gLen,.0001));
-  float gradEnergy=sat(length(grad)*max(uLegacyRefraction.w,0.0));
-  vec2 rawRefractPx=grad*(uLegacyRefraction.x+uLegacyRefraction.y*rimWide)*max(uLegacyMaterial.x,0.0);
-  float limitPx=mix(18.0,62.0,rimWide)+sat(abs(uLegacyRefraction.y)/600.0)*16.0;
-  vec2 refractPx=softLimitPx(rawRefractPx,limitPx);
-  vec2 refractedUv=bgUv+refractPx/max(uRoot,vec2(1.0));
-  vec3 color=blurBackdrop(refractedUv,rimWide);
-  vec3 lensColor=sourceLensBackdrop(refractedUv);
-  float lensMix=sat(rimCore*max(uLegacyRefraction.z,0.0)*.42);
-  color=mix(color,lensColor,lensMix);
-  vec3 dragColor=edgeColorDrag(coord,rectSize,radius,dragBand,rimCore);
-  float dragMix=sat(max(max(dragColor.r,dragColor.g),dragColor.b));
-  color=mix(color,dragColor,dragMix);
-  float rimOpticalBoost=rimCore*.16+gradEnergy*.045;
-  color*=uLegacyMaterial.z*(1.0+rimOpticalBoost);
-  float debugEdge=smoothstep(-1.65,0.0,sd);
-  color=mix(color,vec3(1.0,.45,0.0),debugEdge*uLegacyOptics.z);
-  color-=vec3(.06,.07,.09)*uLegacyOptics.w*rimWide;
-  return clamp(color,0.0,1.0);
-}
-
 void main(){
   vec2 p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
   vec2 z=uRes;
@@ -206,24 +99,14 @@ void main(){
   vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
   vec2 totalFlow=mainBodyFlow+centerFlow;
-  vec3 bodyColor=bodyBackdrop(globalUv(p+totalFlow));
+  vec3 color=bodyBackdrop(globalUv(p+totalFlow));
   float opticalBoost=1.0+bodyWeight*.24;
-  bodyColor*=uBody.w*uMat.z*opticalBoost;
-  bodyColor-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
+  color*=uBody.w*uMat.z*opticalBoost;
+  color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
-  bodyColor=mix(bodyColor,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
+  color=mix(color,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
-  float bodyAlpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
-  vec3 color=bodyColor;
-  float alpha=bodyAlpha;
-
-  if(uRenderMode>.5){
-    float legacyBand=0.0;
-    vec3 edgeColor=legacyEdgeColor(p,z,r,sd,legacyBand);
-    color=mix(bodyColor,edgeColor,legacyBand);
-    alpha=bodyMask*max(sat(uMat.y*sat(uMat.x/20.0)*uIntensity),clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0)*legacyBand);
-  }
-
+  float alpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
   if(alpha<=.001)discard;
   gl_FragColor=vec4(clamp(color,0.0,1.0),sat(alpha));
 }`
