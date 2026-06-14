@@ -33,11 +33,9 @@ vec2 softLimit(vec2 v,float lim){
 }
 
 /*
- * V28 SDF Bevel Lens
+ * V28.1 Extreme SDF Bevel Lens Observation
  * uBevelA = widthPx, zRadiusPx, opticalThicknessPx, refractiveIndex
  * uBevelB = maxAngleDeg, profileCurve, materialStrength, enabled
- *
- * 边缘只负责决定主体折射场的观察来源点，不生成第二张边框图。
  */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
@@ -135,24 +133,16 @@ vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r){
       +centerTransport(point,z);
 }
 
-/*
- * 单侧椭圆圆肩：外沿陡、向内连续躺平。
- * maxAngle 限制最外沿坡度，避免数学奇点。
- */
 float bevelThetaAt(float depth,float width,float zRadius){
   float t=sat(depth/max(width,1.0));
-  float curve=clamp(uBevelB.y,.35,2.5);
+  float curve=clamp(uBevelB.y,.08,8.0);
   float q=pow(max(1.0-t,0.0),curve);
-  float denominator=sqrt(max(1.0-q*q,.0036));
+  float denominator=sqrt(max(1.0-q*q,.0004));
   float slope=(zRadius/max(width,1.0))*q/denominator;
-  float maxAngle=clamp(uBevelB.x,20.0,82.0)*.01745329252;
+  float maxAngle=clamp(uBevelB.x,5.0,89.5)*.01745329252;
   return min(atan(slope),maxAngle);
 }
 
-/*
- * 返回 xy=来源点，z=圆肩权重，w=Fresnel。
- * 位移包络上限为 width*0.50，保证来源深度保持单调。
- */
 vec4 evaluateBevelSource(
   vec2 p,
   vec2 edgeNormal,
@@ -161,7 +151,7 @@ vec4 evaluateBevelSource(
 ){
   float width=min(
       max(uBevelA.x,1.0),
-      min(z.x,z.y)*.44
+      min(z.x,z.y)*.49
   );
   if(uBevelB.w<.5||depth>=width){
     return vec4(p,0.0,0.0);
@@ -178,7 +168,7 @@ vec4 evaluateBevelSource(
       cos(theta)
   ));
   vec3 viewRay=vec3(0.0,0.0,-1.0);
-  float ior=clamp(uBevelA.w,1.01,1.80);
+  float ior=clamp(uBevelA.w,1.001,3.5);
   vec3 refractedRay=refract(
       viewRay,
       surfaceNormal,
@@ -186,11 +176,11 @@ vec4 evaluateBevelSource(
   );
 
   float raySlope=length(refractedRay.xy)
-      /max(-refractedRay.z,.28);
+      /max(-refractedRay.z,.12);
   float rawTravel=raySlope*max(uBevelA.z,0.0);
 
-  /* smoother01 的最大梯度约为 1.875；0.50W 保持安全余量。 */
-  float travelCap=width*.50*bevelMask;
+  /* 极限观察版：明显放大边缘位移包络。 */
+  float travelCap=width*.72*bevelMask;
   float travel=travelCap
       *(1.0-exp(-rawTravel/max(travelCap,1.0)));
 
@@ -232,10 +222,9 @@ void main(){
 
   float bevelWidth=min(
       max(uBevelA.x,1.0),
-      min(z.x,z.y)*.44
+      min(z.x,z.y)*.49
   );
 
-  /* 主体区域完全保持原始 V25.3 路径。 */
   if(uBevelB.w>.5&&depth<bevelWidth){
     vec4 bevelData=evaluateBevelSource(
         p,normal,z,depth
@@ -261,17 +250,14 @@ void main(){
       globalUv(bodyOpticalCoord),materialWeight
   );
 
-  /*
-   * 同一材质内的轻微透射变化；不新增白色描边或第二次纹理采样。
-   */
-  float materialStrength=clamp(uBevelB.z,0.0,1.0);
+  float materialStrength=clamp(uBevelB.z,0.0,4.0);
   vec2 lightDirection=normalize(vec2(-.62,-.78));
-  float lightFacing=pow(sat(dot(normal,lightDirection)),3.0);
+  float lightFacing=pow(sat(dot(normal,lightDirection)),2.5);
   float bevelVolume=bevelMask*materialStrength;
-  color*=1.0-.025*bevelVolume;
+  color*=1.0-.055*bevelVolume;
   color*=1.0
-      +.10*bevelFresnel*bevelVolume
-      *(.30+.70*lightFacing);
+      +.24*bevelFresnel*bevelVolume
+      *(.22+.78*lightFacing);
 
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   color=mix(
