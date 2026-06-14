@@ -8,16 +8,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -46,9 +45,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
+private const val LaboratoryInsetRadius = 18f
+private const val LaboratoryInsetDepth = 0.52f
+private const val LaboratoryInsetBackdropAlpha = 0.82f
+private const val LaboratoryInsetRimHighlight = 0.34f
+private const val LaboratoryInsetInnerShadow = 0.67f
+private const val LaboratoryInsetFloorDim = 0.23f
+
 /**
- * 设置页统一凹槽玻璃参数滑块。
- * 纯 Compose/Canvas 实现，完全隔离于 OpenGL registry 与 geometry sync。
+ * 设置页参数滑块。
+ * 材质、层次和进度轨完全沿用玻璃实验室凹槽样本，只调整文字排版与可交互宽度。
+ * 纯 Compose/Canvas 实现，不进入任何 OpenGL registry，也不触发 geometry sync。
  */
 @Composable
 internal fun InsetGlassParameterSlider(
@@ -66,36 +73,42 @@ internal fun InsetGlassParameterSlider(
     val span = (end - start).coerceAtLeast(0.000001f)
     val clampedValue = value.coerceIn(start, end)
     val progress = ((clampedValue - start) / span).coerceIn(0f, 1f)
-    val currentValue by rememberUpdatedState(clampedValue)
     val currentOnValueChange by rememberUpdatedState(onValueChange)
-    val reservedWidthPx = with(LocalDensity.current) { 126.dp.toPx() }
+
+    var dragValue by remember { mutableFloatStateOf(clampedValue) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
+    val reservedWidthPx = with(LocalDensity.current) { 112.dp.toPx() }
+
+    LaunchedEffect(clampedValue) {
+        dragValue = clampedValue
+    }
+
     val dragState = rememberDraggableState { delta ->
-        val next = currentValue + delta / trackWidthPx.coerceAtLeast(1f) * span
-        currentOnValueChange(next.coerceIn(start, end))
+        dragValue = (dragValue + delta / trackWidthPx.coerceAtLeast(1f) * span)
+            .coerceIn(start, end)
+        currentOnValueChange(dragValue)
     }
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             Text(
                 text = title,
-                color = Color.White.copy(alpha = 0.88f),
-                fontSize = 14.sp,
-                lineHeight = 17.sp,
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = description,
-                color = Color.White.copy(alpha = 0.43f),
-                fontSize = 10.5.sp,
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 10.sp,
                 lineHeight = 14.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
@@ -103,10 +116,16 @@ internal fun InsetGlassParameterSlider(
             )
         }
 
-        Box(
+        LaboratoryInsetGlassSlot(
+            radius = LaboratoryInsetRadius,
+            grooveDepth = LaboratoryInsetDepth,
+            floorBackdropAlpha = LaboratoryInsetBackdropAlpha,
+            rimHighlightAlpha = LaboratoryInsetRimHighlight,
+            innerShadowAlpha = LaboratoryInsetInnerShadow,
+            floorDimAlpha = LaboratoryInsetFloorDim,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
+                .height(38.dp)
                 .onSizeChanged {
                     trackWidthPx = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
                 }
@@ -117,132 +136,124 @@ internal fun InsetGlassParameterSlider(
                         true
                     }
                 }
-                .draggable(state = dragState, orientation = Orientation.Horizontal)
-                .clip(RoundedCornerShape(23.dp)),
-            contentAlignment = Alignment.Center
+                .draggable(
+                    state = dragState,
+                    orientation = Orientation.Horizontal
+                )
         ) {
-            FrostInfoGlassPanel(
-                radius = 23f,
-                backdropAlpha = 0.82f,
-                frostAlpha = 0.026f,
-                dimAlpha = 0.18f,
-                modifier = Modifier.matchParentSize()
-            ) {}
-
-            Canvas(Modifier.matchParentSize()) {
-                val radius = size.height / 2f
-                val inset = 2.dp.toPx()
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.42f),
-                            Color.Black.copy(alpha = 0.14f),
-                            Color(0xFF18254C).copy(alpha = 0.10f)
-                        )
-                    ),
-                    cornerRadius = CornerRadius(radius, radius),
-                    blendMode = BlendMode.Multiply
-                )
-                drawRoundRect(
-                    color = Color.Black.copy(alpha = 0.34f),
-                    topLeft = Offset(inset, inset),
-                    size = Size(size.width - inset * 2f, size.height - inset * 2f),
-                    cornerRadius = CornerRadius(radius - inset, radius - inset),
-                    style = Stroke(1.8.dp.toPx()),
-                    blendMode = BlendMode.Multiply
-                )
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.15f),
-                            Color.Transparent,
-                            Color(0xFF9AEDE6).copy(alpha = 0.075f)
-                        )
-                    ),
-                    topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
-                    size = Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx()),
-                    cornerRadius = CornerRadius(radius - 1.dp.toPx(), radius - 1.dp.toPx()),
-                    style = Stroke(0.9.dp.toPx()),
-                    blendMode = BlendMode.Screen
-                )
-            }
-
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Text(
                     text = leadingMark,
-                    color = Color.White.copy(alpha = 0.48f),
+                    color = Color.White.copy(alpha = 0.58f),
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.width(18.dp)
+                    fontWeight = FontWeight.Black
                 )
-                Spacer(Modifier.width(8.dp))
-                Canvas(
-                    Modifier
+                LaboratoryRecessedProgressTrack(
+                    progress = progress,
+                    modifier = Modifier
                         .weight(1f)
-                        .height(18.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                ) {
-                    val radius = size.height / 2f
-                    drawRoundRect(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.30f),
-                                Color.White.copy(alpha = 0.055f),
-                                Color.Black.copy(alpha = 0.16f)
-                            )
-                        ),
-                        cornerRadius = CornerRadius(radius, radius)
-                    )
-                    drawRoundRect(
-                        color = Color.White.copy(alpha = 0.075f),
-                        cornerRadius = CornerRadius(radius, radius),
-                        style = Stroke(0.8.dp.toPx())
-                    )
-                    if (progress > 0.0001f) {
-                        val activeWidth = maxOf(size.height, size.width * progress).coerceAtMost(size.width)
-                        drawRoundRect(
-                            brush = Brush.horizontalGradient(
-                                listOf(
-                                    Color(0xFFC8FBFF).copy(alpha = 0.96f),
-                                    Color(0xFFA7ECE8).copy(alpha = 0.92f),
-                                    Color(0xFF83D7D4).copy(alpha = 0.90f)
-                                )
-                            ),
-                            size = Size(activeWidth, size.height),
-                            cornerRadius = CornerRadius(radius, radius),
-                            blendMode = BlendMode.Screen
-                        )
-                        drawRoundRect(
-                            brush = Brush.verticalGradient(
-                                listOf(Color.White.copy(alpha = 0.30f), Color.Transparent)
-                            ),
-                            size = Size(activeWidth, size.height * 0.48f),
-                            cornerRadius = CornerRadius(radius, radius),
-                            blendMode = BlendMode.Screen
-                        )
-                    }
-                }
-                Spacer(Modifier.width(11.dp))
-                Canvas(Modifier.size(1.dp, 22.dp)) {
-                    drawRect(Color.White.copy(alpha = 0.10f))
-                }
-                Spacer(Modifier.width(10.dp))
+                        .height(12.dp)
+                )
                 Text(
                     text = valueText,
-                    color = Color.White.copy(alpha = 0.76f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.End,
-                    modifier = Modifier.width(54.dp)
+                    modifier = Modifier.width(48.dp)
                 )
             }
         }
+    }
+}
+
+/** 与玻璃实验室 LabInsetGlassSlot 完全一致的凹槽材质链。 */
+@Composable
+private fun LaboratoryInsetGlassSlot(
+    radius: Float,
+    grooveDepth: Float,
+    floorBackdropAlpha: Float,
+    rimHighlightAlpha: Float,
+    innerShadowAlpha: Float,
+    floorDimAlpha: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
+        FrostInfoGlassPanel(
+            radius = radius,
+            backdropAlpha = floorBackdropAlpha,
+            dimAlpha = floorDimAlpha,
+            modifier = Modifier.fillMaxSize()
+        ) {}
+        Canvas(Modifier.fillMaxSize()) {
+            val r = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+            val inset = (1.5f + grooveDepth * 6f).dp.toPx()
+            drawRoundRect(
+                color = Color.Black.copy(alpha = innerShadowAlpha * 0.45f),
+                topLeft = Offset.Zero,
+                size = size,
+                cornerRadius = r,
+                blendMode = BlendMode.Multiply
+            )
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.Black.copy(alpha = innerShadowAlpha * 0.42f),
+                        Color.Transparent,
+                        Color.White.copy(alpha = rimHighlightAlpha * 0.26f)
+                    )
+                ),
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - inset * 2f, size.height - inset * 2f),
+                cornerRadius = r,
+                style = Stroke(width = (1.2f + grooveDepth * 3f).dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = rimHighlightAlpha * 0.18f),
+                topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
+                size = Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx()),
+                cornerRadius = r,
+                style = Stroke(width = 0.9.dp.toPx()),
+                blendMode = BlendMode.Screen
+            )
+        }
+        content()
+    }
+}
+
+/** 与玻璃实验室 RecessedProgressTrack 完全一致的进度轨。 */
+@Composable
+private fun LaboratoryRecessedProgressTrack(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.clip(RoundedCornerShape(999.dp))) {
+        val radius = size.height / 2f
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.09f),
+            cornerRadius = CornerRadius(radius, radius)
+        )
+        drawRoundRect(
+            brush = Brush.horizontalGradient(
+                listOf(
+                    Color(0xFFBFFAFF).copy(alpha = 0.95f),
+                    Color(0xFF8DF9EA).copy(alpha = 0.72f)
+                )
+            ),
+            size = Size(size.width * progress.coerceIn(0f, 1f), size.height),
+            cornerRadius = CornerRadius(radius, radius),
+            blendMode = BlendMode.Screen
+        )
     }
 }
 
