@@ -9,17 +9,15 @@ import com.yuchen.ailedger.model.AppTab
 /**
  * 普通 Compose 玻璃后续父级绘制时使用的场景边界。
  *
- * 当前阶段只负责标记归属，不注册玻璃、不改变绘制顺序，也不触发任何 OpenGL 同步。
- * 一个场景代表一套相对独立的坐标、裁剪、生命周期和前后景层级。
+ * 当前阶段只负责标记普通 GlassPanel / PressableGlass 的归属，不注册玻璃、
+ * 不改变绘制顺序，也不触发任何 OpenGL、聊天气泡、Frost 或 Inset 绘制链。
  */
 enum class GlassSceneGroup(
-    val owner: GlassSceneOwner,
-    val ordinaryComposeGlassAllowed: Boolean = true
+    val owner: GlassSceneOwner
 ) {
     Unassigned(GlassSceneOwner.Fallback),
 
     AssistantPage(GlassSceneOwner.Page),
-    AssistantChatBubbles(GlassSceneOwner.Specialized),
 
     ToolsPage(GlassSceneOwner.Page),
     ToolsHomePage(GlassSceneOwner.Page),
@@ -29,23 +27,13 @@ enum class GlassSceneGroup(
     SettingsPage(GlassSceneOwner.Page),
     SettingsDebugInnerScroll(GlassSceneOwner.ScrollSubScene),
 
-    GlobalBottomBar(GlassSceneOwner.Persistent),
-    AttachmentDialog(GlassSceneOwner.Overlay),
-    WebBrowserOverlay(GlassSceneOwner.Overlay),
-
-    OpenGLShell(
-        owner = GlassSceneOwner.OpenGL,
-        ordinaryComposeGlassAllowed = false
-    )
+    GlobalBottomBar(GlassSceneOwner.Persistent)
 }
 
 enum class GlassSceneOwner {
     Page,
     ScrollSubScene,
     Persistent,
-    Overlay,
-    Specialized,
-    OpenGL,
     Fallback
 }
 
