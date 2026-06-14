@@ -15,13 +15,21 @@ import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val Context.assistantPreferencesDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "assistant_preferences"
 )
+
+private const val SLIDER_PERSIST_SETTLE_MS = 140L
 
 data class AssistantPreferences(
     val quality: RenderQuality = RenderQuality.Balanced,
@@ -41,6 +49,14 @@ data class AssistantPreferences(
 class AssistantPreferencesStore(private val context: Context) {
     private var pendingThemeSelection = false
 
+    // 参数滑块在拖动时可能每帧产生新值。这里使用 CONFLATED 通道，
+    // 仅在数值稳定一小段时间后写入最后一个值，避免 DataStore 历史写入
+    // 排队后通过 preferencesFlow 回灌旧值，造成松手回跳和额外 I/O。
+    private val sliderWriterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val glassIntensityWrites = Channel<Float>(Channel.CONFLATED)
+    private val motionIntensityWrites = Channel<Float>(Channel.CONFLATED)
+    private val rainbowPrismWrites = Channel<RainbowPrismStyle>(Channel.CONFLATED)
+
     private object Keys {
         val renderQuality = stringPreferencesKey("render_quality")
         val showPreviewConversation = booleanPreferencesKey("show_preview_conversation")
@@ -59,6 +75,34 @@ class AssistantPreferencesStore(private val context: Context) {
         val navigationSchoolAddress = stringPreferencesKey("navigation_school_address")
         val navigationCompanyAddress = stringPreferencesKey("navigation_company_address")
         val navigationDormAddress = stringPreferencesKey("navigation_dorm_address")
+    }
+
+    init {
+        sliderWriterScope.launch {
+            consumeSettledValues(glassIntensityWrites) { value ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.glassIntensity] = value.coerceIn(0.6f, 1.4f)
+                }
+            }
+        }
+        sliderWriterScope.launch {
+            consumeSettledValues(motionIntensityWrites) { value ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.motionIntensity] = value.coerceIn(0f, 1.4f)
+                }
+            }
+        }
+        sliderWriterScope.launch {
+            consumeSettledValues(rainbowPrismWrites) { style ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.rainbowOverall] = style.overall
+                    it[Keys.rainbowEdgeHighlight] = style.edgeHighlight
+                    it[Keys.rainbowSweepMin] = style.sweepMin
+                    it[Keys.rainbowSweepMax] = style.sweepMax
+                    it[Keys.rainbowHalo] = style.rainbowHalo
+                }
+            }
+        }
     }
 
     val preferencesFlow: Flow<AssistantPreferences> = context.assistantPreferencesDataStore.data
@@ -124,23 +168,15 @@ class AssistantPreferencesStore(private val context: Context) {
     }
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
-        context.assistantPreferencesDataStore.edit { it[Keys.glassIntensity] = glassIntensity.coerceIn(0.6f, 1.4f) }
+        glassIntensityWrites.send(glassIntensity.coerceIn(0.6f, 1.4f))
     }
 
     suspend fun setMotionIntensity(motionIntensity: Float) {
-        context.assistantPreferencesDataStore.edit { it[Keys.motionIntensity] = motionIntensity.coerceIn(0f, 1.4f) }
+        motionIntensityWrites.send(motionIntensity.coerceIn(0f, 1.4f))
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
-        val minValue = minOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-        val maxValue = maxOf(style.sweepMin, style.sweepMax).coerceIn(0f, 2f)
-        context.assistantPreferencesDataStore.edit {
-            it[Keys.rainbowOverall] = style.overall.coerceIn(0f, 2f)
-            it[Keys.rainbowEdgeHighlight] = style.edgeHighlight.coerceIn(0f, 2f)
-            it[Keys.rainbowSweepMin] = minValue
-            it[Keys.rainbowSweepMax] = maxValue
-            it[Keys.rainbowHalo] = style.rainbowHalo.coerceIn(0f, 2f)
-        }
+        rainbowPrismWrites.send(style.normalized())
     }
 
     suspend fun setNavigationAddress(slot: String, address: String) {
@@ -153,5 +189,33 @@ class AssistantPreferencesStore(private val context: Context) {
                 "dorm" -> preferences[Keys.navigationDormAddress] = cleanAddress
             }
         }
+    }
+
+    private suspend fun <T> consumeSettledValues(
+        channel: Channel<T>,
+        persist: suspend (T) -> Unit
+    ) {
+        for (firstValue in channel) {
+            var latestValue = firstValue
+            while (true) {
+                val nextValue = withTimeoutOrNull(SLIDER_PERSIST_SETTLE_MS) {
+                    channel.receive()
+                } ?: break
+                latestValue = nextValue
+            }
+            persist(latestValue)
+        }
+    }
+
+    private fun RainbowPrismStyle.normalized(): RainbowPrismStyle {
+        val minValue = minOf(sweepMin, sweepMax).coerceIn(0f, 2f)
+        val maxValue = maxOf(sweepMin, sweepMax).coerceIn(0f, 2f)
+        return RainbowPrismStyle(
+            overall = overall.coerceIn(0f, 2f),
+            edgeHighlight = edgeHighlight.coerceIn(0f, 2f),
+            sweepMin = minValue,
+            sweepMax = maxValue,
+            rainbowHalo = rainbowHalo.coerceIn(0f, 2f)
+        )
     }
 }
