@@ -2,14 +2,11 @@
 window.OpenGLV24Shaders={
   vs:'attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}',
   fs:`precision highp float;
-uniform vec2 uRes,uOrigin,uRoot,uShapeOffset,uShapeSize;
+uniform vec2 uRes,uOrigin,uRoot;
 uniform sampler2D uBlurTexture,uLensTexture;
 uniform vec4 uMat,uBodyLensA,uBodyLensB,uBody;
 uniform vec4 uLegacyMaterial,uLegacyRefraction,uLegacyOptics;
-uniform vec4 uInnerA,uInnerB;
-uniform vec4 uRimA,uRimB,uRimC;
-uniform vec4 uMode;
-uniform float uRadius,uIntensity,uTextureReady;
+uniform float uRadius,uIntensity,uTextureReady,uRenderMode;
 
 float sat(float x){return clamp(x,0.0,1.0);}
 float boxSdf(vec2 p,vec2 z,float r){
@@ -29,7 +26,7 @@ vec2 softLimit(vec2 v,float lim){
   return v*(m/max(n,.0001));
 }
 
-/* V25.3 主体几何与折射：保持稳定基准公式。 */
+/* V25.3 主体折射稳定基准。 */
 vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   vec2 local=p-z*.5;
   vec2 core=max(z*.5-vec2(r),vec2(0.0));
@@ -42,7 +39,6 @@ vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
   if(sideRatio.x>sideRatio.y){return vec2(local.x<0.0?-1.0:1.0,0.0);}
   return vec2(0.0,local.y<0.0?-1.0:1.0);
 }
-float cornerFactorAt(vec2 n){return sat(abs(n.x*n.y)*2.0);}
 float bodyLensReach(vec2 z,float r){
   float requested=max(uBodyLensB.y,8.0);
   float curvatureSafe=max(r*.96,8.0);
@@ -91,15 +87,8 @@ vec2 centerTransport(vec2 p,vec2 z){
   vec2 flow=polynomialTransport(u)*amplitude*centerEnvelope(u);
   return softLimit(flow,mix(52.0,118.0,gain));
 }
-vec3 sampleBodyMaterial(vec2 uv,float bodyWeight){
-  vec3 color=bodyBackdrop(uv);
-  float opticalBoost=1.0+bodyWeight*.24;
-  color*=uBody.w*uMat.z*opticalBoost;
-  color-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
-  return color;
-}
 
-/* 9a6e4ac 原版边缘链：只允许旧边缘和左右对比调用。 */
+/* 9a6e4ac 原版边缘链，仅作为旧边缘参考模式。 */
 float legacyRoundedBoxSdfAt(vec2 coord,vec2 rectSize,float radius){
   vec2 p=coord-rectSize*.5;
   vec2 halfSize=rectSize*.5;
@@ -204,150 +193,36 @@ vec3 legacyEdgeColor(vec2 coord,vec2 rectSize,float radius,float sd,out float dr
   return clamp(color,0.0,1.0);
 }
 
-/* 新双层一：基于主体材质的三点切线扩散。 */
-float innerBandMask(float sd){
-  float depth=max(-sd,0.0);
-  float startPx=max(uInnerA.x,0.0);
-  float widthPx=max(uInnerA.y,1.0);
-  float endPx=startPx+widthPx;
-  float feather=min(max(widthPx*.22,.75),2.75);
-  float enter=smoothstep(startPx,startPx+feather,depth);
-  float leave=1.0-smoothstep(endPx-feather,endPx,depth);
-  return step(sd,0.0)*enter*leave;
-}
-vec3 innerDiffusionColor(vec2 bodyCoord,vec2 normal,vec2 tangent,float corner,float band,float bodyWeight){
-  float cornerScale=1.0+corner*sat(uInnerB.y)*.30;
-  float spread=max(uInnerA.z,0.0)*cornerScale;
-  float normalPull=max(uInnerB.x,0.0)*band*(1.0+corner*sat(uInnerB.y)*.12);
-  vec2 baseCoord=bodyCoord-normal*normalPull;
-  vec2 centerUv=globalUv(baseCoord);
-  vec2 tangentUv=tangent*spread/max(uRoot,vec2(1.0));
-  vec3 centerColor=sampleBodyMaterial(centerUv,bodyWeight);
-  vec3 plusColor=sampleBodyMaterial(centerUv+tangentUv,bodyWeight);
-  vec3 minusColor=sampleBodyMaterial(centerUv-tangentUv,bodyWeight);
-  vec3 diffusion=centerColor*.50+plusColor*.25+minusColor*.25;
-  return mix(centerColor,diffusion,sat(uInnerA.w));
-}
-
-/* 新双层二：完全位于边界内侧的透明实体 Rim。 */
-float rimMaskAt(float sd){
-  float depth=max(-sd,0.0);
-  float widthPx=max(uRimA.x,1.0);
-  float feather=min(max(widthPx*.18,.75),1.75);
-  return step(sd,0.0)*(1.0-smoothstep(widthPx-feather,widthPx,depth));
-}
-vec3 rimMaterialColor(vec3 rimBase,vec2 p,vec2 z,vec2 normal,float sd,float corner,out float rimCoverage){
-  float depth=max(-sd,0.0);
-  float widthPx=max(uRimA.x,1.0);
-  float rimMask=rimMaskAt(sd);
-  float opacity=sat(uRimA.y);
-  float cornerGain=1.0+corner*sat(uRimC.y)*.16;
-  rimCoverage=sat(rimMask*opacity*cornerGain);
-
-  float transmission=clamp(uRimA.z,0.0,1.0);
-  float tintWeight=sat(uRimA.w)*.14;
-  float luma=dot(rimBase,vec3(.299,.587,.114));
-  vec3 environmentTint=mix(vec3(luma),rimBase,.55)*vec3(.985,1.0,1.015);
-  vec3 transmitted=rimBase*transmission;
-  vec3 rimColor=mix(transmitted,environmentTint,tintWeight);
-
-  float sectionWidth=max(min(widthPx*.16,2.25),.80);
-  float innerCenter=max(widthPx-sectionWidth*1.10,sectionWidth);
-  float innerLine=1.0-smoothstep(sectionWidth,sectionWidth*1.90,abs(depth-innerCenter));
-  rimColor*=1.0-innerLine*sat(uRimB.x)*.18;
-
-  float outerLine=1.0-smoothstep(0.0,sectionWidth,depth);
-  vec2 local=(p-z*.5)/max(z*.5,vec2(1.0));
-  vec2 lightDirection=normalize(vec2(uRimB.z,uRimB.w)+vec2(.0001));
-  vec2 lightAnchor=lightDirection*1.65;
-  vec2 toLight=normalize(lightAnchor-local+vec2(.0001));
-  float facing=sat(dot(normal,toLight));
-  float highlightPower=max(uRimC.x,1.0);
-  float directional=pow(facing,highlightPower);
-  float highlightAmount=outerLine*directional*sat(uRimB.y)*.42*(1.0+corner*sat(uRimC.y)*.12);
-  vec3 highlightColor=mix(rimColor,vec3(1.0,.99,.965),.72);
-  rimColor=mix(rimColor,highlightColor,sat(highlightAmount));
-
-  float peak=max(max(rimColor.r,rimColor.g),rimColor.b);
-  float excess=max(peak-1.0,0.0);
-  rimColor/=1.0+excess*.32;
-  return rimColor;
-}
-
 void main(){
-  vec2 canvasP=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
-  vec2 p=canvasP-uShapeOffset;
-  vec2 z=uShapeSize;
+  vec2 p=vec2(gl_FragCoord.x,uRes.y-gl_FragCoord.y);
+  vec2 z=uRes;
   float r=min(uRadius,min(z.x,z.y)*.5);
   float sd=boxSdf(p,z,r);
   float bodyMask=1.0-smoothstep(0.0,1.35,sd);
-  if(bodyMask<=.001&&sd>0.0)discard;
+  if(bodyMask<=.001)discard;
 
   float depth=insideFromSdf(sd);
-  vec2 normal=perimeterNormalAt(p,z,r);
-  vec2 tangent=vec2(-normal.y,normal.x);
-  float corner=cornerFactorAt(normal);
-
   float bodyWeight=bodyLensWeight(depth,z,r);
   vec2 mainBodyFlow=bodyRefractionFlow(p,z,r,depth,bodyWeight);
   vec2 centerFlow=centerTransport(p,z);
-  vec2 bodyCoord=p+mainBodyFlow+centerFlow;
-  vec2 bodyUv=globalUv(bodyCoord);
-  vec3 bodyColor=sampleBodyMaterial(bodyUv,bodyWeight);
+  vec2 totalFlow=mainBodyFlow+centerFlow;
+  vec3 bodyColor=bodyBackdrop(globalUv(p+totalFlow));
+  float opticalBoost=1.0+bodyWeight*.24;
+  bodyColor*=uBody.w*uMat.z*opticalBoost;
+  bodyColor-=vec3(.055,.065,.085)*uBodyLensB.z*bodyWeight;
   float bodyDebug=smoothstep(-1.6,0.0,sd)*bodyMask;
   bodyColor=mix(bodyColor,vec3(1.0,.45,0.0),bodyDebug*uBodyLensB.w);
 
-  float baseAlpha=sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
-  float bodyAlpha=bodyMask*baseAlpha;
-  float debugView=uMode.y;
-  float edgeMode=uMode.x;
-
-  float innerMask=innerBandMask(sd);
-  float rimMask=rimMaskAt(sd);
-  bool needDual=edgeMode>1.5||debugView>1.5;
-  vec3 innerColor=bodyColor;
-  if(needDual&&innerMask>.001){innerColor=innerDiffusionColor(bodyCoord,normal,tangent,corner,innerMask,bodyWeight);}
-
-  vec3 dualColor=bodyColor;
-  dualColor=mix(dualColor,innerColor,innerMask*sat(uInnerB.z));
-  float rimCoverage=0.0;
-  vec3 rimColor=dualColor;
-  if(needDual&&rimMask>.001){rimColor=rimMaterialColor(dualColor,p,z,normal,sd,corner,rimCoverage);}
-  dualColor=mix(dualColor,rimColor,rimCoverage);
-  float dualAlpha=bodyAlpha+(1.0-bodyAlpha)*rimCoverage*sat(uRimC.z);
-
-  bool useLegacy=edgeMode>.5&&edgeMode<1.5;
-  if(edgeMode>2.5){useLegacy=p.x<z.x*sat(uMode.z);}
-  vec3 legacyColor=bodyColor;
-  float legacyAlpha=bodyAlpha;
-  if(useLegacy&&bodyMask>.001){
-    float legacyBand=0.0;
-    vec3 edgeColor=legacyEdgeColor(p,z,r,sd,legacyBand);
-    legacyColor=mix(bodyColor,edgeColor,legacyBand);
-    legacyAlpha=bodyMask*max(baseAlpha,clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0)*legacyBand);
-  }
-
+  float bodyAlpha=bodyMask*sat(uMat.y*sat(uMat.x/20.0)*uIntensity);
   vec3 color=bodyColor;
   float alpha=bodyAlpha;
-  if(edgeMode>.5&&edgeMode<1.5){color=legacyColor;alpha=legacyAlpha;}
-  else if(edgeMode>1.5&&edgeMode<2.5){color=dualColor;alpha=dualAlpha;}
-  else if(edgeMode>2.5){color=useLegacy?legacyColor:dualColor;alpha=useLegacy?legacyAlpha:dualAlpha;}
 
-  if(debugView>.5&&debugView<1.5){color=bodyColor;alpha=bodyAlpha;}
-  else if(debugView>1.5&&debugView<2.5){color=vec3(innerMask);alpha=bodyMask*innerMask;}
-  else if(debugView>2.5&&debugView<3.5){color=innerColor;alpha=bodyMask*innerMask;}
-  else if(debugView>3.5&&debugView<4.5){color=vec3(rimMask);alpha=bodyMask*rimMask;}
-  else if(debugView>4.5&&debugView<5.5){color=rimColor;alpha=bodyMask*rimCoverage;}
-  else if(debugView>5.5&&debugView<6.5){color=dualColor;alpha=dualAlpha;}
-  else if(debugView>6.5&&debugView<7.5){
-    float scale=16.0;
-    float insideTone=sat(-sd/scale);
-    float boundary=1.0-smoothstep(0.0,1.25,abs(sd));
-    color=vec3(0.0,boundary,insideTone);
-    alpha=bodyMask;
+  if(uRenderMode>.5){
+    float legacyBand=0.0;
+    vec3 edgeColor=legacyEdgeColor(p,z,r,sd,legacyBand);
+    color=mix(bodyColor,edgeColor,legacyBand);
+    alpha=bodyMask*max(sat(uMat.y*sat(uMat.x/20.0)*uIntensity),clamp(uLegacyMaterial.y*uLegacyMaterial.x,0.0,1.0)*legacyBand);
   }
-  else if(debugView>7.5&&debugView<8.5){color=vec3(normal*.5+.5,.5);alpha=bodyMask;}
-  else if(debugView>8.5){color=vec3(tangent*.5+.5,.5);alpha=bodyMask;}
 
   if(alpha<=.001)discard;
   gl_FragColor=vec4(clamp(color,0.0,1.0),sat(alpha));
