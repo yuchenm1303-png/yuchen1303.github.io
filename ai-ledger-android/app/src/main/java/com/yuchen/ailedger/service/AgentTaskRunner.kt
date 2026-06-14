@@ -49,6 +49,11 @@ private class AgentLoopFeedback {
     private var pendingSnapshotCheck: PendingSnapshotCheck? = null
     private val blockedActionSignatures = linkedSetOf<String>()
 
+    fun isPendingSnapshotUnchanged(currentFingerprint: String): Boolean {
+        val pending = pendingSnapshotCheck ?: return false
+        return pending.beforeFingerprint == currentFingerprint
+    }
+
     fun consumePostActionSnapshot(currentFingerprint: String): String? {
         val pending = pendingSnapshotCheck ?: return null
         pendingSnapshotCheck = null
@@ -56,11 +61,12 @@ private class AgentLoopFeedback {
         lastVerification = if (changed) "visual_screen_changed" else "visual_no_screen_change"
         return if (changed) {
             noProgressCount = 0
+            blockedActionSignatures.remove(pending.signature)
             "postActionCheck=visual_progress · signature=${pending.signature}"
         } else {
             noProgressCount += 1
             if (noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += pending.signature
-            "postActionCheck=visual_no_progress · signature=${pending.signature} · noProgressCount=$noProgressCount"
+            "postActionCheck=visual_no_progress · signature=${pending.signature} · sameActionNoProgressCount=$noProgressCount"
         }
     }
 
@@ -75,6 +81,7 @@ private class AgentLoopFeedback {
             if (noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += signature
         } else if (verification?.contains("verified=true") == true || verification?.contains("verified=command_exit_ok") == true) {
             noProgressCount = 0
+            blockedActionSignatures.remove(signature)
         }
     }
 
@@ -94,20 +101,39 @@ private class AgentLoopFeedback {
         }
     }
 
-    fun hasBlockedActions(): Boolean = blockedActionSignatures.isNotEmpty()
+    fun shouldPauseForRepeatedNoProgress(): Boolean {
+        return noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD && blockedActionSignatures.isNotEmpty()
+    }
+
+    fun resetAfterUserTakeover() {
+        pendingSnapshotCheck = null
+        blockedActionSignatures.clear()
+        lastActionSignature = null
+        sameActionCount = 0
+        noProgressCount = 0
+        lastResultOk = null
+        lastVerification = "user_takeover_resumed"
+    }
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("lastActionSignature", lastActionSignature ?: "")
         put("sameActionCount", sameActionCount)
         put("noProgressCount", noProgressCount)
+        put("noProgressScope", "same_action_only")
         put("lastResultOk", lastResultOk)
         put("lastVerification", lastVerification)
         put("blockedActionSignatures", JSONArray().apply { blockedActionSignatures.forEach { put(it) } })
     }
 
     private fun updateActionSignature(signature: String) {
-        sameActionCount = if (signature == lastActionSignature) sameActionCount + 1 else 1
-        lastActionSignature = signature
+        if (signature == lastActionSignature) {
+            sameActionCount += 1
+        } else {
+            lastActionSignature = signature
+            sameActionCount = 1
+            noProgressCount = 0
+            blockedActionSignatures.clear()
+        }
         if (sameActionCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += signature
     }
 
@@ -156,7 +182,7 @@ class AgentTaskRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 val wantsVisual = executionMode != AgentExecutionMode.NormalChatDeviceTool
-                val observation = captureOnce(forceVisual = wantsVisual)
+                var observation = captureOnce(forceVisual = wantsVisual)
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
                 if ((!observation.enabled || !observation.serviceConnected) && wantsVisual) {
                     val message = if (AiAgentAccessibilityService.isConnected()) {
@@ -168,13 +194,25 @@ class AgentTaskRunner(
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
+                observation = awaitPostActionSettle(
+                    initialObservation = observation,
+                    forceVisual = wantsVisual,
+                    loopFeedback = loopFeedback,
+                    stopGeneration = stopGeneration,
+                )
+                if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+
                 val snapshot = observation.toAgentScreenSnapshot()
                 val snapshotFingerprint = snapshotFingerprint(snapshot)
                 loopFeedback.consumePostActionSnapshot(snapshotFingerprint)?.let { recentActions += it }
-                if (loopFeedback.noProgressCount >= MAX_NO_PROGRESS_COUNT && loopFeedback.hasBlockedActions()) {
-                    val message = "连续动作后没有检测到有效进展，已停止并要求云端更换策略。"
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs, handled = executionMode != AgentExecutionMode.NormalChatDeviceTool)
+                if (loopFeedback.shouldPauseForRepeatedNoProgress()) {
+                    val message = "当前动作重复执行后仍未检测到明确页面变化。智能体已暂停，你可以等待页面加载或手动接管，完成后点击继续。"
+                    recentActions += "postActionCheck=paused_for_user_takeover · reason=repeated_same_action_no_progress"
+                    pauseForUserAssistance(message, stopGeneration)
+                    if (isStopped(stopGeneration)) break
+                    loopFeedback.resetAfterUserTakeover()
+                    recentActions += "userTakeover=resumed · postActionFeedbackReset=true"
+                    continue
                 }
 
                 val deviceContext = withContext(Dispatchers.IO) {
@@ -377,7 +415,7 @@ class AgentTaskRunner(
         loopFeedback: AgentLoopFeedback,
     ): JSONObject {
         return JSONObject().apply {
-            put("schema", "android_agent_loop_memory_v4_verified_device_control")
+            put("schema", "android_agent_loop_memory_v5_per_action_progress")
             put("recentActions", JSONArray().apply {
                 recentActions.takeLast(MAX_RECENT_ACTIONS).forEach { put(it) }
             })
@@ -394,6 +432,9 @@ class AgentTaskRunner(
                 put("visualAgentSwitchMeansForceGui", true)
                 put("postActionVerification", true)
                 put("blockedActionSignatureFeedback", true)
+                put("crossActionNoProgressAccumulation", false)
+                put("postActionSettleRechecks", true)
+                put("stallPausesForUserTakeover", true)
                 put("deviceToolTypes", JSONArray().apply { CloudAgentStep.deviceToolTypes.forEach { put(it) } })
                 put("policy", "Android executes concrete device_tool steps only; it does not parse raw natural language goals. Device tools now append post-action verification when possible. The homepage Agent switch only forces GUI visual planning.")
             })
@@ -456,6 +497,31 @@ class AgentTaskRunner(
         return withContext(Dispatchers.Default) {
             AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = forceVisual)
         }
+    }
+
+    private suspend fun awaitPostActionSettle(
+        initialObservation: ScreenObservation,
+        forceVisual: Boolean,
+        loopFeedback: AgentLoopFeedback,
+        stopGeneration: Long,
+    ): ScreenObservation {
+        if (!forceVisual) return initialObservation
+
+        var latestObservation = initialObservation
+        var latestFingerprint = snapshotFingerprint(latestObservation.toAgentScreenSnapshot())
+        if (!loopFeedback.isPendingSnapshotUnchanged(latestFingerprint)) return latestObservation
+
+        for (delayMs in POST_ACTION_RECHECK_DELAYS_MS) {
+            if (isStopped(stopGeneration)) break
+            delay(delayMs)
+            if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+
+            val refreshed = captureOnce(forceVisual = true)
+            if (refreshed.enabled && refreshed.serviceConnected) latestObservation = refreshed
+            latestFingerprint = snapshotFingerprint(latestObservation.toAgentScreenSnapshot())
+            if (!loopFeedback.isPendingSnapshotUnchanged(latestFingerprint)) break
+        }
+        return latestObservation
     }
 
     private suspend fun executeDeviceToolAndRecord(
@@ -605,7 +671,7 @@ class AgentTaskRunner(
         private const val MAX_RECENT_ACTIONS = 6
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val USER_TAKEOVER_POLL_MS = 120L
-        private const val MAX_NO_PROGRESS_COUNT = 2
+        private val POST_ACTION_RECHECK_DELAYS_MS = longArrayOf(420L, 760L, 1_120L)
         private val CONTEXT_BREAKING_STEP_TYPES = setOf("home", "recents", "notifications", "quick_settings")
         private val FINANCIAL_GOAL_KEYWORDS = listOf("股票", "证券", "同花顺", "东方财富", "涨停", "跌停", "股", "基金", "交易", "委托", "账户")
         private val TRADING_ACTION_KEYWORDS = listOf("买", "卖", "下单", "委托", "价格", "股数", "100股", "涨停价", "买入", "卖出")
@@ -617,9 +683,15 @@ class AgentTaskRunner(
 private const val LOOP_STALL_BLOCK_THRESHOLD = 2
 
 private fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
-    val textKey = snapshot.texts.take(10).joinToString("|") { it.take(24) }
-    val nodeKey = snapshot.allNodes.take(12).joinToString("|") { node ->
-        listOf(node.text.take(18), node.className.takeLast(18), node.bounds).joinToString("#")
+    val textKey = snapshot.texts.take(32).joinToString("|") { it.take(40) }
+    val nodeKey = snapshot.allNodes.take(48).joinToString("|") { node ->
+        listOf(node.text.take(28), node.className.takeLast(24), node.bounds).joinToString("#")
+    }
+    val clickableKey = snapshot.clickableNodes.take(24).joinToString("|") { node ->
+        listOf(node.text.take(24), node.bounds).joinToString("#")
+    }
+    val inputKey = snapshot.inputNodes.take(12).joinToString("|") { node ->
+        listOf(node.text.take(32), node.bounds).joinToString("#")
     }
     return listOf(
         snapshot.currentApp,
@@ -628,6 +700,8 @@ private fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         snapshot.inputNodes.size.toString(),
         textKey,
         nodeKey,
+        clickableKey,
+        inputKey,
     ).joinToString("::")
 }
 
