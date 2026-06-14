@@ -112,17 +112,13 @@ vec2 evaluateBodyOpticalCoordAt(vec2 point,vec2 z,float r,float pointWeight){
 }
 
 /*
- * One-Sided Rounded Shoulder Rim
- * 只生成一个最终折射坐标：
- * 1. 单侧圆肩法线通过 Snell 折射定位玻璃内部来源点；
- * 2. 折射位移被锁定到边缘内法线，圆角和直边都不会向玻璃外取样；
- * 3. 来源点继续进入同一套 V25.3 主体折射场；
- * 4. 只围绕唯一坐标执行三点切线颜色足迹。
- * 内沿通过连续锁定严格回到主体坐标和主体权重。
- *
- * uRimA = rimWidthPx, opticalThicknessPx, maxBevelAngleDeg, shoulderCurve
- * uRimB = refractiveIndex, tangentSpreadPx, footprintStrength, brightCapture
- * uRimC = transmission, outerReflection, innerCaustic, highlightPower
+ * V25.5 Wide Source-Band Liquid Shoulder
+ * 边缘仍然只有一个 finalOpticalCoord：
+ * 1. Snell 折射给出真实入射方向；
+ * 2. 把一段更宽的主体内部来源带压缩进窄圆肩；
+ * 3. 来源点继续进入完整 V25.3 主体折射场；
+ * 4. 内沿 shoulder=0 时 sourcePoint=p，严格回到 bodyOpticalCoord；
+ * 5. 三点切线采样仅扩散同一最终坐标的颜色足迹。
  */
 float roundedShoulder(float t,float curve){
   float retreat=1.0-smoother01(sat(t));
@@ -145,38 +141,64 @@ vec3 renderUnifiedRoundedRim(
 
   float maxAngle=clamp(uRimA.z,0.0,78.0)*.01745329252;
   float theta=maxAngle*shoulder;
-  float sinTheta=sin(theta);
-  float cosTheta=cos(theta);
-  vec3 surfaceNormal=normalize(vec3(edgeNormal*sinTheta,cosTheta));
+  vec3 surfaceNormal=normalize(vec3(
+      edgeNormal*sin(theta),
+      cos(theta)
+  ));
 
   vec3 viewRay=vec3(0.0,0.0,-1.0);
   float ior=clamp(uRimB.x,1.01,1.85);
   vec3 refractedRay=refract(viewRay,surfaceNormal,1.0/ior);
   float rayZ=max(-refractedRay.z,.22);
   vec2 rawRayOffset=refractedRay.xy/rayZ*max(uRimA.y,0.0);
-  float maxSafeOffset=max(rimWidth*1.1,min(z.x,z.y)*.44);
-  rawRayOffset=softLimit(rawRayOffset,maxSafeOffset);
 
-  /* refract 的二维位移只允许沿 -edgeNormal 进入玻璃，杜绝圆角外采样。 */
-  float inwardTravel=max(dot(rawRayOffset,-edgeNormal),0.0);
+  /* 只保留向玻璃内部的 Snell 位移。 */
+  float snellTravel=max(dot(rawRayOffset,-edgeNormal),0.0);
+
+  /*
+   * rimAnchor 把外沿先锚到圆肩内侧，lensGain 再展开光学厚度。
+   * 默认参数下，约 50~70px 的内部来源带会被压入 14px 左右的圆肩，
+   * 因而能够产生明确的压缩、放大和折返，而不是仅改变亮度。
+   */
+  float rimAnchor=max(rimWidth-depth,0.0)*pow(max(shoulder,0.0),.56);
+  float lensGain=mix(1.20,2.05,pow(max(shoulder,0.0),.72));
+  float inwardTravel=rimAnchor+snellTravel*lensGain;
+  inwardTravel=min(inwardTravel,min(z.x,z.y)*.44);
+
   vec2 sourcePoint=p-edgeNormal*inwardTravel;
-
-  /* 最内侧 22% 平滑锁回 V25.3 主体，保证坐标和一阶变化连续。 */
-  float innerContinuity=smoother01(sat((t-.78)/.22));
-  sourcePoint=mix(sourcePoint,p,innerContinuity);
   float sourceWeight=evaluateBodyWeightAt(sourcePoint,z,r);
   vec2 finalOpticalCoord=evaluateBodyOpticalCoordAt(
       sourcePoint,z,r,sourceWeight
   );
-  sourceWeight=mix(sourceWeight,bodyWeight,innerContinuity);
-  finalOpticalCoord=mix(finalOpticalCoord,bodyOpticalCoord,innerContinuity);
 
-  /* 扩散距离与混合权重分开衰减：颜色能浸入圆肩，但不会形成清晰副本。 */
+  /*
+   * 放大来源点与当前主体坐标之间的法线视差，形成可见的液态折叠。
+   * shoulder 在内沿归零，因此这里不会破坏主体接缝。
+   */
+  float normalSeparation=dot(
+      finalOpticalCoord-bodyOpticalCoord,
+      -edgeNormal
+  );
+  finalOpticalCoord-=edgeNormal
+      *normalSeparation
+      *.34
+      *pow(max(shoulder,0.0),.78);
+
+  /* 复用 V25.3 的切向运输，让直边流线在圆角处连续转向并轻微拉长。 */
   vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+  float tangentFlow=dot(finalOpticalCoord-sourcePoint,tangent);
+  finalOpticalCoord+=tangent
+      *tangentFlow
+      *.52
+      *pow(max(shoulder,0.0),.62);
+
+  /* 距离与权重分开衰减，足迹覆盖圆肩但不产生三张清晰副本。 */
   float footprintStrength=clamp(uRimB.z,0.0,1.0);
-  float spreadShape=pow(max(shoulder,0.0),.58);
-  float blendShape=pow(max(shoulder,0.0),.92);
-  float spread=max(uRimB.y,0.0)*spreadShape;
+  float spreadShape=pow(max(shoulder,0.0),.36);
+  float blendShape=pow(max(shoulder,0.0),.72);
+  float spread=max(uRimB.y,0.0)
+      *spreadShape
+      *mix(1.0,1.62,shoulder);
 
   vec3 centerColor=sampleBodyMaterial(
       globalUv(finalOpticalCoord),sourceWeight
@@ -190,21 +212,21 @@ vec3 renderUnifiedRoundedRim(
 
   float plusLuma=luminanceOf(plusColor);
   float minusLuma=luminanceOf(minusColor);
-  float sideWeight=.16*footprintStrength*blendShape;
+  float sideWeight=.20*footprintStrength*blendShape;
   float centerWeight=1.0-sideWeight*2.0;
   vec3 transmitted=
       centerColor*centerWeight
       +plusColor*sideWeight
       +minusColor*sideWeight;
 
-  /* 亮色捕获只改变同一折射足迹的能量，不引入第二套几何。 */
+  /* 深层亮色仅改变同一折射足迹的光能。 */
   float centerLuma=luminanceOf(centerColor);
   float peakLuma=max(centerLuma,max(plusLuma,minusLuma));
   float capture=sat((peakLuma-centerLuma)*max(uRimB.w,0.0));
-  transmitted*=1.0+capture*.18*pow(max(shoulder,0.0),.72);
+  transmitted*=1.0+capture*.22*pow(max(shoulder,0.0),.66);
   transmitted*=mix(1.0,clamp(uRimC.x,.45,1.15),shoulder);
 
-  /* Fresnel 反射复用同一切线足迹的环境颜色，只在迎光面加入少量暖色。 */
+  /* Fresnel 使用同一来源带中的环境颜色，不建立独立白色高光层。 */
   float cosIncidence=sat(dot(-viewRay,surfaceNormal));
   float f0=(ior-1.0)/(ior+1.0);
   f0*=f0;
@@ -218,27 +240,27 @@ vec3 renderUnifiedRoundedRim(
   float facing=sat(dot(edgeNormal,lightDirection));
   float directional=pow(facing,max(uRimC.w,1.0));
   float falloff=1.0/(1.0+lightDistance2*.40);
-  float reflectionFacing=.08+.92*directional*falloff;
+  float reflectionFacing=.05+.95*directional*falloff;
 
   float reflectionAmount=sat(
       fresnel
       *max(uRimC.y,0.0)
-      *pow(max(shoulder,0.0),1.35)
+      *pow(max(shoulder,0.0),1.32)
       *reflectionFacing
   );
   vec3 footprintHighlight=plusLuma>minusLuma?plusColor:minusColor;
-  vec3 reflectionColor=mix(transmitted,footprintHighlight,.48);
+  vec3 reflectionColor=mix(transmitted,footprintHighlight,.56);
   reflectionColor=mix(
       reflectionColor,
       vec3(1.0,.995,.98),
-      .08+.20*directional
+      .05+.17*directional
   );
   vec3 color=mix(transmitted,reflectionColor,reflectionAmount);
 
-  /* 内沿只保留极弱焦散，且在进入主体前归零。 */
-  float innerLine=1.0-smoothstep(.055,.17,abs(t-.76));
-  float causticAmount=innerLine*max(uRimC.z,0.0)*.14*(1.0-t);
-  vec3 causticColor=mix(color,vec3(1.0,.985,.95),.10);
+  /* 内侧焦散保持很弱，避免生成平顶平台或独立白线。 */
+  float innerLine=1.0-smoothstep(.055,.18,abs(t-.73));
+  float causticAmount=innerLine*max(uRimC.z,0.0)*.12*(1.0-t);
+  vec3 causticColor=mix(color,vec3(1.0,.985,.95),.08);
   color=mix(color,causticColor,sat(causticAmount));
 
   float peak=max(max(color.r,color.g),color.b);
