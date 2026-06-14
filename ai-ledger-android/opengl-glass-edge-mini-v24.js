@@ -1,5 +1,7 @@
 'use strict';
 
+const SHOULDER_CAPTURE_WIDTH_PX=96;
+
 const APP_RAW={
   radius:.230414746543779,iterations:12,brightness:1.14239631336406,contrast:1.0241935483871,saturation:1.112,
   moonScale:1,moonHaloAlpha:.18,moonRimAlpha:.42,
@@ -9,12 +11,11 @@ const APP_RAW={
   bodyLowFrequencyWidth:1.25059907834101,bodyLowFrequencyCurve:.2,bodyLowFrequencyGain:12.4423963133641,
   bodyBrightness:.545161290322581,glassIntensity:1.35,
   edgeMode:1,
-  shoulderWidthPx:34,
+  shoulderWidthPx:24,
   shoulderMaxAngleDeg:89.2,
   shoulderFalloffRoundness:.86,
-  shoulderMaterialStrength:3.6,
-  shoulderDeepProbeStrength:1.9,
-  shoulderTangentialFlowStrength:1.55
+  shoulderMaterialStrength:3.4,
+  shoulderTangentialFlowStrength:1.45
 };
 
 let p={...APP_RAW},bgMode='flow',blurMoonVisible=false,customBgImage=null,customBgUrl=null;
@@ -29,8 +30,8 @@ const groups=[
   {title:'主体低频运输 Body Low-Frequency Transport',items:[
     ['glassIntensity','样本玻璃强度',.35,1.35],['bodyBrightness','内部输出亮度',.4,2.2],['bodyLowFrequencyWidth','内部运输宽度',.18,1.5],['bodyLowFrequencyCurve','内部运输曲率',.2,3.2],['bodyLowFrequencyGain','内部运输强度',0,900]
   ]},
-  {title:'深探入流动圆肩 Deep-Probe Flow Shoulder',items:[
-    ['shoulderWidthPx','圆肩宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','法线回落圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderDeepProbeStrength','圆肩向深处探入',0,2.4],['shoulderTangentialFlowStrength','圆肩切向揉开流动',0,2.4]
+  {title:'固定深层取样压缩 Fixed-Capture Compression',items:[
+    ['shoulderWidthPx','圆肩可见宽度',4,96],['shoulderMaxAngleDeg','外沿最大坡度',0,89.5],['shoulderFalloffRoundness','法线回落圆润度',0,1],['shoulderMaterialStrength','圆肩整体材质填充',0,4],['shoulderTangentialFlowStrength','固定取样切向揉开',0,2.4]
   ]}
 ];
 
@@ -91,14 +92,14 @@ function render(){
   gl.uniform4f(L.uBodyLensB,p.bodyLensExtraDistance*d,p.bodyLensReachDp*d,p.bodyLensDark,p.bodyLensDebug);
   gl.uniform4f(L.uBody,p.bodyLowFrequencyWidth,p.bodyLowFrequencyCurve,p.bodyLowFrequencyGain,p.bodyBrightness);
   gl.uniform4f(L.uShoulder,p.shoulderWidthPx*d,p.shoulderMaxAngleDeg,p.shoulderFalloffRoundness,p.shoulderMaterialStrength);
-  gl.uniform2f(L.uShoulderFlow,p.shoulderDeepProbeStrength,p.shoulderTangentialFlowStrength);
+  gl.uniform2f(L.uShoulderFlow,SHOULDER_CAPTURE_WIDTH_PX*d,p.shoulderTangentialFlowStrength);
   gl.uniform1f(L.uShoulderEnabled,p.edgeMode);
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,blurTex);gl.uniform1i(L.uBlurTexture,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
 function format(v){return String(Math.round(v*1000)/1000)}
 function syncModeUi(){document.querySelectorAll('[data-edge-mode]').forEach(button=>button.classList.toggle('on',Number(button.dataset.edgeMode)===p.edgeMode))}
-function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}syncModeUi();out.textContent=JSON.stringify({mode:'v29_2DeepProbeFlowShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'deepProbeFlowShoulder',deepProbeMapping:'strictlyMonotonicZeroSlopeEndpoints',tangentialFlow:'bodyTransportPlusContinuousContourTangent',shoulderBodyTransition:'longZeroSlopeCrossfade',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
+function updateUi(){for(const [key] of groups.flatMap(group=>group.items)){const label=$('v-'+key),input=$('i-'+key);if(label)label.textContent=format(p[key]);if(input&&Math.abs(Number(input.value)-p[key])>1e-9)input.value=p[key]}syncModeUi();out.textContent=JSON.stringify({mode:'v29_3FixedCaptureCompressionShoulder',edgeMode:p.edgeMode===0?'pureV25_3Body':'fixedCaptureCompressionShoulder',visibleShoulderWidthPx:p.shoulderWidthPx,fixedCaptureWidthPx:SHOULDER_CAPTURE_WIDTH_PX,captureBehavior:'fixedDeepSourceDomainCompressedIntoVisibleShoulder',removedParameter:'shoulderDeepProbeStrength',tangentialFlowBasis:'fixedCaptureWidth',shoulderBodyTransition:'zeroSlopeCrossfade',innerRim:false,oneFinalOpticalCoord:true,extraEdgeSamples:0,blurBackend:'fullResolutionShiftAverage',backdropRevision,effectiveBlurPx:effectiveBlurPx(dpr()),...p},null,2)}
 function refresh(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=0;rebuildBackdrop();updateUi();render()}
 function schedule(){if(backdropFrame)cancelAnimationFrame(backdropFrame);backdropFrame=requestAnimationFrame(()=>{backdropFrame=0;rebuildBackdrop();updateUi();render()})}
 
@@ -117,4 +118,4 @@ moonBtn.addEventListener('click',()=>{blurMoonVisible=!blurMoonVisible;moonBtn.t
 function resize(){const d=dpr(),r=cv.getBoundingClientRect();cv.width=Math.max(1,Math.round(r.width*d));cv.height=Math.max(1,Math.round(r.height*d));gl.viewport(0,0,cv.width,cv.height);refresh()}
 window.addEventListener('resize',resize);scroll.addEventListener('scroll',render,{passive:true});window.addEventListener('beforeunload',()=>{if(customBgUrl)URL.revokeObjectURL(customBgUrl)});
 
-try{document.title='OpenGL V29.2 · Deep-Probe Flow Shoulder';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
+try{document.title='OpenGL V29.3 · Fixed-Capture Compression Shoulder';initGl();buildControls();requestAnimationFrame(()=>{resize();scroll.scrollTop=500;render();window.__glassDebug={gl,program,getParams:()=>({...p}),getBackdropRevision:()=>backdropRevision,refreshBackdrop:refresh,render}})}catch(error){errorEl.textContent=String(error&&error.stack||error);console.error(error)}
