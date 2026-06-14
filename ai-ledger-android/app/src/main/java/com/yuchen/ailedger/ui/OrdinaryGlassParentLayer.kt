@@ -4,7 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -25,16 +24,9 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 普通 GlassPanel / PressableGlass 的页面级父绘制系统。
- *
- * Shadow 只完成注册、坐标换算、可见性裁剪和状态读取，不输出像素；
- * ParentDraw 才允许父级 Underlay / Overlay 接管实际材质绘制。
+ * 普通 Compose 玻璃父级绘制分为前后两层。
+ * 当前只运行影子准备流程，不输出任何像素，保证现有界面视觉完全不变。
  */
-enum class OrdinaryGlassRenderMode {
-    Shadow,
-    ParentDraw
-}
-
 enum class OrdinaryGlassParentPhase {
     Underlay,
     Overlay
@@ -112,8 +104,11 @@ class OrdinaryGlassItemRegistry {
         private set
 
     fun register(item: OrdinaryGlassRenderNode) {
-        if (items[item.key] === item) return
-        if (item.drawOrder == 0L) item.drawOrder = nextDrawOrder++
+        val existing = items[item.key]
+        if (existing === item) return
+        if (item.drawOrder == 0L) {
+            item.drawOrder = nextDrawOrder++
+        }
         items[item.key] = item
         invalidate()
     }
@@ -141,56 +136,37 @@ class OrdinaryGlassItemRegistry {
 
 @Stable
 class OrdinaryGlassSceneState(
-    val rootGroup: GlassSceneGroup,
-    val renderMode: OrdinaryGlassRenderMode
+    val rootGroup: GlassSceneGroup
 ) {
     val coordinates = GlassCoordinateSource()
     val registry = OrdinaryGlassItemRegistry()
 }
 
 val LocalOrdinaryGlassSceneState = staticCompositionLocalOf<OrdinaryGlassSceneState?> { null }
-val LocalOrdinaryGlassRenderMode = staticCompositionLocalOf { OrdinaryGlassRenderMode.Shadow }
-
-@Composable
-internal fun BindOrdinaryGlassRenderNode(
-    node: OrdinaryGlassRenderNode,
-    enabled: Boolean
-) {
-    val sceneState = LocalOrdinaryGlassSceneState.current
-
-    DisposableEffect(sceneState, node, enabled) {
-        if (enabled && sceneState != null) sceneState.registry.register(node)
-        onDispose {
-            if (enabled && sceneState != null) sceneState.registry.unregister(node.key)
-        }
-    }
-}
 
 @Composable
 fun OrdinaryGlassSceneHost(
     group: GlassSceneGroup,
     modifier: Modifier = Modifier,
-    renderMode: OrdinaryGlassRenderMode = OrdinaryGlassRenderMode.Shadow,
     content: @Composable () -> Unit
 ) {
     val parentContext = LocalGlassSceneContext.current
-    val sceneState = remember(group, renderMode) {
-        OrdinaryGlassSceneState(rootGroup = group, renderMode = renderMode)
-    }
+    val sceneState = remember(group) { OrdinaryGlassSceneState(group) }
 
     DisposableEffect(sceneState) {
         onDispose { sceneState.registry.clear() }
     }
 
-    CompositionLocalProvider(
+    androidx.compose.runtime.CompositionLocalProvider(
         LocalGlassSceneContext provides GlassSceneContext(
             group = group,
             parentGroup = parentContext.group.takeUnless { it == GlassSceneGroup.Unassigned }
         ),
-        LocalOrdinaryGlassSceneState provides sceneState,
-        LocalOrdinaryGlassRenderMode provides renderMode
+        LocalOrdinaryGlassSceneState provides sceneState
     ) {
-        Box(modifier = modifier.onPlaced { sceneState.coordinates.coordinates = it }) {
+        Box(
+            modifier = modifier.onPlaced { sceneState.coordinates.coordinates = it }
+        ) {
             OrdinaryGlassParentLayer(
                 sceneState = sceneState,
                 phase = OrdinaryGlassParentPhase.Underlay,
@@ -213,7 +189,9 @@ private fun OrdinaryGlassParentLayer(
     modifier: Modifier
 ) {
     Canvas(modifier = modifier) {
-        observeVisibleOrdinaryGlassItems(
+        // 读取 registry、宿主和子项的状态，提前验证坐标、裁剪和生命周期。
+        // 这一阶段故意不绘制，原 GlassPanel / PressableGlass 仍保持完整视觉输出。
+        prepareVisibleOrdinaryGlassItems(
             sceneState = sceneState,
             phase = phase,
             viewportSize = size
@@ -221,22 +199,27 @@ private fun OrdinaryGlassParentLayer(
     }
 }
 
-/**
- * 影子阶段只遍历，不构造每帧临时列表，避免为了验证坐标额外制造 GC 压力。
- */
-private fun observeVisibleOrdinaryGlassItems(
+private data class PreparedOrdinaryGlassItem(
+    val node: OrdinaryGlassRenderNode,
+    val rect: Rect,
+    val visibleRect: Rect,
+    val phase: OrdinaryGlassParentPhase
+)
+
+private fun prepareVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     phase: OrdinaryGlassParentPhase,
     viewportSize: Size
-) {
+): List<PreparedOrdinaryGlassItem> {
     sceneState.registry.version
     sceneState.coordinates.placementVersion
 
-    if (viewportSize.width <= 1f || viewportSize.height <= 1f) return
-    if (!sceneState.coordinates.isAttached()) return
+    if (viewportSize.width <= 1f || viewportSize.height <= 1f) return emptyList()
+    if (!sceneState.coordinates.isAttached()) return emptyList()
 
     val hostRoot = sceneState.coordinates.rootOffset()
     val viewport = Rect(0f, 0f, viewportSize.width, viewportSize.height)
+    val prepared = ArrayList<PreparedOrdinaryGlassItem>()
 
     sceneState.registry.snapshot().forEach { node ->
         if (node.role == GlassRole.Shell) return@forEach
@@ -250,8 +233,9 @@ private fun observeVisibleOrdinaryGlassItems(
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        rect.intersectionOrNull(viewport) ?: return@forEach
+        val visibleRect = rect.intersectionOrNull(viewport) ?: return@forEach
 
+        // 主动读取阶段相关参数，让后续切换父级输出时无需改变注册协议。
         when (phase) {
             OrdinaryGlassParentPhase.Underlay -> {
                 node.quality
@@ -272,11 +256,15 @@ private fun observeVisibleOrdinaryGlassItems(
             }
         }
 
-        // 当前固定为 Shadow，不输出像素。切到 ParentDraw 后在这里调用对应父级绘制函数。
-        if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
-            // 实际绘制将在完成视觉等价验证后接入。
-        }
+        prepared += PreparedOrdinaryGlassItem(
+            node = node,
+            rect = rect,
+            visibleRect = visibleRect,
+            phase = phase
+        )
     }
+
+    return prepared
 }
 
 private fun Rect.intersectionOrNull(other: Rect): Rect? {
