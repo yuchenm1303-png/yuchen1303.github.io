@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
@@ -13,7 +12,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -57,18 +55,7 @@ fun SampledWeatherGlassBackdrop(
     motionIntensity: Float,
     theme: BackgroundTheme,
     blurRadiusDp: Int = 112,
-    liftAlpha: Float = 1f,
-    ordinaryRoleHint: GlassRole? = null,
-    ordinaryGlassIntensityHint: Float = liftAlpha,
-    ordinaryEdgeStrengthHint: Float = 0f,
-    ordinaryPressableHint: Boolean = false,
-    ordinaryShimmerHint: Float = 0f,
-    ordinaryBreatheHint: Float = 0f,
-    ordinaryPressProgressHint: Float = 0f,
-    ordinaryLensProgressHint: Float = 0f,
-    ordinarySweepProgressHint: Float = 0f,
-    ordinaryElasticityHint: Float = 0f,
-    ordinaryPressCenterHint: Offset = Offset(0.5f, 0.5f)
+    liftAlpha: Float = 1f
 ) {
     val rawBackdrop = LocalBlurredBackdrop.current
     val cachedBackdrop = remember(
@@ -122,45 +109,6 @@ fun SampledWeatherGlassBackdrop(
         RenderQuality.Experimental -> 0.98f
     } * alpha).coerceIn(0f, 1f)
     val dimAlpha = (0.060f * dim * alpha).coerceIn(0f, 0.22f)
-
-    // 第一阶段只登记普通 Compose 玻璃的几何和状态，不关闭当前子级绘制。
-    // Shell 通过角色提示或现有 blur 特征被硬排除，不进入普通玻璃 registry。
-    val sceneGroup = LocalGlassSceneGroup
-    val inferredRole = ordinaryRoleHint ?: when {
-        blurRadiusDp >= 100 -> GlassRole.Shell
-        radius >= 999 -> GlassRole.Nav
-        blurRadiusDp <= 62 -> GlassRole.Chip
-        else -> GlassRole.Card
-    }
-    val ordinaryNode = remember(coordinateSource) {
-        OrdinaryGlassRenderNode(coordinates = coordinateSource)
-    }
-    val ordinaryNodeEnabled = inferredRole != GlassRole.Shell && sceneGroup != GlassSceneGroup.Unassigned
-
-    SideEffect {
-        if (ordinaryNodeEnabled) {
-            ordinaryNode.updateStatic(
-                sceneGroup = sceneGroup,
-                role = inferredRole,
-                quality = quality,
-                radius = radius,
-                glassIntensity = ordinaryGlassIntensityHint,
-                backdropAlpha = backdropAlpha,
-                edgeStrength = ordinaryEdgeStrengthHint,
-                pressable = ordinaryPressableHint
-            )
-            ordinaryNode.updateMotion(
-                shimmer = ordinaryShimmerHint,
-                breathe = ordinaryBreatheHint,
-                pressProgress = ordinaryPressProgressHint,
-                lensProgress = ordinaryLensProgressHint,
-                sweepProgress = ordinarySweepProgressHint,
-                elasticity = ordinaryElasticityHint,
-                pressCenter = ordinaryPressCenterHint
-            )
-        }
-    }
-    BindOrdinaryGlassRenderNode(node = ordinaryNode, enabled = ordinaryNodeEnabled)
 
     val cachedDrawModifier = remember(
         radius,
