@@ -19,9 +19,8 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform vec4 uBodyLensA;
         uniform vec4 uBodyLensB;
         uniform vec4 uBody;
-        uniform vec4 uLegacyMaterial;
-        uniform vec4 uLegacyRefraction;
-        uniform vec4 uLegacyOptics;
+        uniform vec4 uShoulder;
+        uniform vec2 uShoulderFlow;
         uniform float uRadius;
         uniform float uIntensity;
         uniform float uTextureReady;
@@ -39,9 +38,6 @@ internal object WebOpenGLGlassShaderPrelude {
             vec2 root=max(uRootResolution,vec2(1.0));
             vec2 texel=0.5/root;
             return clamp((uCardOrigin+p)/root,texel,1.0-texel);
-        }
-        vec2 legacyGlobalUv(vec2 localCoord){
-            return clamp((uCardOrigin+localCoord)/max(uRootResolution,vec2(1.0)),0.0,1.0);
         }
         vec3 fallbackBackdrop(vec2 uv){
             float h=smoothstep(0.0,1.0,uv.y);
@@ -80,6 +76,11 @@ internal object WebOpenGLGlassShaderPrelude {
             float n=length(v);
             float m=n/(1.0+n/max(lim,1.0));
             return v*(m/max(n,0.0001));
+        }
+        vec2 softLimitPx(vec2 v,float limitPx){
+            float len=length(v);
+            float softLen=len/(1.0+len/max(limitPx,1.0));
+            return v*(softLen/max(len,0.0001));
         }
         vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
             vec2 local=p-z*0.5;
