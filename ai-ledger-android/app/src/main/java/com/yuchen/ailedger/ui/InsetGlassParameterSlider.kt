@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private const val LaboratoryInsetRadius = 18f
@@ -51,6 +54,7 @@ private const val LaboratoryInsetBackdropAlpha = 0.82f
 private const val LaboratoryInsetRimHighlight = 0.34f
 private const val LaboratoryInsetInnerShadow = 0.67f
 private const val LaboratoryInsetFloorDim = 0.23f
+private const val SliderCommitFallbackDelayMs = 1_200L
 
 /**
  * 设置页参数滑块。
@@ -72,21 +76,60 @@ internal fun InsetGlassParameterSlider(
     val end = maxOf(valueRange.start, valueRange.endInclusive)
     val span = (end - start).coerceAtLeast(0.000001f)
     val clampedValue = value.coerceIn(start, end)
-    val progress = ((clampedValue - start) / span).coerceIn(0f, 1f)
+    val acknowledgementTolerance = maxOf(span * 0.0005f, 0.0001f)
     val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentExternalValue by rememberUpdatedState(clampedValue)
 
     var dragValue by remember { mutableFloatStateOf(clampedValue) }
+    var dragging by remember { mutableStateOf(false) }
+    var pendingCommit by remember { mutableStateOf<Float?>(null) }
     var trackWidthPx by remember { mutableFloatStateOf(1f) }
     val reservedWidthPx = with(LocalDensity.current) { 112.dp.toPx() }
 
-    LaunchedEffect(clampedValue) {
-        dragValue = clampedValue
+    val displayValue = if (dragging || pendingCommit != null) {
+        dragValue.coerceIn(start, end)
+    } else {
+        clampedValue
+    }
+    val progress = ((displayValue - start) / span).coerceIn(0f, 1f)
+    val currentDisplayValue by rememberUpdatedState(displayValue)
+    val displayValueText = if (dragging || pendingCommit != null) {
+        displayValue.formatInsetSliderValue() + valueText.sliderValueSuffix()
+    } else {
+        valueText
+    }
+
+    // 外部状态只在空闲时接管显示。拖动中以及松手后的提交确认期内，
+    // 始终保持本地最终值，避免旧的偏好流回灌造成一帧回跳。
+    LaunchedEffect(clampedValue, dragging, pendingCommit, start, end) {
+        if (dragging) return@LaunchedEffect
+        val pending = pendingCommit
+        if (pending == null) {
+            dragValue = clampedValue
+        } else if (abs(clampedValue - pending) <= acknowledgementTolerance) {
+            dragValue = clampedValue
+            pendingCommit = null
+        }
+    }
+
+    // 正常情况下外部状态会很快确认最终值。该兜底仅防止回调被上层拒绝时
+    // 本地锁永久悬挂，不参与正常拖动动画。
+    LaunchedEffect(pendingCommit) {
+        val expected = pendingCommit ?: return@LaunchedEffect
+        delay(SliderCommitFallbackDelayMs)
+        if (!dragging && pendingCommit == expected) {
+            dragValue = currentExternalValue
+            pendingCommit = null
+        }
     }
 
     val dragState = rememberDraggableState { delta ->
-        dragValue = (dragValue + delta / trackWidthPx.coerceAtLeast(1f) * span)
+        val next = (dragValue + delta / trackWidthPx.coerceAtLeast(1f) * span)
             .coerceIn(start, end)
-        currentOnValueChange(dragValue)
+        if (next != dragValue) {
+            dragValue = next
+            currentOnValueChange(next)
+        }
     }
 
     Column(
@@ -130,15 +173,30 @@ internal fun InsetGlassParameterSlider(
                     trackWidthPx = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
                 }
                 .semantics {
-                    progressBarRangeInfo = ProgressBarRangeInfo(clampedValue, start..end)
+                    progressBarRangeInfo = ProgressBarRangeInfo(displayValue, start..end)
                     setProgress { requested ->
-                        currentOnValueChange(requested.coerceIn(start, end))
+                        val resolved = requested.coerceIn(start, end)
+                        dragValue = resolved
+                        dragging = false
+                        pendingCommit = resolved
+                        currentOnValueChange(resolved)
                         true
                     }
                 }
                 .draggable(
                     state = dragState,
-                    orientation = Orientation.Horizontal
+                    orientation = Orientation.Horizontal,
+                    onDragStarted = {
+                        dragValue = currentDisplayValue
+                        pendingCommit = null
+                        dragging = true
+                    },
+                    onDragStopped = {
+                        val finalValue = dragValue.coerceIn(start, end)
+                        pendingCommit = finalValue
+                        dragging = false
+                        currentOnValueChange(finalValue)
+                    }
                 )
         ) {
             Row(
@@ -161,7 +219,7 @@ internal fun InsetGlassParameterSlider(
                         .height(12.dp)
                 )
                 Text(
-                    text = valueText,
+                    text = displayValueText,
                     color = Color.White.copy(alpha = 0.58f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -264,4 +322,11 @@ private fun Float.formatInsetSliderValue(): String {
     } else {
         rounded.toString()
     }
+}
+
+private fun String.sliderValueSuffix(): String {
+    val suffixStart = indexOfFirst { character ->
+        !character.isDigit() && character != '.' && character != '-' && character != '+' && !character.isWhitespace()
+    }
+    return if (suffixStart >= 0) substring(suffixStart) else ""
 }
