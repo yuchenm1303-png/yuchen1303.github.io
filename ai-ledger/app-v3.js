@@ -183,7 +183,11 @@
   }
 
   function normalizeRecords(list) { return Array.isArray(list) ? list.map(normalizeRecord).filter((item) => item.amount > 0) : []; }
-  function normalizeMobileCommand(command) { if (!command || typeof command !== 'object') return null; if (!['set_alarm', 'open_app', 'navigate'].includes(command.type)) return null; return command; }
+  function normalizeMobileCommand(command) { if (!command || typeof command !== 'object') return null; if (!['set_alarm', 'navigate'].includes(command.type)) return null; return command; }
+
+  function mobileClientTools() {
+    return (window.MobileCommandActions?.tools || []).filter((tool) => tool?.commandType !== 'open_app');
+  }
 
   function cleanTitle(text) { return String(text || '').replace(/今天|昨天|前天|花了|花费|消费|支出|收入|进账|收到|元|块钱|块/gu, '').replace(/[0-9.]/gu, '').replace(/[，,。；;、]/gu, '').trim() || '未命名账单'; }
   function inferCategory(text) { if (/(饭|早餐|午餐|晚餐|外卖|面|米线|火锅|烧烤|餐)/u.test(text)) return '餐饮'; if (/(奶茶|咖啡|饮料|可乐|茶)/u.test(text)) return '饮品'; if (/(打车|出租|公交|地铁|高铁|火车|机票|加油)/u.test(text)) return '交通'; if (/(淘宝|京东|拼多多|买|衣服|鞋|超市|购物)/u.test(text)) return '购物'; if (/(房租|水电|物业|宿舍|宽带)/u.test(text)) return '居住'; if (/(工资|兼职|奖金|补贴|报销|收入)/u.test(text)) return '工资'; if (/(礼物|红包)/u.test(text)) return '礼物'; return '其他'; }
@@ -306,7 +310,7 @@
   async function askCloudAI() {
     if (!aiEndpoint) return null;
     const pending = getPendingMessage();
-    const payload = { messages: conversationPayload(), pendingDraft: pending?.records || [], ledgerContext: getLedgerContext(), clientTools: window.MobileCommandActions?.tools || [], now: todayISO() };
+    const payload = { messages: conversationPayload(), pendingDraft: pending?.records || [], ledgerContext: getLedgerContext(), clientTools: mobileClientTools(), now: todayISO() };
     const result = await fetchJsonWithTimeout(aiEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }, DEFAULT_AI_TIMEOUT_MS);
     if (!result.response.ok) { const error = new Error(formatCloudError(result)); error.cloudResult = result; throw error; }
     const mobileCommand = normalizeMobileCommand(result.data?.mobileCommand);

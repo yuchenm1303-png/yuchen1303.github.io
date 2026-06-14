@@ -2,6 +2,9 @@ package com.yuchen.ailedger
 
 import android.app.Activity
 import android.webkit.JavascriptInterface
+import com.yuchen.ailedger.service.AiAgentAccessibilityService
+import com.yuchen.ailedger.service.CloudAgentStep
+import com.yuchen.ailedger.service.toAgentScreenSnapshot
 import org.json.JSONObject
 
 class AiLedgerNativeBridge(
@@ -21,6 +24,10 @@ class AiLedgerNativeBridge(
             .put("openApp", true)
             .put("setAlarm", true)
             .put("startNavigation", true)
+            .put("agentAccessibility", AiAgentAccessibilityService.isConnected())
+            .put("agentObserveScreen", true)
+            .put("agentExecuteStep", true)
+            .put("agentActions", "open_app,tap_xy,tap_node,long_press,swipe,scroll,input_text,back,home,recents,notifications,quick_settings,wait,finish,need_user_help")
             .put("glassModes", "basic,blur,liquid,safe")
             .toString()
     }
@@ -47,6 +54,8 @@ class AiLedgerNativeBridge(
                 "openApp" -> openApp(payload.optString("packageName"), payload.optString("fallbackName"))
                 "startNavigation" -> startNavigation(payload.optString("target"))
                 "setAlarm" -> setAlarm(payload.toString())
+                "observeAgentScreen" -> observeAgentScreen()
+                "executeAgentStep" -> executeAgentStep(payload.toString())
                 "webReady" -> Unit
             }
         }
@@ -77,5 +86,46 @@ class AiLedgerNativeBridge(
         val message = alarm.optString("message", "AI 助手提醒")
         if (hour !in 0..23 || minute !in 0..59) return
         activity.runOnUiThread { systemActionRouter.setAlarm(hour, minute, message) }
+    }
+
+    @JavascriptInterface
+    fun isAgentAccessibilityEnabled(): Boolean = AiAgentAccessibilityService.isConnected()
+
+    @JavascriptInterface
+    fun observeAgentScreen(): String {
+        return AiAgentAccessibilityService
+            .captureFreshSnapshot()
+            .toAgentScreenSnapshot()
+            .toJson(includeImage = false)
+            .put("ok", true)
+            .put("serviceEnabled", AiAgentAccessibilityService.isConnected())
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun executeAgentStep(rawStep: String?): String {
+        val stepJson = runCatching { JSONObject(rawStep ?: "{}") }.getOrNull()
+            ?: return agentStepError("invalid_agent_step_json", "Agent step JSON 无效。")
+        val step = CloudAgentStep.fromJson(stepJson)
+            ?: return agentStepError("invalid_agent_step", "Agent step 缺少可执行动作。")
+        val result = AiAgentAccessibilityService.executeStep(step)
+        return JSONObject()
+            .put("ok", result.ok)
+            .put("type", step.type)
+            .put("serviceEnabled", AiAgentAccessibilityService.isConnected())
+            .put("message", result.message)
+            .put("reason", result.message)
+            .put("shouldContinue", result.shouldContinue)
+            .toString()
+    }
+
+    private fun agentStepError(error: String, message: String): String {
+        return JSONObject()
+            .put("ok", false)
+            .put("error", error)
+            .put("message", message)
+            .put("reason", message)
+            .put("shouldContinue", true)
+            .toString()
     }
 }

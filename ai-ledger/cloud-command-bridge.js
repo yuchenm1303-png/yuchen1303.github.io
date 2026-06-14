@@ -234,7 +234,7 @@
 
   function materializeCloudCommand(rawCommand) {
     if (!rawCommand || typeof rawCommand !== 'object') return null;
-    if (rawCommand.type && ['set_alarm', 'open_app'].includes(rawCommand.type)) return rawCommand;
+    if (rawCommand.type && ['set_alarm'].includes(rawCommand.type)) return rawCommand;
     if (rawCommand.type === 'navigate' && rawCommand.params?.intent !== 'navigation_preference') {
       return buildNavigateCommand(rawCommand.params || rawCommand);
     }
@@ -256,6 +256,9 @@
       next.action = 'mobile_command';
       if (!next.reply) next.reply = next.response || next.text || '我整理好了这个动作，确认后再执行。';
       next.source = next.source || 'cloud_command_bridge';
+    } else if (rawCommand?.type === 'open_app') {
+      delete next.mobileCommand;
+      if (next.action === 'mobile_command') next.action = 'chat';
     }
     if (next.webSources && !next.citations) next.citations = next.webSources;
     return next;
@@ -300,7 +303,6 @@
           'navigation.modify',
           'navigation.preference.set',
           'alarm.set',
-          'app.open',
           'ledger.create',
         ],
         commandShape: {

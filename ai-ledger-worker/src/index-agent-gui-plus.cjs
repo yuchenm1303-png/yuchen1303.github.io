@@ -654,7 +654,7 @@ function normalizeAgentAction(value) {
 function normalizeMobileAction(value) {
   if (!value || typeof value !== "object") return null;
   const type = String(value.type || value.action || "").toLowerCase().trim().replace(/-/g, "_");
-  if (!["set_alarm", "open_app", "navigate"].includes(type)) return null;
+  if (!["set_alarm", "navigate"].includes(type)) return null;
 
   const action = { type };
 
@@ -662,14 +662,6 @@ function normalizeMobileAction(value) {
     const destination = String(value.destination || value.target || "").trim();
     if (!destination) return null;
     action.destination = destination.slice(0, 80);
-  }
-
-  if (type === "open_app") {
-    const appName = String(value.appName || value.app || value.title || "").trim();
-    if (!appName) return null;
-    action.appName = appName.slice(0, 40);
-    const packageName = String(value.packageName || value.package || "").trim();
-    if (packageName) action.packageName = packageName.slice(0, 80);
   }
 
   if (type === "set_alarm") {
@@ -881,9 +873,9 @@ async function detectDeviceIntentByModel(prompt, body) {
         "你是 Android 手机 AI 助手的设备能力路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
         "你只判断用户是不是在请求手机本地能力；不要回答问题本身。",
         "普通问答、写作、翻译、代码、项目讨论，必须全部返回 null。",
-        "只有明确要求操作手机或打开手机中的 App 时才触发。",
+        "只有明确要求操作手机时才触发；打开手机中的 App 必须返回 agentAction.run_agent_task，不要返回旧式 mobileAction 打开应用指令。",
         "输出格式必须是单个 JSON 对象：",
-        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task\",\"title\":\"\",\"goal\":\"完整任务，仅 run_agent_task 需要\",\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"open_app|navigate|set_alarm\",\"appName\":\"\",\"packageName\":\"\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
+        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task\",\"title\":\"\",\"goal\":\"完整任务，仅 run_agent_task 需要\",\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"navigate|set_alarm\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
       ].join("\n"),
     },
     { role: "user", content: String(prompt || "") },

@@ -204,7 +204,7 @@
         nextHint: visible ? 'Continue with the next task step.' : 'Refocus an editable field or use another input route before submitting.',
       };
     }
-    if (['tap_xy', 'tap_node', 'long_press', 'swipe', 'scroll', 'back', 'home', 'recents', 'notifications', 'quick_settings'].includes(type)) {
+    if (['open_app', 'tap_xy', 'tap_node', 'long_press', 'swipe', 'scroll', 'back', 'home', 'recents', 'notifications', 'quick_settings'].includes(type)) {
       return {
         result: screenChanged ? 'progress' : 'uncertain',
         confidence: screenChanged ? 0.7 : 0.45,
@@ -237,7 +237,7 @@
       before,
       after,
       lastOutcome,
-      recentAction: `${step?.type || step?.action || 'action'} ${step?.targetText || step?.text || ''}`.trim(),
+      recentAction: `${step?.type || step?.action || 'action'} ${step?.appName || step?.packageName || step?.targetText || step?.text || ''}`.trim(),
     };
   }
 

@@ -9,12 +9,6 @@
       title: "设置系统闹钟",
     },
     {
-      name: "mobile.open_app",
-      action: "mobile_command",
-      commandType: "open_app",
-      title: "打开手机应用",
-    },
-    {
       name: "mobile.navigate",
       action: "mobile_command",
       commandType: "navigate",
@@ -168,20 +162,6 @@
         minute,
         label,
       },
-    };
-  }
-
-  function parseOpenAppCommand(text) {
-    const match = text.match(/(?:打开|启动|帮我打开)\s*([\u4e00-\u9fa5A-Za-z0-9]+)$/u);
-    if (!match) return null;
-    const appName = match[1].trim();
-    if (!appName || /(闹钟|提醒|记账)/u.test(appName)) return null;
-    return {
-      id: makeCommandId("app"),
-      type: "open_app",
-      title: "打开应用",
-      summary: appName,
-      params: { appName },
     };
   }
 
@@ -348,7 +328,7 @@
   }
 
   function parseMobileCommand(text) {
-    return parseAlarmCommand(text) || parseNavigationPreferenceCommand(text) || parseNavigationCommand(text) || parseOpenAppCommand(text);
+    return parseAlarmCommand(text) || parseNavigationPreferenceCommand(text) || parseNavigationCommand(text);
   }
 
   function getStatusText(state) {
@@ -364,12 +344,6 @@
         ["动作", "设置闹钟"],
         ["时间", command.summary],
         ["标签", command.params.label],
-      ];
-    }
-    if (command.type === "open_app") {
-      return [
-        ["动作", "打开应用"],
-        ["应用", command.params.appName],
       ];
     }
     if (isNavigationPreferenceCommand(command)) {
@@ -429,7 +403,7 @@
       }
       return `我理解为要用${map}${mode}导航到“${command.params.destination}”，确认后我再执行。`;
     }
-    return `我理解为要打开“${command.params.appName}”，确认后我再执行。`;
+    return "我整理好了这个手机动作，确认后我再执行。";
   }
 
   function getCapacitorPlugin() {
@@ -453,9 +427,6 @@
     }
     if (command.type === "set_alarm" && typeof plugin.setAlarm === "function") {
       return await plugin.setAlarm(command.params);
-    }
-    if (command.type === "open_app" && typeof plugin.openApp === "function") {
-      return await plugin.openApp(command.params);
     }
     if (command.type === "navigate" && typeof plugin.navigate === "function") {
       return await plugin.navigate(command.params);

@@ -118,6 +118,10 @@
     };
   }
 
+  function mobileClientTools() {
+    return (window.MobileCommandActions?.tools || []).filter((tool) => tool?.commandType !== "open_app");
+  }
+
   // ---------------------------------------------------------------------------
   // File reading and attachment metadata
   // ---------------------------------------------------------------------------
@@ -279,7 +283,7 @@
           attachments: attachments.map(({ id, name, mimeType, size, data }) => ({ id, name, mimeType, size, data })),
           pendingDraft: [],
           ledgerContext: ledgerContext(),
-          clientTools: window.MobileCommandActions?.tools || [],
+          clientTools: mobileClientTools(),
           now: todayISO(),
           ...searchPayload,
         }),
@@ -293,7 +297,7 @@
         action: data?.action || "chat",
         records: Array.isArray(data?.records) ? data.records : [],
         draftState: "none",
-        mobileCommand: data?.mobileCommand || null,
+        mobileCommand: data?.mobileCommand?.type === "open_app" ? null : data?.mobileCommand || null,
         source: data?.source || "gemini_vision",
         version: data?.version,
       });
