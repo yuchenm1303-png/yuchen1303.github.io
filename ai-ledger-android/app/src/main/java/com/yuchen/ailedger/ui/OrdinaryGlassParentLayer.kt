@@ -309,7 +309,9 @@ private fun DrawScope.observeVisibleOrdinaryGlassItems(
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        rect.intersectionOrNull(viewport) ?: return@forEach
+        ordinaryGlassTransformedBounds(node = node, rect = rect)
+            .intersectionOrNull(viewport)
+            ?: return@forEach
 
         if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
             when (phase) {
