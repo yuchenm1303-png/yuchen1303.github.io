@@ -1,2 +1,2 @@
-trigger: shader-expression-optimization-final-2026-06-15
-source-commit: 9ce9e4ee7979eebeb3175784da9f26997d1518b9
+trigger: cold-start-deep-optimization-2026-06-15
+source-commit: a0cfa7239faa9e4a2872bc2afe05da92821a7968
