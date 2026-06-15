@@ -10,7 +10,7 @@ const DEVICE_ROUTER_TIMEOUT_MS = Number(process.env.DEVICE_ROUTER_TIMEOUT_MS || 
 const ENABLE_DEVICE_MODEL_ROUTER = String(process.env.ENABLE_DEVICE_MODEL_ROUTER || "false").toLowerCase() === "true";
 const ENABLE_AUTO_WEB_SEARCH_ON_ONLINE = String(process.env.ENABLE_AUTO_WEB_SEARCH_ON_ONLINE || "false").toLowerCase() === "true";
 const AGENT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_PLANNER_TIMEOUT_MS || 7000);
-const AGENT_STEP_TOTAL_BUDGET_MS = Number(process.env.AGENT_STEP_TOTAL_BUDGET_MS || 18000);
+const AGENT_STEP_TOTAL_BUDGET_MS = Number(process.env.AGENT_STEP_TOTAL_BUDGET_MS || 15000);
 const AGENT_STEP_VISION_TIMEOUT_MS = Number(process.env.AGENT_STEP_VISION_TIMEOUT_MS || process.env.AGENT_REALTIME_VISION_TIMEOUT_MS || 15000);
 const AGENT_FAST_VISION_MAX_TOKENS = Number(process.env.AGENT_FAST_VISION_MAX_TOKENS || 180);
 const AGENT_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_TEXT_PLANNER_TIMEOUT_MS || 7000);
@@ -18,7 +18,12 @@ const AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_STEP_TEXT_PL
 const AGENT_STEP_FALLBACK_MIN_BUDGET_MS = Number(process.env.AGENT_STEP_FALLBACK_MIN_BUDGET_MS || 900);
 const AGENT_ROUTE_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_ROUTE_PLANNER_TIMEOUT_MS || 1800);
 const AGENT_ROUTE_PLANNER_MAX_TOKENS = Number(process.env.AGENT_ROUTE_PLANNER_MAX_TOKENS || 360);
-const AGENT_RESPONSE_SAFETY_MARGIN_MS = Number(process.env.AGENT_RESPONSE_SAFETY_MARGIN_MS || 350);
+const AGENT_BRAIN_ROUTE_TIMEOUT_MS = Number(process.env.AGENT_BRAIN_ROUTE_TIMEOUT_MS || 2200);
+const AGENT_BRAIN_ROUTE_MAX_TOKENS = Number(process.env.AGENT_BRAIN_ROUTE_MAX_TOKENS || 260);
+const AGENT_BRAIN_ROUTE_CACHE_TTL_MS = Number(process.env.AGENT_BRAIN_ROUTE_CACHE_TTL_MS || 45 * 1000);
+const AGENT_BRAIN_ROUTE_CACHE_MAX = Math.max(16, Math.min(256, Number(process.env.AGENT_BRAIN_ROUTE_CACHE_MAX || 96)));
+const AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX = Math.max(4, Math.min(32, Number(process.env.AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX || 14)));
+const AGENT_RESPONSE_SAFETY_MARGIN_MS = Number(process.env.AGENT_RESPONSE_SAFETY_MARGIN_MS || 900);
 const AGENT_VISION_MAX_TOKENS = Number(process.env.AGENT_VISION_MAX_TOKENS || 360);
 const AGENT_TEXT_MAX_TOKENS = Number(process.env.AGENT_TEXT_MAX_TOKENS || 300);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024);
@@ -27,8 +32,9 @@ const AGENT_SESSION_MAX = Number(process.env.AGENT_SESSION_MAX || 128);
 const AGENT_VISUAL_CACHE_MIN_CONFIDENCE = Number(process.env.AGENT_VISUAL_CACHE_MIN_CONFIDENCE || 0.50);
 const AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE = Number(process.env.AGENT_VISUAL_FRAME_MIN_SIGNAL_CONFIDENCE || 0.45);
 const AGENT_SESSIONS = new Map();
+const AGENT_BRAIN_ROUTE_CACHE = new Map();
 
-const AGENT_GUI_PROVIDER = normalizeAgentGuiProviderName(process.env.AGENT_GUI_PROVIDER || process.env.GUI_PROVIDER || "aliyun_gui_plus");
+const AGENT_GUI_PROVIDER = normalizeAgentGuiProviderName(process.env.AGENT_GUI_PROVIDER || process.env.GUI_PROVIDER || "qwen_omni");
 const AGENT_GUI_PROVIDER_URL = String(process.env.AGENT_GUI_PROVIDER_URL || process.env.GUI_PROVIDER_URL || "").trim();
 const AGENT_GUI_PROVIDER_BASE_URL = String(process.env.AGENT_GUI_PROVIDER_BASE_URL || process.env.GUI_PROVIDER_BASE_URL || "").trim();
 const AGENT_GUI_PROVIDER_API_KEY = String(process.env.AGENT_GUI_PROVIDER_API_KEY || process.env.GUI_PROVIDER_API_KEY || "").trim();
@@ -37,7 +43,6 @@ const AGENT_GUI_PROVIDER_TIMEOUT_MS = Number(process.env.AGENT_GUI_PROVIDER_TIME
 const AGENT_GUI_PROVIDER_MAX_TOKENS = Number(process.env.AGENT_GUI_PROVIDER_MAX_TOKENS || process.env.GUI_PROVIDER_MAX_TOKENS || AGENT_FAST_VISION_MAX_TOKENS);
 const AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN = String(process.env.AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN || "false").toLowerCase() === "true";
 const AGENT_GUI_STRICT_OFFICIAL_LOOP = String(process.env.AGENT_GUI_STRICT_OFFICIAL_LOOP || "true").toLowerCase() !== "false";
-const ALIYUN_GUI_FORCE_OFFICIAL_LOOP = String(process.env.ALIYUN_GUI_FORCE_OFFICIAL_LOOP || "true").toLowerCase() !== "false";
 const ALIYUN_GUI_API_KEY = String(process.env.ALIYUN_GUI_API_KEY || process.env.QWEN_API_KEY || "").trim();
 const ALIYUN_GUI_BASE_URL = String(process.env.ALIYUN_GUI_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").trim();
 const ALIYUN_GUI_MODEL = String(process.env.ALIYUN_GUI_MODEL || "gui-plus-2026-02-26").trim();
@@ -46,11 +51,19 @@ const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 512);
 const ALIYUN_GUI_API_MODE = String(process.env.ALIYUN_GUI_API_MODE || "dashscope_native").trim().toLowerCase();
 const ALIYUN_GUI_HIGH_RESOLUTION_IMAGES = String(process.env.ALIYUN_GUI_HIGH_RESOLUTION_IMAGES || "true").toLowerCase() !== "false";
 const ALIYUN_GUI_ENABLE_THINKING = String(process.env.ALIYUN_GUI_ENABLE_THINKING || "false").toLowerCase() === "true";
-const ALIYUN_GUI_TASK_GUARDS = String(process.env.ALIYUN_GUI_TASK_GUARDS || "true").toLowerCase() !== "false";
-const ENABLE_LAYERED_GUI_AGENT = String(process.env.ENABLE_LAYERED_GUI_AGENT || "false").toLowerCase() === "true";
+const AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS = Math.max(4000, Math.min(11000, Number(process.env.AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 9500)));
+const AGENT_GUI_DEEP_THINKING_MODE = String(process.env.AGENT_GUI_DEEP_THINKING_MODE || process.env.AGENT_DEEP_THINKING_MODE || "adaptive").trim().toLowerCase();
+const AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS = Math.max(1, Math.min(8, Number(process.env.AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS || 1)));
+const AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS = Math.max(0, Math.min(12000, Number(process.env.AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS || 3500)));
+const AGENT_GUI_DEEP_THINKING_REASON_MAX = Math.max(2, Math.min(10, Number(process.env.AGENT_GUI_DEEP_THINKING_REASON_MAX || 6)));
 const AGENT_GUI_HISTORY_N = Math.max(0, Math.min(6, Number(process.env.AGENT_GUI_HISTORY_N || 4)));
-const AGENT_OUTCOME_HISTORY_N = Math.max(0, Math.min(8, Number(process.env.AGENT_OUTCOME_HISTORY_N || 4)));
 const AGENT_GUI_SESSION_MAX = Math.max(4, Math.min(64, Number(process.env.AGENT_GUI_SESSION_MAX || 24)));
+const AGENT_SEMANTIC_JUDGE_MODE = String(process.env.AGENT_SEMANTIC_JUDGE_MODE || "adaptive").trim().toLowerCase();
+const AGENT_SEMANTIC_JUDGE_TIMEOUT_MS = Math.max(500, Math.min(5000, Number(process.env.AGENT_SEMANTIC_JUDGE_TIMEOUT_MS || 1600)));
+const AGENT_SEMANTIC_JUDGE_MAX_TOKENS = Math.max(160, Math.min(800, Number(process.env.AGENT_SEMANTIC_JUDGE_MAX_TOKENS || 340)));
+const AGENT_TASK_CONTRACT_JUDGE_MODE = String(process.env.AGENT_TASK_CONTRACT_JUDGE_MODE || "adaptive").trim().toLowerCase();
+const AGENT_TASK_CONTRACT_JUDGE_TIMEOUT_MS = Math.max(600, Math.min(6000, Number(process.env.AGENT_TASK_CONTRACT_JUDGE_TIMEOUT_MS || 1800)));
+const AGENT_TASK_CONTRACT_JUDGE_MAX_TOKENS = Math.max(260, Math.min(1100, Number(process.env.AGENT_TASK_CONTRACT_JUDGE_MAX_TOKENS || 620)));
 
 // v34 架构保护开关：普通聊天、显式智能体、agent_step、联网工具彻底分流。
 // 默认关闭历史“普通聊天里用关键词/模型路由触发手机动作”的行为。
@@ -59,7 +72,7 @@ const ENABLE_MODEL_COMMANDS_IN_NORMAL_CHAT = String(process.env.ENABLE_MODEL_COM
 const ENABLE_AGENT_SUGGESTION_CARD = String(process.env.ENABLE_AGENT_SUGGESTION_CARD || "false").toLowerCase() === "true";
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v40-5-aliyun-gui-plus-native-session-loop";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v67-agentbrain-ledger-internal-tools";
 const EMBEDDED_COMMAND_PREFIX = "[[AI_LEDGER_COMMAND:";
 const EMBEDDED_COMMAND_SUFFIX = "]]";
 
@@ -328,6 +341,27 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
   }
 }
 
+async function fetchTextWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  // fetchWithTimeout 只覆盖到响应头返回；GUI Plus / LLM 常见的是先返回 headers，
+  // 然后 body 在模型生成期间长期悬挂。这里必须把 response.text() 也纳入同一个超时，
+  // 否则 Android 端会在 responseCode 阶段等满 18 秒后超时。
+  if (typeof fetch !== "function") {
+    throw new Error("Node runtime does not support fetch. Please use Node.js 18 or Node.js 20 in Aliyun FC.");
+  }
+
+  const controller = new AbortController();
+  const ms = Math.max(300, Number(timeoutMs || REQUEST_TIMEOUT_MS));
+  const timer = setTimeout(() => controller.abort(), ms);
+
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    return { response, text };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function agentRemainingBudgetMs(startedAt) {
   const elapsed = Date.now() - Number(startedAt || Date.now());
   return Math.max(0, AGENT_STEP_TOTAL_BUDGET_MS - elapsed);
@@ -391,7 +425,7 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
   }
 
   const extraHeaders = options.headers && typeof options.headers === "object" ? options.headers : {};
-  const r = await fetchWithTimeout(endpoint, {
+  const { response: r, text: t } = await fetchTextWithTimeout(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -400,8 +434,6 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
     },
     body: JSON.stringify(payload),
   }, options.timeoutMs || REQUEST_TIMEOUT_MS);
-
-  const t = await r.text();
 
   if (!r.ok) {
     throw new Error(`${name} ${r.status} ${t.slice(0, 300)}`);
@@ -498,7 +530,8 @@ async function callOpenAICompatibleStream(base, key, model, messages, name, opti
   }, options.timeoutMs || REQUEST_TIMEOUT_MS);
 
   if (!r.ok) {
-    const t = await r.text();
+    let t = "";
+    try { t = await r.text(); } catch (_) { t = ""; }
     throw new Error(`${name} stream ${r.status} ${t.slice(0, 300)}`);
   }
 
@@ -628,6 +661,69 @@ function stripEmbeddedCommand(reply) {
   return (raw.slice(0, start) + raw.slice(end + EMBEDDED_COMMAND_SUFFIX.length)).trim();
 }
 
+function normalizeDeviceControlAction(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const rawCapability = String(value.capability || value.tool || value.type || value.action || value.name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[.\s\-]+/g, "_");
+  const capabilityAliases = {
+    app_open: "open_app",
+    app_launch: "open_app",
+    app_settings: "open_app_settings",
+    settings_open: "open_system_settings",
+    system_settings_open: "open_system_settings",
+    network_wifi_set: "set_wifi_enabled",
+    wifi_set: "set_wifi_enabled",
+    network_bluetooth_set: "set_bluetooth_enabled",
+    bluetooth_set: "set_bluetooth_enabled",
+    network_mobile_data_set: "set_mobile_data_enabled",
+    mobile_data_set: "set_mobile_data_enabled",
+    system_dark_mode_set: "set_dark_mode",
+    dark_mode_set: "set_dark_mode",
+    system_brightness_set: "set_brightness",
+    brightness_set: "set_brightness",
+    system_screen_timeout_set: "set_screen_timeout",
+    screen_timeout_set: "set_screen_timeout",
+    system_auto_rotate_set: "set_auto_rotate",
+    auto_rotate_set: "set_auto_rotate",
+    system_media_volume_set: "set_media_volume",
+    media_volume_set: "set_media_volume",
+    device_health: "device_status",
+    shizuku_permission_request: "request_shizuku_permission",
+    shell_probe: "shizuku_status",
+    system_animation_scale_set: "set_animation_scale",
+    animation_scale_set: "set_animation_scale",
+    app_force_stop: "force_stop_app",
+    app_clear_data: "clear_app_data",
+    app_uninstall: "uninstall_app",
+    app_disable: "disable_app",
+    app_enable: "enable_app",
+  };
+  const tool = normalizeAgentStepType(capabilityAliases[rawCapability] || rawCapability);
+  if (!INTERNAL_TOOL_AGENT_STEP_TYPES.includes(tool)) return null;
+  const rawArgs = value.arguments && typeof value.arguments === "object"
+    ? value.arguments
+    : (value.args && typeof value.args === "object"
+        ? value.args
+        : (value.params && typeof value.params === "object" ? value.params : {}));
+  const directArgs = { ...rawArgs };
+  for (const key of ["appName", "packageName", "page", "kind", "enabled", "mode", "percent", "deltaPercent", "timeoutMs", "seconds", "minutes", "scale"]) {
+    if (value[key] !== undefined && directArgs[key] === undefined) directArgs[key] = value[key];
+  }
+  const args = normalizeInternalDeviceToolArgsForAndroid(tool, directArgs);
+  const riskLevel = normalizeRiskLevel(value.riskLevel || value.risk || "");
+  return {
+    capability: tool,
+    tool,
+    args,
+    arguments: args,
+    riskLevel,
+    requiresConfirmation: Boolean(value.requiresConfirmation || value.requireConfirmation || ["high", "critical"].includes(riskLevel)),
+    reason: safeText(value.reason || value.explanation || "结构化内部设备控制动作。", 160),
+  };
+}
+
 function normalizeAgentAction(value) {
   if (!value || typeof value !== "object") return null;
   const capability = String(value.capability || value.type || value.action || "")
@@ -635,87 +731,27 @@ function normalizeAgentAction(value) {
     .trim()
     .replace(/-/g, "_");
 
-  if (!["observe_screen", "run_agent_task", "run_device_control", "device_control", "run_internal_device_control"].includes(capability)) return null;
-
   const normalizedCapability = capability === "device_control" || capability === "run_internal_device_control" ? "run_device_control" : capability;
+  if (!["observe_screen", "run_agent_task", "run_device_control"].includes(normalizedCapability)) return null;
+
   const isRunTask = normalizedCapability === "run_agent_task";
   const isDeviceControl = normalizedCapability === "run_device_control";
   const goal = String(value.goal || value.task || value.instruction || value.query || value.prompt || "").trim();
 
   if ((isRunTask || isDeviceControl) && !goal) return null;
-  const rawDeviceControlAction = value.deviceControlAction || value.device_control_action || value.step || value.agentStep || null;
-  const deviceControlAction = isDeviceControl && rawDeviceControlAction && typeof rawDeviceControlAction === "object"
-    ? normalizeDeviceControlAction(rawDeviceControlAction)
+
+  const deviceControlAction = isDeviceControl
+    ? normalizeDeviceControlAction(value.deviceControlAction || value.device_control_action || value.agentStep || value.step || value)
     : null;
   if (isDeviceControl && !deviceControlAction) return null;
 
   return {
     capability: normalizedCapability,
-    title: String(value.title || (isDeviceControl ? "内部设备控制" : isRunTask ? "手机智能体任务" : "观察当前屏幕")).trim().slice(0, 40) || (isDeviceControl ? "内部设备控制" : isRunTask ? "手机智能体任务" : "观察当前屏幕"),
+    title: String(value.title || (isDeviceControl ? "内部设备控制" : (isRunTask ? "手机智能体任务" : "观察当前屏幕"))).trim().slice(0, 40) || (isDeviceControl ? "内部设备控制" : (isRunTask ? "手机智能体任务" : "观察当前屏幕")),
     goal: (isRunTask || isDeviceControl) ? goal.slice(0, 240) : undefined,
-    requiresConfirmation: Boolean(value.requiresConfirmation),
-    reason: String(value.reason || (isDeviceControl ? "用户请求可由内部设备控制直接完成" : isRunTask ? "用户明确要求操作手机完成任务" : "用户希望手机智能体读取当前界面")).trim().slice(0, 160),
     deviceControlAction: deviceControlAction || undefined,
-  };
-}
-
-function normalizeDeviceControlAction(value) {
-  if (!value || typeof value !== "object") return null;
-  const capability = String(value.capability || value.tool || value.type || value.action || value.name || "").trim().toLowerCase().replace(/-/g, "_");
-  const aliases = {
-    "wifi": "network.wifi.set",
-    "wi_fi": "network.wifi.set",
-    "set_wifi": "network.wifi.set",
-    "set_wifi_enabled": "network.wifi.set",
-    "bluetooth": "network.bluetooth.set",
-    "set_bluetooth": "network.bluetooth.set",
-    "set_bluetooth_enabled": "network.bluetooth.set",
-    "mobile_data": "network.mobile_data.set",
-    "set_mobile_data": "network.mobile_data.set",
-    "set_mobile_data_enabled": "network.mobile_data.set",
-    "dark_mode": "system.dark_mode.set",
-    "set_dark_mode": "system.dark_mode.set",
-    "brightness": "system.brightness.set",
-    "set_brightness": "system.brightness.set",
-    "screen_timeout": "system.screen_timeout.set",
-    "set_screen_timeout": "system.screen_timeout.set",
-    "auto_rotate": "system.auto_rotate.set",
-    "set_auto_rotate": "system.auto_rotate.set",
-    "media_volume": "system.media_volume.set",
-    "set_media_volume": "system.media_volume.set",
-    "open_app": "app.open",
-    "open_system_settings": "settings.open",
-    "open_app_settings": "app.settings",
-    "device_status": "device.status",
-    "shizuku_status": "shizuku.status",
-    "request_shizuku_permission": "shizuku.permission.request",
-    "set_animation_scale": "system.animation_scale.set",
-    "force_stop_app": "app.force_stop",
-    "clear_app_data": "app.clear_data",
-    "uninstall_app": "app.uninstall",
-    "disable_app": "app.disable",
-    "enable_app": "app.enable",
-  };
-  const normalized = aliases[capability] || capability.replace(/_/g, ".");
-  const allowed = new Set([
-    "device.health", "device.status", "shell.probe", "shell.status", "shizuku.status", "shizuku.permission.request",
-    "settings.open", "app.open", "app.settings", "system.brightness.set", "system.screen_timeout.set",
-    "system.auto_rotate.set", "system.media_volume.set", "network.wifi.set", "network.bluetooth.set",
-    "network.mobile_data.set", "system.dark_mode.set", "system.animation_scale.set", "app.force_stop",
-    "app.clear_data", "app.uninstall", "app.disable", "app.enable",
-  ]);
-  if (!allowed.has(normalized)) return null;
-  const args = value.arguments && typeof value.arguments === "object" ? { ...value.arguments } : {};
-  for (const key of ["enabled", "enable", "on", "state", "mode", "value", "percent", "brightness", "volume", "deltaPercent", "scale", "seconds", "minutes", "timeoutMs", "appName", "packageName", "target", "page", "kind"]) {
-    if (value[key] !== undefined && args[key] === undefined) args[key] = value[key];
-  }
-  const riskLevel = String(value.riskLevel || value.risk || (["app.clear_data", "app.uninstall", "app.disable"].includes(normalized) ? "critical" : ["app.force_stop", "app.enable", "system.animation_scale.set"].includes(normalized) ? "high" : "low")).toLowerCase();
-  return {
-    capability: normalized,
-    arguments: args,
-    riskLevel,
-    requiresConfirmation: Boolean(value.requiresConfirmation || value.confirm || ["critical", "high"].includes(riskLevel)),
-    reason: String(value.reason || "").trim().slice(0, 160),
+    requiresConfirmation: Boolean(value.requiresConfirmation),
+    reason: String(value.reason || (isDeviceControl ? "用户明确要求执行本地内部设备控制" : (isRunTask ? "用户明确要求操作手机完成任务" : "用户希望手机智能体读取当前界面"))).trim().slice(0, 160),
   };
 }
 
@@ -815,6 +851,12 @@ function normalizeExplicitDeviceIntent(body, prompt = "") {
   const agentActionFromBody = normalizeAgentAction(body?.agentAction || body?.commandProtocol?.agentAction);
   const mobileActionFromBody = normalizeMobileAction(body?.mobileAction || body?.commandProtocol?.mobileAction);
   const preferenceUpdateFromBody = normalizePreferenceUpdate(body?.preferenceUpdate || body?.commandProtocol?.preferenceUpdate);
+  const deviceControlActionFromBody = normalizeDeviceControlAction(
+    body?.deviceControlAction ||
+      body?.device_control_action ||
+      body?.commandProtocol?.deviceControlAction ||
+      body?.commandProtocol?.device_control_action
+  );
 
   if (agentActionFromBody) {
     return {
@@ -836,6 +878,33 @@ function normalizeExplicitDeviceIntent(body, prompt = "") {
     };
   }
 
+  const wantsDeviceControl = Boolean(
+    intent === "run_device_control" ||
+      intent === "device_control" ||
+      intent === "internal_device_control" ||
+      body?.runDeviceControl === true ||
+      body?.commandProtocol?.intent === "run_device_control" ||
+      body?.commandProtocol?.mode === "run_device_control"
+  );
+
+  if (wantsDeviceControl && deviceControlActionFromBody) {
+    const goal = safeText(body?.agentGoal || body?.goal || body?.task || prompt || deviceControlActionFromBody.reason, 240);
+    return {
+      agentAction: {
+        capability: "run_device_control",
+        title: safeText(body?.title || "内部设备控制", 40),
+        goal: goal || deviceControlActionFromBody.reason || deviceControlActionFromBody.tool,
+        deviceControlAction: deviceControlActionFromBody,
+        requiresConfirmation: Boolean(deviceControlActionFromBody.requiresConfirmation),
+        reason: "显式内部设备控制请求，进入本地受控工具链路。",
+      },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: "explicit_device_control",
+      source: "explicit_payload",
+    };
+  }
+
   const wantsAgentStart = Boolean(
     intent === "agent_start" ||
       intent === "run_agent_task" ||
@@ -851,13 +920,12 @@ function normalizeExplicitDeviceIntent(body, prompt = "") {
     if (!goal) {
       return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "empty_explicit_agent_goal", source: "explicit_payload" };
     }
-    const compact = goal.replace(/\s+/g, "");
     return {
       agentAction: {
         capability: "run_agent_task",
         title: safeText(body?.title || "手机智能体任务", 40),
         goal,
-        requiresConfirmation: HIGH_RISK_AGENT_WORDS.some((word) => compact.includes(word)),
+        requiresConfirmation: booleanFromValue(body?.requiresConfirmation ?? body?.commandProtocol?.requiresConfirmation, false),
         reason: "显式 agent_start 请求，进入手机智能体专用链路。",
       },
       mobileAction: null,
@@ -941,11 +1009,9 @@ async function detectDeviceIntentByModel(prompt, body) {
         "你是 Android 手机 AI 助手的设备能力路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
         "你只判断用户是不是在请求手机本地能力；不要回答问题本身。",
         "普通问答、写作、翻译、代码、项目讨论，必须全部返回 null。",
-        "只有明确要求操作手机时才触发。能由内部控制直接完成的任务优先返回 agentAction.run_device_control；需要看屏幕、点按钮、跨 App 流程时才返回 run_agent_task。",
-        "内部控制 deviceControlAction.capability 可用：network.wifi.set、network.bluetooth.set、network.mobile_data.set、system.dark_mode.set、system.brightness.set、system.screen_timeout.set、system.auto_rotate.set、system.media_volume.set、settings.open、app.open、app.settings、device.status、shizuku.status、shizuku.permission.request、system.animation_scale.set、app.force_stop、app.clear_data、app.uninstall、app.disable、app.enable。",
-        "打开手机中的 App 如果只是启动应用，返回 run_device_control + app.open；如果还要进入 App 内页面或点击搜索，返回 run_agent_task。",
+        "只有明确要求执行手机内部控制、观察屏幕、视觉智能体任务、导航或闹钟提醒时才触发；打开 App、系统开关、设置页和 Shizuku/shell 状态必须走 run_device_control。",
         "输出格式必须是单个 JSON 对象：",
-        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task|run_device_control\",\"title\":\"\",\"goal\":\"完整任务，run_agent_task/run_device_control 需要\",\"requiresConfirmation\":false,\"reason\":\"\",\"deviceControlAction\":{\"capability\":\"network.wifi.set\",\"arguments\":{\"enabled\":true},\"riskLevel\":\"medium\",\"requiresConfirmation\":false,\"reason\":\"\"}},\"mobileAction\":null|{\"type\":\"navigate|set_alarm\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
+        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task|run_device_control\",\"title\":\"\",\"goal\":\"完整任务，run_agent_task/run_device_control 需要\",\"deviceControlAction\":{\"tool\":\"open_app|open_system_settings|open_app_settings|set_wifi_enabled|set_bluetooth_enabled|set_mobile_data_enabled|set_dark_mode|set_brightness|set_media_volume|set_screen_timeout|set_auto_rotate|device_status|shizuku_status|request_shizuku_permission\",\"args\":{},\"riskLevel\":\"low|medium|high|critical\",\"requiresConfirmation\":false,\"reason\":\"\"},\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"navigate|set_alarm\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
       ].join("\n"),
     },
     { role: "user", content: String(prompt || "") },
@@ -983,30 +1049,156 @@ function buildDeviceActionReply(deviceIntent) {
 }
 
 
-const SUPPORTED_AGENT_STEP_TYPES = ["open_app", "home", "back", "recents", "notifications", "quick_settings", "tap_node", "tap_xy", "long_press", "input_text", "scroll", "swipe", "wait", "finish", "need_user_help"];
-const AGENT_ACTION_BATCH_MAX = Math.max(1, Math.min(3, Number(process.env.AGENT_ACTION_BATCH_MAX || 1)));
-const HIGH_RISK_AGENT_WORDS = [
-  "支付", "付款", "转账", "红包", "下单", "购买", "删除", "卸载", "授权", "同意",
-  "发送", "发给", "提交", "发布", "评论", "私信", "验证码", "密码", "登录", "确认付款",
-  "pay", "transfer", "delete", "send", "submit", "publish", "password", "login", "otp"
+const DEVICE_TOOL_AGENT_STEP_TYPES = [
+  "open_app",
+  "open_system_settings",
+  "open_app_settings",
+  "set_brightness",
+  "set_screen_timeout",
+  "set_auto_rotate",
+  "set_media_volume",
+  "set_wifi_enabled",
+  "set_bluetooth_enabled",
+  "set_mobile_data_enabled",
+  "set_dark_mode",
+  "device_status",
+  "shizuku_status",
+  "request_shizuku_permission",
+  "set_animation_scale",
+  "force_stop_app",
+  "clear_app_data",
+  "uninstall_app",
+  "disable_app",
+  "enable_app",
 ];
+
+const LEDGER_TOOL_AGENT_STEP_TYPES = [
+  "ledger_add_record",
+  "ledger_set_budget",
+  "ledger_query_summary",
+  "ledger_list_records",
+];
+
+const INTERNAL_TOOL_AGENT_STEP_TYPES = [
+  ...DEVICE_TOOL_AGENT_STEP_TYPES,
+  ...LEDGER_TOOL_AGENT_STEP_TYPES,
+];
+
+const SUPPORTED_AGENT_STEP_TYPES = [
+  "open_app",
+  "home",
+  "back",
+  "recents",
+  "notifications",
+  "quick_settings",
+  "tap_node",
+  "tap_xy",
+  "input_text",
+  "scroll",
+  "swipe",
+  "wait",
+  "finish",
+  "need_user_help",
+  ...INTERNAL_TOOL_AGENT_STEP_TYPES,
+];
+const AGENT_ACTION_BATCH_MAX = Math.max(1, Math.min(3, Number(process.env.AGENT_ACTION_BATCH_MAX || 1)));
+// 风险确认不再使用固定自然语言词表；只接受语义裁决器和客户端传入的结构化风险字段。
 
 function safeText(value, max = 160) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function normalizeAgentStepType(value) {
-  const type = String(value || "").toLowerCase().trim().replace(/-/g, "_");
+  const type = String(value || "").toLowerCase().trim().replace(/[\s\-]+/g, "_");
   if (SUPPORTED_AGENT_STEP_TYPES.includes(type)) return type;
-  if (["tap_xy", "tapx_y", "coordinate_click", "coordinate_tap", "click_xy", "tap_point", "point_click"].includes(type)) return "tap_xy";
-  if (["longpress", "long_click", "long_tap", "press_hold", "touch_hold"].includes(type)) return "long_press";
-  if (["tap", "click", "press"].includes(type)) return "tap_xy";
-  if (["input", "type", "enter_text"].includes(type)) return "input_text";
-  if (["done", "complete", "completed"].includes(type)) return "finish";
-  if (["ask_user", "need_help", "clarify"].includes(type)) return "need_user_help";
-  return "need_user_help";
+  const mapped = {
+    open: "open_app",
+    launch: "open_app",
+    launch_app: "open_app",
+    open_application: "open_app",
+    app_open: "open_app",
+    tap: "tap_xy",
+    click: "tap_xy",
+    press: "tap_xy",
+    tap_xy: "tap_xy",
+    tapx_y: "tap_xy",
+    coordinate_click: "tap_xy",
+    coordinate_tap: "tap_xy",
+    click_xy: "tap_xy",
+    tap_point: "tap_xy",
+    point_click: "tap_xy",
+    input: "input_text",
+    type: "input_text",
+    enter_text: "input_text",
+    text: "input_text",
+    done: "finish",
+    complete: "finish",
+    completed: "finish",
+    ask_user: "need_user_help",
+    need_help: "need_user_help",
+    clarify: "need_user_help",
+    settings: "open_system_settings",
+    open_settings: "open_system_settings",
+    system_settings: "open_system_settings",
+    open_system_setting: "open_system_settings",
+    app_settings: "open_app_settings",
+    app_info: "open_app_settings",
+    open_app_detail: "open_app_settings",
+    brightness: "set_brightness",
+    screen_brightness: "set_brightness",
+    screen_timeout: "set_screen_timeout",
+    sleep_timeout: "set_screen_timeout",
+    auto_rotate: "set_auto_rotate",
+    rotation: "set_auto_rotate",
+    accelerometer_rotation: "set_auto_rotate",
+    media_volume: "set_media_volume",
+    volume: "set_media_volume",
+    set_volume: "set_media_volume",
+    music_volume: "set_media_volume",
+    wifi: "set_wifi_enabled",
+    wi_fi: "set_wifi_enabled",
+    set_wifi: "set_wifi_enabled",
+    wifi_enabled: "set_wifi_enabled",
+    bluetooth: "set_bluetooth_enabled",
+    set_bluetooth: "set_bluetooth_enabled",
+    bluetooth_enabled: "set_bluetooth_enabled",
+    mobile_data: "set_mobile_data_enabled",
+    cellular_data: "set_mobile_data_enabled",
+    data_enabled: "set_mobile_data_enabled",
+    set_data: "set_mobile_data_enabled",
+    dark_mode: "set_dark_mode",
+    night_mode: "set_dark_mode",
+    ui_mode: "set_dark_mode",
+    health: "device_status",
+    device_health: "device_status",
+    shell_status: "shizuku_status",
+    enhanced_status: "shizuku_status",
+    shizuku: "shizuku_status",
+    shizuku_permission: "request_shizuku_permission",
+    request_shizuku: "request_shizuku_permission",
+    animation_scale: "set_animation_scale",
+    force_stop: "force_stop_app",
+    force_stop_application: "force_stop_app",
+    clear_data: "clear_app_data",
+    uninstall: "uninstall_app",
+    disable: "disable_app",
+    enable: "enable_app",
+    add_ledger_record: "ledger_add_record",
+    create_ledger_record: "ledger_add_record",
+    ledger_record_add: "ledger_add_record",
+    ledger_add: "ledger_add_record",
+    set_ledger_budget: "ledger_set_budget",
+    ledger_budget_set: "ledger_set_budget",
+    budget_set: "ledger_set_budget",
+    query_ledger_summary: "ledger_query_summary",
+    ledger_summary: "ledger_query_summary",
+    ledger_query: "ledger_query_summary",
+    list_ledger_records: "ledger_list_records",
+    ledger_records: "ledger_list_records",
+    ledger_list: "ledger_list_records",
+  };
+  return mapped[type] || "need_user_help";
 }
-
 function normalizeAgentDirection(value) {
   const direction = String(value || "").toLowerCase().trim();
   if (["up", "down", "left", "right"].includes(direction)) return direction;
@@ -1017,12 +1209,318 @@ function normalizeAgentDirection(value) {
   return "";
 }
 
-function normalizeRiskLevel(value, joinedText) {
+function normalizeRiskLevel(value) {
   const raw = String(value || "").toLowerCase().trim().replace(/-/g, "_");
-  const inferredHigh = HIGH_RISK_AGENT_WORDS.some((word) => joinedText.includes(word.toLowerCase()) || joinedText.includes(word));
-  if (inferredHigh) return "high";
-  if (["high", "medium", "low"].includes(raw)) return raw;
+  if (["user_input", "credential_input"].includes(raw)) return "user_input";
+  if (["high", "critical"].includes(raw)) return "high";
+  if (["medium", "mid"].includes(raw)) return "medium";
+  if (["low", "safe", "navigation", "navigate", ""].includes(raw)) return "low";
   return "low";
+}
+
+function normalizeInputMode(value) {
+  const raw = String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s\-]+/g, "_");
+  if (["focused_direct", "focus_direct", "focused", "direct", "ime", "keyboard", "mobile_use_type"].includes(raw)) return "focused_direct";
+  if (["node", "accessibility_node", "editable_node", "input_node", "a11y_node"].includes(raw)) return "node";
+  if (["clipboard", "paste", "clip_paste"].includes(raw)) return "clipboard";
+  return "";
+}
+
+function booleanFromValue(value, fallback = false) {
+  if (value === true || value === "true" || value === 1 || value === "1" || value === "yes") return true;
+  if (value === false || value === "false" || value === 0 || value === "0" || value === "no") return false;
+  return Boolean(fallback);
+}
+
+function normalizeAgentStepArgs(value) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nestedArgs = raw.args && typeof raw.args === "object"
+    ? raw.args
+    : raw.arguments && typeof raw.arguments === "object"
+      ? raw.arguments
+      : {};
+  const args = { ...nestedArgs };
+  const passthroughKeys = [
+    "appName", "app", "application", "label", "name", "packageName", "package", "pkg",
+    "targetText", "target", "title", "page", "kind", "setting",
+    "percent", "brightness", "value", "seconds", "second", "sec", "minutes", "minute", "min",
+    "timeoutMs", "screenTimeoutMs", "scale", "durationMs", "delayMs", "waitMs",
+    "enabled", "enable", "on", "state", "mode", "operation", "delta", "deltaPercent", "changePercent", "adjustBy",
+    "volume", "autoRotate", "darkMode", "text", "inputText", "query", "content", "reason", "risk", "riskLevel", "direction", "inputMode",
+    "amount", "budget", "recordType", "transactionType", "entryType", "category", "date", "dateLabel",
+    "range", "period", "timeRange", "month", "startDate", "endDate", "limit", "count", "description",
+  ];
+  for (const key of passthroughKeys) {
+    if (args[key] === undefined && raw[key] !== undefined) args[key] = raw[key];
+  }
+  return Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== ""));
+}
+
+function hasAgentStepArgs(args) {
+  return Boolean(args && typeof args === "object" && Object.keys(args).length > 0);
+}
+
+function agentBrainStepArgs(step) {
+  const raw = step && typeof step === "object" ? step : {};
+  return normalizeAgentStepArgs(raw);
+}
+
+function isDeviceToolAgentStepType(type) {
+  return DEVICE_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
+}
+
+function isLedgerToolAgentStepType(type) {
+  return LEDGER_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
+}
+
+function isInternalToolAgentStepType(type) {
+  return INTERNAL_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
+}
+
+
+function normalizeSemanticSafetyRiskLevel(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
+  if (["user_input", "credential_input"].includes(raw)) return "user_input";
+  if (["high", "critical"].includes(raw)) return "high";
+  if (["medium", "needs_confirmation", "confirmation"].includes(raw)) return "high";
+  return "low";
+}
+
+function normalizeSemanticSafetyRiskType(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
+  const allowed = new Set([
+    "navigation", "view", "search", "open_app", "page_switch", "scroll", "wait", "recovery",
+    "credential_input", "user_input", "payment", "destructive", "authorization",
+    "external_submit", "communication_send", "call", "unknown"
+  ]);
+  return allowed.has(raw) ? raw : "unknown";
+}
+
+function semanticSafetyFallbackActionText(actionLike) {
+  const raw = actionLike && typeof actionLike === "object" ? actionLike : {};
+  return [
+    raw.type, raw.action, raw.a, raw.targetText, raw.t, raw.text, raw.v, raw.appName, raw.packageName, raw.reason, raw.e
+  ].map((item) => safeText(item, 160)).filter(Boolean).join(" ");
+}
+
+function structuredActionSafetyFallback(goal, snapshot, compact, agentStep) {
+  const action = String(agentStep?.type || compact?.a || compact?.action || compact?.type || "").toLowerCase().trim().replace(/-/g, "_");
+  const rawRequiresConfirmation = booleanFromValue(
+    agentStep?.requiresConfirmation ?? compact?.requiresConfirmation ?? compact?.confirm,
+    false
+  );
+  const normalizedRisk = normalizeRiskLevel(agentStep?.riskLevel || compact?.riskLevel || compact?.risk || "");
+
+  if (normalizedRisk === "user_input") {
+    return {
+      riskLevel: "user_input",
+      riskType: "credential_input",
+      requiresConfirmation: false,
+      needsUserInput: true,
+      executable: false,
+      reason: "候选动作被结构化风险字段标记为需要用户亲自输入。",
+      source: "structured_action_safety_fallback",
+    };
+  }
+
+  if (rawRequiresConfirmation || normalizedRisk === "high") {
+    return {
+      riskLevel: "high",
+      riskType: "unknown",
+      requiresConfirmation: true,
+      needsUserInput: false,
+      executable: true,
+      reason: "候选动作被结构化风险字段标记为需要确认。",
+      source: "structured_action_safety_fallback",
+    };
+  }
+
+  return {
+    riskLevel: "low",
+    riskType: ["open_app", "tap_xy", "tap_node", "scroll", "swipe", "back", "home", "wait", "recents"].includes(action) ? "navigation" : "unknown",
+    requiresConfirmation: false,
+    needsUserInput: false,
+    executable: true,
+    reason: "本地不做自然语言关键词判断，按结构化风险字段低风险兜底。",
+    source: "structured_action_safety_fallback",
+  };
+}
+
+function normalizeActionSafetyJudgeDecision(value, fallback) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.semanticSafety || raw.actionSafety || raw.safety || raw.result || raw;
+  const riskLevel = normalizeSemanticSafetyRiskLevel(nested.riskLevel || nested.risk || fallback?.riskLevel);
+  const riskType = normalizeSemanticSafetyRiskType(nested.riskType || nested.type || nested.category || fallback?.riskType);
+  const needsUserInput = Boolean(
+    booleanFromValue(nested.needsUserInput, false) ||
+      booleanFromValue(nested.userInputRequired, false) ||
+      riskLevel === "user_input" ||
+      riskType === "credential_input" ||
+      riskType === "user_input"
+  );
+  const requiresConfirmation = Boolean(
+    !needsUserInput &&
+      (booleanFromValue(nested.requiresConfirmation, false) || booleanFromValue(nested.confirmationRequired, false) || riskLevel === "high")
+  );
+  return {
+    riskLevel: needsUserInput ? "user_input" : requiresConfirmation ? "high" : "low",
+    riskType: needsUserInput ? (riskType === "unknown" ? "credential_input" : riskType) : requiresConfirmation ? riskType : (riskType === "unknown" ? (fallback?.riskType || "navigation") : riskType),
+    requiresConfirmation,
+    needsUserInput,
+    executable: nested.executable === false ? false : !needsUserInput,
+    reason: safeText(nested.reason || nested.rationale || fallback?.reason || "语义安全裁决完成。", 260),
+    source: safeText(nested.source || fallback?.source || "semantic_action_safety_judge", 80),
+  };
+}
+
+function buildActionSafetyJudgeMessages(goal, snapshot, deviceContext, agentMemory, parsed, agentStep) {
+  const compact = parsed?.guiPlusCompact || parsed?.compactVision || parsed || {};
+  const payload = {
+    originalGoal: safeText(goal, 260),
+    candidateAction: {
+      type: agentStep?.type || compact.a || compact.action || compact.type || "",
+      appName: agentStep?.appName || compact.appName || "",
+      packageName: agentStep?.packageName || compact.packageName || "",
+      targetText: agentStep?.targetText || compact.t || compact.targetText || "",
+      text: agentStep?.text || compact.text || compact.v || "",
+      reason: agentStep?.reason || compact.e || compact.reason || "",
+      rawRiskLevel: agentStep?.riskLevel || compact.riskLevel || "",
+      rawRequiresConfirmation: booleanFromValue(agentStep?.requiresConfirmation ?? compact.requiresConfirmation, false),
+    },
+    currentScreen: {
+      app: safeText(snapshot?.currentApp || snapshot?.packageName || "", 100),
+      packageName: safeText(snapshot?.packageName || snapshot?.currentApp || "", 100),
+      texts: (Array.isArray(snapshot?.texts) ? snapshot.texts : []).slice(0, 18),
+      clickableTexts: (Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((n) => n?.text || "") : []).filter(Boolean).slice(0, 18),
+    },
+    taskContract: buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory),
+    rule: "Judge the semantic consequence of the candidate action, not isolated keywords on screen. Screen words are evidence only. Return JSON only.",
+  };
+  const system = [
+    "你是 Android 手机智能体的语义安全裁决器，只输出严格 JSON。",
+    "你必须判断的是 candidateAction 这一步会造成什么后果，而不是屏幕或目标里出现了什么词。",
+    "普通导航、查看、搜索、打开入口、进入页面、切换页面层级、滚动、等待等只改变可见状态的动作通常是 low。",
+    "即使原始目标或屏幕文本看起来敏感，也必须只判断 candidateAction 这一步实际会造成的后果。",
+    "只有候选动作本身会产生外部承诺、不可逆状态变化、账号/系统权限变化、对外通信或敏感输入代填时，才 high 或 user_input。",
+    "需要用户亲自输入的内容必须 user_input，needsUserInput=true，不能让模型猜测或代填。",
+    `输出格式：{"semanticSafety":{"riskLevel":"low|user_input|high","riskType":"navigation|view|search|open_app|page_switch|scroll|recovery|credential_input|payment|destructive|authorization|external_submit|communication_send|call|unknown","requiresConfirmation":false,"needsUserInput":false,"executable":true,"reason":"一句话原因"}}`
+  ].join("\n");
+  return [
+    { role: "system", content: system },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+}
+
+function shouldSkipSemanticSafetyJudge(goal, snapshot, compact, agentStep) {
+  if (AGENT_SEMANTIC_JUDGE_MODE === "off" || AGENT_SEMANTIC_JUDGE_MODE === "false") return true;
+  const type = String(agentStep?.type || compact?.a || "").toLowerCase();
+  if (["wait", "finish", "back", "home", "recents", "open_app", "scroll", "swipe"].includes(type) && AGENT_SEMANTIC_JUDGE_MODE !== "always") {
+    return true;
+  }
+  return false;
+}
+
+async function judgeActionSemanticSafety(goal, snapshot, deviceContext, agentMemory, parsed, agentStep, startedAt) {
+  const compact = parsed?.guiPlusCompact || parsed?.compactVision || parsed || {};
+  const fallback = structuredActionSafetyFallback(goal, snapshot, compact, agentStep);
+  if (shouldSkipSemanticSafetyJudge(goal, snapshot, compact, agentStep)) return fallback;
+
+  const timeoutMs = boundedAgentTimeoutMs(AGENT_SEMANTIC_JUDGE_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_SEMANTIC_JUDGE_TIMEOUT_MS);
+  if (!process.env.QWEN_API_KEY || !process.env.QWEN_BASE_URL || !process.env.QWEN_MODEL || timeoutMs < 500) {
+    return fallback;
+  }
+
+  try {
+    const raw = await callOpenAICompatibleJsonFirst(
+      process.env.QWEN_BASE_URL,
+      process.env.QWEN_API_KEY,
+      process.env.QWEN_MODEL,
+      buildActionSafetyJudgeMessages(goal, snapshot, deviceContext, agentMemory, parsed, agentStep),
+      "Qwen Action Semantic Safety Judge",
+      {
+        temperature: 0,
+        max_tokens: AGENT_SEMANTIC_JUDGE_MAX_TOKENS,
+        timeoutMs,
+        response_format: { type: "json_object" },
+      }
+    );
+    let parsedJudge = {};
+    try { parsedJudge = JSON.parse(extractJsonText(raw)); } catch (_) { parsedJudge = {}; }
+    const decision = normalizeActionSafetyJudgeDecision(parsedJudge, fallback);
+    decision.raw = safeText(raw, 600);
+    decision.source = "qwen_semantic_action_safety_judge";
+    return decision;
+  } catch (error) {
+    return {
+      ...fallback,
+      reason: `${fallback.reason} 语义安全裁决器暂不可用，使用候选动作硬保险兜底：${sanitizeProviderError(error, 90)}`.slice(0, 260),
+      source: "semantic_judge_error_fallback",
+    };
+  }
+}
+
+function applySemanticSafetyToAgentPlan(agentStep, agentState, parsed, semanticSafety) {
+  if (!agentStep || !semanticSafety) return { agentStep, agentState };
+  const decision = normalizeActionSafetyJudgeDecision(semanticSafety, structuredActionSafetyFallback("", null, parsed?.guiPlusCompact || parsed || {}, agentStep));
+
+  if (decision.needsUserInput) {
+    const reason = `USER_INPUT_REQUIRED: ${decision.reason || agentStep.reason || "当前步骤需要用户亲自输入敏感内容。"}`;
+    return {
+      agentStep: {
+        ...agentStep,
+        type: "need_user_help",
+        riskLevel: "user_input",
+        requiresConfirmation: false,
+        reason,
+      },
+      agentState: {
+        ...(agentState || {}),
+        isComplete: false,
+        expectedProgress: false,
+        isWrong: false,
+        confidence: Math.max(Number(agentState?.confidence || 0), 0.78),
+        reason,
+        nextHint: "等待用户在浮窗输入/确认后继续。",
+        result: "needs_user_input",
+      },
+    };
+  }
+
+  if (decision.requiresConfirmation) {
+    return {
+      agentStep: {
+        ...agentStep,
+        riskLevel: "high",
+        requiresConfirmation: true,
+        reason: `${agentStep.reason || ""} 安全裁决：${decision.reason}`.trim().slice(0, 260),
+      },
+      agentState: {
+        ...(agentState || {}),
+        reason: safeText(agentState?.reason || decision.reason, 240),
+      },
+    };
+  }
+
+  return {
+    agentStep: {
+      ...agentStep,
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+    agentState,
+  };
+}
+
+function ensurePrimaryStepInBatch(agentSteps, agentStep) {
+  const out = Array.isArray(agentSteps) ? agentSteps.slice() : [];
+  if (!agentStep || ["finish", "need_user_help"].includes(agentStep.type)) return out;
+  if (agentStep.riskLevel !== "low" || agentStep.requiresConfirmation) return out;
+  const key = agentStepBatchKey(agentStep);
+  if (!out.some((step) => agentStepBatchKey(step) === key)) out.unshift(agentStep);
+  return out.slice(0, AGENT_ACTION_BATCH_MAX);
 }
 
 function compactAgentNode(node, index) {
@@ -1059,36 +1557,60 @@ function compactScreenVisual(value) {
 
 function compactScreenSnapshot(snapshot) {
   const raw = snapshot && typeof snapshot === "object" ? snapshot : {};
-  const texts = Array.isArray(raw.texts) ? raw.texts.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 30) : [];
-  const clickableNodes = (Array.isArray(raw.clickableNodes) ? raw.clickableNodes : [])
+
+  const rawTexts = Array.isArray(raw.texts)
+    ? raw.texts
+    : Array.isArray(raw.topTexts)
+      ? raw.topTexts
+      : Array.isArray(raw.visibleTexts)
+        ? raw.visibleTexts
+        : [];
+  const texts = rawTexts.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 30);
+
+  const clickableSource = Array.isArray(raw.clickableNodes)
+    ? raw.clickableNodes
+    : Array.isArray(raw.clickableTexts)
+      ? raw.clickableTexts.map((text, index) => ({ id: `ct${index}`, text, clickable: true }))
+      : [];
+  const inputSource = Array.isArray(raw.inputNodes)
+    ? raw.inputNodes
+    : Array.isArray(raw.inputTexts)
+      ? raw.inputTexts.map((text, index) => ({ id: `it${index}`, text, editable: true }))
+      : [];
+  const scrollableSource = Array.isArray(raw.scrollableNodes) ? raw.scrollableNodes : [];
+
+  const clickableNodes = clickableSource
     .map(compactAgentNode)
     .filter(Boolean)
     .slice(0, 30);
-  const inputNodes = (Array.isArray(raw.inputNodes) ? raw.inputNodes : [])
+  const inputNodes = inputSource
     .map(compactAgentNode)
     .filter(Boolean)
     .slice(0, 10);
-  const scrollableNodes = (Array.isArray(raw.scrollableNodes) ? raw.scrollableNodes : [])
+  const scrollableNodes = scrollableSource
     .map(compactAgentNode)
     .filter(Boolean)
     .slice(0, 10);
+
   const visual = compactScreenVisual(raw.visual || {});
+  const rawHasVisualImage = raw.hasVisualImage === true || raw.hasVisualImage === "true";
   const confidence = raw.confidence && typeof raw.confidence === "object"
     ? {
         hasUsefulNodes: Boolean(raw.confidence.hasUsefulNodes),
         needsVisualFallback: Boolean(raw.confidence.needsVisualFallback),
-        hasVisualImage: Boolean(raw.confidence.hasVisualImage || visual.available),
+        hasVisualImage: Boolean(raw.confidence.hasVisualImage || rawHasVisualImage || visual.available),
       }
     : {
-        hasUsefulNodes: clickableNodes.length > 0 || inputNodes.length > 0 || scrollableNodes.length > 0,
+        hasUsefulNodes: clickableNodes.length > 0 || inputNodes.length > 0 || scrollableNodes.length > 0 || texts.length > 0,
         needsVisualFallback: (Number(raw.nodeCount) || 0) <= 8 || texts.length === 0 || clickableNodes.length === 0,
-        hasVisualImage: Boolean(visual.available),
+        hasVisualImage: Boolean(rawHasVisualImage || visual.available),
       };
 
   return {
-    currentApp: safeText(raw.currentApp || raw.packageName || "", 100),
-    packageName: safeText(raw.packageName || raw.currentApp || "", 100),
+    currentApp: safeText(raw.currentApp || raw.packageName || raw.app || "", 100),
+    packageName: safeText(raw.packageName || raw.currentApp || raw.app || "", 100),
     nodeCount: Number(raw.nodeCount) || clickableNodes.length + inputNodes.length + scrollableNodes.length + texts.length,
+    capturedNodeCount: Number(raw.capturedNodeCount) || undefined,
     texts,
     clickableNodes,
     inputNodes,
@@ -1153,9 +1675,44 @@ function normalizeAgentCoordinate(value, imageSize, displaySize) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return undefined;
   if (numeric >= 0 && numeric <= 1) return clamp01(numeric);
+  // GUI Plus / mobile_use 官方点击坐标是 1000x1000。
+  // 必须优先兼容，否则旧 Android 前端只认 x/y 时会显示“缺少坐标”或点击偏移。
+  if (numeric >= 0 && numeric <= 1000) return clamp01(numeric / 1000);
   if (imageSize > 1 && numeric >= 0 && numeric <= imageSize + 24) return clamp01(numeric / imageSize);
   if (displaySize > 1 && numeric >= 0 && numeric <= displaySize + 24) return clamp01(numeric / displaySize);
   return undefined;
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return undefined;
+}
+
+function coordinatePairFromValue(value) {
+  if (Array.isArray(value) && value.length >= 2) {
+    return { x: firstFiniteNumber(value[0]), y: firstFiniteNumber(value[1]) };
+  }
+  if (value && typeof value === "object") {
+    return {
+      x: firstFiniteNumber(value.x, value.cx, value.centerX, value.tapX, value[0]),
+      y: firstFiniteNumber(value.y, value.cy, value.centerY, value.tapY, value[1]),
+    };
+  }
+  return { x: undefined, y: undefined };
+}
+
+function extractRawAgentTapCoordinates(nested) {
+  const raw = nested && typeof nested === "object" ? nested : {};
+  const pair = coordinatePairFromValue(
+    raw.coordinate ?? raw.coordinates ?? raw.coord ?? raw.coords ?? raw.point ?? raw.position ?? raw.center ?? raw.tapPoint ?? raw.xy
+  );
+  return {
+    rawX: firstFiniteNumber(raw.x, raw.centerX, raw.tapX, raw.targetX, raw.cx, pair.x),
+    rawY: firstFiniteNumber(raw.y, raw.centerY, raw.tapY, raw.targetY, raw.cy, pair.y),
+  };
 }
 
 function normalizeAgentTapCoordinates(rawX, rawY, screenshotInfo = null) {
@@ -1185,9 +1742,11 @@ function findAgentNode(snapshot, nodeId) {
 }
 
 function isAgentModeRequest(body) {
+  const intent = normalizeIntentName(body?.intent || body?.action || body?.type || body?.requestType);
   return Boolean(
     body?.agentMode === true ||
-      body?.intent === "agent_step" ||
+      body?.agentStepRequest === true ||
+      intent === "agent_step" ||
       body?.responseFormat?.includeAgentStep ||
       body?.screenSnapshot
   );
@@ -1223,29 +1782,9 @@ function snapshotTextForOutcome(snapshot) {
 }
 
 function quickVerifyAgentOutcome(goal, action, snapshot) {
-  const goalText = normalizeForMatch(goal);
-  const actionText = normalizeForMatch([action?.type, action?.targetText, action?.reason, action?.text].join(" "));
-  const visibleText = snapshotTextForOutcome(snapshot);
-  if (!goalText || !visibleText) return null;
-
-  // 本地快速验证只保留安全兜底，不能用关键词判断“已完成”或“有效进展”。
-  // 例如“打开 QQ 联系人界面”时，底部 Tab 上出现“联系人”只是入口可见，
-  // 不是页面主体已经进入联系人界面。是否完成必须交给云端视觉模型判断。
-  const highRiskVisible = HIGH_RISK_AGENT_WORDS.some((word) => visibleText.includes(normalizeForMatch(word)));
-  const highRiskRequested = HIGH_RISK_AGENT_WORDS.some((word) => goalText.includes(normalizeForMatch(word)) || actionText.includes(normalizeForMatch(word)));
-  if (highRiskVisible && !highRiskRequested) {
-    return {
-      isExpected: false,
-      expectedProgress: false,
-      isWrong: true,
-      confidence: 0.72,
-      reason: "当前页面出现支付、发送、授权、删除等高风险状态，且用户目标没有明确要求，应视为走错或需要退出。",
-      nextHint: "返回上一层后重新观察。",
-      result: "wrong",
-      source: "generic_local_safety_rule",
-    };
-  }
-
+  // v12F：本地快速验证不再因为屏幕出现某些词就判错/高风险。
+  // 屏幕词只是证据，完成/走错必须由视觉验证器或 GUI Plus 判断。
+  // 这里只保留空值返回，避免关键词护栏压过主脑。
   return null;
 }
 
@@ -1264,94 +1803,6 @@ function normalizeAgentOutcome(value) {
     confidence,
     reason: safeText(nested.reason || nested.explanation || nested.rationale || (isExpected ? "页面已符合预期。" : isWrong ? "页面与预期不符。" : "无法确认页面结果。"), 220),
   };
-}
-
-function normalizeAgentOutcomeFeedback(value) {
-  if (!value || typeof value !== "object") return null;
-  const nestedCandidates = [value.agentOutcome, value.outcomeVerification, value.lastOutcome, value.outcome, value.verification, value.result, value];
-  const nested = nestedCandidates.find((candidate) => candidate && typeof candidate === "object");
-  if (!nested) return null;
-
-  const resultRaw = String(nested.result ?? nested.status ?? nested.outcome ?? "").toLowerCase().trim();
-  const completeRaw = nested.isComplete ?? nested.complete ?? nested.completed ?? nested.isExpected ?? nested.expected ?? nested.success ?? nested.reachedTarget ?? nested.onExpectedPage;
-  const progressRaw = nested.expectedProgress ?? nested.progress ?? nested.isProgress ?? nested.closerToGoal ?? nested.onCorrectPath;
-  const wrongRaw = nested.isWrong ?? nested.wrong ?? nested.failed ?? nested.wrongPage ?? nested.offTarget;
-  const confidenceRaw = Number(nested.confidence ?? nested.score ?? nested.probability ?? 0);
-
-  const isComplete = Boolean(
-    completeRaw === true ||
-      completeRaw === "true" ||
-      completeRaw === "complete" ||
-      completeRaw === "completed" ||
-      completeRaw === "expected" ||
-      resultRaw === "complete" ||
-      resultRaw === "completed" ||
-      resultRaw === "expected" ||
-      resultRaw === "success"
-  );
-  const isWrong = Boolean(
-    !isComplete &&
-      (wrongRaw === true ||
-        wrongRaw === "true" ||
-        wrongRaw === "wrong" ||
-        wrongRaw === "failed" ||
-        resultRaw === "wrong" ||
-        resultRaw === "failed" ||
-        resultRaw === "off_target" ||
-        resultRaw === "offtarget")
-  );
-  const expectedProgress = Boolean(
-    isComplete ||
-      progressRaw === true ||
-      progressRaw === "true" ||
-      progressRaw === "progress" ||
-      progressRaw === "expected_progress" ||
-      resultRaw === "progress" ||
-      resultRaw === "expected_progress"
-  );
-  const result = isComplete ? "complete" : isWrong ? "wrong" : expectedProgress ? "progress" : "uncertain";
-  const confidence = Number.isFinite(confidenceRaw)
-    ? Math.max(0, Math.min(1, confidenceRaw))
-    : result === "uncertain" ? 0.35 : 0.72;
-
-  const reason = safeText(nested.reason || nested.explanation || nested.rationale || nested.observation || nested.summary || "", 260);
-  const nextHint = safeText(nested.nextHint || nested.hint || nested.suggestion || nested.recoveryHint || nested.recommendedNextStep || "", 220);
-  const actionSummary = safeText(nested.actionSummary || nested.lastAction || nested.action || nested.previousAction || value.actionSummary || value.lastAction || "", 180);
-  const observedSummary = safeText(nested.observedSummary || nested.observed || nested.screenSummary || nested.afterScreen || nested.observation || "", 220);
-
-  if (!reason && !nextHint && !actionSummary && !observedSummary && result === "uncertain") return null;
-  return {
-    result,
-    isComplete,
-    expectedProgress,
-    isWrong,
-    confidence,
-    reason,
-    nextHint,
-    actionSummary,
-    observedSummary,
-    createdAt: Date.now(),
-  };
-}
-
-function agentOutcomeFeedbackFromBody(body, agentMemory = null) {
-  const candidates = [
-    body?.lastOutcome,
-    body?.lastOutcomeVerification,
-    body?.outcomeVerification,
-    body?.agentOutcome,
-    body?.outcome,
-    body?.lastActionResult,
-    agentMemory?.lastOutcome,
-    agentMemory?.lastOutcomeVerification,
-    agentMemory?.loopSignals?.lastOutcome,
-    agentMemory?.loopSignals?.outcomeVerification,
-  ];
-  for (const candidate of candidates) {
-    const normalized = normalizeAgentOutcomeFeedback(candidate);
-    if (normalized) return normalized;
-  }
-  return null;
 }
 
 function normalizeAgentState(value, agentStep = null) {
@@ -1431,7 +1882,7 @@ function buildAgentVerifierSystemPrompt() {
     "你只判断四件事：",
     "1. 当前页面是否已经完成用户目标。",
     "2. 当前页面是否比动作前更接近目标，或者已经进入正确的中间页面。",
-    "3. 当前页面是否明显走错，例如进入无关页面、高风险提交/支付/发送/授权页面、错误 App、广告弹窗等。",
+    "3. 当前页面是否明显走错，例如进入无关页面、外部承诺页面、权限变更页面、错误 App、广告弹窗等。",
     "4. 是否应该继续下一轮观察规划，而不是返回。",
     "",
     "判定规则：",
@@ -1486,28 +1937,44 @@ function supportedAgentStepsFromBody(body) {
   const clean = raw
     .map(normalizeAgentStepType)
     .filter((item, index, arr) => SUPPORTED_AGENT_STEP_TYPES.includes(item) && arr.indexOf(item) === index);
-  return clean.length ? clean : SUPPORTED_AGENT_STEP_TYPES;
+  const base = clean.length ? clean : SUPPORTED_AGENT_STEP_TYPES;
+  // v41：Android 执行器已支持这些基础动作。即使旧客户端没有在 supportedAgentSteps 中声明，
+  // 后端也要保留 open_app/back/home/wait 等恢复动作，否则隐式 App 任务会被迫退化成乱点当前截图。
+  const requiredHarnessSteps = ["open_app", "tap_xy", "input_text", "swipe", "back", "home", "wait", "finish", "need_user_help"];
+  return [...new Set([...base, ...requiredHarnessSteps].filter((item) => SUPPORTED_AGENT_STEP_TYPES.includes(item)))];
 }
 
 function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInfo = null, deviceContext = null) {
   const raw = value && typeof value === "object" ? value : {};
   const nested = raw.agentStep || raw.step || raw.actionStep || (Array.isArray(raw.agentSteps) ? raw.agentSteps[0] : null) || (Array.isArray(raw.actionBatch) ? raw.actionBatch[0] : null) || raw.result || raw;
   const safeSupported = Array.isArray(supportedSteps) && supportedSteps.length ? supportedSteps : SUPPORTED_AGENT_STEP_TYPES;
-  const type = normalizeAgentStepType(nested.type || nested.action);
+  const type = normalizeAgentStepType(nested.type || nested.action || nested.tool || nested.name);
   let finalType = safeSupported.includes(type) ? type : "need_user_help";
 
-  const targetNodeId = safeText(nested.targetNodeId || nested.nodeId || nested.targetId || "", 32);
-  const targetText = safeText(nested.targetText || nested.label || nested.title || nested.target || "", 80);
-  const inputText = safeText(nested.text || nested.inputText || nested.value || "", 180);
-  const direction = normalizeAgentDirection(nested.direction);
-  const reason = safeText(nested.reason || nested.rationale || nested.explanation || "根据当前屏幕和用户目标规划下一步。", 220);
-  let appName = safeText(nested.appName || nested.app || nested.application || "", 40);
-  let packageName = safeText(nested.packageName || nested.package || "", 100);
-  const rawX = Number(nested.x ?? nested.centerX ?? nested.tapX);
-  const rawY = Number(nested.y ?? nested.centerY ?? nested.tapY);
-  const rawX2 = Number(nested.x2 ?? nested.endX ?? nested.toX);
-  const rawY2 = Number(nested.y2 ?? nested.endY ?? nested.toY);
-  const durationMsRaw = Number(nested.durationMs ?? nested.waitMs ?? nested.delayMs);
+  const args = normalizeAgentStepArgs(nested);
+  const argText = (...keys) => {
+    for (const key of keys) {
+      const value = args[key];
+      const text = safeText(value, 180);
+      if (text) return text;
+    }
+    return "";
+  };
+
+  const targetNodeId = safeText(nested.targetNodeId || nested.nodeId || nested.targetId || argText("targetNodeId", "nodeId", "targetId"), 32);
+  const targetText = safeText(nested.targetText || nested.label || nested.title || nested.target || argText("targetText", "label", "title", "target", "page", "kind"), 80);
+  const inputText = safeText(nested.text || nested.inputText || nested.value || argText("text", "inputText", "value", "query", "content"), 180);
+  const rawInputMode = normalizeInputMode(nested.inputMode || nested.input_mode || nested.inputStrategy || nested.inputAction || nested.inputMethod || argText("inputMode", "input_mode", "inputStrategy", "input_strategy"));
+  const inputMode = finalType === "input_text" ? (rawInputMode || "focused_direct") : rawInputMode;
+  const requiresInputNode = finalType === "input_text"
+    ? booleanFromValue(nested.requiresInputNode ?? nested.requires_input_node ?? nested.inputNodeRequired, inputMode === "node")
+    : false;
+  const direction = normalizeAgentDirection(nested.direction || argText("direction"));
+  const reason = safeText(nested.reason || nested.rationale || nested.explanation || argText("reason", "rationale") || "根据当前屏幕和用户目标规划下一步。", 220);
+  let appName = safeText(nested.appName || nested.app || nested.application || argText("appName", "app", "application", "label", "name"), 80);
+  let packageName = safeText(nested.packageName || nested.package || nested.pkg || argText("packageName", "package", "pkg"), 120);
+  const { rawX, rawY } = extractRawAgentTapCoordinates(nested);
+  const durationMsRaw = Number(nested.durationMs ?? nested.waitMs ?? nested.delayMs ?? args.durationMs ?? args.waitMs ?? args.delayMs);
   const durationMs = Number.isFinite(durationMsRaw) ? Math.max(120, Math.min(2000, Math.round(durationMsRaw))) : undefined;
 
   let finalReason = reason;
@@ -1515,8 +1982,10 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
   let finalDirection = direction;
   let finalX = rawX;
   let finalY = rawY;
-  let finalX2 = rawX2;
-  let finalY2 = rawY2;
+
+  if (isInternalToolAgentStepType(finalType)) {
+    finalReason = safeText(finalReason || "AgentBrain 选择结构化内部工具，由 Android 原生执行器校验并执行。", 260);
+  }
 
   if (finalType === "tap_node") {
     const hasNode = Boolean(targetNodeId && findAgentNode(snapshot, targetNodeId));
@@ -1526,7 +1995,7 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
     }
   }
 
-  if (finalType === "tap_xy" || finalType === "long_press") {
+  if (finalType === "tap_xy") {
     const normalizedTap = normalizeAgentTapCoordinates(rawX, rawY, screenshotInfo);
     if (!Number.isFinite(normalizedTap.x) || !Number.isFinite(normalizedTap.y)) {
       finalType = "need_user_help";
@@ -1540,10 +2009,15 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
 
   if (finalType === "input_text") {
     const hasInput = snapshot.inputNodes && snapshot.inputNodes.length > 0;
-    const canExecutorProbeFocusedInput = Boolean(screenshotInfo?.hasImage);
-    if (!hasInput && !canExecutorProbeFocusedInput) {
+    const canUseFocusedDirectInput = inputMode === "focused_direct" || inputMode === "clipboard" || booleanFromValue(nested.requiresInputNode ?? nested.requires_input_node ?? nested.inputNodeRequired, false) === false;
+    if (!inputText) {
       finalType = "need_user_help";
-      finalReason = "当前屏幕没有可识别输入框，不能输入文字。";
+      finalReason = "input_text 缺少要输入的文字，不能执行空输入。";
+    } else if (!hasInput && requiresInputNode && !canUseFocusedDirectInput) {
+      finalType = "need_user_help";
+      finalReason = "当前屏幕没有可识别输入框，且该输入动作要求无障碍输入节点，不能输入文字。";
+    } else if (!hasInput && canUseFocusedDirectInput) {
+      finalReason = `${finalReason} 未发现无障碍 inputNodes，按 focused_direct 模式交给 Android 端向当前焦点/IME 直接输入。`;
     }
   }
 
@@ -1564,16 +2038,6 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
 
   if (finalType === "swipe") {
     finalDirection = direction || "up";
-    const normalizedStart = normalizeAgentTapCoordinates(rawX, rawY, screenshotInfo);
-    const normalizedEnd = normalizeAgentTapCoordinates(rawX2, rawY2, screenshotInfo);
-    if (Number.isFinite(normalizedStart.x) && Number.isFinite(normalizedStart.y)) {
-      finalX = normalizedStart.x;
-      finalY = normalizedStart.y;
-    }
-    if (Number.isFinite(normalizedEnd.x) && Number.isFinite(normalizedEnd.y)) {
-      finalX2 = normalizedEnd.x;
-      finalY2 = normalizedEnd.y;
-    }
   }
 
   if (finalType === "open_app") {
@@ -1583,11 +2047,11 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
       appName = matchedApp.label;
       packageName = matchedApp.packageName;
       finalReason = `${finalReason} 已根据 deviceContext.installedApps 校准为真实可启动应用：${matchedApp.label}(${matchedApp.packageName})。`;
-    } else if (hasDeviceApps) {
-      finalType = "need_user_help";
-      finalReason = `open_app 目标不在 deviceContext.installedApps 中，不能猜包名或点击桌面文件夹。原始 appName=${appName || "空"} packageName=${packageName || "空"}。`;
-      appName = "";
+    } else if (hasDeviceApps && appName) {
+      // v41：open_app 是低风险恢复动作。deviceContext 可能因为权限/别名不全而没有命中，
+      // 这里保留 appName 交给 Android InstalledAppIndex 做最终校验；失败会回传给下一轮，禁止退化成乱点当前页。
       packageName = "";
+      finalReason = `${finalReason} 未在 deviceContext.installedApps 中精确命中，但保留 appName=${appName} 由 Android 本机应用索引最终校验打开。`;
     } else if (!appName && !packageName) {
       finalType = "need_user_help";
       finalReason = "open_app 缺少 appName 或 packageName，且未提供 deviceContext.installedApps，不能打开应用。";
@@ -1598,9 +2062,15 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
     finalReason = finalReason || "等待页面加载后重新观察。";
   }
 
-  const joined = [goal, targetText, inputText, appName, packageName, finalReason].join(" ").toLowerCase();
-  const riskLevel = normalizeRiskLevel(nested.riskLevel, joined);
-  const requiresConfirmation = Boolean(nested.requiresConfirmation) || riskLevel !== "low";
+  const riskLevel = normalizeRiskLevel(nested.riskLevel || nested.risk || args.riskLevel || args.risk);
+  const sensitiveUserInput = riskLevel === "user_input";
+  const trueHighRisk = riskLevel === "high";
+  const modelAskedConfirmation = booleanFromValue(nested.requiresConfirmation ?? nested.confirm ?? args.requiresConfirmation ?? args.confirm, false);
+  const requiresConfirmation = trueHighRisk || modelAskedConfirmation;
+  if (sensitiveUserInput && finalType === "input_text") {
+    finalType = "need_user_help";
+    finalReason = `USER_INPUT_REQUIRED: ${finalReason || "当前步骤需要用户亲自输入，智能体不能自行猜测或代填。"}`;
+  }
 
   return {
     type: finalType,
@@ -1609,18 +2079,21 @@ function normalizeAgentStep(value, snapshot, supportedSteps, goal, screenshotInf
     targetNodeId: finalTargetNodeId || undefined,
     targetText: targetText || undefined,
     text: finalType === "input_text" ? inputText : inputText || undefined,
+    inputMode: finalType === "input_text" ? inputMode || "focused_direct" : inputMode || undefined,
+    requiresInputNode: finalType === "input_text" ? requiresInputNode : undefined,
+    expectsFocusedInput: finalType === "input_text" ? (inputMode !== "node") : undefined,
+    useFocusedInput: finalType === "input_text" ? (inputMode !== "node") : undefined,
     direction: ["scroll", "swipe"].includes(finalType) ? finalDirection || "down" : finalDirection || undefined,
-    x: ["tap_xy", "long_press", "swipe"].includes(finalType) && Number.isFinite(finalX) ? finalX : undefined,
-    y: ["tap_xy", "long_press", "swipe"].includes(finalType) && Number.isFinite(finalY) ? finalY : undefined,
-    x2: finalType === "swipe" && Number.isFinite(finalX2) ? finalX2 : undefined,
-    y2: finalType === "swipe" && Number.isFinite(finalY2) ? finalY2 : undefined,
+    x: finalType === "tap_xy" && Number.isFinite(finalX) ? finalX : undefined,
+    y: finalType === "tap_xy" && Number.isFinite(finalY) ? finalY : undefined,
     durationMs: finalType === "wait" ? durationMs || 700 : durationMs,
     reason: finalReason,
     riskLevel,
     requiresConfirmation,
+    args: hasAgentStepArgs(args) ? args : undefined,
+    arguments: hasAgentStepArgs(args) ? args : undefined,
   };
 }
-
 
 
 function agentBatchCandidatesFromParsed(value) {
@@ -1642,8 +2115,11 @@ function agentStepBatchKey(step) {
     step?.targetNodeId || "",
     step?.targetText || "",
     step?.text || "",
+    step?.appName || "",
+    step?.packageName || "",
     Number.isFinite(step?.x) ? Number(step.x).toFixed(3) : "",
     Number.isFinite(step?.y) ? Number(step.y).toFixed(3) : "",
+    step?.args && typeof step.args === "object" ? JSON.stringify(step.args) : "",
   ].join("|");
 }
 
@@ -1750,6 +2226,150 @@ function findInstalledAppForOpenApp(appName, packageName, deviceContext) {
   return bestScore >= 850 && best ? { ...best, match: "appName" } : null;
 }
 
+
+function explicitAppMentionKnownApps() {
+  return [
+    "QQ", "微信", "支付宝", "淘宝", "京东", "拼多多", "微博", "抖音", "快手", "哔哩哔哩", "B站", "小红书",
+    "同花顺", "东方财富", "雪球", "大智慧", "通达信", "腾讯自选股",
+    "高德地图", "百度地图", "腾讯地图",
+    "网易云音乐", "QQ音乐", "酷狗音乐", "酷我音乐",
+    "携程旅行", "去哪儿旅行", "飞猪", "美团", "大众点评"
+  ];
+}
+
+function isAsciiAppToken(value) {
+  return /^[a-z0-9][a-z0-9._+\-]{1,24}$/i.test(String(value || ""));
+}
+
+function compactGoalForExplicitApp(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function explicitAppMentionMatchedInGoal(goal, appName) {
+  const app = normalizeAppMatchText(appName);
+  if (!app || app.length < 2) return false;
+  const raw = String(goal || "").normalize("NFKC").toLowerCase();
+  const compact = compactGoalForExplicitApp(goal);
+  if (!compact.includes(app)) return false;
+
+  if (isAsciiAppToken(app)) {
+    const token = escapeRegExp(app);
+    const regex = new RegExp(`(^|[^a-z0-9])${token}([^a-z0-9]|$)`, "i");
+    return regex.test(raw);
+  }
+
+  let index = compact.indexOf(app);
+  while (index >= 0) {
+    const before = compact.slice(Math.max(0, index - 4), index);
+    const after = compact.slice(index + app.length, index + app.length + 6);
+    const prefixOk = index === 0 || /(打开|启动|进入|前往|去到|切到|跳到|用|在|到)$/.test(before);
+    const suffixOk = after === "" || /^(app|应用|客户端|里面|里|内|首页|主页|设置|设置页|页面|界面|搜索|消息|联系人|通讯录|公众号|小程序|钱包|我的|个人中心|频道|空间|好友|群|热榜|榜单)/.test(after);
+    if (prefixOk && suffixOk) return true;
+    index = compact.indexOf(app, index + 1);
+  }
+  return false;
+}
+
+function findExplicitAppMentionForPreflight(goal, deviceContext) {
+  const installed = installedAppsFromDeviceContext(deviceContext);
+  const candidates = [];
+  const pushCandidate = (label, packageName = "", aliases = [], source = "known") => {
+    const appLabel = safeText(label, 80);
+    const normalized = normalizeAppMatchText(appLabel);
+    if (!appLabel || normalized.length < 2) return;
+    if (["股票", "证券", "行情", "地图", "音乐", "视频", "酒店", "旅行", "新闻", "资讯", "设置", "应用"].includes(appLabel)) return;
+    candidates.push({ label: appLabel, packageName: safeText(packageName, 120), aliases, source });
+  };
+
+  installed.forEach((app) => {
+    pushCandidate(app.label, app.packageName, app.aliases || [], "installed");
+    (Array.isArray(app.aliases) ? app.aliases : []).forEach((alias) => pushCandidate(alias, app.packageName, [app.label, ...(app.aliases || [])], "installed_alias"));
+  });
+  explicitAppMentionKnownApps().forEach((name) => pushCandidate(name, "", [], "known_app_name"));
+
+  let best = null;
+  for (const candidate of candidates) {
+    const names = [candidate.label, ...(Array.isArray(candidate.aliases) ? candidate.aliases : [])].filter(Boolean);
+    for (const name of names) {
+      if (!explicitAppMentionMatchedInGoal(goal, name)) continue;
+      const installedMatch = findInstalledAppForOpenApp(candidate.label || name, candidate.packageName, deviceContext);
+      const normalized = normalizeAppMatchText(name);
+      const score = (candidate.source.startsWith("installed") ? 2000 : 1000) + normalized.length * 10 + (installedMatch ? 400 : 0);
+      if (!best || score > best.score) {
+        best = {
+          label: installedMatch?.label || candidate.label || name,
+          packageName: installedMatch?.packageName || candidate.packageName || "",
+          aliases: installedMatch?.aliases || candidate.aliases || [],
+          explicitName: name,
+          source: candidate.source,
+          confidence: candidate.source.startsWith("installed") ? 0.94 : 0.78,
+          score,
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function explicitAppPreflightShouldOpen(goal, snapshot, deviceContext, explicitApp) {
+  if (!explicitApp || (!explicitApp.label && !explicitApp.packageName)) return false;
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "", 120);
+  if (explicitApp.packageName && currentPackage && explicitApp.packageName === currentPackage) return false;
+  const currentLabel = safeText(deviceContext?.currentApp?.label || deviceContext?.currentApp?.name || snapshot?.currentAppLabel || "", 80);
+  const currentApp = { label: currentLabel || currentPackage, packageName: currentPackage, aliases: [] };
+  if (appMatchesTaskContractApp(currentApp, explicitApp)) return false;
+
+  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
+  const cleanGoal = normalizeForMatch(goal);
+  const openLike = normalizedContainsAny(cleanGoal, ["打开", "启动", "进入", "前往", "去到", "切到", "跳到", "设置页", "页面", "界面"]);
+  return Boolean(assistantHost || !currentPackage || openLike);
+}
+
+function buildExplicitAppOpenPreflightPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions, source = "explicit_app_preflight") {
+  if (!Array.isArray(supportedSteps) || !supportedSteps.includes("open_app")) return null;
+  const explicitApp = findExplicitAppMentionForPreflight(goal, deviceContext);
+  if (!explicitAppPreflightShouldOpen(goal, snapshot, deviceContext, explicitApp)) return null;
+  const appName = explicitApp.label || explicitApp.explicitName || explicitApp.packageName || "";
+  if (!appName && !explicitApp.packageName) return null;
+  const reason = [
+    `显式 App 预检：用户目标中明确出现应用“${appName}”，当前页不是该应用。`,
+    "先打开目标 App，再由 GUI Plus 在 App 内完成页面导航；不要在 AI 助手聊天页直接结束或输入整句目标。"
+  ].join(" ");
+  const step = normalizeAgentStep({
+    agentStep: {
+      type: "open_app",
+      appName,
+      packageName: explicitApp.packageName || undefined,
+      targetText: appName,
+      reason,
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+  }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  if (!step || step.type !== "open_app") return null;
+  const state = normalizeAgentState({
+    agentState: {
+      isComplete: false,
+      expectedProgress: true,
+      isWrong: false,
+      confidence: explicitApp.confidence || 0.9,
+      reason,
+      nextHint: `打开 ${appName} 后继续完成：${safeText(goal, 120)}`,
+    },
+  }, step);
+  return {
+    agentStep: step,
+    agentState: state,
+    source,
+    explicitAppPreflight: true,
+    explicitApp,
+  };
+}
+
+
 function deviceContextSummaryForPrompt(deviceContext) {
   const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
   const device = ctx.device || {};
@@ -1781,18 +2401,2652 @@ function deviceContextSummaryForPrompt(deviceContext) {
   };
 }
 
+
+function normalizedContainsAny(value, words) {
+  const clean = normalizeForMatch(value);
+  return (Array.isArray(words) ? words : []).some((word) => clean.includes(normalizeForMatch(word)));
+}
+
+const AGENT_DOMAIN_APP_KEYWORDS = {
+  stock: ["同花顺", "东方财富", "雪球", "大智慧", "通达信", "自选股", "证券", "股票", "涨乐", "富途", "老虎", "华泰", "国泰君安", "招商证券", "广发证券", "中信证券", "银河证券", "平安证券"],
+  index: ["同花顺", "东方财富", "雪球", "大智慧", "通达信", "证券", "股票", "自选股"],
+  finance_news: ["同花顺", "东方财富", "雪球", "财联社", "新浪财经", "腾讯自选股", "证券", "股票", "今日头条", "百度", "浏览器"],
+  navigation: ["高德", "百度地图", "腾讯地图", "地图"],
+  music: ["网易云", "QQ音乐", "酷狗", "酷我", "音乐"],
+  video: ["哔哩", "bilibili", "B站", "抖音", "快手", "腾讯视频", "爱奇艺", "优酷", "视频"],
+  travel: ["携程", "去哪儿", "飞猪", "同程", "美团", "大众点评", "酒店", "旅行"],
+};
+
+function agentDomainAppKeywords(domain) {
+  if (domain === "stock_detail") return AGENT_DOMAIN_APP_KEYWORDS.stock;
+  if (domain === "stock_index") return AGENT_DOMAIN_APP_KEYWORDS.index;
+  if (domain === "finance_news") return AGENT_DOMAIN_APP_KEYWORDS.finance_news;
+  if (domain === "navigation") return AGENT_DOMAIN_APP_KEYWORDS.navigation;
+  if (domain === "music") return AGENT_DOMAIN_APP_KEYWORDS.music;
+  if (domain === "video") return AGENT_DOMAIN_APP_KEYWORDS.video;
+  if (domain === "travel") return AGENT_DOMAIN_APP_KEYWORDS.travel;
+  return [];
+}
+
+function appMatchesAnyKeyword(app, keywords) {
+  const names = [app?.label, app?.packageName, ...(Array.isArray(app?.aliases) ? app.aliases : [])]
+    .map((item) => normalizeAppMatchText(item))
+    .filter(Boolean);
+  return names.some((name) => keywords.some((keyword) => {
+    const k = normalizeAppMatchText(keyword);
+    return k && (name.includes(k) || k.includes(name));
+  }));
+}
+
+function rankDomainAppCandidates(deviceContext, domain, max = 10) {
+  const apps = installedAppsFromDeviceContext(deviceContext);
+  if (!apps.length) return [];
+  const keywords = agentDomainAppKeywords(domain);
+  if (!keywords.length) return [];
+  const ranked = [];
+  for (const app of apps) {
+    const names = [app.label, app.packageName, ...(app.aliases || [])].map(normalizeAppMatchText).filter(Boolean);
+    let score = 0;
+    for (const keyword of keywords) {
+      const k = normalizeAppMatchText(keyword);
+      if (!k) continue;
+      for (const name of names) {
+        if (name === k) score = Math.max(score, 1200 + k.length);
+        else if (name.includes(k) || k.includes(name)) score = Math.max(score, 900 + Math.min(name.length, k.length));
+        else if (name.startsWith(k) || k.startsWith(name)) score = Math.max(score, 760 + Math.min(name.length, k.length));
+      }
+    }
+    if (score > 0) ranked.push({ ...app, score });
+  }
+  return ranked.sort((a, b) => b.score - a.score).slice(0, max);
+}
+
+function inferAgentInstructionDomain(goal) {
+  const clean = normalizeForMatch(goal);
+  const stockEntityHints = [
+    "光电", "信息", "锂业", "科技", "股份", "能源", "电力", "通信", "电子", "医药", "药业", "银行", "证券",
+    "保险", "汽车", "材料", "半导体", "茅台", "宁德", "比亚迪", "中芯", "海康", "浪潮", "恒瑞", "隆基",
+  ];
+  const hasStockWords = normalizedContainsAny(clean, ["股票", "股价", "个股", "行情", "走势", "涨跌", "K线", "k线", "分时", "证券", "自选", "详情页", "详情界面"]);
+  const hasIndexWords = normalizedContainsAny(clean, ["上证指数", "创业板指", "深证成指", "沪深300", "中证", "指数行情", "大盘"]);
+  const hasFinanceNewsWords = normalizedContainsAny(clean, ["头条新闻", "公司新闻", "公告", "研报", "资讯", "财报", "财经新闻"]);
+  if (hasIndexWords) return "stock_index";
+  if (hasStockWords || (normalizedContainsAny(clean, ["详情页", "详情界面", "打开", "查看"]) && stockEntityHints.some((word) => clean.includes(normalizeForMatch(word))))) {
+    return hasFinanceNewsWords ? "finance_news" : "stock_detail";
+  }
+  if (hasFinanceNewsWords && stockEntityHints.some((word) => clean.includes(normalizeForMatch(word)))) return "finance_news";
+  if (normalizedContainsAny(clean, ["导航", "路线", "怎么去", "带我去", "开车去", "步行去", "骑行去"])) return "navigation";
+  if (normalizedContainsAny(clean, ["播放", "听歌", "歌曲", "歌单", "音乐"])) return "music";
+  if (normalizedContainsAny(clean, ["视频", "番剧", "直播", "up主", "哔哩", "b站", "抖音", "快手"])) return "video";
+  if (normalizedContainsAny(clean, ["酒店", "机票", "火车票", "高铁票", "旅游", "旅行", "携程", "民宿"])) return "travel";
+  return "general";
+}
+
+function extractAgentTaskEntity(goal, domain) {
+  let text = safeText(goal, 160);
+  const removeWords = [
+    "帮我", "请", "麻烦", "一下", "打开", "进入", "查看", "看一下", "看", "找到", "搜索", "搜一下", "去到", "跳到", "前往",
+    "详情界面", "详情页", "详情", "页面", "界面", "行情", "走势", "股票", "股价", "证券", "个股", "资讯", "新闻", "头条",
+    "播放", "导航到", "导航", "路线", "酒店", "价格",
+  ];
+  for (const word of removeWords) text = text.replace(new RegExp(escapeRegExp(word), "gi"), "");
+  text = text.replace(/[，。,.、:：/\\\-_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (domain === "stock_detail" || domain === "finance_news" || domain === "stock_index") {
+    const match = text.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,24}/);
+    return safeText(match ? match[0] : text, 32);
+  }
+  return safeText(text, 48);
+}
+
+function buildDomainTaskInterpretation(goal, domain, entity, appCandidates) {
+  const appNames = (appCandidates || []).map((app) => `${app.label}${app.packageName ? `(${app.packageName})` : ""}`).slice(0, 6);
+  const appLine = appNames.length ? `可用候选 App：${appNames.join(" / ")}。` : "没有可靠 App 候选时，不要猜包名；先利用当前屏幕可见入口，实在不可达再 terminate failure。";
+  if (domain === "stock_detail") {
+    return [
+      `任务理解：用户要打开“${entity || goal}”的股票/证券行情详情页。`,
+      appLine,
+      "建议路线：若当前不在行情/证券 App，优先使用 mobile_use open 打开候选股票行情 App；进入后寻找搜索栏，搜索目标名称，点击正确股票结果进入详情页。",
+      "完成标准：截图主体显示目标名称及价格/涨跌幅/分时/K线/盘口等股票详情信息时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "stock_index") {
+    return [
+      `任务理解：用户要查看“${entity || goal}”的指数/大盘行情详情页。`,
+      appLine,
+      "建议路线：优先打开行情/证券 App，搜索或进入指数/大盘入口，点击对应指数结果。",
+      "完成标准：截图主体显示指数名称、点位、涨跌幅、分时/K线等行情信息时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "finance_news") {
+    return [
+      `任务理解：用户要查看“${entity || goal}”相关财经新闻/资讯。`,
+      appLine,
+      "建议路线：优先打开财经/行情/新闻类候选 App，搜索目标名称，进入新闻/资讯/公告/头条结果。",
+      "完成标准：截图主体显示目标相关新闻列表或新闻详情时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "navigation") {
+    return [
+      `任务理解：用户要导航或查路线到“${entity || goal}”。`,
+      appLine,
+      "建议路线：优先打开地图 App，点击搜索框，输入目的地，选择正确地点；涉及外部承诺或账户状态变化前必须等待语义安全裁决。",
+      "完成标准：显示目的地路线/地图结果页时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "music") {
+    return [
+      `任务理解：用户要播放或搜索音乐“${entity || goal}”。`,
+      appLine,
+      "建议路线：优先打开音乐 App，搜索目标歌曲/歌手/歌单，进入结果；真正播放前如无风险可点击播放。",
+      "完成标准：显示目标歌曲/播放页/搜索结果时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "video") {
+    return [
+      `任务理解：用户要打开或搜索视频内容“${entity || goal}”。`,
+      appLine,
+      "建议路线：优先打开视频/短视频 App，搜索目标内容，点击匹配结果。",
+      "完成标准：显示目标视频详情、播放页或搜索结果时 terminate success。",
+    ].join("\n");
+  }
+  if (domain === "travel") {
+    return [
+      `任务理解：用户要完成旅行/酒店/票务相关查询“${entity || goal}”。`,
+      appLine,
+      "建议路线：优先打开旅行/酒店 App，根据页面逐步搜索城市、日期、酒店或票务关键词；涉及外部承诺或账户状态变化前必须等待语义安全裁决。",
+      "完成标准：显示相关价格列表或详情页时 terminate success。",
+    ].join("\n");
+  }
+  return "";
+}
+
+
+function flattenKnownExplicitAppNames(deviceContext, domain = "") {
+  const installed = installedAppsFromDeviceContext(deviceContext);
+  const names = [];
+  const add = (value) => {
+    const text = safeText(value, 80);
+    const normalized = normalizeAppMatchText(text);
+    if (!text || normalized.length < 2) return;
+    if (["股票", "证券", "行情", "地图", "音乐", "视频", "酒店", "旅行", "新闻", "资讯", "设置"].includes(text)) return;
+    names.push(text);
+  };
+  installed.forEach((app) => {
+    add(app.label);
+    (Array.isArray(app.aliases) ? app.aliases : []).forEach(add);
+  });
+  [
+    "同花顺", "东方财富", "雪球", "大智慧", "通达信", "腾讯自选股", "富途牛牛", "老虎证券",
+    "高德地图", "百度地图", "腾讯地图",
+    "微信", "QQ", "支付宝", "淘宝", "京东", "拼多多",
+    "抖音", "快手", "哔哩哔哩", "B站", "小红书",
+    "网易云音乐", "QQ音乐", "酷狗音乐", "酷我音乐",
+    "携程旅行", "去哪儿旅行", "飞猪", "美团", "大众点评",
+  ].forEach(add);
+  agentDomainAppKeywords(domain).forEach(add);
+  return [...new Set(names)].sort((a, b) => normalizeAppMatchText(b).length - normalizeAppMatchText(a).length).slice(0, 120);
+}
+
+function findExplicitAppConstraint(goal, deviceContext, domain = "") {
+  // v52：本地不再用“包含某个 App 名”来解释用户意图。
+  // 这里只允许非常明确的 App 指定表达通过，例如“用京东 App”“在同花顺里”“打开微信应用”。
+  // 像“京东方A”“东方电气”“腾讯控股”这类实体名里包含 App 名时，绝不能被识别为 requiredApp。
+  const rawGoal = String(goal || "");
+  if (!rawGoal.trim()) return null;
+  const installed = installedAppsFromDeviceContext(deviceContext);
+  let best = null;
+
+  const isExplicitAppMention = (name) => {
+    const label = safeText(name, 80);
+    if (!label || normalizeAppMatchText(label).length < 2) return false;
+    const escaped = escapeRegExp(label);
+    const boundary = "(?:$|[\\s\\u3000，。,.、:：；;!?！？）)】》]|app|App|APP|应用|客户端|里|里面|中|内)";
+    const prefix = "(?:^|[\\s\\u3000，。,.、:：；;!?！？（(【《])";
+    const patterns = [
+      new RegExp(`${prefix}(?:用|使用|通过)\\s*${escaped}\\s*(?:app|App|APP|应用|客户端|里|里面|中|内)?${boundary}`, "i"),
+      new RegExp(`${prefix}在\\s*${escaped}\\s*(?:app|App|APP|应用|客户端|里|里面|中|内)${boundary}`, "i"),
+      new RegExp(`${prefix}(?:打开|启动|进入|切到|切换到)\\s*${escaped}\\s*(?:app|App|APP|应用|客户端)?${boundary}`, "i"),
+      new RegExp(`${prefix}${escaped}\\s*(?:app|App|APP|应用|客户端)${boundary}`, "i"),
+    ];
+    return patterns.some((pattern) => pattern.test(rawGoal));
+  };
+
+  const consider = (candidate, source) => {
+    const label = safeText(candidate?.label || candidate?.appName || candidate?.name || "", 80);
+    const packageName = safeText(candidate?.packageName || candidate?.package || "", 120);
+    const aliases = Array.isArray(candidate?.aliases) ? candidate.aliases.map((item) => safeText(item, 80)).filter(Boolean) : [];
+    const names = [label, ...aliases].filter(Boolean);
+    for (const name of names) {
+      if (!isExplicitAppMention(name)) continue;
+      const n = normalizeAppMatchText(name);
+      const score = (source === "installed" ? 2000 : 1000) + n.length * 10 + (label && normalizeAppMatchText(label) === n ? 8 : 0);
+      if (!best || score > best.score) {
+        best = { label: label || name, packageName, aliases, explicitName: name, source, score };
+      }
+    }
+  };
+
+  installed.forEach((app) => consider(app, "installed"));
+  flattenKnownExplicitAppNames(deviceContext, domain).forEach((name) => consider({ label: name, aliases: [] }, "known_app_name"));
+  if (!best) return null;
+  return {
+    label: best.label,
+    packageName: best.packageName || "",
+    aliases: best.aliases || [],
+    explicitName: best.explicitName || best.label,
+    source: best.source,
+    confidence: best.source === "installed" ? 0.92 : 0.78,
+  };
+}
+
+function removeExplicitAppWordsFromGoal(goal, explicitApp) {
+  let text = safeText(goal, 220);
+  const names = [
+    explicitApp?.explicitName,
+    explicitApp?.label,
+    ...(Array.isArray(explicitApp?.aliases) ? explicitApp.aliases : []),
+  ].filter(Boolean);
+  for (const name of names) {
+    const clean = safeText(name, 80);
+    if (clean) text = text.replace(new RegExp(escapeRegExp(clean), "gi"), " ");
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function extractContractTaskEntity(goal, domain, explicitApp) {
+  const cleanedGoal = explicitApp ? removeExplicitAppWordsFromGoal(goal, explicitApp) : goal;
+  return extractAgentTaskEntity(cleanedGoal, domain);
+}
+
+function appMatchesTaskContractApp(app, requiredApp) {
+  if (!app || !requiredApp) return false;
+  const appNames = [app.label, app.packageName, ...(Array.isArray(app.aliases) ? app.aliases : [])].map(normalizeAppMatchText).filter(Boolean);
+  const requiredNames = [requiredApp.label, requiredApp.packageName, requiredApp.explicitName, ...(Array.isArray(requiredApp.aliases) ? requiredApp.aliases : [])].map(normalizeAppMatchText).filter(Boolean);
+  return appNames.some((name) => requiredNames.some((required) => required && name && (name === required || name.includes(required) || required.includes(name))));
+}
+
+function currentAppSatisfiesTaskContract(contract, snapshot, deviceContext) {
+  const required = contract?.requiredApp;
+  if (!required?.label && !required?.packageName) return true;
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "", 120);
+  const currentLabel = safeText(deviceContext?.currentApp?.label || deviceContext?.currentApp?.name || snapshot?.currentAppLabel || "", 80);
+  const currentApp = { label: currentLabel || currentPackage, packageName: currentPackage, aliases: [] };
+  if (required.packageName && currentPackage && required.packageName === currentPackage) return true;
+  if (appMatchesTaskContractApp(currentApp, required)) return true;
+  const installed = installedAppsFromDeviceContext(deviceContext);
+  const matchedInstalled = installed.find((app) => app.packageName && currentPackage && app.packageName === currentPackage);
+  return Boolean(matchedInstalled && appMatchesTaskContractApp(matchedInstalled, required));
+}
+
+function rankTaskContractAppCandidates(deviceContext, domain, explicitApp, max = 10) {
+  const domainCandidates = rankDomainAppCandidates(deviceContext, domain, max + 4);
+  const out = [];
+  const push = (app, reason) => {
+    if (!app || (!app.label && !app.packageName)) return;
+    const normalizedKey = normalizeAppMatchText(`${app.packageName || ""}|${app.label || ""}`);
+    if (out.some((item) => normalizeAppMatchText(`${item.packageName || ""}|${item.label || ""}`) === normalizedKey)) return;
+    out.push({ ...app, reason });
+  };
+  if (explicitApp) {
+    const installed = findInstalledAppForOpenApp(explicitApp.label || explicitApp.explicitName, explicitApp.packageName, deviceContext);
+    push(installed || explicitApp, "explicit_user_app_constraint");
+  }
+  domainCandidates.forEach((app) => push(app, "domain_candidate"));
+  return out.slice(0, max);
+}
+
+function inferTaskContractTargetPage(domain, goal) {
+  if (domain === "stock_detail") return "stock_detail_page";
+  if (domain === "stock_index") return "stock_index_detail_page";
+  if (domain === "finance_news") return "finance_news_or_article";
+  if (domain === "navigation") return "map_route_or_place_page";
+  if (domain === "music") return "music_result_or_player_page";
+  if (domain === "video") return "video_result_or_player_page";
+  if (domain === "travel") return "travel_result_or_detail_page";
+  if (normalizedContainsAny(goal, ["详情页", "详情界面", "详情"])) return "detail_page";
+  return "goal_satisfied_page";
+}
+
+function buildRuleTaskSemanticContract(goal, snapshot = null, deviceContext = null, agentMemory = null) {
+  // v52：本地规则不再生成语义任务契约，也不再抢先判断 domain/targetEntity/requiredApp。
+  // 这里仅提供一个中性兜底壳，避免 TaskContractJudge/AgentBrain 暂不可用时把错误字符串规则写成硬约束。
+  const assistantHost = isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot);
+  const targetAppCandidates = targetAppCandidatesFromDeviceContext(deviceContext).slice(0, 8);
+  return {
+    schema: "agent_task_semantic_contract_v52_neutral_fallback",
+    sourceGoal: safeText(goal, 240),
+    domain: "general",
+    targetEntity: "",
+    targetKind: "",
+    targetPage: "goal_satisfied_page",
+    targetSubPage: "goal_satisfied_page",
+    requiredApp: null,
+    explicitAppRequired: false,
+    allowAlternativeApp: true,
+    appCandidates: targetAppCandidates,
+    current: {
+      requiredAppActive: false,
+      assistantHost,
+      entityVisible: false,
+      completionLike: false,
+      phase: "observe",
+    },
+    completionCriteria: [],
+    completionEvidenceKeywords: [],
+    safeNavigationActions: [],
+    dangerousActions: [],
+    forbiddenActions: [
+      "本地中性兜底不能解释用户语义，不能强制打开某个 App。",
+      "不要把 AI 助手聊天气泡、历史消息或底部输入框当作外部任务目标。",
+    ],
+    confidence: 0.1,
+    contractSource: "neutral_local_fallback_no_semantic_rules",
+    modelReason: "本地只保留中性兜底；任务语义必须由 AgentBrain/TaskContractJudge 判断。",
+  };
+}
+
+function normalizeTaskContractSubPage(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
+  const mapped = {
+    comments: "comment_community",
+    comment: "comment_community",
+    community: "comment_community",
+    discussion: "comment_community",
+    forum: "comment_community",
+    stock_forum: "comment_community",
+    chat: "chat_thread",
+    conversation: "chat_thread",
+    profile: "profile_page",
+    detail: "detail_main",
+    main: "detail_main",
+    news: "news_tab",
+    announcement: "announcement_tab",
+  };
+  return mapped[raw] || raw || "detail_main";
+}
+
+function normalizeTaskContractJudgeMode(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
+  if (["0", "false", "off", "none", "disable", "disabled", "rule", "rules"].includes(raw)) return "rule";
+  if (["always", "force", "model", "llm", "semantic"].includes(raw)) return "always";
+  return "adaptive";
+}
+
+function shouldUseTaskContractJudge(goal, snapshot, deviceContext, fallbackContract) {
+  const mode = normalizeTaskContractJudgeMode(AGENT_TASK_CONTRACT_JUDGE_MODE);
+  if (mode === "rule") return false;
+  if (mode === "always") return true;
+  const text = normalizeForMatch(goal);
+  const hasExplicitApp = Boolean(fallbackContract?.requiredApp);
+  const hasDomain = isDomainTask(fallbackContract?.domain);
+  const hasSubPageLikeGoal = /(评论|社区|股吧|讨论|帖子|资讯|新闻|公告|研报|k线|分时|聊天|联系人|设置|主页|资料|详情)/i.test(String(goal || ""));
+  const isAssistantHost = isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot);
+  return Boolean(hasExplicitApp || hasDomain || hasSubPageLikeGoal || isAssistantHost || text.length >= 8);
+}
+
+function taskContractJudgeSnapshotPayload(snapshot) {
+  return {
+    app: safeText(snapshot?.currentApp || snapshot?.packageName || "", 100),
+    packageName: safeText(snapshot?.packageName || snapshot?.currentApp || "", 100),
+    nodeCount: Number(snapshot?.nodeCount || 0),
+    texts: (Array.isArray(snapshot?.texts) ? snapshot.texts : []).map((item) => safeText(item, 60)).filter(Boolean).slice(0, 18),
+    clickableTexts: (Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : []).map((node) => safeText(node?.text || "", 60)).filter(Boolean).slice(0, 18),
+    inputTexts: (Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : []).map((node) => safeText(node?.text || "", 60)).filter(Boolean).slice(0, 6),
+  };
+}
+
+function normalizeTaskContractJudgeDecision(value, fallbackContract) {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.taskSemanticContract || raw.semanticTaskContract || raw.taskContract || raw.contract || raw.result || raw;
+  const fallback = fallbackContract && typeof fallbackContract === "object" ? fallbackContract : {};
+  const requiredRaw = nested.requiredApp && typeof nested.requiredApp === "object" ? nested.requiredApp : fallback.requiredApp;
+  const requiredApp = requiredRaw && (requiredRaw.label || requiredRaw.packageName || requiredRaw.explicitName)
+    ? {
+        label: safeText(requiredRaw.label || requiredRaw.appName || requiredRaw.name || fallback.requiredApp?.label || "", 80),
+        packageName: safeText(requiredRaw.packageName || requiredRaw.package || fallback.requiredApp?.packageName || "", 120),
+        explicitName: safeText(requiredRaw.explicitName || requiredRaw.label || requiredRaw.appName || fallback.requiredApp?.explicitName || "", 80),
+        aliases: Array.isArray(requiredRaw.aliases) ? requiredRaw.aliases.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8) : (fallback.requiredApp?.aliases || []),
+        source: safeText(requiredRaw.source || "task_contract_judge", 80),
+        confidence: Math.max(0, Math.min(1, Number(requiredRaw.confidence || fallback.requiredApp?.confidence || 0.8))),
+      }
+    : null;
+  const domain = safeText(nested.domain || fallback.domain || "general", 60) || "general";
+  const targetPage = safeText(nested.targetPage || fallback.targetPage || inferTaskContractTargetPage(domain, fallback.sourceGoal || ""), 80);
+  const targetSubPage = normalizeTaskContractSubPage(nested.targetSubPage || nested.subPage || fallback.targetSubPage || "");
+  const completionCriteria = Array.isArray(nested.completionCriteria) && nested.completionCriteria.length
+    ? nested.completionCriteria.map((item) => safeText(item, 120)).filter(Boolean).slice(0, 10)
+    : (Array.isArray(fallback.completionCriteria) ? fallback.completionCriteria : []);
+  const completionEvidenceKeywords = Array.isArray(nested.completionEvidenceKeywords)
+    ? nested.completionEvidenceKeywords.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 16)
+    : Array.isArray(nested.completionEvidence)
+      ? nested.completionEvidence.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 16)
+      : Array.isArray(fallback.completionEvidenceKeywords) ? fallback.completionEvidenceKeywords : [];
+  const safeNavigationActions = [];
+  const dangerousActions = [];
+  const current = nested.current && typeof nested.current === "object" ? nested.current : fallback.current || {};
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? fallback.confidence ?? 0.65);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.65;
+  const nestedAppCandidates = Array.isArray(nested.appCandidates)
+    ? nested.appCandidates
+        .map((item) => {
+          if (!item) return null;
+          if (typeof item === "string") return { label: safeText(item, 80), packageName: "", source: "task_contract_judge" };
+          if (typeof item !== "object") return null;
+          const label = safeText(item.label || item.appName || item.name || item.title || "", 80);
+          const packageName = safeText(item.packageName || item.package || "", 120);
+          if (!label && !packageName) return null;
+          return {
+            label: label || packageName,
+            packageName,
+            aliases: Array.isArray(item.aliases) ? item.aliases.map((alias) => safeText(alias, 80)).filter(Boolean).slice(0, 8) : [],
+            source: safeText(item.source || "task_contract_judge", 80),
+            confidence: Math.max(0, Math.min(1, Number(item.confidence || item.score || 0.7))),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 10)
+    : [];
+  const fallbackAppCandidates = Array.isArray(fallback.appCandidates) ? fallback.appCandidates : [];
+
+  return {
+    schema: "agent_task_semantic_contract_v12g",
+    sourceGoal: safeText(nested.sourceGoal || fallback.sourceGoal || "", 240),
+    domain,
+    targetEntity: safeText(nested.targetEntity || nested.entity || fallback.targetEntity || "", 80),
+    targetKind: safeText(nested.targetKind || fallback.targetKind || "", 100),
+    targetPage,
+    targetSubPage,
+    requiredApp,
+    explicitAppRequired: Boolean(requiredApp && (fallback.explicitAppRequired || nested.explicitAppRequired !== false)),
+    allowAlternativeApp: requiredApp ? false : nested.allowAlternativeApp !== false,
+    appCandidates: nestedAppCandidates.length ? nestedAppCandidates : fallbackAppCandidates,
+    current: {
+      requiredAppActive: Boolean(current.requiredAppActive),
+      assistantHost: Boolean(current.assistantHost),
+      entityVisible: Boolean(current.entityVisible),
+      completionLike: Boolean(current.completionLike),
+      phase: safeText(current.phase || fallback.current?.phase || "observe", 80),
+    },
+    completionCriteria,
+    completionEvidenceKeywords,
+    safeNavigationActions,
+    dangerousActions,
+    forbiddenActions: Array.isArray(fallback.forbiddenActions) ? fallback.forbiddenActions : [],
+    confidence,
+    contractSource: safeText(nested.contractSource || nested.source || "task_contract_judge", 80),
+    modelReason: safeText(nested.reason || nested.rationale || "", 260),
+  };
+}
+
+function inferRuleTargetSubPage(goal) {
+  return "detail_main";
+}
+
+function enrichRuleContractWithSubPage(contract, goal) {
+  if (!contract || typeof contract !== "object") return contract;
+  return {
+    ...contract,
+    schema: contract.schema || "agent_task_semantic_contract_v12g_rule_fallback",
+    targetSubPage: contract.targetSubPage || "detail_main",
+    safeNavigationActions: [],
+    dangerousActions: [],
+    contractSource: contract.contractSource || "rule_fallback_enriched_no_keywords",
+  };
+}
+
+function buildTaskSemanticContract(goal, snapshot = null, deviceContext = null, agentMemory = null) {
+  const memoryContract = agentMemory && typeof agentMemory === "object" ? (agentMemory.taskSemanticContract || agentMemory.semanticTaskContract) : null;
+  const fallback = enrichRuleContractWithSubPage(buildRuleTaskSemanticContract(goal, snapshot, deviceContext, agentMemory), goal);
+  if (memoryContract && typeof memoryContract === "object") {
+    return normalizeTaskContractJudgeDecision(memoryContract, fallback);
+  }
+  return fallback;
+}
+
+function buildTaskContractJudgeMessages(goal, snapshot, deviceContext, fallbackContract) {
+  const payload = {
+    goal: safeText(goal, 240),
+    currentScreen: taskContractJudgeSnapshotPayload(snapshot),
+    device: deviceContextSummaryForPrompt(deviceContext),
+    neutralFallback: fallbackContract || null,
+    task: "Parse the user's true task contract from semantics first. Local fallback is neutral context only, not a prior answer.",
+  };
+  const system = [
+    "你是 Android 手机智能体的 TaskContractJudge，属于内部控制主脑的一部分，只输出严格 JSON。",
+    "你的任务是先理解用户原始句子的真实意图，再写任务契约；禁止照抄本地 fallback，禁止被本地关键词或 App 名子串带偏。",
+    "requiredApp 只能在用户明确指定 App 时填写，例如“用/使用/在/打开/启动/进入 某 App/应用/客户端/里”。",
+    "不要把股票名、公司名、人名、地点名、内容标题中的子串识别成 App。例：“京东方A”是股票实体，不是“京东 App”；“东方电气”不是“东方财富 App”。",
+    "如果用户没有明确指定 App，只能把可用 App 作为候选，不要写 requiredApp。",
+    "你只描述任务契约，不负责点击坐标；风险由 ActionSafetyJudge 判断候选动作后果。",
+    "输出 JSON：{\"taskSemanticContract\":{\"sourceGoal\":\"\",\"domain\":\"stock_detail|stock_index|finance_news|chat|social|navigation|music|video|travel|system_control|general\",\"targetEntity\":\"\",\"targetKind\":\"\",\"targetPage\":\"\",\"targetSubPage\":\"detail_main|comment_community|news_tab|chat_thread|profile_page|goal_satisfied_page\",\"requiredApp\":null,\"explicitAppRequired\":false,\"allowAlternativeApp\":true,\"appCandidates\":[],\"completionCriteria\":[\"\"],\"completionEvidenceKeywords\":[\"\"],\"confidence\":0.0,\"reason\":\"\"}}",
+  ].join("\n");
+  return [
+    { role: "system", content: system },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+}
+
+async function judgeTaskSemanticContract(goal, snapshot, deviceContext, agentMemory, startedAt) {
+  const fallback = enrichRuleContractWithSubPage(buildRuleTaskSemanticContract(goal, snapshot, deviceContext, agentMemory), goal);
+  const mode = normalizeTaskContractJudgeMode(AGENT_TASK_CONTRACT_JUDGE_MODE);
+  if (mode === "rule") return fallback;
+  if (isAgentBudgetNearlyExhausted(startedAt, 900)) return fallback;
+
+  const remaining = agentRemainingBudgetMs(startedAt);
+  const timeoutMs = boundedAgentTimeoutMs(AGENT_TASK_CONTRACT_JUDGE_TIMEOUT_MS, remaining, AGENT_TASK_CONTRACT_JUDGE_TIMEOUT_MS);
+  if (timeoutMs < 500) return fallback;
+
+  const messages = buildTaskContractJudgeMessages(goal, snapshot, deviceContext, fallback);
+  const providers = [
+    {
+      enabled: Boolean(process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_BASE_URL && process.env.DEEPSEEK_MODEL),
+      base: process.env.DEEPSEEK_BASE_URL,
+      key: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL,
+      name: "DeepSeek AgentBrain Task Contract Judge",
+      source: "deepseek_agentbrain_task_contract_judge",
+      temperature: 0,
+    },
+    {
+      enabled: Boolean(process.env.QWEN_API_KEY && process.env.QWEN_BASE_URL && process.env.QWEN_MODEL),
+      base: process.env.QWEN_BASE_URL,
+      key: process.env.QWEN_API_KEY,
+      model: process.env.QWEN_MODEL,
+      name: "Qwen Task Contract Judge Fallback",
+      source: "qwen_task_contract_judge_fallback",
+      temperature: 0.05,
+    },
+  ];
+
+  let lastError = "";
+  for (const provider of providers) {
+    if (!provider.enabled) continue;
+    try {
+      const raw = await callOpenAICompatibleJsonFirst(
+        provider.base,
+        provider.key,
+        provider.model,
+        messages,
+        provider.name,
+        {
+          temperature: provider.temperature,
+          max_tokens: AGENT_TASK_CONTRACT_JUDGE_MAX_TOKENS,
+          timeoutMs,
+          response_format: { type: "json_object" },
+        }
+      );
+      let parsed = {};
+      try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+      const judged = normalizeTaskContractJudgeDecision(parsed, fallback);
+      judged.contractSource = provider.source;
+      judged.modelReason = safeText(judged.modelReason || judged.reason || "", 260);
+      return judged;
+    } catch (error) {
+      lastError = sanitizeProviderError(error, 120);
+    }
+  }
+
+  return {
+    ...fallback,
+    contractSource: "neutral_fallback_after_task_contract_judge_error",
+    modelReason: `AgentBrain/TaskContractJudge 暂不可用，使用中性兜底，不做本地语义定性：${lastError}`,
+  };
+}
+
+
+function taskSemanticContractPromptBlock(contract) {
+  if (!contract || typeof contract !== "object") return "Task semantic contract: unavailable. Use original goal and current screenshot.";
+  const source = String(contract.contractSource || contract.source || "").toLowerCase();
+  const neutral = source.includes("neutral") || source.includes("rule_fallback");
+  const required = neutral ? null : contract.requiredApp;
+  const candidateLine = (contract.appCandidates || [])
+    .slice(0, 6)
+    .map((app, index) => `${index + 1}. ${app.label || app.appName || "未知"}${app.packageName ? `(${app.packageName})` : ""}`)
+    .join(" / ") || "无";
+
+  if (neutral && !contract.targetEntity && !required) {
+    return [
+      "Task semantic contract: neutral local fallback only.",
+      `- Original goal: ${contract.sourceGoal || ""}`,
+      "- Local backend did not interpret domain/entity/requiredApp. GUI/AgentBrain must infer from original goal + screenshot.",
+      `- Candidate apps from device context: ${candidateLine}`,
+      "- Do not treat this fallback as a hard route constraint.",
+    ].join("\n");
+  }
+
+  return [
+    "Task semantic contract (from AgentBrain/TaskContractJudge; obey unless runtime screenshot clearly contradicts it):",
+    `- Original goal: ${contract.sourceGoal || ""}`,
+    `- Domain/target: ${contract.domain || "general"} / ${contract.targetEntity || "未指定"} / ${contract.targetPage || "goal_satisfied_page"} / sub=${contract.targetSubPage || "goal_satisfied_page"}`,
+    required
+      ? `- Required app: ${required.label}${required.packageName ? `(${required.packageName})` : ""}. This is a hard user constraint only because AgentBrain judged it explicit.`
+      : `- Required app: none explicit. Candidate apps: ${candidateLine}`,
+    `- Current phase: ${contract.current?.phase || "observe"}; requiredAppActive=${Boolean(contract.current?.requiredAppActive)}; entityVisible=${Boolean(contract.current?.entityVisible)}; completionLike=${Boolean(contract.current?.completionLike)}.`,
+    `- Completion criteria: ${(contract.completionCriteria || []).join("；") || "视觉上确认任务目标完成"}`,
+    `- Completion evidence keywords from contract: ${(contract.completionEvidenceKeywords || []).join(" / ") || "由视觉模型判断"}`,
+    `- Forbidden actions: ${(contract.forbiddenActions || []).join("；")}`,
+    "Use this contract as semantic guidance; Android runtime feedback and current screenshot still have priority for execution validity.",
+  ].join("\n");
+}
+
+function compactActionTargetsApp(compact, targetApp) {
+  if (!compact || !targetApp) return false;
+  const action = String(compact.a || compact.action || compact.type || "").toLowerCase().trim().replace(/-/g, "_");
+  if (action !== "open_app" && action !== "open") return false;
+  const candidate = {
+    label: safeText(compact.appName || compact.app || compact.t || compact.targetText || "", 100),
+    packageName: safeText(compact.packageName || compact.package || "", 120),
+    aliases: [],
+  };
+  return appMatchesTaskContractApp(candidate, targetApp);
+}
+
+function buildTaskContractOpenRequiredAppPlan(contract, reason, confidence = 0.92) {
+  const app = contract?.requiredApp || null;
+  if (!app?.label && !app?.packageName) return null;
+  const appName = app.label || app.explicitName || "目标 App";
+  const fullReason = safeText(reason || `任务契约要求先打开指定 App：${appName}`, 260);
+  return {
+    agentState: {
+      isComplete: false,
+      expectedProgress: true,
+      isWrong: false,
+      confidence,
+      reason: fullReason,
+      nextHint: `打开 ${appName} 后继续执行目标 ${contract?.targetEntity || contract?.sourceGoal || ""}`,
+    },
+    visualFrame: {
+      pageTitle: "任务契约：打开指定 App",
+      pageType: "task_contract_open_required_app",
+      summary: fullReason,
+      isComplete: false,
+      isWrong: false,
+      targetVisible: false,
+      targetText: appName,
+      suggestedAction: { type: "open_app", targetText: appName, reason: fullReason },
+      completionEvidence: "",
+      reason: fullReason,
+      confidence,
+      taskContract: contract,
+    },
+    agentStep: {
+      type: "open_app",
+      appName,
+      packageName: app.packageName || undefined,
+      targetText: appName,
+      reason: fullReason,
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+    stopConditions: ["visual_after_system_action"],
+    guiPlusCompact: {
+      s: "p",
+      a: "open_app",
+      appName,
+      packageName: app.packageName || undefined,
+      t: appName,
+      c: confidence,
+      e: fullReason,
+    },
+    taskSemanticContract: contract,
+    guardReason: "task_contract_required_app",
+    sourceDetail: "guarded_task_contract_required_app",
+  };
+}
+
+function taskContractCompletionSatisfied(contract, snapshot, deviceContext) {
+  if (!contract || typeof contract !== "object") return false;
+  if (contract.requiredApp && !currentAppSatisfiesTaskContract(contract, snapshot, deviceContext)) return false;
+  const evidence = collectSnapshotEvidenceText(snapshot);
+  const cleanEvidence = normalizeForMatch(evidence);
+  const entity = normalizeForMatch(contract.targetEntity || "");
+  if (entity && !cleanEvidence.includes(entity)) return false;
+  const contractEvidence = Array.isArray(contract.completionEvidenceKeywords) ? contract.completionEvidenceKeywords : [];
+  if (contractEvidence.length && !evidenceHasAny(evidence, contractEvidence)) return false;
+  const skill = agentSkillForDomain(contract.domain);
+  if (!contractEvidence.length && skill && (skill.completionWords || []).length && !evidenceHasAny(evidence, skill.completionWords)) return false;
+  return Boolean(entity || contract.requiredApp || contract.targetPage || contract.targetSubPage);
+}
+
+function guardTaskSemanticContractPlan(parsed, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions) {
+  const compact = parsed?.guiPlusCompact || parsed?.compactVision || parsed || {};
+  const contract = buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory);
+  const source = String(contract?.contractSource || contract?.source || "").toLowerCase();
+  const confidence = Number(contract?.confidence || 0);
+  const required = contract?.requiredApp;
+
+  // v52：只有 AgentBrain/TaskContractJudge 高置信输出的显式 requiredApp 才能成为硬护栏。
+  // 本地 neutral/rule fallback 不能强制打开某个 App，避免“京东方A -> 京东”这类子串误判。
+  const trustedRequiredApp = Boolean(
+    required &&
+      !source.includes("neutral") &&
+      !source.includes("rule_fallback") &&
+      contract.explicitAppRequired !== false &&
+      confidence >= 0.68
+  );
+  if (!trustedRequiredApp) return parsed;
+
+  const action = String(compact.a || compact.action || compact.type || "").toLowerCase().trim().replace(/-/g, "_");
+  const currentRequired = currentAppSatisfiesTaskContract(contract, snapshot, deviceContext);
+  const safeSystemActions = ["back", "home", "recents", "wait", "need_user_help"];
+  if ((action === "open_app" || action === "open") && !compactActionTargetsApp(compact, required)) {
+    const target = safeText(compact.appName || compact.packageName || compact.t || compact.targetText || "其他 App", 80);
+    return buildTaskContractOpenRequiredAppPlan(
+      contract,
+      `任务契约拦截：AgentBrain 判断用户明确指定使用 ${required.label}，但 GUI Plus 计划打开 ${target || "其他 App"}；必须回到指定 App。`,
+      0.9
+    );
+  }
+
+  if (!currentRequired && !compactActionTargetsApp(compact, required) && !safeSystemActions.includes(action)) {
+    return buildTaskContractOpenRequiredAppPlan(
+      contract,
+      `任务契约拦截：当前不在 AgentBrain 指定 App ${required.label}，不能继续执行 ${action || "unknown"}；必须先打开指定 App。`,
+      0.86
+    );
+  }
+
+  if ((action === "finish" || action === "terminate" || compact.s === "d") && !taskContractCompletionSatisfied(contract, snapshot, deviceContext)) {
+    const replan = buildGuardedNeedReplanPlan(
+      `任务契约拦截：未满足 AgentBrain 完成标准，不能结束。必须满足：${(contract.completionCriteria || []).join("；")}`,
+      0.76
+    );
+    replan.guardReason = "task_contract_premature_finish";
+    replan.sourceDetail = "guarded_agentbrain_task_contract_premature_finish";
+    replan.taskSemanticContract = contract;
+    return replan;
+  }
+
+  return parsed;
+}
+
+
+function guiPlusVisualBrainInstalledAppsPrompt(deviceContext, max = 80) {
+  const apps = installedAppsFromDeviceContext(deviceContext)
+    .slice(0, max)
+    .map((app, index) => `${index + 1}. ${app.label}${app.packageName ? `(${app.packageName})` : ""}${Array.isArray(app.aliases) && app.aliases.length ? ` aliases=${app.aliases.slice(0, 3).join("/")}` : ""}`);
+  return apps.length ? apps.join("\n") : "No installed app list was provided by Android. If the user names an app, use mobile_use open with the app name from the instruction.";
+}
+
+function buildEnhancedGuiPlusInstruction(goal, snapshot, deviceContext, agentMemory = null) {
+  const compactDevice = deviceContextSummaryForPrompt(deviceContext);
+  const currentApp = safeText(snapshot?.currentApp || snapshot?.packageName || compactDevice.currentApp?.packageName || "", 100);
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || compactDevice.currentApp?.packageName || "", 120);
+  const loopSignals = agentMemory && typeof agentMemory === "object" ? (agentMemory.loopSignals || {}) : {};
+  const runtimeHint = runtimeVerificationHintForPrompt(agentMemory);
+  const deepThinking = adaptiveDeepThinkingDecision(goal, snapshot, deviceContext, agentMemory, []);
+  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
+  const lines = [
+    `Original user instruction: ${safeText(goal, 240)}`,
+    `Current foreground app/package: ${currentApp || "unknown"}`,
+    "You are GUI Plus, the visual-control agent brain. You must understand the full user instruction yourself, inspect the screenshot, use the installed app list, plan the next UI action, and output exactly one mobile_use action.",
+    "DeepSeek/AgentBrain is only for internal-control or cross-tool routing. For visual-control tasks, do not wait for DeepSeek or local rules to interpret the sentence for you.",
+    "Local Android/backend rules are only safety/runtime guards. They are not semantic contracts and must not override the original instruction.",
+    "If the current screen is unrelated to the instruction, you should recover by mobile_use open / Back / Home rather than clicking random UI.",
+    "If the user instruction explicitly names an app, and the current foreground app is not that app, the normal first visual-agent action is mobile_use open with that app name. Example: '打开 QQ 设置页' from AI Assistant screen => open 'QQ', then continue inside QQ after the next screenshot.",
+    "If the instruction is an implicit domain task such as stock detail, map route, music, video, travel, shopping page, or app setting, infer the suitable app from the instruction and installed app list. Use mobile_use open when the target app is not already foreground.",
+    "Do not type the full user instruction into the current page. For input tasks, first click the visible search/input field and wait for focus; only type when the screenshot shows focused input, caret, keyboard, or an active search page ready for typing.",
+    "Do not terminate success just because the user's chat bubble or assistant reply contains the goal text. Historical chat messages are not task completion evidence.",
+    "Installed apps available to Android:",
+    guiPlusVisualBrainInstalledAppsPrompt(deviceContext, 90),
+    "Runtime state:",
+    `- assistantHost=${assistantHost}; executedStepCount=${Number(loopSignals.executedStepCount || 0)}; loopIndex=${Number(loopSignals.loopIndex || 0)}; noProgress=${Number(loopSignals.noProgressCount || 0)}`,
+    `- coordinate protocol: mobile_use 1000x1000; Android maps it to the real screen.`,
+  ];
+  if (runtimeHint) {
+    lines.push(
+      "Android runtime verification feedback:",
+      runtimeHint,
+      "If Android reports a no-progress/blocked action, change route, target element, or app entry. Do not repeat the exact blocked action."
+    );
+  }
+  if (assistantHost) {
+    lines.push(
+      "The current screenshot appears to be the AI Assistant/chat host. Chat bubbles, assistant cards, copy/retry buttons, and the bottom composer are not the target app UI.",
+      "For external visual tasks, your first action should normally be mobile_use open for the intended app or a suitable app, not typing/clicking inside the assistant."
+    );
+  }
+  lines.push(
+    "Safety boundary: payment/transfer/order submission, destructive account/system actions, authorization, outbound communication, and credential/OTP/password input must require confirmation or user takeover. Normal navigation/open/search/view/click/scroll is low risk.",
+    "Completion rule: use terminate success only when the screenshot clearly shows the requested final page/state. Otherwise continue with the next UI action.",
+    "Adaptive deep thinking status:",
+    deepThinkingPromptBlock(deepThinking)
+  );
+  return lines.join("\n").slice(0, 4200);
+}
+
+
+
+function isAssistantHostAppPackage(packageName) {
+  const clean = normalizeForMatch(packageName);
+  return Boolean(
+    clean.includes("comyuchenailedger") ||
+      clean.includes("ailedger") ||
+      clean.includes("aiassistant") ||
+      clean.includes("chatgpt")
+  );
+}
+
+function snapshotLooksLikeAssistantChat(snapshot) {
+  const texts = [
+    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
+    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : []),
+  ].map((item) => normalizeForMatch(item)).join("|");
+  return Boolean(
+    texts.includes("ai助手") ||
+      texts.includes("ai智能体") ||
+      texts.includes("正在整理回复") ||
+      texts.includes("和我说点什么") ||
+      texts.includes("停止本次任务") ||
+      texts.includes("复制重试")
+  );
+}
+
+function isDomainTask(domain) {
+  return ["stock_detail", "stock_index", "finance_news", "navigation", "music", "video", "travel"].includes(domain);
+}
+
+
+const AGENT_TASK_SKILL_REGISTRY = {
+  stock_detail: {
+    label: "股票详情页",
+    targetKind: "股票/证券行情详情页",
+    preferredRecovery: "open_stock_app_then_search",
+    completionWords: ["分时", "K线", "k线", "盘口", "五档", "成交", "涨跌幅", "现价", "最新价", "买入", "卖出", "自选"],
+    searchWords: ["搜索", "股票", "代码", "名称", "自选", "行情"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的股票名称；那只是历史指令。",
+  },
+  stock_index: {
+    label: "指数行情页",
+    targetKind: "指数/大盘行情详情页",
+    preferredRecovery: "open_stock_app_then_search_index",
+    completionWords: ["分时", "K线", "k线", "大盘", "指数", "点位", "涨跌幅", "成交额"],
+    searchWords: ["搜索", "指数", "行情", "大盘"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的指数名称；那只是历史指令。",
+  },
+  finance_news: {
+    label: "财经资讯页",
+    targetKind: "财经新闻/资讯页",
+    preferredRecovery: "open_finance_app_then_search_news",
+    completionWords: ["新闻", "资讯", "公告", "研报", "财报", "头条", "快讯", "要闻"],
+    searchWords: ["搜索", "资讯", "新闻", "公告", "研报"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的新闻标题；那只是历史指令。",
+  },
+  navigation: {
+    label: "地图导航页",
+    targetKind: "地图路线/目的地结果页",
+    preferredRecovery: "open_map_app_then_search_destination",
+    completionWords: ["路线", "导航", "公交", "驾车", "步行", "骑行", "到这去", "目的地"],
+    searchWords: ["搜索", "去哪", "目的地", "地点", "路线"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的地点名；那只是历史指令。",
+  },
+  music: {
+    label: "音乐搜索/播放页",
+    targetKind: "音乐搜索结果或播放页",
+    preferredRecovery: "open_music_app_then_search",
+    completionWords: ["播放", "歌曲", "歌手", "专辑", "歌单", "暂停", "歌词"],
+    searchWords: ["搜索", "歌曲", "歌手", "音乐"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的歌曲名；那只是历史指令。",
+  },
+  video: {
+    label: "视频搜索/播放页",
+    targetKind: "视频搜索结果或播放页",
+    preferredRecovery: "open_video_app_then_search",
+    completionWords: ["播放", "视频", "番剧", "直播", "关注", "弹幕", "相关推荐"],
+    searchWords: ["搜索", "视频", "影视", "直播"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的视频标题；那只是历史指令。",
+  },
+  travel: {
+    label: "旅行/票务查询页",
+    targetKind: "旅行酒店票务查询页",
+    preferredRecovery: "open_travel_app_then_query",
+    completionWords: ["酒店", "机票", "火车票", "价格", "入住", "出发", "到达", "预订", "筛选"],
+    searchWords: ["搜索", "目的地", "城市", "酒店", "车票", "机票"],
+    forbiddenOnAssistant: "禁止点击聊天气泡里的地点或酒店名；那只是历史指令。",
+  },
+};
+
+function agentSkillForDomain(domain) {
+  return AGENT_TASK_SKILL_REGISTRY[domain] || null;
+}
+
+function agentRuntimeTaskInfo(goal, snapshot = null, deviceContext = null, agentMemory = null) {
+  const contract = buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory);
+  const domain = safeText(contract.domain || "general", 60) || "general";
+  const entity = safeText(contract.targetEntity || "", 80);
+  const skill = agentSkillForDomain(domain);
+  const appCandidates = Array.isArray(contract.appCandidates) ? contract.appCandidates.slice(0, 10) : [];
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
+  const currentIsCandidate = contract.requiredApp
+    ? currentAppSatisfiesTaskContract(contract, snapshot, deviceContext)
+    : false;
+  const progress = scoreAgentTaskProgress(goal, snapshot, domain, entity, deviceContext);
+  const loopSignals = agentMemory && typeof agentMemory === "object" ? (agentMemory.loopSignals || {}) : {};
+  return { domain, entity, skill, appCandidates, currentPackage, assistantHost, currentIsCandidate, progress, loopSignals, contract };
+}
+
+function collectSnapshotEvidenceText(snapshot) {
+  const values = [];
+  const add = (value) => {
+    const text = safeText(value, 80);
+    if (text) values.push(text);
+  };
+  (Array.isArray(snapshot?.texts) ? snapshot.texts : []).forEach(add);
+  (Array.isArray(snapshot?.allNodes) ? snapshot.allNodes : []).forEach((node) => add(node?.text));
+  (Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : []).forEach((node) => add(node?.text));
+  (Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : []).forEach((node) => add(node?.text));
+  (Array.isArray(snapshot?.scrollableNodes) ? snapshot.scrollableNodes : []).forEach((node) => add(node?.text));
+  return values.filter(Boolean).slice(0, 80).join(" | ");
+}
+
+function evidenceHasAny(evidence, words) {
+  const clean = normalizeForMatch(evidence || "");
+  return (Array.isArray(words) ? words : []).some((word) => clean.includes(normalizeForMatch(word)));
+}
+
+function scoreAgentTaskProgress(goal, snapshot, domain, entity, deviceContext) {
+  const skill = agentSkillForDomain(domain);
+  if (!skill) return { score: 0, stage: "general", evidence: "无专用技能", entityVisible: false, completionLike: false, searchLike: false, appLike: false };
+  const evidence = collectSnapshotEvidenceText(snapshot);
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
+  const cleanEvidence = normalizeForMatch(evidence);
+  const cleanEntity = normalizeForMatch(entity || "");
+  const entityVisible = Boolean(cleanEntity && cleanEvidence.includes(cleanEntity));
+  const completionLike = entityVisible && evidenceHasAny(evidence, skill.completionWords);
+  const searchLike = evidenceHasAny(evidence, skill.searchWords) || (Array.isArray(snapshot?.inputNodes) && snapshot.inputNodes.length > 0);
+  const appLike = isCurrentAppAlreadyDomainCandidate(snapshot, deviceContext, domain);
+  let score = 0;
+  let stage = "unrelated";
+  if (assistantHost) {
+    score = 0;
+    stage = "assistant_host";
+  } else if (completionLike) {
+    score = 0.95;
+    stage = "completion_evidence";
+  } else if (entityVisible && appLike) {
+    score = 0.78;
+    stage = "entity_visible_in_candidate_app";
+  } else if (searchLike && appLike) {
+    score = 0.55;
+    stage = "search_or_input_in_candidate_app";
+  } else if (appLike) {
+    score = 0.35;
+    stage = "candidate_app_open";
+  } else if (searchLike) {
+    score = 0.20;
+    stage = "search_like_but_wrong_app";
+  }
+  return {
+    score,
+    stage,
+    evidence: safeText(evidence, 220),
+    entityVisible,
+    completionLike,
+    searchLike,
+    appLike,
+    assistantHost,
+  };
+}
+
+function formatCandidateAppsForPrompt(appCandidates, max = 8) {
+  const list = (Array.isArray(appCandidates) ? appCandidates : []).slice(0, max).map((app, index) => {
+    const pkg = app.packageName ? `(${app.packageName})` : "";
+    const score = Number.isFinite(Number(app.score)) ? ` score=${Number(app.score)}` : "";
+    return `${index + 1}. ${app.label || app.appName || "未知"}${pkg}${score}`;
+  });
+  return list.length ? list.join("\n") : "无可靠候选 App。";
+}
+
+function buildAgentRuntimeHints(goal, snapshot, deviceContext, agentMemory = null) {
+  const info = agentRuntimeTaskInfo(goal, snapshot, deviceContext, agentMemory);
+  const skill = info.skill;
+  if (!skill) {
+    return [
+      "Runtime task hints: general task.",
+      "If the instruction refers to an external app but current screenshot is only AI assistant chat history, do not click chat bubbles; use open/back/home or ask for help.",
+    ].join("\n");
+  }
+  const noProgressCount = Number(info.loopSignals.noProgressCount || info.loopSignals.repeatedCloudRejects || info.loopSignals.recoverableFailures || 0);
+  const lines = [
+    `Runtime skill: ${info.domain} / ${skill.label}`,
+    `Target entity: ${info.entity || safeText(goal, 60)}`,
+    `Target kind: ${skill.targetKind}`,
+    `Current page classification: ${info.assistantHost ? "AI assistant host" : (info.currentIsCandidate ? "candidate target app" : "unrelated/wrong app")}`,
+    `Progress score: ${info.progress.score.toFixed(2)} (${info.progress.stage})`,
+    `Candidate apps:\n${formatCandidateAppsForPrompt(info.appCandidates, 8)}`,
+    `Completion evidence must include: ${[info.entity, ...(skill.completionWords || []).slice(0, 8)].filter(Boolean).join(" / ")}`,
+    `Recovery policy: ${skill.preferredRecovery}. If progress score stays low, open the best candidate app, use Back/Home, or change route; do not keep clicking the same visible text.`,
+    skill.forbiddenOnAssistant,
+  ];
+  if (noProgressCount > 0) lines.push(`No-progress signal from Android memory: ${noProgressCount}. You must change strategy now.`);
+  return lines.join("\n").slice(0, 1600);
+}
+
+function shouldPreferDomainOpenPreflight(goal, snapshot, deviceContext, agentMemory, recentActions) {
+  const info = agentRuntimeTaskInfo(goal, snapshot, deviceContext, agentMemory);
+  if (!isDomainTask(info.domain)) return { shouldOpen: false, info, reason: "not_domain_task" };
+  if (info.currentIsCandidate && info.progress.stage !== "assistant_host") return { shouldOpen: false, info, reason: "already_candidate_app" };
+  const executedStepCount = Number(info.loopSignals.executedStepCount || 0);
+  const noProgressCount = Number(info.loopSignals.noProgressCount || info.loopSignals.repeatedCloudRejects || info.loopSignals.recoverableFailures || 0);
+  const recent = normalizeForMatch(Array.isArray(recentActions) ? recentActions.slice(-6).join(" ") : "");
+  const failedOrBlocked = recent.includes("失败") || recent.includes("fail") || recent.includes("拒绝") || recent.includes("blocked");
+  const shouldOpen = Boolean(
+    info.assistantHost ||
+      !info.currentPackage ||
+      executedStepCount === 0 ||
+      info.progress.score < 0.25 ||
+      noProgressCount >= 1 ||
+      failedOrBlocked
+  );
+  return { shouldOpen, info, reason: shouldOpen ? `preflight_open_${info.progress.stage}` : "no_open_needed" };
+}
+
+function defaultDomainOpenAppCandidate(domain) {
+  if (domain === "stock_detail" || domain === "stock_index" || domain === "finance_news") return { label: "同花顺", packageName: "", source: "default_stock_app" };
+  if (domain === "navigation") return { label: "高德地图", packageName: "", source: "default_navigation_app" };
+  if (domain === "music") return { label: "网易云音乐", packageName: "", source: "default_music_app" };
+  if (domain === "video") return { label: "哔哩哔哩", packageName: "", source: "default_video_app" };
+  if (domain === "travel") return { label: "携程旅行", packageName: "", source: "default_travel_app" };
+  return null;
+}
+
+function bestDomainOpenAppCandidate(deviceContext, domain) {
+  const ranked = rankDomainAppCandidates(deviceContext, domain, 8);
+  if (ranked.length) return { ...ranked[0], source: "device_installed_apps" };
+  const installed = installedAppsFromDeviceContext(deviceContext);
+  if (installed.length) return null;
+  return defaultDomainOpenAppCandidate(domain);
+}
+
+function isCurrentAppAlreadyDomainCandidate(snapshot, deviceContext, domain) {
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  if (!currentPackage) return false;
+  const candidates = rankDomainAppCandidates(deviceContext, domain, 20);
+  if (candidates.some((app) => app.packageName && app.packageName === currentPackage)) return true;
+  const keywords = agentDomainAppKeywords(domain);
+  return appMatchesAnyKeyword({ label: currentPackage, packageName: currentPackage, aliases: [] }, keywords);
+}
+
+function hasRecentlyTriedOpenCandidate(recentActions, candidate) {
+  const recent = (Array.isArray(recentActions) ? recentActions : []).slice(-4).map((item) => normalizeForMatch(item)).join("|");
+  const label = normalizeForMatch(candidate?.label || "");
+  const pkg = normalizeForMatch(candidate?.packageName || "");
+  if (!recent) return false;
+  return Boolean(
+    recent.includes("openapp") &&
+      ((label && recent.includes(label)) || (pkg && recent.includes(pkg))) &&
+      (recent.includes("失败") || recent.includes("fail") || recent.includes("没有找到"))
+  );
+}
+
+function buildGuiPlusDomainOpenPreflightPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions) {
+  const decision = shouldPreferDomainOpenPreflight(goal, snapshot, deviceContext, agentMemory, recentActions);
+  const { info } = decision;
+  const domain = info.domain;
+  if (!decision.shouldOpen || !isDomainTask(domain)) return null;
+
+  const contract = info.contract || buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory);
+  const candidate = contract.requiredApp || bestDomainOpenAppCandidate(deviceContext, domain) || defaultDomainOpenAppCandidate(domain);
+  if (!candidate || !candidate.label) return null;
+  if (!contract.requiredApp && hasRecentlyTriedOpenCandidate(recentActions, candidate)) return null;
+
+  const entity = contract.targetEntity || info.entity || extractAgentTaskEntity(goal, domain);
+  const skill = info.skill || agentSkillForDomain(domain);
+  const reason = [
+    `后端 Preflight Gate：当前页分类=${info.progress.stage}，progress=${info.progress.score.toFixed(2)}，目标是${skill?.label || domain}。`,
+    info.assistantHost ? `聊天气泡中的“${safeText(goal, 36)}”只是历史消息，不能点击。` : "当前页不是可靠目标页，先进入合适 App。",
+    contract.requiredApp ? `用户已明确指定 App：${candidate.label}${candidate.packageName ? `(${candidate.packageName})` : ""}，这是硬约束，禁止用其他行情 App 替代。` : `先打开候选 App：${candidate.label}${candidate.packageName ? `(${candidate.packageName})` : ""}，再让 GUI Plus 在 App 内搜索/进入${entity || "目标"}。`,
+  ].join(" ");
+
+  return {
+    agentState: {
+      isComplete: false,
+      expectedProgress: true,
+      isWrong: false,
+      confidence: info.assistantHost ? 0.94 : 0.82,
+      reason,
+      nextHint: `打开 ${candidate.label} 后继续搜索 ${entity || goal}`,
+    },
+    visualFrame: {
+      pageTitle: info.assistantHost ? "AI 助手/聊天页" : "非目标页面",
+      pageType: "preflight_open_app",
+      summary: reason,
+      isComplete: false,
+      isWrong: false,
+      targetVisible: false,
+      targetText: candidate.label,
+      suggestedAction: {
+        type: "open_app",
+        targetText: candidate.label,
+        reason,
+      },
+      completionEvidence: "",
+      reason,
+      confidence: info.assistantHost ? 0.94 : 0.82,
+      taskSkill: domain,
+      progressScore: info.progress.score,
+      progressStage: info.progress.stage,
+    },
+    agentStep: {
+      type: "open_app",
+      appName: candidate.label,
+      packageName: candidate.packageName || undefined,
+      targetText: candidate.label,
+      reason,
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+    stopConditions: ["visual_after_system_action"],
+    guiPlusCompact: {
+      s: "p",
+      a: "open_app",
+      appName: candidate.label,
+      packageName: candidate.packageName || undefined,
+      t: candidate.label,
+      c: info.assistantHost ? 0.94 : 0.82,
+      e: reason,
+    },
+    preflightDomainOpen: true,
+    taskSkill: domain,
+    taskEntity: entity,
+    progressScore: info.progress.score,
+    progressStage: info.progress.stage,
+  };
+}
+
+function isTapOnAssistantChatBubble(compact, goal, snapshot) {
+  if (!compact || compact.a !== "tap_xy") return false;
+  if (!(isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot))) return false;
+  const target = normalizeForMatch(compact.t || compact.targetText || "");
+  const goalText = normalizeForMatch(goal);
+  if (target && goalText && (target.includes(goalText) || goalText.includes(target))) return true;
+  const x = Number(compact.x);
+  const y = Number(compact.y);
+  // 聊天消息气泡通常位于主聊天区中部；在 AI 助手页对这种坐标点击要特别保守。
+  return Number.isFinite(x) && Number.isFinite(y) && x > 0.08 && x < 0.92 && y > 0.18 && y < 0.82;
+}
+
+
+function isCompactActionUnsafeOnAssistant(compact, goal, snapshot) {
+  if (!(isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot))) return false;
+  const action = String(compact?.a || "").toLowerCase();
+  if (["tap_xy", "tap_node", "input_text", "wait"].includes(action)) return true;
+  if (action === "finish") return !scoreAgentTaskProgress(goal, snapshot, inferAgentInstructionDomain(goal), extractAgentTaskEntity(goal, inferAgentInstructionDomain(goal))).completionLike;
+  return false;
+}
+
+function isPrematureDomainFinish(compact, goal, snapshot, deviceContext) {
+  const domain = inferAgentInstructionDomain(goal);
+  if (!isDomainTask(domain)) return false;
+  const action = String(compact?.a || "").toLowerCase();
+  if (action !== "finish") return false;
+  const entity = extractAgentTaskEntity(goal, domain);
+  const progress = scoreAgentTaskProgress(goal, snapshot, domain, entity, deviceContext);
+  return progress.score < 0.85 || !progress.completionLike;
+}
+
+function buildGuardedNeedReplanPlan(reason, confidence = 0.62) {
+  const cleanReason = safeText(reason, 260);
+  return {
+    agentState: {
+      isComplete: false,
+      expectedProgress: false,
+      isWrong: false,
+      confidence,
+      reason: cleanReason,
+      nextHint: "动作被护栏拦截，需要重新规划或请求用户接管。",
+    },
+    visualFrame: {
+      pageTitle: "动作被后端护栏拦截",
+      pageType: "guarded_replan",
+      summary: cleanReason,
+      isComplete: false,
+      isWrong: false,
+      targetVisible: false,
+      suggestedAction: { type: "need_user_help", targetText: "请求接管/重新规划", reason: cleanReason },
+      reason: cleanReason,
+      confidence,
+    },
+    agentStep: {
+      type: "need_user_help",
+      targetText: "请求接管/重新规划",
+      reason: `USER_TAKEOVER_REQUIRED: ${cleanReason}`,
+      riskLevel: "low",
+      requiresConfirmation: false,
+    },
+    stopConditions: ["visual_after_uncertain_progress"],
+    guiPlusCompact: { s: "p", a: "need_user_help", t: "请求接管/重新规划", c: confidence, e: cleanReason },
+    guarded: true,
+  };
+}
+
+function normalizeRuntimeCompactActionName(value) {
+  const raw = String(value || "").toLowerCase().trim().replace(/[\s\-]+/g, "_");
+  if (["click", "tap", "press", "point", "tap_point", "click_xy", "coordinate_click", "coordinate_tap"].includes(raw)) return "tap_xy";
+  if (["type", "input", "enter_text", "text"].includes(raw)) return "input_text";
+  if (["open", "launch", "launch_app", "open_application"].includes(raw)) return "open_app";
+  if (["system_button", "button"].includes(raw)) return "system_button";
+  return normalizeAgentStepType(raw);
+}
+
+function quantizedRuntimeTapSignature(x, y) {
+  const nx = Number(x);
+  const ny = Number(y);
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return "";
+  const cx = Math.max(0, Math.min(49, Math.floor(nx * 50)));
+  const cy = Math.max(0, Math.min(49, Math.floor(ny * 50)));
+  return `tap@${cx},${cy}`;
+}
+
+function runtimeTapSignatureCandidates(rawX, rawY, screenshotInfo = null) {
+  const out = new Set();
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+
+  if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+    out.add(quantizedRuntimeTapSignature(x, y));
+  }
+
+  // 阿里 GUI Plus/mobile_use 官方坐标是 1000x1000。
+  if (x >= 0 && x <= 1000 && y >= 0 && y <= 1000) {
+    out.add(quantizedRuntimeTapSignature(x / 1000, y / 1000));
+  }
+
+  const imageWidth = Number(screenshotInfo?.width) || 0;
+  const imageHeight = Number(screenshotInfo?.height) || 0;
+  const displayWidth = Number(screenshotInfo?.displayWidth) || imageWidth;
+  const displayHeight = Number(screenshotInfo?.displayHeight) || imageHeight;
+  if (imageWidth > 1 && imageHeight > 1 && x >= 0 && x <= imageWidth + 24 && y >= 0 && y <= imageHeight + 24) {
+    out.add(quantizedRuntimeTapSignature(x / imageWidth, y / imageHeight));
+  }
+  if (displayWidth > 1 && displayHeight > 1 && x >= 0 && x <= displayWidth + 24 && y >= 0 && y <= displayHeight + 24) {
+    out.add(quantizedRuntimeTapSignature(x / displayWidth, y / displayHeight));
+  }
+
+  return Array.from(out).filter(Boolean);
+}
+
+function runtimeActionSignaturesFromCompact(compact, screenshotInfo = null) {
+  const raw = compact?.agentStep || compact?.step || compact?.actionStep || compact?.suggestedAction || compact || {};
+  const action = normalizeRuntimeCompactActionName(raw.a || raw.action || raw.type || raw.name || "");
+  const out = new Set();
+
+  if (action === "tap_xy") {
+    const coordinate = Array.isArray(raw.coordinate) ? raw.coordinate : Array.isArray(raw.coord) ? raw.coord : [];
+    const x = raw.x ?? raw.cx ?? raw.centerX ?? raw.targetX ?? raw.tapX ?? coordinate[0];
+    const y = raw.y ?? raw.cy ?? raw.centerY ?? raw.targetY ?? raw.tapY ?? coordinate[1];
+    runtimeTapSignatureCandidates(x, y, screenshotInfo).forEach((item) => out.add(item));
+  } else if (action === "tap_node") {
+    const key = safeText(raw.n || raw.nodeId || raw.targetNodeId || raw.t || raw.targetText || raw.text || "", 32);
+    if (key) out.add(`tap_node@${key}`);
+  } else if (action === "open_app") {
+    const key = safeText(raw.packageName || raw.package || raw.appName || raw.app || raw.t || raw.targetText || "", 64);
+    if (key) out.add(`open@${key}`);
+  } else if (action === "input_text") {
+    const key = safeText(raw.v || raw.text || raw.inputText || raw.value || "", 32);
+    if (key) out.add(`input@${key}`);
+  } else if (action === "scroll" || action === "swipe") {
+    out.add(`${action}@${normalizeAgentDirection(raw.d || raw.direction || "") || "up"}`);
+  } else if (["back", "home", "recents", "notifications", "quick_settings"].includes(action)) {
+    out.add(action);
+  } else if (action === "system_button") {
+    const button = String(raw.button || raw.key || raw.t || "").toLowerCase();
+    if (button.includes("back") || button.includes("返回")) out.add("back");
+    if (button.includes("home") || button.includes("主页")) out.add("home");
+  }
+
+  return Array.from(out).filter(Boolean);
+}
+
+function runtimeBlockedActionSignatures(agentMemory) {
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const out = new Set();
+  const add = (value) => {
+    const text = safeText(value, 260);
+    if (!text) return;
+    const matches = text.match(/(?:tap@\d+,\d+|tap_node@[^\s，。；;:：]+|open@[^\s，。；;:：]+|input@[^\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents|notifications|quick_settings)/g) || [];
+    matches.forEach((item) => out.add(item));
+  };
+
+  if (Array.isArray(memory.blockedActionSignatures)) memory.blockedActionSignatures.forEach(add);
+  if (Array.isArray(memory.verificationEvents)) memory.verificationEvents.forEach(add);
+  if (Array.isArray(memory.blockedActions)) memory.blockedActions.forEach(add);
+  if (Array.isArray(memory.recentActions)) {
+    memory.recentActions
+      .filter((line) => /无进展|拉黑|blocked|no progress|拒绝/.test(String(line || "")))
+      .forEach(add);
+  }
+
+  const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  if (Number(loopSignals.noProgressCount || 0) > 0 && loopSignals.lastActionSignature) add(loopSignals.lastActionSignature);
+  return Array.from(out).slice(-16);
+}
+
+function runtimeVerificationHintForPrompt(agentMemory) {
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  const blockedSignatures = runtimeBlockedActionSignatures(memory);
+  const verificationEvents = Array.isArray(memory.verificationEvents) ? memory.verificationEvents.slice(-5).map((item) => safeText(item, 160)).filter(Boolean) : [];
+  const pending = memory.pendingVerification && typeof memory.pendingVerification === "object" ? memory.pendingVerification : null;
+  const noProgressCount = Number(loopSignals.noProgressCount || 0);
+
+  const lines = [];
+  if (blockedSignatures.length) {
+    lines.push(`Android runtime 已判定这些动作无进展/被临时拉黑：${blockedSignatures.join(" / ")}。禁止再次输出完全相同动作签名。`);
+    lines.push("如果目标入口仍然是正确的，也不要重复同一落点；应换一个更明确的落点、点击文字主体/列表行中心、重新搜索、返回再进，或等待重新截图后再判断。");
+  }
+  if (verificationEvents.length) lines.push(`动作后验证记录：${verificationEvents.join(" | ")}`);
+  if (pending?.signature) lines.push(`当前仍有待验证动作：${safeText(pending.signature, 80)}，下一步必须先根据当前截图判断它是否真的生效。`);
+  if (noProgressCount > 0) lines.push(`Android noProgressCount=${noProgressCount}：当前必须换策略，不能继续 wait 或重复同一坐标。`);
+  return lines.join("\n").slice(0, 1200);
+}
+
+
+function normalizeAgentDeepThinkingMode(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (["0", "false", "off", "none", "fast", "disable", "disabled"].includes(raw)) return "fast";
+  if (["1", "true", "on", "deep", "always", "force", "full"].includes(raw)) return "deep";
+  return "adaptive";
+}
+
+function adaptiveDeepThinkingDecision(goal, snapshot = null, deviceContext = null, agentMemory = null, recentActions = []) {
+  const mode = normalizeAgentDeepThinkingMode(AGENT_GUI_DEEP_THINKING_MODE);
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  const reasons = [];
+  const add = (reason) => {
+    const clean = safeText(reason, 180);
+    if (clean && !reasons.includes(clean)) reasons.push(clean);
+  };
+
+  const noProgressCount = Number(loopSignals.noProgressCount || 0);
+  const blockedSignatures = runtimeBlockedActionSignatures(memory);
+  const verificationEvents = Array.isArray(memory.verificationEvents)
+    ? memory.verificationEvents.slice(-6).map((item) => safeText(item, 180)).filter(Boolean)
+    : [];
+  const pending = memory.pendingVerification && typeof memory.pendingVerification === "object" ? memory.pendingVerification : null;
+  const failedActions = Array.isArray(memory.failedActions) ? memory.failedActions.slice(-4).map((item) => safeText(item, 140)).filter(Boolean) : [];
+  const blockedActions = Array.isArray(memory.blockedActions) ? memory.blockedActions.slice(-4).map((item) => safeText(item, 140)).filter(Boolean) : [];
+  const recentText = [
+    ...verificationEvents,
+    ...failedActions,
+    ...blockedActions,
+    ...(Array.isArray(recentActions) ? recentActions.slice(-5).map((item) => safeText(item, 120)) : []),
+  ].join(" | ");
+
+  if (noProgressCount >= AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS) add(`Android noProgressCount=${noProgressCount}`);
+  if (blockedSignatures.length) add(`Android blockedActionSignatures=${blockedSignatures.slice(0, 5).join("/")}`);
+  if (/无进展|未生效|没有变化|拉黑|blocked|no progress|same screen|stuck|failed verification|验证失败|重复/.test(recentText)) {
+    add("recent runtime verification/action history shows stuck or repeated ineffective action");
+  }
+  if (pending?.signature && (noProgressCount > 0 || blockedSignatures.length)) {
+    add(`pendingVerification still unresolved: ${safeText(pending.signature, 80)}`);
+  }
+
+  const contract = buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory);
+  const domain = safeText(contract.domain || "general", 60);
+  const entity = safeText(contract.targetEntity || "", 80);
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  if (isDomainTask(domain) && (isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot))) {
+    add("external app task is still on assistant/chat host");
+  }
+  if (isDomainTask(domain) && entity) {
+    const texts = [
+      ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
+      ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : []),
+    ].map((item) => normalizeForMatch(item));
+    const normalizedEntity = normalizeForMatch(entity);
+    const matches = texts.filter((item) => normalizedEntity && item.includes(normalizedEntity));
+    if (matches.length >= 3) add(`multiple similar target texts detected for ${safeText(entity, 80)}`);
+  }
+  if (contract.requiredApp && !currentAppSatisfiesTaskContract(contract, snapshot, deviceContext)) {
+    add(`task semantic contract requires app=${contract.requiredApp.label}; current app is not satisfying contract`);
+  }
+  if (contract.requiredApp && /打开|open_app|open app/.test(recentText)) {
+    add("explicit app constraint exists; re-check previous app-open route against task contract");
+  }
+
+  const forcedDeep = mode === "deep";
+  const enabled = forcedDeep || (mode === "adaptive" && reasons.length > 0) || ALIYUN_GUI_ENABLE_THINKING === true;
+  const level = forcedDeep ? "deep" : enabled ? "adaptive_deep" : "fast";
+  const finalReasons = forcedDeep && !reasons.length ? ["AGENT_GUI_DEEP_THINKING_MODE=deep"] : reasons.slice(0, AGENT_GUI_DEEP_THINKING_REASON_MAX);
+  return {
+    mode,
+    enabled,
+    level,
+    reasons: finalReasons,
+    noProgressCount,
+    blockedSignatures: blockedSignatures.slice(0, 8),
+    timeoutExtraMs: enabled ? AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS : 0,
+  };
+}
+
+function deepThinkingPromptBlock(decision) {
+  const d = decision && typeof decision === "object" ? decision : { mode: "adaptive", enabled: false, reasons: [] };
+  if (!d.enabled) {
+    return "Deep thinking policy: adaptive-fast. 当前没有强卡死/风险信号，本轮快速决策；但仍需避免重复无效动作。";
+  }
+  const reasons = Array.isArray(d.reasons) && d.reasons.length ? d.reasons.join("；") : "manual/deep mode enabled";
+  return [
+    `Deep thinking policy: ${d.level || "adaptive_deep"} ENABLED.`,
+    `Trigger reasons: ${reasons}.`,
+    "Before choosing the next mobile_use action, internally re-check: current page, task goal, last failed action, Android verification feedback, and a different route that can create visible progress.",
+    "Do not output chain-of-thought or analysis. Output only the next valid mobile_use action/tool call, but make it the result of this deeper replan.",
+    "When blockedActionSignatures/noProgress exist, the next action must change at least one of: route, target element, tap area, app entry, search query strategy, Back/Home recovery, or wait-for-state reason.",
+  ].join("\n");
+}
+
+
+function runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInfo = null) {
+  const blocked = new Set(runtimeBlockedActionSignatures(agentMemory));
+  if (!blocked.size) return null;
+  const signatures = runtimeActionSignaturesFromCompact(compact, screenshotInfo);
+  const hit = signatures.find((item) => blocked.has(item));
+  if (!hit) return null;
+  return `后端 v12G runtime guard：Android 已把动作 ${hit} 判定为无进展/临时拉黑；本轮禁止再次下发同一动作。请重新观察并换路线、换落点、重新搜索、返回上一层或选择其他入口。`;
+}
+
+function guardGuiPlusParsedPlan(parsed, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions) {
+  const compact = parsed?.guiPlusCompact || parsed?.compactVision || parsed || {};
+  const contractGuarded = guardTaskSemanticContractPlan(parsed, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions);
+  if (contractGuarded !== parsed) return contractGuarded;
+
+  // v52：同步护栏只保留运行态/执行态保护，不再用本地关键词解释任务语义。
+  // 用户意图、目标实体、目标 App、完成标准都交给 AgentBrain/TaskContractJudge 和 GUI Plus。
+  const runtimeBlockedReason = runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInfo);
+  if (runtimeBlockedReason) {
+    const replan = buildGuardedNeedReplanPlan(runtimeBlockedReason, 0.74);
+    replan.guardReason = "runtime_blocked_action_signature";
+    replan.sourceDetail = "guarded_android_runtime_no_progress_signature";
+    replan.runtimeBlockedSignatures = runtimeActionSignaturesFromCompact(compact, screenshotInfo);
+    return replan;
+  }
+
+  return parsed;
+}
+
+
+
 function compactAgentMemoryForPrompt(agentMemory, recentActions) {
   const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const pending = memory.pendingVerification && typeof memory.pendingVerification === "object"
+    ? {
+        signature: safeText(memory.pendingVerification.signature || "", 80),
+        actionSummary: safeText(memory.pendingVerification.actionSummary || "", 160),
+        expectedEvidence: Array.isArray(memory.pendingVerification.expectedEvidence)
+          ? memory.pendingVerification.expectedEvidence.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 6)
+          : [],
+        createdAtLoop: Number(memory.pendingVerification.createdAtLoop || 0),
+      }
+    : null;
+
   return {
     schema: memory.schema || "agent_loop_memory",
     recentActions: Array.isArray(memory.recentActions) ? memory.recentActions.slice(-8) : Array.isArray(recentActions) ? recentActions.slice(-8) : [],
     failedActions: Array.isArray(memory.failedActions) ? memory.failedActions.slice(-8) : [],
     blockedActions: Array.isArray(memory.blockedActions) ? memory.blockedActions.slice(-8) : [],
+    verificationEvents: Array.isArray(memory.verificationEvents) ? memory.verificationEvents.slice(-8) : [],
+    blockedActionSignatures: runtimeBlockedActionSignatures(memory),
+    pendingVerification: pending,
     loopSignals: memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {},
     policyHints: Array.isArray(memory.policyHints) ? memory.policyHints.slice(0, 8) : [],
   };
 }
 
+
+
+
+
+function isAgentBrainRouteRequest(body) {
+  const intent = normalizeIntentName(body?.intent || body?.action || body?.type || body?.requestType);
+  return Boolean(
+    intent === "agent_brain_route" ||
+      body?.agentBrainRoute === true ||
+      body?.responseFormat?.includeAgentBrainRoute === true
+  );
+}
+
+function normalizeAgentBrainRouteName(value) {
+  const raw = String(value || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
+  if (["device", "device_tool", "internal", "internal_tool", "system_tool"].includes(raw)) return "device_tool";
+  if (["hybrid", "mixed", "mix"].includes(raw)) return "hybrid";
+  if (["ask", "ask_user", "clarify", "need_user_help"].includes(raw)) return "ask_user";
+  if (["refuse", "deny", "blocked", "unsafe"].includes(raw)) return "refuse";
+  return "visual_agent";
+}
+
+function normalizeAgentBrainExecutorName(value, fallbackRoute = "") {
+  const raw = String(value || fallbackRoute || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
+  if (["device", "device_tool", "internal", "internal_tool", "system_tool"].includes(raw)) return "device_tool";
+  return "visual_agent";
+}
+
+function normalizeAgentBrainRisk(value) {
+  const raw = String(value || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
+  if (["critical", "danger", "dangerous", "very_high"].includes(raw)) return "critical";
+  if (raw === "high") return "high";
+  if (["medium", "mid"].includes(raw)) return "medium";
+  return "low";
+}
+
+function normalizeAgentBrainToolName(value, executor = "") {
+  const raw = String(value || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
+  const mapped = {
+    open_application: "open_app",
+    launch_app: "open_app",
+    app_open: "open_app",
+    settings: "open_system_settings",
+    open_settings: "open_system_settings",
+    system_settings: "open_system_settings",
+    app_settings: "open_app_settings",
+    app_info: "open_app_settings",
+    open_app_detail: "open_app_settings",
+    brightness: "set_brightness",
+    screen_brightness: "set_brightness",
+    screen_timeout: "set_screen_timeout",
+    sleep_timeout: "set_screen_timeout",
+    auto_rotate: "set_auto_rotate",
+    rotation: "set_auto_rotate",
+    accelerometer_rotation: "set_auto_rotate",
+    media_volume: "set_media_volume",
+    volume: "set_media_volume",
+    set_volume: "set_media_volume",
+    music_volume: "set_media_volume",
+    wifi: "set_wifi_enabled",
+    wi_fi: "set_wifi_enabled",
+    set_wifi: "set_wifi_enabled",
+    wifi_enabled: "set_wifi_enabled",
+    bluetooth: "set_bluetooth_enabled",
+    set_bluetooth: "set_bluetooth_enabled",
+    bluetooth_enabled: "set_bluetooth_enabled",
+    mobile_data: "set_mobile_data_enabled",
+    cellular_data: "set_mobile_data_enabled",
+    data_enabled: "set_mobile_data_enabled",
+    set_data: "set_mobile_data_enabled",
+    dark_mode: "set_dark_mode",
+    night_mode: "set_dark_mode",
+    ui_mode: "set_dark_mode",
+    health: "device_status",
+    device_health: "device_status",
+    shell_status: "shizuku_status",
+    enhanced_status: "shizuku_status",
+    shizuku: "shizuku_status",
+    shizuku_permission: "request_shizuku_permission",
+    request_shizuku: "request_shizuku_permission",
+    animation_scale: "set_animation_scale",
+    force_stop: "force_stop_app",
+    force_stop_application: "force_stop_app",
+    clear_data: "clear_app_data",
+    uninstall: "uninstall_app",
+    disable: "disable_app",
+    enable: "enable_app",
+    add_ledger_record: "ledger_add_record",
+    create_ledger_record: "ledger_add_record",
+    ledger_record_add: "ledger_add_record",
+    ledger_add: "ledger_add_record",
+    set_ledger_budget: "ledger_set_budget",
+    ledger_budget_set: "ledger_set_budget",
+    budget_set: "ledger_set_budget",
+    query_ledger_summary: "ledger_query_summary",
+    ledger_summary: "ledger_query_summary",
+    ledger_query: "ledger_query_summary",
+    list_ledger_records: "ledger_list_records",
+    ledger_records: "ledger_list_records",
+    ledger_list: "ledger_list_records",
+  };
+  const normalized = mapped[raw] || raw;
+  const allowed = new Set([...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"]);
+  if (allowed.has(normalized)) return normalized;
+  return executor === "device_tool" ? "device_status" : "visual_agent";
+}
+function normalizeAgentBrainRoutePlan(value, originalGoal = "") {
+  const raw = value && typeof value === "object" ? value : {};
+  const nested = raw.agentBrainRoute || raw.agentBrain || raw.routePlan || raw.result || raw.plan || raw;
+  const route = normalizeAgentBrainRouteName(nested.route || nested.mode || nested.executor);
+  const risk = normalizeAgentBrainRisk(nested.risk || nested.riskLevel);
+  const confidenceRaw = Number(nested.confidence ?? nested.score ?? 0);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0;
+  const rawSteps = Array.isArray(nested.steps) ? nested.steps : Array.isArray(nested.actions) ? nested.actions : [];
+  const steps = [];
+
+  for (const item of rawSteps.slice(0, 4)) {
+    if (!item || typeof item !== "object") continue;
+    const executor = normalizeAgentBrainExecutorName(item.executor || item.route, route);
+    const tool = normalizeAgentBrainToolName(item.tool || item.action || item.name, executor);
+    const stepRisk = normalizeAgentBrainRisk(item.risk || item.riskLevel || risk);
+    const args = item.args && typeof item.args === "object" ? item.args : item.arguments && typeof item.arguments === "object" ? item.arguments : {};
+    steps.push({
+      executor,
+      tool,
+      args,
+      // DeepSeek 是总主脑，但不能改写 GUI Plus 的视觉目标。
+      goal: executor === "visual_agent" ? safeText(originalGoal, 240) : safeText(item.goal || item.subgoal || "", 240),
+      risk: stepRisk,
+      requiresConfirmation: Boolean(item.requiresConfirmation || item.confirm || ["high", "critical"].includes(stepRisk)),
+      reason: safeText(item.reason || item.rationale || "", 220),
+    });
+  }
+
+  if (!steps.length) {
+    if (route === "device_tool") {
+      steps.push({ executor: "device_tool", tool: "device_status", args: {}, goal: "", risk, requiresConfirmation: ["high", "critical"].includes(risk), reason: "AgentBrain 选择内部工具但未给出具体工具，降级为状态检查。" });
+    } else {
+      steps.push({ executor: "visual_agent", tool: "visual_agent", args: {}, goal: safeText(originalGoal, 240), risk: "low", requiresConfirmation: false, reason: "交给 GUI Plus 官方视觉链路处理。" });
+    }
+  }
+
+  return {
+    route,
+    confidence,
+    risk,
+    reason: safeText(nested.reason || nested.rationale || "", 260),
+    question: safeText(nested.question || nested.ask || "", 180),
+    refusalReason: safeText(nested.refusalReason || nested.refuseReason || "", 220),
+    steps,
+  };
+}
+
+function compactAgentBrainMemoryForRoute(agentMemory, recentActions) {
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  return {
+    recentActions: Array.isArray(memory.recentActions) ? memory.recentActions.slice(-3) : Array.isArray(recentActions) ? recentActions.slice(-3) : [],
+    failedActions: Array.isArray(memory.failedActions) ? memory.failedActions.slice(-2) : [],
+    blockedActions: Array.isArray(memory.blockedActions) ? memory.blockedActions.slice(-2) : [],
+    loopSignals: {
+      executedStepCount: Number(loopSignals.executedStepCount || 0),
+      loopIndex: Number(loopSignals.loopIndex || 0),
+    },
+  };
+}
+
+function agentBrainRouteScreenForPrompt(snapshot) {
+  return {
+    app: safeText(snapshot?.currentApp || snapshot?.packageName || "", 80),
+    pkg: safeText(snapshot?.packageName || snapshot?.currentApp || "", 80),
+    nodes: Number(snapshot?.nodeCount || 0),
+    capturedNodes: Number(snapshot?.capturedNodeCount || 0) || undefined,
+    image: Boolean(snapshot?.confidence?.hasVisualImage || snapshot?.visual?.available),
+    texts: (Array.isArray(snapshot?.texts) ? snapshot.texts : []).slice(0, 8),
+    controls: (Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : [])
+      .map((node) => safeText(node?.text || "", 36))
+      .filter(Boolean)
+      .slice(0, 8),
+  };
+}
+
+function agentBrainRouteKeywordHints(goal) {
+  return {
+    likelySystemTool: false,
+    likelyVisualPage: false,
+    likelyOpenThenVisual: false,
+    highRisk: false,
+    source: "no_keyword_hints",
+  };
+}
+
+function scoreAgentBrainAppCandidate(goal, app, domain, currentPackage) {
+  const g = normalizeAppMatchText(goal);
+  const pkg = safeText(app?.packageName || "", 120);
+  const names = [app?.label, ...(Array.isArray(app?.aliases) ? app.aliases : [])]
+    .map(normalizeAppMatchText)
+    .filter(Boolean);
+  let score = 0;
+  if (pkg && pkg === currentPackage) score += 120;
+  for (const name of names) {
+    if (!name) continue;
+    if (g.includes(name) || name.includes(g)) score = Math.max(score, 1000 + Math.min(name.length, g.length));
+    if (name && g && (g.includes(name.slice(0, Math.min(3, name.length))) || name.includes(g.slice(0, Math.min(3, g.length))))) score = Math.max(score, 260 + Math.min(name.length, g.length));
+  }
+  if (isDomainTask(domain) && appMatchesAnyKeyword(app, agentDomainAppKeywords(domain))) score = Math.max(score, 780);
+  return score;
+}
+
+function agentBrainRouteAppCandidates(goal, snapshot, deviceContext, max = AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX) {
+  const domain = inferAgentInstructionDomain(goal);
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
+  const all = installedAppsFromDeviceContext(deviceContext);
+  const byPackage = new Map();
+
+  const add = (app, scoreBoost = 0, source = "") => {
+    if (!app || !app.label || !app.packageName) return;
+    const score = scoreAgentBrainAppCandidate(goal, app, domain, currentPackage) + scoreBoost;
+    if (score <= 0) return;
+    const existing = byPackage.get(app.packageName);
+    if (!existing || score > existing.score) {
+      byPackage.set(app.packageName, {
+        label: app.label,
+        packageName: app.packageName,
+        aliases: Array.isArray(app.aliases) ? app.aliases.slice(0, 3) : [],
+        score,
+        source: source || app.source || app.match || "ranked",
+      });
+    }
+  };
+
+  for (const app of targetAppCandidatesFromDeviceContext(deviceContext)) add(app, 900, "target_app_candidates");
+  for (const app of rankDomainAppCandidates(deviceContext, domain, max)) add(app, 650, "domain");
+  for (const app of all) add(app, 0, "goal_match");
+
+  return [...byPackage.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((app) => ({
+      label: app.label,
+      packageName: app.packageName,
+      aliases: app.aliases,
+      source: app.source,
+    }));
+}
+
+function compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext) {
+  const compactDevice = deviceContextSummaryForPrompt(deviceContext);
+  const apps = agentBrainRouteAppCandidates(goal, snapshot, deviceContext);
+  return {
+    currentApp: compactDevice.currentApp,
+    screen: compactDevice.screen,
+    installedAppCount: compactDevice.installedAppCount,
+    appCandidates: apps,
+  };
+}
+
+function agentBrainRouteCacheKey(goal, snapshot, deviceContext) {
+  const device = compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext);
+  const screen = agentBrainRouteScreenForPrompt(snapshot);
+  const raw = JSON.stringify({
+    g: normalizeForMatch(goal).slice(0, 120),
+    app: screen.app,
+    pkg: screen.pkg,
+    t: screen.texts.slice(0, 4),
+    c: screen.controls.slice(0, 4),
+    apps: (device.appCandidates || []).slice(0, 6).map((app) => `${app.label}:${app.packageName}`),
+  });
+  return crypto.createHash("sha1").update(raw).digest("hex");
+}
+
+function getCachedAgentBrainRoute(cacheKey) {
+  const item = AGENT_BRAIN_ROUTE_CACHE.get(cacheKey);
+  if (!item) return null;
+  if (Date.now() - Number(item.createdAt || 0) > AGENT_BRAIN_ROUTE_CACHE_TTL_MS) {
+    AGENT_BRAIN_ROUTE_CACHE.delete(cacheKey);
+    return null;
+  }
+  return item.route || null;
+}
+
+function setCachedAgentBrainRoute(cacheKey, route) {
+  if (!cacheKey || !route) return;
+  AGENT_BRAIN_ROUTE_CACHE.set(cacheKey, { createdAt: Date.now(), route });
+  if (AGENT_BRAIN_ROUTE_CACHE.size <= AGENT_BRAIN_ROUTE_CACHE_MAX) return;
+  const entries = [...AGENT_BRAIN_ROUTE_CACHE.entries()].sort((a, b) => Number(a[1]?.createdAt || 0) - Number(b[1]?.createdAt || 0));
+  for (const [key] of entries.slice(0, AGENT_BRAIN_ROUTE_CACHE.size - AGENT_BRAIN_ROUTE_CACHE_MAX)) {
+    AGENT_BRAIN_ROUTE_CACHE.delete(key);
+  }
+}
+
+function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceContext, agentMemory) {
+  const payload = {
+    goal,
+    screen: agentBrainRouteScreenForPrompt(snapshot),
+    device: compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext),
+    memory: compactAgentBrainMemoryForRoute(agentMemory, recentActions),
+    hints: agentBrainRouteKeywordHints(goal),
+    routes: ["device_tool", "visual_agent", "hybrid", "ask_user", "refuse"],
+    tools: [...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"],
+    task: "完整判断路线；不要输出坐标；不要改写视觉目标。",
+  };
+
+  const system = [
+    "你是 Android 手机智能体总主脑，只输出 JSON。",
+    "只做路线判断，不做 GUI 定位，不输出坐标，不替 GUI Plus 点击。",
+    "route 规则：App 内页面/按钮/榜单/联系人/朋友圈=visual_agent；打开 App、系统设置、系统参数、Shizuku/设备状态，以及新增账单、设置预算、查询账单汇总/明细等原生数据能力=device_tool；先打开某 App 再完成 App 内页面=hybrid；信息不足=ask_user；危险或不允许=refuse。",
+    "你必须先看懂用户原始句子，再决定路线。不要让 GUI Plus 裸跑，不要把完整用户指令直接交给 type/input。",
+    "如果当前在 AI 助手页，而用户目标需要外部 App 或内部控制，第一步通常应是 device_tool/open_app 或 hybrid 的 open_app，再让 visual_agent 处理 App 内页面。",
+    "如果目标需要输入搜索词，必须先打开目标 App 并让 GUI/视觉层点击搜索框；只有输入框/键盘/当前焦点已经明确存在时，才允许 type/input。",
+    "visual_agent 的 goal 必须保持用户原始目标；不要改写，但可以在 steps[].reason 中说明子路线。",
+    "会改变系统或账户状态的内部工具必须输出结构化风险字段；强停、清数据、卸载、禁用、启用、动画缩放这类高风险由客户端二次确认。Wi‑Fi/蓝牙/移动数据/深色模式属于增强内部控制，优先 Shizuku/ADB，失败时 Android 会打开设置页兜底。",
+    "账本工具属于原生内部工具，不需要 GUI Plus：ledger_add_record 的 args 必须包含 amount>0、recordType=expense|income，并提供简短 title；category/date 可按语义填写，未提日期用 today。ledger_set_budget 必须包含 amount>=0。ledger_query_summary 与 ledger_list_records 可使用 range=current_month|last_month|last_30_days|current_year|all，分类和收支类型可选。",
+    "只有用户确实要求执行记账、改预算或读取账本时才选择账本工具。讨论记账方法、举例、写文案、问概念时不要执行。新增账单的金额或收支方向无法从语义可靠确定时 route=ask_user，禁止猜金额。",
+    `返回格式：{"agentBrainRoute":{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","confidence":0.0,"risk":"low|medium|high|critical","reason":"","question":"","refusalReason":"","steps":[{"executor":"device_tool|visual_agent","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","args":{},"goal":"","risk":"low|medium|high|critical","requiresConfirmation":false,"reason":""}]}}`,
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+}
+
+async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
+  const goal = safeText(body.agentGoal || body.goal || body.message || body.prompt || prompt, 240);
+  const snapshot = compactScreenSnapshot(body.screenSnapshot || {});
+  const deviceContext = body.deviceContext && typeof body.deviceContext === "object" ? body.deviceContext : {};
+  const agentMemory = body.agentMemory && typeof body.agentMemory === "object" ? body.agentMemory : {};
+  const recentActions = Array.isArray(body.recentAgentActions) ? body.recentAgentActions : [];
+
+  if (!goal) {
+    return { ok: false, error: "empty_agent_goal", code: "empty_agent_goal", version: WORKER_VERSION };
+  }
+
+  let raw = "";
+  let parsed = {};
+  let route = null;
+  let errorText = "";
+  const startedAt = Date.now();
+  const cacheKey = agentBrainRouteCacheKey(goal, snapshot, deviceContext);
+  const cachedRoute = getCachedAgentBrainRoute(cacheKey);
+  if (cachedRoute) {
+    return {
+      ok: true,
+      reply: "AgentBrain 路由已完成。",
+      agentBrainRoute: cachedRoute,
+      routePlan: cachedRoute,
+      source: "agent_brain_route_cache",
+      sourceDetail: "deepseek_v4_cached",
+      model: "deepseek_v4",
+      modelId: "deepseek_v4",
+      modelLabel: "DeepSeek V4 Pro",
+      providerModel: process.env.DEEPSEEK_MODEL || "",
+      elapsedMs: Date.now() - startedAt,
+      cached: true,
+      version: WORKER_VERSION,
+    };
+  }
+
+  try {
+    raw = await callOpenAICompatibleJsonFirst(
+      process.env.DEEPSEEK_BASE_URL,
+      process.env.DEEPSEEK_API_KEY,
+      process.env.DEEPSEEK_MODEL,
+      buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceContext, agentMemory),
+      "DeepSeek AgentBrain Route",
+      {
+        temperature: 0,
+        max_tokens: AGENT_BRAIN_ROUTE_MAX_TOKENS,
+        timeoutMs: AGENT_BRAIN_ROUTE_TIMEOUT_MS,
+        response_format: { type: "json_object" },
+      }
+    );
+    try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+    route = normalizeAgentBrainRoutePlan(parsed, goal);
+    setCachedAgentBrainRoute(cacheKey, route);
+  } catch (error) {
+    errorText = sanitizeProviderError(error, 160);
+    route = normalizeAgentBrainRoutePlan({
+      route: "visual_agent",
+      confidence: 0.25,
+      risk: "low",
+      reason: `AgentBrain 路由暂不可用，安全回退到 GUI Plus 视觉链路：${errorText}`,
+      steps: [{ executor: "visual_agent", tool: "visual_agent", goal, risk: "low", requiresConfirmation: false }],
+    }, goal);
+  }
+
+  return {
+    ok: true,
+    reply: "AgentBrain 路由已完成。",
+    agentBrainRoute: route,
+    routePlan: route,
+    source: errorText ? "agent_brain_route_fallback" : "agent_brain_route",
+    sourceDetail: errorText ? "deepseek_error_fallback_visual" : "deepseek_v4",
+    model: "deepseek_v4",
+    modelId: "deepseek_v4",
+    modelLabel: "DeepSeek V4 Pro",
+    providerModel: process.env.DEEPSEEK_MODEL || "",
+    elapsedMs: Date.now() - startedAt,
+    cached: false,
+    appCandidateCount: agentBrainRouteAppCandidates(goal, snapshot, deviceContext).length,
+    error: errorText || undefined,
+    raw: String(raw || "").slice(0, 900),
+    version: WORKER_VERSION,
+  };
+}
+
+
+async function resolveAgentBrainRouteForStep(goal, snapshot, recentActions, deviceContext, agentMemory, startedAt) {
+  const cleanGoal = safeText(goal, 240);
+  const started = Date.now();
+  if (!cleanGoal) return { route: normalizeAgentBrainRoutePlan({ route: "ask_user", confidence: 0.1, risk: "low", question: "缺少任务目标。", steps: [] }, cleanGoal), source: "agent_brain_empty_goal", elapsedMs: Date.now() - started, error: "empty_goal", cached: false };
+  const cacheKey = agentBrainRouteCacheKey(cleanGoal, snapshot, deviceContext);
+  const cachedRoute = getCachedAgentBrainRoute(cacheKey);
+  if (cachedRoute) return { route: cachedRoute, source: "agent_brain_route_cache", elapsedMs: Date.now() - started, error: "", cached: true };
+  const timeoutMs = boundedAgentTimeoutMs(AGENT_BRAIN_ROUTE_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_BRAIN_ROUTE_TIMEOUT_MS);
+  if (!process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_BASE_URL || !process.env.DEEPSEEK_MODEL || timeoutMs < 500) {
+    const route = normalizeAgentBrainRoutePlan({ route: "visual_agent", confidence: 0.18, risk: "low", reason: "AgentBrain 未配置或预算不足，降级为视觉控制；本地仍不做语义定性。", steps: [{ executor: "visual_agent", tool: "visual_agent", goal: cleanGoal, risk: "low", requiresConfirmation: false }] }, cleanGoal);
+    return { route, source: "agent_brain_unavailable_visual_fallback", elapsedMs: Date.now() - started, error: "agent_brain_unavailable", cached: false };
+  }
+  try {
+    const raw = await callOpenAICompatibleJsonFirst(process.env.DEEPSEEK_BASE_URL, process.env.DEEPSEEK_API_KEY, process.env.DEEPSEEK_MODEL, buildAgentBrainRouteMessages(cleanGoal, snapshot, recentActions, deviceContext, agentMemory), "DeepSeek AgentBrain Route Step", { temperature: 0, max_tokens: AGENT_BRAIN_ROUTE_MAX_TOKENS, timeoutMs, response_format: { type: "json_object" } });
+    let parsed = {};
+    try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
+    const route = normalizeAgentBrainRoutePlan(parsed, cleanGoal);
+    setCachedAgentBrainRoute(cacheKey, route);
+    return { route, source: "agent_brain_route_step_deepseek", elapsedMs: Date.now() - started, error: "", cached: false, raw: safeText(raw, 800) };
+  } catch (error) {
+    const errorText = sanitizeProviderError(error, 160);
+    const route = normalizeAgentBrainRoutePlan({ route: "visual_agent", confidence: 0.22, risk: "low", reason: `AgentBrain 路由暂不可用，回退到视觉控制，但不允许本地语义规则抢判：${errorText}`, steps: [{ executor: "visual_agent", tool: "visual_agent", goal: cleanGoal, risk: "low", requiresConfirmation: false }] }, cleanGoal);
+    return { route, source: "agent_brain_route_step_error_fallback", elapsedMs: Date.now() - started, error: errorText, cached: false };
+  }
+}
+
+function agentBrainRoutePromptBlock(route) {
+  if (!route || typeof route !== "object") return "AgentBrain route: unavailable. Do not infer semantics from local string rules; use original goal and current screenshot.";
+  const steps = Array.isArray(route.steps) ? route.steps.slice(0, 4) : [];
+  const stepLine = steps.length ? steps.map((step, index) => {
+    const args = step?.args && typeof step.args === "object" ? step.args : {};
+    const target = safeText(args.appName || args.app || args.packageName || step.goal || step.reason || "", 90);
+    return `${index + 1}. ${step.executor || "visual_agent"}/${step.tool || "visual_agent"}${target ? ` -> ${target}` : ""}`;
+  }).join("；") : "无明确步骤";
+  return ["AgentBrain route (highest-level controller; GUI Plus is only the visual executor):", `- route=${route.route || "visual_agent"}; confidence=${Number(route.confidence || 0).toFixed(2)}; risk=${route.risk || "low"}`, `- reason=${safeText(route.reason || route.refusalReason || route.question || "", 240)}`, `- steps=${stepLine}`, "GUI Plus must follow this route. If the route says open_app/device_tool first, do not type the full user goal into the current page."].join("\n");
+}
+
+function firstAgentBrainStep(route, predicate) {
+  const steps = Array.isArray(route?.steps) ? route.steps : [];
+  return steps.find((step) => step && typeof step === "object" && (typeof predicate === "function" ? predicate(step) : true)) || null;
+}
+
+function agentBrainRouteStepToAgentStepPayload(route, routeStep, tool, goal) {
+  const args = agentBrainStepArgs(routeStep);
+  const risk = normalizeAgentBrainRisk(routeStep?.risk || route?.risk);
+  const riskLevel = ["high", "critical"].includes(risk) ? "high" : risk === "medium" ? "medium" : "low";
+  const reason = safeText(routeStep?.reason || route?.reason || `AgentBrain 选择结构化工具：${tool}`, 260);
+  return {
+    type: tool,
+    tool,
+    action: tool,
+    appName: safeText(args.appName || args.app || args.label || args.name || routeStep?.appName || routeStep?.targetApp || "", 80) || undefined,
+    packageName: safeText(args.packageName || args.package || args.pkg || routeStep?.packageName || "", 120) || undefined,
+    targetText: safeText(args.targetText || args.target || args.label || args.name || args.page || args.kind || routeStep?.targetText || "", 80) || undefined,
+    text: safeText(args.text || args.inputText || args.value || args.query || routeStep?.text || routeStep?.goal || "", 180) || undefined,
+    durationMs: Number.isFinite(Number(args.durationMs || args.waitMs || args.delayMs)) ? Number(args.durationMs || args.waitMs || args.delayMs) : undefined,
+    reason,
+    riskLevel,
+    requiresConfirmation: Boolean(routeStep?.requiresConfirmation || routeStep?.confirm || ["high", "critical"].includes(risk)),
+    args,
+    arguments: args,
+  };
+}
+
+function shouldUseAgentBrainDirectPreflight(preflightPlan, route) {
+  if (!preflightPlan?.agentStep || !route || typeof route !== "object") return false;
+  const routeName = normalizeAgentBrainRouteName(route.route || "visual_agent");
+  const stepType = normalizeAgentStepType(preflightPlan.agentStep.type);
+  if (["ask_user", "refuse"].includes(routeName)) return true;
+  if (routeName === "device_tool") return stepType === "open_app" || isInternalToolAgentStepType(stepType);
+  if (routeName === "hybrid") return stepType === "open_app" || isInternalToolAgentStepType(stepType);
+  return false;
+}
+
+function agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, reasonTag = "agent_brain_direct") {
+  if (!route || typeof route !== "object") return null;
+  const routeName = normalizeAgentBrainRouteName(route.route || "visual_agent");
+  if (routeName === "ask_user") {
+    const reason = safeText(route.question || route.reason || "AgentBrain 认为信息不足，需要用户补充。", 260);
+    const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: Math.max(0.3, Number(route.confidence || 0)), reason } }, step);
+    return { agentStep: step, agentState: state, source: `${reasonTag}_ask_user` };
+  }
+  if (routeName === "refuse") {
+    const reason = safeText(route.refusalReason || route.reason || "AgentBrain 拒绝执行该任务。", 260);
+    const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason: `REFUSED_BY_AGENT_BRAIN: ${reason}`, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: Math.max(0.4, Number(route.confidence || 0)), reason } }, step);
+    return { agentStep: step, agentState: state, source: `${reasonTag}_refuse` };
+  }
+
+  const deviceStep = firstAgentBrainStep(route, (step) => {
+    const executor = normalizeAgentBrainExecutorName(step?.executor || step?.route, routeName);
+    const tool = normalizeAgentBrainToolName(step?.tool || step?.action || step?.name, executor);
+    return executor === "device_tool" && isInternalToolAgentStepType(tool);
+  });
+  if (deviceStep) {
+    const executor = normalizeAgentBrainExecutorName(deviceStep.executor || deviceStep.route, routeName);
+    const tool = normalizeAgentBrainToolName(deviceStep.tool || deviceStep.action || deviceStep.name, executor);
+    const normalizedArgs = normalizeInternalDeviceToolArgsForAndroid(tool, agentBrainStepArgs(deviceStep));
+    const validation = validateInternalToolArgs(tool, normalizedArgs);
+    if (!validation.ok) {
+      const reason = safeText(validation.question || route.question || "内部工具参数不足，需要用户补充。", 260);
+      const step = normalizeAgentStep(
+        { agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } },
+        snapshot,
+        supportedSteps,
+        goal,
+        screenshotInfo,
+        deviceContext
+      );
+      const state = normalizeAgentState({
+        agentState: {
+          isComplete: false,
+          expectedProgress: false,
+          isWrong: false,
+          confidence: Math.max(0.55, Number(route.confidence || 0.7)),
+          reason,
+          nextHint: reason,
+        },
+      }, step);
+      return { agentStep: step, agentState: state, source: `${reasonTag}_${tool}_missing_args` };
+    }
+    if (supportedSteps.includes(tool)) {
+      const routeStepWithNormalizedArgs = { ...deviceStep, args: normalizedArgs, arguments: normalizedArgs };
+      const step = normalizeAgentStep(
+        { agentStep: agentBrainRouteStepToAgentStepPayload(route, routeStepWithNormalizedArgs, tool, goal) },
+        snapshot,
+        supportedSteps,
+        goal,
+        screenshotInfo,
+        deviceContext
+      );
+      const state = normalizeAgentState({
+        agentState: {
+          isComplete: false,
+          expectedProgress: true,
+          isWrong: false,
+          confidence: Math.max(0.58, Number(route.confidence || 0.7)),
+          reason: step.reason,
+          nextHint: goal,
+        },
+      }, step);
+      return { agentStep: step, agentState: state, source: `${reasonTag}_${tool}` };
+    }
+  }
+
+  const openStep = firstAgentBrainStep(route, (step) => normalizeAgentBrainToolName(step.tool || step.action || step.name, normalizeAgentBrainExecutorName(step.executor || step.route, routeName)) === "open_app");
+  if (openStep && supportedSteps.includes("open_app")) {
+    const args = openStep.args && typeof openStep.args === "object" ? openStep.args : {};
+    const appName = safeText(args.appName || args.app || args.label || args.name || openStep.appName || openStep.targetApp || "", 80);
+    const packageName = safeText(args.packageName || args.package || openStep.packageName || "", 120);
+    if (appName || packageName) {
+      const risk = normalizeAgentBrainRisk(openStep.risk || route.risk);
+      const step = normalizeAgentStep({ agentStep: { type: "open_app", appName: appName || packageName, packageName: packageName || undefined, targetText: appName || packageName, reason: safeText(openStep.reason || route.reason || `AgentBrain 要求先打开 ${appName || packageName}。`, 260), riskLevel: risk === "low" ? "low" : "high", requiresConfirmation: Boolean(openStep.requiresConfirmation || ["high", "critical"].includes(risk)), args } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+      const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.55, Number(route.confidence || 0.72)), reason: step.reason, nextHint: goal } }, step);
+      return { agentStep: step, agentState: state, source: `${reasonTag}_open_app` };
+    }
+  }
+  return null;
+}
+
+function buildRootInternalDeviceToolPlan(tool, args, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, reason, risk = "low") {
+  const type = normalizeAgentStepType(tool);
+  if (!SUPPORTED_AGENT_STEP_TYPES.includes(type) || !supportedSteps.includes(type)) return null;
+  const finalRisk = normalizeRiskLevel(risk);
+  const step = normalizeAgentStep({
+    agentStep: {
+      type,
+      reason: safeText(reason || "普通聊天内部设备工具快速规划器直接命中结构化工具。", 260),
+      riskLevel: finalRisk,
+      requiresConfirmation: ["high", "critical"].includes(finalRisk),
+      args: args && typeof args === "object" ? args : {},
+      arguments: args && typeof args === "object" ? args : {},
+    },
+  }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const state = normalizeAgentState({
+    agentState: {
+      isComplete: false,
+      expectedProgress: true,
+      isWrong: false,
+      confidence: 0.96,
+      reason: step.reason,
+      nextHint: safeText(goal, 120),
+    },
+  }, step);
+  return {
+    agentStep: step,
+    agentState: state,
+    source: `normal_chat_root_internal_${type}`,
+  };
+}
+
+function buildAiInternalDeviceToolPlannerMessages(goal, body, deviceContext, agentMemory) {
+  const payload = {
+    userGoal: safeText(goal || body?.agentGoal || body?.goal || body?.message || body?.prompt || "", 240),
+    executionMode: "normal_chat_internal_tool",
+    device: deviceContext && typeof deviceContext === "object" ? deviceContext : {},
+    memory: agentMemory && typeof agentMemory === "object" ? agentMemory : {},
+    allowedTools: INTERNAL_TOOL_AGENT_STEP_TYPES,
+    outputContract: {
+      internalDeviceToolPlan: {
+        handled: "boolean; true only when the request should be executed as an Android internal device tool now",
+        tool: "one allowed tool or empty string",
+        args: "object; canonical tool arguments. Device tools keep their existing contracts. ledger_add_record uses amount, recordType, title, category, date; ledger_set_budget uses amount; ledger_query_summary/ledger_list_records use range and optional recordType/category/limit",
+        risk: "low|medium|high|critical",
+        requiresConfirmation: "boolean; true for high/critical or destructive actions",
+        reason: "short Chinese reason for execution result UI",
+        confidence: "0.0-1.0"
+      }
+    }
+  };
+  const system = [
+    "你是 Android App 的内部工具规划器，只输出 JSON，不输出教程、不输出自然语言回答。",
+    "你负责真正理解任意用户自然语言指令，并判断它是否应当由 App 原生内部工具直接执行。",
+    "禁止按固定关键词或正则硬匹配意图；必须结合整句话、上下文和用户是否在发出真实执行请求来判断。系统控制、应用启动、设备状态和原生账本能力都属于内部工具。",
+    "如果用户只是在问知识、教程、比较、解释、举例、写作或闲聊，返回 handled=false。目标需要看屏幕点击 App 内 UI 时也返回 handled=false；打开 App 本身属于内部工具，App 打开后的页面导航才交给视觉智能。",
+    "内部工具语义：打开/启动某个 App => open_app，args.appName 或 args.packageName 必须尽量给出；设备/手机/电量/电池/内存/存储/网络/系统健康/手机状态/当前状态 => device_status。",
+    "Shizuku/增强模式/shell 状态 => shizuku_status；请求/申请 Shizuku 授权 => request_shizuku_permission。",
+    "打开系统设置页 => open_system_settings，args.page/kind 必须用规范值之一：system,wifi,bluetooth,battery,display,notification,accessibility,apps,storage,sound,location,data,developer,dnd。开发者/开发人员选项一律 page=developer；WiFi/无线网一律 page=wifi；勿扰/免打扰一律 page=dnd；电池/省电/电池优化一律 page=battery。",
+    "打开某 App 的应用信息/通知/权限/电池后台入口 => open_app_settings，并尽量给 args.appName 或 args.packageName，args.page 可为 details,notification,permission,battery。",
+    "设置亮度 => set_brightness。用户给出明确百分比时 args.percent 为 0-100；用户说调低点/暗一点/降低亮度时 args.deltaPercent=-15；用户说调高点/亮一点/提高亮度时 args.deltaPercent=15；也可给 args.operation=decrease|increase 但优先给 deltaPercent。",
+    "设置媒体音量 => set_media_volume。用户给百分比时 args.percent 为 0-100；调高/调低时给 args.deltaPercent=15 或 -15。",
+    "设置息屏/自动锁屏时间 => set_screen_timeout，args.timeoutMs 为毫秒；设置自动旋转 => set_auto_rotate，args.enabled 为 true/false。",
+    "Wi‑Fi 开关 => set_wifi_enabled；蓝牙开关 => set_bluetooth_enabled；移动数据开关 => set_mobile_data_enabled；深色模式 => set_dark_mode。开/打开/启用/on => args.enabled=true；关/关闭/禁用/off => args.enabled=false；深色模式自动/跟随系统可给 args.mode=auto。",
+    "动画缩放 => set_animation_scale，args.scale 为数值。强停/清除数据/卸载/禁用/启用 App 必须给对应 tool 和目标 appName/packageName；清数据/卸载/禁用为 critical，强停/动画缩放为 high，启用通常 medium。",
+    "账本新增 => ledger_add_record。必须从语义中可靠得到 args.amount（正数）和 args.recordType（expense 或 income）；args.title 是简短事项名，args.category 只能是餐饮、交通、购物、居住、饮品、工资、礼物、其他之一，未指定日期用 args.date=today。像“记一笔午饭18元”应理解为支出 18 元、标题午饭、分类餐饮，而不是靠本地词表套模板。",
+    "设置本月预算 => ledger_set_budget，args.amount 必须是非负数。查询收支汇总 => ledger_query_summary；查询账单列表/最近明细 => ledger_list_records。查询工具 args.range 可为 current_month、last_month、last_30_days、current_year、all，recordType/category 可选，ledger_list_records 的 limit 为 1-20。",
+    "账本工具均为低风险原生数据工具，requiresConfirmation=false。只有用户明确要求执行记账、改预算或读取自己的账本时 handled=true；讨论如何记账、假设示例、仅陈述价格、金额不明确或新增账单的收支方向无法可靠判断时 handled=false，让普通聊天继续追问，禁止猜金额。",
+    "如果一句话既可执行又可回答，应根据完整语义判断用户是否在委托立即执行；不要使用固定命令词表决定。",
+    "返回格式必须严格为：{\"internalDeviceToolPlan\":{\"handled\":true|false,\"tool\":\"...\",\"args\":{},\"risk\":\"low\",\"requiresConfirmation\":false,\"reason\":\"...\",\"confidence\":0.0}}"
+  ].join("\n");
+  return [
+    { role: "system", content: system },
+    { role: "user", content: JSON.stringify(payload) }
+  ];
+}
+function normalizeInternalDeviceToolArgsForAndroid(tool, args) {
+  const raw = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  const out = { ...raw };
+  const normalizeText = (value) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "_");
+  const numberOrNull = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const n = Number(String(value).replace("%", ""));
+    return Number.isFinite(n) ? n : null;
+  };
+  const boolOrNull = (value) => {
+    if (value === true || value === false) return value;
+    const text = normalizeText(value);
+    if (["true", "1", "yes", "on", "enable", "enabled", "open", "start", "开启", "打开", "启用", "开"].includes(text)) return true;
+    if (["false", "0", "no", "off", "disable", "disabled", "close", "stop", "关闭", "关掉", "禁用", "关"].includes(text)) return false;
+    return null;
+  };
+  const normalizePercentTool = (defaultDelta) => {
+    const percent = numberOrNull(out.percent ?? out.brightness ?? out.volume ?? out.value);
+    if (percent !== null) out.percent = Math.max(0, Math.min(100, percent));
+    const delta = numberOrNull(out.deltaPercent ?? out.delta ?? out.brightnessDelta ?? out.volumeDelta ?? out.changePercent ?? out.adjustBy);
+    if (delta !== null && percent === null) out.deltaPercent = Math.max(-100, Math.min(100, delta));
+    const op = normalizeText(out.operation || out.mode || out.adjustment || out.relative || out.direction);
+    if (out.deltaPercent === undefined && percent === null) {
+      if (["decrease", "reduce", "lower", "down", "dim", "darker", "less", "mute", "调低", "降低", "变暗", "小一点", "减小"].includes(op)) out.deltaPercent = -defaultDelta;
+      if (["increase", "raise", "higher", "up", "brighten", "brighter", "more", "调高", "提高", "变亮", "大一点", "增大"].includes(op)) out.deltaPercent = defaultDelta;
+    }
+  };
+  const normalizeSwitchTool = () => {
+    const enabled = boolOrNull(out.enabled ?? out.enable ?? out.on ?? out.state ?? out.value ?? out.mode);
+    if (enabled !== null) out.enabled = enabled;
+  };
+
+  if (tool === "open_app") {
+    if (!out.appName && (out.app || out.application || out.label || out.name || out.target)) out.appName = out.app || out.application || out.label || out.name || out.target;
+    if (!out.packageName && (out.package || out.pkg)) out.packageName = out.package || out.pkg;
+  }
+
+  if (tool === "open_system_settings") {
+    const rawPage = normalizeText(out.page || out.kind || out.target || out.setting);
+    const pageAliases = {
+      wi_fi: "wifi",
+      wifi_settings: "wifi",
+      wireless: "wifi",
+      battery_settings: "battery",
+      battery_optimization: "battery",
+      power: "battery",
+      power_saving: "battery",
+      developer_options: "developer",
+      dev_options: "developer",
+      developer_setting: "developer",
+      development: "developer",
+      application_development: "developer",
+      app: "apps",
+      application: "apps",
+      applications: "apps",
+      app_management: "apps",
+      mobile_data: "data",
+      data_usage: "data",
+      network_data: "data",
+      notifications: "notification",
+      do_not_disturb: "dnd",
+      zen: "dnd",
+      zen_mode: "dnd",
+      dnd_settings: "dnd",
+      accessibility_settings: "accessibility",
+      storage_settings: "storage",
+      display_settings: "display",
+      sound_settings: "sound",
+      location_settings: "location",
+    };
+    const canonical = pageAliases[rawPage] || rawPage;
+    const allowed = new Set(["system", "wifi", "bluetooth", "battery", "display", "notification", "accessibility", "apps", "storage", "sound", "location", "data", "developer", "dnd"]);
+    if (allowed.has(canonical)) {
+      out.page = canonical;
+      out.kind = canonical;
+    }
+  }
+
+  if (tool === "open_app_settings") {
+    const rawPage = normalizeText(out.page || out.kind || out.target);
+    const pageAliases = {
+      info: "details",
+      app_info: "details",
+      application_info: "details",
+      notifications: "notification",
+      permission: "permission",
+      permissions: "permission",
+      battery_optimization: "battery",
+      background: "battery",
+      background_restriction: "battery",
+    };
+    const canonical = pageAliases[rawPage] || rawPage;
+    if (["details", "notification", "permission", "battery"].includes(canonical)) {
+      out.page = canonical;
+      out.kind = canonical;
+    }
+  }
+
+  if (tool === "set_brightness") normalizePercentTool(15);
+  if (tool === "set_media_volume") normalizePercentTool(15);
+
+  if (tool === "set_screen_timeout") {
+    const timeoutMs = Number(out.timeoutMs ?? out.screenTimeoutMs);
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) out.timeoutMs = Math.max(5000, Math.min(30 * 60 * 1000, Math.round(timeoutMs)));
+    const seconds = Number(out.seconds ?? out.second ?? out.sec);
+    if (!out.timeoutMs && Number.isFinite(seconds) && seconds > 0) out.timeoutMs = Math.max(5000, Math.min(30 * 60 * 1000, Math.round(seconds * 1000)));
+    const minutes = Number(out.minutes ?? out.minute ?? out.min);
+    if (!out.timeoutMs && Number.isFinite(minutes) && minutes > 0) out.timeoutMs = Math.max(5000, Math.min(30 * 60 * 1000, Math.round(minutes * 60000)));
+  }
+
+  if (["set_auto_rotate", "set_wifi_enabled", "set_bluetooth_enabled", "set_mobile_data_enabled"].includes(tool)) {
+    normalizeSwitchTool();
+  }
+
+  if (tool === "set_dark_mode") {
+    const mode = normalizeText(out.mode || out.state || out.value);
+    if (["auto", "automatic", "follow", "system", "follow_system", "自动", "跟随系统"].includes(mode)) out.mode = "auto";
+    else {
+      normalizeSwitchTool();
+      if (out.enabled === true) out.mode = "yes";
+      if (out.enabled === false) out.mode = "no";
+    }
+  }
+
+  if (tool === "set_animation_scale") {
+    const scale = numberOrNull(out.scale ?? out.value);
+    if (scale !== null) out.scale = Math.max(0, Math.min(10, scale));
+  }
+
+  const normalizeLedgerRecordType = (value) => {
+    const type = normalizeText(value);
+    if (["expense", "outcome", "spending", "支出"].includes(type)) return "expense";
+    if (["income", "earning", "收入"].includes(type)) return "income";
+    return "";
+  };
+  const normalizeLedgerCategory = (value) => {
+    const category = normalizeText(value);
+    const aliases = {
+      food: "餐饮",
+      meal: "餐饮",
+      dining: "餐饮",
+      餐饮: "餐饮",
+      transport: "交通",
+      transportation: "交通",
+      交通: "交通",
+      shopping: "购物",
+      购物: "购物",
+      housing: "居住",
+      home: "居住",
+      居住: "居住",
+      drink: "饮品",
+      beverage: "饮品",
+      饮品: "饮品",
+      salary: "工资",
+      wage: "工资",
+      工资: "工资",
+      gift: "礼物",
+      礼物: "礼物",
+      other: "其他",
+      others: "其他",
+      其他: "其他",
+    };
+    return aliases[category] || "";
+  };
+  const normalizeLedgerRange = (value) => {
+    const range = normalizeText(value);
+    const aliases = {
+      current_month: "current_month",
+      this_month: "current_month",
+      month: "current_month",
+      本月: "current_month",
+      last_month: "last_month",
+      previous_month: "last_month",
+      上月: "last_month",
+      last_30_days: "last_30_days",
+      recent_30_days: "last_30_days",
+      "30_days": "last_30_days",
+      最近30天: "last_30_days",
+      current_year: "current_year",
+      this_year: "current_year",
+      year: "current_year",
+      本年: "current_year",
+      今年: "current_year",
+      all: "all",
+      all_time: "all",
+      全部: "all",
+    };
+    return aliases[range] || "current_month";
+  };
+
+  if (tool === "ledger_add_record") {
+    const amount = numberOrNull(out.amount ?? out.value);
+    if (amount !== null && amount > 0) out.amount = amount;
+    else delete out.amount;
+    const recordType = normalizeLedgerRecordType(out.recordType ?? out.transactionType ?? out.entryType);
+    if (recordType) out.recordType = recordType;
+    else delete out.recordType;
+    const title = safeText(out.title || out.name || out.description || "", 30);
+    if (title) out.title = title;
+    const category = normalizeLedgerCategory(out.category);
+    out.category = category || "其他";
+    const date = safeText(out.date || out.dateLabel || "today", 24);
+    out.date = date || "today";
+  }
+
+  if (tool === "ledger_set_budget") {
+    const amount = numberOrNull(out.amount ?? out.budget ?? out.value);
+    if (amount !== null && amount >= 0) out.amount = amount;
+    else delete out.amount;
+  }
+
+  if (["ledger_query_summary", "ledger_list_records"].includes(tool)) {
+    out.range = normalizeLedgerRange(out.range ?? out.period ?? out.timeRange);
+    const recordType = normalizeLedgerRecordType(out.recordType ?? out.transactionType ?? out.entryType);
+    if (recordType) out.recordType = recordType;
+    else {
+      delete out.recordType;
+      delete out.transactionType;
+      delete out.entryType;
+    }
+    if (out.category !== undefined) {
+      const category = normalizeLedgerCategory(out.category);
+      if (category) out.category = category;
+      else delete out.category;
+    }
+    if (tool === "ledger_list_records") {
+      const limit = numberOrNull(out.limit ?? out.count);
+      out.limit = limit === null ? 10 : Math.max(1, Math.min(20, Math.round(limit)));
+    }
+  }
+
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== ""));
+}
+
+function validateInternalToolArgs(tool, args) {
+  const normalizedTool = normalizeAgentStepType(tool);
+  const raw = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  if (normalizedTool === "ledger_add_record") {
+    const amount = Number(raw.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, question: "请告诉我要记录的具体金额。" };
+    }
+    if (!["expense", "income"].includes(String(raw.recordType || "").toLowerCase())) {
+      return { ok: false, question: "这笔账是支出还是收入？" };
+    }
+  }
+  if (normalizedTool === "ledger_set_budget") {
+    const amount = Number(raw.amount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      return { ok: false, question: "请告诉我要设置的本月预算金额。" };
+    }
+  }
+  return { ok: true, question: "" };
+}
+
+function parseAiInternalDeviceToolDecision(rawText) {
+  try {
+    const parsed = JSON.parse(extractJsonText(rawText));
+    const plan = parsed?.internalDeviceToolPlan || parsed?.deviceToolPlan || parsed?.plan || parsed;
+    if (!plan || typeof plan !== "object") return null;
+    const handled = plan.handled === true || plan.shouldExecute === true || plan.execute === true;
+    const tool = normalizeAgentStepType(plan.tool || plan.type || plan.action || plan.name || "");
+    const args = plan.args && typeof plan.args === "object" ? plan.args : (plan.arguments && typeof plan.arguments === "object" ? plan.arguments : {});
+    const risk = normalizeRiskLevel(plan.risk || plan.riskLevel || "low");
+    const confidence = Math.max(0, Math.min(1, Number(plan.confidence || 0)));
+    const normalizedArgs = normalizeInternalDeviceToolArgsForAndroid(tool, args);
+    const validation = validateInternalToolArgs(tool, normalizedArgs);
+    return {
+      handled: handled && validation.ok,
+      tool,
+      args: normalizedArgs,
+      risk,
+      requiresConfirmation: Boolean(plan.requiresConfirmation || ["high", "critical"].includes(risk)),
+      reason: safeText(
+        validation.ok
+          ? (plan.reason || plan.explanation || "AI 内部工具规划器返回结构化内部工具。")
+          : (validation.question || plan.reason || "内部工具参数不足，交回普通聊天补充信息。"),
+        260
+      ),
+      confidence,
+      validation,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function resolveNormalChatInternalDeviceToolPlanByAI(goal, body, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, startedAt) {
+  const preferredTimeoutMs = Math.max(
+    4500,
+    Math.min(9000, Number(process.env.INTERNAL_DEVICE_TOOL_PLANNER_TIMEOUT_MS || process.env.AGENT_INTERNAL_DEVICE_TOOL_PLANNER_TIMEOUT_MS || 6500))
+  );
+  const timeoutMs = boundedAgentTimeoutMs(
+    preferredTimeoutMs,
+    agentRemainingBudgetMs(startedAt),
+    preferredTimeoutMs
+  );
+  const maxTokens = Math.max(
+    420,
+    Math.min(900, Number(process.env.INTERNAL_DEVICE_TOOL_PLANNER_MAX_TOKENS || AGENT_BRAIN_ROUTE_MAX_TOKENS || 520))
+  );
+  const messages = buildAiInternalDeviceToolPlannerMessages(goal, body, deviceContext, agentMemory);
+  const providers = [
+    {
+      enabled: Boolean(process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_BASE_URL && process.env.DEEPSEEK_MODEL),
+      base: process.env.DEEPSEEK_BASE_URL,
+      key: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL,
+      name: "DeepSeek NormalChat Internal Device Tool Planner",
+      source: "deepseek_internal_device_tool_planner",
+      temperature: 0,
+    },
+    {
+      enabled: Boolean(process.env.QWEN_API_KEY && process.env.QWEN_BASE_URL && process.env.QWEN_MODEL),
+      base: process.env.QWEN_BASE_URL,
+      key: process.env.QWEN_API_KEY,
+      model: process.env.QWEN_MODEL,
+      name: "Qwen NormalChat Internal Device Tool Planner Fallback",
+      source: "qwen_internal_device_tool_planner_fallback",
+      temperature: 0,
+    },
+  ];
+
+  const attempts = [];
+
+  const buildAcceptedPlan = (decision, providerSource, rawPreview, warning = "") => {
+    const finalRisk = normalizeRiskLevel(decision.risk || "low");
+    const step = normalizeAgentStep({
+      agentStep: {
+        type: decision.tool,
+        reason: decision.reason || "AI 已识别为可执行的 Android 原生内部工具。",
+        riskLevel: finalRisk,
+        requiresConfirmation: Boolean(decision.requiresConfirmation || ["high", "critical"].includes(finalRisk)),
+        args: decision.args || {},
+        arguments: decision.args || {},
+      },
+    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+    const state = normalizeAgentState({
+      agentState: {
+        isComplete: false,
+        expectedProgress: true,
+        isWrong: false,
+        confidence: Math.max(0.62, Number(decision.confidence || 0.82)),
+        reason: step.reason,
+        nextHint: safeText(goal, 120),
+      },
+    }, step);
+    return {
+      plan: {
+        agentStep: step,
+        agentState: state,
+        source: `normal_chat_ai_internal_${decision.tool}`,
+      },
+      debug: {
+        planner: "ai_internal_device_tool_planner",
+        plannerMode: "multi_provider_ai_semantic_planner",
+        provider: providerSource,
+        handled: true,
+        tool: decision.tool,
+        confidence: Number(decision.confidence || 0),
+        risk: finalRisk,
+        timeoutMs,
+        maxTokens,
+        warning,
+        attempts,
+        raw: safeText(rawPreview, 260),
+      },
+    };
+  };
+
+  for (const provider of providers) {
+    if (!provider.enabled) {
+      attempts.push({ provider: provider.source, enabled: false, error: "provider_not_configured" });
+      continue;
+    }
+
+    let raw = "";
+    let decision = null;
+    try {
+      raw = await callOpenAICompatibleJsonFirst(
+        provider.base,
+        provider.key,
+        provider.model,
+        messages,
+        provider.name,
+        {
+          temperature: provider.temperature,
+          max_tokens: maxTokens,
+          timeoutMs,
+          response_format: { type: "json_object" },
+        }
+      );
+      decision = parseAiInternalDeviceToolDecision(raw);
+      attempts.push({
+        provider: provider.source,
+        enabled: true,
+        parsed: Boolean(decision),
+        handled: Boolean(decision?.handled),
+        tool: decision?.tool || "",
+        confidence: Number(decision?.confidence || 0),
+        raw: safeText(raw, 160),
+      });
+    } catch (error) {
+      attempts.push({
+        provider: provider.source,
+        enabled: true,
+        error: sanitizeProviderError(error, 160),
+      });
+      continue;
+    }
+
+    if (!decision || decision.handled !== true || !decision.tool || !isInternalToolAgentStepType(decision.tool)) {
+      continue;
+    }
+
+    if (!supportedSteps.includes(decision.tool) || !SUPPORTED_AGENT_STEP_TYPES.includes(decision.tool)) {
+      attempts.push({
+        provider: provider.source,
+        rejectedTool: decision.tool,
+        error: "tool_not_supported_by_android_client",
+      });
+      continue;
+    }
+
+    return buildAcceptedPlan(decision, provider.source, raw);
+  }
+
+  return {
+    plan: null,
+    debug: {
+      planner: "ai_internal_device_tool_planner",
+      plannerMode: "multi_provider_ai_semantic_planner",
+      handled: false,
+      tool: "",
+      confidence: 0,
+      timeoutMs,
+      maxTokens,
+      error: attempts.map((item) => `${item.provider}:${item.error || item.tool || item.handled || "no_match"}`).join(" | ").slice(0, 260),
+      attempts,
+    },
+  };
+}
+
+function normalChatNoInternalDeviceToolPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, startedAt, requestBytes, readBodyMs) {
+  const reason = "NOT_INTERNAL_DEVICE_TOOL";
+  const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  return {
+    ok: true,
+    reply: "该请求不是可直接执行的内部设备工具，交回普通聊天。",
+    agentStep: step,
+    agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.2, reason },
+    source: "normal_chat_no_device_tool_root",
+    debug: { totalMs: Date.now() - startedAt, readBodyMs, requestBytes, visualCalled: false, normalChatDeviceToolMode: true, rootInternalPlanner: "no_match" },
+    version: WORKER_VERSION,
+  };
+}
+
+
+function taskContractOpenCandidatePlan(contract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, reasonTag = "task_contract_open_candidate") {
+  if (!contract || typeof contract !== "object" || !supportedSteps.includes("open_app")) return null;
+  const source = String(contract.contractSource || contract.source || "").toLowerCase();
+  const neutral = source.includes("neutral") || source.includes("rule_fallback");
+  if (neutral || Number(contract.confidence || 0) < 0.45) return null;
+  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "", 120);
+  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
+  const required = contract.requiredApp && typeof contract.requiredApp === "object" ? contract.requiredApp : null;
+  const candidate = required || (Array.isArray(contract.appCandidates) ? contract.appCandidates[0] : null);
+  if (!candidate || (!candidate.label && !candidate.packageName && !candidate.appName)) return null;
+  if (required && currentAppSatisfiesTaskContract(contract, snapshot, deviceContext)) return null;
+  if (!required && !assistantHost && currentPackage) return null;
+  const appName = safeText(candidate.label || candidate.appName || candidate.name || candidate.packageName || "目标 App", 80);
+  const packageName = safeText(candidate.packageName || candidate.package || "", 120);
+  const reason = safeText(required ? `AgentBrain/TaskContractJudge 要求先打开指定 App：${appName}。` : `AgentBrain/TaskContractJudge 给出候选 App：${appName}，当前仍在非目标页，先打开该 App 再交给 GUI Plus 视觉执行。`, 260);
+  const step = normalizeAgentStep({ agentStep: { type: "open_app", appName, packageName: packageName || undefined, targetText: appName, reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.55, Number(contract.confidence || 0.6)), reason, nextHint: `打开 ${appName} 后继续：${contract.targetEntity || goal}` } }, step);
+  return { agentStep: step, agentState: state, source: reasonTag };
+}
+
+function hasLikelyWritableFocus(snapshot, recentActions = []) {
+  const inputNodes = Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : [];
+  if (inputNodes.length > 0) return true;
+  const recentText = (Array.isArray(recentActions) ? recentActions.slice(-4) : []).join(" ");
+  if (/输入框|搜索框|search box|input box|edit text|EditText|已聚焦|焦点|键盘|IME|光标|点击.*搜索|点击.*输入/i.test(recentText)) return true;
+  const evidence = collectSnapshotEvidenceText(snapshot);
+  return /正在输入|键盘已打开|光标|输入法|IME/.test(evidence);
+}
+
+function guardUnfocusedInputStep(agentStep, agentState, route, contract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentActions, reasonTag = "input_phase_guard") {
+  if (!agentStep || agentStep.type !== "input_text") return { guarded: false, agentStep, agentState, source: "" };
+  if (hasLikelyWritableFocus(snapshot, recentActions)) return { guarded: false, agentStep, agentState, source: "" };
+  const brainOpen = agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, `${reasonTag}_agent_brain`);
+  if (brainOpen && brainOpen.agentStep?.type === "open_app") {
+    brainOpen.agentStep.reason = safeText(`输入相位护栏：当前没有可写焦点，不能直接输入。${brainOpen.agentStep.reason || "按 AgentBrain 路线先打开目标 App。"}`, 260);
+    brainOpen.source = `${reasonTag}_to_agent_brain_open_app`;
+    return { guarded: true, ...brainOpen };
+  }
+  const contractOpen = taskContractOpenCandidatePlan(contract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, `${reasonTag}_to_task_contract_open_app`);
+  if (contractOpen) {
+    contractOpen.agentStep.reason = safeText(`输入相位护栏：当前没有可写焦点，不能直接输入。${contractOpen.agentStep.reason || "先打开目标 App。"}`, 260);
+    return { guarded: true, ...contractOpen };
+  }
+  const reason = safeText("输入相位护栏：GUI Plus 输出 input_text，但当前屏幕没有可写入的输入框/焦点/IME。必须先点击搜索框或打开目标 App，不能把整条用户指令直接输入到当前页面。", 260);
+  const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.42, reason, nextHint: "重新规划：先打开目标 App 或点击搜索框，再输入搜索词。" } }, step);
+  return { guarded: true, agentStep: step, agentState: state, source: reasonTag };
+}
 
 
 function routeEvidenceText(snapshot, visualFrame = null) {
@@ -1837,12 +5091,10 @@ function normalizeAgentRoutePlan(value, fallbackGoal = "") {
 
 function buildLocalRoutePlan(goal, snapshot, visualFrame = null, recentActions = [], deviceContext = null) {
   const normalizedGoal = normalizeForMatch(goal);
-  const evidence = routeEvidenceText(snapshot, visualFrame);
-  const recent = normalizeForMatch(Array.isArray(recentActions) ? recentActions.join(" ") : "");
-  const wantsSettings = ["设置", "settings", "setting", "选项", "账号管理", "隐私", "通用"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
-  const wantsContacts = ["联系人", "通讯录", "contacts"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
   const wantsBack = ["返回", "上一页", "back"].some((word) => normalizedGoal.includes(normalizeForMatch(word)));
 
+  // v52：本地路线规划器不再根据“设置/联系人/股票/音乐”等关键词决定路线。
+  // 只保留系统级直接返回这种无语义歧义的动作；其他全部交给 AgentBrain / GUI Plus。
   if (wantsBack) {
     return normalizeAgentRoutePlan({
       preferredAction: "back",
@@ -1852,74 +5104,7 @@ function buildLocalRoutePlan(goal, snapshot, visualFrame = null, recentActions =
       expectedEvidence: ["上一页"],
       reason: "用户目标本身是返回，直接使用系统 back，避免坐标误点。",
       confidence: 0.86,
-      source: "local_rule",
-    }, goal);
-  }
-
-  if (wantsSettings) {
-    const looksLikeChannelProfile = routeTextContainsAny(evidence, ["个人中心", "我的频道", "我关注的作者", "创建频道", "我发表的帖子", "频道钱包", "签约中心", "频道"]);
-    const settingVisible = routeTextContainsAny(evidence, ["设置", "账号管理", "隐私", "通用", "辅助功能"]);
-    const repeatedSwipe = (recent.match(/swipe|scroll|滑动|滚动/g) || []).length >= 1;
-    if (looksLikeChannelProfile && !settingVisible) {
-      return normalizeAgentRoutePlan({
-        preferredAction: "back",
-        subgoal: "返回上一页；当前个人中心频道页不是设置路径，不要继续在此页滑动找设置",
-        groundingGoal: "点击左上角返回箭头或执行返回，离开当前个人中心频道页",
-        allowScroll: false,
-        expectedEvidence: ["QQ 主页面", "侧边菜单", "设置入口"],
-        avoidEvidence: ["我的频道", "创建频道", "帖子", "频道钱包", "签约中心"],
-        reason: "当前页面是个人中心/频道资料页，未出现设置入口，继续滑动属于盲找，应返回换路径。",
-        confidence: repeatedSwipe ? 0.92 : 0.86,
-        source: "local_rule",
-      }, goal);
-    }
-    if (settingVisible) {
-      return normalizeAgentRoutePlan({
-        preferredAction: "tap_xy",
-        subgoal: "点击屏幕中可见的“设置”入口",
-        groundingGoal: "点击可见的“设置”入口",
-        allowScroll: false,
-        expectedEvidence: ["设置页", "账号管理", "隐私", "通用"],
-        reason: "设置入口已经可见，交给 GUI Plus 精确定位点击。",
-        confidence: 0.82,
-        source: "local_rule",
-      }, goal);
-    }
-    if (repeatedSwipe) {
-      return normalizeAgentRoutePlan({
-        preferredAction: "back",
-        subgoal: "停止在当前页继续滑动，返回上一层重新寻找设置入口",
-        groundingGoal: "点击左上角返回箭头或执行返回",
-        allowScroll: false,
-        expectedEvidence: ["QQ 主页面", "菜单", "设置"],
-        reason: "近期已经滑动但没有找到设置，路线价值低，应返回重选入口。",
-        confidence: 0.78,
-        source: "local_rule",
-      }, goal);
-    }
-    return normalizeAgentRoutePlan({
-      preferredAction: "tap_xy",
-      subgoal: "寻找并点击明确的设置入口；如果当前页没有设置入口，不要盲滑，优先返回上一层",
-      groundingGoal: "点击当前屏幕可见的设置入口；若不可见则返回上一层",
-      allowScroll: false,
-      expectedEvidence: ["设置", "账号管理", "隐私", "通用"],
-      avoidEvidence: ["频道页", "帖子列表", "钱包", "签约中心"],
-      reason: "目标是设置，需要先找到明确设置入口，禁止在无关个人中心页盲目滚动。",
-      confidence: 0.58,
-      source: "local_rule",
-    }, goal);
-  }
-
-  if (wantsContacts) {
-    return normalizeAgentRoutePlan({
-      preferredAction: "tap_xy",
-      subgoal: "点击当前屏幕中可见的“联系人”入口或底部联系人标签",
-      groundingGoal: "点击“联系人”入口",
-      allowScroll: false,
-      expectedEvidence: ["联系人页", "好友", "群聊"],
-      reason: "联系人属于低风险导航入口，交给 GUI Plus 定位可见标签。",
-      confidence: 0.72,
-      source: "local_rule",
+      source: "local_system_action_only",
     }, goal);
   }
 
@@ -1930,9 +5115,9 @@ function buildLocalRoutePlan(goal, snapshot, visualFrame = null, recentActions =
     allowScroll: true,
     expectedEvidence: [],
     avoidEvidence: [],
-    reason: "没有命中特定路线规则，使用用户目标作为当前子目标。",
-    confidence: 0.42,
-    source: "local_fallback",
+    reason: "本地不解释任务语义，仅把原始目标交给 AgentBrain/GUI Plus。",
+    confidence: 0.2,
+    source: "local_neutral_fallback",
   }, goal);
 }
 
@@ -2104,7 +5289,7 @@ function buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot = false) {
     "- tap_xy 的 x/y 必须是 0 到 1 的归一化屏幕坐标；不要输出像素。",
     "- 图片中能看见目标但节点没有时，用 tap_xy；节点明确对应目标时可用 tap_node。",
     "- 页面加载、动画或空白时 wait；能探索时 scroll/swipe；不要因为节点少就直接失败。",
-    "- 涉及支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码时，riskLevel=high 且 requiresConfirmation=true。",
+    "- 风险字段必须来自候选动作语义后果：普通规划器不要用固定词语给动作升风险；不确定时保持 low，交给 ActionSafetyJudge 复核。",
     hasScreenshot ? "- 当前请求含截图，应优先看图规划，返回一步最小动作。" : "- 当前请求无截图，不能猜复杂页面是否完成。",
   ].join("\n");
 }
@@ -2185,7 +5370,8 @@ function buildAgentPlannerMessages(goal, snapshot, supportedSteps, screenshotInf
       "每次只返回一步",
       "入口可见不等于完成",
       "tap_xy 返回 0-1 归一化坐标",
-      "高风险动作 requiresConfirmation=true"
+      "高风险动作 requiresConfirmation=true",
+      "如果 memory.blockedActionSignatures 或 memory.verificationEvents 提示某动作无进展，禁止再次输出同一动作签名；必须换路线。"
     ],
   };
 
@@ -2293,9 +5479,13 @@ function cleanupAgentSessions() {
 
 function normalizeAgentSessionId(body, goal) {
   const raw = safeText(body?.agentSessionId || body?.sessionId || body?.agentMemory?.loopSignals?.agentSessionId || "", 100);
-  if (raw) return raw;
-  const fallback = normalizeForMatch(goal).slice(0, 40) || "anonymous";
-  return `agent_${fallback}`;
+  // 旧 Android 端在没有 agentMemory.loopIndex 时会每轮生成新的 android-agent-时间戳，
+  // 导致后端会话缓存失效，每轮重复跑 AgentBrain + TaskContractJudge + GUI Plus，极易撞上 18 秒读超时。
+  // 对这种易变 ID 使用 goal 稳定键；显式外部 sessionId 仍保留。
+  if (raw && !/^android-agent-\d+$/i.test(raw)) return raw;
+  const fallback = normalizeForMatch(goal).slice(0, 80) || "anonymous";
+  const hash = crypto.createHash("sha1").update(fallback).digest("hex").slice(0, 16);
+  return `agent_goal_${hash}`;
 }
 
 function getAgentSession(body, goal) {
@@ -2315,14 +5505,16 @@ function getAgentSession(body, goal) {
     updatedAt: Date.now(),
     step: 0,
     guiHistory: [],
-    outcomeHistory: [],
-    lastOutcomeFeedback: null,
     visualFrame: null,
     lastFingerprint: "",
     lastStableScreenKey: "",
     lastActionKey: "",
     lastObservationReason: "",
     failedVisualCount: 0,
+    taskSemanticContract: null,
+    agentBrainRoute: null,
+    agentBrainSource: "",
+    agentBrainError: "",
   };
   AGENT_SESSIONS.set(id, created);
   return created;
@@ -2339,64 +5531,6 @@ function newAgentGuiSessionId() {
 function trimAgentGuiHistory(session) {
   if (!session || !Array.isArray(session.guiHistory)) return;
   while (session.guiHistory.length > AGENT_GUI_HISTORY_N) session.guiHistory.shift();
-}
-
-function trimAgentOutcomeHistory(session) {
-  if (!session || !Array.isArray(session.outcomeHistory)) return;
-  while (session.outcomeHistory.length > AGENT_OUTCOME_HISTORY_N) session.outcomeHistory.shift();
-}
-
-function agentOutcomeFeedbackKey(feedback) {
-  if (!feedback) return "";
-  return [
-    feedback.result || "",
-    feedback.actionSummary || "",
-    feedback.reason || "",
-    feedback.nextHint || "",
-  ].join("|").slice(0, 420);
-}
-
-function rememberAgentOutcomeFeedback(session, feedback) {
-  if (!session || !feedback) return false;
-  if (!Array.isArray(session.outcomeHistory)) session.outcomeHistory = [];
-  const key = agentOutcomeFeedbackKey(feedback);
-  const lastKey = agentOutcomeFeedbackKey(session.outcomeHistory[session.outcomeHistory.length - 1]);
-  if (key && key === lastKey) {
-    session.lastOutcomeFeedback = session.outcomeHistory[session.outcomeHistory.length - 1] || feedback;
-    return false;
-  }
-  const stored = {
-    result: feedback.result || "uncertain",
-    isComplete: Boolean(feedback.isComplete),
-    expectedProgress: Boolean(feedback.expectedProgress),
-    isWrong: Boolean(feedback.isWrong),
-    confidence: Number.isFinite(Number(feedback.confidence)) ? Math.max(0, Math.min(1, Number(feedback.confidence))) : 0.35,
-    actionSummary: safeText(feedback.actionSummary || "", 180),
-    observedSummary: safeText(feedback.observedSummary || "", 220),
-    reason: safeText(feedback.reason || "", 260),
-    nextHint: safeText(feedback.nextHint || "", 220),
-    createdAt: feedback.createdAt || Date.now(),
-  };
-  session.outcomeHistory.push(stored);
-  session.lastOutcomeFeedback = stored;
-  trimAgentOutcomeHistory(session);
-  return true;
-}
-
-function formatAgentOutcomeHistoryForPrompt(session) {
-  const history = Array.isArray(session?.outcomeHistory) ? session.outcomeHistory.slice(-AGENT_OUTCOME_HISTORY_N) : [];
-  if (!history.length) return "None";
-  return history.map((item, index) => {
-    const parts = [
-      `Outcome ${index + 1}: result=${item.result || "uncertain"}`,
-      `confidence=${Number(item.confidence || 0).toFixed(2)}`,
-    ];
-    if (item.actionSummary) parts.push(`action=${item.actionSummary}`);
-    if (item.observedSummary) parts.push(`observed=${item.observedSummary}`);
-    if (item.reason) parts.push(`reason=${item.reason}`);
-    if (item.nextHint) parts.push(`next=${item.nextHint}`);
-    return parts.join(" | ");
-  }).join("\n");
 }
 
 function rememberAgentGuiTurn(session, screenshotInfo, rawOutput, compactAction = null) {
@@ -2432,53 +5566,6 @@ function aliyunGuiDateInfo() {
   } catch (_) {
     return "";
   }
-}
-
-function buildOfficialGuiPlusInstruction(goal, snapshot = {}, deviceContext = null) {
-  const baseGoal = safeText(goal, 260);
-  if (!ALIYUN_GUI_TASK_GUARDS) return baseGoal;
-
-  const evidenceText = [
-    baseGoal,
-    snapshot?.currentApp || "",
-    snapshot?.packageName || "",
-    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
-    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((node) => node?.text || "") : []),
-  ].join(" ");
-  const normalized = normalizeForMatch(evidenceText);
-  const appText = normalizeForMatch([
-    snapshot?.currentApp || "",
-    snapshot?.packageName || "",
-    deviceContext?.currentApp || "",
-    deviceContext?.packageName || "",
-  ].join(" "));
-  const wantsSettings = ["设置", "settings", "setting", "账号管理", "隐私", "通用", "消息通知", "安全"].some((word) => normalized.includes(normalizeForMatch(word)));
-  const inQq = appText.includes("qq") || appText.includes("com.tencent.mobileqq") || normalized.includes("qq");
-
-  const rules = [
-    "You are the full mobile_use agent for this task, not a coordinate-only locator.",
-    "Use the task, current screenshot, previous screenshots, and previous actions together to choose the next single mobile_use action.",
-    "Do not repeat a previous click if the following screenshot shows no progress. Try a different route or go back.",
-    "Only terminate success when the current screenshot visibly proves the task is complete. Do not terminate just because an entry icon is visible.",
-  ];
-
-  if (wantsSettings) {
-    rules.push("For a settings task, success requires visible settings-page evidence such as a Settings title or items like Account management, Privacy, General, Notifications, or Security.");
-    rules.push("If the current page is clearly unrelated to settings, use Back rather than scrolling blindly.");
-  }
-
-  if (wantsSettings && inQq) {
-    rules.push("QQ-specific route hint: QQ settings are usually reached from the top-left avatar/profile/side drawer, then the Settings entry.");
-    rules.push("The bottom tabs such as Messages, Contacts, Dynamic, Channels, or XiaoShijie are not the settings page.");
-    rules.push("If you enter Dynamic, XiaoShijie, Channels, a feed, or an unrelated profile/channel page while looking for QQ settings, go Back and choose a different route.");
-  }
-
-  return [
-    baseGoal,
-    "",
-    "Agent rules:",
-    ...rules.map((rule) => `- ${rule}`),
-  ].join("\n");
 }
 
 function extractMobileUseActionSummary(output) {
@@ -2692,68 +5779,6 @@ function countRecentActionKind(recentActions, kind) {
   return recentActions.filter((line) => normalizeForMatch(line).includes(k)).length;
 }
 
-function latestPendingInputTextFromRecent(recentActions) {
-  if (!Array.isArray(recentActions) || !recentActions.length) return "";
-  for (let i = recentActions.length - 1; i >= 0; i -= 1) {
-    const line = safeText(recentActions[i], 260);
-    const normalized = normalizeForMatch(line);
-    if (!normalized.includes("input_text") && !normalized.includes("输入文字") && !normalized.includes("输入")) continue;
-    const quoted = line.match(/[“"]([^”"]{1,80})[”"]/);
-    if (quoted?.[1]) return safeText(quoted[1], 80);
-    const m = line.match(/(?:输入文字|输入|input_text|text)[:：\s]+(.{1,80})/i);
-    if (m?.[1]) return safeText(m[1].replace(/[。；;].*$/u, ""), 80);
-  }
-  return "";
-}
-
-function shouldGuardSubmitBeforeInput(agentStep, recentActions, snapshot) {
-  if (!agentStep || agentStep.type !== "tap_xy") return false;
-  const text = normalizeForMatch([
-    agentStep.targetText || "",
-    agentStep.reason || "",
-    ...(Array.isArray(snapshot?.texts) ? snapshot.texts.slice(0, 12) : []),
-  ].join(" "));
-  const looksLikeSubmit = ["搜索", "search", "提交", "submit", "确认", "enter"].some((word) => text.includes(normalizeForMatch(word)));
-  if (!looksLikeSubmit) return false;
-  const pendingInput = latestPendingInputTextFromRecent(recentActions);
-  if (!pendingInput) return false;
-  const alreadyVisible = normalizeForMatch([
-    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
-    ...(Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes.map((node) => node?.text || node?.value || "") : []),
-  ].join(" ")).includes(normalizeForMatch(pendingInput));
-  return !alreadyVisible;
-}
-
-function guardSubmitBeforeInput(agentStep, agentState, recentActions, snapshot, supportedSteps, goal, screenshotInfo, deviceContext) {
-  if (!shouldGuardSubmitBeforeInput(agentStep, recentActions, snapshot)) return { agentStep, agentState, guarded: false };
-  const pendingInput = latestPendingInputTextFromRecent(recentActions);
-  if (pendingInput && supportedSteps.includes("input_text")) {
-    const guardedStep = normalizeAgentStep({
-      agentStep: {
-        type: "input_text",
-        text: pendingInput,
-        reason: "A pending query text was not visible yet; input the text before tapping Search/Submit.",
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const guardedState = normalizeAgentState({
-      agentState: {
-        isComplete: false,
-        expectedProgress: true,
-        isWrong: false,
-        confidence: Math.max(0.55, Number(agentState?.confidence || 0.55)),
-        reason: guardedStep.reason,
-      },
-    }, guardedStep);
-    return { agentStep: guardedStep, agentState: guardedState, guarded: true };
-  }
-  const reason = "Search/Submit was requested before the pending input text was visible; pause to avoid an empty search.";
-  const guardedStep = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  const guardedState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.42, reason } }, guardedStep);
-  return { agentStep: guardedStep, agentState: guardedState, guarded: true };
-}
-
 function evidenceTextForCompletion(snapshot, visualFrame) {
   const parts = [];
   if (visualFrame && typeof visualFrame === "object") {
@@ -2900,7 +5925,8 @@ function buildAgentTextPlannerMessages(goal, snapshot, supportedSteps, visualFra
       "如果 visualSuggestionConsumed=true 且当前页面没有明显变化，不要重复同一个视觉建议动作。",
       "除非页面明显加载/空白/动画过渡，否则不要返回 wait；连续 wait 一次后仍无变化，应 finish、换路径、back 或 need_user_help。",
       "如果当前视觉状态或主体文本已经证明进入目标栏目/目标功能默认子页，应直接 finish。",
-      "高风险动作 requiresConfirmation=true。"
+      "高风险动作 requiresConfirmation=true。",
+      "If memory.blockedActionSignatures or verificationEvents says an action made no progress, do not output the same action signature again; choose a different route or target point."
     ],
   };
   return [
@@ -2974,14 +6000,14 @@ function buildAgentVisionPlannerSystemPrompt(supportedSteps) {
     "- 如果使用节点辅助，n/t 应对应节点；如果节点与视觉不一致，以截图视觉为准。",
     "",
     "动作策略：",
-    "- 低风险导航点击要果断：设置、首页、行情、联系人、搜索、热榜、榜单、资讯、Tab、列表入口、返回、展开菜单等。",
+    "- 只改变可见状态、页面层级或选择状态的入口点击要果断；不要用固定词语判断风险。",
     "- 目标控件可见且未完成：s=p，a=tap_xy 或 tap_node，给 x/y 或 n。",
     "- 目标页面已经打开且主体内容切换：s=d，a=finish。",
     "- 入口不在当前屏但页面可滚动：a=scroll 或 swipe。",
     "- 当前页面明显偏离目标：s=w，a=back。",
     "- 只有截图明显加载、空白、刷新、跳转动画时才 a=wait；普通静止页面禁止 wait。",
     "- 除非没有截图、没有任何候选、也无法探索，否则不要 need_user_help。",
-    "- 支付、转账、下单、删除、发送、发布、授权、登录、验证码、密码：r=high 且 q=true。",
+    "- r/q 必须来自候选动作的语义后果；不要根据目标或屏幕里的固定词语直接升风险。",
     "",
     "禁止事项：",
     "- 不要定位调试浮窗、状态栏、广告、无关头像或无关搜索框。",
@@ -3159,6 +6185,11 @@ function adaptCompactVisionPlan(parsed) {
   const appName = safeText(parsed.appName ?? parsed.app ?? parsed.packageLabel ?? (actionType === "open_app" ? targetText : ""), 80);
   const packageName = safeText(parsed.packageName ?? parsed.package ?? "", 120);
   const inputText = safeText(parsed.v ?? parsed.text ?? parsed.inputText ?? "", 180);
+  const parsedInputMode = normalizeInputMode(parsed.inputMode ?? parsed.input_mode ?? parsed.im ?? parsed.inputStrategy ?? parsed.inputAction ?? "");
+  const inputMode = actionType === "input_text" ? (parsedInputMode || "focused_direct") : parsedInputMode;
+  const requiresInputNode = actionType === "input_text"
+    ? booleanFromValue(parsed.requiresInputNode ?? parsed.requires_input_node ?? parsed.inputNodeRequired, inputMode === "node")
+    : false;
   const direction = normalizeAgentDirection(parsed.d ?? parsed.direction ?? "");
   let reason = safeText(parsed.e ?? parsed.evidence ?? parsed.reason ?? parsed.rationale ?? bestCandidate?.evidence ?? "视觉定位规划。", 160);
   const isComplete = status === "complete";
@@ -3168,12 +6199,12 @@ function adaptCompactVisionPlan(parsed) {
     actionType = "tap_xy";
     reason = reason || "候选目标已经定位，执行低风险点击。";
   }
-  if ((actionType === "tap_xy" || actionType === "long_press") && (!found || !hasCoordinate)) {
+  if (actionType === "tap_xy" && (!found || !hasCoordinate)) {
     actionType = "need_user_help";
     reason = found ? "视觉定位未给出可靠中心坐标。" : "视觉未可靠定位目标控件，禁止猜坐标。";
   }
 
-  const expectedProgress = isComplete || status === "progress" || ["tap_xy", "tap_node", "long_press", "scroll", "swipe", "wait", "back"].includes(actionType);
+  const expectedProgress = isComplete || status === "progress" || ["tap_xy", "tap_node", "input_text", "scroll", "swipe", "wait", "back"].includes(actionType);
   const targetVisible = found && (hasCoordinate || Boolean(targetText));
   return {
     agentState: {
@@ -3198,10 +6229,12 @@ function adaptCompactVisionPlan(parsed) {
       suggestedAction: {
         type: actionType === "finish" ? "" : actionType,
         targetText,
-        x: ["tap_xy", "long_press"].includes(actionType) && hasCoordinate ? x : undefined,
-        y: ["tap_xy", "long_press"].includes(actionType) && hasCoordinate ? y : undefined,
+        x: actionType === "tap_xy" && hasCoordinate ? x : undefined,
+        y: actionType === "tap_xy" && hasCoordinate ? y : undefined,
         direction,
         reason,
+        inputMode: actionType === "input_text" ? inputMode || "focused_direct" : undefined,
+        requiresInputNode: actionType === "input_text" ? requiresInputNode : undefined,
       },
       completionEvidence: isComplete ? reason : "",
       reason,
@@ -3216,12 +6249,16 @@ function adaptCompactVisionPlan(parsed) {
       targetNodeId: targetNodeId || undefined,
       targetText: targetText || undefined,
       text: actionType === "input_text" ? inputText : inputText || undefined,
+      inputMode: actionType === "input_text" ? inputMode || "focused_direct" : inputMode || undefined,
+      requiresInputNode: actionType === "input_text" ? requiresInputNode : undefined,
+      expectsFocusedInput: actionType === "input_text" ? (inputMode !== "node") : undefined,
+      useFocusedInput: actionType === "input_text" ? (inputMode !== "node") : undefined,
       direction: ["scroll", "swipe"].includes(actionType) ? direction || "up" : direction || undefined,
-      x: ["tap_xy", "long_press"].includes(actionType) && hasCoordinate ? x : undefined,
-      y: ["tap_xy", "long_press"].includes(actionType) && hasCoordinate ? y : undefined,
+      x: actionType === "tap_xy" && hasCoordinate ? x : undefined,
+      y: actionType === "tap_xy" && hasCoordinate ? y : undefined,
       x2: actionType === "swipe" ? parsed.x2 : undefined,
       y2: actionType === "swipe" ? parsed.y2 : undefined,
-      durationMs: actionType === "wait" ? Number(parsed.ms || parsed.durationMs || 500) : actionType === "long_press" ? Number(parsed.ms || parsed.durationMs || 650) : undefined,
+      durationMs: actionType === "wait" ? Number(parsed.ms || parsed.durationMs || 500) : undefined,
       reason,
       riskLevel,
       requiresConfirmation,
@@ -3672,7 +6709,12 @@ function buildAliyunMobileUseToolProtocolPrompt() {
     "- Be brief: one for Action.",
     "- Do not output anything else outside those two parts.",
     "- The mobile_use screen resolution is 1000x1000, regardless of the source screenshot resolution.",
-    "- If the requested low-risk target is clearly visible, call mobile_use with action=click and coordinate at the target center.",
+    "- If the requested low-risk target is clearly visible, call mobile_use with action=click and coordinate at the target center, except when the text is only inside the AI assistant chat history or overlay.",
+    "- Never click the user's chat bubble or assistant reply bubble as a way to satisfy the instruction; those are historical messages, not app UI targets.",
+    "- For text input tasks, action=type means typing into the currently activated/focused input field. If no keyboard, caret, or focused input field is visible, first click the visible search/input field and wait for focus.",
+    "- Never call action=type just because a search field exists visually; click it first unless it is already focused.",
+    "- For implicit app tasks, such as stock detail pages, maps, music, video, or travel queries, you may call action=open with the best candidate app name from the instruction.",
+    "- If the current page is unrelated to the instruction, prefer action=open, system_button Back, or Home to recover; do not click unrelated avatars, ads, random cards, or irrelevant bottom tabs.",
     "- Use action=wait only when the visible app page is genuinely loading or transitioning.",
     "- Use action=terminate only when the task is truly complete or impossible from the current screen.",
   ].join("\n");
@@ -3680,31 +6722,36 @@ function buildAliyunMobileUseToolProtocolPrompt() {
 
 function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null, session = null) {
   const history = Array.isArray(session?.guiHistory) ? session.guiHistory.slice(-AGENT_GUI_HISTORY_N) : [];
-  const officialInstruction = buildOfficialGuiPlusInstruction(goal, snapshot, deviceContext);
+  const enhancedInstruction = buildEnhancedGuiPlusInstruction(goal, snapshot, deviceContext, agentMemory);
+  const deepThinking = adaptiveDeepThinkingDecision(goal, snapshot, deviceContext, agentMemory, recentActions);
   const executorActions = (Array.isArray(recentActions) ? recentActions : [])
-    .slice(-6)
-    .map((item, index) => `Android ${index + 1}: ${safeText(item, 180)}`)
+    .slice(-8)
+    .map((item, index) => `Android ${index + 1}: ${safeText(item, 220)}`)
     .filter((line) => line.trim().length > 12);
   const modelActions = history
     .map((item, index) => `GUI ${index + 1}: ${extractMobileUseActionSummary(item.output)}`)
     .filter((line) => line.trim().length > 8);
-  const previousActions = [...modelActions, ...executorActions].slice(-10).join("\n") || "None";
-  const previousOutcomes = formatAgentOutcomeHistoryForPrompt(session);
+  const previousActions = [...executorActions, ...modelActions].slice(-12).join("\n") || "None";
 
   const instructionPrompt = [
     "Please generate the next move according to the UI screenshot, instruction and previous actions.",
     "",
-    `Instruction: ${aliyunGuiDateInfo()}${officialInstruction}`,
+    `Instruction: ${aliyunGuiDateInfo()}${enhancedInstruction}`,
     "",
     "Previous actions:",
     previousActions,
     "",
-    "Previous outcomes:",
-    previousOutcomes,
-    "",
     "Important:",
-    "Use the previous actions and the current screenshot together. If a previous click did not make progress toward the instruction, choose a different route instead of repeating it.",
-    "Treat previous outcomes as causal evidence: complete means stop, progress means continue from the new state, wrong means recover or backtrack, and uncertain means observe carefully before acting.",
+    "You are the visual-control agent brain, not a passive coordinate executor. Understand the full instruction yourself and choose the next mobile_use action from the screenshot and installed apps.",
+    "Do not rely on local semantic contracts. Local rules only guard unsafe/impossible actions after your plan.",
+    "If the user names an app and the current screen is not that app, use mobile_use open with that app name as the first step. Example: open QQ settings => open QQ first, then find Settings inside QQ.",
+    "For implicit targets such as stock detail pages, maps, music, video, travel, or app pages, infer a suitable app from the instruction and installed app list; use mobile_use open when needed.",
+    "If a previous click did not make progress toward the instruction, choose a different route instead of repeating it.",
+    "For search or other text input, first click the visible input/search field. Only use mobile_use type after the current screenshot shows a focused field, caret, keyboard, or an active search page ready for typing.",
+    "If the input box is visually present but not focused, do not type yet; click the input box first.",
+    "If the target is not visible and the current page is unrelated, prefer open/back/home over random taps.",
+    "If the current screenshot is the AI assistant chat page, ignore chat bubbles, assistant replies, copy/retry buttons and the bottom chat input; for external app tasks use mobile_use open first.",
+    deepThinkingPromptBlock(deepThinking),
   ].join("\n");
 
   const messages = [
@@ -3776,6 +6823,22 @@ function extractAliyunMobileUseToolCall(rawOutput) {
   return null;
 }
 
+function normalizeMobileUseArgsPayload(args) {
+  if (!args) return null;
+  if (typeof args === "string") {
+    const raw = args.trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      const extracted = extractGuiPlusJsonOrArray(raw);
+      return extracted && typeof extracted === "object" ? extracted : null;
+    }
+  }
+  return typeof args === "object" ? args : null;
+}
+
 function normalizeAliyunMobileUseToolCallObject(value) {
   if (!value || typeof value !== "object") return null;
   if (Array.isArray(value.tool_calls) && value.tool_calls.length) {
@@ -3790,48 +6853,76 @@ function normalizeAliyunMobileUseToolCallObject(value) {
   }
   if (value.function && typeof value.function === "object") {
     const name = safeText(value.function.name || value.name || "", 64);
-    let args = value.function.arguments;
-    if (typeof args === "string") {
-      try { args = JSON.parse(args); } catch (_) { args = {}; }
-    }
-    if (name === "mobile_use" && args && typeof args === "object") return args;
+    const args = normalizeMobileUseArgsPayload(value.function.arguments);
+    if (name === "mobile_use" && args) return args;
   }
   const name = safeText(value.name || value.functionName || value.toolName || "", 64);
-  const args = value.arguments || value.args || value.parameters || value.input;
-  if (name === "mobile_use" && args && typeof args === "object") return args;
+  const args = normalizeMobileUseArgsPayload(value.arguments || value.args || value.parameters || value.input);
+  if (name === "mobile_use" && args) return args;
   if (value.action && typeof value.action === "string") return value;
   return null;
 }
 
-function normalizeMobileUseCoordinatePair(coordinate) {
-  if (!Array.isArray(coordinate) || coordinate.length < 2) return null;
-  const rawX = Number(coordinate[0]);
-  const rawY = Number(coordinate[1]);
-  if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return null;
+function rawMobileUseCoordinatePair(coordinate, fallback = null) {
+  const candidates = [];
+  if (coordinate !== undefined && coordinate !== null) candidates.push(coordinate);
+  if (fallback && typeof fallback === "object") {
+    candidates.push(
+      fallback.coordinate,
+      fallback.coordinates,
+      fallback.point,
+      fallback.position,
+      fallback.xy,
+      fallback.center,
+      fallback.coord,
+    );
+    const x = fallback.x ?? fallback.cx ?? fallback.centerX ?? fallback.targetX ?? fallback.tapX;
+    const y = fallback.y ?? fallback.cy ?? fallback.centerY ?? fallback.targetY ?? fallback.tapY;
+    if (x !== undefined || y !== undefined) candidates.push({ x, y });
+  }
+
+  for (const item of candidates) {
+    if (item === undefined || item === null) continue;
+    let x;
+    let y;
+    if (Array.isArray(item) && item.length >= 2) {
+      x = item[0];
+      y = item[1];
+    } else if (typeof item === "object") {
+      x = item.x ?? item[0] ?? item.cx ?? item.centerX ?? item.targetX ?? item.tapX ?? item.left;
+      y = item.y ?? item[1] ?? item.cy ?? item.centerY ?? item.targetY ?? item.tapY ?? item.top;
+    } else if (typeof item === "string") {
+      const nums = item.match(/-?\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) || [];
+      if (nums.length >= 2) {
+        x = nums[0];
+        y = nums[1];
+      }
+    }
+    const rawX = Number(x);
+    const rawY = Number(y);
+    if (Number.isFinite(rawX) && Number.isFinite(rawY)) return { rawX, rawY };
+  }
+
+  return null;
+}
+
+function normalizeMobileUseCoordinatePair(coordinate, fallback = null) {
+  const pair = rawMobileUseCoordinatePair(coordinate, fallback);
+  if (!pair) return null;
+  const { rawX, rawY } = pair;
   if (rawX < 0 || rawX > 1000 || rawY < 0 || rawY > 1000) return null;
   return { x: clamp01(rawX / 1000), y: clamp01(rawY / 1000), source: "mobile_use_1000" };
 }
 
-function compactMobileUseToolArgs(args) {
-  if (!args || typeof args !== "object") return null;
-  const out = {
-    action: safeText(args.action || "", 32),
-  };
-  if (Array.isArray(args.coordinate)) out.coordinate = args.coordinate.slice(0, 2).map((value) => Number(value));
-  if (Array.isArray(args.coordinate2)) out.coordinate2 = args.coordinate2.slice(0, 2).map((value) => Number(value));
-  if (args.text !== undefined) out.text = safeText(args.text, 160);
-  if (args.button !== undefined) out.button = safeText(args.button, 32);
-  if (args.status !== undefined) out.status = safeText(args.status, 32);
-  if (args.time !== undefined) out.time = Number(args.time);
-  return out;
-}
-
 function mobileUseSwipeDirection(args) {
-  const a = Array.isArray(args?.coordinate) ? args.coordinate : [];
-  const b = Array.isArray(args?.coordinate2) ? args.coordinate2 : [];
-  if (a.length < 2 || b.length < 2) return normalizeAgentDirection(args?.direction || "") || "up";
-  const dx = Number(b[0]) - Number(a[0]);
-  const dy = Number(b[1]) - Number(a[1]);
+  const a = rawMobileUseCoordinatePair(args?.coordinate, args);
+  const b = rawMobileUseCoordinatePair(args?.coordinate2 ?? args?.endCoordinate ?? args?.end ?? args?.to ?? args?.point2, {
+    x: args?.x2 ?? args?.endX ?? args?.toX,
+    y: args?.y2 ?? args?.endY ?? args?.toY,
+  });
+  if (!a || !b) return normalizeAgentDirection(args?.direction || "") || "up";
+  const dx = Number(b.rawX) - Number(a.rawX);
+  const dy = Number(b.rawY) - Number(a.rawY);
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return "up";
   if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
   return dy > 0 ? "down" : "up";
@@ -3847,16 +6938,8 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   const text = safeText(args.text || args.button || args.status || actionLine || goal || "目标", 120);
   const confidence = 0.82;
 
-  if (action === "long_press") {
-    const point = normalizeMobileUseCoordinatePair(args.coordinate);
-    if (!point) return guiPlusNeedUserHelp(text, "GUI Plus mobile_use long_press missing reliable coordinates.", rawText);
-    const seconds = Number(args.time);
-    const ms = Number.isFinite(seconds) ? Math.max(350, Math.min(1800, Math.round(seconds * 1000))) : 650;
-    return { s: "p", a: "long_press", x: point.x, y: point.y, ms, t: text || "long press target", c: 0.72, e: `GUI Plus mobile_use long_press (${point.source}).`, raw: rawText.slice(0, 1200) };
-  }
-
   if (action === "click") {
-    const point = normalizeMobileUseCoordinatePair(args.coordinate);
+    const point = normalizeMobileUseCoordinatePair(args.coordinate, args);
     if (!point) return guiPlusNeedUserHelp(text, "GUI Plus mobile_use click 缺少可靠坐标。", rawText);
     return { s: "p", a: "tap_xy", x: point.x, y: point.y, t: text || "点击目标", c: confidence, e: `GUI Plus mobile_use click (${point.source}).`, raw: rawText.slice(0, 1200) };
   }
@@ -3876,8 +6959,11 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   }
 
   if (action === "swipe") {
-    const p1 = normalizeMobileUseCoordinatePair(args.coordinate);
-    const p2 = normalizeMobileUseCoordinatePair(args.coordinate2);
+    const p1 = normalizeMobileUseCoordinatePair(args.coordinate, args);
+    const p2 = normalizeMobileUseCoordinatePair(args.coordinate2 ?? args.endCoordinate ?? args.end ?? args.to ?? args.point2, {
+      x: args.x2 ?? args.endX ?? args.toX,
+      y: args.y2 ?? args.endY ?? args.toY,
+    });
     return {
       s: "p",
       a: "swipe",
@@ -3894,7 +6980,19 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   }
 
   if (action === "type") {
-    return { s: "p", a: "input_text", v: safeText(args.text || "", 180), t: "输入文字", c: 0.72, e: "GUI Plus mobile_use type.", raw: rawText.slice(0, 1200) };
+    return {
+      s: "p",
+      a: "input_text",
+      v: safeText(args.text || "", 180),
+      t: "输入文字",
+      c: 0.72,
+      e: "GUI Plus mobile_use type：向当前已激活/聚焦的输入框输入文字；不要求 Android 无障碍树暴露 inputNodes。",
+      inputMode: "focused_direct",
+      requiresInputNode: false,
+      expectsFocusedInput: true,
+      useFocusedInput: true,
+      raw: rawText.slice(0, 1200),
+    };
   }
 
   if (action === "key") {
@@ -3915,15 +7013,30 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   }
 
   if (action === "open") {
+    const openTextRaw = safeText(args.text || actionLine || text || goal || "打开应用", 160);
+    const pkgMatch = openTextRaw.match(/([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+){1,})/);
+    const appName = safeText(
+      openTextRaw
+        .replace(/^(打开|启动|进入|open)\s*/i, "")
+        .replace(/\([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+){1,}\)/g, "")
+        .replace(/[，。,.；;].*$/g, "")
+        .trim() || goal,
+      80
+    );
     return {
       s: "p",
       a: "open_app",
-      appName: text || goal,
-      t: text || goal || "打开应用",
-      c: 0.72,
-      e: "GUI Plus mobile_use open.",
+      appName: appName || openTextRaw || goal,
+      packageName: pkgMatch ? pkgMatch[1] : undefined,
+      t: appName || openTextRaw || goal || "打开应用",
+      c: 0.76,
+      e: "GUI Plus mobile_use open：按增强任务上下文打开合适 App。",
       raw: rawText.slice(0, 1200),
     };
+  }
+
+  if (action === "long_press") {
+    return guiPlusNeedUserHelp(text || goal, "第一阶段不自动执行 mobile_use long_press，已保守暂停。", rawText);
   }
 
   return guiPlusNeedUserHelp(text || goal, `未知 mobile_use action=${safeText(action, 32)}。`, rawText);
@@ -3964,18 +7077,19 @@ function toDashScopeNativeMessages(messages) {
   }).filter((message) => message.content.length > 0);
 }
 
-async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs) {
+async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs, options = {}) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing");
   const endpoint = `${aliyunGuiNativeBaseUrl()}/services/aigc/multimodal-generation/generation`;
+  const enableThinking = Boolean(options?.enableThinking || ALIYUN_GUI_ENABLE_THINKING);
   const payload = {
     model,
     input: { messages: toDashScopeNativeMessages(messages) },
     parameters: {
       vl_high_resolution_images: ALIYUN_GUI_HIGH_RESOLUTION_IMAGES,
-      enable_thinking: ALIYUN_GUI_ENABLE_THINKING,
+      enable_thinking: enableThinking,
     },
   };
-  const r = await fetchWithTimeout(endpoint, {
+  const { response: r, text: t } = await fetchTextWithTimeout(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -3984,7 +7098,6 @@ async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs)
     },
     body: JSON.stringify(payload),
   }, timeoutMs || ALIYUN_GUI_TIMEOUT_MS);
-  const t = await r.text();
   if (!r.ok) throw new Error(`Aliyun GUI Plus native ${r.status} ${t.slice(0, 300)}`);
   let data;
   try { data = JSON.parse(t); } catch (_) { throw new Error(`Aliyun GUI Plus native invalid_json_response ${t.slice(0, 160)}`); }
@@ -4007,24 +7120,33 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
   // messages=[{role:"user", content:[{type:"text"}, {type:"image_url"}]}]
   // 如果后续官方文档要求 DashScope 原生专用接口，只替换本函数即可；下游仍保持 compact action JSON。
   const startedAt = Date.now();
+  const deepThinking = adaptiveDeepThinkingDecision(goal, snapshot, deviceContext, agentMemory, recentActions);
+  // 这里必须尊重上层按剩余预算传入的 timeoutMs。旧版使用 Math.max(timeoutMs, ALIYUN_GUI_TIMEOUT_MS)，
+  // 会把本来已经压缩到 9~12 秒的 GUI Plus 调用重新放大到全局上限，导致 Android 18 秒读超时。
+  const callerTimeoutMs = Number(timeoutMs || 0);
+  const requestedTimeoutMs = callerTimeoutMs > 0
+    ? callerTimeoutMs
+    : Math.min(Number(ALIYUN_GUI_TIMEOUT_MS || 15000), AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS);
   const boundedTimeoutMs = Math.max(
     300,
     Math.min(
-      Math.max(Number(timeoutMs || 0), Number(ALIYUN_GUI_TIMEOUT_MS || 15000)),
-      Math.max(300, Number(AGENT_STEP_TOTAL_BUDGET_MS || 18000) - AGENT_RESPONSE_SAFETY_MARGIN_MS)
+      requestedTimeoutMs,
+      Math.max(300, Number(AGENT_STEP_TOTAL_BUDGET_MS || 15000) - AGENT_RESPONSE_SAFETY_MARGIN_MS)
     )
   );
   const messages = buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions, supportedSteps, deviceContext, agentMemory, session);
   const sessionId = session?.guiSessionId || newAgentGuiSessionId();
   // v40.5：严格按阿里官方 Python 示例路线走 DashScope 原生 MultiModalConversation，
   // 不再由 openai-compatible 分支承载 GUI Plus 官方 mobile_use 循环。
-  const raw = await callDashScopeNativeGuiPlus(ALIYUN_GUI_MODEL, messages, sessionId, boundedTimeoutMs);
+  const raw = await callDashScopeNativeGuiPlus(ALIYUN_GUI_MODEL, messages, sessionId, boundedTimeoutMs, {
+    enableThinking: deepThinking.enabled,
+    deepThinking,
+  });
   const compact = normalizeAliyunMobileUseRawToCompact(raw, screenshotInfo, goal);
-  const mobileUse = compactMobileUseToolArgs(extractAliyunMobileUseToolCall(raw));
-  if (mobileUse) compact.mobileUse = mobileUse;
   rememberAgentGuiTurn(session, screenshotInfo, raw, compact);
-  logGuiProviderCall("aliyun_gui_plus", ALIYUN_GUI_MODEL, screenshotInfo, Date.now() - startedAt, compact, `mode=${ALIYUN_GUI_API_MODE} rawLen=${raw.length} history=${session?.guiHistory?.length || 0}`);
-  return { ...adaptCompactVisionPlan(compact), guiPlusRawOutput: raw, guiPlusCompact: compact };
+  const deepLog = deepThinking.enabled ? ` deep=${deepThinking.level} reasons=${(deepThinking.reasons || []).join("|").slice(0, 220)}` : " deep=fast";
+  logGuiProviderCall("aliyun_gui_plus", ALIYUN_GUI_MODEL, screenshotInfo, Date.now() - startedAt, compact, `mode=${ALIYUN_GUI_API_MODE} rawLen=${raw.length} history=${session?.guiHistory?.length || 0}${deepLog}`);
+  return { ...adaptCompactVisionPlan(compact), guiPlusRawOutput: raw, guiPlusCompact: compact, guiDeepThinking: deepThinking };
 }
 
 async function callExternalHttpGuiProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
@@ -4036,12 +7158,11 @@ async function callExternalHttpGuiProvider(goal, snapshot, screenshotInfo, sessi
   if (AGENT_GUI_PROVIDER_API_KEY) {
     headers.authorization = `Bearer ${AGENT_GUI_PROVIDER_API_KEY}`;
   }
-  const r = await fetchWithTimeout(AGENT_GUI_PROVIDER_URL, {
+  const { response: r, text: t } = await fetchTextWithTimeout(AGENT_GUI_PROVIDER_URL, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
   }, Math.max(300, Number(timeoutMs || AGENT_GUI_PROVIDER_TIMEOUT_MS || AGENT_STEP_VISION_TIMEOUT_MS)));
-  const t = await r.text();
   if (!r.ok) {
     throw new Error(`GUI provider ${providerConfig.provider} ${r.status} ${t.slice(0, 260)}`);
   }
@@ -4122,25 +7243,7 @@ function cachedFrameNeedsTextPlanner(visualFrame, recentActions) {
 }
 
 function findGoalMatchedClickableNode(goal, snapshot) {
-  const core = goalCoreForCompletion(goal, {});
-  const normalizedGoal = normalizeForMatch(goal);
-  const nodes = Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : [];
-  let best = null;
-  let bestScore = 0;
-  for (const node of nodes) {
-    const text = safeText(node?.text || "", 80);
-    const normalizedText = normalizeForMatch(text);
-    if (!normalizedText || normalizedText.length < 2) continue;
-    let score = 0;
-    if (core && normalizedText === core) score = 1000;
-    else if (core && (normalizedText.includes(core) || core.includes(normalizedText))) score = 880 + Math.min(core.length, normalizedText.length);
-    else if (normalizedGoal && normalizedGoal.includes(normalizedText)) score = 650 + normalizedText.length;
-    if (score > bestScore) {
-      bestScore = score;
-      best = node;
-    }
-  }
-  return bestScore >= 650 ? best : null;
+  return null;
 }
 
 function buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, reasonTag = "local_fallback") {
@@ -4180,8 +7283,7 @@ function buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame
     return { agentStep: step, agentState: state, parsed: null, source: `open_app_${reasonTag}`, reason: step.reason };
   }
 
-  const highRiskRequested = HIGH_RISK_AGENT_WORDS.some((word) => normalizeForMatch(goal).includes(normalizeForMatch(word)));
-  const matchedNode = highRiskRequested ? null : findGoalMatchedClickableNode(goal, snapshot);
+  const matchedNode = findGoalMatchedClickableNode(goal, snapshot);
   if (matchedNode && supportedSteps.includes("tap_node")) {
     const step = normalizeAgentStep({
       agentStep: {
@@ -4300,6 +7402,11 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     screenshotInfo,
     deviceContext,
     agentMemory,
+    taskContractJudgeMs = 0,
+    agentBrainRoute = null,
+    agentBrainMs = 0,
+    agentBrainSource = "",
+    agentBrainError = "",
     recentAgentActions,
     requestBytes,
     readBodyMs,
@@ -4307,7 +7414,6 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     guiProviderConfig,
     baseMeta,
     qwenProviderModel,
-    outcomeFeedbackAccepted,
   } = context;
 
 
@@ -4321,6 +7427,8 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
   let agentStep = null;
   let agentState = null;
   let planSource = "aliyun_gui_plus_official_mobile_use";
+  let inputPhaseGuarded = false;
+  let inputPhaseGuardReason = "";
 
   if (!screenshotInfo?.hasImage) {
     const reason = "阿里云 GUI Plus 官方循环需要截图，但本次请求没有 screenshot。";
@@ -4333,9 +7441,36 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.25, reason } }, agentStep);
     planSource = "aliyun_gui_plus_official_unconfigured";
   } else {
+    // v60: official GUI Plus remains the visual-control brain.
+    // Only AgentBrain's explicit device_tool / hybrid open_app / ask/refuse route may preflight it.
+    // No local natural-language keyword parser is allowed to steal visual-control tasks here.
+    const candidatePreflightPlan = agentBrainRouteToDirectAgentPlan(agentBrainRoute, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, "official_agent_brain_preflight");
+    const preflightPlan = shouldUseAgentBrainDirectPreflight(candidatePreflightPlan, agentBrainRoute) ? candidatePreflightPlan : null;
+    if (preflightPlan) {
+      parsed = {
+        agentStep: preflightPlan.agentStep,
+        agentState: preflightPlan.agentState,
+        guiPlusCompact: { a: preflightPlan.agentStep.type, appName: preflightPlan.agentStep.appName, packageName: preflightPlan.agentStep.packageName, t: preflightPlan.agentStep.targetText, e: preflightPlan.agentStep.reason, c: preflightPlan.agentState.confidence },
+        visualFrame: { pageTitle: "AgentBrain 预检", pageType: "agent_brain_preflight", summary: preflightPlan.agentStep.reason, isComplete: false, isWrong: false, targetText: preflightPlan.agentStep.targetText || preflightPlan.agentStep.appName || "", confidence: preflightPlan.agentState.confidence, reason: preflightPlan.agentStep.reason },
+      };
+      providerMs = 0;
+      visualFrame = normalizeVisualFrame(parsed);
+      agentStep = preflightPlan.agentStep;
+      agentState = preflightPlan.agentState;
+      planSource = preflightPlan.source || "official_agent_brain_preflight";
+    } else {
     try {
-      const timeoutMs = boundedAgentTimeoutMs(ALIYUN_GUI_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), ALIYUN_GUI_TIMEOUT_MS);
+      const timeoutMs = boundedAgentTimeoutMs(
+        Math.min(ALIYUN_GUI_TIMEOUT_MS, AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS),
+        agentRemainingBudgetMs(startedAt),
+        AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS
+      );
       parsed = await callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session, recentAgentActions, supportedSteps, deviceContext, agentMemory, guiProviderConfig, timeoutMs);
+      const guardedParsed = guardGuiPlusParsedPlan(parsed, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentAgentActions);
+      if (guardedParsed !== parsed) {
+        parsed = guardedParsed;
+        planSource = parsed?.sourceDetail || parsed?.guardReason || "guarded_gui_plus_action";
+      }
       providerMs = Date.now() - providerStartedAt;
       visualFrame = normalizeVisualFrame(parsed);
       if (isVisualFrameCacheable(visualFrame)) {
@@ -4350,12 +7485,6 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       if (parsedVisionPlanHasUsableStep(parsed) || parsed?.agentState?.isComplete) {
         agentStep = normalizeAgentStep(parsed, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
         agentState = normalizeAgentState(parsed, agentStep);
-        const submitGuard = guardSubmitBeforeInput(agentStep, agentState, recentAgentActions, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-        if (submitGuard.guarded) {
-          agentStep = submitGuard.agentStep;
-          agentState = submitGuard.agentState;
-          planSource = "aliyun_gui_plus_guarded_submit_before_input";
-        }
       } else {
         const compact = parsed?.guiPlusCompact || {};
         const reason = compact.e || visualFrame?.reason || "GUI Plus 官方循环没有返回可执行 mobile_use 动作，已暂停避免盲目操作。";
@@ -4372,15 +7501,35 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       agentState = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.22, reason } }, agentStep);
       planSource = "aliyun_gui_plus_official_failed";
     }
+    }
+  }
+
+  const inputGuard = guardUnfocusedInputStep(agentStep, agentState, agentBrainRoute, agentMemory?.taskSemanticContract || agentMemory?.semanticTaskContract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, "official_input_phase_guard");
+  if (inputGuard.guarded) {
+    agentStep = inputGuard.agentStep;
+    agentState = inputGuard.agentState;
+    inputPhaseGuarded = true;
+    inputPhaseGuardReason = inputGuard.agentStep?.reason || "input_phase_guard";
+    planSource = inputGuard.source || `${planSource || "official_gui"}_input_phase_guard`;
+  }
+
+  let semanticSafety = null;
+  if (agentStep && !agentState?.isComplete && shouldRunOfficialSemanticSafety(agentStep, startedAt)) {
+    semanticSafety = await judgeActionSemanticSafety(goal, snapshot, deviceContext, agentMemory, parsed, agentStep, startedAt);
+    const appliedSafety = applySemanticSafetyToAgentPlan(agentStep, agentState, parsed, semanticSafety);
+    agentStep = appliedSafety.agentStep;
+    agentState = appliedSafety.agentState;
+    if (semanticSafety?.source) planSource = `${planSource}_semantic_safety`;
   }
 
   const screenshotBytesApprox = screenshotInfo.hasImage ? Math.round((String(screenshotInfo.base64 || "").length * 3) / 4) : 0;
   const promptChars = JSON.stringify({ goal, history: session?.guiHistory?.length || 0, snapshotHints: { texts: (snapshot.texts || []).slice(0, 12), clickableNodes: (snapshot.clickableNodes || []).slice(0, 12) } }).length;
   const totalMs = Date.now() - startedAt;
-  const agentSteps = normalizeAgentStepBatch(parsed, agentStep, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  let agentSteps = normalizeAgentStepBatch(parsed, agentStep, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  agentSteps = ensurePrimaryStepInBatch(agentSteps, agentStep);
   const actionBatch = agentSteps.slice();
   const stopConditions = ["visual_after_input", "visual_after_system_action", "visual_after_uncertain_progress"];
-  const visualCalled = Boolean(planSource !== "aliyun_gui_plus_official_no_screenshot" && planSource !== "aliyun_gui_plus_official_unconfigured");
+  const visualCalled = Boolean(providerMs > 0 || parsed?.guiPlusRawOutput);
 
   return {
     ok: true,
@@ -4414,7 +7563,10 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     deviceIntent: null,
     deviceIntentError: null,
     visualFrame,
-    routePlan: null,
+    semanticSafety,
+    routePlan: agentBrainRoute,
+    agentBrainRoute,
+    taskSemanticContract: agentMemory?.taskSemanticContract || agentMemory?.semanticTaskContract || null,
     debug: {
       currentApp: snapshot.currentApp,
       packageName: snapshot.packageName,
@@ -4429,6 +7581,19 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       installedAppCount: installedAppsFromDeviceContext(deviceContext).length,
       plannerAppCount: plannerAppsForPrompt(deviceContext, goal, screenshotInfo.hasImage).length,
       memorySignals: compactAgentMemoryForPrompt(agentMemory, recentAgentActions).loopSignals,
+      taskRuntime: { contractSource: agentMemory?.taskSemanticContract?.contractSource || "", agentBrainRoute: agentBrainRoute || null },
+      taskSemanticContract: agentMemory?.taskSemanticContract || agentMemory?.semanticTaskContract || null,
+      semanticSafety,
+      semanticSafetyMode: AGENT_SEMANTIC_JUDGE_MODE,
+      taskContractJudgeMode: AGENT_TASK_CONTRACT_JUDGE_MODE,
+      taskContractJudgeMs,
+      agentBrainRoute,
+      agentBrainMs,
+      agentBrainSource,
+      agentBrainError,
+      inputPhaseGuarded,
+      inputPhaseGuardReason,
+      taskProgress: null,
       requestBytes,
       readBodyMs,
       promptChars,
@@ -4441,7 +7606,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       routeGuarded: false,
       routeGuardReason: "",
       groundingGoal: goal,
-      routePlan: null,
+      routePlan: agentBrainRoute,
       parseMs: 0,
       totalMs,
       agentStepTotalBudgetMs: AGENT_STEP_TOTAL_BUDGET_MS,
@@ -4449,7 +7614,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       agentStepTextFallbackTimeoutMs: 0,
       remainingBudgetMs: agentRemainingBudgetMs(startedAt),
       singleModelLoop: true,
-      blockedVisionThenText: false,
+      blockedVisionThenText: true,
       visionJsonMode: false,
       compactVisionMode: false,
       guiGroundingMode: false,
@@ -4458,18 +7623,14 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       strictOfficialLoop: AGENT_GUI_STRICT_OFFICIAL_LOOP,
       textPlannerDisabled: true,
       qwenFallbackDisabled: !AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN,
-      enableLayeredGuiAgent: ENABLE_LAYERED_GUI_AGENT,
       guiSessionId: session.guiSessionId || "",
       guiHistoryCount: Array.isArray(session.guiHistory) ? session.guiHistory.length : 0,
-      outcomeHistoryCount: Array.isArray(session.outcomeHistory) ? session.outcomeHistory.length : 0,
-      lastOutcomeFeedback: session.lastOutcomeFeedback || null,
-      outcomeFeedbackAccepted: Boolean(outcomeFeedbackAccepted),
       guiApiMode: "dashscope_native_forced",
       guiHighResolutionImages: ALIYUN_GUI_HIGH_RESOLUTION_IMAGES,
       guiEnableThinking: ALIYUN_GUI_ENABLE_THINKING,
       pluggableGuiProvider: true,
       layeredAgentRuntime: false,
-      agentArchitecture: "aliyun_gui_plus_official_native_session_loop",
+      agentArchitecture: "gui_plus_visual_brain_direct_with_runtime_guards",
       guiProvider: guiProviderConfig.provider,
       requestedGuiProvider: guiProviderConfig.requestedProvider,
       guiProviderMode: guiProviderConfig.mode,
@@ -4477,7 +7638,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       guiProviderFallbackToQwen: Boolean(guiProviderConfig.fallbackToQwen),
       guiProviderFallbackReason: guiProviderConfig.fallbackReason || "",
       fastVisionMaxTokens: Math.min(ALIYUN_GUI_MAX_TOKENS, AGENT_VISION_MAX_TOKENS, 512),
-      fastVisionPrompt: "aliyun_official_mobile_use_loop_v5_native_session",
+      fastVisionPrompt: "aliyun_official_mobile_use_loop_v10_gui_plus_visual_brain_direct",
       visualCalled,
       visualCacheHit: false,
       androidRequestedVisual: Boolean(agentMemory?.loopSignals?.forceNextVisual),
@@ -4500,6 +7661,39 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
   };
 }
 
+
+function refreshCachedTaskContractForScreen(contract, snapshot, deviceContext) {
+  if (!contract || typeof contract !== "object") return contract;
+  const requiredAppActive = currentAppSatisfiesTaskContract(contract, snapshot, deviceContext);
+  const assistantHost = isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot);
+  return {
+    ...contract,
+    current: {
+      ...(contract.current && typeof contract.current === "object" ? contract.current : {}),
+      requiredAppActive,
+      assistantHost,
+      phase: requiredAppActive ? "visual_execute" : assistantHost ? "leave_assistant_open_target_app" : "visual_execute",
+    },
+  };
+}
+
+function cachedAgentBrainRouteUsable(route) {
+  if (!route || typeof route !== "object") return false;
+  const routeName = normalizeAgentBrainRouteName(route.route || "visual_agent");
+  if (["refuse", "ask_user"].includes(routeName)) return true;
+  const confidence = Number(route.confidence || 0);
+  return confidence >= 0.18 || Array.isArray(route.steps);
+}
+
+function shouldRunOfficialSemanticSafety(agentStep, startedAt) {
+  if (!agentStep) return false;
+  if (agentRemainingBudgetMs(startedAt) < 1800) return false;
+  const risk = normalizeRiskLevel(agentStep.riskLevel || "");
+  if (risk === "user_input" || risk === "high" || agentStep.requiresConfirmation === true) return true;
+  // 普通 tap/swipe/open/wait 是视觉执行导航动作，不再每步额外串一个语义裁决器，避免超过 Android 18 秒读超时。
+  return false;
+}
+
 async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const startedAt = Date.now();
   const goal = safeText(body.agentGoal || body.goal || prompt, 240);
@@ -4507,14 +7701,12 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const supportedSteps = supportedAgentStepsFromBody(body);
   const screenshotInfo = normalizeAgentScreenshot(body);
   const deviceContext = body.deviceContext && typeof body.deviceContext === "object" ? body.deviceContext : {};
-  const agentMemory = body.agentMemory && typeof body.agentMemory === "object" ? body.agentMemory : {};
+  const rawAgentMemory = body.agentMemory && typeof body.agentMemory === "object" ? body.agentMemory : {};
   const recentAgentActions = Array.isArray(body.recentAgentActions) ? body.recentAgentActions.slice(-8) : [];
   const requestBytes = Number(body.__debugRequestBytes || 0) || 0;
   const readBodyMs = Number(body.__debugReadBodyMs || 0) || 0;
   const session = getAgentSession(body, goal);
   session.step += 1;
-  const suppliedOutcomeFeedback = agentOutcomeFeedbackFromBody(body, agentMemory);
-  const outcomeFeedbackAccepted = rememberAgentOutcomeFeedback(session, suppliedOutcomeFeedback);
 
   const qwenProviderModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
   const guiProviderConfig = resolveAgentGuiProviderConfig(screenshotInfo, qwenProviderModel);
@@ -4541,7 +7733,16 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     return { ok: false, error: "empty_agent_goal", code: "empty_agent_goal", version: WORKER_VERSION };
   }
 
-  if (!snapshot.packageName && !snapshot.currentApp && snapshot.nodeCount === 0 && !screenshotInfo.hasImage) {
+  const executionMode = String(body.executionMode || "").toLowerCase().trim().replace(/-/g, "_");
+  const normalChatDeviceToolMode = Boolean(
+    body.normalChatDeviceToolMode === true ||
+    executionMode === "normal_chat_device_tool" ||
+    (body.allowInternalDeviceTools === true && body.forceVisualAgent !== true && body.computerUseMode !== true)
+  );
+  const allowInternalDeviceTools = Boolean(body.allowInternalDeviceTools === true || normalChatDeviceToolMode);
+  const hasUsableSnapshot = Boolean(snapshot.packageName || snapshot.currentApp || snapshot.nodeCount > 0 || screenshotInfo.hasImage);
+
+  if (!hasUsableSnapshot && !allowInternalDeviceTools) {
     return {
       ok: true,
       reply: "当前没有可用屏幕快照。",
@@ -4550,8 +7751,147 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     };
   }
 
+  if (normalChatDeviceToolMode) {
+    const aiInternalResult = await resolveNormalChatInternalDeviceToolPlanByAI(goal, body, snapshot, supportedSteps, screenshotInfo, deviceContext, rawAgentMemory, startedAt);
+    const directInternalPlan = aiInternalResult?.plan || null;
+    const plannerDebug = aiInternalResult?.debug || {};
+    if (directInternalPlan && directInternalPlan.agentStep && isInternalToolAgentStepType(directInternalPlan.agentStep.type)) {
+      return {
+        ok: true,
+        reply: directInternalPlan.agentStep.reason || "已识别为原生内部工具。",
+        agentStep: directInternalPlan.agentStep,
+        agentState: directInternalPlan.agentState,
+        agentSteps: [directInternalPlan.agentStep],
+        debug: {
+          totalMs: Date.now() - startedAt,
+          readBodyMs,
+          requestBytes,
+          visualCalled: false,
+          normalChatDeviceToolMode: true,
+          internalToolPlanner: "ai",
+          planSource: directInternalPlan.source || "normal_chat_ai_internal_device_tool",
+          ...plannerDebug,
+        },
+        ...baseMeta,
+        source: directInternalPlan.source || "normal_chat_ai_internal_device_tool",
+        sourceDetail: "ai_internal_device_tool_direct",
+        model: "deepseek_v4",
+        modelId: "deepseek_v4",
+        modelLabel: "AI 原生内部工具规划器",
+      };
+    }
+    return {
+      ...normalChatNoInternalDeviceToolPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, startedAt, requestBytes, readBodyMs),
+      ...baseMeta,
+      source: "normal_chat_no_device_tool_ai",
+      sourceDetail: "ai_internal_device_tool_no_match",
+      model: "deepseek_v4",
+      modelId: "deepseek_v4",
+      modelLabel: "AI 内部设备工具规划器",
+      debug: {
+        totalMs: Date.now() - startedAt,
+        readBodyMs,
+        requestBytes,
+        visualCalled: false,
+        normalChatDeviceToolMode: true,
+        internalToolPlanner: "ai",
+        ...plannerDebug,
+      },
+    };
+  }
+
+  const requestedStrictAliyunGuiPlusDirect = Boolean(
+    AGENT_GUI_STRICT_OFFICIAL_LOOP &&
+      screenshotInfo.hasImage &&
+      guiProviderConfig.requestedProvider === "aliyun_gui_plus"
+  );
+
+  if (requestedStrictAliyunGuiPlusDirect) {
+    // v60: visual-control tasks still go to GUI Plus directly, but first give AgentBrain
+    // one short chance to select a structured internal device tool or hybrid open_app preflight.
+    // If AgentBrain returns visual_agent or times out, GUI Plus receives the original goal unchanged.
+    const agentBrainStartedAt = Date.now();
+    const agentBrainResult = await resolveAgentBrainRouteForStep(goal, snapshot, recentAgentActions, deviceContext, rawAgentMemory, startedAt);
+    const strictAgentBrainRoute = agentBrainResult.route;
+    const strictAgentBrainMs = Date.now() - agentBrainStartedAt;
+    session.agentBrainRoute = strictAgentBrainRoute;
+    session.agentBrainSource = agentBrainResult.source;
+    session.agentBrainError = agentBrainResult.error || "";
+    const strictAgentMemory = {
+      ...rawAgentMemory,
+      agentBrainRoute: strictAgentBrainRoute,
+      agentBrain: strictAgentBrainRoute,
+    };
+    return await handleOfficialAliyunGuiPlusLoopStep({
+      body,
+      startedAt,
+      goal,
+      snapshot,
+      supportedSteps,
+      screenshotInfo,
+      deviceContext,
+      agentMemory: strictAgentMemory,
+      taskContractJudgeMs: 0,
+      agentBrainRoute: strictAgentBrainRoute,
+      agentBrainMs: strictAgentBrainMs,
+      agentBrainSource: agentBrainResult.source || "agent_brain_precheck_for_gui_plus_direct",
+      agentBrainError: agentBrainResult.error || "",
+      recentAgentActions,
+      requestBytes,
+      readBodyMs,
+      session,
+      guiProviderConfig,
+      baseMeta,
+      qwenProviderModel,
+    });
+  }
+
+  let taskSemanticContract = session.taskSemanticContract
+    ? refreshCachedTaskContractForScreen(session.taskSemanticContract, snapshot, deviceContext)
+    : null;
+  let taskContractJudgeMs = 0;
+  let taskContractSource = taskSemanticContract ? "task_contract_session_cache" : "";
+  if (!taskSemanticContract) {
+    const taskContractJudgeStartedAt = Date.now();
+    taskSemanticContract = await judgeTaskSemanticContract(goal, snapshot, deviceContext, rawAgentMemory, startedAt);
+    taskContractJudgeMs = Date.now() - taskContractJudgeStartedAt;
+    taskContractSource = taskSemanticContract?.contractSource || "task_contract_judge";
+    session.taskSemanticContract = taskSemanticContract;
+  } else {
+    session.taskSemanticContract = taskSemanticContract;
+  }
+  let agentMemory = {
+    ...rawAgentMemory,
+    taskSemanticContract,
+    semanticTaskContract: taskSemanticContract,
+  };
+
+  let agentBrainRoute = cachedAgentBrainRouteUsable(session.agentBrainRoute) ? session.agentBrainRoute : null;
+  let agentBrainMs = 0;
+  let agentBrainSource = agentBrainRoute ? "agent_brain_session_cache" : "";
+  let agentBrainError = "";
+  if (!agentBrainRoute) {
+    const agentBrainStartedAt = Date.now();
+    const agentBrainResult = await resolveAgentBrainRouteForStep(goal, snapshot, recentAgentActions, deviceContext, agentMemory, startedAt);
+    agentBrainMs = Date.now() - agentBrainStartedAt;
+    agentBrainRoute = agentBrainResult.route;
+    agentBrainSource = agentBrainResult.source;
+    agentBrainError = agentBrainResult.error || "";
+    session.agentBrainRoute = agentBrainRoute;
+    session.agentBrainSource = agentBrainSource;
+    session.agentBrainError = agentBrainError;
+  } else {
+    agentBrainSource = session.agentBrainSource || agentBrainSource;
+    agentBrainError = session.agentBrainError || "";
+  }
+  agentMemory = {
+    ...agentMemory,
+    agentBrainRoute,
+    agentBrain: agentBrainRoute,
+  };
+
   const requestedStrictAliyunGuiPlus = Boolean(
-    (AGENT_GUI_STRICT_OFFICIAL_LOOP || ALIYUN_GUI_FORCE_OFFICIAL_LOOP) &&
+    AGENT_GUI_STRICT_OFFICIAL_LOOP &&
       screenshotInfo.hasImage &&
       guiProviderConfig.requestedProvider === "aliyun_gui_plus"
   );
@@ -4566,6 +7906,11 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       screenshotInfo,
       deviceContext,
       agentMemory,
+      taskContractJudgeMs,
+      agentBrainRoute,
+      agentBrainMs,
+      agentBrainSource,
+      agentBrainError,
       recentAgentActions,
       requestBytes,
       readBodyMs,
@@ -4573,85 +7918,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       guiProviderConfig,
       baseMeta,
       qwenProviderModel,
-      outcomeFeedbackAccepted,
     });
-  }
-
-  if (!ENABLE_LAYERED_GUI_AGENT) {
-    const reason = screenshotInfo.hasImage
-      ? "GUI Plus 官方循环未启用或未配置成功；为避免回退到旧分层点位器，已停止本轮 agent 操作。"
-      : "GUI Plus 官方循环需要截图；当前请求没有 screenshot，已停止本轮 agent 操作。";
-    const agentStep = normalizeAgentStep({
-      agentStep: {
-        type: "need_user_help",
-        reason,
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const agentState = normalizeAgentState({
-      agentState: {
-        isComplete: false,
-        expectedProgress: false,
-        isWrong: false,
-        confidence: 0.3,
-        reason,
-      },
-    }, agentStep);
-    return {
-      ok: true,
-      reply: reason,
-      agentState,
-      isComplete: agentState.isComplete,
-      expectedProgress: agentState.expectedProgress,
-      isWrong: agentState.isWrong,
-      confidence: agentState.confidence,
-      nextHint: agentState.nextHint,
-      agentStep,
-      agentSteps: [agentStep],
-      steps: [agentStep],
-      actionBatch: [agentStep],
-      stopConditions: ["visual_after_uncertain_progress"],
-      ...baseMeta,
-      sourceDetail: "aliyun_gui_plus_official_only_guard",
-      model: guiProviderConfig.provider,
-      modelId: guiProviderConfig.provider,
-      modelLabel: guiProviderConfig.modelLabel,
-      searchUsed: false,
-      structuredUsed: false,
-      searchProvider: null,
-      toolUsed: "agent_step",
-      toolReason: agentStep.reason,
-      sources: [],
-      structuredData: null,
-      toolIntent: null,
-      intentError: null,
-      deviceIntent: null,
-      deviceIntentError: null,
-      visualFrame: null,
-      routePlan: null,
-      debug: {
-        currentApp: snapshot.currentApp,
-        packageName: snapshot.packageName,
-        nodeCount: snapshot.nodeCount,
-        hasScreenshot: screenshotInfo.hasImage,
-        requestedGuiProvider: guiProviderConfig.requestedProvider,
-        guiProvider: guiProviderConfig.provider,
-        guiProviderMode: guiProviderConfig.mode,
-        guiProviderFallbackReason: guiProviderConfig.fallbackReason || "",
-        officialGuiOnly: true,
-        layeredAgentRuntime: false,
-        enableLayeredGuiAgent: ENABLE_LAYERED_GUI_AGENT,
-        agentArchitecture: "aliyun_gui_plus_official_only",
-        outcomeHistoryCount: Array.isArray(session.outcomeHistory) ? session.outcomeHistory.length : 0,
-        lastOutcomeFeedback: session.lastOutcomeFeedback || null,
-        outcomeFeedbackAccepted: Boolean(outcomeFeedbackAccepted),
-        sessionId: session.id,
-        sessionStep: session.step,
-        totalMs: Date.now() - startedAt,
-      },
-      version: WORKER_VERSION,
-    };
   }
 
   const fingerprint = screenFingerprint(snapshot, screenshotInfo);
@@ -4681,6 +7948,8 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   let routeGuarded = false;
   let routeGuardReason = "";
   let groundingGoal = goal;
+  let inputPhaseGuarded = false;
+  let inputPhaseGuardReason = "";
 
   if (!officialGuiPlusLoop) {
     const routeStartedAt = Date.now();
@@ -4702,11 +7971,26 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     groundingGoal = goal;
   }
 
+  const explicitAppDirectPlan = buildExplicitAppOpenPreflightPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentAgentActions, "explicit_app_preflight");
   const directRoutePlan = routePlanToDirectAgentPlan(routePlan, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  if (directRoutePlan) {
+  const directAgentBrainPlan = agentBrainRouteToDirectAgentPlan(agentBrainRoute, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, "agent_brain_preflight");
+  const directTaskContractOpenPlan = taskContractOpenCandidatePlan(taskSemanticContract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, "task_contract_preflight_open_app");
+  if (explicitAppDirectPlan) {
+    agentStep = explicitAppDirectPlan.agentStep;
+    agentState = explicitAppDirectPlan.agentState;
+    planSource = explicitAppDirectPlan.source || "explicit_app_preflight";
+  } else if (directRoutePlan) {
     agentStep = directRoutePlan.agentStep;
     agentState = directRoutePlan.agentState;
     planSource = directRoutePlan.source || "route_planner_direct";
+  } else if (directAgentBrainPlan) {
+    agentStep = directAgentBrainPlan.agentStep;
+    agentState = directAgentBrainPlan.agentState;
+    planSource = directAgentBrainPlan.source || "agent_brain_preflight";
+  } else if (directTaskContractOpenPlan) {
+    agentStep = directTaskContractOpenPlan.agentStep;
+    agentState = directTaskContractOpenPlan.agentState;
+    planSource = directTaskContractOpenPlan.source || "task_contract_preflight_open_app";
   } else if (shouldCallVisual) {
     const providerStartedAt = Date.now();
     try {
@@ -4827,6 +8111,15 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     }
   }
 
+  const inputGuard = guardUnfocusedInputStep(agentStep, agentState, agentBrainRoute, taskSemanticContract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, "agent_step_input_phase_guard");
+  if (inputGuard.guarded) {
+    agentStep = inputGuard.agentStep;
+    agentState = inputGuard.agentState;
+    inputPhaseGuarded = true;
+    inputPhaseGuardReason = inputGuard.agentStep?.reason || "input_phase_guard";
+    planSource = inputGuard.source || `${planSource || "agent_step"}_input_phase_guard`;
+  }
+
   const shouldTryRealtimeFallback = Boolean(
     !officialGuiPlusLoop &&
       agentStep?.type === "need_user_help" &&
@@ -4863,7 +8156,8 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const screenshotBytesApprox = screenshotInfo.hasImage ? Math.round((screenshotInfo.base64.length * 3) / 4) : 0;
   const promptChars = JSON.stringify({ visualFrame, snapshotHints: { texts: (snapshot.texts || []).slice(0, 12), clickableNodes: (snapshot.clickableNodes || []).slice(0, 12) } }).length;
   const totalMs = Date.now() - startedAt;
-  const agentSteps = normalizeAgentStepBatch(parsed, agentStep, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  let agentSteps = normalizeAgentStepBatch(parsed, agentStep, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
+  agentSteps = ensurePrimaryStepInBatch(agentSteps, agentStep);
   const actionBatch = agentSteps.slice();
   const stopConditions = normalizeAgentStopConditions(parsed);
 
@@ -4900,6 +8194,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     deviceIntentError: null,
     visualFrame,
     routePlan,
+    agentBrainRoute,
     debug: {
       currentApp: snapshot.currentApp,
       packageName: snapshot.packageName,
@@ -4914,6 +8209,8 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       installedAppCount: installedAppsFromDeviceContext(deviceContext).length,
       plannerAppCount: plannerAppsForPrompt(deviceContext, goal, screenshotInfo.hasImage).length,
       memorySignals: compactAgentMemoryForPrompt(agentMemory, recentAgentActions).loopSignals,
+      taskRuntime: agentRuntimeTaskInfo(goal, snapshot, deviceContext, agentMemory),
+      taskProgress: null,
       requestBytes,
       readBodyMs,
       promptChars,
@@ -5489,7 +8786,7 @@ function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent
   if (includeCommandProtocol) {
     system.push(
       "仅当本次请求显式允许模型命令时，才可以输出 AI_LEDGER_COMMAND 机器标记；否则不要输出任何内部 JSON 或机器标记。",
-      "agentAction 只允许 observe_screen、run_device_control 或 run_agent_task；确定性系统控制优先 run_device_control，具体点击、输入、滑动动作必须交给 agent_step 智能体规划接口。"
+      "agentAction 只允许 observe_screen、run_device_control 或 run_agent_task；打开 App、系统设置、设备开关、Shizuku/shell 状态等确定性内部控制走 run_device_control；具体点击、输入、滑动动作必须交给 agent_step 智能体规划接口。"
     );
     if (commandInstruction) system.push(commandInstruction);
   }
@@ -5538,9 +8835,10 @@ const server = http.createServer(async (req, res) => {
           "screenshot_visual_fallback",
           "computer_use_vision",
           "agent_step_planner",
+          "root_internal_device_tool_router",
+          "multi_provider_internal_tool_planner",
           "pluggable_gui_provider",
           "aliyun_gui_plus",
-          "aliyun_gui_plus_official_loop",
           "clean_route_architecture",
           "explicit_agent_intent",
           "normal_chat_isolation",
@@ -5609,6 +8907,11 @@ const server = http.createServer(async (req, res) => {
         model: modelPref,
         version: WORKER_VERSION,
       });
+    }
+
+    if (isAgentBrainRouteRequest(body)) {
+      const routeResult = await handleAgentBrainRouteRequest(body, prompt, resolved === "qwen_vision" ? "qwen" : resolved);
+      return sendJson(res, routeResult.ok === false ? 400 : 200, routeResult);
     }
 
     if (isAgentOutcomeVerificationRequest(body)) {
