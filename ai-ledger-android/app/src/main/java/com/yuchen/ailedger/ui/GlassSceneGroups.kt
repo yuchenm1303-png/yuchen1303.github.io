@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
 import com.yuchen.ailedger.model.AppTab
 
 /**
@@ -56,12 +57,14 @@ val LocalGlassSceneGroup: GlassSceneGroup
 @Composable
 fun GlassSceneScope(
     group: GlassSceneGroup,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     if (group.owner == GlassSceneOwner.Page || group.owner == GlassSceneOwner.ScrollSubScene) {
         OrdinaryGlassSceneHost(
             group = group,
-            renderMode = OrdinaryGlassRenderMode.Shadow,
+            modifier = modifier,
+            renderMode = OrdinaryGlassParentDrawController.renderModeFor(group),
             content = content
         )
     } else {
