@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -29,6 +30,35 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+internal enum class BackdropSourceKind {
+    DefaultWallpaper,
+    BuiltInTheme,
+    CustomImage
+}
+
+internal data class ResolvedBackdropSource(
+    val kind: BackdropSourceKind,
+    val customImagePath: String? = null
+)
+
+/**
+ * Resolves the background once so the default wallpaper, generated theme and custom image paths are
+ * mutually exclusive. Missing custom files deliberately fall back to the default wallpaper instead
+ * of entering the generated-theme rendering path.
+ */
+internal fun resolveBackdropSource(customBackgroundPath: String?): ResolvedBackdropSource = when {
+    customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH ->
+        ResolvedBackdropSource(BackdropSourceKind.BuiltInTheme)
+
+    customBackgroundPath.isNullOrBlank() ->
+        ResolvedBackdropSource(BackdropSourceKind.DefaultWallpaper)
+
+    File(customBackgroundPath).isFile ->
+        ResolvedBackdropSource(BackdropSourceKind.CustomImage, customBackgroundPath)
+
+    else -> ResolvedBackdropSource(BackdropSourceKind.DefaultWallpaper)
+}
+
 @Composable
 fun WeatherNightBackground(
     quality: RenderQuality,
@@ -39,18 +69,45 @@ fun WeatherNightBackground(
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     val context = LocalContext.current
-    val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
-    val customImage = rememberCustomBackgroundImage(if (useThemePreset) null else customBackgroundPath)
-    val presetImage = rememberPresetNightSkyImage(context)
+    val source = remember(customBackgroundPath) { resolveBackdropSource(customBackgroundPath) }
+
+    // Only the active source starts decoding. Default startup no longer initializes a custom-image
+    // loader, while custom/theme modes no longer decode the bundled wallpaper in the background.
+    val customImage = if (source.kind == BackdropSourceKind.CustomImage) {
+        rememberCustomBackgroundImage(source.customImagePath)
+    } else {
+        null
+    }
+    val presetImage = if (source.kind == BackdropSourceKind.DefaultWallpaper) {
+        rememberPresetNightSkyImage(context)
+    } else {
+        null
+    }
 
     Canvas(modifier) {
-        when {
-            customImage != null -> drawCoverImage(customImage)
-            useThemePreset -> drawWeatherNightBackground(size.width, size.height, theme, 1f, params)
-            presetImage != null -> drawCoverImage(presetImage)
-            else -> drawWeatherNightBackground(size.width, size.height, theme, 1f, params)
+        when (source.kind) {
+            BackdropSourceKind.CustomImage -> {
+                if (customImage != null) drawCoverImage(customImage) else drawBackdropLoadingBase()
+            }
+
+            BackdropSourceKind.BuiltInTheme -> {
+                drawWeatherNightBackground(size.width, size.height, theme, 1f, params)
+            }
+
+            BackdropSourceKind.DefaultWallpaper -> {
+                if (presetImage != null) drawCoverImage(presetImage) else drawBackdropLoadingBase()
+            }
         }
     }
+}
+
+/**
+ * A flat two-pixel-cost visual fallback while an image source is decoded. It intentionally contains
+ * no theme gradient, clouds, stars or glow layers, so selecting the default wallpaper never executes
+ * the generated-theme drawing chain even for a single frame.
+ */
+private fun DrawScope.drawBackdropLoadingBase() {
+    drawRect(Color(0xFF07132D))
 }
 
 @Composable
@@ -58,7 +115,7 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
     var image by remember(path) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(path) {
         image = null
-        val filePath = path?.takeIf { File(it).exists() }
+        val filePath = path?.takeIf { File(it).isFile }
         if (filePath != null) {
             image = withContext(Dispatchers.IO) {
                 decodeDisplaySizedBitmap(filePath)?.asImageBitmap()
