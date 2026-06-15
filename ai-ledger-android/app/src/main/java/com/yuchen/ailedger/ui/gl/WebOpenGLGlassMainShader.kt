@@ -6,62 +6,118 @@ internal object WebOpenGLGlassMainShader {
             vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
             vec2 z=max(uRect.zw,vec2(1.0));
             vec2 p=coord-uRect.xy;
-            float r=min(uRadius,min(z.x,z.y)*0.5);
+            float minSize=min(z.x,z.y);
+            float r=min(uRadius,minSize*0.5);
             float sd=roundedBoxSdf(p,z,r);
             // 以几何边界为中心做对称像素覆盖，避免圆弧转直边处出现外扩台阶。
             float mask=1.0-smoothstep(-0.75,0.75,sd);
             if(mask<=0.001)discard;
 
-            float press=sat(uPress.x);
-            vec2 pressCenter=clamp(uPress.yz,vec2(0.0),vec2(1.0));
+            // uPress 已在 Kotlin 侧限幅；这里只复用同一份按压几何。
+            float press=uPress.x;
+            vec2 pressCenter=uPress.yz;
+            float pressAspect=1.0;
             float pressField=0.0;
             float pressWide=0.0;
 
             float depth=insideFromSdf(sd);
             vec2 normal=perimeterNormalAt(p,z,r);
-            float bodyWeight=bodyLensWeight(depth,z,r);
+
+            // 这些量只依赖本次 draw 的 uniform/几何，主体与圆肩来源点共用一次结果。
+            float bodyReach=bodyLensReach(minSize,r);
+            float bodyConcentration=mix(
+                0.58,
+                1.82,
+                sat((uBodyLensA.z+10.0)/20.0)
+            );
+            float bodyRawPull=
+                abs(uBodyLensA.y)*0.052
+                +abs(uBodyLensA.x)*0.20
+                +max(uBodyLensB.x,0.0)*0.12;
+            vec3 lensParams=vec3(
+                bodyReach,
+                bodyConcentration,
+                bodyRawPull
+            );
+            vec3 transportParams=vec3(
+                sat((uBody.x-0.18)/(1.5-0.18)),
+                sat((uBody.y-0.2)/3.0),
+                sat(uBody.z/900.0)
+            );
+
+            float bodyWeight=bodyLensWeightAtReach(depth,lensParams);
             vec2 pressBodyFlow=vec2(0.0);
             if(press>0.0){
+                pressAspect=min(z.x/max(z.y,1.0),2.2);
                 vec2 pressCenterPx=pressCenter*z;
-                pressField=pressFieldAt(p,z,pressCenter,press);
-                float aspect=min(z.x/max(z.y,1.0),2.2);
+                pressField=pressFieldAt(
+                    p,z,pressCenter,pressAspect,press
+                );
                 pressWide=press*pow(
-                    sat(1.0-length((p/z-pressCenter)*vec2(aspect,1.0))*0.58),
+                    sat(1.0-length(
+                        (p/z-pressCenter)*vec2(pressAspect,1.0)
+                    )*0.58),
                     1.25
                 );
-                vec2 inwardPx=softLimitPx(
+                vec2 inwardPx=softLimit(
                     (pressCenterPx-p)*(0.028*press+0.070*pressField),
                     24.0+press*18.0
                 );
                 vec2 pressDelta=p-pressCenterPx;
                 vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
                 vec2 pressDimplePx=-pressDir*pressField*(8.0+press*10.0);
-                pressBodyFlow=pressDimplePx+inwardPx*(1.76+0.46*bodyWeight);
+                pressBodyFlow=pressDimplePx
+                    +inwardPx*(1.76+0.46*bodyWeight);
             }
-            vec2 mainBodyFlow=bodyRefractionFlow(normal,z,r,depth,bodyWeight);
-            vec2 centerFlow=centerTransport(p,z);
+            vec4 pressOptics=vec4(pressCenter,pressAspect,press);
+
+            vec2 mainBodyFlow=bodyRefractionFlow(
+                normal,depth,bodyWeight,lensParams
+            );
+            vec2 centerFlow=centerTransport(p,z,transportParams);
             vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow+pressBodyFlow;
             float materialWeight=bodyWeight;
-            float shoulder=0.0;
-            float shoulderFresnel=0.0;
-            float shoulderActive=0.0;
+            vec2 shoulderOptics=vec2(0.0);
+            float shoulderXValue=0.0;
+            bool shoulderActive=false;
 
-            float width=shoulderWidth(z);
+            float width=shoulderWidth(minSize);
             if(depth<width){
+                shoulderXValue=sat(depth/max(width,1.0));
+                vec3 shoulderGeometry=vec3(
+                    shoulderXValue,
+                    width,
+                    minSize
+                );
+                float sourceDepth;
+                vec2 sourceNormal;
                 vec4 shoulderData=evaluateShoulderSource(
-                    p,normal,z,r,depth
+                    p,
+                    normal,
+                    z,
+                    r,
+                    depth,
+                    shoulderGeometry,
+                    transportParams.y,
+                    sourceDepth,
+                    sourceNormal
                 );
                 vec2 sourcePoint=shoulderData.xy;
-                shoulder=shoulderData.z;
-                shoulderFresnel=shoulderData.w;
-                float sourceDepth=max(
-                    -roundedBoxSdf(sourcePoint,z,r),0.0
+                shoulderOptics=shoulderData.zw;
+                materialWeight=bodyLensWeightAtReach(
+                    sourceDepth,lensParams
                 );
-                materialWeight=bodyLensWeight(sourceDepth,z,r);
                 bodyOpticalCoord=evaluateBodyOpticalCoordAt(
-                    sourcePoint,z,r,pressCenter,press
+                    sourcePoint,
+                    sourceDepth,
+                    sourceNormal,
+                    z,
+                    lensParams,
+                    materialWeight,
+                    transportParams,
+                    pressOptics
                 );
-                shoulderActive=1.0;
+                shoulderActive=true;
             }
             vec2 bodyUv=globalUv(bodyOpticalCoord);
     """
@@ -79,11 +135,11 @@ internal object WebOpenGLGlassMainShader {
                 bodyColor=mix(bodyColor,pressLensColor,pressLensMix);
             }
 
-            float dispersionStrength=clamp(uDispersion.x,0.0,1.5);
-            float dispersionDistance=max(uDispersion.y,0.0);
+            // 色散参数已在 Kotlin 侧限幅；保留原最低 1px 作用宽度。
+            float dispersionStrength=uDispersion.x;
+            float dispersionDistance=uDispersion.y;
             if(dispersionStrength>0.001&&dispersionDistance>0.001){
                 float dispersionWidth=max(uDispersion.z,1.0);
-                float dispersionConcentration=max(uDispersion.w,0.25);
                 float edgeEnvelope=1.0-smoothstep(
                     0.0,
                     dispersionWidth,
@@ -94,8 +150,8 @@ internal object WebOpenGLGlassMainShader {
                     abs(normal.y)
                 );
                 float dispersionMask=pow(
-                    sat(edgeEnvelope),
-                    dispersionConcentration
+                    edgeEnvelope,
+                    uDispersion.w
                 )*dispersionStrength*(1.0+cornerAmount*0.72);
                 if(dispersionMask>0.001){
                     vec2 splitPx=normal*dispersionDistance
@@ -125,18 +181,20 @@ internal object WebOpenGLGlassMainShader {
                 *uBodyLensB.z*materialWeight;
             bodyColor*=1.0-pressField*0.070-pressWide*0.025;
             bodyColor+=vec3(0.018,0.035,0.046)*pressField*0.38;
-            float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
-            bodyColor=mix(
-                bodyColor,
-                vec3(1.0,0.45,0.0),
-                bodyDebug*uBodyLensB.w
-            );
+            if(uBodyLensB.w>0.0){
+                float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
+                bodyColor=mix(
+                    bodyColor,
+                    vec3(1.0,0.45,0.0),
+                    bodyDebug*uBodyLensB.w
+                );
+            }
 
             vec3 color=bodyColor;
-            if(shoulderActive>0.5){
-                float strength=clamp(uShoulder.w,0.0,4.0);
-                float fill=shoulderMaterialFill(depth,z);
-                float outerRim=pow(shoulder,2.8);
+            if(shoulderActive){
+                float strength=uShoulder.w;
+                float fill=shoulderMaterialFillAtX(shoulderXValue);
+                float outerRim=pow(shoulderOptics.x,2.8);
                 vec2 lightDirection=normalize(vec2(-0.62,-0.78));
                 float lightFacing=pow(
                     sat(dot(normal,lightDirection)),2.7
@@ -158,7 +216,7 @@ internal object WebOpenGLGlassMainShader {
                 color=mix(color,filledColor,fillSheen);
 
                 float reflection=sat(
-                    0.21*strength*shoulderFresnel*outerRim
+                    0.21*strength*shoulderOptics.y*outerRim
                     *(0.18+0.82*lightFacing)
                 );
                 vec3 reflectionColor=mix(
