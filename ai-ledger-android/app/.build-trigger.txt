@@ -1,2 +1,2 @@
-trigger: opengl-corner-edge-fix-2026-06-15
-source-commit: d27297497cfe3cf25ed61afacf16ea93df29524f
+trigger: shader-expression-optimization-pending
+source-commit: 0227902aa21d75b0652a730ef1482635f5b4f4aa
