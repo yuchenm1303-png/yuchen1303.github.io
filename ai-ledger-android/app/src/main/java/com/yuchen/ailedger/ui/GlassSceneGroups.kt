@@ -60,7 +60,7 @@ fun GlassSceneScope(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    if (group.owner == GlassSceneOwner.Page || group.owner == GlassSceneOwner.ScrollSubScene) {
+    if (group.owner != GlassSceneOwner.Fallback) {
         OrdinaryGlassSceneHost(
             group = group,
             modifier = modifier,
