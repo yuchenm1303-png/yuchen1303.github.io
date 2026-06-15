@@ -16,7 +16,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -196,33 +195,27 @@ private fun SettingsHeader() {
 
 @Composable
 private fun SettingsGlassFrame(
+    state: AssistantUiState,
     modifier: Modifier = Modifier,
     radius: Int = 28,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(radius.dp)
-    Box(
-        modifier
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = radius,
+        modifier = modifier
             .fillMaxWidth()
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = 0.80f,
                     stiffness = Spring.StiffnessMediumLow
                 )
-            )
-            .clip(shape)
-            .background(Color(0xFF151A4F).copy(alpha = 0.42f))
-            .border(1.dp, Color.White.copy(alpha = 0.28f), shape)
+            ),
+        role = GlassRole.Card
     ) {
-        FrostInfoGlassPanel(
-            radius = 17.44f,
-            backdropAlpha = 1f,
-            frostAlpha = 0.088f,
-            dimAlpha = 0f,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            content()
-        }
+        content()
     }
 }
 
@@ -372,7 +365,7 @@ private fun SettingsIconBadge(text: String, active: Boolean, glow: Float = if (a
 
 @Composable
 private fun SettingsDetailPanel(panel: SettingsPanel, state: AssistantUiState, aiEndpoint: String, onQualityChange: (RenderQuality) -> Unit, onPreviewConversationChange: (Boolean) -> Unit, onGlassPresetChange: (GlassPreset) -> Unit, onBackgroundThemeChange: (BackgroundTheme) -> Unit, onGlassIntensityChange: (Float) -> Unit, onMotionIntensityChange: (Float) -> Unit, onRainbowPrismChange: (RainbowPrismStyle) -> Unit, onBackdropChange: (BackdropDebugParams) -> Unit, onBorderChange: (GlassBorderStyle) -> Unit, onUploadBackgroundClick: () -> Unit, onClearCustomBackgroundClick: () -> Unit) {
-    SettingsGlassFrame(radius = 28) {
+    SettingsGlassFrame(state = state, radius = 28) {
         AnimatedContent(
             targetState = panel,
             transitionSpec = {
