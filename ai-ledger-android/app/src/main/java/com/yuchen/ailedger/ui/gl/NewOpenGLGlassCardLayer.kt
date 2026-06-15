@@ -72,8 +72,6 @@ fun NewOpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
-                view.setStableSurfaceAnchor(safeSurfaceAnchor)
-
                 // 先把本帧最新几何和采样坐标写入 Renderer，避免 Surface 布局期间吞掉中间状态。
                 val specDirty = view.setGlassSpec(
                     widthPx,
