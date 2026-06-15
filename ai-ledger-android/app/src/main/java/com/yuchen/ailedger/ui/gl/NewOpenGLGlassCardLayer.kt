@@ -41,7 +41,7 @@ fun NewOpenGLGlassCardLayer(
     val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
     val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
 
-    val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
+    val radiusPx = with(density) { radius.dp.toPx() }
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
     val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
@@ -50,8 +50,9 @@ fun NewOpenGLGlassCardLayer(
     val rawPressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
-        val widthPx = with(density) { maxWidth.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
-        val heightPx = with(density) { maxHeight.toPx() }.roundToInt().coerceAtLeast(1).toFloat()
+        // 玻璃真实几何保持浮点连续值，避免形状动画被逐像素取整后出现跳步。
+        val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+        val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
         val mappedPressY = ((rawPressY * heightPx - safeViewportTopInsetPx) / viewportHeightPx)
@@ -59,8 +60,7 @@ fun NewOpenGLGlassCardLayer(
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
 
-        // TextureView/EGL Surface 使用稳定包络尺寸；玻璃真实形状仍由下方 setGlassSpec 每帧更新。
-        // 这样模型栏展开、键盘变化和页面压缩拉伸时，不会因 SurfaceTexture 逐帧 resize 卡顿。
+        // TextureView/EGL Surface 始终使用稳定包络尺寸；玻璃形状只通过 uniform 连续变化。
         val safeSurfaceAnchor = surfaceAnchor.coerceIn(0f, 1f)
         val stableSurfaceWidthPx = max(widthPx, rootWidthPx)
         val stableSurfaceHeightPx = max(
@@ -73,12 +73,8 @@ fun NewOpenGLGlassCardLayer(
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
                 view.setStableSurfaceAnchor(safeSurfaceAnchor)
-                val surfaceDirty = view.setStableSurfaceSize(
-                    stableSurfaceWidthPx.roundToInt(),
-                    stableSurfaceHeightPx.roundToInt(),
-                    rootWidthPx.roundToInt(),
-                    rootHeightPx.roundToInt()
-                )
+
+                // 先把本帧最新几何和采样坐标写入 Renderer，避免 Surface 布局期间吞掉中间状态。
                 val specDirty = view.setGlassSpec(
                     widthPx,
                     viewportHeightPx,
@@ -101,8 +97,17 @@ fun NewOpenGLGlassCardLayer(
                 )
                 val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
                 val styleDirty = view.setGlassStyle(border, densityScale)
+
+                // Surface 只在稳定包络真正增大或根视口改变时调整，不参与玻璃形状逐帧动画。
+                val surfaceDirty = view.setStableSurfaceSize(
+                    stableSurfaceWidthPx.roundToInt(),
+                    stableSurfaceHeightPx.roundToInt(),
+                    rootWidthPx.roundToInt(),
+                    rootHeightPx.roundToInt()
+                )
+
                 if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || blurDirty || styleDirty) {
-                    view.requestRender()
+                    view.requestRenderOnNextAnimationFrame()
                 }
             }
         )
