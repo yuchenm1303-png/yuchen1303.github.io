@@ -1,7 +1,7 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * V25.3 主体折射 + V29.8 整圈统一映射圆肩 + 边缘 RGB 色散 + 原版动态按压光学。
+ * V25.3 主体折射 + fc725b/V29.5 整圈统一映射圆肩 + 当前边缘 RGB 色散 + 原版动态按压光学。
  *
  * 着色器按职责拆分为公共主体、按压场、圆肩和最终合成四段；运行时仍是
  * 一个 fragment shader、一次 draw call，不会增加 OpenGL 层或渲染通道。
