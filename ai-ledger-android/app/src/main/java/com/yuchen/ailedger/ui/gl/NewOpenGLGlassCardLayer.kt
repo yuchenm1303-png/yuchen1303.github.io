@@ -29,6 +29,7 @@ fun NewOpenGLGlassCardLayer(
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
+    val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
     val densityScale = density.density
@@ -94,7 +95,7 @@ fun NewOpenGLGlassCardLayer(
                     blurHighBitmap = blurHighBitmap
                 )
                 val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
-                val styleDirty = view.setGlassStyle(border, densityScale)
+                val styleDirty = view.setGlassStyle(rendererBorder, densityScale)
 
                 // Surface 只在稳定包络真正增大或根视口改变时调整，不参与玻璃形状逐帧动画。
                 val surfaceDirty = view.setStableSurfaceSize(
@@ -111,3 +112,34 @@ fun NewOpenGLGlassCardLayer(
         )
     }
 }
+
+/**
+ * Host 的样式判脏只看新版 Renderer 真正读取的字段。
+ * 旧 OpenGL、Compose 普通玻璃和兼容字段变化不会再无意义唤醒 EGL。
+ */
+private fun GlassBorderStyle.onlyWebOpenGLRendererFields(): GlassBorderStyle = GlassBorderStyle().copy(
+    newOpenGlBodyVisibility = newOpenGlBodyVisibility,
+    newOpenGlBodyMaxAlpha = newOpenGlBodyMaxAlpha,
+    newOpenGlBodyOutputBrightness = newOpenGlBodyOutputBrightness,
+    newOpenGlBodyLensBasePull = newOpenGlBodyLensBasePull,
+    newOpenGlBodyLensPullDp = newOpenGlBodyLensPullDp,
+    newOpenGlBodyLensConcentration = newOpenGlBodyLensConcentration,
+    newOpenGlBodyLensExtraDistance = newOpenGlBodyLensExtraDistance,
+    newOpenGlBodyLensReachDp = newOpenGlBodyLensReachDp,
+    newOpenGlBodyLensDark = newOpenGlBodyLensDark,
+    newOpenGlBodyLensDebug = newOpenGlBodyLensDebug,
+    newOpenGlBodyWidth = newOpenGlBodyWidth,
+    newOpenGlBodyCurve = newOpenGlBodyCurve,
+    newOpenGlBodyGain = newOpenGlBodyGain,
+    newOpenGlBrightness = newOpenGlBrightness,
+    newOpenGlShoulderWidthDp = newOpenGlShoulderWidthDp,
+    newOpenGlShoulderCaptureWidthDp = newOpenGlShoulderCaptureWidthDp,
+    newOpenGlShoulderMaxAngleDeg = newOpenGlShoulderMaxAngleDeg,
+    newOpenGlShoulderFalloffRoundness = newOpenGlShoulderFalloffRoundness,
+    newOpenGlShoulderMaterialStrength = newOpenGlShoulderMaterialStrength,
+    newOpenGlShoulderTangentialFlowStrength = newOpenGlShoulderTangentialFlowStrength,
+    newOpenGlDispersionStrength = newOpenGlDispersionStrength,
+    newOpenGlDispersionDistanceDp = newOpenGlDispersionDistanceDp,
+    newOpenGlDispersionEdgeWidthDp = newOpenGlDispersionEdgeWidthDp,
+    newOpenGlDispersionConcentration = newOpenGlDispersionConcentration
+)
