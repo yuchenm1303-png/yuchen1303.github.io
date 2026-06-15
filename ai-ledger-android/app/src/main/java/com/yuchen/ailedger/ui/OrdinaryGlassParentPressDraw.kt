@@ -76,7 +76,11 @@ private fun DrawScope.resolveOrdinaryParentPressValues(
     )
 }
 
-internal fun DrawScope.drawOrdinaryParentPressUnderlay(
+/**
+ * 对齐 Glass.kt 中独立 ordinaryPressSurfaceOptics 空 Box 的真实顺序：
+ * 六层按压光学都位于业务 content 上方，只在按压活跃期间执行。
+ */
+internal fun DrawScope.drawOrdinaryParentPressOptics(
     node: OrdinaryGlassRenderNode,
     rect: Rect
 ) {
@@ -84,6 +88,7 @@ internal fun DrawScope.drawOrdinaryParentPressUnderlay(
     withOrdinaryParentTransform(node, rect) {
         val values = resolveOrdinaryParentPressValues(node, rect)
             ?: return@withOrdinaryParentTransform
+        val rimInset = 0.62.dp.toPx()
         clipPath(values.shapePath) {
             drawRoundRect(
                 brush = Brush.radialGradient(
@@ -130,20 +135,6 @@ internal fun DrawScope.drawOrdinaryParentPressUnderlay(
                 cornerRadius = values.cornerRadius,
                 blendMode = BlendMode.Multiply
             )
-        }
-    }
-}
-
-internal fun DrawScope.drawOrdinaryParentPressOverlay(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
-) {
-    if (!node.pressable || node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
-    withOrdinaryParentTransform(node, rect) {
-        val values = resolveOrdinaryParentPressValues(node, rect)
-            ?: return@withOrdinaryParentTransform
-        val rimInset = 0.62.dp.toPx()
-        clipPath(values.shapePath) {
             drawRoundRect(
                 brush = Brush.radialGradient(
                     listOf(
