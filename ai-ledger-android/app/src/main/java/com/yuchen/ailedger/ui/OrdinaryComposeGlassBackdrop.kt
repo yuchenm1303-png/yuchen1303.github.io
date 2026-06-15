@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
-import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
 import kotlin.math.min
@@ -36,6 +35,7 @@ internal fun DrawScope.drawOrdinaryComposeGlassBackdrop(
     spec: GlassBackdropSpec?
 ) {
     if (node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
+    val resolvedSpec = spec ?: return
 
     withOrdinaryBackdropTransform(node, rect) {
         val w = rect.width.coerceAtLeast(1f)
@@ -44,8 +44,8 @@ internal fun DrawScope.drawOrdinaryComposeGlassBackdrop(
         val shapePath = Path().apply {
             addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
         }
-        val params = spec?.params ?: BackdropDebugParams()
-        val theme = spec?.theme ?: BackgroundTheme.Aurora
+        val params = resolvedSpec.params
+        val theme = resolvedSpec.theme
         val glass = ComposeGlassLabState.style
         val alpha = node.backdropAlpha.coerceIn(0.12f, 1.55f)
         val dim = glass.backdropDim.coerceIn(0f, 1.80f)
