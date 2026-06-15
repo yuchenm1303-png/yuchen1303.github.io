@@ -35,18 +35,15 @@ internal fun buildBackdropTextureSet(
 ): BackdropTextureSet {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
+    val useCustomImage = !useDefaultWallpaper && !useThemePreset
 
     val clearSource = Bitmap.createBitmap(fullWidth, fullHeight, Bitmap.Config.ARGB_8888)
-    val drewCustom = if (useThemePreset) {
-        false
-    } else {
-        drawCustomImageBackdropSource(clearSource, customBackgroundPath)
-    }
+    val drewCustom = useCustomImage && drawCustomImageBackdropSource(clearSource, customBackgroundPath)
     if (!drewCustom) {
         when {
             useThemePreset -> drawAndroidBackdropSource(clearSource, theme, params)
-            presetBitmap != null -> drawBitmapCoverIntoTarget(presetBitmap, clearSource)
-            else -> drawAndroidBackdropSource(clearSource, theme, params)
+            useDefaultWallpaper && presetBitmap != null -> drawBitmapCoverIntoTarget(presetBitmap, clearSource)
+            else -> clearSource.eraseColor(Color.rgb(0x07, 0x13, 0x2D))
         }
     }
 
@@ -124,7 +121,7 @@ private fun buildTunedBlurLevel(
 
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
     val file = path?.let(::File) ?: return false
-    if (!file.exists()) return false
+    if (!file.isFile) return false
     val source = decodeCustomBitmapForTarget(file, target.width, target.height) ?: return false
     drawBitmapCoverIntoTarget(source, target)
     source.recycle()
