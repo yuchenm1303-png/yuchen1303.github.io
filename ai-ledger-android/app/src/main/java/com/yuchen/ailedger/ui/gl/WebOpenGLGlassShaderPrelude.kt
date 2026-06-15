@@ -36,9 +36,7 @@ internal object WebOpenGLGlassShaderPrelude {
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
         float insideFromSdf(float sdf){return max(-sdf,0.0);}
-        vec2 globalUv(vec2 p){
-            vec2 root=max(uRootResolution,vec2(1.0));
-            vec2 texel=0.5/root;
+        vec2 globalUvAt(vec2 p,vec2 root,vec2 texel){
             return clamp((uCardOrigin+p)/root,texel,1.0-texel);
         }
         vec3 fallbackBackdrop(vec2 uv){
