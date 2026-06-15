@@ -46,8 +46,13 @@ fun CachedAppTabHost(
     val diagnostics = LocalPerformanceDiagnostics.current
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
-    val currentActivationTick = remember(currentTab) { (System.nanoTime() and Int.MAX_VALUE.toLong()).toInt() }
-    var heavyEffectsReadyTick by remember { mutableStateOf(currentActivationTick) }
+    val activationCounter = remember { intArrayOf(0) }
+    val currentActivationTick = remember(currentTab) {
+        val next = if (activationCounter[0] == Int.MAX_VALUE) 1 else activationCounter[0] + 1
+        activationCounter[0] = next
+        next
+    }
+    var heavyEffectsReadyTick by remember { mutableStateOf(0) }
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
@@ -57,7 +62,7 @@ fun CachedAppTabHost(
     val parentGlassRegistry = LocalGlassItemRegistry.current
 
     LaunchedEffect(currentTab, currentActivationTick) {
-        renderedTabs = renderedTabs + currentTab
+        if (currentTab !in renderedTabs) renderedTabs = renderedTabs + currentTab
         heavyEffectsReadyTick = 0
         if (HEAVY_EFFECTS_REVEAL_MS > 0L) delay(HEAVY_EFFECTS_REVEAL_MS)
         heavyEffectsReadyTick = currentActivationTick
@@ -76,7 +81,7 @@ fun CachedAppTabHost(
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEachIndexed { index, tab ->
             StartupMetrics.setWarmupState("轻量预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
-            renderedTabs = renderedTabs + tab
+            if (tab !in renderedTabs) renderedTabs = renderedTabs + tab
             if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
         }
         StartupMetrics.setWarmupState("页面已轻量预热")
