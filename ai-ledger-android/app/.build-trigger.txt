@@ -1,2 +1,2 @@
-trigger: sync-settings-only-2026-06-14
-source-commit: 8a0a4b67fbff9e5e0e7d039df87122dd57d4112b
+trigger: opengl-deep-optimization-2026-06-15
+source-commit: 3688ba9fdcb210e3b040e29ba225edb2be8261a9
