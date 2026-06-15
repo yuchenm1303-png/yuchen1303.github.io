@@ -1,10 +1,9 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * V29.8 整圈统一映射 + 精确切向校正圆肩。
+ * 圆肩折射回退到 fc725b 的 V29.5 整圈统一内部轮廓映射。
  *
- * 网页调试值以 CSS px 表示，Android 侧按 dp 处理并在 Renderer 中只乘一次 density。
- * 保持单 fragment shader、单最终纹理坐标和单 draw call；默认切向揉开为 0 时直接走零开销快路。
+ * 保留当前 Android 侧 uniform 结构与色散链；这里只回退非色散折射来源点与主体复算逻辑。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_VISIBLE_WIDTH_DP = 21.716216f
@@ -43,6 +42,9 @@ internal object WebOpenGLOuterPeakShoulderShader {
         float shoulderMaxAngle(){
             return clamp(uShoulder.y,0.0,89.5)*0.01745329252;
         }
+        float shoulderTheta(float depth,vec2 z){
+            return shoulderMaxAngle()*shoulderOuterEnvelope(depth,z);
+        }
         vec2 unifiedInnerContourPoint(
             vec2 boundaryPoint,
             vec2 z
@@ -57,31 +59,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 normalized=(boundaryPoint-center)/halfSize;
             return center+normalized*innerHalf;
         }
-        vec2 tangentCorrectedUnifiedSource(
-            vec2 p,
-            vec2 boundaryPoint,
-            vec2 edgeNormal,
-            vec2 z,
-            float envelope
-        ){
-            vec2 innerContourPoint=unifiedInnerContourPoint(
-                boundaryPoint,z
-            );
-            vec2 source=mix(p,innerContourPoint,envelope);
-            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
-            float tangentDrift=dot(source-p,tangent);
-            float axisAlignment=max(
-                abs(edgeNormal.x),
-                abs(edgeNormal.y)
-            );
-            float straightWeight=mix(
-                0.35,
-                1.0,
-                smoothstep(0.72,1.0,axisAlignment)
-            );
-            float correction=sat(uShoulderFlow.z)*straightWeight;
-            return source-tangent*tangentDrift*correction;
-        }
         float shoulderTangentialSignal(
             vec2 p,
             vec2 edgeNormal,
@@ -93,15 +70,9 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float contourLength=length(contourVector);
             float contourSignal=0.0;
             if(contourLength>0.0001){
-                contourSignal=dot(
-                    contourVector/contourLength,
-                    tangent
-                );
+                contourSignal=dot(contourVector/contourLength,tangent);
             }
-            float bodySignal=dot(
-                polynomialTransport(u),
-                tangent
-            );
+            float bodySignal=dot(polynomialTransport(u),tangent);
             float mixed=0.48*contourSignal+0.52*bodySignal;
             return mixed/(0.65+abs(mixed));
         }
@@ -117,10 +88,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             }
             float captureWidth=shoulderCaptureWidth(z);
             float amplitude=captureWidth*0.30*sat(flowStrength/2.4);
-            float envelope=pow(
-                shoulderOuterEnvelope(depth,z),
-                0.82
-            );
+            float envelope=pow(shoulderOuterEnvelope(depth,z),0.82);
             return amplitude
                 *shoulderTangentialSignal(p,edgeNormal,z)
                 *envelope;
@@ -133,15 +101,18 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float depth
         ){
             float envelope=shoulderOuterEnvelope(depth,z);
-            float theta=shoulderMaxAngle()*envelope;
-            vec2 boundaryPoint=p+edgeNormal*depth;
-            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
-            vec2 sourcePoint=tangentCorrectedUnifiedSource(
-                p,boundaryPoint,edgeNormal,z,envelope
-            );
-            sourcePoint+=tangent*shoulderTangentialTravel(
+            float theta=shoulderTheta(depth,z);
+            float tangentTravel=shoulderTangentialTravel(
                 p,edgeNormal,z,depth
             );
+            vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
+            vec2 boundaryPoint=p+edgeNormal*depth;
+            vec2 innerContourPoint=unifiedInnerContourPoint(
+                boundaryPoint,z
+            );
+            vec2 sourcePoint=
+                mix(p,innerContourPoint,envelope)
+                +tangent*tangentTravel;
             float sourceSd=roundedBoxSdf(sourcePoint,z,r);
             if(sourceSd>-0.5){
                 vec2 sourceNormal=perimeterNormalAt(sourcePoint,z,r);
@@ -162,32 +133,27 @@ internal object WebOpenGLOuterPeakShoulderShader {
         ){
             float pointSd=roundedBoxSdf(point,z,r);
             float pointDepth=max(-pointSd,0.0);
-            vec2 pointNormal=perimeterNormalAt(point,z,r);
             float pointWeight=bodyLensWeight(pointDepth,z,r);
-            vec2 pressFlow=vec2(0.0);
-            if(press>0.0){
-                float pointPressField=pressFieldAt(
-                    point,z,pressCenter,press
-                );
-                vec2 pressCenterPx=pressCenter*z;
-                vec2 inwardPx=softLimitPx(
-                    (pressCenterPx-point)
-                        *(0.028*press+0.070*pointPressField),
-                    24.0+press*18.0
-                );
-                vec2 pressDelta=point-pressCenterPx;
-                vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
-                vec2 pressDimplePx=-pressDir*pointPressField
-                    *(8.0+press*10.0);
-                pressFlow=pressDimplePx
-                    +inwardPx*(1.76+0.46*pointWeight);
-            }
+            float pointPressField=pressFieldAt(
+                point,z,pressCenter,press
+            );
+            vec2 pressCenterPx=pressCenter*z;
+            vec2 inwardPx=softLimitPx(
+                (pressCenterPx-point)
+                    *(0.028*press+0.070*pointPressField),
+                24.0+press*18.0
+            );
+            vec2 pressDelta=point-pressCenterPx;
+            vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
+            vec2 pressDimplePx=-pressDir*pointPressField
+                *(8.0+press*10.0);
             return point
                 +bodyRefractionFlow(
-                    pointNormal,z,r,pointDepth,pointWeight
+                    point,z,r,pointDepth,pointWeight
                 )
                 +centerTransport(point,z)
-                +pressFlow;
+                +pressDimplePx
+                +inwardPx*(1.76+0.46*pointWeight);
         }
     """
 }
