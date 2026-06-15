@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -200,22 +201,29 @@ private fun SettingsGlassFrame(
     radius: Int = 28,
     content: @Composable () -> Unit
 ) {
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = radius,
-        modifier = modifier
+    val shape = RoundedCornerShape(radius.dp)
+    Box(
+        modifier
             .fillMaxWidth()
             .animateContentSize(
                 animationSpec = spring(
                     dampingRatio = 0.80f,
                     stiffness = Spring.StiffnessMediumLow
                 )
-            ),
-        role = GlassRole.Card
+            )
+            .clip(shape)
     ) {
-        content()
+        GlassPanel(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            radius = radius,
+            modifier = Modifier.matchParentSize(),
+            role = GlassRole.Card
+        ) {}
+        Box(Modifier.fillMaxWidth()) {
+            content()
+        }
     }
 }
 
