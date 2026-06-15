@@ -120,25 +120,29 @@ fun rememberBlurredBackdropBitmap(
     val width = max(view.width, fallbackWidth).coerceAtLeast(320)
     val height = max(view.height, fallbackHeight).coerceAtLeast(640)
 
-    val customFile = customBackgroundPath
-        ?.takeUnless { it == BUILTIN_THEME_BACKGROUND_PATH }
-        ?.let(::File)
-    val useDefaultWallpaper = customBackgroundPath == null
-    val useThemeSource = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH ||
-        (customBackgroundPath != null && customFile?.exists() != true)
+    val source = remember(customBackgroundPath) { resolveBackdropSource(customBackgroundPath) }
+    val sourcePath = when (source.kind) {
+        BackdropSourceKind.DefaultWallpaper -> null
+        BackdropSourceKind.BuiltInTheme -> BUILTIN_THEME_BACKGROUND_PATH
+        BackdropSourceKind.CustomImage -> source.customImagePath
+    }
+    val customFile = source.customImagePath?.let(::File)
+    val useDefaultWallpaper = source.kind == BackdropSourceKind.DefaultWallpaper
+    val useThemeSource = source.kind == BackdropSourceKind.BuiltInTheme
     val blurLevelCount = requiredBackdropBlurLevelCount(params.radius)
     val textureParamsKey = params.textureCacheKey(
         includeScale = !useDefaultWallpaper,
         includeCloudAlpha = useThemeSource
     )
-    val customKey = when {
-        useDefaultWallpaper -> "default_wallpaper_fullres"
-        customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH -> "theme:${theme.storageValue}"
-        customFile?.exists() == true ->
-            "${customFile.absolutePath}:${customFile.lastModified()}:${customFile.length()}"
-        else -> "missing:$customBackgroundPath|fallback-theme:${theme.storageValue}"
+    val sourceKey = when (source.kind) {
+        BackdropSourceKind.DefaultWallpaper -> "default_wallpaper_fullres"
+        BackdropSourceKind.BuiltInTheme -> "theme:${theme.storageValue}"
+        BackdropSourceKind.CustomImage -> {
+            val file = requireNotNull(customFile)
+            "custom:${file.absolutePath}:${file.lastModified()}:${file.length()}"
+        }
     }
-    val textureKey = "$width×$height|$textureParamsKey|levels:$blurLevelCount|$customKey"
+    val textureKey = "$width×$height|$textureParamsKey|levels:$blurLevelCount|$sourceKey"
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
     }
@@ -153,7 +157,7 @@ fun rememberBlurredBackdropBitmap(
         withFrameNanos { }
         val next = withContext(BackdropBuildRuntime.dispatcher) {
             runCatching {
-                val preset = if (customBackgroundPath == null) {
+                val preset = if (useDefaultWallpaper) {
                     decodePresetNightSkyBitmap(context)
                 } else {
                     null
@@ -163,7 +167,7 @@ fun rememberBlurredBackdropBitmap(
                     fullHeight = height,
                     theme = theme,
                     params = params.quantizedForTextures(),
-                    customBackgroundPath = customBackgroundPath,
+                    customBackgroundPath = sourcePath,
                     presetBitmap = preset,
                     blurLevelCount = blurLevelCount
                 )
