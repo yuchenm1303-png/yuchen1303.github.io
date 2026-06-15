@@ -42,6 +42,8 @@ import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentAction
 import com.yuchen.ailedger.service.CloudMobileAction
 import com.yuchen.ailedger.service.CloudPreferenceUpdate
+import com.yuchen.ailedger.service.DeviceControlActionVerifier
+import com.yuchen.ailedger.service.DeviceToolExecutor
 import com.yuchen.ailedger.service.MobileCommand
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -307,8 +309,37 @@ class AssistantViewModel(
     private fun commandReplyPrefix(command: MobileCommand): String = when (command) { is MobileCommand.SetAlarm -> "我理解为要${command.summary}设置闹钟。"; is MobileCommand.OpenApp -> "我理解为要打开“${command.appName}”。"; is MobileCommand.Navigate -> "我理解为要导航到“${command.destination}”。" }
     private fun CloudMobileAction.toMobileCommand(): MobileCommand? = when (type) { "set_alarm" -> { val safeHour = hour?.takeIf { it in 0..23 } ?: return null; val safeMinute = minute?.takeIf { it in 0..59 } ?: 0; MobileCommand.SetAlarm(hour = safeHour, minute = safeMinute, label = label?.takeIf { it.isNotBlank() } ?: "AI 助手提醒", dateLabel = "今天") }; "navigate" -> { val target = destination?.takeIf { it.isNotBlank() } ?: return null; MobileCommand.Navigate(destination = target, mode = "driving") }; else -> null }
     private fun CloudAgentAction.isRunAgentTask(): Boolean { val text = listOf(capability, title.orEmpty(), reason.orEmpty(), goal.orEmpty()).joinToString(" ").lowercase(); return capability == "run_agent_task" || text.contains("run_agent") || text.contains("执行") || text.contains("任务") || text.contains("操作") }
+    private fun CloudAgentAction.isRunDeviceControl(): Boolean = capability == "run_device_control" && deviceControlStep != null
     private fun CloudAgentAction.isObserveScreen(): Boolean = capability == "observe_screen" && !isRunAgentTask()
     private fun CloudAgentAction.resolvedGoal(fallback: String): String = goal?.takeIf { it.isNotBlank() } ?: fallback
+    private suspend fun buildDeviceControlMessage(id: String, goal: String, action: CloudAgentAction): ChatMessage {
+        val step = action.deviceControlStep ?: return ChatMessage(id = id, text = "内部控制缺少结构化动作，已安全取消。", role = MessageRole.Assistant, status = MessageStatus.Sent, source = "local_agent", modelLabel = "内部控制")
+        val app = getApplication<Application>()
+        val executor = DeviceToolExecutor(app)
+        if (!executor.canExecute(step)) {
+            return ChatMessage(id = id, text = "内部控制不支持该工具：${step.typeLabel}。", role = MessageRole.Assistant, status = MessageStatus.Sent, source = "local_agent", modelLabel = "内部控制")
+        }
+        val raw = withContext(Dispatchers.IO) { executor.execute(step, confirmedHighRisk = false) }
+        val verified = withContext(Dispatchers.IO) { DeviceControlActionVerifier(app).verify(step, raw) }
+        val text = buildString {
+            append("内部控制执行\n\n")
+            append("目标：").append(action.resolvedGoal(goal)).append('\n')
+            append("工具：").append(step.typeLabel).append('\n')
+            step.appName?.takeIf { it.isNotBlank() }?.let { append("应用：").append(it).append('\n') }
+            step.packageName?.takeIf { it.isNotBlank() }?.let { append("包名：").append(it).append('\n') }
+            step.reason?.takeIf { it.isNotBlank() }?.let { append("原因：").append(it).append('\n') }
+            append("结果：").append(verified.message)
+        }
+        return ChatMessage(
+            id = id,
+            text = text,
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sent,
+            source = "local_agent",
+            modelLabel = "内部控制",
+            errorText = null,
+        )
+    }
     private fun applyCloudPreferenceUpdate(update: CloudPreferenceUpdate) { if (update.type == "navigation_address") updateNavigationAddress(update.slot, update.value) }
     fun retryMessage(messageId: String) { if (uiState.isSending) return; val assistantIndex = uiState.messages.indexOfFirst { it.id == messageId && it.role == MessageRole.Assistant }; if (assistantIndex <= 0) return; val previousUser = uiState.messages.take(assistantIndex).lastOrNull { it.role == MessageRole.User && (it.text.isNotBlank() || it.hasImageAttachments) } ?: return; val requestMessages = uiState.messages.take(assistantIndex); val pendingMessage = ChatMessage(id = nextLocalId("assistant"), text = "正在重新生成…", role = MessageRole.Assistant, status = MessageStatus.Sending, source = "cloud_ai", modelLabel = uiState.selectedModel.label); uiState = uiState.copy(messages = requestMessages + pendingMessage, composerText = "", isSending = true); sendPendingRequest(requestMessages = requestMessages.ifEmpty { listOf(previousUser) }, pendingMessage = pendingMessage) }
     fun stopGenerating() { if (!uiState.isSending) return; val pendingId = activePendingMessageId; activeSendJob?.cancel(CancellationException("user stopped generation")); if (pendingId != null) markMessageStopped(pendingId); activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) }
@@ -338,7 +369,7 @@ class AssistantViewModel(
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
                     val latestGoal = requestMessages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
-                    when { cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal), AgentExecutionMode.ExplicitAgent)); cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id)); cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand)); else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider)) }
+                    when { cloudAgentAction?.isRunDeviceControl() == true -> replaceMessage(pendingMessage.id, buildDeviceControlMessage(pendingMessage.id, latestGoal, cloudAgentAction)); cloudAgentAction?.isRunAgentTask() == true -> replaceMessage(pendingMessage.id, buildAgentTaskMessage(pendingMessage.id, cloudAgentAction.resolvedGoal(latestGoal), AgentExecutionMode.ExplicitAgent)); cloudAgentAction?.isObserveScreen() == true -> replaceMessage(pendingMessage.id, buildAgentObservationMessage(pendingMessage.id)); cloudCommand != null -> replaceMessage(pendingMessage.id, buildMobileCommandPreviewMessage(pendingMessage.id, cloudCommand)); else -> replaceMessage(pendingMessage.id, pendingMessage.copy(text = decorateReply(response, onlineEnabled), status = MessageStatus.Sent, source = response.source, model = response.model, modelLabel = response.modelLabel ?: selectedModel.label, version = response.version, errorText = null, webSources = response.webSources, structuredData = response.structuredData, searchUsed = response.searchUsed, searchProvider = response.searchProvider)) }
                 }
             } catch (error: CancellationException) { streamClosed = true; deltaChannel.close(); streamCollectorJob.cancel(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) markMessageStopped(pendingMessage.id) } catch (error: Throwable) { streamClosed = true; deltaChannel.close(); streamCollectorJob.join(); streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { val friendly = error.message?.takeIf { it.isNotBlank() } ?: "云端 AI 请求失败，请检查网络或 Worker 配置。"; replaceMessage(pendingMessage.id, pendingMessage.copy(text = friendly, status = MessageStatus.Failed, source = "cloud_fetch_failed", modelLabel = selectedModel.label, errorText = friendly)) } } finally { streamClosed = true; streamSmootherJob.cancel(); if (activePendingMessageId == pendingMessage.id) { activeSendJob = null; activePendingMessageId = null; uiState = uiState.copy(isSending = false) } }
         }

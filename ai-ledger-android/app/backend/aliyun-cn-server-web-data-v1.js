@@ -630,19 +630,87 @@ function normalizeAgentAction(value) {
     .trim()
     .replace(/-/g, "_");
 
-  if (!["observe_screen", "run_agent_task"].includes(capability)) return null;
+  if (!["observe_screen", "run_agent_task", "run_device_control", "device_control", "run_internal_device_control"].includes(capability)) return null;
 
-  const isRunTask = capability === "run_agent_task";
+  const normalizedCapability = capability === "device_control" || capability === "run_internal_device_control" ? "run_device_control" : capability;
+  const isRunTask = normalizedCapability === "run_agent_task";
+  const isDeviceControl = normalizedCapability === "run_device_control";
   const goal = String(value.goal || value.task || value.instruction || value.query || value.prompt || "").trim();
 
-  if (isRunTask && !goal) return null;
+  if ((isRunTask || isDeviceControl) && !goal) return null;
+  const rawDeviceControlAction = value.deviceControlAction || value.device_control_action || value.step || value.agentStep || null;
+  const deviceControlAction = isDeviceControl && rawDeviceControlAction && typeof rawDeviceControlAction === "object"
+    ? normalizeDeviceControlAction(rawDeviceControlAction)
+    : null;
+  if (isDeviceControl && !deviceControlAction) return null;
 
   return {
-    capability,
-    title: String(value.title || (isRunTask ? "手机智能体任务" : "观察当前屏幕")).trim().slice(0, 40) || (isRunTask ? "手机智能体任务" : "观察当前屏幕"),
-    goal: isRunTask ? goal.slice(0, 240) : undefined,
+    capability: normalizedCapability,
+    title: String(value.title || (isDeviceControl ? "内部设备控制" : isRunTask ? "手机智能体任务" : "观察当前屏幕")).trim().slice(0, 40) || (isDeviceControl ? "内部设备控制" : isRunTask ? "手机智能体任务" : "观察当前屏幕"),
+    goal: (isRunTask || isDeviceControl) ? goal.slice(0, 240) : undefined,
     requiresConfirmation: Boolean(value.requiresConfirmation),
-    reason: String(value.reason || (isRunTask ? "用户明确要求操作手机完成任务" : "用户希望手机智能体读取当前界面")).trim().slice(0, 160),
+    reason: String(value.reason || (isDeviceControl ? "用户请求可由内部设备控制直接完成" : isRunTask ? "用户明确要求操作手机完成任务" : "用户希望手机智能体读取当前界面")).trim().slice(0, 160),
+    deviceControlAction: deviceControlAction || undefined,
+  };
+}
+
+function normalizeDeviceControlAction(value) {
+  if (!value || typeof value !== "object") return null;
+  const capability = String(value.capability || value.tool || value.type || value.action || value.name || "").trim().toLowerCase().replace(/-/g, "_");
+  const aliases = {
+    "wifi": "network.wifi.set",
+    "wi_fi": "network.wifi.set",
+    "set_wifi": "network.wifi.set",
+    "set_wifi_enabled": "network.wifi.set",
+    "bluetooth": "network.bluetooth.set",
+    "set_bluetooth": "network.bluetooth.set",
+    "set_bluetooth_enabled": "network.bluetooth.set",
+    "mobile_data": "network.mobile_data.set",
+    "set_mobile_data": "network.mobile_data.set",
+    "set_mobile_data_enabled": "network.mobile_data.set",
+    "dark_mode": "system.dark_mode.set",
+    "set_dark_mode": "system.dark_mode.set",
+    "brightness": "system.brightness.set",
+    "set_brightness": "system.brightness.set",
+    "screen_timeout": "system.screen_timeout.set",
+    "set_screen_timeout": "system.screen_timeout.set",
+    "auto_rotate": "system.auto_rotate.set",
+    "set_auto_rotate": "system.auto_rotate.set",
+    "media_volume": "system.media_volume.set",
+    "set_media_volume": "system.media_volume.set",
+    "open_app": "app.open",
+    "open_system_settings": "settings.open",
+    "open_app_settings": "app.settings",
+    "device_status": "device.status",
+    "shizuku_status": "shizuku.status",
+    "request_shizuku_permission": "shizuku.permission.request",
+    "set_animation_scale": "system.animation_scale.set",
+    "force_stop_app": "app.force_stop",
+    "clear_app_data": "app.clear_data",
+    "uninstall_app": "app.uninstall",
+    "disable_app": "app.disable",
+    "enable_app": "app.enable",
+  };
+  const normalized = aliases[capability] || capability.replace(/_/g, ".");
+  const allowed = new Set([
+    "device.health", "device.status", "shell.probe", "shell.status", "shizuku.status", "shizuku.permission.request",
+    "settings.open", "app.open", "app.settings", "system.brightness.set", "system.screen_timeout.set",
+    "system.auto_rotate.set", "system.media_volume.set", "network.wifi.set", "network.bluetooth.set",
+    "network.mobile_data.set", "system.dark_mode.set", "system.animation_scale.set", "app.force_stop",
+    "app.clear_data", "app.uninstall", "app.disable", "app.enable",
+  ]);
+  if (!allowed.has(normalized)) return null;
+  const args = value.arguments && typeof value.arguments === "object" ? { ...value.arguments } : {};
+  for (const key of ["enabled", "enable", "on", "state", "mode", "value", "percent", "brightness", "volume", "deltaPercent", "scale", "seconds", "minutes", "timeoutMs", "appName", "packageName", "target", "page", "kind"]) {
+    if (value[key] !== undefined && args[key] === undefined) args[key] = value[key];
+  }
+  const riskLevel = String(value.riskLevel || value.risk || (["app.clear_data", "app.uninstall", "app.disable"].includes(normalized) ? "critical" : ["app.force_stop", "app.enable", "system.animation_scale.set"].includes(normalized) ? "high" : "low")).toLowerCase();
+  return {
+    capability: normalized,
+    arguments: args,
+    riskLevel,
+    requiresConfirmation: Boolean(value.requiresConfirmation || value.confirm || ["critical", "high"].includes(riskLevel)),
+    reason: String(value.reason || "").trim().slice(0, 160),
   };
 }
 
@@ -868,9 +936,11 @@ async function detectDeviceIntentByModel(prompt, body) {
         "你是 Android 手机 AI 助手的设备能力路由器，只能输出严格 JSON，不能输出解释、Markdown 或代码块。",
         "你只判断用户是不是在请求手机本地能力；不要回答问题本身。",
         "普通问答、写作、翻译、代码、项目讨论，必须全部返回 null。",
-        "只有明确要求操作手机时才触发；打开手机中的 App 必须返回 agentAction.run_agent_task，不要返回旧式 mobileAction 打开应用指令。",
+        "只有明确要求操作手机时才触发。能由内部控制直接完成的任务优先返回 agentAction.run_device_control；需要看屏幕、点按钮、跨 App 流程时才返回 run_agent_task。",
+        "内部控制 deviceControlAction.capability 可用：network.wifi.set、network.bluetooth.set、network.mobile_data.set、system.dark_mode.set、system.brightness.set、system.screen_timeout.set、system.auto_rotate.set、system.media_volume.set、settings.open、app.open、app.settings、device.status、shizuku.status、shizuku.permission.request、system.animation_scale.set、app.force_stop、app.clear_data、app.uninstall、app.disable、app.enable。",
+        "打开手机中的 App 如果只是启动应用，返回 run_device_control + app.open；如果还要进入 App 内页面或点击搜索，返回 run_agent_task。",
         "输出格式必须是单个 JSON 对象：",
-        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task\",\"title\":\"\",\"goal\":\"完整任务，仅 run_agent_task 需要\",\"requiresConfirmation\":false,\"reason\":\"\"},\"mobileAction\":null|{\"type\":\"navigate|set_alarm\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
+        "{\"agentAction\":null|{\"capability\":\"observe_screen|run_agent_task|run_device_control\",\"title\":\"\",\"goal\":\"完整任务，run_agent_task/run_device_control 需要\",\"requiresConfirmation\":false,\"reason\":\"\",\"deviceControlAction\":{\"capability\":\"network.wifi.set\",\"arguments\":{\"enabled\":true},\"riskLevel\":\"medium\",\"requiresConfirmation\":false,\"reason\":\"\"}},\"mobileAction\":null|{\"type\":\"navigate|set_alarm\",\"destination\":\"\",\"hour\":8,\"minute\":0,\"label\":\"\"},\"preferenceUpdate\":null|{\"type\":\"navigation_address\",\"slot\":\"home|school|company|dorm\",\"label\":\"\",\"value\":\"\"},\"reason\":\"\"}",
       ].join("\n"),
     },
     { role: "user", content: String(prompt || "") },
@@ -899,6 +969,7 @@ async function detectDeviceIntentByModel(prompt, body) {
 }
 
 function buildDeviceActionReply(deviceIntent) {
+  if (deviceIntent?.agentAction?.capability === "run_device_control") return "我已识别到内部设备控制任务，将交给本地受控工具执行。";
   if (deviceIntent?.agentAction?.capability === "run_agent_task") return "我已识别到手机智能体任务，将交给本地智能体执行。";
   if (deviceIntent?.agentAction?.capability === "observe_screen") return "我已识别到手机智能体观察请求，将在本地读取当前屏幕结构。";
   if (deviceIntent?.mobileAction) return "我已识别到手机动作，请在本地确认后执行。";
@@ -4727,7 +4798,7 @@ function buildMessages(bodyMessages, prompt, structuredData, sources, toolIntent
   if (includeCommandProtocol) {
     system.push(
       "仅当本次请求显式允许模型命令时，才可以输出 AI_LEDGER_COMMAND 机器标记；否则不要输出任何内部 JSON 或机器标记。",
-      "agentAction 只允许 observe_screen 或 run_agent_task；具体点击、输入、滑动动作必须交给 agent_step 智能体规划接口。"
+      "agentAction 只允许 observe_screen、run_device_control 或 run_agent_task；确定性系统控制优先 run_device_control，具体点击、输入、滑动动作必须交给 agent_step 智能体规划接口。"
     );
     if (commandInstruction) system.push(commandInstruction);
   }
