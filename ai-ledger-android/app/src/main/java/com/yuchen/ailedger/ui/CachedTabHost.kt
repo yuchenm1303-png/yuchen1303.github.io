@@ -95,13 +95,20 @@ fun CachedAppTabHost(
                 val heavyEffectsReady = active && heavyEffectsReadyTick == activationKey
                 val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
+                val sceneGroup = tab.defaultGlassSceneGroup()
+                val ordinaryRenderMode = if (visibleDuringTransition) {
+                    OrdinaryGlassParentDrawController.renderModeFor(sceneGroup)
+                } else {
+                    OrdinaryGlassRenderMode.Shadow
+                }
 
                 OrdinaryGlassSceneHost(
-                    group = tab.defaultGlassSceneGroup(),
+                    group = sceneGroup,
                     modifier = Modifier
                         .fillMaxSize()
                         .zIndex(if (active) 1f else -1f)
-                        .graphicsLayer { this.alpha = alpha }
+                        .graphicsLayer { this.alpha = alpha },
+                    renderMode = ordinaryRenderMode
                 ) {
                     CompositionLocalProvider(
                         LocalPageActive provides active,
