@@ -6,17 +6,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * 普通 Compose 玻璃父级绘制的受控验证开关。
+ * 普通 Compose 玻璃父级绘制的全 App 验证开关。
  *
- * 当前只允许 SettingsDebugInnerScroll 进入 ParentDraw；其他场景固定 Shadow。
- * 默认关闭，App 重启后恢复关闭，避免验证状态意外固化到生产路径。
+ * 仅覆盖已建立普通 Compose 场景边界的 Page / ScrollSubScene / Persistent；
+ * Unassigned / Fallback 始终保持 Shadow。Shell、OpenGL、聊天气泡、Frost、Inset
+ * 仍由各自入口硬排除，不会因为全局开关进入普通 Compose 父级系统。
+ *
+ * 默认关闭，App 重启后恢复关闭，便于随时回退到原子级绘制。
  */
 @Stable
 object OrdinaryGlassParentDrawController {
-    var settingsDebugEnabled by mutableStateOf(false)
+    var globalEnabled by mutableStateOf(false)
 
     fun renderModeFor(group: GlassSceneGroup): OrdinaryGlassRenderMode =
-        if (group == GlassSceneGroup.SettingsDebugInnerScroll && settingsDebugEnabled) {
+        if (globalEnabled && group.owner != GlassSceneOwner.Fallback) {
             OrdinaryGlassRenderMode.ParentDraw
         } else {
             OrdinaryGlassRenderMode.Shadow
