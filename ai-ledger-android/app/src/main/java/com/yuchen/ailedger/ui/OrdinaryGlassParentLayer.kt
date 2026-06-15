@@ -271,11 +271,22 @@ private fun OrdinaryGlassParentLayer(
     phase: OrdinaryGlassParentPhase,
     modifier: Modifier
 ) {
+    val backdrop = LocalBlurredBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val backdropTicker = LocalBackdropFrameTicker.current
+    val backdropSpec = LocalGlassBackdrop.current
+
     Canvas(modifier = modifier) {
+        if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
+            backdropTicker?.frameNanos
+        }
         observeVisibleOrdinaryGlassItems(
             sceneState = sceneState,
             phase = phase,
-            viewportSize = size
+            viewportSize = size,
+            backdrop = backdrop,
+            backdropOrigin = backdropOrigin,
+            backdropSpec = backdropSpec
         )
     }
 }
@@ -286,7 +297,10 @@ private fun OrdinaryGlassParentLayer(
 private fun DrawScope.observeVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     phase: OrdinaryGlassParentPhase,
-    viewportSize: Size
+    viewportSize: Size,
+    backdrop: BlurredBackdropBitmap?,
+    backdropOrigin: BackdropCoordinateSource?,
+    backdropSpec: GlassBackdropSpec?
 ) {
     sceneState.registry.version
     sceneState.coordinates.placementVersion
@@ -316,6 +330,14 @@ private fun DrawScope.observeVisibleOrdinaryGlassItems(
         if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
             when (phase) {
                 OrdinaryGlassParentPhase.Underlay -> {
+                    drawOrdinaryComposeGlassShadow(node = node, rect = rect)
+                    drawOrdinaryComposeGlassBackdrop(
+                        node = node,
+                        rect = rect,
+                        backdrop = backdrop,
+                        sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin),
+                        spec = backdropSpec
+                    )
                     drawOrdinaryComposeGlassMaterial(node = node, rect = rect)
                 }
                 OrdinaryGlassParentPhase.Overlay -> {
@@ -330,6 +352,9 @@ private fun DrawScope.observeVisibleOrdinaryGlassItems(
                     node.glassIntensity
                     node.backdropAlpha
                     node.edgeStrength
+                    backdrop
+                    backdropOrigin
+                    backdropSpec
                 }
                 OrdinaryGlassParentPhase.Overlay -> {
                     node.shimmer
