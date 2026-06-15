@@ -1,2 +1,2 @@
-trigger: shader-expression-optimization-pending
-source-commit: 0227902aa21d75b0652a730ef1482635f5b4f4aa
+trigger: shader-expression-optimization-final-2026-06-15
+source-commit: 51c13f30cbd3a6d9f25d29189ca1454b775ed4dc
