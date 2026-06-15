@@ -83,6 +83,11 @@ private data class GlassScissorRect(
     )
 }
 
+/**
+ * 单卡 Shell Renderer：只在状态脏时更新 uniform，并在纹理引用真正变化时上传。
+ * 当 high 级与 medium 级复用同一 Bitmap 时，纹理单元 3 直接绑定 medium texture，
+ * 不再为完全相同的像素分配第二份 GPU 存储。
+ */
 internal class WebOpenGLGlassRenderer {
     private val textureLock = Any()
     private val specLock = Any()
@@ -91,6 +96,13 @@ internal class WebOpenGLGlassRenderer {
     private var pendingBlurLowBitmap: Bitmap? = null
     private var pendingBlurMediumBitmap: Bitmap? = null
     private var pendingBlurHighBitmap: Bitmap? = null
+    private var textureSetPending = false
+
+    private var activeClearBitmap: Bitmap? = null
+    private var activeBlurLowBitmap: Bitmap? = null
+    private var activeBlurMediumBitmap: Bitmap? = null
+    private var activeBlurHighBitmap: Bitmap? = null
+    private var highTextureAliasesMedium = false
 
     private var clearTextureId = 0
     private var blurLowTextureId = 0
@@ -208,6 +220,7 @@ internal class WebOpenGLGlassRenderer {
             pendingBlurLowBitmap = low
             pendingBlurMediumBitmap = medium
             pendingBlurHighBitmap = high
+            textureSetPending = true
         }
     }
 
@@ -393,6 +406,11 @@ internal class WebOpenGLGlassRenderer {
         quadBufferId = 0
         program = 0
         textureReady = false
+        highTextureAliasesMedium = false
+        activeClearBitmap = null
+        activeBlurLowBitmap = null
+        activeBlurMediumBitmap = null
+        activeBlurHighBitmap = null
         previousGlassScissor = null
     }
 
@@ -535,28 +553,50 @@ internal class WebOpenGLGlassRenderer {
     }
 
     private fun uploadPendingTexturesIfNeeded() {
-        var clear: Bitmap? = null
-        var low: Bitmap? = null
-        var medium: Bitmap? = null
-        var high: Bitmap? = null
+        val clear: Bitmap
+        val low: Bitmap
+        val medium: Bitmap
+        val high: Bitmap
         synchronized(textureLock) {
-            clear = pendingClearBitmap
-            low = pendingBlurLowBitmap
-            medium = pendingBlurMediumBitmap
-            high = pendingBlurHighBitmap
-            pendingClearBitmap = null
-            pendingBlurLowBitmap = null
-            pendingBlurMediumBitmap = null
-            pendingBlurHighBitmap = null
+            if (!textureSetPending) return
+            clear = pendingClearBitmap ?: return
+            low = pendingBlurLowBitmap ?: return
+            medium = pendingBlurMediumBitmap ?: return
+            high = pendingBlurHighBitmap ?: return
+            textureSetPending = false
         }
-        val clearBitmap = clear ?: return
-        val lowBitmap = low ?: return
-        val mediumBitmap = medium ?: return
-        val highBitmap = high ?: return
-        uploadTexture(0, GLES20.GL_TEXTURE0, clearTextureId, clearBitmap)
-        uploadTexture(1, GLES20.GL_TEXTURE1, blurLowTextureId, lowBitmap)
-        uploadTexture(2, GLES20.GL_TEXTURE2, blurMediumTextureId, mediumBitmap)
-        uploadTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId, highBitmap)
+
+        if (clear !== activeClearBitmap) {
+            uploadTexture(0, GLES20.GL_TEXTURE0, clearTextureId, clear)
+            activeClearBitmap = clear
+        }
+        if (low !== activeBlurLowBitmap) {
+            uploadTexture(1, GLES20.GL_TEXTURE1, blurLowTextureId, low)
+            activeBlurLowBitmap = low
+        }
+        if (medium !== activeBlurMediumBitmap) {
+            uploadTexture(2, GLES20.GL_TEXTURE2, blurMediumTextureId, medium)
+            activeBlurMediumBitmap = medium
+        }
+
+        val aliasHighToMedium = high === medium
+        if (aliasHighToMedium) {
+            if (!highTextureAliasesMedium) {
+                bindTexture(GLES20.GL_TEXTURE3, blurMediumTextureId)
+                highTextureAliasesMedium = true
+            }
+            activeBlurHighBitmap = high
+        } else {
+            if (highTextureAliasesMedium) {
+                bindTexture(GLES20.GL_TEXTURE3, blurHighTextureId)
+                highTextureAliasesMedium = false
+            }
+            if (high !== activeBlurHighBitmap) {
+                uploadTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId, high)
+                activeBlurHighBitmap = high
+            }
+        }
+
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         if (!textureReady) {
             textureReady = true
@@ -565,8 +605,7 @@ internal class WebOpenGLGlassRenderer {
     }
 
     private fun uploadTexture(index: Int, textureUnit: Int, textureId: Int, bitmap: Bitmap) {
-        GLES20.glActiveTexture(textureUnit)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+        bindTexture(textureUnit, textureId)
         if (textureWidths[index] == bitmap.width && textureHeights[index] == bitmap.height) {
             GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
         } else {
@@ -576,9 +615,13 @@ internal class WebOpenGLGlassRenderer {
         }
     }
 
-    private fun configureTexture(index: Int, textureUnit: Int, textureId: Int) {
+    private fun bindTexture(textureUnit: Int, textureId: Int) {
         GLES20.glActiveTexture(textureUnit)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+    }
+
+    private fun configureTexture(index: Int, textureUnit: Int, textureId: Int) {
+        bindTexture(textureUnit, textureId)
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_MIN_FILTER,
