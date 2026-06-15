@@ -20,7 +20,7 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform vec4 uBodyLensB;
         uniform vec4 uBody;
         uniform vec4 uShoulder;
-        uniform vec4 uShoulderFlow;
+        uniform vec2 uShoulderFlow;
         uniform vec4 uDispersion;
         uniform float uRadius;
         uniform float uIntensity;
@@ -46,29 +46,33 @@ internal object WebOpenGLGlassShaderPrelude {
         }
         vec3 clearBackdrop(vec2 uv){
             vec2 safeUv=clamp(uv,0.0,1.0);
-            vec3 realColor=texture2D(uClearTexture,safeUv).rgb;
-            return mix(fallbackBackdrop(safeUv),realColor,sat(uTextureReady));
+            if(uTextureReady<0.5){
+                return fallbackBackdrop(safeUv);
+            }
+            return texture2D(uClearTexture,safeUv).rgb;
         }
         vec3 blurPyramidBackdropAt(vec2 uv,float requestedAmount){
             vec2 safeUv=clamp(uv,0.0,1.0);
+            if(uTextureReady<0.5){
+                return fallbackBackdrop(safeUv);
+            }
             float amount=clamp(requestedAmount,0.0,4.0);
-            vec3 result;
             if(amount<=0.001){
-                result=texture2D(uClearTexture,safeUv).rgb;
-            }else if(amount<1.0){
+                return texture2D(uClearTexture,safeUv).rgb;
+            }
+            if(amount<1.0){
                 vec3 clearColor=texture2D(uClearTexture,safeUv).rgb;
                 vec3 lowColor=texture2D(uBlurLowTexture,safeUv).rgb;
-                result=mix(clearColor,lowColor,amount);
-            }else if(amount<2.0){
+                return mix(clearColor,lowColor,amount);
+            }
+            if(amount<2.0){
                 vec3 lowColor=texture2D(uBlurLowTexture,safeUv).rgb;
                 vec3 mediumColor=texture2D(uBlurMediumTexture,safeUv).rgb;
-                result=mix(lowColor,mediumColor,amount-1.0);
-            }else{
-                vec3 mediumColor=texture2D(uBlurMediumTexture,safeUv).rgb;
-                vec3 highColor=texture2D(uBlurHighTexture,safeUv).rgb;
-                result=mix(mediumColor,highColor,(amount-2.0)*0.5);
+                return mix(lowColor,mediumColor,amount-1.0);
             }
-            return mix(fallbackBackdrop(safeUv),result,sat(uTextureReady));
+            vec3 mediumColor=texture2D(uBlurMediumTexture,safeUv).rgb;
+            vec3 highColor=texture2D(uBlurHighTexture,safeUv).rgb;
+            return mix(mediumColor,highColor,(amount-2.0)*0.5);
         }
         vec2 softLimit(vec2 v,float lim){
             float n=length(v);
@@ -108,14 +112,13 @@ internal object WebOpenGLGlassShaderPrelude {
             float concentration=mix(0.58,1.82,sat((uBodyLensA.z+10.0)/20.0));
             return pow(1.0-smooth,concentration);
         }
-        vec2 bodyRefractionFlow(vec2 p,vec2 z,float r,float depth,float weight){
-            vec2 n=perimeterNormalAt(p,z,r);
+        vec2 bodyRefractionFlow(vec2 normal,vec2 z,float r,float depth,float weight){
             float rawPull=abs(uBodyLensA.y)*0.052+abs(uBodyLensA.x)*0.20+max(uBodyLensB.x,0.0)*0.12;
             float core=pow(weight,1.28);
             float reach=bodyLensReach(z,r);
             float remaining=max(reach-depth,0.0);
             float displacement=remaining*(1.0-exp(-(rawPull*core)/max(remaining,1.0)))*0.96;
-            return -n*displacement;
+            return -normal*displacement;
         }
         float centerEnvelope(vec2 u){
             float width=sat((uBody.x-0.18)/(1.5-0.18));
