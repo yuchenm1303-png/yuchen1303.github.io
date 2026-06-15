@@ -1,9 +1,8 @@
 package com.yuchen.ailedger.ui.gl
 
 /**
- * 圆肩折射回退到 fc725b 的 V29.5 整圈统一内部轮廓映射。
- *
- * 保留当前 Android 侧 uniform 结构与色散链；这里只回退非色散折射来源点与主体复算逻辑。
+ * 圆肩折射使用 fc725b 的 V29.5 整圈统一内部轮廓映射。
+ * 保留当前色散链，移除已经失效的 V29.8 切向校正状态。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_VISIBLE_WIDTH_DP = 21.716216f
@@ -12,7 +11,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_FALLOFF_ROUNDNESS = 0f
     const val DEFAULT_MATERIAL_STRENGTH = 4f
     const val DEFAULT_TANGENTIAL_FLOW_STRENGTH = 0f
-    const val DEFAULT_TANGENTIAL_CORRECTION = 0.45f
 
     const val SOURCE = """
         float shoulderWidth(vec2 z){
@@ -133,27 +131,32 @@ internal object WebOpenGLOuterPeakShoulderShader {
         ){
             float pointSd=roundedBoxSdf(point,z,r);
             float pointDepth=max(-pointSd,0.0);
+            vec2 pointNormal=perimeterNormalAt(point,z,r);
             float pointWeight=bodyLensWeight(pointDepth,z,r);
-            float pointPressField=pressFieldAt(
-                point,z,pressCenter,press
-            );
-            vec2 pressCenterPx=pressCenter*z;
-            vec2 inwardPx=softLimitPx(
-                (pressCenterPx-point)
-                    *(0.028*press+0.070*pointPressField),
-                24.0+press*18.0
-            );
-            vec2 pressDelta=point-pressCenterPx;
-            vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
-            vec2 pressDimplePx=-pressDir*pointPressField
-                *(8.0+press*10.0);
+            vec2 pressFlow=vec2(0.0);
+            if(press>0.0){
+                float pointPressField=pressFieldAt(
+                    point,z,pressCenter,press
+                );
+                vec2 pressCenterPx=pressCenter*z;
+                vec2 inwardPx=softLimitPx(
+                    (pressCenterPx-point)
+                        *(0.028*press+0.070*pointPressField),
+                    24.0+press*18.0
+                );
+                vec2 pressDelta=point-pressCenterPx;
+                vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
+                vec2 pressDimplePx=-pressDir*pointPressField
+                    *(8.0+press*10.0);
+                pressFlow=pressDimplePx
+                    +inwardPx*(1.76+0.46*pointWeight);
+            }
             return point
                 +bodyRefractionFlow(
-                    point,z,r,pointDepth,pointWeight
+                    pointNormal,z,r,pointDepth,pointWeight
                 )
                 +centerTransport(point,z)
-                +pressDimplePx
-                +inwardPx*(1.76+0.46*pointWeight);
+                +pressFlow;
         }
     """
 }
