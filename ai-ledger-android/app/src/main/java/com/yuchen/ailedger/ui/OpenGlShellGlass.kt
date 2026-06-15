@@ -17,10 +17,11 @@ enum class OpenGlShellMood {
 /**
  * Shared glass entry for surfaces that are deliberately promoted to Shell/OpenGL.
  *
- * Hero surfaces still keep their visual Shell design, but the real Shell/OpenGL
- * registration is delayed until LocalPageHeavyEffectsEnabled becomes true. During
- * page prewarm and early tab enter frames they render as a static Card surface, so
- * tab switching is not blocked by OpenGL/registry recovery.
+ * Shell identity follows page visibility instead of the heavy-effects throttle:
+ * - active and fading pages keep the same Shell/OpenGL host until alpha reaches zero;
+ * - hidden cached pages release OpenGL and fall back to a lightweight Card;
+ * - diagnostics.openGlGlassOff still hard-disables Shell OpenGL;
+ * - heavy-effects readiness only controls motion intensity, never Shell/Card identity.
  */
 @Composable
 fun OpenGlShellGlass(
@@ -34,9 +35,12 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val pageVisible = LocalPageVisible.current
     val heavyEffectsEnabled = LocalPageHeavyEffectsEnabled.current
+    val diagnostics = LocalPerformanceDiagnostics.current
     val wantsOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
-    val useOpenGlShell = wantsOpenGlShell && heavyEffectsEnabled
+    val useOpenGlShell = wantsOpenGlShell && pageVisible && !diagnostics.openGlGlassOff
+    val resolvedMotionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f
     val surfaceModifier = modifier
 
     if (useOpenGlShell) {
@@ -54,7 +58,7 @@ fun OpenGlShellGlass(
         GlassPanel(
             quality = quality,
             glassIntensity = glassIntensity,
-            motionIntensity = motionIntensity,
+            motionIntensity = resolvedMotionIntensity,
             radius = radius,
             modifier = surfaceModifier.then(clickableModifier),
             role = GlassRole.Shell,
@@ -64,10 +68,10 @@ fun OpenGlShellGlass(
         PressableGlass(
             quality = quality,
             glassIntensity = glassIntensity,
-            motionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f,
+            motionIntensity = resolvedMotionIntensity,
             radius = radius,
             modifier = surfaceModifier,
-            role = if (wantsOpenGlShell) GlassRole.Card else GlassRole.Card,
+            role = GlassRole.Card,
             onClick = onClick,
             content = content
         )
@@ -75,7 +79,7 @@ fun OpenGlShellGlass(
         GlassPanel(
             quality = quality,
             glassIntensity = glassIntensity,
-            motionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f,
+            motionIntensity = resolvedMotionIntensity,
             radius = radius,
             modifier = surfaceModifier,
             role = GlassRole.Card,
