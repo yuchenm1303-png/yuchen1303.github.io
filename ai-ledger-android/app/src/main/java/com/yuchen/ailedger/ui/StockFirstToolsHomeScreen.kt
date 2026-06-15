@@ -50,18 +50,27 @@ fun StockFirstToolsHomeScreen(
     onOpenTool: (String) -> Unit
 ) {
     val assistantViewModel: AssistantViewModel = viewModel()
-    val ledgerViewModel: LedgerViewModel = viewModel()
-    val liveState = assistantViewModel.uiState
-    val selectedTool = liveState.selectedToolTitle
+    val pageVisible = LocalPageVisible.current
+    val pageState = if (pageVisible) {
+        state
+    } else {
+        remember(pageVisible) { state.copy(motionIntensity = 0f) }
+    }
+    val selectedTool = pageState.selectedToolTitle
+    val onCloseTool = remember(assistantViewModel) { { assistantViewModel.closeTool() } }
+    val onOpenAssistant = remember(assistantViewModel) {
+        { assistantViewModel.selectTab(AppTab.Assistant) }
+    }
 
     if (selectedTool == "账单中心" || selectedTool == "数据统计") {
+        val ledgerViewModel: LedgerViewModel = viewModel()
         GlassSceneScope(GlassSceneGroup.LedgerCenterPage) {
             NativeLedgerCenterScreen(
-                appState = liveState,
+                appState = pageState,
                 ledgerViewModel = ledgerViewModel,
                 statisticsOnly = selectedTool == "数据统计",
-                onBack = assistantViewModel::closeTool,
-                onOpenAssistant = { assistantViewModel.selectTab(AppTab.Assistant) }
+                onBack = onCloseTool,
+                onOpenAssistant = onOpenAssistant
             )
         }
         return
@@ -80,42 +89,42 @@ fun StockFirstToolsHomeScreen(
             }
             item {
                 ToolsEntrance(delayMs = 95, initialOffsetY = 18, initialScale = 0.966f) {
-                    StockMarketHeroEntry(state, onOpenTool)
+                    StockMarketHeroEntry(pageState, onOpenTool)
                 }
             }
             item {
                 ToolsEntrance(delayMs = 175, initialOffsetY = 18, initialScale = 0.970f) {
-                    StockToolsQuickRow(state, onOpenTool)
+                    StockToolsQuickRow(pageState, onOpenTool)
                 }
             }
             item {
                 ToolsEntrance(delayMs = 255, initialOffsetY = 20, initialScale = 0.966f) {
-                    StockToolEntryCard(STOCK_MARKET_TOOL_TITLE, "A股首页、热度榜、龙虎榜、板块和自选", state) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
+                    StockToolEntryCard(STOCK_MARKET_TOOL_TITLE, "A股首页、热度榜、龙虎榜、板块和自选", pageState) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 315, initialOffsetY = 22, initialScale = 0.964f) {
-                    StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", state) { onOpenTool("账单中心") }
+                    StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", pageState) { onOpenTool("账单中心") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 375, initialOffsetY = 24, initialScale = 0.964f) {
-                    StockToolEntryCard("数据统计", "按周、月、年查看趋势", state) { onOpenTool("数据统计") }
+                    StockToolEntryCard("数据统计", "按周、月、年查看趋势", pageState) { onOpenTool("数据统计") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 435, initialOffsetY = 24, initialScale = 0.962f) {
-                    StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", state) { onOpenTool("提醒闹钟") }
+                    StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", pageState) { onOpenTool("提醒闹钟") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 495, initialOffsetY = 26, initialScale = 0.962f) {
-                    StockToolEntryCard("应用控制", "打开微信、支付宝等应用", state) { onOpenTool("应用控制") }
+                    StockToolEntryCard("应用控制", "打开微信、支付宝等应用", pageState) { onOpenTool("应用控制") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 555, initialOffsetY = 26, initialScale = 0.96f) {
-                    StockToolEntryCard("快捷指令", "保存常用任务", state) { onOpenTool("快捷指令") }
+                    StockToolEntryCard("快捷指令", "保存常用任务", pageState) { onOpenTool("快捷指令") }
                 }
             }
         }
