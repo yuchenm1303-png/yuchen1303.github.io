@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.BackgroundTheme
+import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
@@ -24,11 +25,10 @@ import kotlin.math.roundToInt
 /**
  * Keeps Shell glass on the same rendering branch from the first composition.
  *
- * On a fresh install the real blurred backdrop is produced asynchronously. Returning null during
- * that window makes Shell glass first render as ordinary Compose glass and then swap into the
- * OpenGL card layer when the backdrop becomes available. This lightweight placeholder keeps
- * LocalBlurredBackdrop non-null immediately, so the OpenGL Shell is mounted once and later only
- * receives a texture update.
+ * Image-backed sources use a two-by-two neutral texture until their real textures are available.
+ * The generated theme placeholder is created only when the user has explicitly selected the built-in
+ * theme source. This preserves the stable OpenGL Shell mount without drawing or uploading an unused
+ * theme wallpaper during normal startup.
  */
 @Composable
 fun rememberStableBlurredBackdropBitmap(
@@ -37,11 +37,17 @@ fun rememberStableBlurredBackdropBitmap(
     params: BackdropDebugParams = BackdropDebugParams(),
     customBackgroundPath: String? = null
 ): BlurredBackdropBitmap {
+    val source = remember(customBackgroundPath) { resolveBackdropSource(customBackgroundPath) }
+    val sourcePath = when (source.kind) {
+        BackdropSourceKind.DefaultWallpaper -> null
+        BackdropSourceKind.BuiltInTheme -> BUILTIN_THEME_BACKGROUND_PATH
+        BackdropSourceKind.CustomImage -> source.customImagePath
+    }
     val realBackdrop = rememberBlurredBackdropBitmap(
         theme = theme,
         quality = quality,
         params = params,
-        customBackgroundPath = customBackgroundPath
+        customBackgroundPath = sourcePath
     )
 
     val view = LocalView.current
@@ -51,14 +57,40 @@ fun rememberStableBlurredBackdropBitmap(
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val fullWidth = max(view.width, fallbackWidth).coerceAtLeast(320)
     val fullHeight = max(view.height, fallbackHeight).coerceAtLeast(640)
+    val relevantTheme = theme.takeIf { source.kind == BackdropSourceKind.BuiltInTheme }
 
-    val placeholder = remember(fullWidth, fullHeight, theme) {
-        buildStableBackdropPlaceholder(fullWidth, fullHeight, theme)
+    val placeholder = remember(fullWidth, fullHeight, source.kind, relevantTheme) {
+        if (source.kind == BackdropSourceKind.BuiltInTheme) {
+            buildThemeBackdropPlaceholder(fullWidth, fullHeight, theme)
+        } else {
+            buildImageBackdropPlaceholder(fullWidth, fullHeight)
+        }
     }
     return realBackdrop ?: placeholder
 }
 
-private fun buildStableBackdropPlaceholder(
+/** Minimal non-theme texture shared by all four OpenGL sampler slots during image decoding. */
+private fun buildImageBackdropPlaceholder(
+    fullWidth: Int,
+    fullHeight: Int
+): BlurredBackdropBitmap {
+    val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply {
+        eraseColor(Color.rgb(0x07, 0x13, 0x2D))
+    }
+    val image = bitmap.asImageBitmap()
+    return BlurredBackdropBitmap(
+        image = image,
+        fullWidthPx = fullWidth,
+        fullHeightPx = fullHeight,
+        scale = 2f / fullWidth.toFloat(),
+        lensImage = image,
+        blurLowImage = image,
+        blurMediumImage = image,
+        blurHighImage = image
+    )
+}
+
+private fun buildThemeBackdropPlaceholder(
     fullWidth: Int,
     fullHeight: Int,
     theme: BackgroundTheme
@@ -94,7 +126,10 @@ private fun buildStableBackdropPlaceholder(
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
         scale = smallWidth.toFloat() / fullWidth.toFloat(),
-        lensImage = image
+        lensImage = image,
+        blurLowImage = image,
+        blurMediumImage = image,
+        blurHighImage = image
     )
 }
 
@@ -149,4 +184,5 @@ private fun stableBackdropPalette(theme: BackgroundTheme): StableBackdropPalette
 }
 
 private fun rgbStable(r: Int, g: Int, b: Int): Int = Color.rgb(r, g, b)
-private fun stableAlpha(color: Int, alpha: Float): Int = ((alpha.coerceIn(0f, 1f) * 255f).roundToInt() shl 24) or (color and 0x00FFFFFF)
+private fun stableAlpha(color: Int, alpha: Float): Int =
+    ((alpha.coerceIn(0f, 1f) * 255f).roundToInt() shl 24) or (color and 0x00FFFFFF)
