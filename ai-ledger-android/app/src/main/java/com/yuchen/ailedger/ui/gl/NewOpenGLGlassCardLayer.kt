@@ -58,14 +58,24 @@ fun NewOpenGLGlassCardLayer(
             .coerceIn(0f, 1f)
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
+
+        // TextureView/EGL Surface 使用稳定包络尺寸；玻璃真实形状仍由下方 setGlassSpec 每帧更新。
+        // 这样模型栏展开、键盘变化和页面压缩拉伸时，不会因 SurfaceTexture 逐帧 resize 卡顿。
+        val safeSurfaceAnchor = surfaceAnchor.coerceIn(0f, 1f)
+        val stableSurfaceWidthPx = max(widthPx, rootWidthPx)
+        val stableSurfaceHeightPx = max(
+            heightPx,
+            rootHeightPx * (1f - safeSurfaceAnchor)
+        )
+
         AndroidView(
             modifier = Modifier.matchParentSize(),
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
-                view.setStableSurfaceAnchor(surfaceAnchor)
+                view.setStableSurfaceAnchor(safeSurfaceAnchor)
                 val surfaceDirty = view.setStableSurfaceSize(
-                    widthPx.roundToInt(),
-                    heightPx.roundToInt(),
+                    stableSurfaceWidthPx.roundToInt(),
+                    stableSurfaceHeightPx.roundToInt(),
                     rootWidthPx.roundToInt(),
                     rootHeightPx.roundToInt()
                 )
