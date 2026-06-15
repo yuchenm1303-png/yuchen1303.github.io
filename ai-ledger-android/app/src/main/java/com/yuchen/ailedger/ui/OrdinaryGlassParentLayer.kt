@@ -19,6 +19,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
@@ -33,6 +36,7 @@ import kotlin.math.min
  * 3. 绘制页面内容；
  * 4. 复用同一批可见节点绘制静态外沿与按压前景。
  *
+ * Overlay 会排除后序玻璃的可见区域，保持 Compose 子级原有 z-order。
  * Shadow 不再建立 registry 或空绘制层，直接回退子级绘制。
  */
 enum class OrdinaryGlassRenderMode {
@@ -149,7 +153,8 @@ class OrdinaryGlassItemRegistry {
 
 private class VisibleOrdinaryGlassItem(
     var node: OrdinaryGlassRenderNode,
-    var rect: Rect
+    var rect: Rect,
+    var transformedBounds: Rect
 )
 
 @Stable
@@ -167,13 +172,18 @@ class OrdinaryGlassSceneState(
         visibleCount = 0
     }
 
-    internal fun appendVisible(node: OrdinaryGlassRenderNode, rect: Rect) {
+    internal fun appendVisible(
+        node: OrdinaryGlassRenderNode,
+        rect: Rect,
+        transformedBounds: Rect
+    ) {
         if (visibleCount < visiblePool.size) {
             val item = visiblePool[visibleCount]
             item.node = node
             item.rect = rect
+            item.transformedBounds = transformedBounds
         } else {
-            visiblePool.add(VisibleOrdinaryGlassItem(node, rect))
+            visiblePool.add(VisibleOrdinaryGlassItem(node, rect, transformedBounds))
         }
         visibleCount += 1
     }
@@ -186,6 +196,22 @@ class OrdinaryGlassSceneState(
             index += 1
         }
     }
+
+    internal fun forEachVisibleIndexed(
+        block: (Int, OrdinaryGlassRenderNode, Rect, Rect) -> Unit
+    ) {
+        var index = 0
+        while (index < visibleCount) {
+            val item = visiblePool[index]
+            block(index, item.node, item.rect, item.transformedBounds)
+            index += 1
+        }
+    }
+
+    internal fun visibleItemCount(): Int = visibleCount
+
+    internal fun transformedBoundsAt(index: Int): Rect =
+        visiblePool[index].transformedBounds
 }
 
 val LocalOrdinaryGlassSceneState = staticCompositionLocalOf<OrdinaryGlassSceneState?> { null }
@@ -289,7 +315,10 @@ fun OrdinaryGlassSceneHost(
     }
 
     val sceneState = remember(group) {
-        OrdinaryGlassSceneState(rootGroup = group, renderMode = OrdinaryGlassRenderMode.ParentDraw)
+        OrdinaryGlassSceneState(
+            rootGroup = group,
+            renderMode = OrdinaryGlassRenderMode.ParentDraw
+        )
     }
     val backdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
@@ -311,7 +340,10 @@ fun OrdinaryGlassSceneHost(
                 .drawWithContent {
                     // 单一 Host 订阅背景刷新；不再存在第二个空转 Overlay Canvas。
                     backdropTicker?.frameNanos
-                    collectVisibleOrdinaryGlassItems(sceneState = sceneState, viewportSize = size)
+                    collectVisibleOrdinaryGlassItems(
+                        sceneState = sceneState,
+                        viewportSize = size
+                    )
 
                     sceneState.forEachVisible { node, rect ->
                         drawOrdinaryParentShadow(node = node, rect = rect)
@@ -330,10 +362,16 @@ fun OrdinaryGlassSceneHost(
 
                     drawContent()
 
-                    sceneState.forEachVisible { node, rect ->
-                        drawOrdinaryParentStaticOverlay(node = node, rect = rect)
-                        if (node.hasActivePressOptics()) {
-                            drawOrdinaryParentPressOverlay(node = node, rect = rect)
+                    sceneState.forEachVisibleIndexed { index, node, rect, bounds ->
+                        withLaterVisibleBoundsExcluded(
+                            sceneState = sceneState,
+                            itemIndex = index,
+                            itemBounds = bounds
+                        ) {
+                            drawOrdinaryParentStaticOverlay(node = node, rect = rect)
+                            if (node.hasActivePressOptics()) {
+                                drawOrdinaryParentPressOverlay(node = node, rect = rect)
+                            }
                         }
                     }
                 }
@@ -343,7 +381,7 @@ fun OrdinaryGlassSceneHost(
     }
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.collectVisibleOrdinaryGlassItems(
+private fun DrawScope.collectVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     viewportSize: Size
 ) {
@@ -372,9 +410,48 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.collectVisibleOrdin
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        if (ordinaryGlassTransformedBounds(node = node, rect = rect).intersectionOrNull(viewport) == null) continue
-        sceneState.appendVisible(node = node, rect = rect)
+        val transformedBounds = ordinaryGlassTransformedBounds(node = node, rect = rect)
+        if (transformedBounds.intersectionOrNull(viewport) == null) continue
+        sceneState.appendVisible(
+            node = node,
+            rect = rect,
+            transformedBounds = transformedBounds
+        )
     }
+}
+
+/**
+ * 父级 Overlay 在页面内容之后绘制，但不能越过后序玻璃节点。
+ * 只对真实相交的后序区域追加 Difference clip，未重叠列表不增加裁剪层。
+ */
+private fun DrawScope.withLaterVisibleBoundsExcluded(
+    sceneState: OrdinaryGlassSceneState,
+    itemIndex: Int,
+    itemBounds: Rect,
+    block: DrawScope.() -> Unit
+) {
+    fun DrawScope.drawFrom(nextIndex: Int) {
+        var index = nextIndex
+        while (index < sceneState.visibleItemCount()) {
+            val laterBounds = sceneState.transformedBoundsAt(index)
+            if (itemBounds.intersectionOrNull(laterBounds) != null) {
+                clipRect(
+                    left = laterBounds.left,
+                    top = laterBounds.top,
+                    right = laterBounds.right,
+                    bottom = laterBounds.bottom,
+                    clipOp = ClipOp.Difference
+                ) {
+                    drawFrom(index + 1)
+                }
+                return
+            }
+            index += 1
+        }
+        block()
+    }
+
+    drawFrom(itemIndex + 1)
 }
 
 private fun Rect.intersectionOrNull(other: Rect): Rect? {
