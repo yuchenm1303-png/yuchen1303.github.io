@@ -25,7 +25,9 @@ val LocalPageLeaving = compositionLocalOf { false }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 
-private val DefaultPrewarmTabs: Set<AppTab> = AppTab.entries.toSet()
+// Cold start stays strictly on demand. Once a tab is visited it remains cached in this host, but
+// unused Tools/Settings trees are no longer composed automatically while the first page is settling.
+private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
 private const val PAGE_ENTER_FADE_MS = 230
