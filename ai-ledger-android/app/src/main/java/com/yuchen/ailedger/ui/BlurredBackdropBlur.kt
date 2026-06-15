@@ -14,6 +14,54 @@ internal fun boxBlur(
     }
     val width = input.width
     val height = input.height
+    val output = runBoxBlur(input, radius, iterations, scratch)
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+        bitmap.setPixels(output, 0, width, 0, 0, width, height)
+    }
+}
+
+/**
+ * Fuses the old "create bitmap -> read bitmap -> tone pixels -> write bitmap" sequence into one
+ * pixel pipeline. The blur arithmetic and tone formula are unchanged; only two full bitmap memory
+ * transfers per level are removed.
+ */
+internal fun boxBlurAndTune(
+    input: Bitmap,
+    radius: Int,
+    iterations: Int,
+    scratch: BackdropPixelScratch,
+    brightness: Float,
+    contrast: Float,
+    saturation: Float
+): Bitmap {
+    if (radius <= 0 || iterations <= 0) {
+        return input.copy(Bitmap.Config.ARGB_8888, true).also { copy ->
+            tuneBitmapToneInPlace(copy, brightness, contrast, saturation, scratch.source)
+        }
+    }
+    val width = input.width
+    val height = input.height
+    val output = runBoxBlur(input, radius, iterations, scratch)
+    tunePixelsInPlace(
+        pixels = output,
+        pixelCount = width * height,
+        brightness = brightness,
+        contrast = contrast,
+        saturation = saturation
+    )
+    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+        bitmap.setPixels(output, 0, width, 0, 0, width, height)
+    }
+}
+
+private fun runBoxBlur(
+    input: Bitmap,
+    radius: Int,
+    iterations: Int,
+    scratch: BackdropPixelScratch
+): IntArray {
+    val width = input.width
+    val height = input.height
     var source = scratch.source
     val temp = scratch.temp
     var output = scratch.output
@@ -28,9 +76,7 @@ internal fun boxBlur(
             output = reusable
         }
     }
-    return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
-        bitmap.setPixels(output, 0, width, 0, 0, width, height)
-    }
+    return output
 }
 
 private fun boxBlurHorizontal(
@@ -118,7 +164,18 @@ internal fun tuneBitmapToneInPlace(
     val width = input.width
     val height = input.height
     input.getPixels(pixels, 0, width, 0, 0, width, height)
-    for (index in 0 until width * height) {
+    tunePixelsInPlace(pixels, width * height, brightness, contrast, saturation)
+    input.setPixels(pixels, 0, width, 0, 0, width, height)
+}
+
+private fun tunePixelsInPlace(
+    pixels: IntArray,
+    pixelCount: Int,
+    brightness: Float,
+    contrast: Float,
+    saturation: Float
+) {
+    for (index in 0 until pixelCount) {
         val color = pixels[index]
         val a = color ushr 24
         val r0 = ((color shr 16) and 0xFF).toFloat()
@@ -139,5 +196,4 @@ internal fun tuneBitmapToneInPlace(
             .coerceIn(0, 255)
         pixels[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
-    input.setPixels(pixels, 0, width, 0, 0, width, height)
 }
