@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -16,10 +15,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.max
@@ -28,17 +27,17 @@ import kotlin.math.min
 /**
  * 普通 GlassPanel / PressableGlass 的页面级父绘制系统。
  *
- * Shadow 只完成注册、坐标换算、可见性裁剪和状态读取，不输出像素；
- * ParentDraw 才允许父级 Underlay / Overlay 接管实际材质绘制。
+ * ParentDraw 只保留一个 Host 绘制节点：
+ * 1. 一次计算所有可见普通玻璃；
+ * 2. 绘制阴影、背景采样、静态底材和按压底场；
+ * 3. 绘制页面内容；
+ * 4. 复用同一批可见节点绘制静态外沿与按压前景。
+ *
+ * Shadow 不再建立 registry 或空绘制层，直接回退子级绘制。
  */
 enum class OrdinaryGlassRenderMode {
     Shadow,
     ParentDraw
-}
-
-enum class OrdinaryGlassParentPhase {
-    Underlay,
-    Overlay
 }
 
 @Stable
@@ -63,6 +62,8 @@ class OrdinaryGlassRenderNode(
     var pressable by mutableStateOf(false)
     var drawOrder by mutableLongStateOf(0L)
         internal set
+
+    internal val parentDrawCache = OrdinaryGlassParentDrawCache()
 
     fun updateStatic(
         sceneGroup: GlassSceneGroup,
@@ -100,6 +101,12 @@ class OrdinaryGlassRenderNode(
         this.sweepProgress = sweepProgress
         this.elasticity = elasticity
         this.pressCenter = pressCenter
+    }
+
+    internal fun hasActivePressOptics(): Boolean {
+        if (!pressable || role == GlassRole.Shell) return false
+        return pressProgress > 0.001f || pressProgress < -0.001f ||
+            lensProgress > 0.001f || sweepProgress > 0.001f
     }
 }
 
@@ -140,6 +147,11 @@ class OrdinaryGlassItemRegistry {
     }
 }
 
+private class VisibleOrdinaryGlassItem(
+    var node: OrdinaryGlassRenderNode,
+    var rect: Rect
+)
+
 @Stable
 class OrdinaryGlassSceneState(
     val rootGroup: GlassSceneGroup,
@@ -147,6 +159,33 @@ class OrdinaryGlassSceneState(
 ) {
     val coordinates = GlassCoordinateSource()
     val registry = OrdinaryGlassItemRegistry()
+
+    private val visiblePool = ArrayList<VisibleOrdinaryGlassItem>()
+    private var visibleCount = 0
+
+    internal fun beginVisiblePass() {
+        visibleCount = 0
+    }
+
+    internal fun appendVisible(node: OrdinaryGlassRenderNode, rect: Rect) {
+        if (visibleCount < visiblePool.size) {
+            val item = visiblePool[visibleCount]
+            item.node = node
+            item.rect = rect
+        } else {
+            visiblePool.add(VisibleOrdinaryGlassItem(node, rect))
+        }
+        visibleCount += 1
+    }
+
+    internal fun forEachVisible(block: (OrdinaryGlassRenderNode, Rect) -> Unit) {
+        var index = 0
+        while (index < visibleCount) {
+            val item = visiblePool[index]
+            block(item.node, item.rect)
+            index += 1
+        }
+    }
 }
 
 val LocalOrdinaryGlassSceneState = staticCompositionLocalOf<OrdinaryGlassSceneState?> { null }
@@ -169,7 +208,7 @@ internal fun BindOrdinaryGlassRenderNode(
 
 /**
  * GlassPanel / PressableGlass 的唯一普通玻璃上报入口。
- * Shell 在这里被硬排除，不会进入普通 Compose registry。
+ * Shell、Fallback 与 Shadow 都在这里硬排除。
  */
 @Composable
 internal fun ReportOrdinaryGlassNode(
@@ -196,7 +235,7 @@ internal fun ReportOrdinaryGlassNode(
     }
     val enabled = role != GlassRole.Shell &&
         sceneGroup != GlassSceneGroup.Unassigned &&
-        sceneState != null
+        sceneState?.renderMode == OrdinaryGlassRenderMode.ParentDraw
 
     SideEffect {
         if (enabled) {
@@ -233,141 +272,108 @@ fun OrdinaryGlassSceneHost(
     content: @Composable () -> Unit
 ) {
     val parentContext = LocalGlassSceneContext.current
-    val sceneState = remember(group, renderMode) {
-        OrdinaryGlassSceneState(rootGroup = group, renderMode = renderMode)
+    val context = GlassSceneContext(
+        group = group,
+        parentGroup = parentContext.group.takeUnless { it == GlassSceneGroup.Unassigned }
+    )
+
+    if (renderMode != OrdinaryGlassRenderMode.ParentDraw) {
+        CompositionLocalProvider(
+            LocalGlassSceneContext provides context,
+            LocalOrdinaryGlassSceneState provides null,
+            LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.Shadow
+        ) {
+            Box(modifier = modifier) { content() }
+        }
+        return
     }
+
+    val sceneState = remember(group) {
+        OrdinaryGlassSceneState(rootGroup = group, renderMode = OrdinaryGlassRenderMode.ParentDraw)
+    }
+    val backdrop = LocalBlurredBackdrop.current
+    val backdropOrigin = LocalBackdropOrigin.current
+    val backdropTicker = LocalBackdropFrameTicker.current
+    val backdropSpec = LocalGlassBackdrop.current
 
     DisposableEffect(sceneState) {
         onDispose { sceneState.registry.clear() }
     }
 
     CompositionLocalProvider(
-        LocalGlassSceneContext provides GlassSceneContext(
-            group = group,
-            parentGroup = parentContext.group.takeUnless { it == GlassSceneGroup.Unassigned }
-        ),
+        LocalGlassSceneContext provides context,
         LocalOrdinaryGlassSceneState provides sceneState,
-        LocalOrdinaryGlassRenderMode provides renderMode
+        LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.ParentDraw
     ) {
-        Box(modifier = modifier.onPlaced { sceneState.coordinates.coordinates = it }) {
-            OrdinaryGlassParentLayer(
-                sceneState = sceneState,
-                phase = OrdinaryGlassParentPhase.Underlay,
-                modifier = Modifier.matchParentSize()
-            )
+        Box(
+            modifier = modifier
+                .onPlaced { sceneState.coordinates.coordinates = it }
+                .drawWithContent {
+                    // 单一 Host 订阅背景刷新；不再存在第二个空转 Overlay Canvas。
+                    backdropTicker?.frameNanos
+                    collectVisibleOrdinaryGlassItems(sceneState = sceneState, viewportSize = size)
+
+                    sceneState.forEachVisible { node, rect ->
+                        drawOrdinaryParentShadow(node = node, rect = rect)
+                        drawOrdinaryParentBackdrop(
+                            node = node,
+                            rect = rect,
+                            backdrop = backdrop,
+                            sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin),
+                            spec = backdropSpec
+                        )
+                        drawOrdinaryParentBaseMaterial(node = node, rect = rect)
+                        if (node.hasActivePressOptics()) {
+                            drawOrdinaryParentPressUnderlay(node = node, rect = rect)
+                        }
+                    }
+
+                    drawContent()
+
+                    sceneState.forEachVisible { node, rect ->
+                        drawOrdinaryParentStaticOverlay(node = node, rect = rect)
+                        if (node.hasActivePressOptics()) {
+                            drawOrdinaryParentPressOverlay(node = node, rect = rect)
+                        }
+                    }
+                }
+        ) {
             content()
-            OrdinaryGlassParentLayer(
-                sceneState = sceneState,
-                phase = OrdinaryGlassParentPhase.Overlay,
-                modifier = Modifier.matchParentSize()
-            )
         }
     }
 }
 
-@Composable
-private fun OrdinaryGlassParentLayer(
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.collectVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
-    phase: OrdinaryGlassParentPhase,
-    modifier: Modifier
-) {
-    val backdrop = LocalBlurredBackdrop.current
-    val backdropOrigin = LocalBackdropOrigin.current
-    val backdropTicker = LocalBackdropFrameTicker.current
-    val backdropSpec = LocalGlassBackdrop.current
-
-    Canvas(modifier = modifier) {
-        if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
-            backdropTicker?.frameNanos
-        }
-        observeVisibleOrdinaryGlassItems(
-            sceneState = sceneState,
-            phase = phase,
-            viewportSize = size,
-            backdrop = backdrop,
-            backdropOrigin = backdropOrigin,
-            backdropSpec = backdropSpec
-        )
-    }
-}
-
-/**
- * Shadow 阶段只遍历，不构造每帧临时列表；ParentDraw 才调用父级材质函数。
- */
-private fun DrawScope.observeVisibleOrdinaryGlassItems(
-    sceneState: OrdinaryGlassSceneState,
-    phase: OrdinaryGlassParentPhase,
-    viewportSize: Size,
-    backdrop: BlurredBackdropBitmap?,
-    backdropOrigin: BackdropCoordinateSource?,
-    backdropSpec: GlassBackdropSpec?
+    viewportSize: Size
 ) {
     sceneState.registry.version
     sceneState.coordinates.placementVersion
+    sceneState.beginVisiblePass()
 
     if (viewportSize.width <= 1f || viewportSize.height <= 1f) return
     if (!sceneState.coordinates.isAttached()) return
 
     val hostRoot = sceneState.coordinates.rootOffset()
     val viewport = Rect(0f, 0f, viewportSize.width, viewportSize.height)
+    val nodes = sceneState.registry.snapshot()
+    var index = 0
 
-    sceneState.registry.snapshot().forEach { node ->
-        if (node.role == GlassRole.Shell) return@forEach
-        if (!node.coordinates.isAttached()) return@forEach
+    while (index < nodes.size) {
+        val node = nodes[index]
+        index += 1
+        if (node.role == GlassRole.Shell || !node.coordinates.isAttached()) continue
 
         val itemSize = node.coordinates.itemSize()
-        if (itemSize.width <= 0 || itemSize.height <= 0) return@forEach
+        if (itemSize.width <= 0 || itemSize.height <= 0) continue
 
         val localTopLeft = node.coordinates.rootOffset() - hostRoot
         val rect = Rect(
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        ordinaryGlassTransformedBounds(node = node, rect = rect)
-            .intersectionOrNull(viewport)
-            ?: return@forEach
-
-        if (sceneState.renderMode == OrdinaryGlassRenderMode.ParentDraw) {
-            when (phase) {
-                OrdinaryGlassParentPhase.Underlay -> {
-                    drawOrdinaryComposeGlassShadow(node = node, rect = rect)
-                    drawOrdinaryComposeGlassBackdrop(
-                        node = node,
-                        rect = rect,
-                        backdrop = backdrop,
-                        sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin),
-                        spec = backdropSpec
-                    )
-                    drawOrdinaryComposeGlassMaterial(node = node, rect = rect)
-                }
-                OrdinaryGlassParentPhase.Overlay -> {
-                    drawOrdinaryComposeGlassPressOptics(node = node, rect = rect)
-                }
-            }
-        } else {
-            when (phase) {
-                OrdinaryGlassParentPhase.Underlay -> {
-                    node.quality
-                    node.radius
-                    node.glassIntensity
-                    node.backdropAlpha
-                    node.edgeStrength
-                    backdrop
-                    backdropOrigin
-                    backdropSpec
-                }
-                OrdinaryGlassParentPhase.Overlay -> {
-                    node.shimmer
-                    node.breathe
-                    node.pressProgress
-                    node.lensProgress
-                    node.sweepProgress
-                    node.elasticity
-                    node.pressCenter
-                    node.pressable
-                }
-            }
-        }
+        if (ordinaryGlassTransformedBounds(node = node, rect = rect).intersectionOrNull(viewport) == null) continue
+        sceneState.appendVisible(node = node, rect = rect)
     }
 }
 
