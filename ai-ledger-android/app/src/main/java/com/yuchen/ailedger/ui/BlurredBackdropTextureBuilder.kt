@@ -21,6 +21,8 @@ import kotlin.math.roundToInt
 private const val DEFAULT_BLUR_SOURCE_SCALE = 0.36f
 private const val MIN_BLUR_SOURCE_SCALE = 0.28f
 private const val MAX_BLUR_SOURCE_SCALE = 0.72f
+private const val MEDIUM_BLUR_LEVEL_COUNT = 2
+private const val HIGH_BLUR_LEVEL_COUNT = 3
 
 internal fun buildBackdropTextureSet(
     fullWidth: Int,
@@ -28,7 +30,8 @@ internal fun buildBackdropTextureSet(
     theme: BackgroundTheme,
     params: BackdropDebugParams,
     customBackgroundPath: String?,
-    presetBitmap: Bitmap?
+    presetBitmap: Bitmap?,
+    blurLevelCount: Int = HIGH_BLUR_LEVEL_COUNT
 ): BackdropTextureSet {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
@@ -60,6 +63,7 @@ internal fun buildBackdropTextureSet(
 
     val iterations = params.iterations.roundToInt().coerceIn(1, 12)
     val scratch = BackdropPixelScratch(blurWidth * blurHeight)
+    val resolvedLevelCount = blurLevelCount.coerceIn(MEDIUM_BLUR_LEVEL_COUNT, HIGH_BLUR_LEVEL_COUNT)
     val low = buildTunedBlurLevel(
         blurSource,
         radius = 1,
@@ -67,6 +71,7 @@ internal fun buildBackdropTextureSet(
         params = params,
         scratch = scratch
     )
+    Thread.yield()
     val medium = buildTunedBlurLevel(
         blurSource,
         radius = 2,
@@ -74,13 +79,19 @@ internal fun buildBackdropTextureSet(
         params = params,
         scratch = scratch
     )
-    val high = buildTunedBlurLevel(
-        blurSource,
-        radius = 4,
-        iterations = iterations,
-        params = params,
-        scratch = scratch
-    )
+    val high = if (resolvedLevelCount >= HIGH_BLUR_LEVEL_COUNT) {
+        Thread.yield()
+        buildTunedBlurLevel(
+            blurSource,
+            radius = 4,
+            iterations = iterations,
+            params = params,
+            scratch = scratch
+        )
+    } else {
+        // uBlurAmount < 2 never samples the high pyramid. Reuse medium without changing a pixel.
+        medium
+    }
 
     if (!blurSource.isRecycled) blurSource.recycle()
 
@@ -101,17 +112,15 @@ private fun buildTunedBlurLevel(
     iterations: Int,
     params: BackdropDebugParams,
     scratch: BackdropPixelScratch
-): Bitmap {
-    val blurred = boxBlur(source, radius, iterations, scratch)
-    tuneBitmapToneInPlace(
-        input = blurred,
-        brightness = params.brightness.coerceIn(0.40f, 2.20f),
-        contrast = params.contrast.coerceIn(0.50f, 1.80f),
-        saturation = params.saturation.coerceIn(0.30f, 1.80f),
-        pixels = scratch.source
-    )
-    return blurred
-}
+): Bitmap = boxBlurAndTune(
+    input = source,
+    radius = radius,
+    iterations = iterations,
+    scratch = scratch,
+    brightness = params.brightness.coerceIn(0.40f, 2.20f),
+    contrast = params.contrast.coerceIn(0.50f, 1.80f),
+    saturation = params.saturation.coerceIn(0.30f, 1.80f)
+)
 
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
     val file = path?.let(::File) ?: return false
