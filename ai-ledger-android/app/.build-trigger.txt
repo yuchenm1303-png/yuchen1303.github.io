@@ -1,2 +1,2 @@
 trigger: shader-expression-optimization-final-2026-06-15
-source-commit: fd82a10ec01cb96abf4858a1ceb4c7a3017ec671
+source-commit: 5549d8290caa89f45eb6a1e520b051b2706b041d
