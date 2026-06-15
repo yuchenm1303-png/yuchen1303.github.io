@@ -1,2 +1,2 @@
 trigger: opengl-deep-optimization-2026-06-15
-source-commit: 3688ba9fdcb210e3b040e29ba225edb2be8261a9
+source-commit: c43ae353f022264ec024b679daf0fcbe9fe197d1
