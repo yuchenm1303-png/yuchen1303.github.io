@@ -8,7 +8,8 @@ internal object WebOpenGLGlassMainShader {
             vec2 p=coord-uRect.xy;
             float r=min(uRadius,min(z.x,z.y)*0.5);
             float sd=roundedBoxSdf(p,z,r);
-            float mask=1.0-smoothstep(0.0,1.35,sd);
+            // 以几何边界为中心做对称像素覆盖，避免圆弧转直边处出现外扩台阶。
+            float mask=1.0-smoothstep(-0.75,0.75,sd);
             if(mask<=0.001)discard;
 
             float press=sat(uPress.x);
@@ -171,10 +172,10 @@ internal object WebOpenGLGlassMainShader {
             float bodyAlpha=uMaterial.y
                 *sat(uMaterial.x/20.0)
                 *uIntensity;
-            gl_FragColor=vec4(
-                clamp(color,0.0,1.0),
-                mask*bodyAlpha
-            );
+            float finalAlpha=sat(mask*bodyAlpha);
+            vec3 finalColor=clamp(color,0.0,1.0);
+            // TextureView 透明 Surface 采用预乘 alpha；边缘 RGB 必须同步衰减。
+            gl_FragColor=vec4(finalColor*finalAlpha,finalAlpha);
         }
     """
 }
