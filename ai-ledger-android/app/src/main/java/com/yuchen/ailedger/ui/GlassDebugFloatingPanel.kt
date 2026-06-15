@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -49,29 +50,74 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
+    val parentDrawEnabled = OrdinaryGlassParentDrawController.settingsDebugEnabled
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
-            OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
-        }
-        GlassLabFoldout("新版 OpenGL", "V29.8 整圈统一映射 + 精确切向校正圆肩", false, state) {
-            LatestOpenGLGlassLab(state, params, border, onBackdropChange, onBorderChange)
-        }
-        GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
-            LabSlider("背景云雾", "背景云雾透明度", params.cloudAlpha, 0f..2f) { onBackdropChange(params.copy(cloudAlpha = it)) }
-            LabSlider("云雾柔化", "云层边缘柔和程度", params.cloudSoftness, 0f..3f) { onBackdropChange(params.copy(cloudSoftness = it)) }
-            LabSlider("背景亮度", "背景整体明暗", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
-            LabSlider("背景对比", "背景明暗反差", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
-            LabSlider("边缘宽度", "玻璃外缘可见宽度", border.ringWidthDp, 0f..24f) { onBorderChange(border.copy(ringWidthDp = it)) }
-            LabSlider("外描边", "外侧细边透明度", border.outerStrokeAlpha, 0f..1.5f) { onBorderChange(border.copy(outerStrokeAlpha = it)) }
-            LabSlider("顶部高光", "上沿高光强度", border.topHighlightAlpha, 0f..2f) { onBorderChange(border.copy(topHighlightAlpha = it)) }
-            LabSlider("底部阴影", "下沿暗部压边", border.bottomShadowAlpha, 0f..1.2f) { onBorderChange(border.copy(bottomShadowAlpha = it)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                LabActionButton("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
-                LabActionButton("背景图片", "上传", state, Modifier.weight(1f), onUploadBackgroundClick)
+    GlassSceneScope(
+        group = GlassSceneGroup.SettingsDebugInnerScroll,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            OrdinaryParentDrawValidationToggle(
+                enabled = parentDrawEnabled,
+                onEnabledChange = { OrdinaryGlassParentDrawController.settingsDebugEnabled = it }
+            )
+            GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
+                OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
             }
+            GlassLabFoldout("新版 OpenGL", "V29.8 整圈统一映射 + 精确切向校正圆肩", false, state) {
+                LatestOpenGLGlassLab(state, params, border, onBackdropChange, onBorderChange)
+            }
+            GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
+                LabSlider("背景云雾", "背景云雾透明度", params.cloudAlpha, 0f..2f) { onBackdropChange(params.copy(cloudAlpha = it)) }
+                LabSlider("云雾柔化", "云层边缘柔和程度", params.cloudSoftness, 0f..3f) { onBackdropChange(params.copy(cloudSoftness = it)) }
+                LabSlider("背景亮度", "背景整体明暗", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
+                LabSlider("背景对比", "背景明暗反差", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
+                LabSlider("边缘宽度", "玻璃外缘可见宽度", border.ringWidthDp, 0f..24f) { onBorderChange(border.copy(ringWidthDp = it)) }
+                LabSlider("外描边", "外侧细边透明度", border.outerStrokeAlpha, 0f..1.5f) { onBorderChange(border.copy(outerStrokeAlpha = it)) }
+                LabSlider("顶部高光", "上沿高光强度", border.topHighlightAlpha, 0f..2f) { onBorderChange(border.copy(topHighlightAlpha = it)) }
+                LabSlider("底部阴影", "下沿暗部压边", border.bottomShadowAlpha, 0f..1.2f) { onBorderChange(border.copy(bottomShadowAlpha = it)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                    LabActionButton("清除背景", "恢复主题", state, Modifier.weight(1f), onClearCustomBackgroundClick)
+                    LabActionButton("背景图片", "上传", state, Modifier.weight(1f), onUploadBackgroundClick)
+                }
+            }
+            RestoredGlassLabSections(state)
         }
-        RestoredGlassLabSections(state)
+    }
+}
+
+@Composable
+private fun OrdinaryParentDrawValidationToggle(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = if (enabled) 0.085f else 0.045f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "普通 Compose 父级绘制验证",
+                color = Color.White.copy(alpha = 0.90f),
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                if (enabled) "当前仅接管本调试面板；关闭即可立即回到子级绘制。"
+                else "默认关闭；只验证 Card / Chip / Floating / Nav / Flex。",
+                color = Color.White.copy(alpha = 0.46f),
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Switch(checked = enabled, onCheckedChange = onEnabledChange)
     }
 }
 
@@ -260,7 +306,4 @@ private fun Metric(label: String, value: Float, modifier: Modifier = Modifier) {
     }
 }
 
-private fun Float.formatLabValue(): String {
-    val scaled = (this * 100f).roundToInt() / 100f
-    return if (scaled % 1f == 0f) scaled.roundToInt().toString() else scaled.toString()
-}
+private fun Float.formatLabValue(): String = ((this * 100f).roundToInt() / 100f).toString()
