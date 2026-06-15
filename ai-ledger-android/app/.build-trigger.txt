@@ -1,2 +1,2 @@
-trigger: opengl-final-verified-cleanup-2026-06-15
-source-commit: b339c2b7487a7e12dea633f6510622ddf2d190af
+trigger: opengl-corner-edge-fix-2026-06-15
+source-commit: d27297497cfe3cf25ed61afacf16ea93df29524f
