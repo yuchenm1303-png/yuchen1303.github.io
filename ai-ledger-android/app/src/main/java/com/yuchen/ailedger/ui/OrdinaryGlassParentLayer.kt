@@ -167,9 +167,11 @@ class OrdinaryGlassSceneState(
 
     private val visiblePool = ArrayList<VisibleOrdinaryGlassItem>()
     private var visibleCount = 0
+    private var activePressCount = 0
 
     internal fun beginVisiblePass() {
         visibleCount = 0
+        activePressCount = 0
     }
 
     internal fun appendVisible(
@@ -186,6 +188,7 @@ class OrdinaryGlassSceneState(
             visiblePool.add(VisibleOrdinaryGlassItem(node, rect, transformedBounds))
         }
         visibleCount += 1
+        if (node.hasActivePressOptics()) activePressCount += 1
     }
 
     internal fun forEachVisible(block: (OrdinaryGlassRenderNode, Rect) -> Unit) {
@@ -207,6 +210,8 @@ class OrdinaryGlassSceneState(
             index += 1
         }
     }
+
+    internal fun hasVisibleActivePress(): Boolean = activePressCount > 0
 
     internal fun visibleItemCount(): Int = visibleCount
 
@@ -359,14 +364,16 @@ fun OrdinaryGlassSceneHost(
 
                     drawContent()
 
-                    sceneState.forEachVisibleIndexed { index, node, rect, bounds ->
-                        if (node.hasActivePressOptics()) {
-                            withLaterVisibleBoundsExcluded(
-                                sceneState = sceneState,
-                                itemIndex = index,
-                                itemBounds = bounds
-                            ) {
-                                drawOrdinaryParentPressOptics(node = node, rect = rect)
+                    if (sceneState.hasVisibleActivePress()) {
+                        sceneState.forEachVisibleIndexed { index, node, rect, bounds ->
+                            if (node.hasActivePressOptics()) {
+                                withLaterVisibleBoundsExcluded(
+                                    sceneState = sceneState,
+                                    itemIndex = index,
+                                    itemBounds = bounds
+                                ) {
+                                    drawOrdinaryParentPressOptics(node = node, rect = rect)
+                                }
                             }
                         }
                     }
