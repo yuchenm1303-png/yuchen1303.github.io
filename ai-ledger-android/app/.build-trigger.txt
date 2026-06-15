@@ -1,2 +1,2 @@
-trigger: opengl-deep-optimization-2026-06-15
-source-commit: b881a8a11537965e591035f2a519fc7be9ff927a
+trigger: opengl-final-cleanup-2026-06-15
+source-commit: 8a0c1e75e872171e40a7eb8c03f1a39588d976ea
