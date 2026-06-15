@@ -50,7 +50,7 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
-    val parentDrawEnabled = OrdinaryGlassParentDrawController.settingsDebugEnabled
+    val parentDrawEnabled = OrdinaryGlassParentDrawController.globalEnabled
 
     GlassSceneScope(
         group = GlassSceneGroup.SettingsDebugInnerScroll,
@@ -59,7 +59,7 @@ fun GlassDebugFloatingPanel(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             OrdinaryParentDrawValidationToggle(
                 enabled = parentDrawEnabled,
-                onEnabledChange = { OrdinaryGlassParentDrawController.settingsDebugEnabled = it }
+                onEnabledChange = { OrdinaryGlassParentDrawController.globalEnabled = it }
             )
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
                 OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
@@ -102,14 +102,14 @@ private fun OrdinaryParentDrawValidationToggle(
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                "普通 Compose 父级绘制验证",
+                "全 App 普通 Compose 父级绘制",
                 color = Color.White.copy(alpha = 0.90f),
                 fontSize = 13.5.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
-                if (enabled) "当前仅接管本调试面板；关闭即可立即回到子级绘制。"
-                else "默认关闭；只验证 Card / Chip / Floating / Nav / Flex。",
+                if (enabled) "已接管页面、滚动子场景和持久底栏；关闭立即恢复子级绘制。"
+                else "默认关闭；Shell、OpenGL、聊天气泡、Frost、Inset 始终排除。",
                 color = Color.White.copy(alpha = 0.46f),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
